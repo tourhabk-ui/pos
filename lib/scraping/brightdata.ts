@@ -28,8 +28,8 @@ export async function fetchViaBrightData(
   if (!token) return null;
 
   const {
-    zone = 'web_unlocker1',
-    country = 'ru',
+    zone = 'unlocker',
+    country,
     timeoutMs = 30_000,
   } = options;
 
@@ -40,7 +40,7 @@ export async function fetchViaBrightData(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ zone, url, country, format: 'raw' }),
+      body: JSON.stringify(country ? { zone, url, country, format: 'raw' } : { zone, url, format: 'raw' }),
       signal: AbortSignal.timeout(timeoutMs),
     });
 
