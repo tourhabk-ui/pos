@@ -4,8 +4,9 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v7'; // bumped: /safety/offline precached
-const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
+const CACHE_NAME = 'kamchatour-v8'; // bumped: trip pages + safety block cached
+const MAX_PLACE_PAGES = 30; // последние 30 карточек мест
+const MAX_TRIP_PAGES  = 20; // последние 20 страниц офлайн-рюкзака
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
@@ -105,6 +106,11 @@ function isPlacePage(url) {
   return /^\/places\/[a-f0-9-]+$/i.test(new URL(url).pathname);
 }
 
+// /trips/[uuid] — офлайн-рюкзак туриста, критично для безопасности
+function isTripPage(url) {
+  return /^\/trips\/[a-f0-9-]+$/i.test(new URL(url).pathname);
+}
+
 function isPlaceApiRequest(url) {
   return /^\/api\/places\/[a-f0-9-]+$/i.test(new URL(url).pathname);
 }
@@ -136,6 +142,16 @@ async function evictOldTourPages(cache) {
   const tourKeys = keys.filter((req) => isTourPage(req.url));
   if (tourKeys.length > MAX_TOUR_PAGES) {
     const toDelete = tourKeys.slice(0, tourKeys.length - MAX_TOUR_PAGES);
+    await Promise.all(toDelete.map((key) => cache.delete(key)));
+  }
+}
+
+// LRU-эвикция: удаляем старые офлайн-рюкзаки, оставляем MAX_TRIP_PAGES
+async function evictOldTripPages(cache) {
+  const keys = await cache.keys();
+  const tripKeys = keys.filter((req) => isTripPage(req.url));
+  if (tripKeys.length > MAX_TRIP_PAGES) {
+    const toDelete = tripKeys.slice(0, tripKeys.length - MAX_TRIP_PAGES);
     await Promise.all(toDelete.map((key) => cache.delete(key)));
   }
 }
@@ -374,6 +390,29 @@ self.addEventListener('fetch', (event) => {
 
         return cached || fetchPromise;
       })
+    );
+    return;
+  }
+
+  // Офлайн-рюкзак /trips/[uuid]: network-first + кэш
+  // Критично для безопасности: GPS-координаты, SOS-контакты, маршрут работают без связи
+  if (isTripPage(request.url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(async (cache) => {
+              await cache.put(request, clone);
+              await evictOldTripPages(cache);
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          return cached || caches.match('/offline');
+        })
     );
     return;
   }

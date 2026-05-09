@@ -15,6 +15,7 @@ import { pool } from '@/lib/db-pool';
 import { detectTourIntent, findRelevantTours } from './booking-intent';
 import { semanticSearch } from './embeddings';
 import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
+import { searchIdeaBlocks, formatBlocksForPrompt } from '@/lib/services/blockify';
 
 // ── In-memory TTL cache (5 min, max 200 entries) ────────────────
 const RAG_CACHE = new Map<string, { data: string; ts: number }>();
@@ -233,8 +234,9 @@ export async function buildRAGContext(
 
   const intent = detectTourIntent(message);
 
-  // Hybrid retrieval: fulltext + semantic + RRF fusion
-  const [fulltextRoutes, semanticResults, tours] = await Promise.all([
+  // Hybrid retrieval: IdeaBlocks + fulltext + semantic + RRF fusion
+  const [ideaBlockResults, fulltextRoutes, semanticResults, tours] = await Promise.all([
+    searchIdeaBlocks(message, { limit: 4 }).catch(() => []),
     findRoutesByText(message, 8),
     semanticSearch(message, 8).catch(() => []),
     intent.detected
@@ -255,6 +257,12 @@ export async function buildRAGContext(
   if (routes.length === 0 && tours.length === 0) return '';
 
   let ctx = '\n\n--- КОНТЕКСТ ПЛАТФОРМЫ (используй в ответе) ---';
+
+  // IdeaBlocks — точные ответы из базы знаний Blockify
+  if (ideaBlockResults.length > 0) {
+    ctx += '\n\nБАЗА ЗНАНИЙ (точные факты):\n';
+    ctx += formatBlocksForPrompt(ideaBlockResults);
+  }
 
   if (routes.length > 0) {
     ctx += '\n\nМАРШРУТЫ И МЕСТА НА TOURHAB:';

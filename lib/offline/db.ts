@@ -6,6 +6,63 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { RegionId } from '@/lib/geo/regions';
 
+// ─── Trip Plan types ──────────────────────────────────────────────────────────
+
+export interface OfflineTripWaypoint {
+  position: number;
+  notes: string | null;
+  placeId: string;
+  name: string;
+  description: string | null;
+  locationType: string | null;
+  lat: number | null;
+  lng: number | null;
+  altitudeM: number | null;
+  hazardTypes: string[];
+  nearestMedicalKm: number | null;
+  satRequired: boolean | null;
+  isOpen: boolean | null;
+  currentCrowds: string | null;
+  alertMessage: string | null;
+  photos: { url: string; alt: string | null }[];
+}
+
+export interface OfflineTripRoute {
+  id: string;
+  title: string;
+  description: string | null;
+  zone: string | null;
+  difficulty: string | null;
+  distanceKm: number | null;
+  elevationGainM: number | null;
+  durationHours: number | null;
+  season: string | null;
+  routeType: string | null;
+  hazards: string[];
+  equipment: string[];
+  mchsRequired: boolean;
+  mchsPhone: string | null;
+  parkName: string | null;
+  parkApprovalUrl: string | null;
+  geometry: unknown;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface OfflineTripPlan {
+  id: string;
+  title: string;
+  startDate: string | null;
+  days: number;
+  experience: string;
+  itinerary: unknown;
+  createdAt: string;
+  route: OfflineTripRoute;
+  waypoints: OfflineTripWaypoint[];
+  sosContacts: SosContact[];
+  cachedAt: number;
+}
+
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
 export interface RegionMeta {
@@ -60,12 +117,16 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: SosContact;
   };
+  tripPlans: {
+    key: string;
+    value: OfflineTripPlan;
+  };
 }
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kamchatour-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -73,16 +134,23 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
   if (_db) return _db;
 
   _db = await openDB<KamchatourDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains('regions')) {
-        db.createObjectStore('regions', { keyPath: 'id' });
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains('regions')) {
+          db.createObjectStore('regions', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('routes')) {
+          const store = db.createObjectStore('routes', { keyPath: 'id' });
+          store.createIndex('by-region', 'regionId');
+        }
+        if (!db.objectStoreNames.contains('sosContacts')) {
+          db.createObjectStore('sosContacts', { keyPath: 'id' });
+        }
       }
-      if (!db.objectStoreNames.contains('routes')) {
-        const store = db.createObjectStore('routes', { keyPath: 'id' });
-        store.createIndex('by-region', 'regionId');
-      }
-      if (!db.objectStoreNames.contains('sosContacts')) {
-        db.createObjectStore('sosContacts', { keyPath: 'id' });
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains('tripPlans')) {
+          db.createObjectStore('tripPlans', { keyPath: 'id' });
+        }
       }
     },
   });
@@ -224,3 +292,25 @@ export const GLOBAL_SOS_CONTACTS: SosContact[] = [
     type: 'rescue',
   },
 ];
+
+// ─── Trip Plans ───────────────────────────────────────────────────────────────
+
+export async function saveTripPlan(plan: OfflineTripPlan): Promise<void> {
+  const db = await getDB();
+  await db.put('tripPlans', plan);
+}
+
+export async function getTripPlan(id: string): Promise<OfflineTripPlan | undefined> {
+  const db = await getDB();
+  return db.get('tripPlans', id);
+}
+
+export async function listTripPlans(): Promise<OfflineTripPlan[]> {
+  const db = await getDB();
+  return db.getAll('tripPlans');
+}
+
+export async function deleteTripPlan(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('tripPlans', id);
+}
