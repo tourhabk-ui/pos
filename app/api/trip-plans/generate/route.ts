@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     ? waypoints.map(w =>
         `- Позиция ${w.position}: ${w.name} (${w.location_type ?? 'точка'})`
         + (w.altitude_m ? `, ${w.altitude_m}м` : '')
-        + (w.hazard_types?.length ? `, опасности: ${(w.hazard_types as string[]).join(', ')}` : '')
+        + ((w.hazard_types as string[] | null)?.length ? `, опасности: ${(w.hazard_types as string[]).join(', ')}` : '')
       ).join('\n')
     : 'Точки маршрута не указаны в базе данных.';
 
