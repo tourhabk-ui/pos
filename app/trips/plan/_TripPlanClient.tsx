@@ -3,8 +3,9 @@
 import { useState, useEffect, useId } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Route, Calendar, Dumbbell, ChevronDown, Loader, Sparkles,
-  Download, AlertTriangle, Search,
+  Route, Calendar, Dumbbell, Loader, Sparkles,
+  Download, AlertTriangle, Search, Flame, PawPrint,
+  Thermometer, Fish, Camera,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ interface RouteOption {
   distanceKm: number | null;
   durationHours: number | null;
   season: string | null;
+  activityType: string | null;
 }
 
 type Experience = 'beginner' | 'intermediate' | 'advanced';
@@ -27,6 +29,16 @@ const EXPERIENCE_LABELS: Record<Experience, string> = {
   intermediate: 'Опытный',
   advanced:     'Эксперт',
 };
+
+// ─── Niche presets ────────────────────────────────────────────────────────────
+
+const PRESETS = [
+  { label: 'Вулканы',    icon: Flame,       activity: 'volcano'    },
+  { label: 'Медведи',    icon: PawPrint,    activity: 'bears'      },
+  { label: 'Термальные', icon: Thermometer, activity: 'hot_spring' },
+  { label: 'Рыбалка',    icon: Fish,        activity: 'fishing'    },
+  { label: 'Фото-тур',   icon: Camera,      activity: 'photo'      },
+] as const;
 
 // ─── Session ID ───────────────────────────────────────────────────────────────
 
@@ -46,27 +58,33 @@ export default function TripPlanClient() {
   const router = useRouter();
   const uid = useId();
 
-  const [search, setSearch]         = useState('');
-  const [routes, setRoutes]         = useState<RouteOption[]>([]);
+  const [search, setSearch]             = useState('');
+  const [activeActivity, setActivity]   = useState('');
+  const [routes, setRoutes]             = useState<RouteOption[]>([]);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [selected, setSelected]     = useState<RouteOption | null>(null);
+  const [selected, setSelected]         = useState<RouteOption | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const [startDate, setStartDate]   = useState('');
   const [days, setDays]             = useState(1);
   const [experience, setExperience] = useState<Experience>('intermediate');
 
-  const [step, setStep]             = useState<Step>('form');
-  const [errorMsg, setErrorMsg]     = useState('');
-  const [planId, setPlanId]         = useState('');
+  const [step, setStep]     = useState<Step>('form');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [planId, setPlanId] = useState('');
 
   // ── Search routes ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (search.length < 2) { setRoutes([]); setShowDropdown(false); return; }
+    const hasQuery = search.length >= 2 || activeActivity;
+    if (!hasQuery) { setRoutes([]); setShowDropdown(false); return; }
+
     const timer = setTimeout(async () => {
       setRouteLoading(true);
       try {
-        const res = await fetch(`/api/routes?q=${encodeURIComponent(search)}&limit=10`);
+        const params = new URLSearchParams({ limit: '12' });
+        if (search.length >= 2) params.set('q', search);
+        if (activeActivity)     params.set('activity', activeActivity);
+        const res = await fetch(`/api/trip-plans/search-routes?${params}`);
         if (!res.ok) throw new Error();
         const json = await res.json() as { success: boolean; data: RouteOption[] };
         setRoutes(json.data ?? []);
@@ -76,9 +94,9 @@ export default function TripPlanClient() {
       } finally {
         setRouteLoading(false);
       }
-    }, 350);
+    }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, activeActivity]);
 
   function selectRoute(r: RouteOption) {
     setSelected(r);
@@ -187,6 +205,34 @@ export default function TripPlanClient() {
         )}
 
         <div className="ds-card p-6 space-y-6">
+
+            {/* Niche presets */}
+          <div>
+            <label className="ds-label mb-2 block">Тема похода</label>
+            <div className="flex flex-wrap gap-2">
+              {PRESETS.map(({ label, icon: Icon, activity }) => (
+                <button
+                  key={activity}
+                  type="button"
+                  onClick={() => {
+                    const next = activeActivity === activity ? '' : activity;
+                    setActivity(next);
+                    setSelected(null);
+                    setSearch('');
+                  }}
+                  className={[
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all',
+                    activeActivity === activity
+                      ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]',
+                  ].join(' ')}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Route search */}
           <div>

@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Download, Trash2, Route, AlertTriangle, ChevronDown, ChevronUp,
   Phone, MapPin, Shield, Clock, Mountain, Loader, CheckCircle,
-  CloudOff, Wifi,
+  CloudOff, Wifi, Share2, Copy, Check, MessageSquare, Send, X,
 } from 'lucide-react';
 import { useTripPack } from '@/lib/offline/useTripPack';
 import type { OfflineTripPlan } from '@/lib/offline/db';
 
-// ─── Itinerary types (from AI JSON) ──────────────────────────────────────────
+// ─── Itinerary types ──────────────────────────────────────────────────────────
 
 interface ItineraryDay {
   day: number;
@@ -61,13 +61,16 @@ function DayCard({ day }: { day: ItineraryDay }) {
           <div>
             <p className="font-medium text-[var(--text-primary)] text-sm">{day.title}</p>
             <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
-              {day.distanceKm && <span>{day.distanceKm} км</span>}
+              {day.distanceKm     && <span>{day.distanceKm} км</span>}
               {day.estimatedHours && <span><Clock className="inline w-3 h-3" /> {day.estimatedHours} ч</span>}
-              {day.elevationGain && <span><Mountain className="inline w-3 h-3" /> +{day.elevationGain} м</span>}
+              {day.elevationGain  && <span><Mountain className="inline w-3 h-3" /> +{day.elevationGain} м</span>}
             </div>
           </div>
         </div>
-        {open ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" />}
+        {open
+          ? <ChevronUp   className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+          : <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+        }
       </button>
 
       {open && (
@@ -111,12 +114,168 @@ function DayCard({ day }: { day: ItineraryDay }) {
   );
 }
 
+// ─── Chat refinement panel ────────────────────────────────────────────────────
+
+interface ChatMessage { role: 'user' | 'assistant'; text: string }
+
+function RefinementPanel({
+  planId, routeTitle, itinerary, onUpdated,
+}: {
+  planId: string;
+  routeTitle: string;
+  itinerary: Itinerary;
+  onUpdated: (newItinerary: Itinerary) => void;
+}) {
+  const [open, setOpen]       = useState(false);
+  const [input, setInput]     = useState('');
+  const [sending, setSending] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'assistant', text: 'Хочешь что-то поменять в плане? Напиши — например: «сделай легче День 2», «добавь термальные источники», «что если пойдёт дождь».' },
+  ]);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput('');
+    setMessages(m => [...m, { role: 'user', text }]);
+    setSending(true);
+
+    try {
+      const res = await fetch(`/api/trip-plans/${planId}/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, currentItinerary: itinerary, routeTitle }),
+      });
+      const json = await res.json() as { success: boolean; reply: string; itinerary?: Itinerary };
+      if (json.success) {
+        setMessages(m => [...m, { role: 'assistant', text: json.reply }]);
+        if (json.itinerary) onUpdated(json.itinerary);
+      } else {
+        setMessages(m => [...m, { role: 'assistant', text: 'Не удалось обработать запрос, попробуйте ещё раз.' }]);
+      }
+    } catch {
+      setMessages(m => [...m, { role: 'assistant', text: 'Ошибка сети. Проверьте подключение.' }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="ds-card p-4 w-full flex items-center gap-3 hover:bg-[var(--bg-hover)] transition-colors text-left"
+      >
+        <MessageSquare className="w-5 h-5 text-[var(--ocean)] shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-[var(--text-primary)]">Изменить план</p>
+          <p className="text-xs text-[var(--text-muted)]">«Сделай легче», «добавь термальные», «что при дожде»</p>
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <div className="ds-card overflow-hidden">
+      <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-[var(--ocean)]" />
+          <span className="text-sm font-medium text-[var(--text-primary)]">Изменить план</span>
+        </div>
+        <button type="button" onClick={() => setOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="h-56 overflow-y-auto p-4 space-y-3">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={[
+              'max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed',
+              m.role === 'user'
+                ? 'bg-[var(--accent)] text-white rounded-br-sm'
+                : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm',
+            ].join(' ')}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {sending && (
+          <div className="flex justify-start">
+            <div className="bg-[var(--bg-hover)] rounded-2xl rounded-bl-sm px-3 py-2">
+              <Loader className="w-4 h-4 animate-spin text-[var(--text-muted)]" />
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="p-3 border-t border-[var(--border)] flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+          placeholder="Сделай День 1 короче..."
+          className="ds-input flex-1 text-sm"
+          disabled={sending}
+        />
+        <button
+          type="button"
+          onClick={send}
+          disabled={!input.trim() || sending}
+          className="ds-btn ds-btn-primary px-3 disabled:opacity-50"
+        >
+          <Send className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Share button ─────────────────────────────────────────────────────────────
+
+function ShareButton({ planId }: { planId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleShare() {
+    const url = `${window.location.origin}/trips/${planId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Мой маршрут по Камчатке', url });
+        return;
+      } catch { /* fall through to clipboard */ }
+    }
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleShare}
+      className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-[var(--success)]" /> : <Share2 className="w-3.5 h-3.5" />}
+      {copied ? 'Скопировано' : 'Поделиться'}
+    </button>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function TripViewClient({ planId }: { planId: string }) {
   const { status, error, plan, checkCached, download, remove } = useTripPack(planId);
   const [onlineData, setOnlineData] = useState<OfflineTripPlan | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline]     = useState(true);
+  const [liveItinerary, setLiveItinerary] = useState<Itinerary | null>(null);
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
@@ -127,9 +286,7 @@ export default function TripViewClient({ planId }: { planId: string }) {
     return () => { window.removeEventListener('online', onOn); window.removeEventListener('offline', onOff); };
   }, []);
 
-  // Load from IndexedDB first (offline), then fetch online if needed
-  useEffect(() => {
-    checkCached();
+  const fetchOnline = useCallback(() => {
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       fetch(`/api/trip-plans/${planId}/pack`)
         .then(r => r.ok ? r.json() : null)
@@ -138,7 +295,12 @@ export default function TripViewClient({ planId }: { planId: string }) {
         })
         .catch(() => null);
     }
-  }, [planId, checkCached]);
+  }, [planId]);
+
+  useEffect(() => {
+    checkCached();
+    fetchOnline();
+  }, [planId, checkCached, fetchOnline]);
 
   const displayPlan = plan ?? onlineData;
 
@@ -162,8 +324,8 @@ export default function TripViewClient({ planId }: { planId: string }) {
     );
   }
 
-  const itin = parseItinerary(displayPlan!.itinerary);
-  const days: ItineraryDay[] = itin.days ?? [];
+  const itin  = liveItinerary ?? parseItinerary(displayPlan!.itinerary);
+  const ddays: ItineraryDay[] = itin.days ?? [];
 
   return (
     <div className="ds-page">
@@ -186,7 +348,10 @@ export default function TripViewClient({ planId }: { planId: string }) {
         <div>
           <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs mb-1">
             <Route className="w-3.5 h-3.5" />
-            <span>{displayPlan!.route.zone ?? 'Камчатка'} · {displayPlan!.days} {displayPlan!.days === 1 ? 'день' : displayPlan!.days < 5 ? 'дня' : 'дней'}</span>
+            <span>
+              {displayPlan!.route.zone ?? 'Камчатка'} · {displayPlan!.days}{' '}
+              {displayPlan!.days === 1 ? 'день' : displayPlan!.days < 5 ? 'дня' : 'дней'}
+            </span>
           </div>
           <h1 className="ds-h1 text-2xl">{displayPlan!.title}</h1>
           {itin.summary && (
@@ -194,15 +359,16 @@ export default function TripViewClient({ planId }: { planId: string }) {
           )}
         </div>
 
-        {/* Download / Remove bar */}
-        <div className="ds-card p-4 flex items-center justify-between gap-4">
+        {/* Action bar: Download + Share */}
+        <div className="ds-card p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm">
             {status === 'cached'
               ? <span className="flex items-center gap-1.5 text-[var(--success)]"><CheckCircle className="w-4 h-4" /> Сохранён офлайн</span>
               : <span className="text-[var(--text-secondary)]">Не сохранён офлайн</span>
             }
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <ShareButton planId={planId} />
             {status !== 'cached' && (
               <button
                 onClick={download}
@@ -217,10 +383,7 @@ export default function TripViewClient({ planId }: { planId: string }) {
               </button>
             )}
             {status === 'cached' && (
-              <button
-                onClick={remove}
-                className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5"
-              >
+              <button onClick={remove} className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5">
                 <Trash2 className="w-3.5 h-3.5" />
                 Удалить
               </button>
@@ -231,9 +394,9 @@ export default function TripViewClient({ planId }: { planId: string }) {
         {/* Route stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Расстояние',  value: displayPlan!.route.distanceKm ? `${displayPlan!.route.distanceKm} км` : '—' },
+            { label: 'Расстояние',   value: displayPlan!.route.distanceKm    ? `${displayPlan!.route.distanceKm} км`    : '—' },
             { label: 'Набор высоты', value: displayPlan!.route.elevationGainM ? `${displayPlan!.route.elevationGainM} м` : '—' },
-            { label: 'Сложность',   value: displayPlan!.route.difficulty ?? '—' },
+            { label: 'Сложность',    value: displayPlan!.route.difficulty     ?? '—' },
           ].map(s => (
             <div key={s.label} className="ds-card p-3 text-center">
               <p className="text-[var(--text-primary)] font-medium text-sm">{s.value}</p>
@@ -242,7 +405,7 @@ export default function TripViewClient({ planId }: { planId: string }) {
           ))}
         </div>
 
-        {/* Warnings */}
+        {/* MChS + warnings */}
         {(itin.warnings?.length || displayPlan!.route.mchsRequired) && (
           <div className="space-y-2">
             {displayPlan!.route.mchsRequired && (
@@ -266,13 +429,23 @@ export default function TripViewClient({ planId }: { planId: string }) {
         )}
 
         {/* Days */}
-        {days.length > 0 && (
+        {ddays.length > 0 && (
           <div>
             <h2 className="ds-h2 text-lg mb-3">По дням</h2>
             <div className="space-y-3">
-              {days.map(d => <DayCard key={d.day} day={d} />)}
+              {ddays.map(d => <DayCard key={d.day} day={d} />)}
             </div>
           </div>
+        )}
+
+        {/* Chat refinement — only online */}
+        {isOnline && (
+          <RefinementPanel
+            planId={planId}
+            routeTitle={displayPlan!.route.title}
+            itinerary={itin}
+            onUpdated={setLiveItinerary}
+          />
         )}
 
         {/* Equipment */}
@@ -320,7 +493,7 @@ export default function TripViewClient({ planId }: { planId: string }) {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-[var(--text-primary)]">{w.name}</p>
                     <div className="flex flex-wrap gap-2 mt-0.5 text-xs text-[var(--text-muted)]">
-                      {w.altitudeM && <span>{w.altitudeM} м</span>}
+                      {w.altitudeM    && <span>{w.altitudeM} м</span>}
                       {w.locationType && <span>{w.locationType}</span>}
                       {w.isOpen === false && <span className="text-[var(--danger)]">Закрыто</span>}
                     </div>
