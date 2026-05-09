@@ -24,7 +24,9 @@ jobs:
           fi
 
           HTTP=$(curl -s -o /tmp/intel_resp.json -w "%{http_code}" \
-            --max-time 120 \
+            --max-time 300 \
+            --retry 2 \
+            --retry-delay 10 \
             "https://tourhab.ru/api/cron/intelligence?secret=$CRON_SECRET")
 
           echo "Intelligence HTTP: $HTTP"
@@ -40,7 +42,9 @@ jobs:
           sleep 10
 
           HTTP=$(curl -s -o /tmp/scout_resp.json -w "%{http_code}" \
-            --max-time 120 \
+            --max-time 300 \
+            --retry 2 \
+            --retry-delay 10 \
             "https://tourhab.ru/api/cron/scout?secret=$CRON_SECRET")
 
           echo "Scout HTTP: $HTTP"

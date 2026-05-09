@@ -13,5 +13,7 @@ jobs:
           curl -X GET "https://tourhab.ru/api/cron/kuzmich?secret=${{ secrets.CRON_SECRET }}&type=sezon" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions" \
-            --max-time 120 \
+            --max-time 300 \
+            --retry 2 \
+            --retry-delay 10 \
             --fail

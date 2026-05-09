@@ -285,9 +285,15 @@ export async function postSezonToChannel(): Promise<{ ok: boolean; error?: strin
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - начни с эмодзи настроения месяца`;
 
-  const text = await callAIWithModelDirect([
-    { role: 'user', content: prompt },
-  ], getModelForAgent('kuzmich'));
+  let text: string;
+  try {
+    text = await Promise.race([
+      callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich')),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('AI timeout 90s')), 90_000)),
+    ]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'AI error' };
+  }
 
   return postToAllChannels(channelId, text);
 }
