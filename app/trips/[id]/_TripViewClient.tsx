@@ -4,10 +4,12 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Download, Trash2, Route, AlertTriangle, ChevronDown, ChevronUp,
   Phone, MapPin, Shield, Clock, Mountain, Loader, CheckCircle,
-  CloudOff, Wifi, Share2, Copy, Check, MessageSquare, Send, X,
+  CloudOff, Wifi, Share2, Check, MessageSquare, Send, X,
+  Navigation, BookOpen, Siren,
 } from 'lucide-react';
 import { useTripPack } from '@/lib/offline/useTripPack';
 import type { OfflineTripPlan } from '@/lib/offline/db';
+import { useOfflineGPS } from '@/hooks/useOfflineGPS';
 
 // ─── Itinerary types ──────────────────────────────────────────────────────────
 
@@ -271,6 +273,108 @@ function ShareButton({ planId }: { planId: string }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// ─── Safety block ─────────────────────────────────────────────────────────────
+
+function SafetyBlock({ routeTitle, mchsPhone }: { routeTitle: string; mchsPhone: string | null }) {
+  const { lastPosition, minutesAgo } = useOfflineGPS();
+
+  const coordsText = lastPosition
+    ? `${lastPosition.lat.toFixed(5)}, ${lastPosition.lng.toFixed(5)}`
+    : null;
+
+  const smsBody = lastPosition
+    ? `SOS! Нужна помощь. Маршрут: ${routeTitle}. Координаты: ${lastPosition.lat.toFixed(5)}, ${lastPosition.lng.toFixed(5)}. Время фикса: ${minutesAgo ?? 0} мин назад.`
+    : `SOS! Нужна помощь на маршруте: ${routeTitle}. Координаты недоступны.`;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="ds-h2 text-lg">Безопасность</h2>
+
+      {/* GPS координаты */}
+      <div className="ds-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Navigation className="w-4 h-4 text-[var(--ocean)] shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs text-[var(--text-muted)] mb-0.5">Ваши координаты (GPS)</p>
+              {coordsText ? (
+                <>
+                  <p className="font-mono text-sm font-medium text-[var(--text-primary)]">{coordsText}</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                    {minutesAgo != null && minutesAgo < 2 ? 'Только что' : `${minutesAgo} мин назад`}
+                    {lastPosition && ` · ±${lastPosition.accuracy} м`}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-[var(--text-muted)]">Разрешите геолокацию</p>
+              )}
+            </div>
+          </div>
+          {coordsText && (
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(coordsText)}
+              className="text-xs text-[var(--ocean)] shrink-0 hover:underline"
+            >
+              Копировать
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* SOS кнопка + SMS */}
+      <div className="grid grid-cols-2 gap-2">
+        <a
+          href="/sos"
+          className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-lg bg-[var(--danger)] text-white font-bold text-sm hover:opacity-90 transition-opacity"
+        >
+          <Siren className="w-5 h-5" />
+          SOS
+        </a>
+        <a
+          href={`sms:+74152235362?body=${encodeURIComponent(smsBody)}`}
+          className="flex flex-col items-center justify-center gap-1.5 p-4 rounded-lg border border-[var(--warning)] text-[var(--warning)] font-medium text-sm hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          <Phone className="w-5 h-5" />
+          SMS МЧС
+        </a>
+      </div>
+
+      {/* МЧС телефон */}
+      <div className="grid grid-cols-2 gap-2">
+        <a href="tel:112" className="ds-card p-3 flex items-center gap-2 hover:bg-[var(--bg-hover)] transition-colors">
+          <Phone className="w-4 h-4 text-[var(--danger)] shrink-0" />
+          <div>
+            <p className="text-xs text-[var(--text-muted)]">Экстренный</p>
+            <p className="font-mono font-bold text-sm text-[var(--text-primary)]">112</p>
+          </div>
+        </a>
+        <a href={`tel:${(mchsPhone ?? '+74152235362').replace(/\s/g,'')}`} className="ds-card p-3 flex items-center gap-2 hover:bg-[var(--bg-hover)] transition-colors">
+          <Shield className="w-4 h-4 text-[var(--ocean)] shrink-0" />
+          <div>
+            <p className="text-xs text-[var(--text-muted)]">МЧС Камчатка</p>
+            <p className="font-mono font-bold text-xs text-[var(--text-primary)]">{mchsPhone ?? '+7 (4152) 23-53-62'}</p>
+          </div>
+        </a>
+      </div>
+
+      {/* Инструкции выживания */}
+      <a
+        href="/safety/offline"
+        className="ds-card p-4 flex items-center gap-3 hover:bg-[var(--bg-hover)] transition-colors"
+      >
+        <BookOpen className="w-5 h-5 text-[var(--ocean)] shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-[var(--text-primary)]">Инструкции выживания</p>
+          <p className="text-xs text-[var(--text-muted)]">Медведи · Вулкан · Гипотермия · Потерялся — офлайн</p>
+        </div>
+      </a>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function TripViewClient({ planId }: { planId: string }) {
   const { status, error, plan, checkCached, download, remove } = useTripPack(planId);
   const [onlineData, setOnlineData] = useState<OfflineTripPlan | null>(null);
@@ -459,6 +563,12 @@ export default function TripViewClient({ planId }: { planId: string }) {
             </div>
           </div>
         )}
+
+        {/* Safety block — GPS + SOS + survival — always visible */}
+        <SafetyBlock
+          routeTitle={displayPlan!.route.title}
+          mchsPhone={displayPlan!.route.mchsPhone}
+        />
 
         {/* SOS contacts */}
         <div>

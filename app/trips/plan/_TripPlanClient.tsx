@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Route, Calendar, Dumbbell, Loader, Sparkles,
   Download, AlertTriangle, Search, Flame, PawPrint,
-  Thermometer, Fish, Camera,
+  Thermometer, Fish, Camera, ShieldAlert, Phone,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -341,6 +341,38 @@ export default function TripPlanClient() {
               ))}
             </div>
           </div>
+
+          {/* MChs safety reminder — shown when route is selected */}
+          {selected && (
+            <div className="p-4 rounded-lg border border-[var(--warning)] bg-[var(--bg-hover)] space-y-2">
+              <div className="flex items-center gap-2 text-[var(--warning)]">
+                <ShieldAlert className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-semibold">Перед выходом — зарегистрируйтесь в МЧС</span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                На Камчатке часто нет связи. Регистрация в МЧС — единственный способ, чтобы вас нашли в случае ЧП.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                <a
+                  href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-[var(--ocean)] underline"
+                >
+                  Онлайн-регистрация МЧС
+                </a>
+                <span className="text-[var(--text-muted)] text-xs">·</span>
+                <a
+                  href="tel:+74152235362"
+                  className="flex items-center gap-1 text-xs font-medium text-[var(--ocean)]"
+                >
+                  <Phone className="w-3 h-3" />
+                  +7 (4152) 23-53-62
+                </a>
+                <span className="text-[var(--text-muted)] text-xs">МЧС Камчатки</span>
+              </div>
+            </div>
+          )}
 
           {/* Submit */}
           <button

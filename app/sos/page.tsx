@@ -241,7 +241,7 @@ export default function SosPage() {
           {/* SMS с координатами (без интернета) */}
           {coords && (
             <a
-              href={`sms:+79000000000?body=${encodeURIComponent(smsBody)}`}
+              href={`sms:+74152235362?body=${encodeURIComponent(smsBody)}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
