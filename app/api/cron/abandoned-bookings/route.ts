@@ -50,11 +50,10 @@ export async function GET(req: NextRequest) {
       telegram_id: string | null;
     }>(`
       SELECT ob.id, ob.tourist_name, ob.final_price, ob.updated_at,
-             u.telegram_id
+             p.telegram_chat_id::text AS telegram_id
       FROM operator_bookings ob
       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
       JOIN partners p         ON p.id  = ot.operator_id
-      JOIN users u            ON u.id  = p.user_id
       WHERE ob.booking_status = 'pending_payment'
         AND ob.updated_at < NOW() - INTERVAL '2 hours'
         AND ob.updated_at > NOW() - INTERVAL '24 hours'

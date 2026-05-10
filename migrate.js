@@ -3,7 +3,7 @@
  * Plain-JS migration runner для production (Docker standalone build).
  * lib/database/migrate.ts требует tsx, которого нет в standalone bundle.
  *
- * Применяется при старте через start.js — non-blocking:
+ * Применяется при старте через start.js → mandatory но non-blocking:
  * если не получилось — логируем и стартуем приложение.
  */
 const { Pool } = require('pg');
