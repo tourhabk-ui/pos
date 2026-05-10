@@ -4,8 +4,9 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v8'; // bumped: trip pages + safety block cached
+const CACHE_NAME = 'kamchatour-v9'; // bumped: fix MAX_TOUR_PAGES + preserve API/tile caches on activate
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест
+const MAX_TOUR_PAGES  = 20; // последние 20 страниц туров
 const MAX_TRIP_PAGES  = 20; // последние 20 страниц офлайн-рюкзака
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -84,16 +85,17 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Активация: удаляем старые кэши
+// Активация: удаляем устаревшие кэши, сохраняем актуальные
 self.addEventListener('activate', (event) => {
+  const KEEP = new Set([
+    CACHE_NAME,
+    API_CACHE_NAME,
+    `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`,
+  ]);
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      );
-    }).then(() => self.clients.claim())
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => !KEEP.has(k)).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
 });
 
