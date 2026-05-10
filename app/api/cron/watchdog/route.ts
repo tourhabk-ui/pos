@@ -2,6 +2,9 @@ import { runWatchdog } from '@/lib/agents/watchdog';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
+export const dynamic     = 'force-dynamic';
+export const maxDuration = 60;
+
 /**
  * GET /api/cron/watchdog
  * Мониторинг платформы: бронирования, операторы, лиды, SOS.
