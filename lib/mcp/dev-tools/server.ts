@@ -171,7 +171,7 @@ function sqlRules(): unknown {
 
 function checkProtected(filePath: string): unknown {
   const normalised = filePath
-    .replace(/^\/workspaces\/PosPkTry\//, '')
+    .replace(/^\/(?:workspaces\/PosPkTry|home\/user\/pos)\//, '')
     .replace(/^\.\//, '');
   const isProtected = PROTECTED_PATHS.some(
     (p) => normalised === p || normalised.startsWith(p),

@@ -28,13 +28,13 @@ async function createIcon(size, filename, maskable) {
   await sharp(Buffer.from(svg))
     .resize(size, size)
     .png()
-    .toFile(path.join('/root/PosPkTry/public/icons', filename));
+    .toFile(path.join(path.join(process.cwd(), 'public/icons'), filename));
   const stats = fs.statSync(path.join('public/icons', filename));
   console.log(`Created ${filename}: ${size}x${size}, ${Math.round(stats.size / 1024)}KB`);
 }
 
 (async () => {
-  fs.mkdirSync('/root/PosPkTry/public/icons', { recursive: true });
+  fs.mkdirSync(path.join(process.cwd(), 'public/icons'), { recursive: true });
   await createIcon(192, 'icon-192.png', false);
   await createIcon(512, 'icon-512.png', false);
   await createIcon(512, 'icon-maskable-512.png', true);

@@ -279,7 +279,7 @@ GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-
 - Tracking: таблица `_migrations` (name UNIQUE, applied_at)
 - Применение: `npm run migrate` (запускает `lib/database/migrate.ts`)
   - Локально: `DATABASE_URL=<local> npm run migrate`
-  - На проде: SSH в Timeweb, `cd /root/PosPkTry && npm run migrate`
+  - На проде: миграции применяются автоматически при старте приложения (см. `package.json` → `start`)
 - **НИКОГДА** не применять миграции через HTTP endpoint
 - Файлы с `CREATE INDEX CONCURRENTLY` автоматически определяются и применяются вне транзакции (без BEGIN/COMMIT), statement-by-statement
 - Все миграции должны быть идемпотентны (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)

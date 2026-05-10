@@ -3,7 +3,7 @@
 ## Проект
 
 **KamchatourHub** — туристическая платформа Камчатки.
-Деплой: pospkam-pospktry-c1f3.twc1.net (Timeweb Cloud)
+Деплой: tourhab.ru (Timeweb Cloud, App ID 190302)
 
 ---
 
