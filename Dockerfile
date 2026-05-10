@@ -37,6 +37,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static     ./.next/static
 COPY --from=builder /app/migrations       ./migrations
 COPY --from=builder /app/start.js         ./start.js
+COPY --from=builder /app/migrate.js       ./migrate.js
 
 EXPOSE 3000
 ENV PORT=3000

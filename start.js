@@ -2,6 +2,16 @@
 const http = require('http');
 const { spawn } = require('child_process');
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// Run DB migrations in background — non-blocking, never fails the boot.
+// Health proxy answers immediately so Timeweb healthcheck never times out.
+try {
+  const { runMigrations } = require('./migrate.js');
+  runMigrations().catch(e => console.error('[migrate]', e.message));
+} catch (e) {
+  console.error('[migrate] load failed:', e.message);
+}
+
 const proxy = http.createServer((req, res) => {
   if (['/api/health','/api/ready','/health','/ready'].includes(req.url)) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
