@@ -23,7 +23,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const batch = Math.min(parseInt(req.nextUrl.searchParams.get('batch') ?? '50'), 80);
+  if (!process.env.BLOCKIFY_API_KEY) {
+    return NextResponse.json({ skipped: true, reason: 'BLOCKIFY_API_KEY not configured' }, { status: 200 });
+  }
+
+  const batch = Math.min(parseInt(req.nextUrl.searchParams.get('batch') ?? '25'), 40);
   const source = req.nextUrl.searchParams.get('source') ?? 'all';
 
   const stats = { places: 0, routes: 0, blocks: 0, errors: 0 };

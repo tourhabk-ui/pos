@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: 'Items per run (max 80)'
-        default: '50'
+        description: 'Items per run (max 40)'
+        default: '25'
       source:
         description: 'places | routes | all'
         default: 'all'
@@ -18,14 +18,13 @@ jobs:
     steps:
       - name: Enrich IdeaBlocks via Blockify
         run: |
-          BATCH="${{ github.event.inputs.batch || '50' }}"
+          BATCH="${{ github.event.inputs.batch || '25' }}"
           SOURCE="${{ github.event.inputs.source || 'all' }}"
           curl -X GET "https://tourhab.ru/api/cron/enrich-ideablocks?secret=${{ secrets.CRON_SECRET }}&batch=${BATCH}&source=${SOURCE}" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions" \
-            --max-time 300 \
-            --retry 2 \
-            --retry-delay 10 \
+            --max-time 240 \
+            --retry 0 \
             --fail \
             --silent \
             --show-error
