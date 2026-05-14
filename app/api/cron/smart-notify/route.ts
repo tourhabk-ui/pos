@@ -26,7 +26,7 @@ interface MatchedTour {
 }
 
 interface MatchedUser {
-  user_id: number;
+  user_id: string;
   name: string;
   email: string;
   telegram_id: string | null;
@@ -64,15 +64,25 @@ export async function GET(req: NextRequest) {
     }
 
     // 2. Users with memory preferences
-    const { rows: users } = await pool.query<MatchedUser>(
-      `SELECT m.user_id, u.name, u.email, u.telegram_id::text,
-              m.preferred_activities
-       FROM user_ai_memory m
-       JOIN users u ON u.id = m.user_id
-       WHERE array_length(m.preferred_activities, 1) > 0
-         AND u.role = 'tourist'
-       LIMIT 200`,
-    );
+    let users: MatchedUser[] = [];
+    try {
+      const res = await pool.query<MatchedUser>(
+        `SELECT m.user_id::text AS user_id, u.name, u.email, u.telegram_id::text,
+                m.preferred_activities
+         FROM user_ai_memory m
+         JOIN users u ON u.id = m.user_id
+         WHERE array_length(m.preferred_activities, 1) > 0
+           AND u.role = 'tourist'
+         LIMIT 200`,
+      );
+      users = res.rows;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('does not exist') || msg.includes('relation')) {
+        return NextResponse.json({ ok: true, skipped: true, reason: 'user_ai_memory not ready' });
+      }
+      throw e;
+    }
 
     let sent = 0;
 
@@ -84,16 +94,22 @@ export async function GET(req: NextRequest) {
       if (matching.length === 0) continue;
 
       // Rate limit: max 1 notification per user per 24h
-      const { rows: recent } = await pool.query(
-        `SELECT 1 FROM smart_notifications_log
-         WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [user.user_id],
-      );
-      if (recent.length > 0) continue;
+      let alreadySent = false;
+      try {
+        const { rows: recent } = await pool.query(
+          `SELECT 1 FROM smart_notifications_log
+           WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
+           LIMIT 1`,
+          [user.user_id],
+        );
+        alreadySent = recent.length > 0;
+      } catch {
+        // table may not exist yet — skip rate limit check
+      }
+      if (alreadySent) continue;
 
       const tourList = matching.slice(0, 3).map(t =>
-        `  - <b>${escHtml(t.title)}</b> — ${t.base_price} rub`,
+        `  - <b>${escHtml(t.title)}</b> — ${t.base_price} руб`,
       ).join('\n');
 
       const text = `Привет, ${escHtml(user.name)}!\n\nПоявились новые туры по вашим интересам:\n${tourList}\n\nСмотреть: https://tourhab.ru/routes`;
@@ -105,7 +121,7 @@ export async function GET(req: NextRequest) {
       // Log notification
       await pool.query(
         `INSERT INTO smart_notifications_log (user_id, tours_matched, channel)
-         VALUES ($1, $2, $3)`,
+         VALUES ($1::uuid, $2, $3)`,
         [user.user_id, matching.map(t => t.id), user.telegram_id ? 'telegram' : 'skipped'],
       ).catch(() => {});
 
