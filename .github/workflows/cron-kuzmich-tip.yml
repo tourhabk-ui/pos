@@ -1,0 +1,16 @@
+name: Cron Kuzmich Tip
+
+on:
+  workflow_dispatch:  # ОТКЛЮЧЕНО
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Kuzmich tip post
+        run: |
+          curl -X GET "https://tourhab.ru/api/cron/kuzmich?secret=${{ secrets.CRON_SECRET }}&type=tip" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions" \
+            --max-time 120 \
+            --fail

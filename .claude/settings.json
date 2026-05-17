@@ -1,0 +1,68 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git :*)",
+      "Bash(npm :*)",
+      "Bash(ls:*)",
+      "Bash(node --env-file=.env.local:*)",
+      "Bash(python3:*)",
+      "Bash(mkdir:*)",
+      "Bash(env)",
+      "Bash(npx eslint *)",
+      "Bash(curl -s *)",
+      "Bash(curl -s --max-time *)",
+      "Bash(npm run dev*)",
+      "Bash(npm run migrate*)",
+      "Bash(DATABASE_URL=* npm run migrate*)",
+      "WebFetch(domain:habr.com)",
+      "WebFetch(domain:vc.ru)",
+      "WebFetch(domain:developers.tochka.com)",
+      "WebFetch(domain:enter.tochka.com)",
+      "WebFetch(domain:kamchatkaland.ru)",
+      "WebFetch(domain:spkam.com)",
+      "WebFetch(domain:openstreetmap.org)",
+      "WebFetch(domain:nominatim.openstreetmap.org)",
+      "WebFetch(domain:idilesom.com)",
+      "WebFetch(domain:visitkamchatka.ru)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "result=$(cd /workspaces/PosPkTry && npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
+            "if": "Bash(git commit*)",
+            "timeout": 60,
+            "statusMessage": "TypeScript проверка перед коммитом..."
+          },
+          {
+            "type": "command",
+            "command": "bash /workspaces/PosPkTry/.claude/hooks/db-schema-check.sh",
+            "if": "Bash(git commit*)",
+            "timeout": 10,
+            "statusMessage": "DB schema проверка..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty' 2>/dev/null); if [[ \"$f\" == *.ts ]] || [[ \"$f\" == *.tsx ]]; then root=$(git -C \"$(dirname \"$f\")\" rev-parse --show-toplevel 2>/dev/null); if [ -n \"$root\" ]; then result=$(cd \"$root\" && npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then n=$(echo \"$result\" | grep -c 'error TS'); printf '{\"systemMessage\": \"TS: %s ошиб(ок) — запусти npx tsc --noEmit\"}' \"$n\"; fi; fi; fi 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "TypeScript...",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": [
+    "next/core-web-vitals"
+  ],
+  "rules": {
+    "prefer-const": "error",
+    "no-var": "error",
+    "no-console": "off",
+    "no-debugger": "error",
+    "react/display-name": "warn",
+    "@next/next/no-img-element": "warn",
+    "@typescript-eslint/no-explicit-any": "off"
+  }
+}
