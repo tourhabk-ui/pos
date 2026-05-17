@@ -1,0 +1,28 @@
+name: Cron — Routes Description Cache Refresh
+
+on:
+  schedule:
+    # 09:00 UTC ежедневно (немного позже за Scout-Innovator в 06:00)
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    name: Refresh route descriptions
+    steps:
+      - name: Trigger API
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST --max-time 300 \
+            "https://tourhab.ru/api/cron/routes-cache-refresh?secret=$CRON_SECRET&limit=100")
+          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Route description cache refresh failed"
+          exit 1

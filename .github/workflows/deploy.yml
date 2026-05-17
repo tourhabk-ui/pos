@@ -1,0 +1,50 @@
+name: Deploy to Timeweb Cloud
+
+# Timeweb Cloud auto-deploy включён (is_auto_deploy: true)
+# Деплой запускается автоматически через webhook при push в main
+# Env vars управляются через Timeweb UI или scripts/sync-timeweb-envs.js
+#
+# Quality gate: runs only after CI workflow succeeds on main.
+# Manual dispatch (workflow_dispatch) bypasses the CI gate.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Check deploy status
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+        run: |
+          APP_ID="175477"
+          TOKEN="$TIMEWEB_TOKEN"
+
+          if [ -z "$TOKEN" ]; then
+            echo "TIMEWEB_TOKEN not set — skip status check"
+            echo "Deploy runs automatically via Timeweb webhook"
+            exit 0
+          fi
+
+          echo "Checking Timeweb app $APP_ID status..."
+
+          HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
+
+          if [ "$HTTP" = "200" ]; then
+            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['status'])" 2>/dev/null || echo "unknown")
+            COMMIT=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['commit_sha'][:7])" 2>/dev/null || echo "unknown")
+            ENVS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(len(d['app'].get('envs',{})))" 2>/dev/null || echo "?")
+            echo "Status: $STATUS | Commit: $COMMIT | Env vars: $ENVS"
+          else
+            echo "Could not check status (HTTP $HTTP) — deploy still runs via webhook"
+          fi
+
+          echo "Site: https://tourhab.ru"
