@@ -213,7 +213,7 @@ export class OperatorAgency {
     // Вызываем существующий AI-fill endpoint как внутренний fetch
     // (мы в Node.js runtime, вне Edge — прямой pool-вызов недоступен для auto-fill логики)
     try {
-      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? 'https://tourhab.ru';
       const res = await fetch(`${baseUrl}/api/operator/tours/auto-fill-ai`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
