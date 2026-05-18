@@ -44,6 +44,7 @@ const nextConfig = {
       config.externals = [
         ...(Array.isArray(config.externals) ? config.externals : []),
         'onnxruntime-node',
+        'jsdom',
       ];
     }
     return config;
