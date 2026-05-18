@@ -57,6 +57,8 @@ const nextConfig = {
       { source: '/tours',         destination: '/marketplace',    permanent: true },
       { source: '/terms',         destination: '/legal/terms',    permanent: true },
       { source: '/auth/register', destination: '/operators/join', permanent: false },
+      // Страницы-призраки
+      { source: '/trending',      destination: '/routes',         permanent: false },
     ];
   },
 
