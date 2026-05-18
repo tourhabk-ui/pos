@@ -5,7 +5,7 @@ import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
-  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe,
+  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, Map,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
@@ -40,6 +40,8 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/integrations', label: 'Интеграции / OCTO', icon: Plug },
   { href: '/hub/admin/channels',     label: 'Каналы продаж',     icon: Share2 },
   { href: '/hub/admin/safety',  label: 'Безопасность', icon: AlertTriangle },
+  { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sparkles },
+  { href: '/hub/admin/enrich-routes', label: 'Обогащение маршрутов', icon: Map },
   { href: '/hub/admin/places-photos', label: 'Фото мест', icon: ImageIcon },
   { href: '/hub/admin/artem',  label: 'Рабочее место МЧС', icon: HardHat },
   { href: '/hub/admin/migrations', label: 'Миграции БД', icon: Database },
