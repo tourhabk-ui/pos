@@ -272,7 +272,7 @@ export function ChannelsDashboardClient({
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="flex items-start gap-3">
                   <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-[var(--bg-primary)] shrink-0 mt-0.5"
                     style={{ background: TYPE_COLORS[ch.type] ?? 'var(--text-muted)' }}
                   >
                     {ch.priority}
@@ -375,7 +375,7 @@ export function ChannelsDashboardClient({
           ].map(({ n, title, body }) => (
             <li key={n} className="flex gap-4">
               <span
-                className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-[var(--bg-primary)] shrink-0"
                 style={{ background: 'var(--accent)' }}
               >
                 {n}
