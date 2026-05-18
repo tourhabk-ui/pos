@@ -203,7 +203,7 @@ export function HomeMapPreview() {
                 onClick={() => handleFilterClick(f.id)}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap flex-shrink-0 ${
                   activeFilter === f.id
-                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    ? 'bg-[var(--accent)] text-[var(--bg-primary)] shadow-sm'
                     : 'bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border)]/30'
                 }`}
               >

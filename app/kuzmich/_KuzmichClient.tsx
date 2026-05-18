@@ -141,12 +141,12 @@ function BookingFormCard({
     <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden shadow-sm">
       {/* Фото тура */}
       {data.tourImage && (
-        <div className="relative h-36 w-full bg-[var(--bg-hover)]">
+        <div className="relative h-36 w-full bg-[var(--bg-hover)] dark">
           <Image src={data.tourImage} alt={data.tourTitle} fill className="object-contain" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
           <div className="absolute bottom-2 left-3 right-3">
-            <p className="text-white text-sm font-semibold leading-tight line-clamp-2">{data.tourTitle}</p>
-            <p className="text-white/80 text-xs mt-0.5">{data.operatorName}</p>
+            <p className="text-[var(--text-primary)] text-sm font-semibold leading-tight line-clamp-2">{data.tourTitle}</p>
+            <p className="text-[var(--text-secondary)] text-xs mt-0.5">{data.operatorName}</p>
           </div>
         </div>
       )}
@@ -580,7 +580,7 @@ export default function KuzmichClient() {
               <Image src={imagePreview} alt="Фото" width={56} height={56} className="rounded-lg object-cover h-14 w-14" />
               <button onClick={clearImage}
                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--danger)] flex items-center justify-center">
-                <X className="w-2.5 h-2.5 text-white" />
+                <X className="w-2.5 h-2.5 text-[var(--bg-primary)]" />
               </button>
             </div>
             <p className="text-xs text-[var(--text-muted)]">Фото будет отправлено Кузьмичу</p>

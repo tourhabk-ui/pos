@@ -679,7 +679,7 @@ export default function CalendarPageClient() {
                 <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                   Бронирования ({selectedDay.bookings.length})
                   {selectedDay.newCount > 0 && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-white text-[10px]"
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[var(--bg-primary)] text-[10px]"
                       style={{ background: 'var(--warning)' }}>
                       {selectedDay.newCount} новых
                     </span>

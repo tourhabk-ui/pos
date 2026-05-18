@@ -96,7 +96,7 @@ export function CollectionsClient() {
           <div className="flex flex-wrap gap-2 mb-8">
             <button
               onClick={() => setActiveTag(null)}
-              className={`ds-badge cursor-pointer transition-colors ${!activeTag ? 'bg-[var(--accent)] text-white' : ''}`}
+              className={`ds-badge cursor-pointer transition-colors ${!activeTag ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : ''}`}
             >
               Все
             </button>
@@ -104,7 +104,7 @@ export function CollectionsClient() {
               <button
                 key={tag}
                 onClick={() => setActiveTag(tag === activeTag ? null : tag)}
-                className={`ds-badge cursor-pointer transition-colors ${activeTag === tag ? 'bg-[var(--accent)] text-white' : ''}`}
+                className={`ds-badge cursor-pointer transition-colors ${activeTag === tag ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : ''}`}
               >
                 {tag}
               </button>

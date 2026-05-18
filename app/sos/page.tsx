@@ -231,7 +231,7 @@ export default function SosPage() {
             {sendStatus === 'sending' && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />}
             {sendStatus === 'sent' && <CheckCircle size={16} />}
             {sendStatus === 'error' && <AlertTriangle size={16} />}
-            {sendStatus === 'idle' && '📍 Отправить координаты в Telegram'}
+            {sendStatus === 'idle' && 'Отправить координаты в Telegram'}
             {sendStatus === 'locating' && 'Определяю координаты...'}
             {sendStatus === 'sending' && 'Отправляю...'}
             {sendStatus === 'sent' && '✅ Координаты отправлены'}
