@@ -272,7 +272,7 @@ export default function LoyaltyClient() {
                   <button
                     onClick={generateCode}
                     disabled={generating}
-                    className="px-5 py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                    className="px-5 py-2.5 bg-[var(--accent)] text-[var(--bg-primary)] text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     <UserPlus className="w-4 h-4 inline mr-2 -mt-0.5" />
                     {generating ? 'Генерация...' : 'Получить реферальный код'}

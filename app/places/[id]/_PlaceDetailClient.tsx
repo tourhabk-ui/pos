@@ -50,10 +50,10 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden safe-area-bottom">
-      <div className="flex items-center gap-2 px-3 py-3 bg-[var(--bg-card)]/95 backdrop-blur-sm border-t border-[var(--border)]">
+      <div className="flex items-center gap-2 px-3 py-3 bg-[var(--bg-card)] border-t border-[var(--border)]">
         <a
           href={geoUrl}
-          className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold text-white bg-[var(--accent)] rounded-xl py-3 hover:opacity-90 transition-opacity"
+          className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold text-[var(--bg-primary)] bg-[var(--accent)] rounded-xl py-3 hover:opacity-90 transition-opacity"
         >
           <Navigation className="w-4 h-4" />
           Навигация
@@ -67,7 +67,7 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
         </a>
         <a
           href="tel:112"
-          className="flex items-center justify-center gap-1.5 text-sm font-bold text-white bg-[var(--danger)] rounded-xl py-3 px-4 hover:opacity-90 transition-opacity"
+          className="flex items-center justify-center gap-1.5 text-sm font-bold text-[var(--bg-primary)] bg-[var(--danger)] rounded-xl py-3 px-4 hover:opacity-90 transition-opacity"
         >
           <Phone className="w-4 h-4" />
           СОС

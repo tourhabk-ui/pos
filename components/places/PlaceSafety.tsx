@@ -42,7 +42,7 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
 
   return (
     <section className="max-w-3xl mx-auto px-4 mt-6">
-      <div className="rounded-2xl border border-[var(--warning)]/30 bg-[var(--warning)]/5 overflow-hidden">
+      <div className="rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--warning)]/20">
@@ -169,7 +169,7 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
             </p>
             <a
               href="tel:112"
-              className="inline-flex items-center gap-2 text-sm font-bold text-white bg-[var(--danger)] px-4 py-2 rounded-xl hover:opacity-90 transition-opacity"
+              className="inline-flex items-center gap-2 text-sm font-bold text-[var(--bg-primary)] bg-[var(--danger)] px-4 py-2 rounded-lg hover:opacity-90 transition-opacity"
             >
               <Phone className="w-3.5 h-3.5" /> 112
             </a>

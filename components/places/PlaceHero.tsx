@@ -31,7 +31,8 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
   }
 
   return (
-    <div className="relative w-full overflow-hidden bg-[var(--bg-hover)]" style={{ height: 'clamp(320px, 68vh, 720px)' }}>
+    // Force dark context so CSS vars resolve to dark-mode values (near-white text, dark bg)
+    <div className="dark relative w-full overflow-hidden bg-[var(--bg-card)]" style={{ height: 'clamp(320px, 68vh, 720px)' }}>
 
       {/* Photo */}
       {imgSrc ? (
@@ -40,20 +41,20 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
         <RouteGradientPlaceholder title={name} locationType={locationType} className="w-full h-full" showLabel={false} />
       )}
 
-      {/* Deep gradient from bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+      {/* Dark gradient from bottom for text contrast */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-primary)]/90 via-[var(--bg-primary)]/20 to-transparent" />
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-20 pb-4 z-20">
         <Link
           href="/routes?kind=place"
-          className="inline-flex items-center gap-1.5 text-sm text-white/90 bg-black/50 px-3 py-1.5 rounded-full border border-white/15 hover:bg-black/70 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-primary)] bg-[var(--bg-card)]/60 px-3 py-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Все места
         </Link>
 
         {photoCount > 1 && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-white/80 bg-black/40 px-2.5 py-1.5 rounded-full border border-white/15">
+          <span className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)]/60 px-2.5 py-1.5 rounded-lg border border-[var(--border)]">
             <Images className="w-3.5 h-3.5" />
             {photoCount}
           </span>
@@ -64,20 +65,20 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-5 z-10">
         <div className="max-w-3xl mx-auto">
 
-          <span className="inline-block text-[11px] font-bold uppercase tracking-widest text-white bg-[var(--accent)] px-3 py-1 rounded-full mb-3">
+          <span className="inline-block text-[11px] font-bold uppercase tracking-widest text-[var(--bg-primary)] bg-[var(--accent)] px-3 py-1 rounded-md mb-3">
             {label}
           </span>
 
           <h1
-            className="text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight mb-3"
-            style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 12px rgba(0,0,0,0.4)' }}
+            className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight mb-3"
+            style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 12px rgba(0,0,0,0.35)' }}
           >
             {name}
           </h1>
 
           <button
             onClick={copyCoords}
-            className="inline-flex items-center gap-1.5 text-xs text-white/60 font-mono hover:text-white transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-mono hover:text-[var(--text-primary)] transition-colors"
           >
             {copied
               ? <><Check className="w-3 h-3 text-[var(--success)]" /> Скопировано</>

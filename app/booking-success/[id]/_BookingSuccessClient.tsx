@@ -208,7 +208,7 @@ export default function BookingSuccessClient() {
                   <button
                     onClick={handlePay}
                     disabled={!cpReady || paying}
-                    className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-lg font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50 text-base"
+                    className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-lg font-bold text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50 text-base"
                     style={{ background: 'var(--accent)' }}
                   >
                     {paying

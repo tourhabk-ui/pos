@@ -76,12 +76,11 @@ export function Header() {
         transform: 'translateX(-50%)',
       }} className="hidden lg:flex">
         {[
-          { href: '/marketplace', label: 'Туры' },
-          { href: '/hub/fishing', label: 'Рыбалка' },
-          { href: '/routes',      label: 'Маршруты' },
-          { href: '/collections', label: 'Подборки' },
-          { href: '/map',         label: 'Карта' },
-          { href: '/operators',   label: 'Операторы' },
+          { href: '/marketplace',        label: 'Туры' },
+          { href: '/routes?kind=place',  label: 'Места' },
+          { href: '/routes',             label: 'Маршруты' },
+          { href: '/map',                label: 'Карта' },
+          { href: '/ai-assistant',       label: 'Кузьмич' },
         ].map(item => (
           <Link
             key={item.href}
@@ -135,7 +134,7 @@ export function Header() {
               height: '14px',
               borderRadius: '7px',
               background: 'var(--accent)',
-              color: '#fff',
+              color: 'var(--bg-primary)',
               fontSize: '9px',
               fontWeight: 700,
               display: 'flex',

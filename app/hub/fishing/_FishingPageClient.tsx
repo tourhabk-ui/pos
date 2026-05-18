@@ -146,7 +146,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
               Камчатская рыбалка
             </span>
           </div>
-          <h1 className="font-playfair text-4xl md:text-5xl font-bold text-white mb-4 leading-tight">
+          <h1 className="font-playfair text-4xl md:text-5xl font-bold text-[var(--bg-primary)] mb-4 leading-tight">
             Рыбалка на реке Камчатка
           </h1>
           <p className="text-lg text-[rgba(255,255,255,0.7)] mb-8 leading-relaxed max-w-xl">
@@ -156,15 +156,15 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
           <div className="flex flex-wrap gap-3">
             <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] rounded-md px-4 py-2">
               <Fish className="w-4 h-4 text-[var(--ocean)]" />
-              <span className="text-sm text-white">5 видов лосося</span>
+              <span className="text-sm text-[var(--bg-primary)]">5 видов лосося</span>
             </div>
             <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] rounded-md px-4 py-2">
               <Calendar className="w-4 h-4 text-[var(--ocean)]" />
-              <span className="text-sm text-white">Весь год</span>
+              <span className="text-sm text-[var(--bg-primary)]">Весь год</span>
             </div>
             <div className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] rounded-md px-4 py-2">
               <Mountain className="w-4 h-4 text-[var(--ocean)]" />
-              <span className="text-sm text-white">от {priceLabel(minPrice)}</span>
+              <span className="text-sm text-[var(--bg-primary)]">от {priceLabel(minPrice)}</span>
             </div>
           </div>
         </div>
@@ -204,7 +204,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
               onClick={() => setFilter(f.id)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 filter === f.id
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >
