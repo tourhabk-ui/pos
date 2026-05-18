@@ -6,6 +6,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
+import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface KuzmichOutcomeInput {
   userMessage: string;
@@ -39,7 +40,11 @@ export async function gradeKuzmichResponse(input: KuzmichOutcomeInput): Promise<
   try {
     const prompt = `Сообщение пользователя:\n${input.userMessage}\n\nОтвет Кузьмича:\n${input.kuzmichReply}`;
 
-    const raw = await callAIFast(prompt, GRADER_PROMPT);
+    const messages: ChatMessage[] = [
+      { role: 'system', content: GRADER_PROMPT },
+      { role: 'user', content: prompt },
+    ];
+    const raw = await callAIFast(messages);
     if (!raw) return;
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
