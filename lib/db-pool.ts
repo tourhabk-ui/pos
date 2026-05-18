@@ -8,7 +8,10 @@
 import { Pool } from 'pg';
 import { config } from '@/lib/config';
 
-const useSSL = config.database.ssl || process.env.NODE_ENV === 'production';
+// DATABASE_SSL=false explicitly disables SSL even in production (needed for private-network DBs)
+const useSSL = process.env.DATABASE_SSL === 'false'
+  ? false
+  : (config.database.ssl || process.env.NODE_ENV === 'production');
 
 function normalizeDatabaseUrl(raw: string): string {
   const trimmed = raw.trim();
@@ -62,7 +65,18 @@ function buildPoolConfig() {
 
 // Lazy pool — connection created only on first use
 let _pool: Pool | null = null;
-function getPool(): Pool { if (!_pool) _pool = new Pool(buildPoolConfig()); return _pool; }
+function getPool(): Pool {
+  if (!_pool) {
+    const cfg = buildPoolConfig();
+    if (process.env.NODE_ENV === 'production') {
+      const host = 'host' in cfg ? cfg.host : '(connectionString)';
+      const sslMode = useSSL ? 'ssl=on' : 'ssl=off';
+      process.stdout.write(`[db-pool] connecting host=${host} ${sslMode}\n`);
+    }
+    _pool = new Pool(cfg);
+  }
+  return _pool;
+}
 
 export const pool = {
   connect: (...args: unknown[]) => getPool().connect(...args as [any]),
