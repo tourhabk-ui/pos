@@ -131,7 +131,7 @@ const envSchema = z.object({
   PROMETHEUS_PORT: z.string().optional().default('9090'),
 
   // ── CORS ──────────────────────────────────────────────────────────
-  CORS_ORIGIN: z.string().optional().default('http://localhost:3000'),
+  CORS_ORIGIN: z.string().optional().default('https://tourhab.ru'),
 
   // ── Analytics / SEO ───────────────────────────────────────────────
   GOOGLE_ANALYTICS_ID: z.string().optional().default(''),

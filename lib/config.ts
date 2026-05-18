@@ -192,7 +192,7 @@ export const config = {
   // Настройки безопасности
   security: {
     cors: {
-      origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
+      origin: process.env.CORS_ORIGIN?.split(',') || ['https://tourhab.ru'],
       credentials: true,
     },
     rateLimit: {
