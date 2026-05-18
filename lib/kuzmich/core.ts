@@ -1461,6 +1461,29 @@ const KUZMICH_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'search_flights',
+      description: 'Найти рейсы в Петропавловск-Камчатский (PKC). Используй когда турист спрашивает о перелётах, ценах на билеты, маршрутах до Камчатки.',
+      parameters: {
+        type: 'object',
+        properties: {
+          from_city: { type: 'string', description: 'Город отправления (Москва, Санкт-Петербург, Владивосток, Новосибирск и т.д.)' },
+          month: { type: 'string', description: 'Месяц поездки (июнь, июль, август и т.д.) — необязательно' },
+        },
+        required: ['from_city'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_volcano_status',
+      description: 'Получить текущий статус вулканов Камчатки от KVERT (Камчатская группа реагирования на вулканические извержения). Используй когда спрашивают об активности вулканов, безопасности восхождения, текущих предупреждениях.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
 ];
 
 type ToolMsg =
@@ -1510,6 +1533,21 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const tools = await searchExternalTools(args.task ?? args.query ?? '');
       void Promise.all(tools.slice(0, 2).map((t) => trackToolUsage(t.slug)));
       return formatToolsForKuzmich(tools);
+    }
+    if (name === 'search_flights') {
+      const { recommendFlights } = await import('@/lib/services/flights.service');
+      const fromCity = args.from_city ?? 'Москва';
+      const rec = recommendFlights(fromCity);
+      const primary = rec.primary_route;
+      const altRoutes = rec.alternative_routes.length > 0
+        ? `\nАльтернативы: ${rec.alternative_routes.map(r => `${r.departure_city} от ${r.price_from_rub.toLocaleString('ru')} руб (${r.duration_hours} ч)`).join('; ')}`
+        : '';
+      return `Рейсы ${fromCity} → Петропавловск-Камчатский:\nОт ${primary.price_from_rub.toLocaleString('ru')} руб, около ${primary.duration_hours} ч${primary.stops > 0 ? ' с пересадкой' : ''}.${altRoutes}\n${rec.seasonal_notes}\nПодобрать билеты: ${primary.link}`;
+    }
+    if (name === 'get_volcano_status') {
+      const { getVolcanoStatuses, formatKvertForKuzmich } = await import('@/lib/services/kvert.service');
+      const statuses = await getVolcanoStatuses();
+      return formatKvertForKuzmich(statuses) || 'Данные KVERT временно недоступны.';
     }
     return 'Неизвестный инструмент.';
   } catch {

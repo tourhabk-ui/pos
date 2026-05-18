@@ -22,6 +22,7 @@ const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
 const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
+const PlaceWeather          = dynamic(() => import('@/components/places/PlaceWeather'),          { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 
@@ -174,6 +175,11 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
       {/* 2. Realtime alert — sticky on danger */}
       {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
+
+      {/* 2b. Live weather at this location */}
+      <div className="max-w-3xl mx-auto px-4 mt-4">
+        <PlaceWeather lat={place.lat} lng={place.lng} placeName={place.name} />
+      </div>
 
       {/* 3. Description */}
       <PlaceDescription
