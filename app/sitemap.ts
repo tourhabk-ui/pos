@@ -4,7 +4,6 @@ import { CATEGORY_SLUGS } from '@/lib/routes/category-meta';
 
 const BASE = 'https://tourhab.ru';
 
-// Приоритет страницы по типу локации
 const LOCATION_PRIORITY: Record<string, number> = {
   volcano:    0.8,
   geyser:     0.8,
@@ -25,13 +24,13 @@ const LOCATION_PRIORITY: Record<string, number> = {
 };
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // Статические страницы
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE,                        lastModified: new Date(), changeFrequency: 'hourly',  priority: 1.0 },
     { url: `${BASE}/routes`,            lastModified: new Date(), changeFrequency: 'daily',   priority: 0.9 },
     { url: `${BASE}/map`,               lastModified: new Date(), changeFrequency: 'daily',   priority: 0.85 },
     { url: `${BASE}/safety`,            lastModified: new Date(), changeFrequency: 'daily',   priority: 0.9 },
     { url: `${BASE}/planner`,           lastModified: new Date(), changeFrequency: 'daily',   priority: 0.8 },
+    { url: `${BASE}/fish`,              lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/faq`,               lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.7 },
     { url: `${BASE}/help`,              lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.65 },
     { url: `${BASE}/contact`,           lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.7 },
@@ -47,7 +46,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/legal/agent-agreement`, lastModified: new Date(), changeFrequency: 'monthly', priority: 0.3 },
   ];
 
-  // Категории маршрутов (14 страниц с высоким SEO-приоритетом)
+  // Категории маршрутов
   const categoryPages: MetadataRoute.Sitemap = CATEGORY_SLUGS.map(slug => ({
     url: `${BASE}/routes/${slug}`,
     lastModified: new Date(),
@@ -55,32 +54,54 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.85,
   }));
 
-  // Динамические страницы: все видимые маршруты
+  // Места /places/[id] — 778 точек из master-таблицы places
+  let placePages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{
+      ark_id: string;
+      updated_at: Date;
+      location_type: string | null;
+    }>(
+      `SELECT ark_id, updated_at, location_type
+       FROM places
+       WHERE is_visible = TRUE AND ark_id IS NOT NULL
+       ORDER BY updated_at DESC
+       LIMIT 1000`
+    );
+    placePages = rows.map(row => ({
+      url: `${BASE}/places/${row.ark_id}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'weekly' as const,
+      priority: LOCATION_PRIORITY[row.location_type ?? ''] ?? 0.65,
+    }));
+  } catch {
+    // fallback — не блокируем сборку
+  }
+
+  // Маршруты /routes/[id] — из master-таблицы kamchatka_routes
   let routePages: MetadataRoute.Sitemap = [];
   try {
     const { rows } = await pool.query<{
       id: string;
       updated_at: Date;
-      location_type: string | null;
-    }>(`
-      SELECT id, updated_at, location_type
-      FROM agent_route_knowledge
-      WHERE is_visible = TRUE
-      ORDER BY updated_at DESC
-      LIMIT 2000
-    `);
-
+    }>(
+      `SELECT id, updated_at
+       FROM kamchatka_routes
+       WHERE is_visible = TRUE
+       ORDER BY updated_at DESC
+       LIMIT 500`
+    );
     routePages = rows.map(row => ({
       url: `${BASE}/routes/${row.id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
-      priority: LOCATION_PRIORITY[row.location_type ?? ''] ?? 0.6,
+      priority: 0.7,
     }));
   } catch {
-    // Если БД недоступна при сборке — sitemap без динамических страниц
+    // fallback
   }
 
-  // Маркетплейс-туры
+  // Туры /marketplace/tours/[id]
   let marketplacePages: MetadataRoute.Sitemap = [];
   try {
     const { rows } = await pool.query<{ id: string; updated_at: Date }>(
@@ -98,5 +119,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // fallback
   }
 
-  return [...staticPages, ...categoryPages, ...routePages, ...marketplacePages];
+  return [...staticPages, ...categoryPages, ...placePages, ...routePages, ...marketplacePages];
 }
