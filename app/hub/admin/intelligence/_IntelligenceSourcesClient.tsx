@@ -456,7 +456,7 @@ function IntelligenceFeed({ onChange }: { onChange: () => void }) {
                             <button
                               onClick={() => runAction(entry.id, { action: 'toggle_done', itemIdx: item.idx }, item.done ? 'Снято' : 'Отмечено как выполненное')}
                               disabled={busy !== null}
-                              className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center ${item.done ? 'bg-green-500 border-green-500 text-white' : 'border-[var(--border)]'}`}
+                              className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center ${item.done ? 'bg-green-500 border-green-500 text-[var(--bg-primary)]' : 'border-[var(--border)]'}`}
                               title={item.done ? 'Снять галочку' : 'Отметить выполненным'}
                             >
                               {item.done && <Check className="w-3 h-3" />}

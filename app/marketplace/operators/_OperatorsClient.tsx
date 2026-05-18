@@ -105,7 +105,7 @@ export default function OperatorsPageClient() {
                 onClick={() => { setCategory(cat.value); setPage(1); }}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                   category === cat.value
-                    ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                    ? 'bg-[var(--accent)] text-[var(--bg-primary)] border-[var(--accent)]'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
                 }`}
               >
@@ -152,7 +152,7 @@ export default function OperatorsPageClient() {
                     </div>
                   )}
                   {op.isVerified && (
-                    <div className="absolute top-3 right-3 bg-[var(--success)] text-white text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
+                    <div className="absolute top-3 right-3 bg-[var(--success)] text-[var(--bg-primary)] text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3" />
                       Проверен
                     </div>
@@ -189,7 +189,7 @@ export default function OperatorsPageClient() {
                 onClick={() => setPage(p)}
                 className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
                   p === page
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] hover:border-[var(--accent)]'
                 }`}
               >

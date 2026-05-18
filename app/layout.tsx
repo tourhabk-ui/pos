@@ -100,7 +100,7 @@ export const metadata: Metadata = {
     },
   },
   manifest: '/manifest.json',
-  themeColor: '#0f172a',
+  themeColor: '#D44A0C',
   applicationName: 'KamchatourHub',
   appleWebApp: {
     capable: true,
@@ -129,6 +129,7 @@ import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
+import { GlobalMobileNav } from '@/components/layout/GlobalMobileNav'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -145,7 +146,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
-        <meta name="theme-color" content="#0f172a" />
+        <meta name="theme-color" content="#D44A0C" />
       </head>
       <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable}`}>
         <Providers>
@@ -267,6 +268,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <TravelPayoutsDrive />
         <StickyLeadButton />
         <KuzmichWidget />
+        <GlobalMobileNav />
         <InstallPrompt />
         <ServiceWorkerRegistrar />
       </body>

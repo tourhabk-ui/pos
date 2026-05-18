@@ -96,7 +96,7 @@ export function TrendingClient() {
                       <MapPin className="w-8 h-8 text-[var(--text-muted)]" />
                     </div>
                   )}
-                  <span className="absolute top-2 left-2 bg-[var(--accent)] text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                  <span className="absolute top-2 left-2 bg-[var(--accent)] text-[var(--bg-primary)] text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
                     {idx + 1}
                   </span>
                 </div>
