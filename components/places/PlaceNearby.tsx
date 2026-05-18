@@ -49,7 +49,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
                 </div>
               )}
               {/* Distance badge */}
-              <span className="absolute top-2 right-2 text-[10px] font-bold text-white bg-black/50 px-1.5 py-0.5 rounded-full">
+              <span className="absolute top-2 right-2 text-[10px] font-bold text-[var(--text-primary)] bg-[var(--bg-primary)]/80 px-1.5 py-0.5 rounded-full">
                 {n.distanceKm} км
               </span>
             </div>

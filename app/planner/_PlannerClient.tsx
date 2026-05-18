@@ -187,7 +187,7 @@ function SelectGroup({ title, items, selected, onToggle }: {
             <button key={id} type="button" onClick={() => onToggle(id)}
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl transition-all border text-xs font-medium select-none min-h-[44px] ${
                 active
-                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm'
+                  ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--bg-primary)] shadow-sm'
                   : 'border-[var(--border)] text-[var(--text-secondary)] bg-[var(--bg-card)] active:bg-[var(--bg-hover)]'
               }`}>
               <Icon className="w-4 h-4 shrink-0" />
@@ -225,7 +225,7 @@ function TransportSelector({ selected, onChange, zone }: {
             onClick={() => onChange(key)}
             className={`flex items-center justify-center w-8 h-8 rounded-md transition-all border text-xs ${
               active
-                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--bg-primary)]'
                 : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] bg-[var(--bg-hover)]'
             }`}>
             <Icon className="w-3.5 h-3.5" />
@@ -311,7 +311,7 @@ function DayCard({
               />
           }
           <div
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 transition-all ${
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-[var(--bg-primary)] shrink-0 transition-all ${
               isEditing ? 'ring-2 ring-[var(--accent)]/40' : ''
             }`}
             style={{ background: ZONE_COLORS[day.zone] ?? 'var(--accent)' }}
@@ -766,7 +766,7 @@ function CompanionWidget({ days, arrival, departure }: {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-[var(--accent)] text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
+        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
         title="Помощник путешественника"
       >
         <MessageCircle className="w-5 h-5" />
@@ -800,7 +800,7 @@ function CompanionWidget({ days, arrival, departure }: {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] px-3 py-2 rounded-lg text-xs leading-relaxed ${
               m.role === 'user'
-                ? 'bg-[var(--accent)] text-white'
+                ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                 : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[var(--border)]'
             }`}>
               {m.text}
@@ -829,7 +829,7 @@ function CompanionWidget({ days, arrival, departure }: {
         <button
           onClick={sendMessage}
           disabled={loading || !message.trim()}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity shrink-0"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] disabled:opacity-40 transition-opacity shrink-0"
         >
           <Send className="w-3.5 h-3.5" />
         </button>
@@ -1920,9 +1920,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                 disabled={saveStatus === 'saving'}
                 className={`flex-1 ds-btn py-2.5 font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
                   saveStatus === 'saved'
-                    ? 'bg-[var(--success)] border-[var(--success)] text-white'
+                    ? 'bg-[var(--success)] border-[var(--success)] text-[var(--bg-primary)]'
                     : saveStatus === 'error'
-                    ? 'bg-[var(--danger)] border-[var(--danger)] text-white'
+                    ? 'bg-[var(--danger)] border-[var(--danger)] text-[var(--bg-primary)]'
                     : 'ds-btn-secondary'
                 }`}
               >
@@ -2043,7 +2043,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
       {editingDayInfo && (
         <div className="absolute top-4 left-4 right-4 lg:right-auto lg:max-w-sm pointer-events-auto z-10">
           <div className="bg-[var(--bg-card)] border border-[var(--accent)] rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-3">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-[var(--bg-primary)] shrink-0"
               style={{ background: 'var(--accent)' }}>
               {editingDayInfo.idx + 1}
             </div>

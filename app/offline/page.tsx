@@ -32,7 +32,7 @@ export default function OfflinePage() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href="/safety/offline"
-            className="inline-block px-6 py-3 rounded-full font-semibold text-sm transition-colors text-white"
+            className="inline-block px-6 py-3 rounded-full font-semibold text-sm transition-colors text-[var(--bg-primary)]"
             style={{ background: 'var(--danger)' }}
           >
             Инструкции выживания
