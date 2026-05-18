@@ -48,7 +48,7 @@ export default function NotificationsClient() {
               Уведомления
             </h1>
             {unreadCount > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--accent)] text-white font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] font-medium">
                 {unreadCount}
               </span>
             )}
@@ -68,7 +68,7 @@ export default function NotificationsClient() {
             <button key={f} onClick={() => setFilter(f)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 filter === f
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
               }`}>
               {f === 'all' ? 'Все' : 'Непрочитанные'}

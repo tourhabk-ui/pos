@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Route, TrendingUp, Eye } from 'lucide-react';
+import Image from 'next/image';
 
 interface Place {
   id: string;
@@ -88,9 +89,9 @@ export function TrendingClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {places.map((p, idx) => (
               <Link key={p.id} href={`/places/${p.id}`} className="ds-card group block hover:shadow-md transition-all duration-200">
-                <div className="relative">
+                <div className="relative h-40">
                   {p.image_url ? (
-                    <img src={p.image_url} alt={p.name} className="w-full h-40 object-cover rounded-t-lg" />
+                    <Image src={p.image_url} alt={p.name} fill className="object-cover rounded-t-lg" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
                   ) : (
                     <div className="w-full h-40 rounded-t-lg bg-[var(--bg-hover)] flex items-center justify-center">
                       <MapPin className="w-8 h-8 text-[var(--text-muted)]" />

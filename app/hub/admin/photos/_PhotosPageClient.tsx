@@ -104,10 +104,10 @@ const PROFILE_LABELS: Record<Profile | 'auto', string> = {
 };
 
 const PROFILE_COLORS: Record<Profile, string> = {
-  hero:     'bg-[var(--accent)] text-white',
-  activity: 'bg-[var(--ocean)] text-white',
-  bento:    'bg-[var(--success)] text-white',
-  gallery:  'bg-[var(--warning)] text-white',
+  hero:     'bg-[var(--accent)] text-[var(--bg-primary)]',
+  activity: 'bg-[var(--ocean)] text-[var(--bg-primary)]',
+  bento:    'bg-[var(--success)] text-[var(--bg-primary)]',
+  gallery:  'bg-[var(--warning)] text-[var(--bg-primary)]',
 };
 
 // ── Компонент ─────────────────────────────────────────────────────────────────

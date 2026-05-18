@@ -298,7 +298,7 @@ export default function LeadsClient() {
               onClick={() => setStatusFilter(opt.value)}
               className={`px-3 py-1 rounded-full text-sm transition-colors ${
                 statusFilter === opt.value
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'ds-btn text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >

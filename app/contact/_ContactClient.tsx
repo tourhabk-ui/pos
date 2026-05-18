@@ -91,7 +91,7 @@ export default function ContactClient() {
           </p>
           <Link
             href="/"
-            className="inline-block mt-6 px-6 py-2.5 rounded-lg text-sm font-medium text-white"
+            className="inline-block mt-6 px-6 py-2.5 rounded-lg text-sm font-medium text-[var(--bg-primary)]"
             style={{ background: 'var(--accent)' }}
           >
             На главную
@@ -164,7 +164,7 @@ export default function ContactClient() {
                   className="text-sm px-3 py-1.5 rounded-full border transition-all"
                   style={
                     interests.includes(a.value)
-                      ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff' }
+                      ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--bg-primary)' }
                       : {}
                   }
                 >
@@ -228,7 +228,7 @@ export default function ContactClient() {
           <button
             type="submit"
             disabled={formState === 'sending' || !name.trim() || !phone.trim()}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ background: 'var(--accent)' }}
           >
             <Send size={16} />

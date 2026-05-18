@@ -67,7 +67,7 @@ export function HeroCompact() {
           <div className="flex flex-wrap items-center gap-3">
             <a
               href="#chat"
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
             >
               <Bot className="h-4 w-4" />
               Подобрать 3 тура

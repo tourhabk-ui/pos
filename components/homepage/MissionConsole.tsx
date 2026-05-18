@@ -58,7 +58,7 @@ export function MissionConsole() {
                     onClick={() => setDays(d)}
                     className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                       days === d
-                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        ? 'bg-[var(--accent)] text-[var(--bg-primary)] border-[var(--accent)]'
                         : 'bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
                     }`}
                   >
@@ -78,7 +78,7 @@ export function MissionConsole() {
                     onClick={() => setBudget(b.key)}
                     className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                       budget === b.key
-                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        ? 'bg-[var(--accent)] text-[var(--bg-primary)] border-[var(--accent)]'
                         : 'bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
                     }`}
                   >
@@ -98,7 +98,7 @@ export function MissionConsole() {
                     onClick={() => setStyle(s.key)}
                     className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                       style === s.key
-                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        ? 'bg-[var(--accent)] text-[var(--bg-primary)] border-[var(--accent)]'
                         : 'bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
                     }`}
                   >
@@ -112,7 +112,7 @@ export function MissionConsole() {
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Link
               href={aiAssistantHref}
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--bg-primary)] hover:opacity-90"
             >
               Подобрать 3 варианта
               <ArrowRight className="w-4 h-4" />

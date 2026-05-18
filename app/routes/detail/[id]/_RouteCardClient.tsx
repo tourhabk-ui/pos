@@ -270,7 +270,7 @@ export default function RouteCardClient({ id }: { id: string }) {
                 {route.waypoints.map((w, i) => (
                   <Link key={w.placeId} href={`/places/${w.placeId}`}
                     className="flex items-start gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors relative">
-                    <div className="w-6 h-6 rounded-full bg-[var(--accent)] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 z-10">
+                    <div className="w-6 h-6 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-xs font-bold flex items-center justify-center flex-shrink-0 z-10">
                       {i + 1}
                     </div>
                     <div className="flex-1 min-w-0">

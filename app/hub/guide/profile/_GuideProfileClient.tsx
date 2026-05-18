@@ -84,7 +84,7 @@ export default function GuideProfileClient() {
               </div>
             </div>
 
-            <button type="submit" disabled={saving} className="min-h-[44px] px-6 py-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl font-medium inline-flex items-center gap-2 disabled:opacity-50 transition-colors">
+            <button type="submit" disabled={saving} className="min-h-[44px] px-6 py-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] rounded-xl font-medium inline-flex items-center gap-2 disabled:opacity-50 transition-colors">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Сохранить
             </button>

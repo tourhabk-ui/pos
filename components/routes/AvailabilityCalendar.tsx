@@ -162,11 +162,11 @@ export default function AvailabilityCalendar({ offers, onDateSelect }: Availabil
               }
               if (isLow) {
                 cellCls += isSelected
-                  ? ' bg-[var(--warning)] text-white'
+                  ? ' bg-[var(--warning)] text-[var(--bg-primary)]'
                   : ' bg-[var(--warning)]/15 text-[var(--warning)] hover:bg-[var(--warning)]/35';
               } else {
                 cellCls += isSelected
-                  ? ' bg-[var(--success)] text-white'
+                  ? ' bg-[var(--success)] text-[var(--bg-primary)]'
                   : ' bg-[var(--success)]/15 text-[var(--success)] hover:bg-[var(--success)]/35';
               }
             } else {

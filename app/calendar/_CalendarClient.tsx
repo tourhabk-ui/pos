@@ -186,7 +186,7 @@ function TourCard({
       <button
         onClick={() => onBook(tour)}
         className="w-full py-2.5 rounded-lg text-sm font-semibold transition-colors"
-        style={{ background: 'var(--accent)', color: '#fff' }}
+        style={{ background: 'var(--accent)', color: 'var(--bg-primary)' }}
       >
         Забронировать на {new Date(selectedDate + 'T12:00:00').toLocaleDateString('ru-RU', {
           day: 'numeric', month: 'long',
@@ -305,7 +305,7 @@ export default function CalendarClient() {
                   style={{
                     borderColor: activity === a.value ? 'var(--accent)' : 'var(--border)',
                     background:  activity === a.value ? 'var(--accent)' : 'transparent',
-                    color:       activity === a.value ? '#fff' : 'var(--text-secondary)',
+                    color:       activity === a.value ? 'var(--bg-primary)' : 'var(--text-secondary)',
                   }}>
                   {a.label}
                 </button>
@@ -384,12 +384,12 @@ export default function CalendarClient() {
                             'relative aspect-square rounded-lg flex flex-col items-center justify-center transition-all text-sm font-semibold',
                             !isPast && count > 0 ? 'cursor-pointer hover:scale-105 hover:shadow-md' : '',
                             isPast ? 'opacity-25 cursor-default' : '',
-                            isSel  ? 'ring-2 ring-white shadow-lg scale-105' : '',
+                            isSel  ? 'ring-2 ring-[var(--bg-primary)] shadow-lg scale-105' : '',
                             isToday && !isSel ? 'ring-2 ring-[var(--ocean)]/50' : '',
                           ].filter(Boolean).join(' ')}
                           style={{
                             background: dayBg(count, isSel),
-                            color:      isSel ? '#fff' : count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+                            color:      isSel ? 'var(--bg-primary)' : count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
                           }}
                         >
                           <span>{day}</span>
@@ -400,7 +400,7 @@ export default function CalendarClient() {
                             </span>
                           )}
                           {isSel && count > 0 && (
-                            <span className="text-[8px] font-bold leading-none mt-0.5 text-white/80">
+                            <span className="text-[8px] font-bold leading-none mt-0.5 text-[var(--bg-primary)]/80">
                               {count} тур{count === 1 ? '' : count <= 4 ? 'а' : 'ов'}
                             </span>
                           )}

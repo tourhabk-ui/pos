@@ -69,12 +69,12 @@ export function RouteGradientPlaceholder({ title, activityType, locationType, cl
       />
 
       {/* Большая иконка */}
-      <div className="absolute inset-0 flex items-center justify-center opacity-20 text-white">
+      <div className="absolute inset-0 flex items-center justify-center opacity-20 text-[var(--bg-primary)]">
         <div className="scale-[3]">{cfg.icon}</div>
       </div>
 
       {/* Контент */}
-      <div className="relative z-10 flex flex-col items-center justify-center h-full gap-3 p-6 text-white text-center">
+      <div className="relative z-10 flex flex-col items-center justify-center h-full gap-3 p-6 text-[var(--bg-primary)] text-center">
         <div className="opacity-70">{cfg.icon}</div>
         {showLabel && (
           <span className="text-xs font-medium uppercase tracking-widest opacity-50">

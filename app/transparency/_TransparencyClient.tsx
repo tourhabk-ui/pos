@@ -84,7 +84,7 @@ function statusBadge(status: string) {
   const s = map[status] ?? map.pending;
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium text-white"
+      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium text-[var(--bg-primary)]"
       style={{ background: s.color }}
     >
       {s.icon}{s.label}
@@ -214,7 +214,7 @@ export default function TransparencyClient() {
                   className="flex items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4"
                 >
                   <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-[var(--bg-primary)]"
                     style={{ background: meta.color }}
                   >
                     {meta.name.slice(0, 1)}

@@ -312,7 +312,7 @@ function BookingCard({
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors"
               style={{ background: 'var(--success)', color: '#fff' }}>
               {isUpdating
-                ? <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                ? <div className="w-3 h-3 border border-[var(--border)] border-t-[var(--bg-primary)] rounded-full animate-spin" />
                 : <Check className="w-3.5 h-3.5" />}
               Подтвердить
             </button>

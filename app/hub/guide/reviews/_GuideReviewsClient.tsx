@@ -73,7 +73,7 @@ export default function GuideReviewsClient() {
                   onClick={() => setFilter(r)}
                   className={`min-h-[44px] px-3 py-2 rounded-xl text-sm transition-colors ${
                     filter === r
-                      ? 'bg-[var(--accent)] text-white'
+                      ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                       : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
                   }`}
                 >

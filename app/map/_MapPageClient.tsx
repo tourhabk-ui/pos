@@ -476,7 +476,7 @@ export default function MapPageClient() {
         {/* Панель выбранного маршрута */}
         {selectedRoute && (
           <div
-            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80 backdrop-blur-xl border border-white/20 shadow-2xl"
+            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80 border border-[var(--border)] shadow-2xl"
             style={{ animation: 'slideUp 0.2s ease-out' }}
           >
             <div className="p-4">
@@ -495,7 +495,7 @@ export default function MapPageClient() {
                 </div>
                 <button
                   onClick={() => setSelectedId(null)}
-                  className="flex-shrink-0 p-1 rounded-lg hover:bg-white/10 text-white/50 transition-colors"
+                  className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-card)]/10 text-white/50 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -503,7 +503,7 @@ export default function MapPageClient() {
 
               {/* Расстояние от пользователя */}
               {userPos && (
-                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-white/5">
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--bg-card)]/5">
                   <Navigation className="w-4 h-4 text-blue-400" />
                   <span className="text-sm text-white font-bold">
                     {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
@@ -687,7 +687,7 @@ export default function MapPageClient() {
       <Link
         href="/return"
         className="fixed top-20 left-3 z-[500] flex items-center gap-2 px-3 py-2 rounded-lg
-          bg-green-600/90 backdrop-blur-sm text-white text-xs font-semibold shadow-lg
+          bg-green-600/90 text-white text-xs font-semibold shadow-lg
           hover:bg-green-700 transition-colors"
       >
         ✅ Я вернулся
