@@ -14,6 +14,7 @@ import { runEvolutionLoop } from '@/lib/agents/evo/evolution-loop';
 import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { runParallel } from '@/lib/agents/orchestrator';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -35,17 +36,19 @@ export async function GET(request: NextRequest) {
   const startedAt = new Date();
 
   try {
-    // 1. Growth Scan — диагностика
-    const scanResult = await runGrowthScan(scanType);
+    // Run all four evo agents in parallel — one failure never blocks others
+    const results = await runParallel<unknown>([
+      { name: 'growth_scan', fn: () => runGrowthScan(scanType) },
+      { name: 'evolution_loop', fn: () => runEvolutionLoop() },
+      { name: 'rescue_scan', fn: () => runRescueScan() },
+      { name: 'evolver_analysis', fn: () => runEvolverAnalysis() },
+    ]);
 
-    // 2. Evolution Loop — применяем фиксы
-    const evoResult = await runEvolutionLoop();
-
-    // 3. Rescue Scan — проактивная безопасность
-    const rescueResult = await runRescueScan();
-
-    // 4. Evolver Analysis — петля обратной связи: ошибки → инструменты
-    const evolverResult = await runEvolverAnalysis();
+    const byName = Object.fromEntries(results.map(r => [r.name, r]));
+    const scanResult = byName['growth_scan']?.value as unknown as Awaited<ReturnType<typeof runGrowthScan>>;
+    const evoResult = byName['evolution_loop']?.value as unknown as Awaited<ReturnType<typeof runEvolutionLoop>>;
+    const rescueResult = byName['rescue_scan']?.value as unknown as Awaited<ReturnType<typeof runRescueScan>>;
+    const evolverResult = byName['evolver_analysis']?.value as unknown as Awaited<ReturnType<typeof runEvolverAnalysis>>;
 
     // Log
     void logAgentRun({
@@ -58,11 +61,12 @@ export async function GET(request: NextRequest) {
         evolution: evoResult,
         rescue: rescueResult,
         evolver: evolverResult,
+        parallel_errors: results.filter(r => r.status === 'rejected').map(r => ({ name: r.name, error: r.error })),
       } as unknown as Record<string, unknown>,
     });
 
     // Telegram notification if issues found
-    if (scanResult.issues.length > 0) {
+    if (scanResult?.issues?.length > 0) {
       void tgNotify(scanResult, evoResult, rescueResult);
     }
 
@@ -72,6 +76,7 @@ export async function GET(request: NextRequest) {
       evolution: evoResult,
       rescue: rescueResult,
       evolver: evolverResult,
+      parallel_results: results.map(r => ({ name: r.name, status: r.status, durationMs: r.durationMs, error: r.error })),
     });
   } catch (err) {
     void logAgentRun({

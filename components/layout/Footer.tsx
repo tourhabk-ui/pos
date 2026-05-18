@@ -2,7 +2,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Send } from 'lucide-react';
 
-const PLATFORM = [
+type PlatformLink = { label: string; href: string; external?: string };
+
+const PLATFORM: PlatformLink[] = [
   { label: 'Туры', href: '/marketplace' },
   { label: 'Камчатская рыбалка', href: '/hub/fishing' },
   { label: 'Маршруты', href: '/routes' },
@@ -10,6 +12,7 @@ const PLATFORM = [
   { label: 'Планирование поездки', href: '/partners' },
   { label: 'Партнёры', href: '/operators' },
   { label: 'Стать партнёром', href: '/for-operators' },
+  { label: 'Инвестиции в Камчатку', href: '/for-operators', external: 'https://invest.gov.ru' },
   { label: 'Помощь туристам', href: '/help/tourists' },
   { label: 'Помощь операторам', href: '/help/operators' },
 ];
@@ -80,13 +83,24 @@ export function Footer() {
             </p>
             <ul className="space-y-2.5">
               {PLATFORM.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
-                  >
-                    {item.label}
-                  </Link>
+                <li key={item.external ?? item.href}>
+                  {item.external ? (
+                    <a
+                      href={item.external}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+                    >
+                      {item.label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={item.href}
+                      className="text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+                    >
+                      {item.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

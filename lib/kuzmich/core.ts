@@ -14,6 +14,7 @@ import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
+import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -1642,6 +1643,12 @@ export async function aiChat(opts: {
   await reply(chatId, answer);
 
   if (afterReply) await afterReply(chatId, answer);
+
+  // Fire-and-forget: outcomes grader (non-blocking, never affects user)
+  if (!isAIErrorResponse(answer) && userContent.length > 0) {
+    const channel = platform === 'tg' ? 'telegram' : platform === 'max' ? 'max' : 'web';
+    void gradeKuzmichResponse({ userMessage: userContent, kuzmichReply: answer, chatId, channel });
+  }
 
   // Fire-and-forget: обновляем долгосрочную память бота
   if (platform) {
