@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Navigation, Download, Phone } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 
@@ -93,6 +94,7 @@ function lsWrite(id: string, data: PlaceData) {
 }
 
 export default function PlaceDetailClient({ id }: { id: string }) {
+  const router = useRouter();
   const [place, setPlace] = useState<PlaceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +143,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         <Header />
         <div className="max-w-3xl mx-auto px-4 py-24 text-center">
           <p className="text-[var(--text-secondary)] mb-4">{error ?? 'Место не найдено'}</p>
-          <Link href="/routes?kind=place" className="ds-btn ds-btn-secondary">← Все места</Link>
+          <button onClick={() => router.back()} className="ds-btn ds-btn-secondary">← Назад</button>
         </div>
       </>
     );
