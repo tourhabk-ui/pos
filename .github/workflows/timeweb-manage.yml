@@ -1,0 +1,197 @@
+name: Timeweb — Manage & Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        type: choice
+        options:
+          - status        # Статус приложения + последний деплой
+          - logs          # Логи текущего деплоя
+          - redeploy      # Принудительный редеплой
+          - envs          # Показать названия env-переменных (без значений)
+          - all           # Всё сразу
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+
+    steps:
+      - name: Status
+        if: ${{ inputs.action == 'status' || inputs.action == 'all' }}
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "  TIMEWEB APP STATUS — Fair Polydeuces"
+          echo "═══════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID")
+
+          echo "API response: HTTP $HTTP"
+          cat /tmp/app.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          app = d.get('app', {})
+          print(f\"Name:          {app.get('name', '?')}\")
+          print(f\"Status:        {app.get('status', '?')}\")
+          print(f\"Type:          {app.get('type', '?')}\")
+          print(f\"Commit:        {app.get('commit_sha', '?')}\")
+          print(f\"Branch:        {app.get('branch', '?')}\")
+          print(f\"Domain:        {app.get('fqdn', '?')}\")
+          print(f\"Auto-deploy:   {app.get('is_auto_deploy', '?')}\")
+          print(f\"Created:       {app.get('created_at', '?')}\")
+          frameworks = app.get('frameworks', [])
+          if frameworks:
+              fw = frameworks[0]
+              print(f\"Framework:     {fw.get('name','?')} {fw.get('version','')}\")
+          " 2>/dev/null || echo "Could not parse response"
+
+      - name: Deploy history
+        if: ${{ inputs.action == 'status' || inputs.action == 'all' }}
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "  DEPLOY HISTORY (last 5)"
+          echo "═══════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/deploys.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/deploy?limit=5")
+
+          echo "API response: HTTP $HTTP"
+          cat /tmp/deploys.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          deploys = d.get('deploys', [])
+          for dep in deploys:
+              status = dep.get('status', '?')
+              icon = '✅' if status == 'success' else ('🔴' if status == 'failed' else '🟡')
+              print(f\"{icon} [{dep.get('created_at','?')[:19]}] {status} — {dep.get('commit_sha','?')[:7]} — {dep.get('comment','')[:60]}\")
+          if not deploys:
+              print('No deploy history found')
+          " 2>/dev/null || echo "Could not parse response"
+
+      - name: Logs
+        if: ${{ inputs.action == 'logs' || inputs.action == 'all' }}
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "  DEPLOY LOGS (latest)"
+          echo "═══════════════════════════════════════"
+
+          # Get latest deploy ID first
+          curl -s -o /tmp/deploys.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/deploy?limit=1"
+
+          DEPLOY_ID=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/deploys.json'))
+          deploys = d.get('deploys', [])
+          if deploys:
+              print(deploys[0].get('id', ''))
+          " 2>/dev/null)
+
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "No deploy found"
+          else
+            echo "Deploy ID: $DEPLOY_ID"
+            HTTP=$(curl -s -o /tmp/logs.json -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "$BASE/apps/$APP_ID/deploy/$DEPLOY_ID/logs")
+
+            echo "API response: HTTP $HTTP"
+            cat /tmp/logs.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          logs = d.get('logs', '') or d.get('log', '')
+          if isinstance(logs, list):
+              for line in logs[-100:]:
+                  print(line)
+          elif logs:
+              lines = logs.split('\n')
+              for line in lines[-100:]:
+                  print(line)
+          else:
+              print(json.dumps(d, indent=2)[:3000])
+            " 2>/dev/null || cat /tmp/logs.json | head -100
+          fi
+
+      - name: Environment variables (names only)
+        if: ${{ inputs.action == 'envs' || inputs.action == 'all' }}
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "  ENV VARIABLES (names only, no values)"
+          echo "═══════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/envs.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs")
+
+          echo "API response: HTTP $HTTP"
+          cat /tmp/envs.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          envs = d.get('envs', [])
+          if isinstance(envs, list):
+              for e in sorted(envs, key=lambda x: x.get('name','')):
+                  print(f\"  {e.get('name','?')}\")
+          elif isinstance(envs, dict):
+              for k in sorted(envs.keys()):
+                  print(f\"  {k}\")
+          print(f\"Total: {len(envs)} variables\")
+          " 2>/dev/null || echo "Could not parse envs"
+
+      - name: Redeploy
+        if: ${{ inputs.action == 'redeploy' }}
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "  TRIGGERING REDEPLOY"
+          echo "═══════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/redeploy.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$BASE/apps/$APP_ID/deploy")
+
+          echo "API response: HTTP $HTTP"
+          cat /tmp/redeploy.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          deploy = d.get('deploy', d)
+          print(f\"Deploy ID: {deploy.get('id','?')}\")
+          print(f\"Status:    {deploy.get('status','?')}\")
+          print(f\"Commit:    {deploy.get('commit_sha','?')[:7] if deploy.get('commit_sha') else '?'}\")
+          " 2>/dev/null || cat /tmp/redeploy.json
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo ""
+            echo "Redeploy triggered. Watch status at:"
+            echo "https://app.timeweb.cloud/apps/$APP_ID"
+          else
+            echo "Redeploy request failed (HTTP $HTTP)"
+          fi
+
+      - name: Health check
+        if: ${{ always() }}
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "  SITE HEALTH CHECK"
+          echo "═══════════════════════════════════════"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://tourhab.ru/api/health" 2>/dev/null || echo "timeout")
+          echo "https://tourhab.ru/api/health → HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "Site is UP"
+          else
+            echo "Site is DOWN or unreachable"
+          fi
