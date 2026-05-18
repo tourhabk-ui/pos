@@ -8,11 +8,11 @@ const proxy = http.createServer((req, res) => {
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
-  // Next.js 15.5.16 DNS-rebinding check compares incoming Host header against HOSTNAME.
-  // Override host to match the internal bind address; preserve real host via x-forwarded-host.
+  // Next.js 15.5.16 DNS-rebinding check: exact match host === HOSTNAME (no port allowed).
+  // HOSTNAME='127.0.0.1', so host must be '127.0.0.1' — the actual TCP port is set via http.request options.
   const forwardedHeaders = {
     ...req.headers,
-    'host':               '127.0.0.1:3001',
+    'host':               '127.0.0.1',
     'x-forwarded-host':  req.headers['x-forwarded-host']  || req.headers['host'] || '',
     'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
     'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1',
