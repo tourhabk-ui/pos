@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v7'; // bumped: /safety/offline precached
+const CACHE_NAME = 'kamchatour-v8'; // bumped: auth routes bypass SW
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -274,12 +274,18 @@ function isOfflineCapable(pathname) {
 
 // ─── Fetch: cache-first для статики и туров, network-first для остального ──
 
+// Роуты которые НИКОГДА не должны перехватываться SW — всегда сеть
+const SW_BYPASS_PREFIXES = ['/auth/', '/hub/', '/api/auth/', '/register'];
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
   // Пропускаем не-GET запросы
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+
+  // Auth и защищённые роуты — SW не вмешивается (не кэшируем, не fallback на /offline)
+  if (SW_BYPASS_PREFIXES.some(p => url.pathname.startsWith(p))) return;
 
   // /api/places/[id] — кэшируем отдельно: это критичные данные для офлайна
   if (isPlaceApiRequest(url.href)) {
