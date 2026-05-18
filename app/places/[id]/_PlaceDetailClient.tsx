@@ -21,6 +21,7 @@ const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNea
 const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco'),              { ssr: false });
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
+const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 
@@ -259,6 +260,13 @@ export default function PlaceDetailClient({ id }: { id: string }) {
       {place.nearby.length > 0 && (
         <div className="mt-6">
           <PlaceNearby nearby={place.nearby} placeId={place.id} />
+        </div>
+      )}
+
+      {/* 11. Tours to this place */}
+      {place.tours.length > 0 && (
+        <div className="mt-8">
+          <PlaceTours tours={place.tours} />
         </div>
       )}
 
