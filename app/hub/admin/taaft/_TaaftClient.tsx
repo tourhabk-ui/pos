@@ -94,7 +94,7 @@ export default function TaaftClient() {
           <button
             onClick={() => { setCategory(''); void load(q, ''); }}
             className={`px-3 py-1 rounded-full text-[11px] font-medium transition-colors ${
-              !category ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              !category ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             Все ({stats.byCategory.reduce((s, c) => s + c.count, 0)})
@@ -105,7 +105,7 @@ export default function TaaftClient() {
               onClick={() => { setCategory(c.category); void load(q, c.category); }}
               className={`px-3 py-1 rounded-full text-[11px] font-medium transition-colors ${
                 category === c.category
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >

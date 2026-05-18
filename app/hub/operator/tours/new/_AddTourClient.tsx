@@ -169,7 +169,7 @@ export default function AddTourClient() {
 
         {success && (
           <div className="bg-[var(--success)] bg-opacity-10 border border-[var(--success)] text-[var(--success)] p-3 rounded text-sm">
-            ✅ Тур добавлен! Сейчас откроется список твоих туров...
+            Тур добавлен! Сейчас откроется список туров...
           </div>
         )}
 

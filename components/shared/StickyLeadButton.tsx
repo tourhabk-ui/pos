@@ -110,7 +110,7 @@ export default function StickyLeadButton() {
                     href="https://t.me/KuzmichKam_bot?start=lead"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                     style={{ background: '#2AABEE' }}
                   >
                     <MessageCircle className="w-3.5 h-3.5" /> Telegram
@@ -119,7 +119,7 @@ export default function StickyLeadButton() {
                     href="https://max.ru/id4101147649_bot"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                     style={{ background: '#7C3AED' }}
                   >
                     <MessageCircle className="w-3.5 h-3.5" /> MAX
@@ -187,7 +187,7 @@ export default function StickyLeadButton() {
             trackLeadEvent({ ...LEAD_EVENTS.CLICK_LEAD_BUTTON, source: 'sticky_button' });
           }
         }}
-        className={`fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 px-5 py-4 rounded-full shadow-2xl text-sm font-bold text-white transition-all hover:scale-110 active:scale-95 ${!open ? 'lead-button-pulse' : ''}`}
+        className={`fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 px-5 py-4 rounded-full shadow-2xl text-sm font-bold text-[var(--bg-primary)] transition-all hover:scale-110 active:scale-95 ${!open ? 'lead-button-pulse' : ''}`}
         style={{ background: 'var(--accent)' }}
         aria-label="Оставить заявку на тур"
       >

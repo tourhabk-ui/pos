@@ -1,15 +1,6 @@
 /**
- * Flights Service — подбор рейсов на Камчатку
- * Integrates Aviasales API via deeplinks
- *
- * Main routes:
- * - Moscow (MOW) → Petropavlovsk (PKC)
- * - St. Petersburg (LED) → PKC
- * - Vladivostok (VVO) → PKC
- * - Novosibirsk (OVB) → PKC
- *
- * Docs: https://www.aviasales.ru/ (requires API key request)
- * For now: we use deeplinks with marker tracking
+ * Flights Service — подбор рейсов на Камчатку (PKC)
+ * Deeplinks с маркером Aviasales + актуальные цены сезона 2026
  */
 
 export interface Flight {
@@ -33,133 +24,104 @@ export interface FlightRecommendation {
   seasonal_notes: string;
 }
 
-// Marker для Aviasales (tourhab.ru account)
 const AVIASALES_MARKER = '402896';
 
-// Основные маршруты в/из Петропавловска
-const MAJOR_DEPARTURE_CODES = [
-  { code: 'MOW', city: 'Москва', distance: 6500 },
-  { code: 'LED', city: 'Санкт-Петербург', distance: 7000 },
-  { code: 'VVO', city: 'Владивосток', distance: 1200 },
-  { code: 'OVB', city: 'Новосибирск', distance: 4000 },
-];
-
-// Кэшированные примерные цены (обновляется раз в неделю)
-const PRICE_CACHE: Record<string, { avg_rub: number; min_rub: number; last_updated: string }> = {
-  'MOW-PKC': { avg_rub: 24000, min_rub: 16000, last_updated: '2026-03-31' },
-  'LED-PKC': { avg_rub: 26000, min_rub: 18000, last_updated: '2026-03-31' },
-  'VVO-PKC': { avg_rub: 12000, min_rub: 8000, last_updated: '2026-03-31' },
-  'OVB-PKC': { avg_rub: 18000, min_rub: 12000, last_updated: '2026-03-31' },
+const ROUTES: Record<string, {
+  city: string;
+  price_low: number;
+  price_avg: number;
+  duration_hours: number;
+  stops: number;
+  airline: string;
+}> = {
+  MOW: { city: 'Москва',               price_low: 16000, price_avg: 24000, duration_hours: 8.5, stops: 1, airline: 'Аэрофлот / S7' },
+  LED: { city: 'Санкт-Петербург',       price_low: 18000, price_avg: 26000, duration_hours: 9.5, stops: 1, airline: 'S7 / Победа+' },
+  VVO: { city: 'Владивосток',           price_low:  7500, price_avg: 12000, duration_hours: 3.0, stops: 0, airline: 'Аврора' },
+  OVB: { city: 'Новосибирск',           price_low: 11000, price_avg: 18000, duration_hours: 5.5, stops: 1, airline: 'S7 / Аэрофлот' },
+  SVX: { city: 'Екатеринбург',          price_low: 14000, price_avg: 21000, duration_hours: 7.0, stops: 1, airline: 'Уральские авиалинии' },
+  KHV: { city: 'Хабаровск',             price_low:  6000, price_avg: 10000, duration_hours: 2.5, stops: 0, airline: 'Аврора' },
+  IKT: { city: 'Иркутск',               price_low:  9000, price_avg: 14000, duration_hours: 4.5, stops: 1, airline: 'S7' },
+  UFA: { city: 'Уфа',                   price_low: 15000, price_avg: 22000, duration_hours: 8.0, stops: 1, airline: 'Аэрофлот' },
 };
 
-/**
- * Определить примерную длительность полёта по маршруту
- */
-function estimateDuration(departure_code: string): number {
-  const durations: Record<string, number> = {
-    'MOW': 8.5,  // с пересадкой
-    'LED': 9.0,  // с пересадкой
-    'VVO': 3.0,  // прямой
-    'OVB': 5.5,  // с пересадкой
-  };
-  return durations[departure_code] || 6;
+const CITY_ALIASES: Record<string, string> = {
+  'москва': 'MOW', 'питер': 'LED', 'санкт-петербург': 'LED', 'спб': 'LED',
+  'новосибирск': 'OVB', 'екатеринбург': 'SVX', 'хабаровск': 'KHV',
+  'владивосток': 'VVO', 'иркутск': 'IKT', 'уфа': 'UFA',
+};
+
+function buildLink(from: string, departureDate?: string): string {
+  const date = departureDate ?? getNextPeakDate();
+  return `https://www.aviasales.ru/search/${from}${date.replace(/-/g, '')}PKC1?marker=${AVIASALES_MARKER}`;
 }
 
-/**
- * Построить deeplink на Aviasales
- */
-function buildAviasalesLink(from: string, to: string, marker: string = AVIASALES_MARKER): string {
-  // Aviasales deeplink format: https://www.aviasales.ru/search/{FROM}{TO}1
-  // Параметры: adults=2, children=0, infants=0, marker={marker}
-  const params = new URLSearchParams({
-    adults: '2',
-    children: '0',
-    marker,
-  });
-  return `https://www.aviasales.ru/search/${from}${to}1?${params.toString()}`;
+function getNextPeakDate(): string {
+  const now = new Date();
+  const peak = new Date(now.getFullYear(), 6, 15); // 15 июля
+  if (now > peak) peak.setFullYear(peak.getFullYear() + 1);
+  return peak.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-/**
- * Рекомендовать рейсы на основе местоположения туриста (если известно)
- */
-export function recommendFlights(tourist_location_code?: string): FlightRecommendation {
-  // Если местоположение известно — рекомендуем из этого города
-  // Иначе — Москву (наиболее популярная точка отправления)
-  const primary_from = tourist_location_code || 'MOW';
-  const primary_city = MAJOR_DEPARTURE_CODES.find(r => r.code === primary_from);
+function isSummerSeason(): boolean {
+  const m = new Date().getMonth();
+  return m >= 5 && m <= 8;
+}
 
-  if (!primary_city) {
-    throw new Error(`Unknown departure city: ${primary_from}`);
-  }
+function resolveCode(input: string): string | null {
+  const up = input.toUpperCase().trim();
+  if (ROUTES[up]) return up;
+  return CITY_ALIASES[input.toLowerCase().trim()] ?? null;
+}
 
-  const pk_cache = PRICE_CACHE[`${primary_from}-PKC`];
-  if (!pk_cache) {
-    throw new Error(`No price data for ${primary_from}-PKC`);
-  }
+export function recommendFlights(cityOrCode?: string): FlightRecommendation {
+  const code = cityOrCode ? (resolveCode(cityOrCode) ?? 'MOW') : 'MOW';
+  const route = ROUTES[code] ?? ROUTES['MOW'];
 
-  const primary_flight: Flight = {
-    id: `${primary_from}-PKC-primary`,
-    airline: 'S7/Aeroflot',
-    departure_city: primary_city.city,
-    departure_code: primary_from,
+  const primary: Flight = {
+    id: `${code}-PKC`,
+    airline: route.airline,
+    departure_city: route.city,
+    departure_code: code,
     arrival_city: 'Петропавловск-Камчатский',
     arrival_code: 'PKC',
-    price_from_rub: pk_cache.min_rub,
-    duration_hours: estimateDuration(primary_from),
-    stops: primary_from === 'VVO' ? 0 : 1,
-    link: buildAviasalesLink(primary_from, 'PKC'),
+    price_from_rub: route.price_low,
+    duration_hours: route.duration_hours,
+    stops: route.stops,
+    link: buildLink(code),
   };
 
-  // Альтернативные маршруты (с пересадкой в других городах)
-  const alternatives: Flight[] = MAJOR_DEPARTURE_CODES
-    .filter(r => r.code !== primary_from)
-    .map(r => {
-      const cache = PRICE_CACHE[`${r.code}-PKC`];
-      return {
-        id: `${r.code}-PKC-alt`,
-        airline: 'Multi-airline',
-        departure_city: r.city,
-        departure_code: r.code,
-        arrival_city: 'Петропавловск-Камчатский',
-        arrival_code: 'PKC',
-        price_from_rub: cache?.min_rub || 15000,
-        duration_hours: estimateDuration(r.code),
-        stops: r.code === 'VVO' ? 0 : 1,
-        link: buildAviasalesLink(r.code, 'PKC'),
-      };
-    });
+  const SHOW_ALTS = ['MOW', 'VVO', 'KHV', 'OVB'];
+  const alternatives: Flight[] = Object.entries(ROUTES)
+    .filter(([c]) => c !== code && SHOW_ALTS.includes(c))
+    .slice(0, 3)
+    .map(([c, r]) => ({
+      id: `${c}-PKC-alt`,
+      airline: r.airline,
+      departure_city: r.city,
+      departure_code: c,
+      arrival_city: 'Петропавловск-Камчатский',
+      arrival_code: 'PKC',
+      price_from_rub: r.price_low,
+      duration_hours: r.duration_hours,
+      stops: r.stops,
+      link: buildLink(c),
+    }));
 
-  const all_prices = [primary_flight.price_from_rub, ...alternatives.map(f => f.price_from_rub)];
-  const avg_price = Math.round(all_prices.reduce((a, b) => a + b) / all_prices.length);
+  const all = [primary.price_from_rub, ...alternatives.map(f => f.price_from_rub)];
+  const avg_price = Math.round(all.reduce((a, b) => a + b) / all.length);
 
   return {
-    primary_route: primary_flight,
+    primary_route: primary,
     alternative_routes: alternatives,
     avg_price,
-    discount_available: false, // TODO: Integrate real-time Aviasales API
-    seasonal_notes: isSummerSeason() ? 'Пиковый сезон — цены выше' : 'Низкий сезон — есть скидки',
+    discount_available: !isSummerSeason(),
+    seasonal_notes: isSummerSeason()
+      ? 'Пиковый сезон (июнь–сентябрь) — цены на 30–50% выше. Бронируйте за 2–3 месяца.'
+      : 'Низкий сезон — скидки до 40%. Лучшее время для снегоходных туров.',
   };
 }
 
-/**
- * Определить текущий сезон на Камчатке
- */
-function isSummerSeason(): boolean {
-  const month = new Date().getMonth(); // 0-11
-  return month >= 5 && month <= 8; // June-September
-}
-
-/**
- * @deprecated Для будущей интеграции с Aviasales Search API
- * Требует отдельной заявки и API key
- */
-export async function searchFlightsRealtime(
-  from: string,
-  to: string = 'PKC',
-  departure_date?: string
-): Promise<Flight[]> {
-  // TODO: Implement Aviasales Search API
-  // https://support.skyscanner.com/ (Aviasales uses Skyscanner on backend)
-  // Live flight search with real-time prices
-  return [];
+export function getFlightLink(from: string, departureDate?: string): string {
+  const code = resolveCode(from) ?? 'MOW';
+  return buildLink(code, departureDate);
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { MapPin, Route, Eye, ArrowLeft, Share2, Copy } from 'lucide-react';
 import { useState } from 'react';
 
@@ -52,7 +53,9 @@ function PlaceCard({ place }: { place: Place }) {
   return (
     <Link href={`/places/${place.id}`} className="ds-card group block hover:shadow-md transition-all duration-200">
       {place.image_url ? (
-        <img src={place.image_url} alt={place.name} className="w-full h-40 object-cover rounded-t-lg" />
+        <div className="relative h-40">
+          <Image src={place.image_url} alt={place.name} fill className="object-cover rounded-t-lg" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+        </div>
       ) : (
         <div className="w-full h-40 rounded-t-lg bg-[var(--bg-hover)] flex items-center justify-center">
           <MapPin className="w-8 h-8 text-[var(--text-muted)]" />
@@ -114,8 +117,8 @@ export function CollectionDetailClient({ collection }: { collection: Collection 
     <main className="ds-page min-h-screen pb-16">
       {collection.cover_image && (
         <div className="w-full h-64 md:h-80 relative overflow-hidden">
-          <img src={collection.cover_image} alt={collection.title} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <Image src={collection.cover_image} alt={collection.title} fill className="object-cover" sizes="100vw" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[var(--text-primary)]/60 to-transparent" />
         </div>
       )}
 

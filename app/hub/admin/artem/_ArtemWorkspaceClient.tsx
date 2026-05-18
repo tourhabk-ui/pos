@@ -223,7 +223,7 @@ export function ArtemWorkspaceClient() {
           className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0"
           style={{ background: 'var(--accent)' }}
         >
-          <HardHat className="w-7 h-7 text-white" />
+          <HardHat className="w-7 h-7 text-[var(--bg-primary)]" />
         </div>
         <div>
           <h1 className="ds-h1 text-2xl">Рабочее место МЧС</h1>
@@ -442,7 +442,7 @@ export function ArtemWorkspaceClient() {
             className="ds-btn ds-btn-primary flex items-center gap-2 w-full justify-center"
           >
             {sending ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white" />
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-[var(--border)] border-t-[var(--bg-primary)]" />
             ) : (
               <Send className="w-4 h-4" />
             )}

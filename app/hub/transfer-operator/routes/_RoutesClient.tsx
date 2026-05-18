@@ -62,7 +62,7 @@ export default function RoutesClient() {
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="min-h-[44px] px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl font-medium inline-flex items-center gap-2 transition-colors"
+            className="min-h-[44px] px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] rounded-xl font-medium inline-flex items-center gap-2 transition-colors"
           >
             <Plus className="w-4 h-4" />
             Добавить маршрут
@@ -94,7 +94,7 @@ export default function RoutesClient() {
                 <input type="number" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} className={inputCls} required />
               </label>
             </div>
-            <button type="submit" className="min-h-[44px] px-4 py-2 bg-[var(--accent)] text-white rounded-xl font-medium inline-flex items-center gap-2">
+            <button type="submit" className="min-h-[44px] px-4 py-2 bg-[var(--accent)] text-[var(--bg-primary)] rounded-xl font-medium inline-flex items-center gap-2">
               <Plus className="w-4 h-4" /> Добавить
             </button>
           </form>

@@ -141,7 +141,7 @@ function DeleteConfirmModal({ name, onConfirm, onCancel }: { name: string; onCon
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm bg-[var(--danger)] text-white rounded-lg hover:opacity-90 transition-opacity"
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity"
           >
             Удалить
           </button>

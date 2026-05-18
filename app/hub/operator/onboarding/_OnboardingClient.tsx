@@ -128,7 +128,7 @@ function Step1Profile({
       <button
         onClick={save}
         disabled={saving}
-        className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+        className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg font-medium transition-colors disabled:opacity-50"
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         Сохранить и продолжить
@@ -267,7 +267,7 @@ function Step2Payout({ onFinish }: { onFinish: () => void }) {
         <button
           onClick={save}
           disabled={saving}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
           Завершить настройку

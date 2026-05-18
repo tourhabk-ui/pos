@@ -154,7 +154,7 @@ export function PayoutsManager() {
                 <button
                   onClick={() => handlePayout(g.operator_id, g.operator_name)}
                   disabled={processing === g.operator_id}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--success)] hover:bg-[var(--success)]/90 text-white rounded text-[10px] font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--success)] hover:bg-[var(--success)]/90 text-[var(--bg-primary)] rounded text-[10px] font-medium transition-colors disabled:opacity-50"
                 >
                   <Send className="w-3 h-3" />
                   {processing === g.operator_id ? 'Обработка...' : 'Выплатить'}

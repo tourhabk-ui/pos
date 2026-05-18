@@ -251,7 +251,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                     : null;
                   return (
                     <div key={d.day} className="flex items-center gap-3 px-5 py-3">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-[var(--bg-primary)] shrink-0"
                         style={{ background: ZONE_COLORS[d.zone] ?? 'var(--accent)' }}>
                         {idx + 1}
                       </div>

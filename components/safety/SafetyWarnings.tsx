@@ -49,13 +49,13 @@ const LEVEL_STYLES: Record<string, { bg: string; border: string; text: string; b
     bg: 'bg-[var(--danger)]/10',
     border: 'border-[var(--danger)]/30',
     text: 'text-[var(--danger)]',
-    badge: 'bg-[var(--danger)] text-white',
+    badge: 'bg-[var(--danger)] text-[var(--bg-primary)]',
   },
   danger: {
     bg: 'bg-[var(--danger)]/8',
     border: 'border-[var(--danger)]/20',
     text: 'text-[var(--danger)]',
-    badge: 'bg-[var(--danger)]/80 text-white',
+    badge: 'bg-[var(--danger)]/80 text-[var(--bg-primary)]',
   },
   warning: {
     bg: 'bg-[var(--warning)]/10',
@@ -67,7 +67,7 @@ const LEVEL_STYLES: Record<string, { bg: string; border: string; text: string; b
     bg: 'bg-[var(--ocean)]/8',
     border: 'border-[var(--ocean)]/20',
     text: 'text-[var(--ocean)]',
-    badge: 'bg-[var(--ocean)] text-white',
+    badge: 'bg-[var(--ocean)] text-[var(--bg-primary)]',
   },
 };
 

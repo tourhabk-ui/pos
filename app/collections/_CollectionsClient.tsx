@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, Mountain, Flame, Leaf, Users } from 'lucide-react';
+import Image from 'next/image';
 
 interface Collection {
   id: string;
@@ -34,7 +35,9 @@ function CollectionCard({ col }: { col: Collection }) {
       className="ds-card block group hover:shadow-lg transition-all duration-200"
     >
       {col.cover_image ? (
-        <img src={col.cover_image} alt={col.title} className="w-full h-48 object-cover rounded-t-lg" />
+        <div className="relative h-48">
+          <Image src={col.cover_image} alt={col.title} fill className="object-cover rounded-t-lg" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+        </div>
       ) : (
         <div className="w-full h-48 rounded-t-lg bg-[var(--bg-hover)] flex items-center justify-center">
           <BookOpen className="w-12 h-12 text-[var(--text-muted)]" />
@@ -93,7 +96,7 @@ export function CollectionsClient() {
           <div className="flex flex-wrap gap-2 mb-8">
             <button
               onClick={() => setActiveTag(null)}
-              className={`ds-badge cursor-pointer transition-colors ${!activeTag ? 'bg-[var(--accent)] text-white' : ''}`}
+              className={`ds-badge cursor-pointer transition-colors ${!activeTag ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : ''}`}
             >
               Все
             </button>
@@ -101,7 +104,7 @@ export function CollectionsClient() {
               <button
                 key={tag}
                 onClick={() => setActiveTag(tag === activeTag ? null : tag)}
-                className={`ds-badge cursor-pointer transition-colors ${activeTag === tag ? 'bg-[var(--accent)] text-white' : ''}`}
+                className={`ds-badge cursor-pointer transition-colors ${activeTag === tag ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : ''}`}
               >
                 {tag}
               </button>

@@ -145,10 +145,10 @@ export function SafeRoutesRecommender({
               <span
                 className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                   route.alert_severity >= 2
-                    ? 'bg-[var(--danger)] text-white'
+                    ? 'bg-[var(--danger)] text-[var(--bg-primary)]'
                     : route.status === 'green'
-                      ? 'bg-[var(--success)] text-white'
-                      : 'bg-[var(--warning)] text-white'
+                      ? 'bg-[var(--success)] text-[var(--bg-primary)]'
+                      : 'bg-[var(--warning)] text-[var(--bg-primary)]'
                 }`}
               >
                 {route.alert_severity >= 2 ? 'CLOSED' : route.status.toUpperCase()}

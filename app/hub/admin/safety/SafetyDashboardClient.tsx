@@ -412,7 +412,7 @@ function ArtemWishesChat() {
             <button key={c} onClick={() => setCategory(c)}
               className={`text-[10px] px-2 py-1 rounded font-medium transition-colors ${
                 category === c
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)]'
               }`}>
               {CATEGORY_LABELS[c]}

@@ -150,22 +150,22 @@ function fmtDate(iso: string | null): string {
 
 // ─── Channel card ─────────────────────────────────────────────────────────────
 
-const CHANNEL_META: Record<string, { label: string; color: string; emoji: string }> = {
-  telegram: { label: 'Telegram', color: 'var(--ocean)',   emoji: '✈' },
-  max:      { label: 'Max',      color: 'var(--accent)',  emoji: 'M' },
-  web:      { label: 'Сайт',    color: 'var(--success)', emoji: '🌐' },
+const CHANNEL_META: Record<string, { label: string; color: string; abbr: string }> = {
+  telegram: { label: 'Telegram', color: 'var(--ocean)',   abbr: 'TG' },
+  max:      { label: 'Max',      color: 'var(--accent)',  abbr: 'M' },
+  web:      { label: 'Сайт',    color: 'var(--success)', abbr: 'W' },
 };
 
 function ChannelCard({ id, stats }: { id: string; stats: ChannelStats }) {
-  const meta = CHANNEL_META[id] ?? { label: id, color: 'var(--text-secondary)', emoji: '?' };
+  const meta = CHANNEL_META[id] ?? { label: id, color: 'var(--text-secondary)', abbr: '?' };
   return (
     <div className="ds-card p-5 flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-[var(--bg-primary)] shrink-0"
           style={{ background: meta.color }}
         >
-          {meta.emoji}
+          {meta.abbr}
         </div>
         <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{meta.label}</span>
       </div>
@@ -260,7 +260,7 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                 style={{
                   background: tg.platform === 'max' ? 'var(--accent)' : 'var(--ocean)',
-                  color: 'white',
+                  color: 'var(--bg-primary)',
                 }}
               >
                 {tg.platform === 'max' ? 'Max' : 'TG'}
@@ -268,7 +268,7 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
             )}
             {!isTg && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--success)', color: 'white' }}>
+                style={{ background: 'var(--success)', color: 'var(--bg-primary)' }}>
                 Сайт
               </span>
             )}
@@ -300,7 +300,7 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
             <div key={i} className={`flex gap-2 ${m.role === 'assistant' ? 'flex-row-reverse' : ''}`}>
               <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
                 m.role === 'assistant'
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)]'
               }`}>
                 {m.role === 'assistant'

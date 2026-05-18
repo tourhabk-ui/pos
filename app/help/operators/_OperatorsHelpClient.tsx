@@ -43,7 +43,7 @@ function Accordion({ items }: { items: AccordionItem[] }) {
 function Step({ num, title, desc, icon: Icon }: { num: number; title: string; desc: string; icon: React.ElementType }) {
   return (
     <div className="flex gap-4">
-      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--accent)] text-white flex items-center justify-center font-bold text-sm">
+      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] flex items-center justify-center font-bold text-sm">
         {num}
       </div>
       <div className="flex-1 pb-6 border-b border-[var(--border)] last:border-0 last:pb-0">
@@ -68,7 +68,7 @@ export default function OperatorsHelpClient() {
           </Link>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-lg bg-[var(--accent)] flex items-center justify-center">
-              <Package size={20} className="text-white" />
+              <Package size={20} className="text-[var(--bg-primary)]" />
             </div>
             <span className="text-sm font-medium text-[var(--accent)] uppercase tracking-wider">Для операторов</span>
           </div>
@@ -271,14 +271,14 @@ export default function OperatorsHelpClient() {
         </section>
 
         {/* CTA */}
-        <div className="ds-card p-8 text-center bg-[var(--accent)] text-white rounded-xl">
+        <div className="ds-card p-8 text-center bg-[var(--accent)] text-[var(--bg-primary)] rounded-xl">
           <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: 'var(--font-playfair)' }}>
             Готовы разместить туры?
           </h2>
           <p className="mb-5 opacity-90">Регистрация занимает 2 минуты. Первый тур — ещё 5.</p>
           <Link
             href="/auth/register-operator"
-            className="inline-flex items-center gap-2 bg-white text-[var(--accent)] px-6 py-3 rounded-lg font-semibold hover:bg-opacity-90 transition-colors"
+            className="inline-flex items-center gap-2 bg-[var(--bg-card)] text-[var(--accent)] px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
           >
             Зарегистрироваться как оператор <ArrowRight size={18} />
           </Link>

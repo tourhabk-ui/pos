@@ -249,7 +249,7 @@ export default function OperatorDashboardClient() {
                   Создайте первый тур — это займёт 5 минут
                 </p>
                 <Link href="/hub/operator/tours/new"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-[var(--bg-primary)] transition-colors"
                   style={{ background: 'var(--accent)' }}>
                   <Plus className="w-4 h-4" /> Создать тур
                 </Link>

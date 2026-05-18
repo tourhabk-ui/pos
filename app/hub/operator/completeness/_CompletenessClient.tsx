@@ -163,7 +163,7 @@ export default function CompletenessClient() {
 
   const handleAutoFillAI = async (tourId: string, tourTitle: string) => {
     try {
-      const loadingToast = toast.loading(`🤖 AI заполняет ${tourTitle}...`);
+      const loadingToast = toast.loading(`AI заполняет ${tourTitle}...`);
       const res = await fetch('/api/operator/tours/auto-fill-ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,7 +177,7 @@ export default function CompletenessClient() {
       toast.dismiss(loadingToast);
 
       if (filled > 0) {
-        toast.success(`✨ AI заполнил ${filled} полей!`);
+        toast.success(`AI заполнил ${filled} полей!`);
         await fetchData();
       } else {
         toast.error('Нечего заполнять');
@@ -342,7 +342,7 @@ export default function CompletenessClient() {
                   {/* Edit link */}
                   <Link
                     href={`/hub/operator/tours/${tour.tour_id}`}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-hover)] rounded hover:bg-[var(--accent)] hover:text-white transition-colors flex-shrink-0"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-hover)] rounded hover:bg-[var(--accent)] hover:text-[var(--bg-primary)] transition-colors flex-shrink-0"
                   >
                     Редакт.
                   </Link>
@@ -425,7 +425,7 @@ export default function CompletenessClient() {
                     {(tour.missing_required.length > 0 || tour.missing_recommended.length > 0) && (
                       <button
                         onClick={() => handleAutoFillAI(tour.tour_id, tour.tour_title)}
-                        className="w-full mt-3 px-3 py-2 text-xs font-medium text-white bg-gradient-to-r from-[var(--accent)] to-[var(--ocean)] rounded hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
+                        className="w-full mt-3 px-3 py-2 text-xs font-medium text-[var(--bg-primary)] bg-gradient-to-r from-[var(--accent)] to-[var(--ocean)] rounded hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
                       >
                         <ZapIcon className="w-3.5 h-3.5" />
                         Auto-fill AI (заполнить AI)
@@ -530,11 +530,11 @@ export default function CompletenessClient() {
               <button
                 onClick={handleSaveQuickFill}
                 disabled={quickFill.saving}
-                className="flex-1 px-3 py-2 text-sm text-white bg-[var(--accent)] rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="flex-1 px-3 py-2 text-sm text-[var(--bg-primary)] bg-[var(--accent)] rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {quickFill.saving ? (
                   <>
-                    <div className="w-3 h-3 border-2 border-[rgba(255,255,255,0.3)] border-t-white rounded-full animate-spin" />
+                    <div className="w-3 h-3 border-2 border-[rgba(255,255,255,0.3)] border-t-[var(--bg-primary)] rounded-full animate-spin" />
                     Сохранение...
                   </>
                 ) : (

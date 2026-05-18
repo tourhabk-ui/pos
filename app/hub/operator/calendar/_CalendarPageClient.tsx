@@ -312,7 +312,7 @@ function BookingCard({
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors"
               style={{ background: 'var(--success)', color: '#fff' }}>
               {isUpdating
-                ? <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                ? <div className="w-3 h-3 border border-[var(--border)] border-t-[var(--bg-primary)] rounded-full animate-spin" />
                 : <Check className="w-3.5 h-3.5" />}
               Подтвердить
             </button>
@@ -679,7 +679,7 @@ export default function CalendarPageClient() {
                 <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                   Бронирования ({selectedDay.bookings.length})
                   {selectedDay.newCount > 0 && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-white text-[10px]"
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[var(--bg-primary)] text-[10px]"
                       style={{ background: 'var(--warning)' }}>
                       {selectedDay.newCount} новых
                     </span>

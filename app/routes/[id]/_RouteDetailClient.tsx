@@ -481,7 +481,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
             <Image src={heroImage!} alt={route.title} fill className="object-contain" priority sizes="100vw" />
           )}
           {isAiHero && (
-            <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">
+            <div className="dark absolute bottom-3 right-3 bg-[var(--bg-primary)]/70 text-[var(--text-primary)] text-xs px-2 py-0.5 rounded flex items-center gap-1">
               <span>AI</span><span className="opacity-70">· временное фото</span>
             </div>
           )}
@@ -851,7 +851,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   </a>
                   <a
                     href={`omaps://map?ll=${route.lng},${route.lat}&z=12`}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-500 text-sm font-semibold hover:bg-green-500/20 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)] text-sm font-semibold hover:bg-[var(--success)]/20 transition-colors"
                   >
                     <Navigation className="w-4 h-4" /> Organic Maps
                   </a>
@@ -951,7 +951,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     href={`https://t.me/KuzmichKam_bot?start=route_${route.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                     style={{ background: '#2AABEE' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> Telegram
@@ -960,7 +960,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     href="https://max.ru/id4101147649_bot"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                     style={{ background: '#7C3AED' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> MAX
@@ -984,7 +984,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     </a>
                     <a
                       href={`omaps://map?ll=${route.lng},${route.lat}&z=12`}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-500 text-xs font-semibold hover:bg-green-500/20 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)] text-xs font-semibold hover:bg-[var(--success)]/20 transition-colors"
                     >
                       <Navigation className="w-3.5 h-3.5" /> Organic Maps
                     </a>
@@ -1051,7 +1051,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   )}
                   <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
                     target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all hover:shadow-sm text-white"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all hover:shadow-sm text-[var(--bg-primary)]"
                     style={{ background: 'var(--danger)' }}>
                     <ShieldAlert className="w-4 h-4" />
                     Зарегистрировать группу онлайн

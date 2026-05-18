@@ -51,7 +51,7 @@ export default function TouristsHelpClient() {
           </Link>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-lg bg-[var(--ocean)] flex items-center justify-center">
-              <Map size={20} className="text-white" />
+              <Map size={20} className="text-[var(--bg-primary)]" />
             </div>
             <span className="text-sm font-medium text-[var(--ocean)] uppercase tracking-wider">Для туристов</span>
           </div>
@@ -143,7 +143,7 @@ export default function TouristsHelpClient() {
                 { n: 4, t: 'Оплатите', d: 'CloudPayments — карта Visa/MC/МИР, СБП. Оплата защищена 3D-Secure. Подтверждение приходит мгновенно.' },
               ].map(({ n, t, d }) => (
                 <div key={n} className="flex gap-4">
-                  <div className="w-7 h-7 rounded-full bg-[var(--ocean)] text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-[var(--ocean)] text-[var(--bg-primary)] flex items-center justify-center text-sm font-bold flex-shrink-0">
                     {n}
                   </div>
                   <div>
@@ -285,14 +285,14 @@ export default function TouristsHelpClient() {
         </section>
 
         {/* CTA */}
-        <div className="ds-card p-8 text-center bg-[var(--ocean)] text-white rounded-xl">
+        <div className="ds-card p-8 text-center bg-[var(--ocean)] text-[var(--bg-primary)] rounded-xl">
           <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: 'var(--font-playfair)' }}>
             Готовы открыть Камчатку?
           </h2>
           <p className="mb-5 opacity-90">1189 маршрутов. Вулканы, медведи, термальные источники, сплавы.</p>
           <Link
             href="/marketplace"
-            className="inline-flex items-center gap-2 bg-white text-[var(--ocean)] px-6 py-3 rounded-lg font-semibold hover:bg-opacity-90 transition-colors"
+            className="inline-flex items-center gap-2 bg-[var(--bg-card)] text-[var(--ocean)] px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
           >
             Смотреть все туры <ArrowRight size={18} />
           </Link>

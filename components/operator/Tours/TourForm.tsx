@@ -356,7 +356,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
             <button
               type="button"
               onClick={() => handleChange('tourImage', '')}
-              className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70"
+              className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-[var(--bg-primary)] hover:bg-black/70"
             >
               <X className="w-4 h-4" />
             </button>

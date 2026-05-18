@@ -126,7 +126,7 @@ function PhotoGallery({ images, alt }: { images: string[]; alt: string }) {
             className="object-contain group-hover:scale-105 transition-transform duration-500"
             sizes="(max-width: 768px) 100vw, 50vw"
           />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+          <div className="absolute inset-0 bg-[var(--text-primary)]/0 group-hover:bg-[var(--text-primary)]/10 transition-colors" />
         </button>
 
         {/* Thumbnails */}
@@ -143,10 +143,10 @@ function PhotoGallery({ images, alt }: { images: string[]; alt: string }) {
               className="object-contain bg-[var(--bg-hover)] group-hover:scale-105 transition-transform duration-500"
               sizes="25vw"
             />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+            <div className="absolute inset-0 bg-[var(--text-primary)]/0 group-hover:bg-[var(--text-primary)]/10 transition-colors" />
             {i === 3 && images.length > 5 && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                <span className="text-white font-semibold text-lg">+{images.length - 5}</span>
+              <div className="absolute inset-0 bg-[var(--text-primary)]/60 flex items-center justify-center">
+                <span className="text-[var(--bg-primary)] font-semibold text-lg">+{images.length - 5}</span>
               </div>
             )}
           </button>
@@ -156,7 +156,7 @@ function PhotoGallery({ images, alt }: { images: string[]; alt: string }) {
         {images.length > 1 && (
           <button
             onClick={() => setLightbox(0)}
-            className="md:hidden absolute bottom-3 right-3 bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-full"
+            className="md:hidden absolute bottom-3 right-3 bg-[var(--text-primary)]/60 text-[var(--bg-primary)] text-xs font-medium px-3 py-1.5 rounded-full"
           >
             1 / {images.length}
           </button>
@@ -188,12 +188,12 @@ function Lightbox({ images, alt, startIdx, onClose }: {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+      className="dark fixed inset-0 z-50 bg-[var(--bg-primary)]/95 flex items-center justify-center"
       onClick={onClose}
     >
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors z-10"
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[var(--bg-card)]/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-card)]/50 transition-colors z-10"
         aria-label="Закрыть"
       >
         <X className="w-5 h-5" />
@@ -213,14 +213,14 @@ function Lightbox({ images, alt, startIdx, onClose }: {
         <>
           <button
             onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + images.length) % images.length); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors"
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-[var(--bg-card)]/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-card)]/50 transition-colors"
             aria-label="Назад"
           >
             <ChevronRight className="w-6 h-6 rotate-180" />
           </button>
           <button
             onClick={e => { e.stopPropagation(); setIdx(i => (i + 1) % images.length); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors"
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-[var(--bg-card)]/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-card)]/50 transition-colors"
             aria-label="Далее"
           >
             <ChevronRight className="w-6 h-6" />
@@ -230,7 +230,7 @@ function Lightbox({ images, alt, startIdx, onClose }: {
               <button
                 key={i}
                 onClick={e => { e.stopPropagation(); setIdx(i); }}
-                className={`w-2 h-2 rounded-full transition-all ${i === idx ? 'bg-white w-5' : 'bg-white/40'}`}
+                className={`w-2 h-2 rounded-full transition-all ${i === idx ? 'bg-[var(--text-primary)] w-5' : 'bg-[var(--text-primary)]/40'}`}
                 aria-label={`Фото ${i + 1}`}
               />
             ))}

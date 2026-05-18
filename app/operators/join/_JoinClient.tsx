@@ -86,7 +86,7 @@ export default function JoinClient() {
         <div className="text-center space-y-4">
           <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto"
             style={{ background: 'var(--success)' }}>
-            <Check className="w-8 h-8 text-white" />
+            <Check className="w-8 h-8 text-[var(--bg-primary)]" />
           </div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
             Добро пожаловать!
@@ -127,7 +127,7 @@ export default function JoinClient() {
               <li key={perk} className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5"
                   style={{ background: 'var(--success)' }}>
-                  <Check className="w-3 h-3 text-white" />
+                  <Check className="w-3 h-3 text-[var(--bg-primary)]" />
                 </div>
                 <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{perk}</span>
               </li>
@@ -229,7 +229,7 @@ export default function JoinClient() {
                   background: form.pd_consent ? 'var(--accent)' : 'transparent',
                 }}
               >
-                {form.pd_consent && <Check className="w-2.5 h-2.5 text-white" />}
+                {form.pd_consent && <Check className="w-2.5 h-2.5 text-[var(--bg-primary)]" />}
               </div>
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Я согласен на{' '}
@@ -251,7 +251,7 @@ export default function JoinClient() {
               className="w-full ds-btn ds-btn-primary flex items-center justify-center gap-2 py-3"
             >
               {loading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--bg-primary)] rounded-full animate-spin" />
               ) : (
                 <>
                   Зарегистрироваться

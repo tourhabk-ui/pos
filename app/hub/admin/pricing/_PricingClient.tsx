@@ -243,7 +243,7 @@ function CreateForm({
         <button
           onClick={save}
           disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Сохранить
@@ -383,7 +383,7 @@ export default function PricingClient() {
           </div>
           <button
             onClick={() => setShowForm(v => !v)}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             {showForm ? 'Отмена' : 'Добавить правило'}
@@ -429,7 +429,7 @@ export default function PricingClient() {
                 onClick={() => setFilter(t)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                   filter === t
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                     : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                 }`}
               >

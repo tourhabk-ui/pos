@@ -318,7 +318,7 @@ export default function EditTourClient() {
             Отмена
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
+            className="flex items-center gap-1.5 px-4 py-2 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg font-medium transition-colors disabled:opacity-50">
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
@@ -388,7 +388,7 @@ export default function EditTourClient() {
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-1.5">
                   <button type="button"
                     onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
-                    className="p-1.5 bg-[var(--danger)] rounded-lg text-white hover:bg-[var(--danger)]/80">
+                    className="p-1.5 bg-[var(--danger)] rounded-lg text-[var(--bg-primary)] hover:bg-[var(--danger)]/80">
                     <X className="w-3.5 h-3.5" />
                   </button>
                   {idx > 0 && (
@@ -403,7 +403,7 @@ export default function EditTourClient() {
                   )}
                 </div>
                 {idx === 0 && (
-                  <span className="absolute top-1 left-1 text-[9px] bg-[var(--accent)] text-white px-1.5 py-0.5 rounded font-medium">Главное</span>
+                  <span className="absolute top-1 left-1 text-[9px] bg-[var(--accent)] text-[var(--bg-primary)] px-1.5 py-0.5 rounded font-medium">Главное</span>
                 )}
               </div>
             ))}
@@ -636,7 +636,7 @@ export default function EditTourClient() {
             type="button"
             onClick={addAvailSlot}
             disabled={addingSlot || !newDate || !newSlots}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[var(--accent)] text-white rounded-lg font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-40 whitespace-nowrap"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[var(--accent)] text-[var(--bg-primary)] rounded-lg font-medium hover:bg-[var(--accent)]/90 transition-colors disabled:opacity-40 whitespace-nowrap"
           >
             {addingSlot ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
             Добавить
@@ -696,7 +696,7 @@ export default function EditTourClient() {
           Отмена
         </button>
         <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 text-sm bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
+          className="flex items-center gap-2 px-5 py-2.5 text-sm bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg font-medium transition-colors disabled:opacity-50">
           <Save className="w-4 h-4" />
           {saving ? 'Сохранение...' : 'Сохранить изменения'}
         </button>

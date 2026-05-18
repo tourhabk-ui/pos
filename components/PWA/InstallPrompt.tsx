@@ -47,7 +47,7 @@ export function InstallPrompt() {
   if (hidden || !show || !deferredPrompt) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-[var(--bg-card)] shadow-lg rounded-2xl p-4 z-50 border border-[var(--border)]">
+    <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-[var(--bg-card)] shadow-lg rounded-lg p-4 z-50 border border-[var(--border)]">
       <div className="flex items-start gap-3">
         {/* Иконка — SVG placeholder, будет заменена на PWA иконку */}
         <div className="w-12 h-12 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
@@ -63,7 +63,7 @@ export function InstallPrompt() {
           <div className="flex gap-2 mt-3">
             <button
               onClick={handleInstall}
-              className="px-4 py-2 bg-[var(--accent)] text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
+              className="px-4 py-2 bg-[var(--accent)] text-[var(--bg-primary)] rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
             >
               Установить
             </button>

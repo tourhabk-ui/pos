@@ -25,7 +25,14 @@ interface AnalyticsData {
 const formatRub = (val: number) =>
   new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(val);
 
-const MetricCard = ({ icon: Icon, label, value, subtext }: any) => (
+interface MetricCardProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  subtext?: string;
+}
+
+const MetricCard = ({ icon: Icon, label, value, subtext }: MetricCardProps) => (
   <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
     <div className="flex items-start justify-between">
       <div className="flex-1">

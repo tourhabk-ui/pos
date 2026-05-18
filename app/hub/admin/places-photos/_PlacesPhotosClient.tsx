@@ -136,7 +136,7 @@ export default function PlacesPhotosClient() {
               className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
               style={{
                 background: filter === v ? 'var(--accent)' : 'var(--bg-card)',
-                color: filter === v ? 'white' : 'var(--text-primary)',
+                color: filter === v ? 'var(--bg-primary)' : 'var(--text-primary)',
                 border: `1px solid ${filter === v ? 'var(--accent)' : 'var(--border)'}`,
               }}
             >
@@ -179,7 +179,7 @@ export default function PlacesPhotosClient() {
                   </div>
                 )}
                 {place.hasPhoto && (
-                  <span className="absolute top-2 right-2 text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-[var(--success)] text-white">
+                  <span className="absolute top-2 right-2 text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-[var(--success)] text-[var(--bg-primary)]">
                     Есть фото
                   </span>
                 )}

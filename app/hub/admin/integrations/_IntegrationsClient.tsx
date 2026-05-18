@@ -129,7 +129,7 @@ function CreateForm({ onCreated }: { onCreated: (key: OctoKey & { api_key: strin
       <button
         onClick={create}
         disabled={saving}
-        className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+        className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
         Создать
@@ -337,7 +337,7 @@ export default function IntegrationsClient() {
           </div>
           <button
             onClick={() => setShowForm(v => !v)}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             {showForm ? 'Отмена' : 'Создать ключ'}

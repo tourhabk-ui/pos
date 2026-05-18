@@ -220,7 +220,7 @@ export default function AuthPageClient() {
               onClick={() => switchMode(m)}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
                 mode === m
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >
@@ -277,7 +277,7 @@ export default function AuthPageClient() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+              className="w-full py-2.5 bg-[var(--accent)] text-[var(--bg-primary)] text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {loading ? 'Вход...' : 'Войти'}
             </button>
@@ -469,7 +469,7 @@ export default function AuthPageClient() {
               <button
                 type="submit"
                 disabled={loading || !pdConsent}
-                className="w-full py-2.5 bg-[var(--accent)] text-white text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+                className="w-full py-2.5 bg-[var(--accent)] text-[var(--bg-primary)] text-sm font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {loading ? 'Регистрация...' : 'Зарегистрироваться'}
               </button>

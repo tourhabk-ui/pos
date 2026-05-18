@@ -149,7 +149,7 @@ export default function KnowledgeBasePage() {
           </div>
           <button
             type="submit"
-            className="px-3 py-2 text-xs bg-[var(--accent)] text-white rounded-md hover:opacity-90 transition-opacity"
+            className="px-3 py-2 text-xs bg-[var(--accent)] text-[var(--bg-primary)] rounded-md hover:opacity-90 transition-opacity"
           >
             Найти
           </button>

@@ -66,7 +66,7 @@ export function LeadCTASection() {
                 href={BOT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-white transition-opacity hover:opacity-90"
+                className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                 style={{ background: '#2AABEE' }}
               >
                 <MessageCircle className="w-5 h-5" />
@@ -78,7 +78,7 @@ export function LeadCTASection() {
                 href="https://max.ru/id4101147649_bot"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-white transition-opacity hover:opacity-90"
+                className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90"
                 style={{ background: '#7C3AED' }}
               >
                 <MessageCircle className="w-5 h-5" />
@@ -99,13 +99,13 @@ export function LeadCTASection() {
                   >
                     <CheckCircle className="w-7 h-7" style={{ color: 'var(--success)' }} />
                   </div>
-                  <p className="text-white font-semibold mb-1">Заявка принята!</p>
+                  <p className="text-[var(--text-primary)] font-semibold mb-1">Заявка принята!</p>
                   <p className="text-[var(--text-secondary)] text-sm">Менеджер свяжется с вами скоро.</p>
                 </div>
               ) : (
                 <form onSubmit={submit} className="space-y-3">
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                     <input
                       type="text"
                       value={name}
@@ -117,7 +117,7 @@ export function LeadCTASection() {
                     />
                   </div>
                   <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                     <input
                       type="tel"
                       value={phone}
@@ -136,13 +136,13 @@ export function LeadCTASection() {
                   <button
                     type="submit"
                     disabled={state === 'sending' || !name.trim() || !phone.trim()}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
                     style={{ background: 'var(--accent)' }}
                   >
                     <Send className="w-4 h-4" />
                     {state === 'sending' ? 'Отправляю...' : 'Получить предложение'}
                   </button>
-                  <p className="text-xs text-white/30 text-center">
+                  <p className="text-xs text-[var(--text-muted)] text-center">
                     Нажимая кнопку, вы соглашаетесь на обработку персональных данных
                   </p>
                 </form>

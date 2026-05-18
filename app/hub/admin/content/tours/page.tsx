@@ -464,7 +464,7 @@ function EditModal({ tour, onClose, onSave }: {
                       <button
                         type="button"
                         onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
-                        className="p-1 bg-[var(--danger)] rounded text-white hover:bg-[var(--danger)]/80"
+                        className="p-1 bg-[var(--danger)] rounded text-[var(--bg-primary)] hover:bg-[var(--danger)]/80"
                         title="Удалить фото"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -486,7 +486,7 @@ function EditModal({ tour, onClose, onSave }: {
                         >→</button>
                       )}
                     </div>
-                    <span className="absolute bottom-0.5 left-1 text-[9px] text-white/80 bg-black/50 px-1 rounded">{idx + 1}</span>
+                    <span className="absolute bottom-0.5 left-1 text-[9px] text-[var(--bg-primary)]/80 bg-black/50 px-1 rounded">{idx + 1}</span>
                   </div>
                 ))}
               </div>
@@ -569,7 +569,7 @@ function EditModal({ tour, onClose, onSave }: {
             Отмена
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded font-medium transition-colors disabled:opacity-50">
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded font-medium transition-colors disabled:opacity-50">
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>

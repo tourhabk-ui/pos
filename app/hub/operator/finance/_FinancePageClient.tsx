@@ -164,7 +164,7 @@ function PayoutDetailsForm({ initialMethod }: { initialMethod: string | null }) 
 
         <button
           onClick={handleSave} disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-[var(--bg-primary)] rounded text-xs font-medium transition-colors disabled:opacity-50"
         >
           <Save className="w-3.5 h-3.5" />
           {saving ? 'Сохранение...' : 'Сохранить реквизиты'}

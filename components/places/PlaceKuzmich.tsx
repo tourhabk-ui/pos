@@ -15,7 +15,7 @@ export default function PlaceKuzmich({ placeId, placeName, kuzmichReview }: Prop
     <section className="max-w-3xl mx-auto px-4">
       <div className="ds-card p-5 border-l-4 border-[var(--ocean)]">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-full bg-[var(--ocean)] flex items-center justify-center flex-shrink-0 text-white text-sm font-bold">
+          <div className="w-9 h-9 rounded-full bg-[var(--ocean)] flex items-center justify-center flex-shrink-0 text-[var(--bg-primary)] text-sm font-bold">
             К
           </div>
           <div className="flex-1 min-w-0">

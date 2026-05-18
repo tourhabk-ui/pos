@@ -73,7 +73,7 @@ export function MapLazy() {
                    bg-black/0 group-hover:bg-black/25 transition-colors"
       >
         <span
-          className="px-5 py-2.5 bg-white/95 rounded-full text-sm font-medium
+          className="px-5 py-2.5 bg-[var(--bg-card)] rounded-full text-sm font-medium
                      shadow-lg opacity-0 group-hover:opacity-100 transition-opacity
                      text-[var(--text-primary)]"
         >

@@ -112,11 +112,11 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             className="w-full h-full flex items-center justify-center"
             style={{ background: placeholderBg }}
           >
-            <Icon className="w-12 h-12 text-white opacity-20" />
+            <Icon className="w-12 h-12 text-[var(--bg-primary)] opacity-20" />
           </div>
         )}
         {/* Type badge */}
-        <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>
+        <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-[var(--bg-primary)]" style={{ background: 'rgba(0,0,0,0.55)' }}>
           <Icon className="w-3 h-3" />
           {label}
         </span>

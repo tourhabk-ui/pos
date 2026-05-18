@@ -473,7 +473,7 @@ export default function SafetyHubClient() {
             {sosStatus === 'idle' && (
               <button
                 onClick={handleSOS}
-                className="px-8 py-3 rounded-lg text-lg font-bold text-white transition-opacity hover:opacity-90 active:scale-95"
+                className="px-8 py-3 rounded-lg text-lg font-bold text-[var(--bg-primary)] transition-opacity hover:opacity-90 active:scale-95"
                 style={{ background: 'var(--danger)' }}
               >
                 ВЫЗВАТЬ SOS
@@ -632,7 +632,7 @@ export default function SafetyHubClient() {
                     </div>
                   )}
                   <div
-                    className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+                    className="max-w-[80%] px-4 py-3 rounded-lg text-sm leading-relaxed whitespace-pre-wrap"
                     style={msg.role === 'assistant'
                       ? { background: 'var(--bg-hover)', color: 'var(--text-primary)', borderRadius: '4px 16px 16px 16px' }
                       : { background: 'var(--danger)', color: '#fff', borderRadius: '16px 4px 16px 16px' }
@@ -648,7 +648,7 @@ export default function SafetyHubClient() {
                     style={{ background: 'color-mix(in srgb, var(--danger) 15%, transparent)' }}>
                     <Bot className="w-4 h-4" style={{ color: 'var(--danger)' }} />
                   </div>
-                  <div className="px-4 py-3 rounded-2xl text-sm" style={{ background: 'var(--bg-hover)', borderRadius: '4px 16px 16px 16px' }}>
+                  <div className="px-4 py-3 rounded-lg text-sm" style={{ background: 'var(--bg-hover)', borderRadius: '4px 16px 16px 16px' }}>
                     <span className="flex gap-1 items-center text-[var(--text-muted)]">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '0ms' }} />
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -678,7 +678,7 @@ export default function SafetyHubClient() {
                   style={{ background: 'var(--danger)' }}
                   aria-label="Отправить"
                 >
-                  <Send className="w-4 h-4 text-white" />
+                  <Send className="w-4 h-4 text-[var(--bg-primary)]" />
                 </button>
               </div>
 
@@ -889,8 +889,8 @@ export default function SafetyHubClient() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                 style={{ background: DANGER_LEVEL[3].color }}
               >
-                <span className="text-white font-bold text-lg leading-none">3</span>
-                <span className="text-white text-xs font-medium">/ 5</span>
+                <span className="text-[var(--bg-primary)] font-bold text-lg leading-none">3</span>
+                <span className="text-[var(--bg-primary)] text-xs font-medium">/ 5</span>
               </div>
             </div>
             <p className="text-sm font-semibold mb-1" style={{ color: DANGER_LEVEL[3].color }}>
@@ -916,7 +916,7 @@ export default function SafetyHubClient() {
                     style={isActive ? { background: d.bg } : {}}
                   >
                     <div
-                      className="w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-white flex-shrink-0"
+                      className="w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-[var(--bg-primary)] flex-shrink-0"
                       style={{ background: d.color }}
                     >
                       {level}
@@ -951,7 +951,7 @@ export default function SafetyHubClient() {
                       <p className="text-xs text-[var(--text-muted)] mt-0.5">{zone.note}</p>
                     </div>
                     <div
-                      className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-white"
+                      className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-[var(--bg-primary)]"
                       style={{ background: d.color }}
                       title={d.label}
                     >
@@ -1029,7 +1029,7 @@ export default function SafetyHubClient() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div
-                          className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white"
+                          className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-[var(--bg-primary)]"
                           style={{ background: magColor(ev.magnitude) }}
                         >
                           {ev.magnitude.toFixed(1)}

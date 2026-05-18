@@ -137,7 +137,7 @@ export default function LeadsClient() {
               onClick={() => setTab(t.key)}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 tab === t.key
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >

@@ -522,7 +522,7 @@ export default function PartnersManagement() {
                           type="button"
                           onClick={() => handleDeleteImage('hero')}
                           disabled={uploadingType !== null}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/90 rounded-lg text-xs text-white font-medium hover:bg-[var(--danger)] transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/90 rounded-lg text-xs text-[var(--bg-primary)] font-medium hover:bg-[var(--danger)] transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                           Удалить
@@ -530,7 +530,7 @@ export default function PartnersManagement() {
                       </div>
                       {uploadingType === 'hero' && (
                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                          <span className="text-white text-xs">Загрузка...</span>
+                          <span className="text-[var(--bg-primary)] text-xs">Загрузка...</span>
                         </div>
                       )}
                     </div>
@@ -699,7 +699,7 @@ export default function PartnersManagement() {
                   <button
                     onClick={handleSave}
                     disabled={saving || !editForm.name.trim()}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--accent)] text-white text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--accent)] text-[var(--bg-primary)] text-xs font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />
                     {saving ? 'Сохранение...' : 'Сохранить'}

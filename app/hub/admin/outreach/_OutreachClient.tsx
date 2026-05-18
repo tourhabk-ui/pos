@@ -138,7 +138,7 @@ export default function OutreachClient() {
               onClick={() => setTab(t.value)}
               className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
                 tab === t.value
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                   : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
               }`}
             >

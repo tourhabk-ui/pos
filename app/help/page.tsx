@@ -31,7 +31,7 @@ export default function HelpPage() {
             className="ds-card p-7 hover:bg-[var(--bg-hover)] transition-colors group"
           >
             <div className="w-12 h-12 rounded-xl bg-[var(--ocean)] flex items-center justify-center mb-4">
-              <Map size={24} className="text-white" />
+              <Map size={24} className="text-[var(--bg-primary)]" />
             </div>
             <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2 group-hover:text-[var(--ocean)] transition-colors">
               Туристам
@@ -49,7 +49,7 @@ export default function HelpPage() {
             className="ds-card p-7 hover:bg-[var(--bg-hover)] transition-colors group"
           >
             <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center mb-4">
-              <Package size={24} className="text-white" />
+              <Package size={24} className="text-[var(--bg-primary)]" />
             </div>
             <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2 group-hover:text-[var(--accent)] transition-colors">
               Операторам

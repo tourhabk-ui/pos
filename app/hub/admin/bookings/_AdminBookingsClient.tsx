@@ -110,7 +110,7 @@ export default function AdminBookingsClient() {
                 onClick={() => setStatusFilter(s)}
                 className={`min-h-[44px] px-3 py-2 rounded-lg text-sm whitespace-nowrap ${
                   statusFilter === s
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--bg-primary)]'
                     : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)]'
                 }`}
               >

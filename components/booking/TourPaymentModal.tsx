@@ -405,14 +405,14 @@ export default function TourPaymentModal({
                             onClick={() => setBookingDate(s.date)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                               selected
-                                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                                ? 'bg-[var(--accent)] border-[var(--accent)] text-[var(--bg-primary)]'
                                 : low
                                   ? 'bg-[var(--warning)]/10 border-[var(--warning)]/40 text-[var(--warning)] hover:bg-[var(--warning)]/20'
                                   : 'bg-[var(--bg-hover)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
                             }`}
                           >
                             {label}
-                            <span className={`ml-1 text-[10px] ${selected ? 'text-white/80' : 'text-[var(--text-muted)]'}`}>
+                            <span className={`ml-1 text-[10px] ${selected ? 'text-[var(--bg-primary)]/80' : 'text-[var(--text-muted)]'}`}>
                               {s.free_slots} м.
                             </span>
                           </button>

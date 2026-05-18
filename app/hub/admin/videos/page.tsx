@@ -147,12 +147,12 @@ export default function AdminVideosPage() {
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                   {slot.status === 'idle' && (
                     <div className="text-center">
-                      <Upload className="w-6 h-6 text-white mx-auto mb-1" />
-                      <span className="text-white text-xs">Перетащи или нажми</span>
+                      <Upload className="w-6 h-6 text-[var(--bg-primary)] mx-auto mb-1" />
+                      <span className="text-[var(--bg-primary)] text-xs">Перетащи или нажми</span>
                     </div>
                   )}
                   {slot.status === 'uploading' && (
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                    <Loader2 className="w-6 h-6 text-[var(--bg-primary)] animate-spin" />
                   )}
                   {slot.status === 'done' && (
                     <CheckCircle className="w-7 h-7 text-[var(--success)] drop-shadow" />

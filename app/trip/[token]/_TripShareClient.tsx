@@ -132,7 +132,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="flex-none w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
+                    <div className="flex-none w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-[var(--bg-primary)]"
                       style={{ background: zoneColor }}>
                       {day.day}
                     </div>
