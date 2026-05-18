@@ -33,7 +33,7 @@ interface MetricCardProps {
 
 function MetricCard({ title, value, icon: Icon, iconColor, bgColor, trend, change, suffix }: MetricCardProps) {
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 hover:bg-[var(--bg-hover)] transition-all duration-300">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 lg:p-6 hover:bg-[var(--bg-hover)] transition-all duration-300">
       <div className="flex items-start justify-between mb-4">
         <div className={`p-3 rounded-xl ${bgColor}`}>
           <Icon className={`w-6 h-6 ${iconColor}`} />
@@ -76,7 +76,7 @@ export function OperatorMetricsGrid({ metrics, loading = false }: OperatorMetric
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
         {[...Array(8)].map((_, metricIndex) => (
           <div key={`skeleton-${metricIndex}`} className="bg-[var(--bg-card)] rounded-lg p-6 animate-pulse">
             <div className="w-12 h-12 bg-[var(--bg-hover)] rounded-xl mb-4" />
@@ -89,7 +89,7 @@ export function OperatorMetricsGrid({ metrics, loading = false }: OperatorMetric
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
       <MetricCard
         title="Активные туры"
         value={metrics.activeTours}
