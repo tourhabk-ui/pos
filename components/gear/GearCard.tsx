@@ -70,8 +70,8 @@ export function GearCard({ gear, onRent }: GearCardProps) {
         {/* Availability badge */}
         <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${
           gear.availableQuantity > 0
-            ? 'bg-green-500/90 text-white'
-            : 'bg-red-500/90 text-white'
+            ? 'bg-green-500/90 text-[var(--bg-primary)]'
+            : 'bg-red-500/90 text-[var(--bg-primary)]'
         }`}>
           {gear.availableQuantity > 0 ? `В наличии: ${gear.availableQuantity}` : 'Нет в наличии'}
         </div>

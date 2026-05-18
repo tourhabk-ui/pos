@@ -149,7 +149,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
           <h1 className="font-playfair text-4xl md:text-5xl font-bold text-[var(--bg-primary)] mb-4 leading-tight">
             Рыбалка на реке Камчатка
           </h1>
-          <p className="text-lg text-[rgba(255,255,255,0.7)] mb-8 leading-relaxed max-w-xl">
+          <p className="text-lg text-[var(--text-secondary)] mb-8 leading-relaxed max-w-xl">
             Лосось, кижуч, чавыча, нерка. Профессиональные гиды, снаряжение включено,
             трансфер от Петропавловска-Камчатского.
           </p>

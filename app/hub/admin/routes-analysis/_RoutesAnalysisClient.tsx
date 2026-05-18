@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   MapPin, TrendingUp, AlertTriangle, Users, DollarSign,
   Zap, Loader2, RefreshCw, Download, GripVertical,
+  Ban, BarChart2, AlertOctagon,
 } from 'lucide-react';
 
 interface LocationAnalysis {
@@ -116,10 +117,10 @@ export default function RoutesAnalysisClient() {
 
   const statusLabel = (status: string) => {
     const map: Record<string, string> = {
-      available: '✅ Доступно',
-      crowded: '⚠️ Перегружено',
-      warning: '⚡ Внимание',
-      closed: '🚫 Закрыто',
+      available: 'Доступно',
+      crowded: 'Перегружено',
+      warning: 'Внимание',
+      closed: 'Закрыто',
     };
     return map[status] || status;
   };
@@ -150,7 +151,7 @@ export default function RoutesAnalysisClient() {
           { label: 'Мест', value: data.total_locations, icon: MapPin },
           { label: 'Туров', value: data.total_tours, icon: Zap },
           { label: 'Бронирований', value: data.total_bookings, icon: Users },
-          { label: 'За месяц', value: '📈', icon: TrendingUp },
+          { label: 'За месяц', value: '—', icon: TrendingUp },
         ].map((stat, i) => (
           <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
@@ -165,7 +166,7 @@ export default function RoutesAnalysisClient() {
       {/* Summary Insights */}
       {data.summary && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">📊 Итоги</p>
+          <p className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-1.5"><BarChart2 className="w-4 h-4" /> Итоги</p>
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-[var(--text-muted)]">Популярное:</span>
@@ -181,7 +182,7 @@ export default function RoutesAnalysisClient() {
             </div>
             {data.summary.critical_alerts.length > 0 && (
               <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                <p className="text-red-700 font-semibold text-xs mb-1">🚨 Критические алерты:</p>
+                <p className="text-red-700 font-semibold text-xs mb-1 flex items-center gap-1"><AlertOctagon className="w-3.5 h-3.5" /> Критические алерты:</p>
                 {data.summary.critical_alerts.map((a, i) => (
                   <p key={i} className="text-xs text-red-600 dark:text-red-400">{a}</p>
                 ))}
@@ -189,7 +190,7 @@ export default function RoutesAnalysisClient() {
             )}
             {data.summary.needs_operators.length > 0 && (
               <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                <p className="text-blue-700 font-semibold text-xs mb-1">🆕 Ищем операторов:</p>
+                <p className="text-blue-700 font-semibold text-xs mb-1">Ищем операторов:</p>
                 {data.summary.needs_operators.map((p, i) => (
                   <p key={i} className="text-xs text-blue-600 dark:text-blue-400">{p}</p>
                 ))}
@@ -203,7 +204,7 @@ export default function RoutesAnalysisClient() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setFilterStatus(null)}
-          className={`text-xs px-3 py-1.5 rounded ${filterStatus === null ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)]'}`}
+          className={`text-xs px-3 py-1.5 rounded ${filterStatus === null ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)]'}`}
         >
           Все ({filtered.length})
         </button>
@@ -227,7 +228,7 @@ export default function RoutesAnalysisClient() {
           <button
             key={s}
             onClick={() => setSortBy(s)}
-            className={`text-xs px-2 py-1 rounded ${sortBy === s ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-hover)] text-[var(--text-primary)]'}`}
+            className={`text-xs px-2 py-1 rounded ${sortBy === s ? 'bg-[var(--accent)] text-[var(--bg-primary)]' : 'bg-[var(--bg-hover)] text-[var(--text-primary)]'}`}
           >
             {s === 'bookings' && 'По бронированиям'}
             {s === 'utilization' && 'По загруженности'}

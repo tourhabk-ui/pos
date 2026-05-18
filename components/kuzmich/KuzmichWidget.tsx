@@ -81,7 +81,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
           Бронирование #{bookingId} создано
         </div>
         <a href={`/booking-success/${bookingId}`} target="_blank" rel="noopener noreferrer"
-          className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-white hover:opacity-90 transition-opacity">
+          className="text-xs text-center py-2 rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] hover:opacity-90 transition-opacity">
           Перейти к оплате
         </a>
       </div>
@@ -123,7 +123,7 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
       </div>
       {err && <p className="text-xs text-[var(--danger)]">{err}</p>}
       <button type="submit" disabled={busy}
-        className="w-full py-2 rounded-lg bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
+        className="w-full py-2 rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] text-xs font-medium disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5">
         {busy ? <><Loader2 size={11} className="animate-spin" /> Отправляем...</> : 'Забронировать'}
       </button>
     </form>
@@ -305,7 +305,7 @@ export default function KuzmichWidget() {
 
         <button
           onClick={() => setOpen(o => !o)}
-          className="w-14 h-14 rounded-full bg-[var(--accent)] text-white shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center relative"
+          className="w-14 h-14 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center relative"
           aria-label="Чат с Кузьмичом"
         >
           {open
@@ -320,7 +320,7 @@ export default function KuzmichWidget() {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-0 right-0 z-50 w-full h-[92dvh] sm:bottom-24 sm:right-6 sm:w-80 sm:h-[500px] bg-[var(--bg-card)] border border-[var(--border)] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-3">
+        <div className="fixed bottom-0 right-0 z-50 w-full h-[92dvh] sm:bottom-24 sm:right-6 sm:w-80 sm:h-[500px] bg-[var(--bg-card)] border border-[var(--border)] rounded-t-lg sm:rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-3">
 
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)]">
@@ -386,7 +386,7 @@ export default function KuzmichWidget() {
                   {msg.content && (
                     <div className={`px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap rounded-xl ${
                       msg.role === 'user'
-                        ? 'bg-[var(--accent)] text-white rounded-br-sm'
+                        ? 'bg-[var(--accent)] text-[var(--bg-primary)] rounded-br-sm'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm'
                     }`}>
                       {msg.content}
@@ -450,7 +450,7 @@ export default function KuzmichWidget() {
                   className="rounded object-cover w-9 h-9" />
                 <button onClick={clearImage}
                   className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[var(--danger)] flex items-center justify-center">
-                  <X className="w-2 h-2 text-white" />
+                  <X className="w-2 h-2 text-[var(--bg-primary)]" />
                 </button>
               </div>
               <p className="text-xs text-[var(--text-muted)]">Фото готово</p>
@@ -475,7 +475,7 @@ export default function KuzmichWidget() {
             />
             <button onClick={() => send(input)}
               disabled={(!input.trim() && !imageFile) || loading}
-              className="p-1.5 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90 shrink-0">
+              className="p-1.5 rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] disabled:opacity-40 transition-opacity hover:opacity-90 shrink-0">
               <Send size={13} />
             </button>
           </div>

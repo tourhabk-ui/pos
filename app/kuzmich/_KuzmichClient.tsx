@@ -462,7 +462,7 @@ export default function KuzmichClient() {
       {/* Личность Кузьмича */}
       {!hasMessages && (
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[var(--accent)]/10 mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-lg bg-[var(--accent)]/10 mb-4">
             <Bot className="w-8 h-8 text-[var(--accent)]" />
           </div>
           <div className="inline-flex items-center gap-2 bg-[var(--success)]/10 rounded-full px-3 py-1 mb-3">
@@ -508,7 +508,7 @@ export default function KuzmichClient() {
                   {msg.content && (
                     <div className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap rounded-xl ${
                       msg.role === 'user'
-                        ? 'bg-[var(--accent)] text-white rounded-br-sm self-end'
+                        ? 'bg-[var(--accent)] text-[var(--bg-primary)] rounded-br-sm self-end'
                         : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-bl-sm'
                     }`}>
                       {msg.content}
@@ -616,7 +616,7 @@ export default function KuzmichClient() {
             className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={(!input.trim() && !imageFile) || loading}
-            className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90">
+            className="p-2 rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] disabled:opacity-40 transition-opacity hover:opacity-90">
             <Send size={16} />
           </button>
         </div>

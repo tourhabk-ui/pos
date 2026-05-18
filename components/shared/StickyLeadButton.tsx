@@ -187,7 +187,7 @@ export default function StickyLeadButton() {
             trackLeadEvent({ ...LEAD_EVENTS.CLICK_LEAD_BUTTON, source: 'sticky_button' });
           }
         }}
-        className={`fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 px-5 py-4 rounded-full shadow-2xl text-sm font-bold text-white transition-all hover:scale-110 active:scale-95 ${!open ? 'lead-button-pulse' : ''}`}
+        className={`fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 px-5 py-4 rounded-full shadow-2xl text-sm font-bold text-[var(--bg-primary)] transition-all hover:scale-110 active:scale-95 ${!open ? 'lead-button-pulse' : ''}`}
         style={{ background: 'var(--accent)' }}
         aria-label="Оставить заявку на тур"
       >

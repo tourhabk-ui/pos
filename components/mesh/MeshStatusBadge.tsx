@@ -39,7 +39,7 @@ export default function MeshStatusBadge({ status, peerCount, onClick }: Props) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-white transition-all ${color}`}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-[var(--bg-primary)] transition-all ${color}`}
     >
       <Icon size={12} className={status === 'connecting' ? 'animate-spin' : ''} />
       {label[status]}

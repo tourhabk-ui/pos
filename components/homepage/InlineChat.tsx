@@ -119,7 +119,7 @@ export default function InlineChat() {
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
                     msg.role === 'user'
-                      ? 'bg-[var(--accent)] text-white rounded-lg rounded-br-sm'
+                      ? 'bg-[var(--accent)] text-[var(--bg-primary)] rounded-lg rounded-br-sm'
                       : 'bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg rounded-bl-sm'
                   }`}>
                     {msg.content}
@@ -152,7 +152,7 @@ export default function InlineChat() {
               type="button"
               onClick={() => sendMessage(input)}
               disabled={!input.trim() || loading}
-              className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity"
+              className="p-2 rounded-lg bg-[var(--accent)] text-[var(--bg-primary)] disabled:opacity-40 transition-opacity"
             >
               <Send size={16} />
             </button>

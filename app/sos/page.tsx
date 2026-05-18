@@ -89,7 +89,7 @@ export default function SosPage() {
   return (
     <div style={{
       minHeight: '100dvh',
-      background: '#0a0a0a',
+      background: 'var(--bg-primary)',
       color: '#fff',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       display: 'flex',

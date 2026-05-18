@@ -98,11 +98,11 @@ export default function RequestClient() {
           </div>
 
           {/* Right — форма */}
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-8">
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8">
 
             {/* Telegram — primary CTA */}
             <a href={BOT_URL} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 mb-5"
+              className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90 mb-5"
               style={{ background: '#2AABEE' }}>
               <MessageCircle className="w-5 h-5" />
               Написать Кузьмичу в Telegram
@@ -116,7 +116,7 @@ export default function RequestClient() {
 
             {state === 'done' ? (
               <div className="text-center py-6">
-                <div className="w-16 h-16 rounded-2xl bg-[var(--success)]/10 flex items-center justify-center mx-auto mb-4">
+                <div className="w-16 h-16 rounded-lg bg-[var(--success)]/10 flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-8 h-8 text-[var(--success)]" />
                 </div>
                 <p className="font-semibold text-[var(--text-primary)] mb-1">Заявка принята!</p>
@@ -147,7 +147,7 @@ export default function RequestClient() {
                   <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
                 )}
                 <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim()}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
                   style={{ background: 'var(--accent)' }}>
                   <Send className="w-4 h-4" />
                   {state === 'sending' ? 'Отправляю...' : 'Получить предложение'}
