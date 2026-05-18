@@ -28,6 +28,7 @@ interface Tour {
   tour_image: string | null;
   operator_name: string;
   operator_id: string;
+  operator_slug: string | null;
   bookings_count: number;
   duration_hours: number | null;
   duration_type: string | null;
@@ -385,7 +386,17 @@ function TourCard({
       {/* Content */}
       <Link href={`/marketplace/tours/${tour.id}`} className="p-5 pb-3 flex flex-col flex-1">
         <div className="flex items-center gap-2 mb-2">
-          <p className="text-[11px] text-[var(--text-muted)] font-medium">{tour.operator_name}</p>
+          {tour.operator_slug ? (
+            <Link
+              href={`/operators/${tour.operator_slug}`}
+              onClick={e => e.stopPropagation()}
+              className="text-[11px] text-[var(--ocean)] font-medium hover:underline"
+            >
+              {tour.operator_name}
+            </Link>
+          ) : (
+            <p className="text-[11px] text-[var(--text-muted)] font-medium">{tour.operator_name}</p>
+          )}
           {tour.bookings_count > 0 && (
             <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
               <Users className="w-3 h-3" />

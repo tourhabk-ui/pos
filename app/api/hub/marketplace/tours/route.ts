@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
         ot.season_end,
         p.name as operator_name,
         p.id as operator_id,
+        p.slug as operator_slug,
         COUNT(ob.id)::INT as bookings_count,
         EXISTS (
           SELECT 1 FROM tour_availability ta
