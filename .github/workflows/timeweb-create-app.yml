@@ -1,0 +1,156 @@
+name: Timeweb — Create New App
+
+# Создаёт новое приложение на Timeweb с нашим Dockerfile.
+# Запускать один раз вручную.
+#
+# После создания:
+# 1. Workflow выведет новый APP_ID
+# 2. Обновить APP_ID в deploy.yml и timeweb-manage.yml
+# 3. Перенести env-переменные из старого приложения
+# 4. Привязать домен tourhab.ru к новому приложению
+# 5. Удалить старое приложение
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Название приложения (латиница, дефисы)'
+        required: true
+        default: 'kamchatourhub-prod'
+      confirm:
+        description: 'Введи "create" для подтверждения'
+        required: true
+        default: ''
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.confirm == 'create' }}
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      BASE: "https://api.timeweb.cloud/api/v1"
+
+    steps:
+      - name: Validate token
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "❌ TIMEWEB_TOKEN secret not set"
+            exit 1
+          fi
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps")
+          echo "Auth check: HTTP $HTTP"
+          if [ "$HTTP" != "200" ]; then
+            echo "❌ Token invalid or API unreachable"
+            exit 1
+          fi
+          echo "✅ Token valid"
+
+      - name: Get available presets
+        run: |
+          echo "Fetching available frameworks/presets..."
+          curl -s \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/frameworks" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          for f in d.get('frameworks', []):
+              print(f\"  id={f.get('id')} name={f.get('name')} version={f.get('version')}\")
+          " 2>/dev/null || echo "Could not list frameworks"
+
+      - name: Create app
+        run: |
+          echo "Creating app: ${{ inputs.app_name }}"
+
+          # Payload: используем наш Dockerfile, репо tourhabk-ui/pos, ветка main
+          PAYLOAD=$(python3 -c "
+          import json
+          payload = {
+            'name': '${{ inputs.app_name }}',
+            'repo': {
+              'full_name': 'tourhabk-ui/pos',
+              'branch': 'main',
+              'is_auto_deploy': True,
+              'token': ''
+            },
+            'build_cmd': '',
+            'run_cmd': 'node start.js',
+            'envs': [
+              {'name': 'PORT', 'value': '3000', 'is_secret': False},
+              {'name': 'NODE_ENV', 'value': 'production', 'is_secret': False},
+              {'name': 'HOSTNAME', 'value': '0.0.0.0', 'is_secret': False},
+              {'name': 'NEXT_TELEMETRY_DISABLED', 'value': '1', 'is_secret': False}
+            ],
+            'configuration': {
+              'cpu': 1,
+              'ram': 2,
+              'disk': 10,
+              'bandwidth': 200
+            },
+            'is_dockerfile': True
+          }
+          print(json.dumps(payload))
+          ")
+
+          echo "Payload:"
+          echo "$PAYLOAD" | python3 -m json.tool
+
+          HTTP=$(curl -s -o /tmp/create_result.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$BASE/apps")
+
+          echo ""
+          echo "API response: HTTP $HTTP"
+          cat /tmp/create_result.json | python3 -m json.tool 2>/dev/null || cat /tmp/create_result.json
+
+          if [ "$HTTP" = "201" ] || [ "$HTTP" = "200" ]; then
+            NEW_ID=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/create_result.json'))
+          app = d.get('app', d)
+          print(app.get('id', '?'))
+            " 2>/dev/null)
+            echo ""
+            echo "════════════════════════════════════════════"
+            echo "✅ APP CREATED SUCCESSFULLY"
+            echo "   New APP_ID: $NEW_ID"
+            echo ""
+            echo "   Next steps:"
+            echo "   1. Copy env vars from old app (id=175477) to new app"
+            echo "   2. Update APP_ID in deploy.yml and timeweb-manage.yml"
+            echo "   3. Attach domain tourhab.ru to new app"
+            echo "   4. Verify deploy works"
+            echo "   5. Delete old app (id=175477)"
+            echo "════════════════════════════════════════════"
+          else
+            echo "❌ Failed to create app (HTTP $HTTP)"
+            exit 1
+          fi
+
+      - name: List existing env vars from old app
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════"
+          echo "ENV VARS IN OLD APP (id=175477) — names only"
+          echo "════════════════════════════════════════════"
+          curl -s \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/175477/envs" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          envs = d.get('envs', [])
+          if isinstance(envs, list):
+              for e in sorted(envs, key=lambda x: x.get('name','')):
+                  secret = '🔒' if e.get('is_secret') else '  '
+                  print(f\"  {secret} {e.get('name','?')}\")
+              print(f\"  Total: {len(envs)}\")
+          else:
+              print(json.dumps(envs, indent=2))
+          " 2>/dev/null || echo "Could not fetch envs"
+          echo ""
+          echo "⚠️  Copy these manually from old app UI to new app"
+          echo "   Timeweb panel → старое приложение → Переменные окружения"

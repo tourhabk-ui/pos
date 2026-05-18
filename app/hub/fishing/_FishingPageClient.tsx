@@ -252,6 +252,20 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
         </p>
       </div>
 
+      {/* ── Справочник рыб ──────────────────────────────────────────── */}
+      <div className="mt-6 p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Fish className="w-5 h-5 text-[var(--ocean)] shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-[var(--text-primary)]">Справочник рыб Камчатки</p>
+            <p className="text-xs text-[var(--text-secondary)]">15 видов — сезоны, методы ловли, рекорды</p>
+          </div>
+        </div>
+        <Link href="/fish" className="text-xs text-[var(--ocean)] hover:underline shrink-0">
+          Открыть
+        </Link>
+      </div>
+
     </div>
   );
 }
