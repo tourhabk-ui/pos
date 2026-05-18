@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Run all four evo agents in parallel — one failure never blocks others
-    const results = await runParallel([
+    const results = await runParallel<unknown>([
       { name: 'growth_scan', fn: () => runGrowthScan(scanType) },
       { name: 'evolution_loop', fn: () => runEvolutionLoop() },
       { name: 'rescue_scan', fn: () => runRescueScan() },
@@ -45,10 +45,10 @@ export async function GET(request: NextRequest) {
     ]);
 
     const byName = Object.fromEntries(results.map(r => [r.name, r]));
-    const scanResult = byName['growth_scan']?.value as Awaited<ReturnType<typeof runGrowthScan>>;
-    const evoResult = byName['evolution_loop']?.value as Awaited<ReturnType<typeof runEvolutionLoop>>;
-    const rescueResult = byName['rescue_scan']?.value as Awaited<ReturnType<typeof runRescueScan>>;
-    const evolverResult = byName['evolver_analysis']?.value as Awaited<ReturnType<typeof runEvolverAnalysis>>;
+    const scanResult = byName['growth_scan']?.value as unknown as Awaited<ReturnType<typeof runGrowthScan>>;
+    const evoResult = byName['evolution_loop']?.value as unknown as Awaited<ReturnType<typeof runEvolutionLoop>>;
+    const rescueResult = byName['rescue_scan']?.value as unknown as Awaited<ReturnType<typeof runRescueScan>>;
+    const evolverResult = byName['evolver_analysis']?.value as unknown as Awaited<ReturnType<typeof runEvolverAnalysis>>;
 
     // Log
     void logAgentRun({
