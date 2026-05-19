@@ -56,8 +56,22 @@ export default function EcoPointsClient() {
         </h1>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-6 animate-pulse">
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 flex flex-col items-center gap-4">
+              <div className="w-12 h-12 bg-[var(--bg-hover)] rounded-full" />
+              <div className="h-12 w-24 bg-[var(--bg-hover)] rounded-lg" />
+              <div className="h-3 w-16 bg-[var(--bg-hover)] rounded" />
+              <div className="w-full max-w-md h-3 bg-[var(--bg-hover)] rounded-full" />
+            </div>
+            <div className="space-y-3">
+              {[1,2,3,4].map(i => (
+                <div key={i} className="flex items-center gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+                  <div className="w-10 h-10 bg-[var(--bg-hover)] rounded-lg shrink-0" />
+                  <div className="flex-1 h-4 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-4 w-8 bg-[var(--bg-hover)] rounded" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="space-y-6">

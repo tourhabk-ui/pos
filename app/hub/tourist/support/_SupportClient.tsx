@@ -235,8 +235,17 @@ export default function SupportClient() {
         {view === 'list' && (
           <div>
             {loadingTickets ? (
-              <div className="flex justify-center py-16">
-                <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+              <div className="space-y-3 animate-pulse">
+                {[1,2,3].map(i => (
+                  <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between">
+                      <div className="h-4 w-48 bg-[var(--bg-hover)] rounded" />
+                      <div className="h-5 w-20 bg-[var(--bg-hover)] rounded-full" />
+                    </div>
+                    <div className="h-3 w-full bg-[var(--bg-hover)] rounded" />
+                    <div className="h-3 w-24 bg-[var(--bg-hover)] rounded" />
+                  </div>
+                ))}
               </div>
             ) : tickets.length === 0 ? (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 text-center">

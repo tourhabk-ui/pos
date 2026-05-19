@@ -77,7 +77,18 @@ export default function NotificationsClient() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" /></div>
+          <div className="space-y-2 animate-pulse">
+            {[1,2,3,4,5].map(i => (
+              <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-start gap-3">
+                <div className="w-5 h-5 bg-[var(--bg-hover)] rounded-full shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-48 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-3 w-64 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="text-center py-16 text-[var(--danger)] text-sm">{error}</div>
         ) : displayed.length === 0 ? (

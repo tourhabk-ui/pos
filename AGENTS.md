@@ -126,20 +126,6 @@ Tier 3 (последовательно): Anthropic
 
 ---
 
-## УДАЛЕНО (апрель 2026)
-
-Совет директоров из 13 AI-агентов был удалён как неэффективный театр:
-- 15 agency-файлов (admin, legal, security, hacker, eco, content, quality, planning, evo, finance, infra, vibe-coder, scout-innovator)
-- Board meeting (5 раундов, SSE-стрим) — 1,204 строки
-- Board meeting UI — 1,241 строка
-- 18 API-маршрутов `/api/agents/*`
-- AgentMesh, observers, training, programs
-- Итого: **10,318 строк**
-
-Коммиты: `9da9e8d2`, `5d4d83f9`
-
----
-
 ## КЛЮЧЕВЫЕ ФАЙЛЫ
 
 ```

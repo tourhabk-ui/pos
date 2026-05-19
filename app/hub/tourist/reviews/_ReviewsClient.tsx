@@ -100,13 +100,30 @@ function StarSelector({ value, onChange }: StarSelectorProps) {
   );
 }
 
+function ReviewsSkeleton() {
+  return (
+    <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+      <div className="flex justify-between items-center">
+        <div className="h-5 w-28 bg-[var(--bg-hover)] rounded" />
+        <div className="h-9 w-36 bg-[var(--bg-hover)] rounded-lg" />
+      </div>
+      {[1,2,3].map(i => (
+        <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+          <div className="flex justify-between">
+            <div className="h-4 w-40 bg-[var(--bg-hover)] rounded" />
+            <div className="flex gap-0.5">{[1,2,3,4,5].map(j => <div key={j} className="w-3.5 h-3.5 bg-[var(--bg-hover)] rounded" />)}</div>
+          </div>
+          <div className="h-3 w-full bg-[var(--bg-hover)] rounded" />
+          <div className="h-3 w-2/3 bg-[var(--bg-hover)] rounded" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ReviewsClient() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
-      </div>
-    }>
+    <Suspense fallback={<ReviewsSkeleton />}>
       <ReviewsContent />
     </Suspense>
   );

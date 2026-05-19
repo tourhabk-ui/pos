@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
+import toast from 'react-hot-toast';
 import { Partner } from '@/types';
 import {
   DataTable,
@@ -16,6 +17,40 @@ import {
   Star, Briefcase, Pencil, Trash2, X, Save, Shield, ShieldOff,
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
+
+function DeletePartnerModal({ name, onConfirm, onCancel }: { name: string; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-[var(--danger)]/10 flex items-center justify-center">
+            <Trash2 className="w-4 h-4 text-[var(--danger)]" />
+          </div>
+          <h3 className="font-semibold text-[var(--text-primary)]">Удалить партнёра?</h3>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-6">
+          <span className="font-medium">{name}</span> будет удалён без возможности восстановления.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel}
+            className="px-4 py-2 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
+            Отмена
+          </button>
+          <button onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity">
+            Удалить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface EditFormData {
   name: string;
@@ -64,6 +99,7 @@ export default function PartnersManagement() {
   const [editLoading, setEditLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [uploadingType, setUploadingType] = useState<'hero' | 'logo' | null>(null);
   const heroInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -166,20 +202,20 @@ export default function PartnersManagement() {
   };
 
   /* ── Delete partner ── */
-  const handleDelete = async (partnerId: string) => {
-    if (!window.confirm('Удалить партнёра? Это действие необратимо.')) return;
+  const executeDelete = async (partnerId: string) => {
+    setDeleteConfirmId(null);
     try {
       const res = await fetch(`/api/admin/content/partners/${partnerId}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
-        setMessage({ text: 'Партнёр удалён', type: 'success' });
+        toast.success('Партнёр удалён');
         closeEdit();
         fetchPartners();
       } else {
-        setMessage({ text: json.error ?? 'Ошибка удаления', type: 'error' });
+        toast.error(json.error ?? 'Ошибка удаления');
       }
     } catch {
-      setMessage({ text: 'Ошибка сети', type: 'error' });
+      toast.error('Ошибка сети');
     }
   };
 
@@ -310,8 +346,17 @@ export default function PartnersManagement() {
     },
   ];
 
+  const deleteTarget = partners.find(p => p.id === deleteConfirmId) ?? null;
+
   return (
     <div className="p-5 lg:p-6 space-y-5 relative">
+      {deleteConfirmId && deleteTarget && (
+        <DeletePartnerModal
+          name={deleteTarget.name}
+          onConfirm={() => executeDelete(deleteConfirmId)}
+          onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-2.5">
         <Briefcase className="w-4 h-4 text-[var(--text-muted)]" />
@@ -705,7 +750,7 @@ export default function PartnersManagement() {
                     {saving ? 'Сохранение...' : 'Сохранить'}
                   </button>
                   <button
-                    onClick={() => handleDelete(editId)}
+                    onClick={() => setDeleteConfirmId(editId)}
                     className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[var(--danger)]/10 text-[var(--danger)] text-xs font-medium rounded-lg hover:bg-[var(--danger)]/15 transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

@@ -27,17 +27,11 @@ function sanitizeMalformedPostgresUrl(raw: string): string {
   return `${scheme}${encodeURIComponent(usernameRaw)}:${encodeURIComponent(passwordRaw)}@${host}:${port}/${dbPart}`;
 }
 
-// Timeweb переназначил БД с публичного IP на приватную сеть.
-// Маппим оба варианта (hostname и старый публичный IP) на новый приватный IP.
-// DB_HOST_IP — env var для смены IP без передеплоя кода.
-const newIp = process.env.DB_HOST_IP ?? '192.168.0.4';
-const KNOWN_HOST_MAP: Record<string, string> = {
-  '8ad609fcbfd2ad0bd069be47.twc1.net': newIp,
-  '94.228.112.62': newIp,
-};
-
+// DB_HOST_IP — env var для принудительного переопределения хоста БД.
+// Используется когда Timeweb меняет приватный IP контейнера с БД.
+// Если не задан — используем хост из DATABASE_URL как есть (DNS resolves internally).
 function resolveHost(host: string): string {
-  return KNOWN_HOST_MAP[host] ?? host;
+  return process.env.DB_HOST_IP ?? host;
 }
 
 function buildPoolConfig() {

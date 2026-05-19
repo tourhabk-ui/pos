@@ -4,11 +4,46 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import {
   Plus, Upload, Mountain, Star, Users, Clock,
   Eye, EyeOff, Trash2, Edit2, RefreshCw, ChevronLeft, ChevronRight,
   CalendarDays, Check, X, FileText, Loader2,
 } from 'lucide-react';
+
+function DeleteTourModal({ title, onConfirm, onCancel }: { title: string; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-[var(--danger)]/10 flex items-center justify-center">
+            <Trash2 className="w-4 h-4 text-[var(--danger)]" />
+          </div>
+          <h3 className="font-semibold text-[var(--text-primary)]">Удалить тур?</h3>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-6">
+          Тур <span className="font-medium">«{title}»</span> будет удалён без возможности восстановления.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel}
+            className="px-4 py-2 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
+            Отмена
+          </button>
+          <button onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity">
+            Удалить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +111,7 @@ export default function ToursManagementClient() {
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [editingAvail, setEditingAvail] = useState<string | null>(null);
   const [availSlots, setAvailSlots]   = useState('');
   const [availDate, setAvailDate]     = useState('');
@@ -194,13 +230,22 @@ export default function ToursManagementClient() {
     } finally { setToggling(null); }
   }
 
-  async function handleDelete(id: string, title: string) {
-    if (!confirm(`Удалить тур «${title}»? Это действие нельзя отменить.`)) return;
+  async function executeDelete(id: string) {
+    setDeleteTarget(null);
     setDeleting(id);
     try {
-      await fetch(`/api/hub/operator/tours/${id}`, { method: 'DELETE' });
-      await load();
-    } finally { setDeleting(null); }
+      const res = await fetch(`/api/hub/operator/tours/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Тур удалён');
+        await load();
+      } else {
+        toast.error('Не удалось удалить тур');
+      }
+    } catch {
+      toast.error('Ошибка сети');
+    } finally {
+      setDeleting(null);
+    }
   }
 
   function openAvailEditor(tour: Tour) {
@@ -226,6 +271,13 @@ export default function ToursManagementClient() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
+      {deleteTarget && (
+        <DeleteTourModal
+          title={deleteTarget.title}
+          onConfirm={() => executeDelete(deleteTarget.id)}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -462,7 +514,7 @@ export default function ToursManagementClient() {
                     )}
                   </button>
                   <button
-                    onClick={() => handleDelete(tour.id, tour.title)}
+                    onClick={() => setDeleteTarget({ id: tour.id, title: tour.title })}
                     disabled={isDeleting}
                     className="p-2 rounded-lg hover:bg-[var(--danger)]/10 transition-colors"
                     title="Удалить"

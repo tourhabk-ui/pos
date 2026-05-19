@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { Protected } from '@/components/auth/Protected';
 import { User, Loader2, Save, Lock, AlertCircle, CheckCircle, Send, ExternalLink } from 'lucide-react';
+
 
 const INPUT_CLASS =
   'w-full min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
@@ -66,15 +68,11 @@ export default function ProfileClient() {
   const [bio, setBio] = useState('');
 
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [pwdSaving, setPwdSaving] = useState(false);
-  const [pwdSuccess, setPwdSuccess] = useState(false);
-  const [pwdError, setPwdError] = useState<string | null>(null);
 
   const [tgLinked, setTgLinked] = useState<boolean | null>(null);
   const [tgUsername, setTgUsername] = useState<string | null>(null);
@@ -140,9 +138,6 @@ export default function ProfileClient() {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setSaveSuccess(false);
-    setSaveError(null);
-
     try {
       const result = await fetchJson<TouristProfile>('/api/tourist/profile', {
         method: 'PUT',
@@ -153,15 +148,13 @@ export default function ProfileClient() {
           bio: bio.trim() || null,
         }),
       });
-
       if (isApiSuccess(result)) {
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 4000);
+        toast.success('Профиль сохранён');
       } else {
-        setSaveError(result.error ?? 'Ошибка при сохранении профиля');
+        toast.error(result.error ?? 'Ошибка при сохранении');
       }
     } catch {
-      setSaveError('Не удалось сохранить профиль. Проверьте соединение.');
+      toast.error('Не удалось сохранить. Проверьте соединение.');
     } finally {
       setSaving(false);
     }
@@ -169,18 +162,14 @@ export default function ProfileClient() {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPwdError(null);
-    setPwdSuccess(false);
-
     if (newPassword !== confirmNewPassword) {
-      setPwdError('Новый пароль и подтверждение не совпадают');
+      toast.error('Пароли не совпадают');
       return;
     }
     if (newPassword.length < 8) {
-      setPwdError('Новый пароль должен содержать не менее 8 символов');
+      toast.error('Пароль должен быть не менее 8 символов');
       return;
     }
-
     setPwdSaving(true);
     try {
       const result = await fetchJson<{ message: string }>('/api/tourist/profile/password', {
@@ -188,18 +177,16 @@ export default function ProfileClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-
       if (isApiSuccess(result)) {
-        setPwdSuccess(true);
+        toast.success('Пароль изменён');
         setCurrentPassword('');
         setNewPassword('');
         setConfirmNewPassword('');
-        setTimeout(() => setPwdSuccess(false), 5000);
       } else {
-        setPwdError(result.error ?? 'Ошибка при смене пароля');
+        toast.error(result.error ?? 'Ошибка при смене пароля');
       }
     } catch {
-      setPwdError('Не удалось сменить пароль. Проверьте соединение.');
+      toast.error('Не удалось сменить пароль.');
     } finally {
       setPwdSaving(false);
     }
@@ -213,8 +200,21 @@ export default function ProfileClient() {
         </h1>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-6 animate-pulse">
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
+              <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => (
+                <div key={i} className="space-y-1.5">
+                  <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-11 bg-[var(--bg-hover)] rounded-lg" />
+                </div>
+              ))}
+              <div className="h-10 w-32 bg-[var(--bg-hover)] rounded-lg" />
+            </div>
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-3">
+              <div className="h-4 w-40 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => <div key={i} className="h-11 bg-[var(--bg-hover)] rounded-lg" />)}
+            </div>
           </div>
         ) : fetchError ? (
           <div className="flex items-center gap-3 rounded-lg border border-[var(--danger)] bg-[var(--bg-card)] text-[var(--danger)] p-5">
@@ -293,19 +293,6 @@ export default function ProfileClient() {
                   className={`${INPUT_CLASS} resize-y py-3`}
                 />
               </div>
-
-              {saveSuccess && (
-                <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/30">
-                  <CheckCircle className="w-4 h-4 shrink-0" />
-                  Профиль успешно сохранён
-                </div>
-              )}
-              {saveError && (
-                <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--danger)]/10 text-[var(--danger)] border border-[var(--danger)]/30">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  {saveError}
-                </div>
-              )}
 
               <button
                 type="submit"
@@ -427,19 +414,6 @@ export default function ProfileClient() {
                   className={INPUT_CLASS}
                 />
               </div>
-
-              {pwdSuccess && (
-                <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/30">
-                  <CheckCircle className="w-4 h-4 shrink-0" />
-                  Пароль успешно изменён
-                </div>
-              )}
-              {pwdError && (
-                <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--danger)]/10 text-[var(--danger)] border border-[var(--danger)]/30">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  {pwdError}
-                </div>
-              )}
 
               <button
                 type="submit"

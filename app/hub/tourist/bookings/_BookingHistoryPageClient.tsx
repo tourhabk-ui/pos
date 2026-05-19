@@ -1,11 +1,65 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { LoadingSpinner } from '@/components/admin/shared';
-import { Calendar, Users, ChevronDown, ChevronUp, Star } from 'lucide-react';
+import toast from 'react-hot-toast';
+function BookingsSkeleton() {
+  return (
+    <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+      <div className="h-16 bg-[var(--bg-hover)] rounded-lg" />
+      <div className="flex gap-2">
+        {[1,2,3,4].map(i => <div key={i} className="h-9 w-24 bg-[var(--bg-hover)] rounded-md" />)}
+      </div>
+      {[1,2,3].map(i => (
+        <div key={i} className="bg-[var(--bg-hover)] rounded-lg h-36" />
+      ))}
+    </div>
+  );
+}
+import { Calendar, Users, ChevronDown, ChevronUp, Star, AlertTriangle } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import type { BookingWithDetails, BookingStatus } from '@/types/booking.types';
+
+function CancelConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-[var(--warning)]/10 flex items-center justify-center">
+            <AlertTriangle className="w-4 h-4 text-[var(--warning)]" />
+          </div>
+          <h3 className="font-semibold text-[var(--text-primary)]">Отменить бронирование?</h3>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-6">
+          Это действие нельзя отменить. Пожалуйста, проверьте условия возврата у оператора.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            Назад
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Отменить бронь
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type BookingsApiPayload = {
   bookings: BookingWithDetails[];
@@ -18,6 +72,7 @@ export default function BookingHistoryPageClient() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'past' | 'cancelled'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<string | null>(null);
 
   // Bug 1 fix: correct generic types and transform to extract the bookings array
   // from the API envelope { data: { bookings: [...], total, limit, offset } }
@@ -36,27 +91,21 @@ export default function BookingHistoryPageClient() {
     status === 'cancelled_by_tourist' ||
     status === 'cancelled_by_operator';
 
-  // Bug 2 fix: wire up the cancel API call with confirmation + refetch
-  const handleCancel = useCallback(
+  const executeCancel = useCallback(
     async (bookingId: string) => {
-      if (
-        !window.confirm(
-          'Вы уверены, что хотите отменить бронирование? Это действие нельзя отменить.',
-        )
-      ) {
-        return;
-      }
+      setConfirmTarget(null);
       setCancellingId(bookingId);
       try {
         const res = await fetch(`/api/bookings/${bookingId}/cancel`, { method: 'POST' });
         const json = (await res.json()) as { success: boolean; error?: string; message?: string };
         if (!json.success) {
-          alert(json.error ?? 'Не удалось отменить бронирование');
+          toast.error(json.error ?? 'Не удалось отменить бронирование');
           return;
         }
+        toast.success('Бронирование отменено');
         await refetch();
       } catch {
-        alert('Ошибка при отмене бронирования');
+        toast.error('Ошибка при отмене бронирования');
       } finally {
         setCancellingId(null);
       }
@@ -135,16 +184,16 @@ export default function BookingHistoryPageClient() {
     }
   });
 
-  if (loading) {
-    return (
-      <div className="p-5 lg:p-6 flex items-center justify-center py-20">
-        <LoadingSpinner message="Загрузка бронирований..." />
-      </div>
-    );
-  }
+  if (loading) return <BookingsSkeleton />;
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
+      {confirmTarget && (
+        <CancelConfirmModal
+          onConfirm={() => executeCancel(confirmTarget)}
+          onCancel={() => setConfirmTarget(null)}
+        />
+      )}
       {/* Header */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
         <h1 className="text-xl font-bold text-[var(--text-primary)]">Мои бронирования</h1>
@@ -238,7 +287,7 @@ export default function BookingHistoryPageClient() {
                     </div>
                   )}
 
-                  {/* Action buttons — Bug 2 fix: all buttons now functional */}
+                  {/* Action buttons */}
                   <div className="mt-3 pt-3 border-t border-[var(--border)] flex gap-2 flex-wrap">
                     {/* "Подробнее" — inline expand since no detail page exists */}
                     <button
@@ -258,10 +307,10 @@ export default function BookingHistoryPageClient() {
                       )}
                     </button>
 
-                    {/* "Отменить" — shown for pending OR confirmed, calls cancel API */}
+                    {/* "Отменить" — shown for pending OR confirmed, opens confirm modal */}
                     {isCancellableStatus(booking.status) && (
                       <button
-                        onClick={() => handleCancel(booking.id)}
+                        onClick={() => setConfirmTarget(booking.id)}
                         disabled={isCancelling}
                         className="px-4 py-1.5 border border-[var(--danger)]/40 text-[var(--danger)] rounded-md text-sm transition-colors hover:bg-[var(--danger)]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                       >

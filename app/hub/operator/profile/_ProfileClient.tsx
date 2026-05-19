@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { Protected } from '@/components/auth/Protected';
 import {
-  Building2, Loader2, Save, AlertCircle, CheckCircle,
+  Building2, Loader2, Save, AlertCircle,
   MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock,
 } from 'lucide-react';
 
@@ -47,8 +48,6 @@ export default function OperatorProfileClient() {
   const [isVerified, setIsVerified] = useState(false);
 
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,8 +86,6 @@ export default function OperatorProfileClient() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setSaveSuccess(false);
-    setSaveError(null);
     try {
       const res = await fetch('/api/hub/operator/profile', {
         method: 'PATCH',
@@ -107,13 +104,12 @@ export default function OperatorProfileClient() {
       });
       const json = await res.json() as { success: boolean; message?: string; error?: string };
       if (json.success) {
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 4000);
+        toast.success('Профиль сохранён');
       } else {
-        setSaveError(json.error ?? 'Ошибка при сохранении');
+        toast.error(json.error ?? 'Ошибка при сохранении');
       }
     } catch {
-      setSaveError('Не удалось сохранить профиль. Проверьте соединение.');
+      toast.error('Не удалось сохранить профиль. Проверьте соединение.');
     } finally {
       setSaving(false);
     }
@@ -160,8 +156,26 @@ export default function OperatorProfileClient() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-6 animate-pulse">
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
+              <div className="h-4 w-28 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => (
+                <div key={i} className="space-y-1.5">
+                  <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-11 bg-[var(--bg-hover)] rounded-lg" />
+                </div>
+              ))}
+            </div>
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
+              <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => (
+                <div key={i} className="space-y-1.5">
+                  <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-11 bg-[var(--bg-hover)] rounded-lg" />
+                </div>
+              ))}
+            </div>
+            <div className="h-11 w-40 bg-[var(--bg-hover)] rounded-lg" />
           </div>
         ) : fetchError ? (
           <div className="flex items-center gap-3 rounded-lg border border-[var(--danger)] bg-[var(--bg-card)] text-[var(--danger)] p-5">
@@ -311,19 +325,6 @@ export default function OperatorProfileClient() {
                 </div>
               </div>
             </div>
-
-            {saveSuccess && (
-              <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/30">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                Профиль сохранён
-              </div>
-            )}
-            {saveError && (
-              <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3 bg-[var(--danger)]/10 text-[var(--danger)] border border-[var(--danger)]/30">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {saveError}
-              </div>
-            )}
 
             <button
               type="submit"

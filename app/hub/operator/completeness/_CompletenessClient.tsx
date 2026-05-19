@@ -192,7 +192,30 @@ export default function CompletenessClient() {
   }, []);
 
   if (loading) {
-    return <div className="p-6"><LoadingSpinner message="Анализ полноты туров..." /></div>;
+    return (
+      <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+        <div className="h-6 w-48 bg-[var(--bg-hover)] rounded" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-2">
+              <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+              <div className="h-7 w-12 bg-[var(--bg-hover)] rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="space-y-3">
+          {[1,2,3,4,5].map(i => (
+            <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="h-4 w-48 bg-[var(--bg-hover)] rounded" />
+                <div className="h-5 w-16 bg-[var(--bg-hover)] rounded-full" />
+              </div>
+              <div className="h-2 bg-[var(--bg-hover)] rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (error) {
