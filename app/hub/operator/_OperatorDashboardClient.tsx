@@ -9,6 +9,7 @@ import { TopToursTable } from '@/components/operator/Dashboard/TopToursTable';
 import { SimpleChart } from '@/components/admin/Dashboard/SimpleChart';
 import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegistrationPanel';
+import { NextTourCard } from '@/components/operator/Dashboard/NextTourCard';
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
 import { OperatorDashboardData, OperatorBooking } from '@/types/operator';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
@@ -189,6 +190,7 @@ export default function OperatorDashboardClient() {
             <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} />
           )}
           <OperatorMetricsGrid metrics={data.metrics} />
+          <NextTourCard />
           <MchsRegistrationPanel />
 
           {/* Доходы и партнёрская монетизация */}

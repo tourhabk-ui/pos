@@ -1,9 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
 import { ArrowLeft, Copy, Check, Images } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { LOCATION_TYPE_LABELS } from './types';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 
@@ -18,6 +18,7 @@ interface Props {
 }
 
 export default function PlaceHero({ placeId, name, locationType, lat, lng, photoUrl, photoCount }: Props) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const label = LOCATION_TYPE_LABELS[locationType ?? 'other'] ?? 'Место';
   const imgSrc = photoUrl ?? (photoCount > 0 ? `/api/images/route/${placeId}` : null);
@@ -46,12 +47,12 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-20 pb-4 z-20">
-        <Link
-          href="/routes?kind=place"
+        <button
+          onClick={() => router.back()}
           className="inline-flex items-center gap-1.5 text-sm text-[var(--text-primary)] bg-[var(--bg-card)]/60 px-3 py-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors"
         >
-          <ArrowLeft className="w-3.5 h-3.5" /> Все места
-        </Link>
+          <ArrowLeft className="w-3.5 h-3.5" /> Назад
+        </button>
 
         {photoCount > 1 && (
           <span className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)]/60 px-2.5 py-1.5 rounded-lg border border-[var(--border)]">

@@ -128,8 +128,14 @@ export default function RoutesPageClient() {
   const [activityType, setActivityType] = useState(searchParams.get('activity_type') ?? '');
   const [locationType, setLocationType] = useState(searchParams.get('location_type') ?? '');
   const [sort,         setSort]         = useState<SortValue>('recommended');
-  const [difficulty,   setDifficulty]   = useState<DifficultyValue>('');
-  const [priceRange,   setPriceRange]   = useState('');
+  const [difficulty,   setDifficulty]   = useState<DifficultyValue>(() => {
+    const d = searchParams.get('difficulty');
+    return (d === 'easy' || d === 'medium' || d === 'hard') ? d : '';
+  });
+  const [priceRange,   setPriceRange]   = useState(() => {
+    const p = searchParams.get('price');
+    return PRICE_RANGES.some(r => r.value === p) ? (p ?? '') : '';
+  });
   const [page,         setPage]         = useState(1);
   const [showFilters,  setShowFilters]  = useState(false);
 
@@ -219,9 +225,11 @@ export default function RoutesPageClient() {
     if (query)             p.set('q', query);
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
+    if (difficulty)        p.set('difficulty', difficulty);
+    if (kind === 'route' && priceRange) p.set('price', priceRange);
     if (page > 1)          p.set('page', String(page));
     router.replace(`/routes${p.size ? '?' + p : ''}`, { scroll: false });
-  }, [query, activityType, locationType, page, kind, router]);
+  }, [query, activityType, locationType, page, kind, difficulty, priceRange, router]);
 
   const resetFilters = () => { setDifficulty(''); setPriceRange(''); setPage(1); };
 

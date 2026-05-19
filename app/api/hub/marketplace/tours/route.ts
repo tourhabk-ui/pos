@@ -10,17 +10,18 @@ import { pool } from '@/lib/db-pool';
 export const dynamic = 'force-dynamic';
 
 const QuerySchema = z.object({
-  search:        z.string().max(200).optional(),
-  activity_type: z.string().max(60).optional(),
-  location_type: z.string().max(60).optional(),
-  sort:          z.enum(['recommended', 'price_asc', 'price_desc', 'recent']).default('recommended'),
-  difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
-  duration_type: z.enum(['day', 'half_day', 'multi_day']).optional(),
-  price_min:     z.coerce.number().min(0).optional(),
-  price_max:     z.coerce.number().min(0).optional(),
-  id:            z.coerce.number().int().optional(),
-  limit:         z.coerce.number().int().min(1).max(100).default(50),
-  offset:        z.coerce.number().int().min(0).default(0),
+  search:          z.string().max(200).optional(),
+  activity_type:   z.string().max(60).optional(),
+  location_type:   z.string().max(60).optional(),
+  sort:            z.enum(['recommended', 'price_asc', 'price_desc', 'recent']).default('recommended'),
+  difficulty:      z.enum(['easy', 'medium', 'hard']).optional(),
+  duration_type:   z.enum(['day', 'half_day', 'multi_day']).optional(),
+  price_min:       z.coerce.number().min(0).optional(),
+  price_max:       z.coerce.number().min(0).optional(),
+  id:              z.coerce.number().int().optional(),
+  operator_slug:   z.string().max(100).optional(),
+  limit:           z.coerce.number().int().min(1).max(100).default(50),
+  offset:          z.coerce.number().int().min(0).default(0),
 });
 
 export async function GET(req: NextRequest) {
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
     const {
       search, activity_type, location_type, sort,
       difficulty, duration_type, price_min, price_max,
-      id, limit, offset,
+      id, operator_slug, limit, offset,
     } = parsed.data;
 
     const selectFields = `
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
         ot.season_end,
         p.name as operator_name,
         p.id as operator_id,
+        p.slug as operator_slug,
         COUNT(ob.id)::INT as bookings_count,
         EXISTS (
           SELECT 1 FROM tour_availability ta
@@ -111,6 +113,10 @@ export async function GET(req: NextRequest) {
     if (price_max != null) {
       conditions.push(`ot.base_price <= $${idx++}`);
       params.push(price_max);
+    }
+    if (operator_slug) {
+      conditions.push(`p.slug = $${idx++}`);
+      params.push(operator_slug);
     }
     if (search) {
       conditions.push(`(ot.title ILIKE $${idx} OR ot.description ILIKE $${idx})`);

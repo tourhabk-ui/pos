@@ -8,8 +8,8 @@ interface Props {
   kuzmichReview: string | null;
 }
 
-export default function PlaceKuzmich({ placeId, placeName, kuzmichReview }: Props) {
-  const chatUrl = `/chat?context=place&id=${placeId}&name=${encodeURIComponent(placeName)}`;
+export default function PlaceKuzmich({ placeId: _placeId, placeName, kuzmichReview }: Props) {
+  const chatUrl = `/ai-assistant?q=${encodeURIComponent(`Расскажи про ${placeName}: безопасность, лучший сезон, как добраться и что взять с собой`)}`;
 
   return (
     <section className="max-w-3xl mx-auto px-4">

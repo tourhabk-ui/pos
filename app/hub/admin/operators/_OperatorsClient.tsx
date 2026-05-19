@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { Protected } from '@/components/auth/Protected';
 import {
   Building2, Search, Loader2, CheckCircle2, XCircle,
   Clock, Phone, Mail, Calendar, ChevronDown, ChevronUp,
-  Send, Pencil, Check, Globe, Copy,
+  Send, Pencil, Check, Globe, Copy, X,
 } from 'lucide-react';
 
 type ProfileStatus = 'pending' | 'approved' | 'rejected';
@@ -68,8 +69,18 @@ function RejectModal({
   onCancel,
 }: { name: string; onConfirm: (comment: string) => void; onCancel: () => void }) {
   const [comment, setComment] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl w-full max-w-md p-6 shadow-xl">
         <h3 className="font-semibold text-[var(--text-primary)] mb-1">Отклонить заявку</h3>
         <p className="text-sm text-[var(--text-secondary)] mb-4">{name}</p>
@@ -111,6 +122,7 @@ function OperatorCard({
   const [tgEdit, setTgEdit] = useState(false);
   const [tgValue, setTgValue] = useState(op.telegram_chat_id ?? '');
   const [tgSaving, setTgSaving] = useState(false);
+  const [tgError, setTgError] = useState('');
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
@@ -119,14 +131,27 @@ function OperatorCard({
   const [widgetCopied, setWidgetCopied] = useState(false);
 
   async function saveTelegram() {
+    const trimmed = tgValue.trim();
+    if (trimmed && !/^-?\d+$/.test(trimmed)) {
+      setTgError('Только цифры (или пусто для удаления)');
+      return;
+    }
+    setTgError('');
     setTgSaving(true);
     try {
-      await fetch(`/api/admin/operators/${op.id}/contacts`, {
+      const res = await fetch(`/api/admin/operators/${op.id}/contacts`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegram_chat_id: tgValue.trim() || null }),
+        body: JSON.stringify({ telegram_chat_id: trimmed || null }),
       });
-      setTgEdit(false);
+      if (res.ok) {
+        setTgEdit(false);
+        toast.success('Telegram сохранён');
+      } else {
+        toast.error('Не удалось сохранить Telegram');
+      }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setTgSaving(false);
     }
@@ -135,23 +160,41 @@ function OperatorCard({
   async function toggleWidget() {
     const next = !widgetEnabled;
     setWidgetEnabled(next);
-    await fetch(`/api/admin/operators/${op.id}/widget`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ widget_enabled: next }),
-    });
+    try {
+      const res = await fetch(`/api/admin/operators/${op.id}/widget`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ widget_enabled: next }),
+      });
+      if (res.ok) {
+        toast.success(next ? 'Виджет включён' : 'Виджет выключен');
+      } else {
+        setWidgetEnabled(!next); // rollback
+        toast.error('Не удалось изменить статус виджета');
+      }
+    } catch {
+      setWidgetEnabled(!next);
+      toast.error('Нет соединения с сервером');
+    }
   }
 
   async function saveWidgetDomains() {
     setWidgetSaving(true);
     try {
       const domains = widgetDomains.split('\n').map(d => d.trim()).filter(Boolean);
-      await fetch(`/api/admin/operators/${op.id}/widget`, {
+      const res = await fetch(`/api/admin/operators/${op.id}/widget`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ widget_domains: domains }),
       });
-      setWidgetEditing(false);
+      if (res.ok) {
+        setWidgetEditing(false);
+        toast.success('Домены сохранены');
+      } else {
+        toast.error('Не удалось сохранить домены');
+      }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setWidgetSaving(false);
     }
@@ -230,13 +273,16 @@ function OperatorCard({
             <Send className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
             {tgEdit ? (
               <div className="flex items-center gap-1.5 flex-1">
-                <input
-                  autoFocus
-                  value={tgValue}
-                  onChange={e => setTgValue(e.target.value)}
-                  placeholder="telegram_chat_id (число)"
-                  className="flex-1 px-2 py-1 text-xs bg-[var(--bg-primary)] border border-[var(--accent)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
-                />
+                <div className="flex-1">
+                  <input
+                    autoFocus
+                    value={tgValue}
+                    onChange={e => { setTgValue(e.target.value); setTgError(''); }}
+                    placeholder="Только цифры, напр. -1001234567890"
+                    className={`w-full px-2 py-1 text-xs bg-[var(--bg-primary)] border rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none ${tgError ? 'border-[var(--danger)]' : 'border-[var(--accent)]'}`}
+                  />
+                  {tgError && <p className="text-[10px] text-[var(--danger)] mt-0.5">{tgError}</p>}
+                </div>
                 <button
                   onClick={saveTelegram}
                   disabled={tgSaving}
@@ -319,7 +365,7 @@ function OperatorCard({
                       <textarea
                         value={widgetDomains}
                         onChange={e => setWidgetDomains(e.target.value)}
-                        placeholder="example.com&#10;www.partner.ru"
+                        placeholder={"example.com\nwww.partner.ru"}
                         rows={3}
                         className="w-full text-xs px-2 py-1.5 bg-[var(--bg-primary)] border border-[var(--accent)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none resize-none"
                       />
@@ -441,7 +487,12 @@ export default function OperatorsClient() {
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
         setOperators(prev => prev.filter(o => o.id !== id));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, approved: (prev.approved ?? 0) + 1 }));
+        toast.success('Оператор одобрен');
+      } else {
+        toast.error('Не удалось одобрить оператора');
       }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setActing(null);
     }
@@ -460,7 +511,12 @@ export default function OperatorsClient() {
       if (typeof j === 'object' && j !== null && 'success' in j && (j as { success: boolean }).success) {
         setOperators(prev => prev.filter(o => o.id !== id));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, rejected: (prev.rejected ?? 0) + 1 }));
+        toast.success('Заявка отклонена');
+      } else {
+        toast.error('Не удалось отклонить заявку');
       }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setActing(null);
     }
@@ -523,9 +579,20 @@ export default function OperatorsClient() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Поиск по названию, контакту, email..."
-            className="w-full pl-10 pr-4 py-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+            className="w-full pl-10 pr-10 py-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
+        {search && !loading && (
+          <p className="text-xs text-[var(--text-muted)] mb-3">Найдено {filtered.length} из {operators.length}</p>
+        )}
 
         {/* List */}
         {loading ? (

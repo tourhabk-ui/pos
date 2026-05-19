@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ChevronRight, MapPin, ShieldCheck, Fish, Home, Calendar, Users, Star, Shield, Phone } from 'lucide-react';
+import { ChevronRight, MapPin, ShieldCheck, Fish, Home, Calendar, Users, Star, Shield, Phone, ShoppingBag, ArrowRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
@@ -132,6 +132,19 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Shield, Fish, Home, Calendar, Users, Star, MapPin, Phone,
 };
 
+async function getOperatorTourCount(partnerId: string): Promise<number> {
+  const res = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM operator_tours
+     WHERE operator_id = $1
+       AND is_active = true
+       AND is_published = true
+       AND deleted_at IS NULL`,
+    [partnerId]
+  );
+  return parseInt(res.rows[0]?.count ?? '0', 10);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | null> {
@@ -205,7 +218,10 @@ export default async function OperatorProfilePage(
   const profile = await getOperatorProfile(slug);
   if (!profile) notFound();
 
-  const services  = extractServices(profile.services);
+  const [services, tourCount] = await Promise.all([
+    Promise.resolve(extractServices(profile.services)),
+    getOperatorTourCount(profile.id),
+  ]);
   const features  = extractFeatures(profile.features);
   const contacts  = extractContacts(profile.contacts);
   const legalInfo = extractLegalInfo(profile.legal_info);
@@ -271,6 +287,32 @@ export default async function OperatorProfilePage(
               </div>
             </div>
           </section>
+
+          {/* Tours CTA */}
+          {tourCount > 0 && (
+            <section className="ds-card p-5 border border-[var(--accent)]/20 bg-[var(--accent)]/5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
+                    <ShoppingBag className="w-5 h-5 text-[var(--accent)]" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-[var(--text-primary)]">
+                      {tourCount === 1 ? '1 тур' : `${tourCount} ${tourCount < 5 ? 'тура' : 'туров'}`} от оператора
+                    </p>
+                    <p className="text-sm text-[var(--text-secondary)]">Бронирование онлайн с подтверждением</p>
+                  </div>
+                </div>
+                <Link
+                  href={`/marketplace?operator=${profile.slug}`}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] text-[var(--bg-primary)] font-semibold text-sm hover:opacity-90 transition-opacity shrink-0"
+                >
+                  Смотреть туры
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </section>
+          )}
 
           {/* Gallery */}
           {gallery.length > 1 && (
