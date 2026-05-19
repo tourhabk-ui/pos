@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { User, Loader2, Save, Lock, AlertCircle, CheckCircle, Send, ExternalLink } from 'lucide-react';
 
+
 const INPUT_CLASS =
   'w-full min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
 
@@ -213,8 +214,21 @@ export default function ProfileClient() {
         </h1>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-6 animate-pulse">
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
+              <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => (
+                <div key={i} className="space-y-1.5">
+                  <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-11 bg-[var(--bg-hover)] rounded-lg" />
+                </div>
+              ))}
+              <div className="h-10 w-32 bg-[var(--bg-hover)] rounded-lg" />
+            </div>
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-3">
+              <div className="h-4 w-40 bg-[var(--bg-hover)] rounded" />
+              {[1,2,3].map(i => <div key={i} className="h-11 bg-[var(--bg-hover)] rounded-lg" />)}
+            </div>
           </div>
         ) : fetchError ? (
           <div className="flex items-center gap-3 rounded-lg border border-[var(--danger)] bg-[var(--bg-card)] text-[var(--danger)] p-5">

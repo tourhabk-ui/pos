@@ -3,7 +3,19 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { LoadingSpinner } from '@/components/admin/shared';
+function BookingsSkeleton() {
+  return (
+    <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+      <div className="h-16 bg-[var(--bg-hover)] rounded-lg" />
+      <div className="flex gap-2">
+        {[1,2,3,4].map(i => <div key={i} className="h-9 w-24 bg-[var(--bg-hover)] rounded-md" />)}
+      </div>
+      {[1,2,3].map(i => (
+        <div key={i} className="bg-[var(--bg-hover)] rounded-lg h-36" />
+      ))}
+    </div>
+  );
+}
 import { Calendar, Users, ChevronDown, ChevronUp, Star, AlertTriangle } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import type { BookingWithDetails, BookingStatus } from '@/types/booking.types';
@@ -172,13 +184,7 @@ export default function BookingHistoryPageClient() {
     }
   });
 
-  if (loading) {
-    return (
-      <div className="p-5 lg:p-6 flex items-center justify-center py-20">
-        <LoadingSpinner message="Загрузка бронирований..." />
-      </div>
-    );
-  }
+  if (loading) return <BookingsSkeleton />;
 
   return (
     <div className="p-5 lg:p-6 space-y-5">

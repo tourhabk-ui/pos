@@ -3,9 +3,31 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import { Protected } from '@/components/auth/Protected';
-import { Heart, Loader2, ExternalLink, Mountain } from 'lucide-react';
+import { Heart, ExternalLink, Mountain } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
+
+function WishlistSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+          <div className="h-40 bg-[var(--bg-hover)]" />
+          <div className="p-4 space-y-3">
+            <div className="h-4 bg-[var(--bg-hover)] rounded w-3/4" />
+            <div className="h-3 bg-[var(--bg-hover)] rounded w-1/2" />
+            <div className="h-3 bg-[var(--bg-hover)] rounded w-1/3" />
+            <div className="flex gap-2 mt-4">
+              <div className="h-10 bg-[var(--bg-hover)] rounded-lg flex-1" />
+              <div className="h-10 w-10 bg-[var(--bg-hover)] rounded-lg" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface WishlistItem {
   id: string;
@@ -109,9 +131,14 @@ export default function WishlistClient() {
   const handleRemove = async (itemId: string) => {
     setData((prev) => (prev ?? []).filter((t) => t.id !== itemId));
     try {
-      await fetch(`/api/tourist/wishlist?id=${itemId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/tourist/wishlist?id=${itemId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success('Удалено из избранного');
+      } else {
+        toast.error('Не удалось удалить');
+      }
     } catch {
-      // silent
+      toast.error('Ошибка сети');
     }
   };
 
@@ -123,9 +150,7 @@ export default function WishlistClient() {
         </h1>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
-          </div>
+          <WishlistSkeleton />
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Heart className="w-16 h-16 mb-4 text-[var(--text-muted)]" />
