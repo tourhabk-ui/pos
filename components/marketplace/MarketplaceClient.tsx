@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -456,22 +457,25 @@ function TourCard({
 /* ─── Marketplace Client ─── */
 
 export default function MarketplaceClient() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [tours, setTours] = useState<Tour[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   // Search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') ?? '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('q') ?? '');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Filters
-  const [activityFilter, setActivityFilter] = useState('');
-  const [sort, setSort] = useState('recommended');
-  const [difficulty, setDifficulty] = useState('');
-  const [priceRange, setPriceRange] = useState('');
-  const [durationType, setDurationType] = useState('');
+  // Filters — initialized from URL
+  const [activityFilter, setActivityFilter] = useState(() => searchParams.get('activity') ?? '');
+  const [sort, setSort] = useState(() => searchParams.get('sort') ?? 'recommended');
+  const [difficulty, setDifficulty] = useState(() => searchParams.get('difficulty') ?? '');
+  const [priceRange, setPriceRange] = useState(() => searchParams.get('price') ?? '');
+  const [durationType, setDurationType] = useState(() => searchParams.get('duration') ?? '');
   const [showFilters, setShowFilters] = useState(false);
 
   // Wishlist
@@ -483,6 +487,19 @@ export default function MarketplaceClient() {
     const range = PRICE_RANGES.find(r => r.value === priceRange);
     return { price_min: range?.min, price_max: range?.max };
   }, [priceRange]);
+
+  // Sync filters → URL (shallow replace, no navigation)
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (searchTerm)                          p.set('q', searchTerm);
+    if (activityFilter)                      p.set('activity', activityFilter);
+    if (sort && sort !== 'recommended')      p.set('sort', sort);
+    if (difficulty)                          p.set('difficulty', difficulty);
+    if (priceRange)                          p.set('price', priceRange);
+    if (durationType)                        p.set('duration', durationType);
+    const qs = p.toString();
+    router.replace(qs ? `?${qs}` : '?', { scroll: false });
+  }, [searchTerm, activityFilter, sort, difficulty, priceRange, durationType, router]);
 
   // Debounce search
   useEffect(() => {

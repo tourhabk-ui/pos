@@ -164,6 +164,46 @@ function NextTripWidget({ trips }: { trips: TouristStats['upcoming_trips'] }) {
   );
 }
 
+/* ── First-time onboarding card ── */
+function OnboardingCard() {
+  const steps = [
+    { n: 1, title: 'Заполните профиль',    desc: 'Имя и телефон нужны оператору для связи',    href: '/hub/tourist/profile',    done: false },
+    { n: 2, title: 'Выберите тур',         desc: 'Каталог: вулканы, рыбалка, вертолёт, медведи', href: '/marketplace',           done: false },
+    { n: 3, title: 'Подключите Telegram',  desc: 'Кузьмич пришлёт статус брони и напоминания', href: '/hub/tourist/profile',    done: false },
+  ];
+  return (
+    <div className="bg-[var(--bg-card)] border border-[var(--accent)]/20 rounded-lg p-6">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
+          <Compass className="w-5 h-5 text-[var(--accent)]" />
+        </div>
+        <div>
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">Добро пожаловать на Камчатку!</h2>
+          <p className="text-xs text-[var(--text-muted)]">Три шага для начала работы</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {steps.map(step => (
+          <Link
+            key={step.n}
+            href={step.href}
+            className="flex items-center gap-4 p-3 rounded-lg border border-[var(--border)] hover:border-[var(--accent)]/40 hover:bg-[var(--bg-hover)] transition-all group"
+          >
+            <div className="w-7 h-7 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] text-xs font-bold flex items-center justify-center shrink-0 group-hover:bg-[var(--accent)] group-hover:text-[var(--bg-primary)] transition-colors">
+              {step.n}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-[var(--text-primary)]">{step.title}</p>
+              <p className="text-xs text-[var(--text-muted)]">{step.desc}</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0 group-hover:text-[var(--accent)] group-hover:translate-x-0.5 transition-all" />
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Quick actions ── */
 const QUICK_ACTIONS = [
   { label: 'Найти тур',      href: '/marketplace',             icon: ShoppingBag, color: 'var(--accent)' },
@@ -319,6 +359,11 @@ export default function TouristDashboardClient() {
             );
           })}
         </div>
+      )}
+
+      {/* Onboarding for brand-new users */}
+      {!ps?.total_trips && bookings.length === 0 && (
+        <OnboardingCard />
       )}
 
       {/* Next trip + Quick actions */}
