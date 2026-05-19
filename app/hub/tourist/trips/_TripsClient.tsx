@@ -2,10 +2,45 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { Protected } from '@/components/auth/Protected';
 import {
   MapPin, Calendar, Trash2, Plus, Loader, AlertTriangle, Route,
 } from 'lucide-react';
+
+function DeleteTripModal({ title, onConfirm, onCancel }: { title: string; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-[var(--danger)]/10 flex items-center justify-center">
+            <Trash2 className="w-4 h-4 text-[var(--danger)]" />
+          </div>
+          <h3 className="font-semibold text-[var(--text-primary)]">Удалить маршрут?</h3>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-6">
+          <span className="font-medium">{title}</span> будет удалён без возможности восстановления.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel}
+            className="px-4 py-2 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors">
+            Отмена
+          </button>
+          <button onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity">
+            Удалить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface TripListItem {
   id: string;
@@ -24,17 +59,8 @@ function fmt(d: string | null): string {
   return new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function TripCard({ trip, onDelete }: { trip: TripListItem; onDelete: (id: string) => void }) {
-  const [deleting, setDeleting] = useState(false);
+function TripCard({ trip, deleting, onRequestDelete }: { trip: TripListItem; deleting: boolean; onRequestDelete: (id: string, title: string) => void }) {
   const days = Number(trip.days_count);
-
-  async function handleDelete(e: React.MouseEvent) {
-    e.preventDefault();
-    if (!confirm('Удалить маршрут?')) return;
-    setDeleting(true);
-    await fetch(`/api/trips/${trip.id}`, { method: 'DELETE' });
-    onDelete(trip.id);
-  }
 
   return (
     <Link href={`/hub/tourist/trips/${trip.id}`}
@@ -48,8 +74,10 @@ function TripCard({ trip, onDelete }: { trip: TripListItem; onDelete: (id: strin
             Обновлён {fmt(trip.updated_at)}
           </p>
         </div>
-        <button onClick={handleDelete} disabled={deleting}
-          className="w-7 h-7 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors shrink-0">
+        <button
+          onClick={e => { e.preventDefault(); onRequestDelete(trip.id, trip.title); }}
+          disabled={deleting}
+          className="w-7 h-7 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors shrink-0 disabled:opacity-50">
           {deleting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
         </button>
       </div>
@@ -87,6 +115,8 @@ export function TripsClient() {
   const [trips, setTrips] = useState<TripListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch('/api/trips')
@@ -99,12 +129,33 @@ export function TripsClient() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleDelete(id: string) {
-    setTrips(prev => prev.filter(t => t.id !== id));
+  async function executeDelete(id: string) {
+    setDeleteTarget(null);
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/trips/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setTrips(prev => prev.filter(t => t.id !== id));
+        toast.success('Маршрут удалён');
+      } else {
+        toast.error('Не удалось удалить маршрут');
+      }
+    } catch {
+      toast.error('Ошибка сети');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
     <Protected roles={['tourist', 'admin']}>
+      {deleteTarget && (
+        <DeleteTripModal
+          title={deleteTarget.title}
+          onConfirm={() => executeDelete(deleteTarget.id)}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
       <div className="ds-page max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -149,7 +200,7 @@ export function TripsClient() {
         {!loading && trips.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2">
             {trips.map(t => (
-              <TripCard key={t.id} trip={t} onDelete={handleDelete} />
+              <TripCard key={t.id} trip={t} deleting={deleting} onRequestDelete={(id, title) => setDeleteTarget({ id, title })} />
             ))}
           </div>
         )}
