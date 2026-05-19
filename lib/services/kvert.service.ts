@@ -45,7 +45,7 @@ export async function getVolcanoStatuses(): Promise<VolcanoStatus[]> {
 
   try {
     const res = await fetch(KVERT_RSS_URL, {
-      headers: { 'User-Agent': 'TourHab/1.0 (tourhab.ru)' },
+      headers: { 'User-Agent': 'Ведар/1.0 (tourhab.ru)' },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`KVERT HTTP ${res.status}`);

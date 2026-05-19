@@ -190,7 +190,7 @@ async function runDigest(): Promise<string> {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты AI-директор туристической платформы TourHab (Камчатка).
+      content: `Ты AI-директор туристической платформы Ведар (Камчатка).
 Анализируй метрики кратко. Дай 1 строку общей оценки и 3 приоритета на день.`,
     },
     {
@@ -210,7 +210,7 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
     case '/start':
     case '/help':
       await reply(chatId, [
-        '<b>TourHab Admin</b>',
+        '<b>Ведар Admin</b>',
         '',
         '/health — AI + БД',
         '/stats — цифры платформы',
@@ -336,7 +336,7 @@ async function handleFreeText(text: string, chatId: number): Promise<void> {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `Ты AI-директор платформы TourHab (Камчатка). Отвечаешь владельцу кратко и по делу.\nДанные платформы:\n${stats}`,
+        content: `Ты AI-директор платформы Ведар (Камчатка). Отвечаешь владельцу кратко и по делу.\nДанные платформы:\n${stats}`,
       },
       ...history,
     ];

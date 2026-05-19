@@ -258,7 +258,7 @@ function buildPrompt(m: PlatformMetrics, date: string): ChatMessage[] {
   return [
     {
       role: 'system',
-      content: `Ты — операционный директор туристической платформы TourHab (Камчатка).
+      content: `Ты — операционный директор туристической платформы Ведар (Камчатка).
 Задача: проанализировать ежедневные метрики и дать конкретные приоритеты владельцу.
 
 Правила:
@@ -308,7 +308,7 @@ export async function GET(request: NextRequest) {
 
   // ── Основное сообщение дайджеста ───────────────────────────────────────────
   const lines: string[] = [
-    `<b>Дайджест TourHab — ${date}</b>`,
+    `<b>Дайджест Ведар — ${date}</b>`,
     ``,
     analysis,
     ``,

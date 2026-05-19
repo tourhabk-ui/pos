@@ -58,7 +58,7 @@ export default function OperatorRegister() {
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center p-4">
       <div className="ds-card max-w-md w-full p-8">
-        <h1 className="ds-h1 mb-2 text-center">Присоединись к TourHab</h1>
+        <h1 className="ds-h1 mb-2 text-center">Присоединись к Ведар</h1>
         <p className="text-center text-[var(--text-secondary)] mb-6 text-sm">
           Первый месяц — 0% комиссии. Просто тестируешь. Без обмана.
         </p>

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     url: 'https://tourhab.ru/contact',
     type: 'website',
     locale: 'ru_RU',
-    siteName: 'TourHab',
+    siteName: 'Ведар',
   },
   twitter: {
     card: 'summary_large_image',
@@ -32,7 +32,7 @@ export default function ContactPage() {
   const localBusinessSchema = {
     '@context': 'https://schema.org',
     '@type': 'LocalBusiness',
-    name: 'TourHab',
+    name: 'Ведар',
     url: 'https://tourhab.ru/contact',
     image: 'https://tourhab.ru/og-image.jpg',
     telephone: '+7 (914) 782-22-22',

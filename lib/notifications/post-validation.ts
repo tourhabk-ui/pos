@@ -141,7 +141,7 @@ async function verifyAllLinks(text: string): Promise<{ errors: string[]; warning
           method: 'HEAD',
           signal: controller.signal,
           redirect: 'follow',
-          headers: { 'User-Agent': 'TourHab-LinkChecker/1.0' },
+          headers: { 'User-Agent': 'Ведар-LinkChecker/1.0' },
         });
         clearTimeout(timeout);
 
@@ -153,7 +153,7 @@ async function verifyAllLinks(text: string): Promise<{ errors: string[]; warning
             method: 'GET',
             signal: controller2.signal,
             redirect: 'follow',
-            headers: { 'User-Agent': 'TourHab-LinkChecker/1.0' },
+            headers: { 'User-Agent': 'Ведар-LinkChecker/1.0' },
           });
           clearTimeout(timeout2);
           // Потребляем body чтобы не висеть

@@ -1,5 +1,5 @@
 /**
- * Стандарты качества публикаций TourHab.
+ * Стандарты качества публикаций Ведар.
  *
  * Обязательные правила для ВСЕХ постов в каналы (TG + MAX).
  * Ответственный AI-директор: Content (#7, content-auditor-agency.ts)
@@ -101,7 +101,7 @@ export async function reviewPostContent(
 ): Promise<ContentReviewResult> {
   const stripped = text.replace(/<[^>]+>/g, '').trim();
 
-  const prompt = `Ты — AI Content Director туристической платформы Камчатки TourHab.
+  const prompt = `Ты — AI Content Director туристической платформы Камчатки Ведар.
 Твой бенчмарк качества — Manus AI. Ты должен оценивать контент не ниже этого уровня.
 Оцени текст поста для Telegram-канала по шкале 1-10.
 

@@ -254,7 +254,7 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
 
   const lines: string[] = [];
-  lines.push(`🏔 <b>${esc(p.name)}</b> — партнёр TourHab`);
+  lines.push(`🏔 <b>${esc(p.name)}</b> — партнёр Ведар`);
   lines.push('');
   if (desc) lines.push(esc(desc));
   if (p.location) lines.push(`\n📍 ${esc(p.location)}`);
@@ -711,7 +711,7 @@ export async function postSafetyToChannel(topic?: string): Promise<{ ok: boolean
 
   // 2. Generate post via AI
   const userTopic = topic ? `\nТема от админа: ${topic}\n` : '';
-  const postPrompt = `Ты — Кузьмич, AI-агент платформы TourHab. Напиши пост для Telegram-канала о безопасности туристов на Камчатке.
+  const postPrompt = `Ты — Кузьмич, AI-агент платформы Ведар. Напиши пост для Telegram-канала о безопасности туристов на Камчатке.
 ${userTopic}
 АКТУАЛЬНЫЕ НОВОСТИ:
 ${newsContext || 'Нет свежих новостей — напиши общий пост о безопасности.'}

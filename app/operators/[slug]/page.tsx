@@ -190,7 +190,7 @@ export async function generateMetadata(
   const title = `${profile.name} - оператор Камчатки`;
   const description = profile.short_description
     ?? profile.description
-    ?? 'Публичный профиль проверенного оператора на TourHab.';
+    ?? 'Публичный профиль проверенного оператора на Ведар.';
 
   return {
     title,

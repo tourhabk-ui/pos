@@ -392,7 +392,7 @@ export default function RegisterRoutePage() {
                 <input type="checkbox" checked={contactConsent} onChange={e => setContactConsent(e.target.checked)} className="mt-1 w-4 h-4 rounded accent-[var(--accent)]" />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Контакт <strong>{emergencyName || '___'}</strong> согласен получать уведомления
-                  от TourHab о статусе маршрута (Telegram / Email).
+                  от Ведар о статусе маршрута (Telegram / Email).
                 </span>
               </label>
             </div>
@@ -432,7 +432,7 @@ export default function RegisterRoutePage() {
                     или лично в Главное управление МЧС России по Камчатскому краю.
                   </p>
                   <p className="text-xs text-[var(--text-muted)] mt-2">
-                    TourHab не гарантирует получение уведомления экстренным контактом
+                    Ведар не гарантирует получение уведомления экстренным контактом
                     и не несёт ответственности за реакцию третьих лиц.
                   </p>
                 </div>
@@ -442,7 +442,7 @@ export default function RegisterRoutePage() {
                 <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-1 w-4 h-4 rounded accent-[var(--accent)]" />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Я понимаю что это <strong>не официальная регистрация</strong> и
-                  TourHab <strong>не является службой спасения</strong>.
+                  Ведар <strong>не является службой спасения</strong>.
                   Я самостоятельно подам заявку в МЧС.
                 </span>
               </label>

@@ -26,10 +26,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: 'TourHab — помощник и планировщик путешествия по Камчатке',
-    template: '%s | TourHab Камчатка',
+    default: 'Ведар — помощник и планировщик путешествия по Камчатке',
+    template: '%s | Ведар Камчатка',
   },
-  description: 'TourHab помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
+  description: 'Ведар помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
   keywords: [
     'туры на Камчатку',
     'рыбалка Камчатка',
@@ -71,7 +71,7 @@ export const metadata: Metadata = {
     locale: 'ru_RU',
     url: BASE_URL,
     siteName: 'Kamchatour',
-    title: 'TourHab — помощник по Камчатке',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
     images: [
       {
@@ -84,7 +84,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'TourHab — помощник по Камчатке',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
     images: ['/images/hero/hero-light.jpeg'],
   },
@@ -159,7 +159,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
-                "name": "TourHab — помощник по Камчатке",
+                "name": "Ведар — помощник по Камчатке",
                 "url": "https://tourhab.ru",
                 "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и реальные туры от проверенных операторов.",
                 "inLanguage": "ru",
@@ -175,7 +175,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "TouristInformationCenter",
-                "name": "TourHab",
+                "name": "Ведар",
                 "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
                 "url": "https://tourhab.ru",
                 "logo": "https://tourhab.ru/logo-kamchatka.svg",
@@ -215,7 +215,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@context": "https://schema.org",
                 "@type": "LocalBusiness",
                 "@id": "https://tourhab.ru/#localbusiness",
-                "name": "TourHab",
+                "name": "Ведар",
                 "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
                 "url": "https://tourhab.ru",
                 "logo": "https://tourhab.ru/logo-kamchatka.svg",

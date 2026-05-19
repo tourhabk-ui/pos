@@ -217,7 +217,7 @@ export default function EmailAdminClient() {
                 <p className="font-semibold text-[var(--text-primary)]">Добавьте в Timeweb Cloud → App 175269 → Переменные:</p>
                 {[['SMTP_HOST','smtp.timeweb.ru'],['SMTP_PORT','465'],['SMTP_SECURE','true'],
                   ['SMTP_USER','noreply@tourhab.ru'],['SMTP_PASS','Gr96Ww32'],
-                  ['SMTP_FROM','TourHab <noreply@tourhab.ru>']].map(([k,v]) => (
+                  ['SMTP_FROM','Ведар <noreply@tourhab.ru>']].map(([k,v]) => (
                   <div key={k} className="flex gap-1.5 font-mono text-[11px]">
                     <span className="text-[var(--ocean)]">{k}</span>
                     <span className="text-[var(--text-muted)]">=</span>

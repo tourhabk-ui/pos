@@ -298,7 +298,7 @@ async function getOperatorsList(): Promise<string> {
       `SELECT name, slug FROM partners WHERE is_public = TRUE ORDER BY name LIMIT 10`
     );
     if (!res.rows.length) return 'Список операторов пока пуст.';
-    const lines = ['<b>Операторы на TourHab:</b>', ''];
+    const lines = ['<b>Операторы на Ведар:</b>', ''];
     res.rows.forEach(p => {
       lines.push(`🏔 <a href="https://tourhab.ru/operators/${p.slug}">${esc(p.name)}</a>`);
     });
@@ -335,7 +335,7 @@ async function getStats(): Promise<string> {
     const s = statsRes.rows[0];
     const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const lines = [
-      `<b>Статистика TourHab</b>  <i>${today}</i>`,
+      `<b>Статистика Ведар</b>  <i>${today}</i>`,
       '',
       `👁 Просмотры сегодня: <b>${s.views_today}</b>   за 30 дней: <b>${s.views_30d}</b>`,
       `📦 Брони сегодня: <b>${s.bookings_today}</b>   за 30 дней: <b>${s.bookings_30d}</b>`,
@@ -824,7 +824,7 @@ export async function POST(request: NextRequest) {
           '',
           desc,
           '',
-          `<a href="https://tourhab.ru/routes/${route.id}">Подробнее на TourHab →</a>`,
+          `<a href="https://tourhab.ru/routes/${route.id}">Подробнее на Ведар →</a>`,
         ].filter(Boolean).join('\n'));
       }
       return NextResponse.json({ ok: true });
@@ -1184,7 +1184,7 @@ export async function POST(request: NextRequest) {
         } else {
           // Незарегистрированный пользователь — направляем к регистрации
           await sendHTML(chatId, [
-            'Для обращения в поддержку нужен аккаунт на TourHab.',
+            'Для обращения в поддержку нужен аккаунт на Ведар.',
             '',
             'Зарегистрируйся на <a href="https://tourhab.ru/auth/register">tourhab.ru</a> и привяжи Telegram в профиле.',
             'Или опиши проблему — помогу решить здесь.',

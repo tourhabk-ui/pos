@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const species = FISH_BY_ID[id];
   if (!species) return { title: 'Вид не найден' };
 
-  const title = `${species.name} на Камчатке — ${species.nameLatin} | TourHab`;
+  const title = `${species.name} на Камчатке — ${species.nameLatin} | Ведар`;
   const desc = `${species.shortDesc} Сезон: ${species.season}. Рекорд: ${species.recordKg}. Место: ${species.habitat}.`;
 
   return {
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description: desc,
       url: `https://tourhab.ru/fish/${id}`,
-      siteName: 'TourHab',
+      siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
     },
@@ -91,7 +91,7 @@ export default async function FishDetailPage({ params }: Props) {
     url: `https://tourhab.ru/fish/${id}`,
     inLanguage: 'ru',
     about: { '@type': 'Thing', name: species.name, alternateName: species.nameLatin },
-    publisher: { '@type': 'Organization', name: 'TourHab', url: 'https://tourhab.ru' },
+    publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://tourhab.ru' },
   };
 
   // Other species (exclude current)

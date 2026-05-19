@@ -4,7 +4,7 @@ import { Header } from '@/components/layout/Header';
 import FaqClient from './_FaqClient';
 
 export const metadata: Metadata = {
-  title: 'Вопросы и ответы о турах на Камчатку — TourHab',
+  title: 'Вопросы и ответы о турах на Камчатку — Ведар',
   description: 'Ответы на 30+ вопросов о путешествии на Камчатку: когда ехать, вулканы, медведи, горячие источники, безопасность, цены, бронирование туров.',
   keywords: [
     'вопросы о турах на Камчатку',
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     title: 'Вопросы и ответы о турах на Камчатку',
     description: 'Всё, что нужно знать перед поездкой: вулканы, медведи, маршруты, цены, безопасность.',
     url: 'https://tourhab.ru/faq',
-    siteName: 'TourHab',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },

@@ -105,7 +105,7 @@ function generateRegistrationPDF(data: z.infer<typeof RegistrationSchema>): Prom
     doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
     doc.moveDown(0.5);
     doc.fontSize(8).text(
-      'Заявление сформировано автоматически через TourHab (tourhab.ru). ' +
+      'Заявление сформировано автоматически через Ведар (tourhab.ru). ' +
       'Данная заявка не является подтверждением регистрации в МЧС. ' +
       'Для официальной регистрации подайте заявление через портал Госуслуг ' +
       'или лично в Главное управление МЧС России по Камчатскому краю.',

@@ -116,7 +116,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
   }
 
   // Fallback
-  return `<b>Привет, ${name}!</b>\n\nЛичный канал с TourHab подключён. Здесь будут важные уведомления.`;
+  return `<b>Привет, ${name}!</b>\n\nЛичный канал с Ведар подключён. Здесь будут важные уведомления.`;
 }
 
 /**

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       activeTours: toursResult.rows[0]?.total ?? 0,
     };
 
-    const systemPrompt = `Ты AI-ассистент администратора туристической платформы TourHab (Камчатка).
+    const systemPrompt = `Ты AI-ассистент администратора туристической платформы Ведар (Камчатка).
 
 Контекст платформы:
 - Всего бронирований: ${platformContext.totalBookings}

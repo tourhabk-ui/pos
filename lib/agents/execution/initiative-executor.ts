@@ -510,7 +510,7 @@ async function executeBulkNotify(task: ExecutionTask): Promise<ExecutionResult> 
     const activeTours = parseInt(toursRes.rows[0]?.cnt ?? '0', 10);
 
     const text = [
-      '<b>Дайджест платформы TourHab</b>',
+      '<b>Дайджест платформы Ведар</b>',
       '',
       `Лидов без ответа (&gt;24ч): <b>${staleCount}</b>`,
       `Активных туров: <b>${activeTours}</b>`,
@@ -611,7 +611,7 @@ async function executePromptOptimize(task: ExecutionTask): Promise<ExecutionResu
   try {
     const model = getModelForAgent('evo');
 
-    const systemPrompt = `Ты AI-архитектор платформы TourHab (Камчатка).
+    const systemPrompt = `Ты AI-архитектор платформы Ведар (Камчатка).
   Проанализируй типичные проблемы с latency AI-агентов и предложи 3 конкретных оптимизации промптов.
   Формат ответа: JSON массив объектов { "agent": string, "issue": string, "fix": string }`;
 

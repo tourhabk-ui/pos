@@ -1,4 +1,4 @@
-# KamchatourHub — Team Workflow & Operations Guide
+# Ведар — Team Workflow & Operations Guide
 
 > Обновлено: Март 2026 | Стек: Next.js 15, TypeScript, PostgreSQL, Timeweb Cloud
 

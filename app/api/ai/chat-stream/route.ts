@@ -128,7 +128,7 @@ async function streamViaOpenRouter(messages: ChatMessage[]): Promise<Response | 
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Chat Stream',
+        'X-Title': 'Ведар Chat Stream',
       },
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',

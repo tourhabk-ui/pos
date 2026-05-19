@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 
     } else if (stepToRun === 3) {
       // Шаг 3: уведомление экстренного контакта
-      const subject = `TourHab: ${route.leader_name} не отметил возврат с маршрута`;
+      const subject = `Ведар: ${route.leader_name} не отметил возврат с маршрута`;
       const text = [
         `Здравствуйте, ${route.emergency_contact_name}.`,
         ``,
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         ``,
         `Если связь не восстанавливается — рекомендуем обратиться в МЧС: 112`,
         ``,
-        `— TourHab (tourhab.ru)`,
+        `— Ведар (tourhab.ru)`,
       ].join('\n');
 
       let telegramSent = false;
@@ -220,7 +220,7 @@ export async function GET(request: NextRequest) {
         `Маршрут: ${route.route_name}`,
         `Руководитель: ${route.leader_name} (${route.leader_phone})`,
         ``,
-        `— TourHab (tourhab.ru)`,
+        `— Ведар (tourhab.ru)`,
       ].join('\n');
 
       let sent = false;

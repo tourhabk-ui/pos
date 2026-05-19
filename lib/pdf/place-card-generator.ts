@@ -83,7 +83,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
       margins: { top: 48, bottom: 48, left: 52, right: 52 },
       info: {
         Title: `${place.name} — офлайн карточка`,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: 'Офлайн карточка места',
         CreationDate: new Date(),
       },

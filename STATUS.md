@@ -56,7 +56,7 @@ AI-обработка входящих заявок для операторов.
 
 - Миграция `083_lead_processor.sql` — расширены `leads` (9 статусов), новые таблицы `lead_proposals`, `lead_activity_log`
 - `lib/services/lead-processor.service.ts` — `LeadProcessorService` (AI-квалификация через `callAIFast`, ранжирование туров, генерация предложения)
-- `lib/pdf/proposal-generator.ts` — PDF на PDFKit: шапка TourHab, headline, summary, highlights, карточка тура, контакты
+- `lib/pdf/proposal-generator.ts` — PDF на PDFKit: шапка Ведар, headline, summary, highlights, карточка тура, контакты
 - `lib/notifications/lead-notify.ts` — Telegram-нотификации: новый лид + готовое предложение со ссылкой
 - `app/api/leads/process/route.ts` — `POST /api/leads/process` — запуск AI-обработки
 - `app/api/leads/[id]/proposal/route.ts` — `GET /api/leads/[id]/proposal` — данные предложения

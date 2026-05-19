@@ -196,8 +196,8 @@ export async function GET(request: NextRequest) {
 
     const lines: string[] = [
       crits.length > 0
-        ? '<b>TourHab ALERT</b> — критические проблемы'
-        : '<b>TourHab</b> — предупреждения системы',
+        ? '<b>Ведар ALERT</b> — критические проблемы'
+        : '<b>Ведар</b> — предупреждения системы',
       '',
       ...crits.map(i => `CRIT: ${i.text}`),
       ...warns.map(i => `WARN: ${i.text}`),

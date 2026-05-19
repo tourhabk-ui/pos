@@ -18,15 +18,15 @@ const HomeMapPreview = dynamic(
 const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
 
 export const metadata: Metadata = {
-  title: 'TourHab — помощник и планировщик путешествия по Камчатке',
-  description: 'TourHab помогает спланировать честное и безопасное путешествие по Камчатке.',
+  title: 'Ведар — помощник и планировщик путешествия по Камчатке',
+  description: 'Ведар помогает спланировать честное и безопасное путешествие по Камчатке.',
   openGraph: {
-    title: 'TourHab — Туры на Камчатку',
+    title: 'Ведар — Туры на Камчатку',
     description: 'Маршруты, советы, Кузьмич, проверенные операторы.',
     images: [{ url: '/images/hero/hero-light.jpeg', width: 1200, height: 630, alt: 'Камчатка' }],
-    type: 'website', locale: 'ru_RU', siteName: 'TourHab',
+    type: 'website', locale: 'ru_RU', siteName: 'Ведар',
   },
-  twitter: { card: 'summary_large_image', title: 'TourHab', images: ['/images/hero/hero-light.jpeg'] },
+  twitter: { card: 'summary_large_image', title: 'Ведар', images: ['/images/hero/hero-light.jpeg'] },
   robots: { index: true, follow: true },
   alternates: { canonical: '/' },
 }

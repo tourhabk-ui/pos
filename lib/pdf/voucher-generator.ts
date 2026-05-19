@@ -1,6 +1,6 @@
 /**
  * Генератор PDF: Маршрутная квитанция / Туристический ваучер.
- * Составлен AI Юристом TourHab (апрель 2026).
+ * Составлен AI Юристом Ведар (апрель 2026).
  */
 
 import PDFDocument from 'pdfkit';
@@ -34,7 +34,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
       margins: { top: 45, bottom: 45, left: 50, right: 50 },
       info: {
         Title: `Ваучер №${data.bookingId}`,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: `Тур: ${data.tourName}`,
         CreationDate: new Date(),
       },
@@ -60,7 +60,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     // ── Шапка ─────────────────────────────────────────────────────────────────
     doc.rect(50, 40, W, 52).fill('#F5F0EB');
     doc.fontSize(18).font('Helvetica-Bold').fillColor(ACCENT)
-       .text('TourHab', 65, 52, { continued: true })
+       .text('Ведар', 65, 52, { continued: true })
        .fontSize(9).font('Helvetica').fillColor(MUTED)
        .text('  Туристическая платформа Камчатки · tourhab.ru');
     doc.fontSize(9).font('Helvetica').fillColor(MUTED)
@@ -167,7 +167,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
 
     // ── Подвал ─────────────────────────────────────────────────────────────────
     doc.fontSize(8).fillColor(MUTED).text(
-      `Ваучер №${data.bookingId} · TourHab (tourhab.ru) · support@tourhab.ru · ${fmt(data.issueDate)}`,
+      `Ваучер №${data.bookingId} · Ведар (tourhab.ru) · support@tourhab.ru · ${fmt(data.issueDate)}`,
       { align: 'center', width: W }
     );
 

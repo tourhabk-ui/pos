@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Тест: sendMessage в TELEGRAM_CHAT_ID
-  const testText = `✅ <b>TourHab — тест уведомлений</b>\n\nЕсли видишь это — Telegram-уведомления о лидах работают.\n\n<code>${new Date().toISOString()}</code>`;
+  const testText = `✅ <b>Ведар — тест уведомлений</b>\n\nЕсли видишь это — Telegram-уведомления о лидах работают.\n\n<code>${new Date().toISOString()}</code>`;
   let sendResult: unknown = null;
   try {
     const sendRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

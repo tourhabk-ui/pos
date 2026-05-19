@@ -40,7 +40,7 @@ export async function GET(
     const now = new Date().toISOString();
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="TourHab — tourhab.ru"
+<gpx version="1.1" creator="Ведар — tourhab.ru"
   xmlns="http://www.topografix.com/GPX/1/1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
@@ -48,7 +48,7 @@ export async function GET(
     <name>${name}</name>
     <time>${now}</time>
     <link href="https://tourhab.ru/places/${id}">
-      <text>${name} — TourHab</text>
+      <text>${name} — Ведар</text>
     </link>
   </metadata>
   <wpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">
