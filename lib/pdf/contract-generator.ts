@@ -58,7 +58,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     doc.fontSize(20).font('Helvetica-Bold').fillColor(ACCENT)
        .text('Ведар', { continued: true })
        .font('Helvetica').fillColor(MUTED).fontSize(10)
-       .text('  vedar.app', { align: 'left' });
+       .text('  vedarai.ru', { align: 'left' });
 
     doc.moveDown(0.3);
     doc.moveTo(55, doc.y).lineTo(55 + W, doc.y).strokeColor(LINE).lineWidth(1).stroke();
@@ -76,7 +76,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     section(doc, 'СТОРОНЫ', ACCENT);
 
     doc.fontSize(10).font('Helvetica-Bold').fillColor(DARK).text('Исполнитель: ', { continued: true })
-       .font('Helvetica').text(`${data.operatorName}, платформа Ведар (vedar.app)`);
+       .font('Helvetica').text(`${data.operatorName}, платформа Ведар (vedarai.ru)`);
     doc.moveDown(0.4);
     doc.font('Helvetica-Bold').text('Заказчик: ', { continued: true })
        .font('Helvetica').text(`${data.touristName}, тел. ${data.touristPhone}${data.touristEmail ? ', ' + data.touristEmail : ''}`);
@@ -184,7 +184,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     doc.moveTo(55, doc.y).lineTo(55 + W, doc.y).strokeColor(LINE).lineWidth(0.5).stroke();
     doc.moveDown(0.5);
     doc.fontSize(8).font('Helvetica').fillColor(MUTED)
-       .text(`Договор №${data.bookingId} сформирован автоматически платформой Ведар (vedar.app) · ${fmt(data.issueDate)}`, { align: 'center', width: W });
+       .text(`Договор №${data.bookingId} сформирован автоматически платформой Ведар (vedarai.ru) · ${fmt(data.issueDate)}`, { align: 'center', width: W });
 
     doc.end();
   });

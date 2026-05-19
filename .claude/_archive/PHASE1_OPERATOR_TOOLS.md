@@ -1175,10 +1175,10 @@ git merge feature/phase1-operator-tools
 git push origin main
 
 # 2. GitHub Action deploys to production
-# → https://vedar.app
+# → https://vedarai.ru
 
 # 3. Verify production
-curl https://vedar.app/api/health
+curl https://vedarai.ru/api/health
 # should return 200
 
 # 4. Monitor for 24 hours

@@ -95,10 +95,10 @@ export async function GET(request: NextRequest) {
       slug: t.op_slug,
       phone: t.op_phone,
       email: t.op_email,
-      url: `https://vedar.app/operators/${t.op_slug}`,
+      url: `https://vedarai.ru/operators/${t.op_slug}`,
     },
-    booking_url: `https://vedar.app/routes`,
-    platform: 'vedar.app',
+    booking_url: `https://vedarai.ru/routes`,
+    platform: 'vedarai.ru',
     updated_at: new Date().toISOString(),
   }));
 
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    source: 'vedar.app',
+    source: 'vedarai.ru',
     generated_at: new Date().toISOString(),
     total: tours.length,
     tours,
@@ -151,7 +151,7 @@ function buildXML(tours: ReturnType<typeof Array.prototype.map>): string {
     </tour>`).join('');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<tours generated="${new Date().toISOString()}" source="vedar.app">
+<tours generated="${new Date().toISOString()}" source="vedarai.ru">
   ${items}
 </tours>`;
 }

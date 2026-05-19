@@ -6,7 +6,7 @@
  * — AI-фильтр релевантности (0–10), вступает в подходящие (макс. 5/день)
  * — Собирает сообщения из вступивших групп → groupMonitor → agent_memory
  *
- * URL: https://vedar.app/api/cron/group-scout?secret=<CRON_SECRET>
+ * URL: https://vedarai.ru/api/cron/group-scout?secret=<CRON_SECRET>
  * Рекомендуемый интервал: каждые 12 часов (2 раза в день)
  */
 

@@ -184,7 +184,7 @@ export default function TouristsHelpClient() {
             },
             {
               q: 'Как отменить бронирование?',
-              a: 'Свяжитесь с оператором напрямую или напишите в поддержку support@vedar.app. Условия возврата зависят от времени до начала тура: более 7 дней — полный возврат, 3–7 дней — 50%, менее 3 дней — по договорённости с оператором.',
+              a: 'Свяжитесь с оператором напрямую или напишите в поддержку support@vedarai.ru. Условия возврата зависят от времени до начала тура: более 7 дней — полный возврат, 3–7 дней — 50%, менее 3 дней — по договорённости с оператором.',
             },
             {
               q: 'Что если оператор отменил тур?',
@@ -271,7 +271,7 @@ export default function TouristsHelpClient() {
           <div className="grid md:grid-cols-3 gap-4">
             {[
               { icon: MessageSquare, title: 'Telegram-бот', value: '@KuzmichKam_bot', desc: 'Куzmич — ваш камчатский помощник. Рекомендации, маршруты, погода' },
-              { icon: Mail, title: 'Email', value: 'support@vedar.app', desc: 'Ответ в течение 4 часов в рабочее время' },
+              { icon: Mail, title: 'Email', value: 'support@vedarai.ru', desc: 'Ответ в течение 4 часов в рабочее время' },
               { icon: Clock, title: 'Поддержка работает', value: 'Пн–Пт 9:00–18:00', desc: 'Камчатское время (UTC+12)' },
             ].map(({ icon: Icon, title, value, desc }) => (
               <div key={title} className="ds-card p-4">

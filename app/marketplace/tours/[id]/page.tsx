@@ -5,7 +5,7 @@ import TourDetailClient from './_TourDetailClient';
 
 export const revalidate = 3600;
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedar.app';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 const ACTIVITY_LABELS: Record<string, string> = {
   trekking:   'Треккинг',

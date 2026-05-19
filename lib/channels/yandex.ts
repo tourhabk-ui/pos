@@ -6,7 +6,7 @@
  *
  * Регистрация:
  *   1. Яндекс.Услуги → Добавить услугу → XML-выгрузка
- *      URL: https://vedar.app/api/channels/yandex/feed
+ *      URL: https://vedarai.ru/api/channels/yandex/feed
  *   2. Яндекс.Путешествия (экскурсии) → partner.yandex.ru/travel
  *      Тип: активности / экскурсии
  *
@@ -15,7 +15,7 @@
 
 import type { ChannelTour } from './types';
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedar.app';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 // ── Категории (activity_type → YML category) ──────────────────────────────
 

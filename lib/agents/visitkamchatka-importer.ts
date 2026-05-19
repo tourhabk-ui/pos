@@ -91,7 +91,7 @@ function extractNumber(text: string): number | null {
 async function fetchRouteSlugsList(page = 1): Promise<string[]> {
   const url = page === 1 ? `${BASE}/routes/` : `${BASE}/routes/?page=${page}`;
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'TourHabBot/1.0 (vedar.app; route enrichment)' },
+    headers: { 'User-Agent': 'TourHabBot/1.0 (vedarai.ru; route enrichment)' },
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) return [];
@@ -118,7 +118,7 @@ async function fetchRoutePassport(slug: string): Promise<RoutePassport | null> {
   const url = `${BASE}/routes/${slug}/`;
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'TourHabBot/1.0 (vedar.app; route enrichment)' },
+      headers: { 'User-Agent': 'TourHabBot/1.0 (vedarai.ru; route enrichment)' },
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return null;

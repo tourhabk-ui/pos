@@ -96,7 +96,7 @@ export function buildPollinationsUrl(
 
 async function fetchImageBytes(url: string): Promise<Buffer> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'Ведар/1.0 (+https://vedar.app)' },
+    headers: { 'User-Agent': 'Ведар/1.0 (+https://vedarai.ru)' },
     signal: AbortSignal.timeout(60_000), // 60s — first generation is slow
   });
   if (!res.ok) throw new Error(`Pollinations HTTP ${res.status}`);

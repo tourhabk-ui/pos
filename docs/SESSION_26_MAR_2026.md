@@ -115,16 +115,16 @@
 
 ```bash
 # Получить список лидов
-curl "https://vedar.app/api/admin/leads/list?status=new&limit=5" \
+curl "https://vedarai.ru/api/admin/leads/list?status=new&limit=5" \
   -H "x-cron-secret: <CRON_SECRET>"
 
 # Запустить пакетную обработку (dry-run)
-curl -X POST "https://vedar.app/api/admin/leads/process-batch" \
+curl -X POST "https://vedarai.ru/api/admin/leads/process-batch" \
   -H "x-cron-secret: <CRON_SECRET>" \
   -d'{"status":"new","limit":3,"dryRun":true}'
 
 # AI Спасатель (требует auth)
-curl -X POST "https://vedar.app/api/safety/rescue-chat" \
+curl -X POST "https://vedarai.ru/api/safety/rescue-chat" \
   -H "Authorization: Bearer <JWT>" \
   -d '{"message":"Как действовать при встрече с медведем?","history":[]}'
 ```

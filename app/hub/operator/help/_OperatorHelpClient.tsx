@@ -186,7 +186,7 @@ export default function OperatorHelpClient() {
           Быстрый доступ к инструкциям по каждому разделу кабинета.
           Полная инструкция:{' '}
           <Link href="/help/operators" className="text-[var(--ocean)] hover:underline inline-flex items-center gap-1">
-            vedar.app/help/operators <ExternalLink size={12} />
+            vedarai.ru/help/operators <ExternalLink size={12} />
           </Link>
         </p>
       </div>
@@ -321,8 +321,8 @@ export default function OperatorHelpClient() {
           <p className="font-semibold text-[var(--text-primary)] mb-1">Нужна помощь?</p>
           <p className="text-sm text-[var(--text-secondary)]">
             Email:{' '}
-            <a href="mailto:operators@vedar.app" className="text-[var(--ocean)] hover:underline">
-              operators@vedar.app
+            <a href="mailto:operators@vedarai.ru" className="text-[var(--ocean)] hover:underline">
+              operators@vedarai.ru
             </a>
             {' · '}
             Telegram: <span className="text-[var(--ocean)]">@tourhab_support</span>

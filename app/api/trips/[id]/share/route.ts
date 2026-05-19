@@ -25,7 +25,7 @@ export async function POST(
     }
 
     const shareToken = rows[0].share_token;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vedar.app';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vedarai.ru';
     return NextResponse.json({
       success: true,
       shareToken,

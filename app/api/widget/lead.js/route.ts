@@ -3,7 +3,7 @@
  * Returns embeddable JavaScript for partner lead-form widget.
  *
  * Usage on partner site:
- *   <script src="https://vedar.app/api/widget/lead.js?partner=gorybkoleno" defer></script>
+ *   <script src="https://vedarai.ru/api/widget/lead.js?partner=gorybkoleno" defer></script>
  *
  * The script injects a floating "Заявка на тур" button and a modal with
  * an iframe pointing to /widget/lead-form/SLUG (same-origin form, no CORS needed).
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
   const buttonText   = cfg.buttonText   ?? 'Заявка на тур';
   const position     = cfg.position     ?? 'right'; // 'right' | 'left'
 
-  const BASE = 'https://vedar.app';
+  const BASE = 'https://vedarai.ru';
 
   const js = `
 (function () {

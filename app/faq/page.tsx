@@ -19,12 +19,12 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Вопросы и ответы о турах на Камчатку',
     description: 'Всё, что нужно знать перед поездкой: вулканы, медведи, маршруты, цены, безопасность.',
-    url: 'https://vedar.app/faq',
+    url: 'https://vedarai.ru/faq',
     siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },
-  alternates: { canonical: 'https://vedar.app/faq' },
+  alternates: { canonical: 'https://vedarai.ru/faq' },
 };
 
 interface FaqRow {

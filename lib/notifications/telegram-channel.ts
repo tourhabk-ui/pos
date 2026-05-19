@@ -199,7 +199,7 @@ export async function postRouteToChannel(routeId: string, photoUrl?: string): Pr
   const locLabel   = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
   const actLabel   = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
   const desc = r.description ? r.description.slice(0, 200).trimEnd() + (r.description.length > 200 ? '…' : '') : '';
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   const lines: string[] = [];
   lines.push(`🌋 <b>${esc(r.title)}</b>`);
@@ -251,7 +251,7 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
   if (!p) return { ok: false, error: 'Operator not found or not public' };
 
   const desc = p.description ? p.description.slice(0, 250).trimEnd() + (p.description.length > 250 ? '…' : '') : '';
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   const lines: string[] = [];
   lines.push(`🏔 <b>${esc(p.name)}</b> — партнёр Ведар`);
@@ -281,7 +281,7 @@ export async function postSezonToChannel(): Promise<{ ok: boolean; error?: strin
 - 80-120 слов
 - живой голос местного, не рекламный
 - конкретные активности для этого месяца
-- заканчивай ссылкой: vedar.app/routes
+- заканчивай ссылкой: vedarai.ru/routes
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - начни с эмодзи настроения месяца`;
 
@@ -378,7 +378,7 @@ const ACTIVITY_PHOTO: Record<string, string> = {
 };
 
 function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
   // 1. Яндекс Static Maps если есть координаты
   if (r.lat && r.lng) {
     const ll = `${r.lng},${r.lat}`;
@@ -420,7 +420,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 
   const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
   const actLabel = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
-  const appUrl   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   const reviewCtx = r.kuzmich_review
     ? `\nМои заметки об этом месте: "${r.kuzmich_review.slice(0, 280)}"`
@@ -476,7 +476,7 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
   const topic = KUZMICH_TIP_TOPICS[Math.floor(Math.random() * KUZMICH_TIP_TOPICS.length)];
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши практичный совет для Telegram-канала.
 
@@ -613,7 +613,7 @@ ${signalCtx}
 - Заголовок жирным про туризм/путешествия
 - 2-3 факта из источников (регуляции, цены, новые маршруты, тренды)
 - Практический вывод: как это влияет на туры Камчатки
-- В конце ссылка: <a href="https://vedar.app/routes">Наши маршруты →</a>
+- В конце ссылка: <a href="https://vedarai.ru/routes">Наши маршруты →</a>
 - Хэштеги: #Путешествия #Туризм #Камчатка
 - HTML-теги для Telegram: <b> <i> <a>
 - Без markdown (* ** #), без эмодзи
@@ -631,7 +631,7 @@ ${signalCtx}
     if (finding.action_items.length > 0) {
       postText += '\n\n' + finding.action_items.map(a => `• ${esc(a)}`).join('\n');
     }
-    postText += '\n\n<a href="https://vedar.app/routes">Наши маршруты →</a>';
+    postText += '\n\n<a href="https://vedarai.ru/routes">Наши маршруты →</a>';
   }
 
   // 3. Generate image (Kamchatka nature focus)
@@ -722,7 +722,7 @@ ${newsContext || 'Нет свежих новостей — напиши общи
 - Факты из новостей, без выдумок
 - Практичные советы (3-5 пунктов, через дефис)
 - Экстренные номера: 112, МЧС Камчатки 8-415-2-11-05-05
-- В конце ссылка: <a href="https://vedar.app/routes">Безопасные туры с проверенными операторами</a>
+- В конце ссылка: <a href="https://vedarai.ru/routes">Безопасные туры с проверенными операторами</a>
 - HTML-теги для Telegram: <b> <i> <a>
 - Без markdown (* ** #)
 - Без эмодзи
@@ -823,7 +823,7 @@ export async function notifyAdminNewLead(lead: {
     ? `${emoji} <b>Лид — ${esc(source)}${label}${scoreText}</b>`
     : `${emoji} <b>Новый лид${label}${scoreText}</b>`;
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   const lines = [
     title,

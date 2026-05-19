@@ -347,7 +347,7 @@ async function registerGroup(groupId: number, groupTitle: string | null, chatId:
     );
     const operatorId = rows[0]?.id;
     if (!operatorId) {
-      await tgReply(chatId, 'Не найден аккаунт оператора. Убедитесь что ваш Telegram привязан в профиле vedar.app');
+      await tgReply(chatId, 'Не найден аккаунт оператора. Убедитесь что ваш Telegram привязан в профиле vedarai.ru');
       return;
     }
     await pool.query(
@@ -495,7 +495,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (name) {
           await tgReply(chatId, `Привет, ${name}! Ты подключён как оператор.\n\nТеперь я знаю кто ты — могу отвечать на вопросы о твоих бронированиях, турах и статистике. Пиши.`);
         } else {
-          await tgReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на vedar.app.');
+          await tgReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на vedarai.ru.');
         }
       } else {
         await tgReply(chatId, 'Формат: /partner email@example.com');

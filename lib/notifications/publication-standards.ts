@@ -155,7 +155,7 @@ ${context?.locationType ? `Тип локации: ${context.locationType}` : ''}
  * Возвращает URL для Telegram sendPhoto.
  */
 export async function getRouteImageUrl(routeId: string): Promise<string | null> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 
   // Проверяем есть ли уже сгенерированная картинка
   try {
@@ -233,9 +233,9 @@ export async function checkPublicationStandards(
 
   // 2. Ссылка на сайт
   if (standard.linkRequired) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
-    if (!text.includes(appUrl) && !text.includes('vedar.app')) {
-      errors.push('Отсутствует ссылка на vedar.app');
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+    if (!text.includes(appUrl) && !text.includes('vedarai.ru')) {
+      errors.push('Отсутствует ссылка на vedarai.ru');
     }
   }
 

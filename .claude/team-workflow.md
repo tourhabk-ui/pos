@@ -35,7 +35,7 @@ git push origin main    # → автодеплой Timeweb (~5-7 минут)
 **Применение:**
 1. Создать `migrations/0NN_name.sql` с `BEGIN; ... COMMIT;`
 2. Создать `app/api/mig0NN/route.ts` (GET endpoint читает файл, выполняет SQL)
-3. Задеплоить → `https://vedar.app/api/mig0NN`
+3. Задеплоить → `https://vedarai.ru/api/mig0NN`
 4. Убедиться в идемпотентности (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`)
 
 **Применённые миграции (ключевые):**
@@ -89,7 +89,7 @@ ON CONFLICT (route_dedupe_key) DO UPDATE SET ...;
 ЗАПРЕЩЕНО:
   import pool from           →  import { pool } from '@/lib/db-pool'
   SELECT * FROM kamchatka_routes  →  только v_kamchatka_routes_api
-  fetch('https://vedar.app')     →  в server components таймаутит — import { query }
+  fetch('https://vedarai.ru')     →  в server components таймаутит — import { query }
   console.log в app/         →  запрещён (console.error — допустим только в catch)
   Хардкод hex цветов         →  только var(--token)
   Glassmorphism              →  абсолютно запрещён
@@ -159,4 +159,4 @@ Admin trigger → operator_payouts (PENDING→PAID)
 
 ---
 
-> vedar.app | Admin: /hub/admin | App ID: 159529 | Branch: main (auto-deploy)
+> vedarai.ru | Admin: /hub/admin | App ID: 159529 | Branch: main (auto-deploy)

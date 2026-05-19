@@ -8,7 +8,7 @@
  * Защита: ?secret=CRON_SECRET
  *
  * cron-job.org:
- *   https://vedar.app/api/cron/memory-bridge?secret=SECRET
+ *   https://vedarai.ru/api/cron/memory-bridge?secret=SECRET
  */
 
 import { NextRequest, NextResponse } from 'next/server';

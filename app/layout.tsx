@@ -15,7 +15,7 @@ const inter = Inter({
   variable: '--font-outfit', // переменная сохранена для обратной совместимости
 });
 
-const BASE_URL = 'https://vedar.app';
+const BASE_URL = 'https://vedarai.ru';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -160,14 +160,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@context": "https://schema.org",
                 "@type": "WebSite",
                 "name": "Ведар — помощник по Камчатке",
-                "url": "https://vedar.app",
+                "url": "https://vedarai.ru",
                 "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и реальные туры от проверенных операторов.",
                 "inLanguage": "ru",
                 "potentialAction": {
                   "@type": "SearchAction",
                   "target": {
                     "@type": "EntryPoint",
-                    "urlTemplate": "https://vedar.app/routes?q={search_term_string}"
+                    "urlTemplate": "https://vedarai.ru/routes?q={search_term_string}"
                   },
                   "query-input": "required name=search_term_string"
                 }
@@ -177,8 +177,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@type": "TouristInformationCenter",
                 "name": "Ведар",
                 "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
-                "url": "https://vedar.app",
-                "logo": "https://vedar.app/logo-kamchatka.svg",
+                "url": "https://vedarai.ru",
+                "logo": "https://vedarai.ru/logo-kamchatka.svg",
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
@@ -214,13 +214,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "LocalBusiness",
-                "@id": "https://vedar.app/#localbusiness",
+                "@id": "https://vedarai.ru/#localbusiness",
                 "name": "Ведар",
                 "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
-                "url": "https://vedar.app",
-                "logo": "https://vedar.app/logo-kamchatka.svg",
+                "url": "https://vedarai.ru",
+                "logo": "https://vedarai.ru/logo-kamchatka.svg",
                 "telephone": "+7 (914) 782-22-22",
-                "email": "info@vedar.app",
+                "email": "info@vedarai.ru",
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
@@ -250,14 +250,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "name": "Топ достопримечательностей Камчатки",
                 "description": "Главные природные и исторические объекты Камчатки",
                 "itemListElement": [
-                  { "@type": "ListItem", "position": 1, "name": "Долина гейзеров", "url": "https://vedar.app/routes/796c18b3-e199-4ac6-bbd6-de50d560ff40" },
-                  { "@type": "ListItem", "position": 2, "name": "Ключевская сопка", "url": "https://vedar.app/routes/54b106de-d81a-42af-9a41-32ee49604309" },
-                  { "@type": "ListItem", "position": 3, "name": "Кальдера Узон", "url": "https://vedar.app/routes/a6330106-13d5-40f0-9c77-d252daf5b95f" },
-                  { "@type": "ListItem", "position": 4, "name": "Курильское озеро — медведи", "url": "https://vedar.app/routes/8ef745b1-7de3-4899-9431-809f9c8521de" },
-                  { "@type": "ListItem", "position": 5, "name": "Халактырский пляж", "url": "https://vedar.app/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8" },
-                  { "@type": "ListItem", "position": 6, "name": "Вулкан Горелый", "url": "https://vedar.app/routes/430e1a7a-a1c2-4c5a-a8fd-866817f096ac" },
-                  { "@type": "ListItem", "position": 7, "name": "Вулкан Мутновский", "url": "https://vedar.app/routes/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9" },
-                  { "@type": "ListItem", "position": 8, "name": "Плоский Толбачик", "url": "https://vedar.app/routes/fd0e39dc-36cc-4fa4-9be9-f0640b039fba" }
+                  { "@type": "ListItem", "position": 1, "name": "Долина гейзеров", "url": "https://vedarai.ru/routes/796c18b3-e199-4ac6-bbd6-de50d560ff40" },
+                  { "@type": "ListItem", "position": 2, "name": "Ключевская сопка", "url": "https://vedarai.ru/routes/54b106de-d81a-42af-9a41-32ee49604309" },
+                  { "@type": "ListItem", "position": 3, "name": "Кальдера Узон", "url": "https://vedarai.ru/routes/a6330106-13d5-40f0-9c77-d252daf5b95f" },
+                  { "@type": "ListItem", "position": 4, "name": "Курильское озеро — медведи", "url": "https://vedarai.ru/routes/8ef745b1-7de3-4899-9431-809f9c8521de" },
+                  { "@type": "ListItem", "position": 5, "name": "Халактырский пляж", "url": "https://vedarai.ru/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8" },
+                  { "@type": "ListItem", "position": 6, "name": "Вулкан Горелый", "url": "https://vedarai.ru/routes/430e1a7a-a1c2-4c5a-a8fd-866817f096ac" },
+                  { "@type": "ListItem", "position": 7, "name": "Вулкан Мутновский", "url": "https://vedarai.ru/routes/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9" },
+                  { "@type": "ListItem", "position": 8, "name": "Плоский Толбачик", "url": "https://vedarai.ru/routes/fd0e39dc-36cc-4fa4-9be9-f0640b039fba" }
                 ]
               }
             ])

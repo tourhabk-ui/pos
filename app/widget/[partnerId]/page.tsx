@@ -253,7 +253,7 @@ export default function WidgetPage() {
         background: '#FFFFFF',
         borderTop: '1px solid rgba(0,0,0,0.04)',
       }}>
-        Powered by <a href="https://vedar.app" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
+        Powered by <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
       </div>
     </div>
   );

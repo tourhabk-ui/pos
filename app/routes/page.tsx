@@ -13,11 +13,11 @@ export const metadata: Metadata = {
     'маршруты по Камчатке',
     'что посмотреть на Камчатке',
   ],
-  alternates: { canonical: 'https://vedar.app/routes' },
+  alternates: { canonical: 'https://vedarai.ru/routes' },
   openGraph: {
     title: 'Места Камчатки',
     description: 'Природные места Камчатки: вулканы, гейзеры, источники, озёра, бухты.',
-    url: 'https://vedar.app/routes',
+    url: 'https://vedarai.ru/routes',
     siteName: 'KamchatourHub',
     locale: 'ru_RU',
     type: 'website',

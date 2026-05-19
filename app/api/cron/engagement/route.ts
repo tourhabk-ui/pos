@@ -4,7 +4,7 @@
  * которые интересовались туром но не забронировали через 23-72 часа.
  *
  * Запуск: GitHub Actions каждые 6ч
- *   URL: https://vedar.app/api/cron/engagement?secret=<CRON_SECRET>
+ *   URL: https://vedarai.ru/api/cron/engagement?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

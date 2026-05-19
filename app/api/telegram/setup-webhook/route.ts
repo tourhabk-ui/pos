@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
   const appUrl = body.appUrl
     || process.env.NEXT_PUBLIC_APP_URL
-    || 'https://vedar.app';
+    || 'https://vedarai.ru';
 
   const webhookPath = webhookPathMap[botType] ?? '/api/telegram/webhook';
   const webhookUrl = `${appUrl}${webhookPath}`;

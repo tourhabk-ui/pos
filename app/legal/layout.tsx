@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     template: '%s | Tourhab',
     default: 'Правовые документы | Tourhab',
   },
-  description: 'Правовые документы платформы Tourhab (vedar.app)',
+  description: 'Правовые документы платформы Tourhab (vedarai.ru)',
 };
 
 export default function LegalLayout({ children }: { children: ReactNode }) {

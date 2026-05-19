@@ -69,8 +69,8 @@ export default function HelpPage() {
             <p className="font-medium text-[var(--text-primary)]">Не нашли ответ?</p>
             <p className="text-sm text-[var(--text-secondary)]">
               Напишите нам на{' '}
-              <a href="mailto:support@vedar.app" className="text-[var(--ocean)] hover:underline">
-                support@vedar.app
+              <a href="mailto:support@vedarai.ru" className="text-[var(--ocean)] hover:underline">
+                support@vedarai.ru
               </a>{' '}
               или в Telegram{' '}
               <span className="text-[var(--ocean)]">@tourhab_support</span>

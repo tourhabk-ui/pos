@@ -227,8 +227,8 @@ export default function CommissionPage() {
               ООО «ПОС-СЕРВИС», ИНН 4101147649, ОГРН 1114101005952<br />
               683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
               Генеральный директор: Асеев Андрей Валерьевич<br />
-              Финансовые вопросы: <a href="mailto:finance@vedar.app" className="text-[var(--ocean)] hover:underline">finance@vedar.app</a><br />
-              Вопросы сотрудничества: <a href="mailto:partners@vedar.app" className="text-[var(--ocean)] hover:underline">partners@vedar.app</a>
+              Финансовые вопросы: <a href="mailto:finance@vedarai.ru" className="text-[var(--ocean)] hover:underline">finance@vedarai.ru</a><br />
+              Вопросы сотрудничества: <a href="mailto:partners@vedarai.ru" className="text-[var(--ocean)] hover:underline">partners@vedarai.ru</a>
             </p>
           </section>
         </div>

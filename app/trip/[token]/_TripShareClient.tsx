@@ -55,7 +55,7 @@ function formatPrice(from: number, to: number): string {
 
 export function TripShareClient({ trip, token }: { trip: Trip; token: string }) {
   const [copied, setCopied] = useState(false);
-  const shareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedar.app/trip/${token}`;
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
   const shareText = `${trip.title} — маршрут по Камчатке на ${trip.days.length} дней`;
 
   const handleCopy = async () => {

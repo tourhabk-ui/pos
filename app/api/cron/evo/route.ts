@@ -4,7 +4,7 @@
  * Evo System — Growth Scan + Evolution Loop.
  * Запускает диагностику проекта и применяет фиксы.
  *
- * URL: https://vedar.app/api/cron/evo?secret=<CRON_SECRET>
+ * URL: https://vedarai.ru/api/cron/evo?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

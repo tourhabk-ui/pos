@@ -157,7 +157,7 @@ class EmailService {
             Ваша заявка передана оператору. В течение 24\u00A0часов он свяжется с вами для подтверждения деталей и оплаты.
           </p>
           <p style="margin:0;font-size:14px;color:#6B6560;line-height:1.6;">
-            Следить за статусом бронирования можно в личном кабинете на <a href="https://vedar.app/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">vedar.app</a>.
+            Следить за статусом бронирования можно в личном кабинете на <a href="https://vedarai.ru/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">vedarai.ru</a>.
           </p>
         </td>
       </tr>
@@ -179,8 +179,8 @@ class EmailService {
       <tr>
         <td style="padding:20px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;line-height:1.6;">
-            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedar.app<br>
-            Это автоматическое письмо. Для связи: <a href="mailto:support@vedar.app" style="color:#D44A0C;text-decoration:none;">support@vedar.app</a>
+            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
+            Это автоматическое письмо. Для связи: <a href="mailto:support@vedarai.ru" style="color:#D44A0C;text-decoration:none;">support@vedarai.ru</a>
           </p>
         </td>
       </tr>
@@ -243,7 +243,7 @@ class EmailService {
       </tr>
       <tr>
         <td style="padding:24px 32px;">
-          <a href="https://vedar.app/hub/operator/bookings" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
+          <a href="https://vedarai.ru/hub/operator/bookings" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
             Открыть в кабинете →
           </a>
         </td>
@@ -252,7 +252,7 @@ class EmailService {
       <tr>
         <td style="padding:16px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;">
-            Ведар &mdash; vedar.app &mdash; ООО &laquo;ПОС-СЕРВИС&raquo;
+            Ведар &mdash; vedarai.ru &mdash; ООО &laquo;ПОС-СЕРВИС&raquo;
           </p>
         </td>
       </tr>
@@ -327,7 +327,7 @@ class EmailService {
       </tr>`}
       <tr>
         <td style="padding:24px 32px;">
-          <a href="https://vedar.app/marketplace" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
+          <a href="https://vedarai.ru/marketplace" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
             Найти другой тур →
           </a>
         </td>
@@ -336,8 +336,8 @@ class EmailService {
       <tr>
         <td style="padding:16px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;">
-            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedar.app<br>
-            Вопросы: <a href="mailto:support@vedar.app" style="color:#D44A0C;text-decoration:none;">support@vedar.app</a>
+            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
+            Вопросы: <a href="mailto:support@vedarai.ru" style="color:#D44A0C;text-decoration:none;">support@vedarai.ru</a>
           </p>
         </td>
       </tr>

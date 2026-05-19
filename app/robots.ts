@@ -176,7 +176,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/hub/', '/api/'],
       },
     ],
-    sitemap: 'https://vedar.app/sitemap.xml',
-    host: 'vedar.app',
+    sitemap: 'https://vedarai.ru/sitemap.xml',
+    host: 'vedarai.ru',
   };
 }

@@ -105,8 +105,8 @@ export async function GET(request: NextRequest) {
         if (userChat.rows.length > 0) {
           const chatId = userChat.rows[0].telegram_chat_id;
           const text = stepToRun === 1
-            ? `🔔 Напоминание: ты должен был вернуться с маршрута "${route.route_name}" сегодня (${route.end_date}). Всё в порядке? Нажми "Я вернулся" в приложении: vedar.app/safety/return?id=${route.id}`
-            : `⚠️ Повторное напоминание: маршрут "${route.route_name}" не закрыт. Если всё в порядке, отметь возврат: vedar.app/safety/return?id=${route.id}`;
+            ? `🔔 Напоминание: ты должен был вернуться с маршрута "${route.route_name}" сегодня (${route.end_date}). Всё в порядке? Нажми "Я вернулся" в приложении: vedarai.ru/safety/return?id=${route.id}`
+            : `⚠️ Повторное напоминание: маршрут "${route.route_name}" не закрыт. Если всё в порядке, отметь возврат: vedarai.ru/safety/return?id=${route.id}`;
 
           const botToken = process.env.TELEGRAM_BOT_TOKEN;
           if (botToken) {
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         ``,
         `Если связь не восстанавливается — рекомендуем обратиться в МЧС: 112`,
         ``,
-        `— Ведар (vedar.app)`,
+        `— Ведар (vedarai.ru)`,
       ].join('\n');
 
       let telegramSent = false;
@@ -220,7 +220,7 @@ export async function GET(request: NextRequest) {
         `Маршрут: ${route.route_name}`,
         `Руководитель: ${route.leader_name} (${route.leader_phone})`,
         ``,
-        `— Ведар (vedar.app)`,
+        `— Ведар (vedarai.ru)`,
       ].join('\n');
 
       let sent = false;

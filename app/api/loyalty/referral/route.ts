@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         code: stats.referral.code,
-        shareUrl: stats.referral.code ? `https://vedar.app/?ref=${stats.referral.code}` : null,
+        shareUrl: stats.referral.code ? `https://vedarai.ru/?ref=${stats.referral.code}` : null,
         stats: {
           invited: stats.referral.invited,
           completed: stats.referral.completed,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         code,
-        shareUrl: `https://vedar.app/?ref=${code}`,
+        shareUrl: `https://vedarai.ru/?ref=${code}`,
       },
     });
   } catch {

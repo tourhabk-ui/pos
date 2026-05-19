@@ -7,11 +7,11 @@ export const metadata: Metadata = {
   title: 'Операторы Камчатки — туры, рыбалка, треккинг, вертолёты',
   description:
     'Проверенные туристические операторы Камчатки. Рыболовные туры, треккинг к вулканам, вертолётные экскурсии, медвежье сафари — выбирайте лицензированных профессионалов.',
-  alternates: { canonical: 'https://vedar.app/operators' },
+  alternates: { canonical: 'https://vedarai.ru/operators' },
   openGraph: {
     title: 'Операторы Камчатки',
     description: 'Проверенные туроператоры Камчатки — от рыбалки до вулканов.',
-    url: 'https://vedar.app/operators',
+    url: 'https://vedarai.ru/operators',
     siteName: 'KamchatourHub',
     locale: 'ru_RU',
     type: 'website',

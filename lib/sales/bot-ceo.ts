@@ -106,7 +106,7 @@ export class SalesBotCEO {
 
 Первый месяц: 0% комиссия (проверяем).
 
-Попробуешь? → https://vedar.app/operator/join
+Попробуешь? → https://vedarai.ru/operator/join
 
 Ждём,
 Claude AI, CEO KamchatourHub`;

@@ -77,7 +77,7 @@ npm run dev
 - [ ] При регистрации оператора → требуется согласие с договором (чекбокс)
 
 **Где проверить:**
-- https://vedar.app/legal/operator-agreement (должна быть страница)
+- https://vedarai.ru/legal/operator-agreement (должна быть страница)
 - При регистрации `/auth/register?role=operator` — должен быть чекбокс согласия
 
 ---
@@ -104,8 +104,8 @@ npm run dev
 - [ ] Созданы 2 тестовых оператора в БД:
   ```sql
   INSERT INTO users (email, role, metadata) VALUES 
-    ('test-op1@vedar.app', 'operator', '{"operator_name": "Test Ops 1"}'),
-    ('test-op2@vedar.app', 'operator', '{"operator_name": "Test Ops 2"}');
+    ('test-op1@vedarai.ru', 'operator', '{"operator_name": "Test Ops 1"}'),
+    ('test-op2@vedarai.ru', 'operator', '{"operator_name": "Test Ops 2"}');
   ```
 - [ ] Созданы 10 тестовых лидов:
   ```sql
@@ -198,7 +198,7 @@ curl https://pospkam-pospktry-c1f3.twc1.net/api/health/lead-processor
 **Проверка на production:**
 
 ```
-1. Открыть https://vedar.app → видна OperatorPromo секция ✅
+1. Открыть https://vedarai.ru → видна OperatorPromo секция ✅
 2. Кликнуть "Зарегистрироваться" → редирект на /auth/register?role=operator ✅
 3. Заполнить форму → создан аккаунт оператора ✅
 4. Залогиниться → Hub работает, видна "Лиды" в меню ✅
@@ -290,4 +290,4 @@ curl https://pospkam-pospktry-c1f3.twc1.net/api/health/lead-processor
 
 ---
 
-**Вопросы?** → support@vedar.app или Telegram @kamchatour_hub_support
+**Вопросы?** → support@vedarai.ru или Telegram @kamchatour_hub_support

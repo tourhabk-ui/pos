@@ -96,7 +96,7 @@ export async function GET(
       lines.push(`    <desc>${escapeXml(desc)}</desc>`);
     }
     lines.push('    <author>');
-    lines.push('      <name>Ведар — vedar.app</name>');
+    lines.push('      <name>Ведар — vedarai.ru</name>');
     lines.push('    </author>');
     lines.push('  </metadata>');
 

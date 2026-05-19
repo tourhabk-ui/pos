@@ -30,7 +30,7 @@ const CARDS: Card[] = [
     heading: 'Авиабилеты',
     sub: 'Москва → ПКЧ от 27 000 ₽',
     badge: 'Яндекс',
-    url: `https://yandex.travel/flights/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_FLIGHTS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedar.app&utm_medium=cpa&utm_source=travelpayouts`,
+    url: `https://yandex.travel/flights/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_FLIGHTS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedarai.ru&utm_medium=cpa&utm_source=travelpayouts`,
     erid: ERID_FLIGHTS,
     accent: 'var(--ocean)',
   },
@@ -40,7 +40,7 @@ const CARDS: Card[] = [
     heading: 'Отели',
     sub: 'Петропавловск-Камчатский от 3 500 ₽/ночь',
     badge: 'Яндекс',
-    url: `https://yandex.travel/hotels/petropavlovsk-kamchatsky/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_HOTELS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedar.app&utm_medium=cpa&utm_source=travelpayouts`,
+    url: `https://yandex.travel/hotels/petropavlovsk-kamchatsky/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_HOTELS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedarai.ru&utm_medium=cpa&utm_source=travelpayouts`,
     erid: ERID_HOTELS,
     accent: 'var(--accent)',
   },
@@ -50,7 +50,7 @@ const CARDS: Card[] = [
     heading: 'Пакетные туры',
     sub: 'Готовые туры на Камчатку',
     badge: 'Яндекс',
-    url: `https://yandex.travel/tours/kamchatka/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_TOURS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedar.app&utm_medium=cpa&utm_source=travelpayouts`,
+    url: `https://yandex.travel/tours/kamchatka/?clid=${CLID}&affiliate_vid=${MARKER}&erid=${ERID_TOURS}&travelpayouts_uid=${TP_SUBID}&utm_campaign=vedarai.ru&utm_medium=cpa&utm_source=travelpayouts`,
     erid: ERID_TOURS,
     accent: 'var(--success)',
   },
@@ -94,7 +94,7 @@ export default function YandexTravelBlock({ routeId, source = 'route_detail' }: 
           </p>
         </div>
         <a
-          href={`https://yandex.travel/?clid=${CLID}&utm_campaign=vedar.app&utm_medium=cpa&utm_source=travelpayouts`}
+          href={`https://yandex.travel/?clid=${CLID}&utm_campaign=vedarai.ru&utm_medium=cpa&utm_source=travelpayouts`}
           target="_blank"
           rel="noopener noreferrer sponsored"
           className="flex items-center gap-1 text-xs hover:underline"

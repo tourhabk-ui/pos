@@ -126,7 +126,7 @@ export class EmailNotificationService {
             
             <div class="footer">
               <p>С уважением,<br>Команда Kamchatour Hub</p>
-              <p>  +7 (XXX) XXX-XX-XX | 📧 info@vedar.app</p>
+              <p>  +7 (XXX) XXX-XX-XX | 📧 info@vedarai.ru</p>
             </div>
           </div>
         </div>

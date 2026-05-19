@@ -27,7 +27,7 @@ export interface InsuranceRecommendation {
   alternatives: InsurancePlan[];
 }
 
-// Маркер Cherehapa (vedar.app account)
+// Маркер Cherehapa (vedarai.ru account)
 const CHEREHAPA_MARKER = '402896';
 
 // Матрица рисков по типам активности

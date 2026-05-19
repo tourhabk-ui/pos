@@ -77,7 +77,7 @@ export async function notifyBookingConfirmed(
         `Участников: ${booking.participants}`,
         `Сумма: <b>${booking.totalPrice.toLocaleString('ru-RU')} ₽</b>`,
         '',
-        `<a href="https://vedar.app/hub/tourist/bookings">Детали бронирования →</a>`,
+        `<a href="https://vedarai.ru/hub/tourist/bookings">Детали бронирования →</a>`,
       ].join('\n'),
       parseMode: 'HTML',
     }).catch(() => {});
@@ -127,7 +127,7 @@ export async function notifyBookingCancelled(
     } else {
       lines.push('', 'Возврат не предусмотрен согласно условиям отмены.');
     }
-    lines.push('', `<a href="https://vedar.app/hub/tourist/bookings">История бронирований →</a>`);
+    lines.push('', `<a href="https://vedarai.ru/hub/tourist/bookings">История бронирований →</a>`);
 
     void telegramService.sendMessage({
       chatId: contact.telegramId,

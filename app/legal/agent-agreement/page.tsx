@@ -37,7 +37,7 @@ export default function AgentAgreementPage() {
             </p>
             <p>
               Агент обязуется от своего имени, но за счёт Принципала, привлекать туристов
-              для приобретения туристических услуг Принципала через платформу vedar.app,
+              для приобретения туристических услуг Принципала через платформу vedarai.ru,
               мессенджер-ботов (Telegram, MAX) и партнёрские каналы.
             </p>
           </section>
@@ -150,7 +150,7 @@ export default function AgentAgreementPage() {
               <p><span className="font-semibold">ИНН:</span> 4101147649</p>
               <p><span className="font-semibold">ОГРН:</span> 1114101005952</p>
               <p><span className="font-semibold">Адрес:</span> 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1</p>
-              <p><span className="font-semibold">Платформа:</span> vedar.app</p>
+              <p><span className="font-semibold">Платформа:</span> vedarai.ru</p>
             </div>
           </section>
 

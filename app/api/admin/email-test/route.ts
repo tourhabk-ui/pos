@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
         через <strong>${process.env.SMTP_HOST ?? 'SMTP_HOST не задан'}:${process.env.SMTP_PORT ?? '?'}</strong>.
       </p>
       <p style="color:#9A9590;font-size:12px;margin-top:20px;">
-        vedar.app — ООО «ПОС-СЕРВИС», ИНН 4101147649
+        vedarai.ru — ООО «ПОС-СЕРВИС», ИНН 4101147649
       </p>
     </td></tr>
   </table>

@@ -196,7 +196,7 @@ export default function BookingSuccessClient() {
                   {/* Telegram WebView warning */}
                   {isInTgWebView && (
                     <a
-                      href={`https://vedar.app/booking-success/${booking.id}`}
+                      href={`https://vedarai.ru/booking-success/${booking.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] transition-colors"

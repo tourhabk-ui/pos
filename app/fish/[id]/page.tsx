@@ -36,11 +36,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       species.name, `${species.name} Камчатка`, `рыбалка на ${species.name.toLowerCase()}`,
       species.nameLatin, 'рыбалка Камчатка', 'рыболовные туры',
     ],
-    alternates: { canonical: `https://vedar.app/fish/${id}` },
+    alternates: { canonical: `https://vedarai.ru/fish/${id}` },
     openGraph: {
       title,
       description: desc,
-      url: `https://vedar.app/fish/${id}`,
+      url: `https://vedarai.ru/fish/${id}`,
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
@@ -88,10 +88,10 @@ export default async function FishDetailPage({ params }: Props) {
     '@type': 'Article',
     headline: `${species.name} на Камчатке — ${species.nameLatin}`,
     description: species.shortDesc,
-    url: `https://vedar.app/fish/${id}`,
+    url: `https://vedarai.ru/fish/${id}`,
     inLanguage: 'ru',
     about: { '@type': 'Thing', name: species.name, alternateName: species.nameLatin },
-    publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedar.app' },
+    publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
   };
 
   // Other species (exclude current)

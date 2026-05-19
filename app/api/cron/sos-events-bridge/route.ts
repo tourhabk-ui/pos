@@ -11,7 +11,7 @@
  * Защита: ?secret=CRON_SECRET
  *
  * cron-job.org:
- *   https://vedar.app/api/cron/sos-events-bridge?secret=SECRET
+ *   https://vedarai.ru/api/cron/sos-events-bridge?secret=SECRET
  */
 
 import { NextRequest, NextResponse } from 'next/server';

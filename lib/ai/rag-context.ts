@@ -283,7 +283,7 @@ export async function buildRAGContext(
     ctx += tours
       .map(
         (t) =>
-          `• "${t.title}" | Оператор: ${t.operator_name} | от ${t.base_price.toLocaleString('ru-RU')} ₽ | vedar.app/marketplace/tours/${t.id}`,
+          `• "${t.title}" | Оператор: ${t.operator_name} | от ${t.base_price.toLocaleString('ru-RU')} ₽ | vedarai.ru/marketplace/tours/${t.id}`,
       )
       .join('\n');
     ctx +=

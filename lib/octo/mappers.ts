@@ -110,9 +110,9 @@ export function mapSupplier(row: SupplierRow) {
   return {
     id: row.id,
     name: row.name,
-    endpoint: `https://vedar.app/api/octo`,
+    endpoint: `https://vedarai.ru/api/octo`,
     contact: {
-      website: `https://vedar.app/operators/${row.slug}`,
+      website: `https://vedarai.ru/operators/${row.slug}`,
       email: (row.contacts as Record<string, string>)?.email ?? null,
       telephone: (row.contacts as Record<string, string>)?.phone ?? null,
     },

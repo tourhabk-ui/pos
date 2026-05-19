@@ -53,7 +53,7 @@ async function getFishingTours(): Promise<FishingTour[]> {
   return rows;
 }
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedar.app';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export default async function FishingPage() {
   const tours = await getFishingTours();

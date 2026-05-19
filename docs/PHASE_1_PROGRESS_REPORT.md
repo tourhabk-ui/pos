@@ -55,7 +55,7 @@
 ```
 ТУРИСТ (B2C)
   |
-  +→ Открывает vedar.app
+  +→ Открывает vedarai.ru
      +→ Видит "ДЛЯ ТУРОПЕРАТОРОВ" блок (новое!)
      +→ Кликает "Зарегистрироваться как оператор"
      +→ Переходит в Hub → Лиды (новый пункт в меню!)
@@ -84,7 +84,7 @@
 
 | Метрика | Цель | Гарантия |
 |---------|------|----------|
-| **Видимость** | OperatorPromo на главной vedar.app | 100% — компонент готов |
+| **Видимость** | OperatorPromo на главной vedarai.ru | 100% — компонент готов |
 | **Регистрация** | 2–5 первых операторов | На холодный outreach |
 | **Lead Processing** | 100% автоматической обработки | 0 ошибок на 10+ тестах |
 | **PDF Generation** | <20 сек на лид | Уже работает |
@@ -204,9 +204,9 @@ git push origin main
 **Project Owner:** AI Lead Processor Team  
 **Lead Developer:** Automated System  
 **Contacts:**
-- Email: support@vedar.app
+- Email: support@vedarai.ru
 - Telegram: @kamchatour_hub_support
-- Chat: На сайте vedar.app (синяя кнопка)
+- Chat: На сайте vedarai.ru (синяя кнопка)
 
 ---
 

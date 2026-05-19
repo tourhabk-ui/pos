@@ -41,7 +41,7 @@ async function sendAdminMessage(text: string): Promise<void> {
 export function notifyAdminNewTicket(ticket: SupportTicket): void {
   void (async () => {
     try {
-      const site     = 'https://vedar.app';
+      const site     = 'https://vedarai.ru';
       const category = CATEGORY_LABELS[ticket.category] ?? ticket.category;
       const user     = ticket.userName
         ? `${ticket.userName}${ticket.userEmail ? ` (${ticket.userEmail})` : ''}`
@@ -70,7 +70,7 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
 export function notifyAdminEscalated(ticket: SupportTicket, reason: string): void {
   void (async () => {
     try {
-      const site = 'https://vedar.app';
+      const site = 'https://vedarai.ru';
       await sendAdminMessage([
         '<b>ЭСКАЛАЦИЯ тикета</b>',
         '',

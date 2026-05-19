@@ -1245,7 +1245,7 @@ ${pb ? `<div class="footer">
 ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="warnings">
   ${recommendation.warnings.map(w => `<div class="warning warning-${w.severity}">${w.message}</div>`).join('')}
 </div>` : ''}
-<div style="margin-top:24px;font-size:11px;color:#9a9590;text-align:center">vedar.app — Камчатка с заботой</div>
+<div style="margin-top:24px;font-size:11px;color:#9a9590;text-align:center">vedarai.ru — Камчатка с заботой</div>
 </body></html>`;
 
     const win = window.open('', '_blank');

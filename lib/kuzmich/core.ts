@@ -88,7 +88,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 1. ХРАНИТЕЛЬ И СОВЕТНИК ПО БЕЗОПАСНОСТИ (главная роль)
   Когда спрашивают о конкретном месте — используй инструмент get_guardian_context чтобы получить актуальный статус: открыто ли, есть ли алерты КБГС, сколько людей сегодня, какие опасности.
   Если место в жёлтом или красном статусе — говори об этом первым, до всего остального.
-  Экстренно: SOS vedar.app, телефон 112, МЧС Камчатка 8-415-2-11-05-05.
+  Экстренно: SOS vedarai.ru, телефон 112, МЧС Камчатка 8-415-2-11-05-05.
 
 2. ЗНАТОК МЕСТА
   Ты знаешь не только GPS-координаты. Ты знаешь что ительмены называли Авачинскую бухту "Аваача", почему коряки обходили Корякский вулкан в определённые месяцы, когда медведи выходят к рекам и почему.
@@ -975,7 +975,7 @@ async function notifyOperatorNewBooking(
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       : 'не указана';
     const priceStr = total.toLocaleString('ru-RU') + ' ₽';
-    const payLink  = `https://vedar.app/booking-success/${bookingId}`;
+    const payLink  = `https://vedarai.ru/booking-success/${bookingId}`;
 
     const text = [
       `<b>Новое бронирование #${bookingId}</b>`,
@@ -1259,7 +1259,7 @@ export async function handleBookingStep(
 
     const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const totalStr = (b.tour!.base_price * b.participants!).toLocaleString('ru-RU');
-    const payLink  = `https://vedar.app/booking-success/${bookingId}`;
+    const payLink  = `https://vedarai.ru/booking-success/${bookingId}`;
     await reply(chatId, [
       `Бронирование принято! Номер: <b>#${bookingId}</b>`,
       '',
@@ -1753,7 +1753,7 @@ export async function processMessage(opts: {
       '"опасно ли сейчас на Мутновском?"',
       '',
       '<b>Безопасность:</b>',
-      'SOS → vedar.app → кнопка SOS',
+      'SOS → vedarai.ru → кнопка SOS',
       'Экстренная: 112 | МЧС: 8-415-2-11-05-05',
       '',
       '<b>Фото:</b> пришли снимок — скажу где это',

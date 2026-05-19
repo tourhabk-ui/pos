@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: adminChatId,
-          text: `Cron payouts: освобождено ${ids.length} платежей на ${formatted}.\nhttps://vedar.app/hub/admin/finance`,
+          text: `Cron payouts: освобождено ${ids.length} платежей на ${formatted}.\nhttps://vedarai.ru/hub/admin/finance`,
           parse_mode: 'HTML',
         }),
       }).catch(() => {});

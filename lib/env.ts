@@ -17,7 +17,7 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   PORT: z.string().optional().default('3000'),
-  NEXT_PUBLIC_APP_URL: z.string().optional().default('https://vedar.app'),
+  NEXT_PUBLIC_APP_URL: z.string().optional().default('https://vedarai.ru'),
   NEXT_PUBLIC_API_URL: z.string().optional().default(''),
 
   // ── Database (PostgreSQL) ─────────────────────────────────────────
@@ -60,7 +60,7 @@ const envSchema = z.object({
   TELEGRAM_ADMIN_BOT_TOKEN:      z.string().optional().default(''),
   TELEGRAM_OWNER_ID:             z.string().optional().default(''), // numeric Telegram user ID
   TELEGRAM_ADMIN_CHAT_ID:        z.string().optional().default(''), // SOS alerts
-  // Login Widget — set bot @username only after /setdomain vedar.app in BotFather
+  // Login Widget — set bot @username only after /setdomain vedarai.ru in BotFather
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: z.string().optional().default(''),
 
   // ── Email (SMTP) ──────────────────────────────────────────────────
@@ -70,7 +70,7 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
   SMTP_FROM: z.string().optional().default(''),
-  EMAIL_FROM: z.string().optional().default('noreply@vedar.app'),
+  EMAIL_FROM: z.string().optional().default('noreply@vedarai.ru'),
 
   // ── SMS ───────────────────────────────────────────────────────────
   SMS_RU_API_KEY: z.string().optional().default(''),
@@ -131,7 +131,7 @@ const envSchema = z.object({
   PROMETHEUS_PORT: z.string().optional().default('9090'),
 
   // ── CORS ──────────────────────────────────────────────────────────
-  CORS_ORIGIN: z.string().optional().default('https://vedar.app'),
+  CORS_ORIGIN: z.string().optional().default('https://vedarai.ru'),
 
   // ── Analytics / SEO ───────────────────────────────────────────────
   GOOGLE_ANALYTICS_ID: z.string().optional().default(''),

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
   const result = await registerWebhook(token, appUrl);
   return NextResponse.json(result);
 }
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан', hint: 'Задай на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
   const result = await registerWebhook(token, appUrl);
   return NextResponse.json(result);
 }

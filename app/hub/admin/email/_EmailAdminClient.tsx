@@ -15,7 +15,7 @@ interface SmtpStatus {
 // 2 реальных ящика + 10 служебных алиасов для внутренних ролей
 const SYSTEM_MAILBOXES = [
   {
-    address: 'noreply@vedar.app',
+    address: 'noreply@vedarai.ru',
     type: 'real' as const,
     label: 'Платформа — исходящие',
     color: '#D44A0C',
@@ -24,7 +24,7 @@ const SYSTEM_MAILBOXES = [
     action: 'Это SMTP_USER. Настроить в Timeweb → Почта. Ответы туда не приходят — только отправка.',
   },
   {
-    address: 'support@vedar.app',
+    address: 'support@vedarai.ru',
     type: 'real' as const,
     label: 'Поддержка — входящие',
     color: '#2568B0',
@@ -36,7 +36,7 @@ const SYSTEM_MAILBOXES = [
 
 const AGENT_MAILBOXES = [
   {
-    address: 'admin@vedar.app',
+    address: 'admin@vedarai.ru',
     agent: 'Admin',
     label: 'Операционный директор',
     color: '#6366F1',
@@ -44,7 +44,7 @@ const AGENT_MAILBOXES = [
     action: 'Читать после каждого цикла review. Содержит summary и список одобренных изменений.',
   },
   {
-    address: 'legal@vedar.app',
+    address: 'legal@vedarai.ru',
     agent: 'Legal',
     label: 'Юрист',
     color: '#8B5CF6',
@@ -52,7 +52,7 @@ const AGENT_MAILBOXES = [
     action: 'Реагировать в течение 3 дней. Юридические риски требуют немедленной проверки.',
   },
   {
-    address: 'security@vedar.app',
+    address: 'security@vedarai.ru',
     agent: 'Security',
     label: 'Безопасность',
     color: '#EF4444',
@@ -60,7 +60,7 @@ const AGENT_MAILBOXES = [
     action: 'Высокий приоритет. Открывать сразу. Может содержать требование заблокировать аккаунт.',
   },
   {
-    address: 'growth@vedar.app',
+    address: 'growth@vedarai.ru',
     agent: 'Hacker',
     label: 'Рост / Growth',
     color: '#F59E0B',
@@ -68,7 +68,7 @@ const AGENT_MAILBOXES = [
     action: 'Читать по понедельникам. Смотреть на метрики конверсии — если упала >10%, действовать.',
   },
   {
-    address: 'sos@vedar.app',
+    address: 'sos@vedarai.ru',
     agent: 'Rescue',
     label: 'SAR / Безопасность туристов',
     color: '#DC2626',
@@ -76,7 +76,7 @@ const AGENT_MAILBOXES = [
     action: 'Абсолютный приоритет. Переадресовать на телефон. Настроить звуковое уведомление.',
   },
   {
-    address: 'eco@vedar.app',
+    address: 'eco@vedarai.ru',
     agent: 'Eco',
     label: 'Экология',
     color: '#3FB950',
@@ -84,7 +84,7 @@ const AGENT_MAILBOXES = [
     action: 'Читать раз в неделю. При red-alert — ограничить бронирования на перегруженных маршрутах.',
   },
   {
-    address: 'content@vedar.app',
+    address: 'content@vedarai.ru',
     agent: 'Content',
     label: 'Аудит контента',
     color: '#06B6D4',
@@ -92,7 +92,7 @@ const AGENT_MAILBOXES = [
     action: 'Операторы с низким score получают уведомления. Вам — сводка что нужно исправить.',
   },
   {
-    address: 'quality@vedar.app',
+    address: 'quality@vedarai.ru',
     agent: 'Quality',
     label: 'Качество',
     color: '#10B981',
@@ -100,7 +100,7 @@ const AGENT_MAILBOXES = [
     action: 'При оценке < 2.5 — рассмотреть предупреждение оператору. Trend падения — расследовать.',
   },
   {
-    address: 'planning@vedar.app',
+    address: 'planning@vedarai.ru',
     agent: 'Planning',
     label: 'Стратег',
     color: '#8B5CF6',
@@ -108,7 +108,7 @@ const AGENT_MAILBOXES = [
     action: 'Читать в начале месяца. Если прогноз < 70% от цели — усилить маркетинг или добавить туры.',
   },
   {
-    address: 'evo@vedar.app',
+    address: 'evo@vedarai.ru',
     agent: 'Evo',
     label: 'Архитектор платформы',
     color: '#7C3AED',
@@ -216,8 +216,8 @@ export default function EmailAdminClient() {
               <div className="text-xs space-y-1">
                 <p className="font-semibold text-[var(--text-primary)]">Добавьте в Timeweb Cloud → App 175269 → Переменные:</p>
                 {[['SMTP_HOST','smtp.timeweb.ru'],['SMTP_PORT','465'],['SMTP_SECURE','true'],
-                  ['SMTP_USER','noreply@vedar.app'],['SMTP_PASS','Gr96Ww32'],
-                  ['SMTP_FROM','Ведар <noreply@vedar.app>']].map(([k,v]) => (
+                  ['SMTP_USER','noreply@vedarai.ru'],['SMTP_PASS','Gr96Ww32'],
+                  ['SMTP_FROM','Ведар <noreply@vedarai.ru>']].map(([k,v]) => (
                   <div key={k} className="flex gap-1.5 font-mono text-[11px]">
                     <span className="text-[var(--ocean)]">{k}</span>
                     <span className="text-[var(--text-muted)]">=</span>
@@ -308,7 +308,7 @@ export default function EmailAdminClient() {
           <span className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-full">10 алиасов → noreply</span>
         </div>
         <p className="text-xs text-[var(--text-secondary)]">
-          Все 10 ящиков — <strong>алиасы-переадресации</strong> на <code className="text-[var(--ocean)]">noreply@vedar.app</code>.
+          Все 10 ящиков — <strong>алиасы-переадресации</strong> на <code className="text-[var(--ocean)]">noreply@vedarai.ru</code>.
           Это служебный слой для внутренних уведомлений и разнесения ролей. Создавать отдельные SMTP-ящики не нужно.
         </p>
         <div className="divide-y divide-[var(--border)]">
@@ -359,10 +359,10 @@ export default function EmailAdminClient() {
         </div>
         <ol className="space-y-2 text-xs text-[var(--text-secondary)]">
           {[
-            'Создайте ящик noreply@vedar.app (пароль Gr96Ww32) — это SMTP_USER',
-            'Создайте ящик support@vedar.app — настройте переадресацию на ваш личный email',
+            'Создайте ящик noreply@vedarai.ru (пароль Gr96Ww32) — это SMTP_USER',
+            'Создайте ящик support@vedarai.ru — настройте переадресацию на ваш личный email',
             'Для каждой внутренней роли: Почта → Алиасы → добавьте admin@, legal@, security@ и другие → переадресовать на noreply@',
-            'То есть письмо с sos@vedar.app фактически уходит через общий SMTP noreply@vedar.app',
+            'То есть письмо с sos@vedarai.ru фактически уходит через общий SMTP noreply@vedarai.ru',
           ].map((step, i) => (
             <li key={i} className="flex gap-2">
               <span className="shrink-0 w-4 h-4 rounded-full bg-[var(--bg-hover)] text-[var(--text-muted)] text-[10px] font-bold flex items-center justify-center">

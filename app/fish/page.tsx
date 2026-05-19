@@ -12,11 +12,11 @@ export const metadata: Metadata = {
     'рыбы Камчатки', 'лосось Камчатка', 'чавыча', 'нерка', 'кижуч', 'горбуша',
     'рыбалка Камчатка', 'камчатский краб', 'палтус', 'рыболовные туры',
   ],
-  alternates: { canonical: 'https://vedar.app/fish' },
+  alternates: { canonical: 'https://vedarai.ru/fish' },
   openGraph: {
     title: 'Рыбы Камчатки — справочник видов',
     description: '15 видов промысловых рыб Камчатки: сезоны, методы ловли, рекорды.',
-    url: 'https://vedar.app/fish',
+    url: 'https://vedarai.ru/fish',
     siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',

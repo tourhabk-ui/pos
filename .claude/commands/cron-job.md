@@ -146,5 +146,5 @@ Schedule: {расписание}
 Timeout: {N}s
 
 Для теста:
-curl -H "x-cron-secret: $CRON_SECRET" https://vedar.app/api/cron/{name}
+curl -H "x-cron-secret: $CRON_SECRET" https://vedarai.ru/api/cron/{name}
 ```

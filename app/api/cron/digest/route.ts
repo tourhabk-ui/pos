@@ -3,7 +3,7 @@
  * Ежедневный AI-дайджест: анализирует метрики платформы и отправляет в Telegram admin.
  *
  * Запуск: cron-job.org 1 раз в день в 09:00 KMT (21:00 UTC)
- *   URL: https://vedar.app/api/cron/digest?secret=<CRON_SECRET>
+ *   URL: https://vedarai.ru/api/cron/digest?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

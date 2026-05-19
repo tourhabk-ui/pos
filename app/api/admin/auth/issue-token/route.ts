@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   try {
     const payload = {
       userId: 'admin-maintenance',
-      email: 'system@vedar.app',
+      email: 'system@vedarai.ru',
       role: 'admin',
     };
 

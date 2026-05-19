@@ -195,11 +195,11 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `https://vedar.app/operators/${profile.slug}` },
+    alternates: { canonical: `https://vedarai.ru/operators/${profile.slug}` },
     openGraph: {
       title,
       description,
-      url: `https://vedar.app/operators/${profile.slug}`,
+      url: `https://vedarai.ru/operators/${profile.slug}`,
       siteName: 'KamchatourHub',
       locale: 'ru_RU',
       type: 'website',
