@@ -44,8 +44,8 @@ const CHANNELS = [
 ];
 
 const ABILITIES = [
-  { Icon: Map, text: 'Составит маршрут под ваш бюджет и даты' },
-  { Icon: Shield, text: 'Предупредит о закрытых и опасных участках' },
+  { Icon: Map, text: 'Составит маршрут с учётом сложности и погоды' },
+  { Icon: Shield, text: 'Предупредит о закрытых зонах и опасностях' },
   { Icon: MessageCircle, text: 'Ответит на любой вопрос о Камчатке' },
 ];
 
@@ -68,8 +68,8 @@ export function MessengerAgentsSection() {
       </h3>
 
       <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-6">
-        Расскажите, что вас интересует, — он соберёт план, подберёт оператора
-        и предупредит о реальных опасностях на маршруте.
+        Расскажите, куда хотите — он соберёт маршрут, проверит статус точек
+        и предупредит о закрытых или опасных участках.
       </p>
 
       <ul className="flex flex-col gap-3 mb-7">
