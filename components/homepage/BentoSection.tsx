@@ -92,8 +92,8 @@ export function BentoSection() {
             className="font-playfair font-bold text-[var(--text-primary)] leading-[1.05]"
             style={{ fontSize: 'clamp(2rem, 4vw, 3.25rem)' }}
           >
-            Каждое место —<br />
-            <span className="text-[var(--accent)]">отдельный мир</span>
+            Знай что там<br />
+            <span className="text-[var(--accent)]">на самом деле</span>
           </h2>
         </div>
         <Link

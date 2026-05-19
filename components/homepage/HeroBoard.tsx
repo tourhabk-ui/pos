@@ -68,7 +68,7 @@ export function HeroBoard() {
               visible ? 'opacity-100' : 'opacity-0 translate-y-2'
             }`}
           >
-            Туристическая платформа Камчатки
+            Камчатка · штурман туриста
           </p>
 
           <h1
@@ -77,10 +77,8 @@ export function HeroBoard() {
             }`}
             style={{ fontSize: 'clamp(2.4rem, 6vw, 5rem)' }}
           >
-            Камчатка,{' '}
-            <span className="text-[var(--accent)]">которую вы почувствуете</span>
-            <br />
-            по-настоящему
+            Знай{' '}
+            <span className="text-[var(--accent)]">куда идёшь</span>
           </h1>
 
           <p
@@ -88,8 +86,8 @@ export function HeroBoard() {
               visible ? 'opacity-100' : 'opacity-0 translate-y-4'
             }`}
           >
-            Не маркетплейс туров — персональный инструмент планирования.
-            AI, живая карта и только проверенные операторы.
+            778 мест, 294 маршрута, реальные опасности и статус вулканов —
+            всё что нужно до выхода на маршрут.
           </p>
 
           <div
