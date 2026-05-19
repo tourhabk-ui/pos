@@ -2,7 +2,7 @@
  * WhatsApp Business API — Kuzmich bot
  *
  * Настройка:
- *   1. Meta for Developers → WhatsApp → Webhooks → URL: tourhab.ru/api/whatsapp/kuzmich
+ *   1. Meta for Developers → WhatsApp → Webhooks → URL: vedar.app/api/whatsapp/kuzmich
  *   2. Env: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
  *
  * GET  — webhook verification (hub.challenge handshake)

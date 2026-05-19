@@ -4,7 +4,7 @@
  * Proactive Rescue Agent — мониторит безопасность каждые 30 мин.
  * Проверяет: SOS, погоду, бронирования, операторов.
  *
- * URL: https://tourhab.ru/api/cron/rescue?secret=<CRON_SECRET>
+ * URL: https://vedar.app/api/cron/rescue?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

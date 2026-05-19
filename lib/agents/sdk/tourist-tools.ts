@@ -505,7 +505,7 @@ const composeTripTool: SDKTool = {
           price_per_person: `${t.base_price.toLocaleString('ru-RU')} руб.`,
           operator: t.operator_name,
           location: t.location,
-          booking_url: `tourhab.ru${t.booking_url}`,
+          booking_url: `vedar.app${t.booking_url}`,
         })),
         itinerary: trip.itinerary.map(d => ({
           day: d.day,

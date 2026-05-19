@@ -11,7 +11,7 @@
  *   e.g. "KamchatourBot" for @KamchatourBot
  *
  * The bot must also be configured with /setdomain in BotFather
- * to allow logins from tourhab.ru
+ * to allow logins from vedar.app
  */
 
 import { useEffect, useRef } from 'react';

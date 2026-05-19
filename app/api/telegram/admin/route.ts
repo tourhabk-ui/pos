@@ -12,7 +12,7 @@
  * POST: Webhook для получения команд из Telegram
  *       Требует регистрации webhook:
  *       curl -X POST https://api.telegram.org/botTOKEN/setWebhook \
- *         -d url=https://tourhab.ru/api/telegram/admin \
+ *         -d url=https://vedar.app/api/telegram/admin \
  *         -d secret_token=SECRET
  *
  * Env vars (Timeweb):
@@ -175,7 +175,7 @@ async function checkHealth(): Promise<string> {
   return [
     `AI: OpenRouter=${orOk ? 'OK' : 'X'}`,
     `БД: ${issues.length === 0 ? 'OK' : issues.join('; ')}`,
-    `Сайт: https://tourhab.ru`,
+    `Сайт: https://vedar.app`,
   ].join('\n');
 }
 

@@ -7,7 +7,7 @@ interface PageProps {
 }
 
 async function fetchTrip(token: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://tourhab.ru';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vedar.app';
   try {
     const res = await fetch(`${baseUrl}/api/trips/share/${token}`, { cache: 'no-store' });
     if (!res.ok) return null;
@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     description: `Маршрут по Камчатке на ${Array.isArray(trip.days) ? trip.days.length : 0} дней. Открой и создай свой!`,
     openGraph: {
       title: `${trip.title} — маршрут по Камчатке`,
-      description: `${Array.isArray(trip.days) ? trip.days.length : 0} дней · tourhab.ru`,
+      description: `${Array.isArray(trip.days) ? trip.days.length : 0} дней · vedar.app`,
       images: [{ url: '/icons/og-image.jpg', width: 1200, height: 630 }],
     },
   };

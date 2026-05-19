@@ -89,7 +89,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedar.app',
           'X-Title': 'Ведар Kamchatka',
         },
         body: JSON.stringify({
@@ -166,7 +166,7 @@ export async function callOpenRouterModel(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify(body),
@@ -228,7 +228,7 @@ export async function callOpenRouterWithTools(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify({
@@ -511,7 +511,7 @@ export async function callGemini(messages: ChatMessage[]): Promise<string | null
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify({
@@ -699,7 +699,7 @@ export async function callGeminiVision(
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify({
@@ -751,7 +751,7 @@ export async function callGeminiTranscribe(
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify({
@@ -794,7 +794,7 @@ export async function callGeminiPDF(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedar.app',
         'X-Title': 'Ведар Kamchatka',
       },
       body: JSON.stringify({
@@ -962,7 +962,7 @@ export async function preflightProviders(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedar.app',
           'X-Title': 'Ведар Kamchatka',
         },
         body: JSON.stringify({ model: 'openai/gpt-4o-mini', max_tokens: 5, messages: testMsg }),
@@ -1158,7 +1158,7 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedar.app',
           'X-Title': 'Ведар Kamchatka',
         },
         body: JSON.stringify({
@@ -1262,7 +1262,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${apiKey}`,
-              'HTTP-Referer': 'https://tourhab.ru',
+              'HTTP-Referer': 'https://vedar.app',
               'X-Title': 'Ведар Kamchatka',
             },
             body: JSON.stringify({ model: id, temperature: 0.4, max_tokens: 200, messages: payload }),

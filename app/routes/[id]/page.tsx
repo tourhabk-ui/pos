@@ -55,11 +55,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: catMeta.title,
       description: catMeta.description,
       keywords: catMeta.keywords,
-      alternates: { canonical: `https://tourhab.ru/routes/${id}` },
+      alternates: { canonical: `https://vedar.app/routes/${id}` },
       openGraph: {
         title: catMeta.title,
         description: catMeta.description,
-        url: `https://tourhab.ru/routes/${id}`,
+        url: `https://vedar.app/routes/${id}`,
         siteName: 'Ведар',
         locale: 'ru_RU',
         type: 'website',
@@ -117,11 +117,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description: desc,
     keywords,
-    alternates: { canonical: `https://tourhab.ru/routes/${id}` },
+    alternates: { canonical: `https://vedar.app/routes/${id}` },
     openGraph: {
       title,
       description: desc,
-      url: `https://tourhab.ru/routes/${id}`,
+      url: `https://vedar.app/routes/${id}`,
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
@@ -141,13 +141,13 @@ export default async function RouteOrCategoryPage({ params }: Props) {
       '@type': 'CollectionPage',
       name: catMeta.h1,
       description: catMeta.description,
-      url: `https://tourhab.ru/routes/${id}`,
+      url: `https://vedar.app/routes/${id}`,
       breadcrumb: {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Главная', item: 'https://tourhab.ru' },
-          { '@type': 'ListItem', position: 2, name: 'Маршруты', item: 'https://tourhab.ru/routes' },
-          { '@type': 'ListItem', position: 3, name: catMeta.name, item: `https://tourhab.ru/routes/${id}` },
+          { '@type': 'ListItem', position: 1, name: 'Главная', item: 'https://vedar.app' },
+          { '@type': 'ListItem', position: 2, name: 'Маршруты', item: 'https://vedar.app/routes' },
+          { '@type': 'ListItem', position: 3, name: catMeta.name, item: `https://vedar.app/routes/${id}` },
         ],
       },
     };
@@ -193,10 +193,10 @@ export default async function RouteOrCategoryPage({ params }: Props) {
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'TouristTrip',
-    '@id': `https://tourhab.ru/routes/${id}`,
+    '@id': `https://vedar.app/routes/${id}`,
     name: route.title,
     description: cleanDesc,
-    url: `https://tourhab.ru/routes/${id}`,
+    url: `https://vedar.app/routes/${id}`,
     inLanguage: 'ru',
     touristType: route.activityType ?? route.category,
     keywords: routeKeywords,
@@ -257,11 +257,11 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         price: route.priceFrom,
         priceCurrency: 'RUB',
         availability: 'https://schema.org/InStock',
-        url: `https://tourhab.ru/routes/${id}`,
+        url: `https://vedar.app/routes/${id}`,
         seller: {
           '@type': 'TravelAgency',
           name: 'Ведар',
-          url: 'https://tourhab.ru',
+          url: 'https://vedar.app',
         },
       },
     } : {}),
@@ -284,8 +284,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     provider: {
       '@type': 'TravelAgency',
       name: 'Ведар',
-      url: 'https://tourhab.ru',
-      sameAs: ['https://tourhab.ru', 'https://t.me/kamchatourhub'],
+      url: 'https://vedar.app',
+      sameAs: ['https://vedar.app', 'https://t.me/kamchatourhub'],
     },
   };
 
@@ -293,9 +293,9 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Главная', item: 'https://tourhab.ru' },
-      { '@type': 'ListItem', position: 2, name: 'Маршруты', item: 'https://tourhab.ru/routes' },
-      { '@type': 'ListItem', position: 3, name: route.title, item: `https://tourhab.ru/routes/${id}` },
+      { '@type': 'ListItem', position: 1, name: 'Главная', item: 'https://vedar.app' },
+      { '@type': 'ListItem', position: 2, name: 'Маршруты', item: 'https://vedar.app/routes' },
+      { '@type': 'ListItem', position: 3, name: route.title, item: `https://vedar.app/routes/${id}` },
     ],
   };
 

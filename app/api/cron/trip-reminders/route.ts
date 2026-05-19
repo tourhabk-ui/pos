@@ -9,7 +9,7 @@
  * Защита: ?secret=CRON_SECRET
  *
  * cron-job.org:
- *   https://tourhab.ru/api/cron/trip-reminders?secret=SECRET
+ *   https://vedar.app/api/cron/trip-reminders?secret=SECRET
  *   → каждый день в 19:00 UTC
  */
 
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
         '',
         'Приготовь тёплую одежду и хорошее настроение.',
         '',
-        `<a href="https://tourhab.ru/hub/tourist/bookings">Детали брони →</a>`,
+        `<a href="https://vedar.app/hub/tourist/bookings">Детали брони →</a>`,
       );
 
       await telegramService.sendMessage({

@@ -114,7 +114,7 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
         'Authorization':    `Bearer ${apiKey}`,
         'Content-Type':     'application/json',
         'X-Title':          'KamchatourHub Agent SDK',
-        'HTTP-Referer':     'https://tourhab.ru',
+        'HTTP-Referer':     'https://vedar.app',
       },
       body: JSON.stringify({
         model,

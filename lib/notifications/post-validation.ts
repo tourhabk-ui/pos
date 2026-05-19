@@ -58,7 +58,7 @@ async function checkRouteExists(routeId: string): Promise<{ exists: boolean; rou
  * Защита от расхождений между БД и билдом.
  */
 async function checkPageAccessible(routeId: string): Promise<boolean> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -77,10 +77,10 @@ async function checkPageAccessible(routeId: string): Promise<boolean> {
 
 /**
  * Правило 3: Пост содержит ссылки только на существующие страницы.
- * Проверяет все ссылки вида tourhab.ru/... в тексте поста.
+ * Проверяет все ссылки вида vedar.app/... в тексте поста.
  */
 function extractInternalLinks(text: string): string[] {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru').replace(/\/$/, '');
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app').replace(/\/$/, '');
   const regex = new RegExp(`${appUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/[\\w\\d/\\-]+)`, 'g');
   const links: string[] = [];
   let match;

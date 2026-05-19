@@ -57,7 +57,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ok: res.ok,
     bot: meData,
     subscriptions: data,
-    expected_webhook: `${process.env.NEXT_PUBLIC_BASE_URL ?? 'https://tourhab.ru'}/api/max/kuzmich`,
+    expected_webhook: `${process.env.NEXT_PUBLIC_BASE_URL ?? 'https://vedar.app'}/api/max/kuzmich`,
   });
 }
 
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'https://tourhab.ru';
+    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'https://vedar.app';
   const webhookUrl = `${baseUrl}/api/max/kuzmich`;
 
   // POST /subscriptions — регистрация webhook

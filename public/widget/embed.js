@@ -2,7 +2,7 @@
  * TourHub Partner Widget — Embed Script
  *
  * Usage on partner site:
- * <script src="https://tourhab.ru/widget/embed.js"
+ * <script src="https://vedar.app/widget/embed.js"
  *         data-partner-id="fishingkam"
  *         data-theme="light">
  * </script>

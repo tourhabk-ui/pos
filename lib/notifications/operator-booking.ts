@@ -95,7 +95,7 @@ export async function notifyBookingPaid(
   ];
   if (touristName)  lines.push(`Турист: ${esc(touristName)}`);
   if (touristPhone) lines.push(`Телефон: ${esc(touristPhone)}`);
-  lines.push(`<a href="https://tourhab.ru/hub/operator/bookings/${bookingId}">Открыть бронь</a>`);
+  lines.push(`<a href="https://vedar.app/hub/operator/bookings/${bookingId}">Открыть бронь</a>`);
 
   const text = lines.join('\n');
 

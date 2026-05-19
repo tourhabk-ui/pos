@@ -119,7 +119,7 @@ async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Pr
     '- Автоматические уведомления и CRM для бронирований',
     '- Регистрация и размещение туров — бесплатно',
     '',
-    'Зарегистрироваться: https://tourhab.ru/register',
+    'Зарегистрироваться: https://vedar.app/register',
     '',
     'С уважением, команда KamchatourHub',
   ].join('\n');

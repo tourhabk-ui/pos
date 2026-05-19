@@ -96,7 +96,7 @@ async function fetchArticle(slug: string): Promise<string | null> {
   const url = `${BASE}/note/${slug}`;
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'TourHabBot/1.0 (tourhab.ru; knowledge enrichment)' },
+      headers: { 'User-Agent': 'TourHabBot/1.0 (vedar.app; knowledge enrichment)' },
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return null;

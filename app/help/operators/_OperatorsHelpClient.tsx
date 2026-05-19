@@ -107,7 +107,7 @@ export default function OperatorsHelpClient() {
           <h2 className="ds-h2 mb-6">Как начать работу</h2>
           <div className="ds-card p-6 space-y-0">
             <Step num={1} icon={UserPlus} title="Регистрация"
-              desc="Перейдите на tourhab.ru/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
+              desc="Перейдите на vedar.app/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
             <Step num={2} icon={Shield} title="Проверка и одобрение"
               desc="После регистрации заявка поступает в очередь администраторов. Среднее время проверки — 1 рабочий день. Вы получите уведомление на email и в Telegram о статусе заявки." />
             <Step num={3} icon={Package} title="Заполнение профиля"
@@ -215,7 +215,7 @@ export default function OperatorsHelpClient() {
             },
             {
               q: 'Что если турист требует возврат?',
-              a: 'Обратитесь в поддержку через раздел «Уведомления» или напрямую admin@tourhab.ru. Возврат рассматривается индивидуально согласно правилам отмены тура. Если тур отменён по вине оператора — возврат 100%.',
+              a: 'Обратитесь в поддержку через раздел «Уведомления» или напрямую admin@vedar.app. Возврат рассматривается индивидуально согласно правилам отмены тура. Если тур отменён по вине оператора — возврат 100%.',
             },
           ]} />
         </section>
@@ -256,7 +256,7 @@ export default function OperatorsHelpClient() {
           <h2 className="ds-h2 mb-4">Поддержка операторов</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { icon: Mail, title: 'Email', value: 'operators@tourhab.ru', desc: 'Ответ в течение 4 часов в рабочее время' },
+              { icon: Mail, title: 'Email', value: 'operators@vedar.app', desc: 'Ответ в течение 4 часов в рабочее время' },
               { icon: MessageSquare, title: 'Telegram', value: '@tourhab_support', desc: 'Быстрые вопросы — отвечаем в мессенджере' },
               { icon: Clock, title: 'Рабочее время', value: 'Пн–Пт 9:00–18:00', desc: 'Камчатское время (UTC+12)' },
             ].map(({ icon: Icon, title, value, desc }) => (

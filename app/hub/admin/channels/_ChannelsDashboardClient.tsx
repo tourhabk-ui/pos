@@ -27,7 +27,7 @@ const CHANNELS = [
       { done: false, text: 'Зарегистрировать URL фида в ЛК → Настройки → Автозагрузка' },
       { done: false, text: 'Дождаться первой загрузки (2-4 часа)' },
     ],
-    feedUrl: 'https://tourhab.ru/api/channels/avito/feed',
+    feedUrl: 'https://vedar.app/api/channels/avito/feed',
     priority: 1,
   },
   {
@@ -41,7 +41,7 @@ const CHANNELS = [
       { done: false, text: 'Яндекс.Услуги → Добавить услугу → XML-импорт → вставить URL' },
       { done: false, text: 'Яндекс.Путешествия → partner.yandex.ru/travel → экскурсии' },
     ],
-    feedUrl: 'https://tourhab.ru/api/channels/yandex/feed',
+    feedUrl: 'https://vedar.app/api/channels/yandex/feed',
     priority: 2,
   },
   {
@@ -203,10 +203,10 @@ export function ChannelsDashboardClient({
           <div>
             <p className="text-xs text-[var(--text-muted)] mb-1">URL для регистрации в Авито:</p>
             <code className="text-sm text-[var(--text-primary)] font-mono">
-              https://tourhab.ru/api/channels/avito/feed
+              https://vedar.app/api/channels/avito/feed
             </code>
           </div>
-          <CopyButton text="https://tourhab.ru/api/channels/avito/feed" />
+          <CopyButton text="https://vedar.app/api/channels/avito/feed" />
         </div>
         <div className="mt-3 flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <p>Путь: Авито → Мои объявления → Автозагрузка → Добавить файл (XML)</p>
@@ -241,10 +241,10 @@ export function ChannelsDashboardClient({
           <div>
             <p className="text-xs text-[var(--text-muted)] mb-1">URL для регистрации в Яндексе:</p>
             <code className="text-sm text-[var(--text-primary)] font-mono">
-              https://tourhab.ru/api/channels/yandex/feed
+              https://vedar.app/api/channels/yandex/feed
             </code>
           </div>
-          <CopyButton text="https://tourhab.ru/api/channels/yandex/feed" />
+          <CopyButton text="https://vedar.app/api/channels/yandex/feed" />
         </div>
         <div className="mt-3 flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <p>Путь: uslugi.yandex.ru/partners → XML-импорт → Добавить фид</p>
@@ -358,7 +358,7 @@ export function ChannelsDashboardClient({
           {[
             {
               n: 1, title: 'Авито — зарегистрировать XML фид (10 минут)',
-              body: 'Авито → Мой Авито → Управление объявлениями → Автозагрузка → Добавить. Вставить URL: https://tourhab.ru/api/channels/avito/feed',
+              body: 'Авито → Мой Авито → Управление объявлениями → Автозагрузка → Добавить. Вставить URL: https://vedar.app/api/channels/avito/feed',
             },
             {
               n: 2, title: 'Tripster — создать туры вручную (1-2 часа)',

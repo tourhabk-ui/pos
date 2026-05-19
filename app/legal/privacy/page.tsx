@@ -27,7 +27,7 @@ export default function PrivacyPage() {
             <p>
               Настоящая Политика конфиденциальности (далее — Политика) определяет порядок сбора, хранения,
               использования и защиты персональных данных пользователей туристической платформы Ведар
-              (tourhab.ru), принадлежащей ООО «ПОС-СЕРВИС» (ОГРН 1114101005952, ИНН 4101147649)
+              (vedar.app), принадлежащей ООО «ПОС-СЕРВИС» (ОГРН 1114101005952, ИНН 4101147649)
               (далее — Оператор).
             </p>
             <p>
@@ -116,7 +116,7 @@ export default function PrivacyPage() {
               исключительно в целях персонализации и не влечёт юридически значимых последствий для Пользователя.
               AI-заметки хранятся только в зашифрованной базе данных и не передаются третьим лицам.
               Пользователь вправе отказаться, направив запрос на{' '}
-              <a href="mailto:privacy@tourhab.ru" className="text-[var(--ocean)] hover:underline">privacy@tourhab.ru</a>.
+              <a href="mailto:privacy@vedar.app" className="text-[var(--ocean)] hover:underline">privacy@vedar.app</a>.
             </p>
             <p className="mt-4 text-sm">
               В соответствии со ст. 16 Федерального закона от 27.07.2006 No 152-ФЗ (в редакции
@@ -199,7 +199,7 @@ export default function PrivacyPage() {
             </ul>
             <p>
               Запросы направляются на{' '}
-              <a href="mailto:privacy@tourhab.ru" className="text-[var(--ocean)] hover:underline">privacy@tourhab.ru</a>.
+              <a href="mailto:privacy@vedar.app" className="text-[var(--ocean)] hover:underline">privacy@vedar.app</a>.
               Срок ответа — 30 дней с момента получения запроса.
             </p>
           </section>
@@ -221,7 +221,7 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">8. Изменение Политики</h2>
             <p>
               Оператор вправе вносить изменения в настоящую Политику. Актуальная версия публикуется на
-              tourhab.ru/legal/privacy. При существенных изменениях Пользователи уведомляются по электронной
+              vedar.app/legal/privacy. При существенных изменениях Пользователи уведомляются по электронной
               почте не менее чем за 10 дней до вступления изменений в силу.
             </p>
           </section>
@@ -233,8 +233,8 @@ export default function PrivacyPage() {
               ООО «ПОС-СЕРВИС», ИНН 4101147649, ОГРН 1114101005952<br />
               683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
               Генеральный директор: Асеев Андрей Валерьевич<br />
-              Email по вопросам ПД: <a href="mailto:privacy@tourhab.ru" className="text-[var(--ocean)] hover:underline">privacy@tourhab.ru</a><br />
-              Обращения Пользователей: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>
+              Email по вопросам ПД: <a href="mailto:privacy@vedar.app" className="text-[var(--ocean)] hover:underline">privacy@vedar.app</a><br />
+              Обращения Пользователей: <a href="mailto:support@vedar.app" className="text-[var(--ocean)] hover:underline">support@vedar.app</a>
             </p>
           </section>
         </div>

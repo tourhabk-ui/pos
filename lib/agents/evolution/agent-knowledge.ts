@@ -66,7 +66,7 @@ export const AGENT_KNOWLEDGE_BASES: Record<string, AgentKnowledgeBase> = {
     domainKnowledge: `
 ## ОПЕРАЦИОННЫЕ СТАНДАРТЫ TOURHAB
 
-**Платформа:** tourhab.ru — агрегатор туристических услуг Камчатки (ООО «ПОС-СЕРВИС», ИНН 4101147649)
+**Платформа:** vedar.app — агрегатор туристических услуг Камчатки (ООО «ПОС-СЕРВИС», ИНН 4101147649)
 **Деплой:** Timeweb Cloud, App ID 175269. Автодеплой при push в main. База: PostgreSQL.
 **Масштаб:** 94 страницы, 256 API routes, 119 компонентов, 8 хабов, ~260 маршрутов в БД.
 

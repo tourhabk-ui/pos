@@ -30,7 +30,7 @@ export async function GET(req: Request) {
         success: true,
         status: 'already_exists',
         user: existing.rows[0],
-        login_url: 'https://tourhab.ru/auth/signin',
+        login_url: 'https://vedar.app/auth/signin',
         email: AGENT_EMAIL,
         note: 'Аккаунт уже существует. Использовать установленный пароль.',
       });
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       success: true,
       status: 'created',
       user: result.rows[0],
-      login_url: 'https://tourhab.ru/auth/signin',
+      login_url: 'https://vedar.app/auth/signin',
       email: AGENT_EMAIL,
       temp_password: TEMP_PASSWORD,
       note: 'Попросите Ирину сменить пароль после первого входа.',

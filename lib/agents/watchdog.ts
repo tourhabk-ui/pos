@@ -80,7 +80,7 @@ async function notifyOperatorDirectly(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
   const text = [
     `<b>Привет, ${partnerName}!</b>`,
     '',
@@ -218,7 +218,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       const prefix = a.type === 'sos_ignored' ? '🚨' : '⚠️';
       lines.push(`${prefix} ${a.details}`);
     }
-    lines.push('', '<a href="https://tourhab.ru/hub/admin">Открыть панель</a>');
+    lines.push('', '<a href="https://vedar.app/hub/admin">Открыть панель</a>');
     await tgSend(lines.join('\n'));
   }
 

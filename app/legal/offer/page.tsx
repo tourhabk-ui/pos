@@ -53,7 +53,7 @@ export default function OfferPage() {
               Акцептом настоящей оферты является совершение Партнёром следующих действий в совокупности:
             </p>
             <ul className="list-disc pl-6 space-y-2">
-              <li>Прохождение регистрации в личном кабинете Партнёра на tourhab.ru</li>
+              <li>Прохождение регистрации в личном кабинете Партнёра на vedar.app</li>
               <li>Проставление отметки о согласии с условиями настоящего договора</li>
               <li>Предоставление сведений об организации (ИНН, ОГРН/ОГРНИП, банковские реквизиты)</li>
             </ul>
@@ -203,8 +203,8 @@ export default function OfferPage() {
               Банк: ООО «Банк Точка»<br />
               Расчётный счёт: 40702810102500044777<br />
               БИК: 044525104<br />
-              Email для партнёров: <a href="mailto:partners@tourhab.ru" className="text-[var(--ocean)] hover:underline">partners@tourhab.ru</a><br />
-              Email для правовых вопросов: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a>
+              Email для партнёров: <a href="mailto:partners@vedar.app" className="text-[var(--ocean)] hover:underline">partners@vedar.app</a><br />
+              Email для правовых вопросов: <a href="mailto:legal@vedar.app" className="text-[var(--ocean)] hover:underline">legal@vedar.app</a>
             </p>
           </section>
         </div>

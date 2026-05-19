@@ -4,7 +4,7 @@
  * Scout-Innovator — ежедневный синтез разведданных → конкретные предложения.
  * Запускается через cron-scout.yml в 06:00 UTC (после intelligence monitor).
  *
- * URL: https://tourhab.ru/api/cron/scout?secret=<CRON_SECRET>
+ * URL: https://vedar.app/api/cron/scout?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

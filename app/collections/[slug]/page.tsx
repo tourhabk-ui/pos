@@ -5,7 +5,7 @@ import { CollectionDetailClient } from './_CollectionDetailClient';
 interface Props { params: Promise<{ slug: string }> }
 
 async function fetchCollection(slug: string) {
-  const base = process.env.NEXT_PUBLIC_APP_URL || 'https://tourhab.ru';
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'https://vedar.app';
   try {
     const res = await fetch(`${base}/api/collections/${slug}`, { next: { revalidate: 300 } });
     if (!res.ok) return null;

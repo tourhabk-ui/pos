@@ -10,7 +10,7 @@ interface Props {
 
 /**
  * InsuranceBlock — рекомендация страховки на основе типон активности маршрута
- * Интегрирует Cherehapa (tourhab.ru affiliate)
+ * Интегрирует Cherehapa (vedar.app affiliate)
  */
 export default function InsuranceBlock({ activityTypes, routeTitle }: Props) {
   const rec = recommendInsurance(activityTypes);

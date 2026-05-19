@@ -231,7 +231,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
     doc.fillColor('#9A9590')
        .fontSize(9)
        .font('Helvetica')
-       .text('tourhab.ru · Предложение действительно 7 дней', 60, footerY + 18);
+       .text('vedar.app · Предложение действительно 7 дней', 60, footerY + 18);
 
     doc.fillColor('#9A9590')
        .fontSize(8)

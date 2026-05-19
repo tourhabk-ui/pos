@@ -25,7 +25,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Термины и определения</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong>Платформа</strong> — интернет-сервис Ведар, расположенный по адресу tourhab.ru, принадлежащий ООО «ПОС-СЕРВИС» (ИНН 4101147649, ОГРН 1114101005952)</li>
+              <li><strong>Платформа</strong> — интернет-сервис Ведар, расположенный по адресу vedar.app, принадлежащий ООО «ПОС-СЕРВИС» (ИНН 4101147649, ОГРН 1114101005952)</li>
               <li><strong>Оператор</strong> — ООО «ПОС-СЕРВИС», 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1</li>
               <li><strong>Пользователь</strong> — физическое лицо, достигшее 18 лет, использующее Платформу в личных, некоммерческих целях</li>
               <li><strong>Партнёр</strong> — юридическое лицо или индивидуальный предприниматель, оказывающий туристические и сопутствующие услуги через Платформу</li>
@@ -67,7 +67,7 @@ export default function TermsPage() {
               Пользователь несёт ответственность за сохранность учётных данных (логин, пароль) и за
               все действия, совершённые с использованием его учётной записи. При обнаружении
               несанкционированного доступа Пользователь обязан незамедлительно уведомить Оператора
-              по адресу: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>.
+              по адресу: <a href="mailto:support@vedar.app" className="text-[var(--ocean)] hover:underline">support@vedar.app</a>.
             </p>
             <p>
               Оператор вправе приостановить или удалить учётную запись в случае нарушения настоящего
@@ -164,7 +164,7 @@ export default function TermsPage() {
             <p>
               Оператор вправе в одностороннем порядке изменять условия Соглашения. Уведомление об
               изменениях публикуется на данной странице не менее чем за 10 (десять) дней до вступления
-              их в силу. Актуальная редакция всегда доступна на tourhab.ru/legal/terms.
+              их в силу. Актуальная редакция всегда доступна на vedar.app/legal/terms.
             </p>
             <p>
               Продолжение использования Платформы после вступления изменений в силу означает согласие
@@ -194,8 +194,8 @@ export default function TermsPage() {
               ОГРН: 1114101005952<br />
               Юридический адрес: 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1<br />
               Генеральный директор: Асеев Андрей Валерьевич<br />
-              Email: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a><br />
-              Поддержка пользователей: <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">support@tourhab.ru</a>
+              Email: <a href="mailto:legal@vedar.app" className="text-[var(--ocean)] hover:underline">legal@vedar.app</a><br />
+              Поддержка пользователей: <a href="mailto:support@vedar.app" className="text-[var(--ocean)] hover:underline">support@vedar.app</a>
             </p>
           </section>
         </div>

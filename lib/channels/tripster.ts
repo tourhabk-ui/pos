@@ -5,7 +5,7 @@
  * Как работает:
  * 1. Туры создаются ВРУЧНУЮ в дашборде Tripster → получаем experience_id
  * 2. Этот ID сохраняется в operator_tours.tripster_experience_id
- * 3. При бронировании на tourhab.ru → pushBooking() регистрирует заказ в Tripster
+ * 3. При бронировании на vedar.app → pushBooking() регистрирует заказ в Tripster
  * 4. pollOrders() раз в 30 мин подтягивает новые заказы с Tripster → наша БД
  *
  * Токен: получить через email guides@tripster.ru с аккаунта оператора
@@ -49,7 +49,7 @@ export const tripsterAdapter: ChannelAdapter = {
   name: 'tripster' as ChannelName,
 
   /**
-   * Регистрирует бронирование с tourhab.ru в Tripster
+   * Регистрирует бронирование с vedar.app в Tripster
    * Требует: tour.tripster_experience_id должен быть заполнен
    */
   async pushBooking(input: PushBookingInput): Promise<PushBookingResult> {

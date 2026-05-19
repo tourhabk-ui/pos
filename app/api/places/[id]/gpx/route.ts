@@ -40,14 +40,14 @@ export async function GET(
     const now = new Date().toISOString();
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Ведар — tourhab.ru"
+<gpx version="1.1" creator="Ведар — vedar.app"
   xmlns="http://www.topografix.com/GPX/1/1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
     <name>${name}</name>
     <time>${now}</time>
-    <link href="https://tourhab.ru/places/${id}">
+    <link href="https://vedar.app/places/${id}">
       <text>${name} — Ведар</text>
     </link>
   </metadata>

@@ -176,7 +176,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/hub/', '/api/'],
       },
     ],
-    sitemap: 'https://tourhab.ru/sitemap.xml',
-    host: 'tourhab.ru',
+    sitemap: 'https://vedar.app/sitemap.xml',
+    host: 'vedar.app',
   };
 }

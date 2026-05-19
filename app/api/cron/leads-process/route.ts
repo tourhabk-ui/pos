@@ -3,7 +3,7 @@
  * Обрабатывает новые лиды которые не получили AI-обработку (слетели, ошибки).
  *
  * Запуск: cron-job.org каждые 30 минут
- *   URL: https://tourhab.ru/api/cron/leads-process?secret=<CRON_SECRET>
+ *   URL: https://vedar.app/api/cron/leads-process?secret=<CRON_SECRET>
  *
  * Выбирает: статус 'new', старше 2 минут (чтобы авто-триггер из POST уже отработал), макс 10 за раз
  */

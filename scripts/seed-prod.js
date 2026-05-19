@@ -101,8 +101,8 @@ async function seed() {
     console.log('  📊 Операторов: 4');
     console.log('  🎯 Туров: 4');
     console.log('\n🌐 Проверь:');
-    console.log('  • https://tourhab.ru/operators');
-    console.log('  • https://tourhab.ru/api/tours');
+    console.log('  • https://vedar.app/operators');
+    console.log('  • https://vedar.app/api/tours');
 
   } catch (err) {
     console.error('❌ Ошибка:', err.message);

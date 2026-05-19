@@ -20,7 +20,7 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: 'https://tourhab.ru',
+        url: 'https://vedar.app',
         description: 'Production сервер',
       },
       {

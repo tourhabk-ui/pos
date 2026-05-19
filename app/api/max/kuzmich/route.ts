@@ -103,7 +103,7 @@ const BOOKING_BUTTONS: MaxButton[][] = [
     { type: 'callback', text: 'Другой вариант', payload: 'other_tour' },
   ],
   [
-    { type: 'link', text: 'Все туры на сайте', url: 'https://tourhab.ru/routes' },
+    { type: 'link', text: 'Все туры на сайте', url: 'https://vedar.app/routes' },
   ],
 ];
 
@@ -324,7 +324,7 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
         if (name) {
           await maxReply(chatId, `Привет, ${name}! Ты подключён как оператор в MAX.\n\nБуду присылать уведомления о новых бронированиях сюда. Также могу отвечать на вопросы о турах и статистике. Пиши.`);
         } else {
-          await maxReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на tourhab.ru.');
+          await maxReply(chatId, 'Email не найден в системе. Проверь адрес или напиши на vedar.app.');
         }
       } else {
         await maxReply(chatId, 'Напиши: партнер email@example.com');

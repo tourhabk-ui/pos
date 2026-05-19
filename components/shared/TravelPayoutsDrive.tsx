@@ -4,7 +4,7 @@ import Script from 'next/script';
 
 /**
  * TP Drive — AI-монетизация контента от Travelpayouts.
- * ID площадки: 513488 (tourhab.ru)
+ * ID площадки: 513488 (vedar.app)
  * Автоматически заменяет ссылки на трекинговые, показывает превью
  * и открывает таргетированные предложения.
  * Docs: https://support.travelpayouts.com/hc/ru/sections/200989057

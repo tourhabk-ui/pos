@@ -73,7 +73,7 @@ async function buildQRCodeBuffer(url: string): Promise<Buffer> {
 }
 
 export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedar.app';
   const pageUrl = `${appUrl}/places/${place.id}`;
   const qrBuffer = await buildQRCodeBuffer(pageUrl);
 
@@ -319,7 +319,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fontSize(7).font('Helvetica').fillColor('#888888')
        .text(
-         `Сгенерировано: ${new Date().toLocaleDateString('ru-RU')} · tourhab.ru · ${pageUrl}`,
+         `Сгенерировано: ${new Date().toLocaleDateString('ru-RU')} · vedar.app · ${pageUrl}`,
          52, footerY,
          { width: W - qrSize - 20 },
        );

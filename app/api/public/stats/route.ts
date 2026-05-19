@@ -31,7 +31,7 @@ const getPublicStats = unstable_cache(
         platform: {
           name: 'Kamchatour Hub',
           version: '1.0.0',
-          url: 'https://tourhab.ru',
+          url: 'https://vedar.app',
         },
         stats: {
           chatsToday: parseInt(chats.rows[0]?.count ?? '0', 10),
@@ -44,7 +44,7 @@ const getPublicStats = unstable_cache(
       };
     } catch (err) {
       return {
-        platform: { name: 'Kamchatour Hub', version: '1.0.0', url: 'https://tourhab.ru' },
+        platform: { name: 'Kamchatour Hub', version: '1.0.0', url: 'https://vedar.app' },
         stats: { chatsToday: 0, activeRoutes: 0, activeAgents: 0, sosEventsWeek: 0 },
         error: err instanceof Error ? err.message : 'Unknown error',
         timestamp: new Date().toISOString(),

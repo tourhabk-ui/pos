@@ -2,7 +2,7 @@
 
 ## О проекте
 TourHab — AI-first туристическая платформа Камчатки. Next.js 15, TypeScript strict, Tailwind CSS, PostgreSQL.
-Продакшен: https://tourhab.ru
+Продакшен: https://vedar.app
 
 ## Команды
 ```bash

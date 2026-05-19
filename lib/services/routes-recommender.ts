@@ -224,7 +224,7 @@ export function filterBySeasonality(interests: string[], dateFrom?: string): str
 export async function findRoutesByInterests(
   interests: string[],
   limit: number = 3,
-  baseUrl: string = 'https://tourhab.ru'
+  baseUrl: string = 'https://vedar.app'
 ): Promise<RouteResult[]> {
   if (!interests.length) return [];
 
@@ -275,7 +275,7 @@ export function formatRoutesForTelegram(routes: RouteResult[]): string {
   routes.forEach((route, idx) => {
     const duration = route.durationDays ? ` — ${route.durationDays}д` : '';
     const price = route.priceFrom ? ` | ~${Math.round(route.priceFrom / 1000)}к₽` : '';
-    const url = `https://tourhab.ru/routes/${route.id}`;
+    const url = `https://vedar.app/routes/${route.id}`;
 
     lines.push(`${idx + 1}️⃣ <b>${escapeHtml(route.title)}</b>${duration}`);
     if (route.description) {

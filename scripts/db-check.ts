@@ -15,7 +15,7 @@ async function run() {
   const q = (sql: string, p: unknown[] = []) => pool.query(sql, p);
 
   console.log('\n═══════════════════════════════════════');
-  console.log(' DB ДИАГНОСТИКА — tourhab.ru');
+  console.log(' DB ДИАГНОСТИКА — vedar.app');
   console.log('═══════════════════════════════════════\n');
 
   // 1. Версия
@@ -90,7 +90,7 @@ async function run() {
 
   // 6. NEXT_PUBLIC_APP_URL на сервере
   console.log('\n── ENV на сервере:');
-  console.log(`   NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL ?? '(не задан — будет tourhab.ru)'}`);
+  console.log(`   NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL ?? '(не задан — будет vedar.app)'}`);
   console.log(`   NODE_ENV:            ${process.env.NODE_ENV ?? '(не задан)'}`);
 
   console.log('\n═══════════════════════════════════════\n');

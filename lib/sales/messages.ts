@@ -14,7 +14,7 @@ export const HONEST_SALES_MESSAGES = {
 
 **В апреле протестируй бесплатно.** Если нравится — остаешься с честной комиссией.
 
-Ссылка: https://tourhab.ru/operator/join
+Ссылка: https://vedar.app/operator/join
 
 Идея?`,
 
@@ -30,7 +30,7 @@ KamchatourHub решает это: туристы видят → платят �
 
 Если работает — остаешься. Если нет — ничего не потеряешь.
 
-Присоединиться: https://tourhab.ru/operator/join`,
+Присоединиться: https://vedar.app/operator/join`,
 
   wildlife: `Привет!
 
@@ -44,7 +44,7 @@ KamchatourHub решает это: туристы видят → платят �
 
 **Апрель — бесплатно.** Просто попробуй.
 
-https://tourhab.ru/operator/join`,
+https://vedar.app/operator/join`,
 
   thermal: `Привет!
 
@@ -58,7 +58,7 @@ KamchatourHub показывает твой тур туристам, котор�
 
 **Первый месяц протестируй бесплатно.**
 
-https://tourhab.ru/operator/join`,
+https://vedar.app/operator/join`,
 
   helicopter: `Привет!
 
@@ -72,7 +72,7 @@ https://tourhab.ru/operator/join`,
 
 **Апрель — тестируем бесплатно.**
 
-https://tourhab.ru/operator/join
+https://vedar.app/operator/join
 
 Обсудим детали?`
 };

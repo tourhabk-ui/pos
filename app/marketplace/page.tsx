@@ -5,7 +5,7 @@ import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
 
 export const dynamic = 'force-dynamic';
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tourhab.ru';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedar.app';
 
 export const metadata: Metadata = {
   title: 'Реальные туры по Камчатке от операторов',

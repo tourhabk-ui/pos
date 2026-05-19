@@ -14,7 +14,7 @@ Add these secrets:
 
 | Secret | Value | Source |
 |--------|-------|--------|
-| `TOURHAB_URL` | `https://tourhab.ru` | Production URL |
+| `TOURHAB_URL` | `https://vedar.app` | Production URL |
 | `CRON_SECRET` | `93cb1fbc1...` | Timeweb Cloud env vars |
 | `DATABASE_URL` | `postgres://...` | Timeweb Cloud env vars |
 | `ANTHROPIC_API_KEY` | `sk-ant-...` | Anthropic console |
@@ -93,10 +93,10 @@ node scripts/evolution-runner.js | jq '.'
 
 ```bash
 # Latest evolution run
-curl https://tourhab.ru/api/cron/evolution-loop/status | jq '.last_evolution_run'
+curl https://vedar.app/api/cron/evolution-loop/status | jq '.last_evolution_run'
 
 # Recent initiatives
-curl https://tourhab.ru/api/cron/evolution-loop/status | jq '.recent_initiatives'
+curl https://vedar.app/api/cron/evolution-loop/status | jq '.recent_initiatives'
 ```
 
 ### GitHub Actions UI
@@ -125,7 +125,7 @@ psql $DATABASE_URL -c "SELECT 1"
 ### "Dry run keeps passing, real run fails"
 
 1. Check AI keys: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`
-2. Check board-meeting endpoint: `https://tourhab.ru/api/cron/board-meeting`
+2. Check board-meeting endpoint: `https://vedar.app/api/cron/board-meeting`
 3. Set `CRON_SECRET` in .env.local
 
 ---
@@ -191,4 +191,4 @@ For issues:
 1. Check GitHub Actions logs
 2. Run locally with `DRY_RUN=true`
 3. Verify all .env vars are set
-4. Check prod endpoint: `https://tourhab.ru/api/cron/evolution-loop/status`
+4. Check prod endpoint: `https://vedar.app/api/cron/evolution-loop/status`

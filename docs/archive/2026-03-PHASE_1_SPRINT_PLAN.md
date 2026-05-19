@@ -36,7 +36,7 @@
 | `docs/OPERATOR_ONBOARDING.md` | ✅ | 37563f64 |
 | `migrations/083_lead_processor.sql` | НАПИСАНА ✅ |  |
 | Migration endpoint (`/api/admin/migrations/apply`) | ✅ + 083 добавлен | 670e33b7 |
-| `robots.txt` исправлен (домен tourhab.ru) | ✅ | 0a9af271 |
+| `robots.txt` исправлен (домен vedar.app) | ✅ | 0a9af271 |
 
 ### ЧТО НЕ СДЕЛАНО
 
@@ -65,14 +65,14 @@
 
 Проверить build ID:
 ```bash
-curl -s https://tourhab.ru/ | grep -o '[a-zA-Z0-9_-]\{20,\}' | head -3
+curl -s https://vedar.app/ | grep -o '[a-zA-Z0-9_-]\{20,\}' | head -3
 ```
 Если ID не сменился — вручную нажать Redeploy в Timeweb панели (App 159529).
 
 **Задача 2: Применить миграцию 083 (после деплоя)**
 
 ```bash
-curl -X POST https://tourhab.ru/api/admin/migrations/apply \
+curl -X POST https://vedar.app/api/admin/migrations/apply \
   -H "Authorization: Bearer <ADMIN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{"migrations": ["083"], "dry_run": false}'
@@ -87,7 +87,7 @@ curl -X POST https://tourhab.ru/api/admin/migrations/apply \
 
 После применения миграции — создать через API:
 ```bash
-curl -X POST https://tourhab.ru/api/leads \
+curl -X POST https://vedar.app/api/leads \
   -H "Content-Type: application/json" \
   -d '{"name":"Иван Тестов","phone":"+79991234567","comment":"Вулкан летом 5 человек бюджет 500к","route_title":"Авачинский вулкан"}'
 ```
@@ -110,7 +110,7 @@ curl -X POST https://tourhab.ru/api/leads \
 **Задача 2: Проверить PDF**
 ```bash
 curl -H "Authorization: Bearer <ADMIN_JWT>" \
-  https://tourhab.ru/api/leads/<LEAD_ID>/proposal/pdf \
+  https://vedar.app/api/leads/<LEAD_ID>/proposal/pdf \
   --output test.pdf
 ```
 
@@ -153,7 +153,7 @@ AI за 15 сек квалифицирует, подбирает туры и г�
 Вы получаете готовое предложение в Telegram — один клик подтвердить.
 
 Первые 3 месяца бесплатно.
-Регистрация: tourhab.ru/auth/register?role=operator
+Регистрация: vedar.app/auth/register?role=operator
 ```
 
 ---
@@ -162,7 +162,7 @@ AI за 15 сек квалифицирует, подбирает туры и г�
 
 | Метрика | Цель | Факт |
 |---------|------|------|
-| OperatorPromo видна на tourhab.ru | ДА | ❌ (deploy pending) |
+| OperatorPromo видна на vedar.app | ДА | ❌ (deploy pending) |
 | Миграция 083 на проде | ДА | ❌ (после деплоя) |
 | Лидов обработано AI | 5+ | ❌ (нет тестовых) |
 | PDF без ошибок | 100% | не проверено |
