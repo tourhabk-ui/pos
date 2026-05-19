@@ -226,14 +226,14 @@ function HeroSection() {
           </p>
 
           <div className="flex flex-wrap gap-3">
-            <Link href="/planner" className="ds-btn ds-btn-primary gap-2">
-              <Sparkles className="w-4 h-4" />
-              Подобрать с Кузьмичом
-            </Link>
-            <a href="#tours" className="ds-btn ds-btn-secondary gap-2">
+            <a href="#tours" className="ds-btn ds-btn-primary gap-2">
               Смотреть все туры
               <ArrowRight className="w-4 h-4" />
             </a>
+            <Link href="/planner" className="ds-btn ds-btn-secondary gap-2">
+              <Sparkles className="w-4 h-4" />
+              Подобрать с Кузьмичом
+            </Link>
           </div>
         </div>
       </div>

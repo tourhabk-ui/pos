@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Navigation, Download, Phone } from 'lucide-react';
+import { Navigation, Download, Phone, MessageCircle } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
@@ -48,6 +48,7 @@ function Skeleton() {
 function MobileBottomBar({ place }: { place: PlaceData }) {
   const orgMapsUrl = `om://map?v=1&ll=${place.lat},${place.lng}&n=${encodeURIComponent(place.name)}`;
   const geoUrl = `geo:${place.lat},${place.lng}?q=${encodeURIComponent(place.name)}`;
+  const kuzmichUrl = `/ai-assistant?q=${encodeURIComponent(`Расскажи про ${place.name}: безопасность, лучший сезон, как добраться и что взять с собой`)}`;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden safe-area-bottom">
@@ -65,6 +66,13 @@ function MobileBottomBar({ place }: { place: PlaceData }) {
         >
           <Download className="w-4 h-4" />
           Оффлайн
+        </a>
+        <a
+          href={kuzmichUrl}
+          aria-label="Спросить Кузьмича"
+          className="flex items-center justify-center w-12 shrink-0 text-[var(--ocean)] bg-[var(--ocean)]/10 border border-[var(--ocean)]/30 rounded-xl py-3 hover:bg-[var(--ocean)]/20 transition-colors"
+        >
+          <MessageCircle className="w-5 h-5" />
         </a>
         <a
           href="tel:112"
