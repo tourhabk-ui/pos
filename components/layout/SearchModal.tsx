@@ -7,9 +7,9 @@ import { Search, X, MapPin, Route, ShoppingBag, Loader2 } from 'lucide-react';
 
 interface PlaceResult {
   id: string;
-  name: string;
-  location_type: string;
-  image_url: string | null;
+  title: string;
+  locationType: string | null;
+  imageUrl?: string;
 }
 
 interface TourResult {
@@ -23,9 +23,9 @@ interface TourResult {
 
 interface RouteResult {
   id: string;
-  name: string;
-  activity_type: string | null;
-  distance_km: number | null;
+  title: string;
+  activityType: string | null;
+  durationDays: number | null;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -65,13 +65,13 @@ export function SearchModal({ open, onClose }: Props) {
 
     Promise.all([
       fetch(`/api/routes?q=${enc}&kind=place&limit=4`, { signal: ctrl.signal })
-        .then(r => r.json()).then(d => setPlaces(d.routes ?? []))
+        .then(r => r.json()).then(d => setPlaces(d.data ?? []))
         .catch(() => {}),
       fetch(`/api/hub/marketplace/tours?search=${enc}&limit=4`, { signal: ctrl.signal })
         .then(r => r.json()).then(d => setTours(d.data ?? []))
         .catch(() => {}),
       fetch(`/api/routes?q=${enc}&kind=route&limit=4`, { signal: ctrl.signal })
-        .then(r => r.json()).then(d => setRoutes(d.routes ?? []))
+        .then(r => r.json()).then(d => setRoutes(d.data ?? []))
         .catch(() => {}),
     ]).finally(() => {
       if (!ctrl.signal.aborted) setLoading(false);
@@ -160,14 +160,14 @@ export function SearchModal({ open, onClose }: Props) {
                     className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                   >
                     <div className="w-10 h-10 rounded-md bg-[var(--bg-hover)] shrink-0 overflow-hidden relative">
-                      {p.image_url
-                        ? <Image src={p.image_url} alt={p.name} fill className="object-cover" sizes="40px" />
+                      {p.imageUrl
+                        ? <Image src={p.imageUrl} alt={p.title} fill className="object-cover" sizes="40px" />
                         : <MapPin className="w-4 h-4 text-[var(--text-muted)] m-auto mt-3" />
                       }
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{p.name}</p>
-                      <p className="text-xs text-[var(--text-muted)]">{TYPE_LABELS[p.location_type] ?? p.location_type}</p>
+                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{p.title}</p>
+                      <p className="text-xs text-[var(--text-muted)]">{TYPE_LABELS[p.locationType ?? ''] ?? p.locationType ?? 'Место'}</p>
                     </div>
                   </Link>
                 ))}
@@ -192,9 +192,9 @@ export function SearchModal({ open, onClose }: Props) {
                       <Route className="w-4 h-4 text-[var(--text-muted)]" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.name}</p>
+                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
                       <p className="text-xs text-[var(--text-muted)]">
-                        {[r.activity_type, r.distance_km ? `${r.distance_km} км` : null].filter(Boolean).join(' · ')}
+                        {[r.activityType, r.durationDays ? `${r.durationDays} д` : null].filter(Boolean).join(' · ')}
                       </p>
                     </div>
                   </Link>
