@@ -3,14 +3,17 @@ import dynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
 import { HeroBoard } from '@/components/homepage/HeroBoard'
 import { StatsBand } from '@/components/homepage/StatsBand'
+import { EditorialSection } from '@/components/homepage/EditorialSection'
 import { BentoSection } from '@/components/homepage/BentoSection'
-import { HomeMapPreview } from '@/components/homepage/HomeMapPreview'
 import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSection'
 import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 
 const HomeBottomNav = dynamic(
   () => import('@/components/homepage/HomeBottomNav').then(m => ({ default: m.HomeBottomNav }))
+);
+const HomeMapPreview = dynamic(
+  () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview }))
 );
 const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
 
@@ -38,18 +41,21 @@ export default async function Page() {
         {/* Full-bleed hero */}
         <HeroBoard />
 
-        {/* Stats marquee */}
+        {/* Stats — static grid, no animation overhead */}
         <StatsBand />
 
-        {/* Bento photo grid */}
+        {/* Editorial strip: "Штурман, а не тур-агент" */}
+        <EditorialSection />
+
+        {/* Category photo bento */}
         <BentoSection />
 
-        {/* AI-консьерж + карта */}
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch px-4 md:px-8 py-14">
-          <MessengerAgentsSection />
-          <div className="min-h-[420px] rounded-lg overflow-hidden border border-[var(--border)]">
-            <HomeMapPreview />
-          </div>
+        {/* Kuzmich — full-width editorial split */}
+        <MessengerAgentsSection />
+
+        {/* Map preview — lazy, full-width */}
+        <div className="border-t border-[var(--border)] h-[380px] md:h-[440px]">
+          <HomeMapPreview />
         </div>
 
       </main>
