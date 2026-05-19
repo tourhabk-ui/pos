@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -467,6 +468,9 @@ function TourCard({
 /* ─── Marketplace Client ─── */
 
 export default function MarketplaceClient() {
+  const searchParams = useSearchParams();
+  const operatorSlug = searchParams.get('operator') ?? '';
+
   const [tours, setTours] = useState<Tour[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -526,6 +530,7 @@ export default function MarketplaceClient() {
     if (sort && sort !== 'recommended') params.append('sort', sort);
     if (difficulty) params.append('difficulty', difficulty);
     if (durationType) params.append('duration_type', durationType);
+    if (operatorSlug) params.append('operator_slug', operatorSlug);
     const { price_min, price_max } = getPriceParams();
     if (price_min != null) params.append('price_min', String(price_min));
     if (price_max != null) params.append('price_max', String(price_max));
@@ -543,7 +548,7 @@ export default function MarketplaceClient() {
       })
       .catch(() => setError('Не удалось загрузить туры. Попробуйте обновить страницу.'))
       .finally(() => setLoading(false));
-  }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, getPriceParams]);
+  }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, operatorSlug, getPriceParams]);
 
   const handleToggleLike = useCallback(async (tourId: number) => {
     const wishlistRowId = likedMap.get(tourId);
@@ -651,6 +656,17 @@ export default function MarketplaceClient() {
 
       {/* ─── Tours Section ─── */}
       <div id="tours">
+        {/* Operator filter banner */}
+        {operatorSlug && (
+          <div className="flex items-center justify-between gap-3 mb-4 px-4 py-3 rounded-xl bg-[var(--accent)]/5 border border-[var(--accent)]/20 text-sm">
+            <span className="text-[var(--text-secondary)]">
+              Туры оператора <span className="font-semibold text-[var(--text-primary)]">{operatorSlug}</span>
+            </span>
+            <Link href="/marketplace" className="text-[var(--accent)] font-medium hover:underline shrink-0">
+              Все туры
+            </Link>
+          </div>
+        )}
         {/* Search + Sort + Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <div className="relative flex-1">
