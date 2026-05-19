@@ -13,6 +13,7 @@ const IMAGES = [
 export function HeroBoard() {
   const [visible, setVisible] = useState(false);
   const [imgIdx, setImgIdx] = useState(0);
+  const [loaded, setLoaded] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 80);
@@ -25,19 +26,29 @@ export function HeroBoard() {
   }, []);
 
   return (
-    <section className="relative overflow-hidden" style={{ minHeight: '78vh' }}>
+    <section
+      className="relative overflow-hidden"
+      style={{
+        minHeight: '78vh',
+        /* Volcanic Kamchatka fallback — visible while photos load or when they fail */
+        background: 'linear-gradient(160deg, #1a0f0a 0%, #3d1c0c 25%, #5c2d16 45%, #2a3a4a 70%, #111c28 100%)',
+      }}
+    >
       {/* Slideshow background */}
       {IMAGES.map((src, i) => (
         <div
           key={src}
           className="absolute inset-0 transition-opacity duration-1000"
-          style={{ opacity: imgIdx === i ? 1 : 0 }}
+          style={{ opacity: imgIdx === i && loaded.has(i) ? 1 : 0 }}
         >
           <img
             src={src}
             alt="Камчатка"
             className="w-full h-full object-cover object-center"
             loading={i === 0 ? 'eager' : 'lazy'}
+            fetchPriority={i === 0 ? 'high' : 'auto'}
+            onLoad={() => setLoaded(prev => new Set(prev).add(i))}
+            onError={() => { /* stay hidden */ }}
           />
         </div>
       ))}
