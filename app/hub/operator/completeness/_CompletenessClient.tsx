@@ -254,7 +254,7 @@ export default function CompletenessClient() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Average score */}
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">

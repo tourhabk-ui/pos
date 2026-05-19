@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -327,6 +328,7 @@ function OfferCard({ offer, activityType, onBook }: {
 }
 
 export default function RouteDetailClient({ id }: { id: string }) {
+  const router = useRouter();
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -489,12 +491,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
 
         {/* Навигация */}
         <div className="absolute top-20 left-0 right-0 px-4 md:px-8 flex items-center justify-between">
-          <Link
-            href="/routes"
+          <button
+            type="button"
+            onClick={() => router.back()}
             className="inline-flex items-center gap-1.5 text-sm text-[var(--text-primary)] hover:text-[var(--accent)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] px-3 py-1.5 rounded-lg transition-all border border-[var(--border)]"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Маршруты
-          </Link>
+            <ArrowLeft className="w-3.5 h-3.5" /> Назад
+          </button>
 
           {/* Счётчик фото */}
           {photos.length > 1 && (
@@ -764,23 +767,34 @@ export default function RouteDetailClient({ id }: { id: string }) {
             )}
 
             {/* Кузьмич */}
-            {route.kuzmichReview && (
-              <section className="ds-card p-5 border-l-[3px] border-[var(--accent)]">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-[var(--accent)]/12 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <MessageSquare className="w-4 h-4 text-[var(--accent)]" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wide mb-2">
-                      Кузьмич о маршруте
-                    </p>
-                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed italic">
+            <section className="ds-card p-5 border-l-[3px] border-[var(--ocean)]">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-[var(--ocean)]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <MessageSquare className="w-4 h-4 text-[var(--ocean)]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-[var(--ocean)] uppercase tracking-wide mb-2">
+                    Кузьмич о маршруте
+                  </p>
+                  {route.kuzmichReview ? (
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed italic mb-3">
                       &ldquo;{route.kuzmichReview}&rdquo;
                     </p>
-                  </div>
+                  ) : (
+                    <p className="text-sm text-[var(--text-muted)] italic mb-3">
+                      Спроси Кузьмича — AI-гида по Камчатке. Он расскажет про сложность, снаряжение, опасности и лучшее время для похода.
+                    </p>
+                  )}
+                  <a
+                    href={`/ai-assistant?q=${encodeURIComponent(`Расскажи про маршрут "${route.title}": сложность, снаряжение, опасности, лучший сезон и как подготовиться`)}`}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ocean)] hover:text-[var(--accent)] transition-colors"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Спросить Кузьмича про {route.title}
+                  </a>
                 </div>
-              </section>
-            )}
+              </div>
+            </section>
 
             {/* Что входит */}
             {offers.length > 0 && (() => {
@@ -1103,7 +1117,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 Все →
               </Link>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {relatedRoutes.map(r => <RouteCard key={r.id} route={r} />)}
             </div>
           </div>

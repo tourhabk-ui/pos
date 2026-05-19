@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap, X } from 'lucide-react';
 
 type LeadStatus = 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
 
@@ -117,6 +118,7 @@ function CopyButton({ text }: { text: string }) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+      toast.success('Скопировано');
     });
   };
   return (
@@ -127,8 +129,17 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function DeleteConfirmModal({ name, onConfirm, onCancel }: { name: string; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
         <h3 className="font-semibold text-[var(--text-primary)] mb-2">Удалить лид?</h3>
         <p className="text-sm text-[var(--text-secondary)] mb-6">{name}</p>
@@ -159,7 +170,6 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
 
   return (
     <div className="space-y-2 text-sm">
-      {/* Badges: source / followup / escalation */}
       <div className="flex flex-wrap gap-1.5">
         {sd.source && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-secondary)]">
@@ -178,7 +188,6 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
         )}
       </div>
 
-      {/* Interests */}
       {interests.length > 0 && (
         <div className="flex flex-wrap gap-1.5 items-center">
           <MapPin size={12} className="text-[var(--text-muted)] shrink-0" />
@@ -190,7 +199,6 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
         </div>
       )}
 
-      {/* Dates */}
       {(dateFrom || dateTo) && (
         <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
           <Calendar size={12} className="text-[var(--text-muted)] shrink-0" />
@@ -201,7 +209,6 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
         </div>
       )}
 
-      {/* UTM */}
       {hasUtm && (
         <div className="text-xs text-[var(--text-muted)]">
           UTM: {[sd.utm_source, sd.utm_medium, sd.utm_campaign].filter(Boolean).join(' / ')}
@@ -236,7 +243,16 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
         setLocalStatus(data.lead.status);
         setNotes(data.lead.notes ?? '');
         onUpdate(lead.id, { status: data.lead.status, notes: data.lead.notes });
+        if (skipNotes) {
+          toast.success(`Статус: ${STATUS_META[data.lead.status].label}`);
+        } else {
+          toast.success('Заметка сохранена');
+        }
+      } else {
+        toast.error('Не удалось сохранить — попробуйте ещё раз');
       }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setSaving(false);
     }
@@ -254,7 +270,12 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
       if (res.ok) {
         onDelete(lead.id);
         setShowDeleteConfirm(false);
+        toast.success('Лид удалён');
+      } else {
+        toast.error('Не удалось удалить лид');
       }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setDeleting(false);
     }
@@ -292,7 +313,6 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
             <CopyButton text={lead.phone} />
           </div>
 
-          {/* Interests preview in header */}
           {interests.length > 0 ? (
             <div className="flex gap-1 mt-1 flex-wrap">
               {interests.slice(0, 4).map(i => (
@@ -314,7 +334,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
               setShowDeleteConfirm(true);
             }}
             disabled={deleting}
-            className="p-1 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)] rounded transition-colors"
+            className="p-1 text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)] rounded transition-colors disabled:opacity-40"
             title="Удалить лид"
           >
             <Trash2 size={16} />
@@ -323,7 +343,6 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <DeleteConfirmModal
           name={lead.name}
@@ -332,10 +351,8 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
         />
       )}
 
-      {/* Expanded */}
       {open && (
         <div className="border-t border-[var(--border)] p-4 space-y-4">
-          {/* AI Summary */}
           {lead.ai_summary && (
             <div className="text-xs rounded-lg px-3 py-2" style={{ background: 'color-mix(in srgb, var(--ocean) 8%, transparent)', color: 'var(--ocean)' }}>
               <Zap size={12} className="inline mr-1" />
@@ -343,10 +360,8 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
             </div>
           )}
 
-          {/* Source data */}
           {lead.source_data && <SourceDataBlock sd={lead.source_data} />}
 
-          {/* Meta */}
           {(lead.route_title || lead.comment || lead.source_url) && (
             <div className="text-xs text-[var(--text-muted)] space-y-0.5">
               {lead.route_title && <div>Маршрут: {lead.route_title}</div>}
@@ -355,7 +370,6 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
             </div>
           )}
 
-          {/* ID */}
           <div className="flex items-center gap-1 text-xs text-[var(--text-muted)] font-mono">
             ID: {lead.id} <CopyButton text={lead.id} />
           </div>
@@ -368,14 +382,14 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
                 <button
                   key={s}
                   onClick={() => handleStatusClick(s)}
-                  disabled={saving}
-                  className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                  disabled={saving || localStatus === s}
+                  className={`text-xs px-3 py-1 rounded-full border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                     localStatus === s
                       ? STATUS_META[s].color + ' border-transparent font-semibold'
                       : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
                   }`}
                 >
-                  {STATUS_META[s].label}
+                  {saving && localStatus === s ? '…' : STATUS_META[s].label}
                 </button>
               ))}
             </div>
@@ -398,7 +412,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
           <button
             onClick={() => save()}
             disabled={saving}
-            className="ds-btn ds-btn-primary text-sm"
+            className="ds-btn ds-btn-primary text-sm disabled:opacity-50"
           >
             {saving ? 'Сохранение…' : 'Сохранить заметку'}
           </button>
@@ -417,7 +431,6 @@ export function LeadsClient() {
   const [counts, setCounts]         = useState<Record<string, number>>({});
   const [search, setSearch]         = useState('');
   const [loadError, setLoadError]   = useState<string | null>(null);
-  // Migration button removed — use `npm run migrate` on the server instead
   const [scoringLeads, setScoringLeads] = useState(false);
 
   const load = useCallback(async (status: LeadStatus | 'all') => {
@@ -472,13 +485,18 @@ export function LeadsClient() {
     }
   }, []);
 
-  // Migration endpoint removed — see AGENTS.md for the new process
-
   const scoreLeads = useCallback(async () => {
     setScoringLeads(true);
     try {
-      await fetch('/api/admin/leads/quickscore', { method: 'POST' });
-      await load(tab);
+      const res = await fetch('/api/admin/leads/quickscore', { method: 'POST' });
+      if (res.ok) {
+        await load(tab);
+        toast.success('Лиды оценены');
+      } else {
+        toast.error('Ошибка скоринга');
+      }
+    } catch {
+      toast.error('Нет соединения с сервером');
     } finally {
       setScoringLeads(false);
     }
@@ -497,7 +515,6 @@ export function LeadsClient() {
     loadCounts();
   }, [loadCounts]);
 
-  // Client-side search
   const filtered = search.trim()
     ? leads.filter(l =>
         l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -521,16 +538,17 @@ export function LeadsClient() {
           <button
             onClick={scoreLeads}
             disabled={scoringLeads || loading}
-            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm"
+            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm disabled:opacity-50"
             title="Быстрый скоринг без AI"
           >
             <Zap size={14} /> {scoringLeads ? 'Оцениваю...' : 'Оценить лиды'}
           </button>
           <button
             onClick={() => { load(tab); loadCounts(); }}
-            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm"
+            disabled={loading}
+            className="ds-btn ds-btn-secondary flex items-center gap-1 text-sm disabled:opacity-50"
           >
-            <RefreshCw size={14} /> Обновить
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Обновить
           </button>
         </div>
       </div>
@@ -554,6 +572,9 @@ export function LeadsClient() {
               </p>
             )}
           </div>
+          <button onClick={() => { load(tab); loadCounts(); }} className="text-xs text-[var(--accent)] underline shrink-0">
+            Повторить
+          </button>
         </div>
       )}
 
@@ -565,9 +586,25 @@ export function LeadsClient() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Поиск по имени или телефону..."
-          className="ds-input w-full pl-9 text-sm"
+          className="ds-input w-full pl-9 pr-9 text-sm"
         />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title="Очистить поиск"
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
+
+      {/* Search result count */}
+      {search.trim() && !loading && (
+        <p className="text-xs text-[var(--text-muted)] mb-3">
+          Найдено {filtered.length} из {leads.length}
+        </p>
+      )}
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 mb-4">
@@ -610,7 +647,6 @@ export function LeadsClient() {
             <LeadCard key={lead.id} lead={lead} onUpdate={handleUpdate} onDelete={handleDelete} />
           ))}
 
-          {/* Load more — only when not searching */}
           {!search.trim() && leads.length < total && (
             <button
               onClick={() => loadMore(tab, leads.length)}

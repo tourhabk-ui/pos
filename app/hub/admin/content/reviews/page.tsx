@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import {
   DataTable,
   Pagination,
@@ -9,7 +10,7 @@ import {
   EmptyState,
   Column
 } from '@/components/admin/shared';
-import { Star, Sparkles, Loader2, MessageSquareText } from 'lucide-react';
+import { Star, Sparkles, Loader2, MessageSquareText, Trash2 } from 'lucide-react';
 
 interface AdminReview {
   id: string;
@@ -29,6 +30,47 @@ interface AiAnalysis {
   summary: string;
 }
 
+function DeleteConfirmModal({ userName, onConfirm, onCancel }: { userName: string; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg w-full max-w-sm p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-[var(--danger)]/10 flex items-center justify-center">
+            <Trash2 className="w-4 h-4 text-[var(--danger)]" />
+          </div>
+          <h3 className="font-semibold text-[var(--text-primary)]">Удалить отзыв?</h3>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-6">
+          Отзыв от <span className="font-medium">{userName}</span> будет удалён без возможности восстановления.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-[var(--danger)] text-[var(--bg-primary)] rounded-lg hover:opacity-90 transition-opacity"
+          >
+            Удалить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReviewsManagement() {
   const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,12 +79,10 @@ export default function ReviewsManagement() {
   const [verifiedFilter, setVerifiedFilter] = useState('all');
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<Record<string, AiAnalysis>>({});
+  const [moderating, setModerating] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminReview | null>(null);
 
-  useEffect(() => {
-    fetchReviews();
-  }, [currentPage, verifiedFilter]);
-
-  const fetchReviews = async () => {
+  const fetchReviews = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams({ page: currentPage.toString(), limit: '20' });
@@ -53,25 +93,37 @@ export default function ReviewsManagement() {
       if (result.success) {
         setReviews(result.data.data);
         setTotalPages(result.data.pagination.totalPages);
+      } else {
+        toast.error('Не удалось загрузить отзывы');
       }
     } catch {
-      // ignore
+      toast.error('Ошибка подключения к серверу');
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, verifiedFilter]);
+
+  useEffect(() => { fetchReviews(); }, [fetchReviews]);
 
   const handleModerate = async (reviewId: string, action: 'approve' | 'delete') => {
-    if (action === 'delete' && !confirm('Вы уверены, что хотите удалить этот отзыв?')) return;
+    setModerating(reviewId);
     try {
       const response = await fetch(`/api/admin/content/reviews/${reviewId}/moderate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ action }),
       });
-      if (response.ok) fetchReviews();
+      if (response.ok) {
+        toast.success(action === 'approve' ? 'Отзыв одобрен' : 'Отзыв удалён');
+        setDeleteTarget(null);
+        fetchReviews();
+      } else {
+        toast.error('Не удалось выполнить действие');
+      }
     } catch {
-      // ignore
+      toast.error('Нет соединения с сервером');
+    } finally {
+      setModerating(null);
     }
   };
 
@@ -85,9 +137,12 @@ export default function ReviewsManagement() {
       const result = await response.json();
       if (result.success) {
         setAnalyses(prev => ({ ...prev, [reviewId]: result.data }));
+        toast.success('AI-анализ готов');
+      } else {
+        toast.error('AI-анализ не удался');
       }
     } catch {
-      // ignore
+      toast.error('Нет соединения с сервером');
     } finally {
       setAnalyzing(null);
     }
@@ -123,7 +178,9 @@ export default function ReviewsManagement() {
       key: 'comment',
       title: 'Комментарий',
       render: (review) => (
-        <p className="text-[var(--text-secondary)] max-w-md truncate text-xs">{review.comment || '—'}</p>
+        <p className="text-[var(--text-secondary)] max-w-md truncate text-xs" title={review.comment || undefined}>
+          {review.comment || '—'}
+        </p>
       )
     },
     {
@@ -148,7 +205,7 @@ export default function ReviewsManagement() {
           <div className="flex gap-1.5">
             <button
               onClick={() => handleAnalyze(review.id)}
-              disabled={analyzing === review.id}
+              disabled={!!analyzing}
               className="px-2.5 py-1 bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 text-[var(--accent)] rounded text-[10px] font-medium transition-colors flex items-center gap-1 disabled:opacity-50"
             >
               {analyzing === review.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
@@ -157,14 +214,17 @@ export default function ReviewsManagement() {
             {!review.isVerified && (
               <button
                 onClick={() => handleModerate(review.id, 'approve')}
-                className="px-2.5 py-1 bg-[var(--success)]/10 hover:bg-[var(--success)]/20 text-[var(--success)] rounded text-[10px] font-medium transition-colors"
+                disabled={moderating === review.id}
+                className="px-2.5 py-1 bg-[var(--success)]/10 hover:bg-[var(--success)]/20 text-[var(--success)] rounded text-[10px] font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
               >
+                {moderating === review.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                 Одобрить
               </button>
             )}
             <button
-              onClick={() => handleModerate(review.id, 'delete')}
-              className="px-2.5 py-1 bg-[var(--danger)]/10 hover:bg-[var(--danger)]/20 text-[var(--danger)] rounded text-[10px] font-medium transition-colors"
+              onClick={() => setDeleteTarget(review)}
+              disabled={moderating === review.id}
+              className="px-2.5 py-1 bg-[var(--danger)]/10 hover:bg-[var(--danger)]/20 text-[var(--danger)] rounded text-[10px] font-medium transition-colors disabled:opacity-50"
             >
               Удалить
             </button>
@@ -194,6 +254,14 @@ export default function ReviewsManagement() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
+      {deleteTarget && (
+        <DeleteConfirmModal
+          userName={deleteTarget.userName}
+          onConfirm={() => handleModerate(deleteTarget.id, 'delete')}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
