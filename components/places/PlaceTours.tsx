@@ -35,12 +35,7 @@ export default function PlaceTours({ tours }: Props) {
                 {t.durationDays != null && <span>{t.durationDays} дн.</span>}
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-sm font-bold text-[var(--accent)]">
-                от {t.basePrice.toLocaleString('ru-RU')} ₽
-              </span>
-              <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
-            </div>
+            <ChevronRight className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0 group-hover:text-[var(--accent)] transition-colors" />
           </Link>
         ))}
       </div>
