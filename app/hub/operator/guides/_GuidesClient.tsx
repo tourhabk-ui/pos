@@ -47,7 +47,20 @@ export default function GuidesClient() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" /></div>
+          <div className="space-y-3 animate-pulse">
+            {[1,2,3,4,5].map(i => (
+              <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-4">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+                    <div className="h-5 w-16 bg-[var(--bg-hover)] rounded-full" />
+                  </div>
+                  <div className="h-3 w-48 bg-[var(--bg-hover)] rounded" />
+                </div>
+                <div className="h-11 w-28 bg-[var(--bg-hover)] rounded-xl" />
+              </div>
+            ))}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3" />
