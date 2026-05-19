@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
 import dynamic from 'next/dynamic'
-import { Bot, Map, BadgeCheck, ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { HeroBoard } from '@/components/homepage/HeroBoard'
 import { StatsBand } from '@/components/homepage/StatsBand'
+import { BentoSection } from '@/components/homepage/BentoSection'
 import { HomeMapPreview } from '@/components/homepage/HomeMapPreview'
 import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSection'
 import { Footer } from '@/components/layout/Footer'
@@ -28,27 +29,16 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
 }
 
-const FEATURES = [
-  {
-    icon: Bot,
-    title: 'AI-планировщик',
-    desc: 'Подберёт маршрут по вашим интересам и бюджету за минуты',
-  },
-  {
-    icon: Map,
-    title: 'Живая карта',
-    desc: '778 мест и 294 маршрута с реальными координатами',
-  },
-  {
-    icon: BadgeCheck,
-    title: 'Проверенные операторы',
-    desc: 'Только партнёры с реальными лицензиями и отзывами',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Безопасность',
-    desc: 'SOS, статус вулканов KVERT, погода и актуальные предупреждения',
-  },
+const ACTIVITIES = [
+  { img: '/images/activities/volcanoes.jpg', label: 'Вулканы', href: '/routes?type=volcano' },
+  { img: '/images/activities/helicopter.jpg', label: 'Вертолёт', href: '/routes?type=helicopter' },
+  { img: '/images/activities/hotsprings.jpg', label: 'Источники', href: '/routes?type=hot_spring' },
+  { img: '/images/activities/fishing.jpg', label: 'Рыбалка', href: '/routes?type=fishing' },
+  { img: '/images/activities/rafting.jpg', label: 'Рафтинг', href: '/routes?type=water' },
+  { img: '/images/activities/jeep.jpg', label: 'Джип-туры', href: '/routes?type=jeep' },
+  { img: '/images/activities/dogsled.jpg', label: 'Собаки', href: '/routes?type=winter' },
+  { img: '/images/activities/sea.jpg', label: 'Океан', href: '/routes?type=sea' },
+  { img: '/images/activities/snowmobile.jpg', label: 'Снегоход', href: '/routes?type=snowmobile' },
 ];
 
 export default async function Page() {
@@ -64,35 +54,44 @@ export default async function Page() {
         {/* Stats marquee */}
         <StatsBand />
 
-        {/* AI-консьерж + карта */}
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch px-4 md:px-8 py-12">
-          <MessengerAgentsSection />
-          <div className="min-h-[380px] rounded-lg overflow-hidden border border-[var(--border)]">
-            <HomeMapPreview />
-          </div>
-        </div>
+        {/* Bento photo grid */}
+        <BentoSection />
 
-        {/* Почему TourHab */}
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pb-20">
-          <h2 className="font-playfair text-3xl md:text-4xl font-bold text-center text-[var(--text-primary)] mb-2">
-            Почему TourHab
-          </h2>
-          <p className="text-center text-[var(--text-secondary)] text-sm mb-10">
-            Инструмент для путешественника, а не витрина туров
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div
-                key={title}
-                className="ds-card p-6 flex flex-col items-center text-center group hover:-translate-y-1 transition-all duration-200"
-              >
-                <div className="w-12 h-12 mb-4 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center group-hover:bg-[var(--accent)]/20 transition-colors duration-200">
-                  <Icon size={22} className="text-[var(--accent)]" />
-                </div>
-                <p className="text-sm font-bold text-[var(--text-primary)] mb-1.5">{title}</p>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{desc}</p>
-              </div>
-            ))}
+        {/* Activities horizontal scroll */}
+        <section className="border-t border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="max-w-7xl mx-auto px-4 md:px-8 py-10">
+            <p className="text-[11px] uppercase tracking-[0.3em] text-[var(--text-muted)] font-semibold mb-6">
+              Активности
+            </p>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none -mx-4 px-4 md:mx-0 md:px-0">
+              {ACTIVITIES.map(({ img, label, href }) => (
+                <Link
+                  key={label}
+                  href={href}
+                  className="group flex-shrink-0 relative overflow-hidden rounded-lg"
+                  style={{ width: 120, height: 140 }}
+                >
+                  <img
+                    src={img}
+                    alt={label}
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                  <span className="absolute bottom-3 left-0 right-0 text-center text-[11px] font-bold text-white tracking-wide">
+                    {label}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* AI-консьерж + карта */}
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch px-4 md:px-8 py-14">
+          <MessengerAgentsSection />
+          <div className="min-h-[420px] rounded-lg overflow-hidden border border-[var(--border)]">
+            <HomeMapPreview />
           </div>
         </div>
 
