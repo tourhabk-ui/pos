@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { Package, Map, Users, ArrowRight, MessageSquare } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Центр помощи — TourHab Камчатка',
-  description: 'Инструкции для туристов и операторов платформы TourHab',
+  title: 'Центр помощи — Ведар Камчатка',
+  description: 'Инструкции для туристов и операторов платформы Ведар',
 };
 
 export default function HelpPage() {
@@ -69,8 +69,8 @@ export default function HelpPage() {
             <p className="font-medium text-[var(--text-primary)]">Не нашли ответ?</p>
             <p className="text-sm text-[var(--text-secondary)]">
               Напишите нам на{' '}
-              <a href="mailto:support@tourhab.ru" className="text-[var(--ocean)] hover:underline">
-                support@tourhab.ru
+              <a href="mailto:support@vedarai.ru" className="text-[var(--ocean)] hover:underline">
+                support@vedarai.ru
               </a>{' '}
               или в Telegram{' '}
               <span className="text-[var(--ocean)]">@tourhab_support</span>

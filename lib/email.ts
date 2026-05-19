@@ -15,7 +15,7 @@ export async function sendEmail(opts: EmailOptions): Promise<{ success: boolean;
   const port = parseInt(process.env.SMTP_PORT || '587');
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || 'noreply@tourhab.ru';
+  const from = process.env.SMTP_FROM || 'noreply@vedarai.ru';
 
   if (!host || !user || !pass) {
     return { success: false, error: 'SMTP не настроен' };
@@ -82,7 +82,7 @@ export async function sendEmail(opts: EmailOptions): Promise<{ success: boolean;
 
         if (code === 220 && !state['_ehlo_sent']) {
           state['_ehlo_sent'] = true;
-          socket.write('EHLO tourhab.ru\r\n');
+          socket.write('EHLO vedarai.ru\r\n');
         } else if (code === 250 && !state['_auth_sent']) {
           state['_auth_sent'] = true;
           socket.write('AUTH LOGIN\r\n');

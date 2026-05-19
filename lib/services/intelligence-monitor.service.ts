@@ -3,7 +3,7 @@
  *
  * Automated intelligence monitoring — Вариант Б: идеи для фич.
  * Отслеживаем что делают лидеры travel-AI индустрии и какие паттерны
- * можно внедрить в TourHab.
+ * можно внедрить в Ведар.
  *
  * Мониторинг:
  *   1. Travel-AI продукты и фичи (PhocusWire, Skift, HN, PH)
@@ -165,7 +165,7 @@ AI-агенты для бизнеса, автоматизация клиентс
       'https://www.kamgov.ru/news/rss',
     ],
     search_query: 'Камчатка туры бронирование explore-kamchatka kam.tours kamchatkaland 2026',
-    ai_filter: `Прямые конкуренты TourHab (Камчатка):
+    ai_filter: `Прямые конкуренты Ведар (Камчатка):
 - explore-kamchatka.ru — что нового? цены? функции?
 - kam.tours — акции, новые маршруты?
 - kamchatkaland.ru, kamchatka.guide — изменения?
@@ -321,7 +321,7 @@ async function fetchWithRetry(url: string, options: RequestInit, maxAttempts = 3
 async function fetchFeed(url: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
   try {
     const res = await fetchWithRetry(url, {
-      headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
+      headers: { 'User-Agent': 'Ведар-Intelligence/1.0' },
     });
     if (!res.ok) return [];
     const xml = await res.text();
@@ -487,7 +487,7 @@ async function analyzeSignals(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы TourHab (Камчатка, Россия).
+      content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы Ведар (Камчатка, Россия).
 Платформа: Next.js 15, 13 AI-агентов, 260+ маршрутов, Kuzmich AI-бот, маркетплейс операторов.
 Стек: Next.js + PostgreSQL + Claude/GPT/Gemini API. Деплой на Timeweb.
 
@@ -506,7 +506,7 @@ ${config.ai_filter}
 {
   "summary": "Что внедрили + какую боль решает (1-2 предложения)",
   "urgency": "critical | notable | informational",
-  "action_items": ["[высокий|средний|низкий] — конкретное действие для TourHab"]
+  "action_items": ["[высокий|средний|низкий] — конкретное действие для Ведар"]
 }
 
 Правила:
@@ -722,7 +722,7 @@ export async function injectManualIntel(
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы TourHab (Камчатка, Россия).
+      content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы Ведар (Камчатка, Россия).
 Платформа: Next.js 15, 13 AI-агентов, 260+ маршрутов, Kuzmich AI-бот, маркетплейс операторов.
 Стек: Next.js + PostgreSQL + Claude/GPT/Gemini API. Деплой на Timeweb.
 
@@ -738,7 +738,7 @@ export async function injectManualIntel(
 {
   "summary": "Что внедрили + какую боль решает (1-2 предложения)",
   "urgency": "critical | notable | informational",
-  "action_items": ["[высокий|средний|низкий] — конкретное действие для TourHab"]
+  "action_items": ["[высокий|средний|низкий] — конкретное действие для Ведар"]
 }
 
 Правила:

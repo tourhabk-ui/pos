@@ -1,15 +1,15 @@
 ---
 name: volcano-os-guardian
-description: "Specialized skill for managing and developing the TourHab (Volcano OS) platform. Use for: database migrations, AI agent (Kuzmich) development, offline-first PWA maintenance, and Kamchatka tourism data management."
+description: "Specialized skill for managing and developing the Ведар (Volcano OS) platform. Use for: database migrations, AI agent (Kuzmich) development, offline-first PWA maintenance, and Kamchatka tourism data management."
 ---
 
 # Volcano OS Guardian
 
-This skill provides specialized knowledge and workflows for the TourHab (Volcano OS) platform, a mobile operating system for tourists in Kamchatka.
+This skill provides specialized knowledge and workflows for the Ведар (Volcano OS) platform, a mobile operating system for tourists in Kamchatka.
 
 ## Project Overview
 
-TourHab is an offline-first PWA designed for tourists in remote areas of Kamchatka. It features:
+Ведар is an offline-first PWA designed for tourists in remote areas of Kamchatka. It features:
 - **Offline Maps**: Cached tiles and GPS without internet.
 - **Kuzmich AI**: A multi-modal assistant (text, photo, voice) with local knowledge.
 - **Safety Features**: SOS numbers and real-time alerts from KBGS RAN.

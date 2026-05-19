@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
     const params = payment.query_params as { query?: string; limit?: number };
     const routes = await fetchRoutes(params.query ?? query, params.limit ?? limit);
     return NextResponse.json({
-      source: 'Volcano OS / TourHab — Kamchatka Routes',
+      source: 'Volcano OS / Ведар — Kamchatka Routes',
       payment_id: paymentId,
       count: routes.length,
       routes,

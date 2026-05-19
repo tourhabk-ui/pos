@@ -34,7 +34,7 @@ export default function OfferPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Стороны и предмет договора</h2>
             <p>
               <strong>Исполнитель (Платформа):</strong> ООО «ПОС-СЕРВИС» (ОГРН 1114101005952, ИНН 4101147649),
-              осуществляющее деятельность под торговой маркой TourHab, далее — «Платформа».
+              осуществляющее деятельность под торговой маркой Ведар, далее — «Платформа».
             </p>
             <p>
               <strong>Заказчик (Партнёр):</strong> юридическое лицо или индивидуальный предприниматель,
@@ -53,7 +53,7 @@ export default function OfferPage() {
               Акцептом настоящей оферты является совершение Партнёром следующих действий в совокупности:
             </p>
             <ul className="list-disc pl-6 space-y-2">
-              <li>Прохождение регистрации в личном кабинете Партнёра на tourhab.ru</li>
+              <li>Прохождение регистрации в личном кабинете Партнёра на vedarai.ru</li>
               <li>Проставление отметки о согласии с условиями настоящего договора</li>
               <li>Предоставление сведений об организации (ИНН, ОГРН/ОГРНИП, банковские реквизиты)</li>
             </ul>
@@ -203,8 +203,8 @@ export default function OfferPage() {
               Банк: ООО «Банк Точка»<br />
               Расчётный счёт: 40702810102500044777<br />
               БИК: 044525104<br />
-              Email для партнёров: <a href="mailto:partners@tourhab.ru" className="text-[var(--ocean)] hover:underline">partners@tourhab.ru</a><br />
-              Email для правовых вопросов: <a href="mailto:legal@tourhab.ru" className="text-[var(--ocean)] hover:underline">legal@tourhab.ru</a>
+              Email для партнёров: <a href="mailto:partners@vedarai.ru" className="text-[var(--ocean)] hover:underline">partners@vedarai.ru</a><br />
+              Email для правовых вопросов: <a href="mailto:legal@vedarai.ru" className="text-[var(--ocean)] hover:underline">legal@vedarai.ru</a>
             </p>
           </section>
         </div>

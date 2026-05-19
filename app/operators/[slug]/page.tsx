@@ -190,16 +190,16 @@ export async function generateMetadata(
   const title = `${profile.name} - оператор Камчатки`;
   const description = profile.short_description
     ?? profile.description
-    ?? 'Публичный профиль проверенного оператора на TourHab.';
+    ?? 'Публичный профиль проверенного оператора на Ведар.';
 
   return {
     title,
     description,
-    alternates: { canonical: `https://tourhab.ru/operators/${profile.slug}` },
+    alternates: { canonical: `https://vedarai.ru/operators/${profile.slug}` },
     openGraph: {
       title,
       description,
-      url: `https://tourhab.ru/operators/${profile.slug}`,
+      url: `https://vedarai.ru/operators/${profile.slug}`,
       siteName: 'KamchatourHub',
       locale: 'ru_RU',
       type: 'website',

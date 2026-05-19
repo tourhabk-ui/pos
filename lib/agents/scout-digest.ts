@@ -63,7 +63,7 @@ async function fetchRssWithRetry(url: string, options: RequestInit, maxAttempts 
 async function fetchRss(url: string, label: string): Promise<RssItem[]> {
   try {
     const res = await fetchRssWithRetry(url, {
-      headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
+      headers: { 'User-Agent': 'Ведар/1.0 (Scout Digest)' },
     });
     const xml = await res.text();
     const items: RssItem[] = [];
@@ -129,7 +129,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты разведчик туристической платформы TourHab (Камчатка).
+      content: `Ты разведчик туристической платформы Ведар (Камчатка).
 Твоя задача — прочитать сигналы из RSS-лент и выделить 3-5 наиболее важных инсайтов.
 
 СТРОГИЕ ПРАВИЛА ФИЛЬТРАЦИИ:
@@ -150,7 +150,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 <b>Камчатка</b>
 - [краткий инсайт про Камчатский край]
 
-Пиши по-русски. Только факты и их применимость к TourHab. Без воды. Лучше меньше инсайтов но все релевантные, чем много но мусорных.`,
+Пиши по-русски. Только факты и их применимость к Ведар. Без воды. Лучше меньше инсайтов но все релевантные, чем много но мусорных.`,
     },
     {
       role: 'user',

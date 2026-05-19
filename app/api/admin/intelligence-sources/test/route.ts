@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       }
       // Dynamic import to avoid circular deps
       const res = await fetch(body.url, {
-        headers: { 'User-Agent': 'TourHab-Intelligence/1.0' },
+        headers: { 'User-Agent': 'Ведар-Intelligence/1.0' },
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) {

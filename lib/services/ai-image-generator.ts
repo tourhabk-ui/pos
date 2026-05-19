@@ -1,5 +1,5 @@
 /**
- * AI Image Generator for TourHab routes.
+ * AI Image Generator for Ведар routes.
  * Uses Pollinations.ai (free, no API key, Flux model) as the generation backend.
  * Downloaded images are stored as bytea in ai_route_images table.
  */
@@ -96,7 +96,7 @@ export function buildPollinationsUrl(
 
 async function fetchImageBytes(url: string): Promise<Buffer> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'TourHab/1.0 (+https://tourhab.ru)' },
+    headers: { 'User-Agent': 'Ведар/1.0 (+https://vedarai.ru)' },
     signal: AbortSignal.timeout(60_000), // 60s — first generation is slow
   });
   if (!res.ok) throw new Error(`Pollinations HTTP ${res.status}`);

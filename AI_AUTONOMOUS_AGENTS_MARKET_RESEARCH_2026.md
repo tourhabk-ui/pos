@@ -1,6 +1,6 @@
 # AI-Directed Tourism Platforms: Market Research & Positioning Strategy
 ## Based on 2024-2026 Trends Analysis
-**Prepared for:** TourHab Repositioning  
+**Prepared for:** Ведар Repositioning  
 **Date:** April 2026  
 **Limitation:** Based on knowledge through April 2024 + 2025-2026 trend extrapolation
 
@@ -123,7 +123,7 @@ TIER 2: "AI-DIRECTED OPERATIONS" (Your positioning)
 └─ "13 AI directors manage platform quality + safety 24/7"
 └─ Approval layer: Human owner has final say
 └─ Risk: None if framed correctly (transparency = trust)
-└─ Example: TourHab, Evolved platforms
+└─ Example: Ведар, Evolved platforms
 
 TIER 3: "AUTONOMOUS EXECUTION" (Emerging, high-risk)  
 └─ "AI makes all operational decisions without human review"
@@ -346,7 +346,7 @@ Your business, managed 24/7. You stay in control.
 
 Booking.com has algorithms. 
 Airbnb has rules.
-TourHab has a board of directors.
+Ведар has a board of directors.
 
 13 AI specialists ensure operators succeed and tourists stay safe.
 That's why operators partner with us, not compete.
@@ -358,7 +358,7 @@ That's why operators partner with us, not compete.
 
 **The Core Reframe:**
 
-| Aspect | Generic "AI Platform" | TourHab Positioning |
+| Aspect | Generic "AI Platform" | Ведар Positioning |
 |--------|----------------------|-------------------|
 | **Driver** | Algorithms optimizing for engagement | 13 directors optimizing for safety + fairness |
 | **Decision Quality** | "What does the ML model say?" | "What does the board recommend?" |
@@ -386,17 +386,17 @@ Replace: "13 Autonomous Directors coordinating 24/7"
 ### Why Operators Will Buy This Positioning
 
 **Old messaging operator concern:**
-"If I join TourHab, will an algorithm undercut me, hide me, take my bookings?"
+"If I join Ведар, will an algorithm undercut me, hide me, take my bookings?"
 
 **New messaging operator confidence:**
-"If I join TourHab, I get a compliance officer, safety expert, and marketing team—powered by AI—watching over my business."
+"If I join Ведар, I get a compliance officer, safety expert, and marketing team—powered by AI—watching over my business."
 
 ### Operator-Specific Positioning
 
 ```
 FOR NEW OPERATORS:
 
-"Join TourHab's Managed Ecosystem"
+"Join Ведар's Managed Ecosystem"
 
 You get:
 ✓ AI Compliance Officer ensuring Russian regs are followed
@@ -419,7 +419,7 @@ Result: 40% less admin work, 60% higher booking confidence from tourists.
 **Positioning: Not Just AI. Multi-Agent AI.**
 
 ```
-TourHab isn't using GPT-4 to answer questions.
+Ведар isn't using GPT-4 to answer questions.
 We're using a specialized AI board:
 
 - Models: 13 different LLMs, each optimized for their domain
@@ -614,7 +614,7 @@ This positions you as:
   • AI Quality promotes your strengths
   • AI Revenue suggests fair pricing (you approve)
   
-  → Join 18 verified operators on TourHab"
+  → Join 18 verified operators on Ведар"
 </OperatorFocus>
 ```
 
@@ -722,7 +722,7 @@ Post 5: "Inside Our Daily AI Standup: How 13 Agents Coordinate"
 - [ ] Video: "How 13 AI Directors Run a Tourism Platform"
 
 ### Phase 4: B2B Positioning (Ongoing)
-- [ ] Operator landing page: "Why Leading Operators Choose TourHab"
+- [ ] Operator landing page: "Why Leading Operators Choose Ведар"
 - [ ] Case studies from top 3 operators
 - [ ] Partnership inbound: "Let our AI board manage your Kamchatka logistics"
 

@@ -298,11 +298,11 @@ async function getOperatorsList(): Promise<string> {
       `SELECT name, slug FROM partners WHERE is_public = TRUE ORDER BY name LIMIT 10`
     );
     if (!res.rows.length) return 'Список операторов пока пуст.';
-    const lines = ['<b>Операторы на TourHab:</b>', ''];
+    const lines = ['<b>Операторы на Ведар:</b>', ''];
     res.rows.forEach(p => {
-      lines.push(`🏔 <a href="https://tourhab.ru/operators/${p.slug}">${esc(p.name)}</a>`);
+      lines.push(`🏔 <a href="https://vedarai.ru/operators/${p.slug}">${esc(p.name)}</a>`);
     });
-    lines.push('', '<a href="https://tourhab.ru/operators">Все операторы →</a>');
+    lines.push('', '<a href="https://vedarai.ru/operators">Все операторы →</a>');
     return lines.join('\n');
   } catch {
     return 'Не удалось загрузить список операторов.';
@@ -335,7 +335,7 @@ async function getStats(): Promise<string> {
     const s = statsRes.rows[0];
     const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const lines = [
-      `<b>Статистика TourHab</b>  <i>${today}</i>`,
+      `<b>Статистика Ведар</b>  <i>${today}</i>`,
       '',
       `👁 Просмотры сегодня: <b>${s.views_today}</b>   за 30 дней: <b>${s.views_30d}</b>`,
       `📦 Брони сегодня: <b>${s.bookings_today}</b>   за 30 дней: <b>${s.bookings_30d}</b>`,
@@ -461,7 +461,7 @@ async function createLeadFromBot(
       touristLines.push('', '<b>Пока посмотрите подходящие маршруты:</b>');
       routes.forEach((r, i) => {
         const price = r.priceFrom ? ` — от ${Math.round(r.priceFrom / 1000)}к₽` : '';
-        touristLines.push(`${i + 1}. <a href="https://tourhab.ru/routes/${r.id}">${esc(r.title)}</a>${price}`);
+        touristLines.push(`${i + 1}. <a href="https://vedarai.ru/routes/${r.id}">${esc(r.title)}</a>${price}`);
       });
     }
 
@@ -500,7 +500,7 @@ async function createLeadFromBot(
             interests.dateFrom ? `<b>Даты:</b> ${interests.dateFrom} — ${interests.dateTo}` : '',
             '',
             '⚡️ Свяжитесь в течение 1–2 часов — турист ждёт!',
-            `<a href="https://tourhab.ru/hub/operator/bookings">Открыть в CRM →</a>`,
+            `<a href="https://vedarai.ru/hub/operator/bookings">Открыть в CRM →</a>`,
           ].filter(s => s !== '').join('\n'),
           parseMode: 'HTML',
         }).catch(() => {});
@@ -725,7 +725,7 @@ export async function POST(request: NextRequest) {
           '',
           'Или просто спроси — отвечу честно.',
           '',
-          'Уже зарегистрирован на <a href="https://tourhab.ru">tourhab.ru</a>? Привяжи аккаунт в профиле — и я буду знать о твоих поездках.',
+          'Уже зарегистрирован на <a href="https://vedarai.ru">vedarai.ru</a>? Привяжи аккаунт в профиле — и я буду знать о твоих поездках.',
         ].join('\n'));
       }
       return NextResponse.json({ ok: true });
@@ -738,7 +738,7 @@ export async function POST(request: NextRequest) {
         await sendHTML(chatId, [
           '<b>Аккаунт не привязан.</b>',
           '',
-          'Зарегистрируйся на <a href="https://tourhab.ru">tourhab.ru</a>',
+          'Зарегистрируйся на <a href="https://vedarai.ru">vedarai.ru</a>',
           'и привяжи Telegram в разделе Профиль.',
         ].join('\n'));
         return NextResponse.json({ ok: true });
@@ -752,7 +752,7 @@ export async function POST(request: NextRequest) {
         .setExpirationTime('15m')
         .sign(secret);
 
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tourhab.ru';
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
       const link = `${siteUrl}/api/auth/magic?token=${magicToken}`;
 
       await sendHTML(chatId, [
@@ -783,7 +783,7 @@ export async function POST(request: NextRequest) {
         '',
         'Или просто напиши вопрос — отвечу как местный.',
         '',
-        '<a href="https://tourhab.ru/routes">Все маршруты →</a>',
+        '<a href="https://vedarai.ru/routes">Все маршруты →</a>',
       ].filter(s => s !== '').join('\n'));
       return NextResponse.json({ ok: true });
     }
@@ -816,7 +816,7 @@ export async function POST(request: NextRequest) {
     if (text.startsWith('/route')) {
       const route = await getRandomRoute();
       if (!route) {
-        await sendHTML(chatId, 'Маршруты загружаются. Загляни сам: <a href="https://tourhab.ru/routes">tourhab.ru/routes</a>');
+        await sendHTML(chatId, 'Маршруты загружаются. Загляни сам: <a href="https://vedarai.ru/routes">vedarai.ru/routes</a>');
       } else {
         const desc = route.description ? route.description.slice(0, 220).trimEnd() + '…' : '';
         await sendHTML(chatId, [
@@ -824,7 +824,7 @@ export async function POST(request: NextRequest) {
           '',
           desc,
           '',
-          `<a href="https://tourhab.ru/routes/${route.id}">Подробнее на TourHab →</a>`,
+          `<a href="https://vedarai.ru/routes/${route.id}">Подробнее на Ведар →</a>`,
         ].filter(Boolean).join('\n'));
       }
       return NextResponse.json({ ok: true });
@@ -1184,9 +1184,9 @@ export async function POST(request: NextRequest) {
         } else {
           // Незарегистрированный пользователь — направляем к регистрации
           await sendHTML(chatId, [
-            'Для обращения в поддержку нужен аккаунт на TourHab.',
+            'Для обращения в поддержку нужен аккаунт на Ведар.',
             '',
-            'Зарегистрируйся на <a href="https://tourhab.ru/auth/register">tourhab.ru</a> и привяжи Telegram в профиле.',
+            'Зарегистрируйся на <a href="https://vedarai.ru/auth/register">vedarai.ru</a> и привяжи Telegram в профиле.',
             'Или опиши проблему — помогу решить здесь.',
           ].join('\n'));
           // Не возвращаем — пусть Кузьмич тоже ответит

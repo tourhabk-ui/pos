@@ -202,7 +202,7 @@ function OperatorCard({
 
   function copyEmbed() {
     if (!op.slug) return;
-    const code = `<script src="https://tourhab.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`;
+    const code = `<script src="https://vedarai.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`;
     navigator.clipboard.writeText(code).catch(() => {});
     setWidgetCopied(true);
     setTimeout(() => setWidgetCopied(false), 2000);
@@ -337,7 +337,7 @@ function OperatorCard({
                   {/* Embed code */}
                   <div className="flex items-center gap-1.5 mb-2">
                     <code className="flex-1 text-[10px] bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1 text-[var(--text-secondary)] truncate select-all">
-                      {`<script src="https://tourhab.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`}
+                      {`<script src="https://vedarai.ru/api/widget/lead.js?partner=${op.slug}" defer></script>`}
                     </code>
                     <button
                       onClick={copyEmbed}

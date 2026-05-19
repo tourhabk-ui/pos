@@ -1,5 +1,5 @@
 export default function feed(): Record<string, string> {
-  const baseUrl = 'https://tourhab.ru';
+  const baseUrl = 'https://vedarai.ru';
 
   return {
     feed: `${baseUrl}/feed.xml`,

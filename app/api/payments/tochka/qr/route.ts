@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
     const qr = await createSBPQR({
       amountRub:   Number(booking.final_price),
-      description: `TourHab: ${booking.title} #${bookingId}`,
+      description: `Ведар: ${booking.title} #${bookingId}`,
       ttlMinutes:  60,
       bookingId,
     });

@@ -101,7 +101,7 @@ export default function LoyaltyClient() {
 
   const copyCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -110,7 +110,7 @@ export default function LoyaltyClient() {
 
   const shareCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     if (navigator.share) {
       navigator.share({ title: 'KamchatourHub', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
     } else {

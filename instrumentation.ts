@@ -33,7 +33,7 @@ export async function register(): Promise<void> {
     // ── 2. Register MAX bot webhook ───────────────────────────────────
     const maxToken = process.env.MAX_BOT_TOKEN;
     if (maxToken) {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://tourhab.ru';
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://vedarai.ru';
       const webhookUrl = `${baseUrl}/api/max/kuzmich`;
       try {
         // Check existing subscription first

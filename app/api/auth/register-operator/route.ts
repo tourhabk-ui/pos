@@ -10,7 +10,7 @@ async function notifyAdminTelegram(companyName: string, contactName: string, pho
   const chatId = process.env.TELEGRAM_CHAT_ID;
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!chatId || !token) return;
-  const text = `Новая заявка оператора\n\nКомпания: ${companyName}\nКонтакт: ${contactName}\nТел: ${phone}\nEmail: ${email}\n\nhttps://tourhab.ru/hub/admin/operators`;
+  const text = `Новая заявка оператора\n\nКомпания: ${companyName}\nКонтакт: ${contactName}\nТел: ${phone}\nEmail: ${email}\n\nhttps://vedarai.ru/hub/admin/operators`;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
                <b>Категория:</b> ${category}<br>
                <b>Контакт:</b> ${contactName}, ${phone}<br>
                <b>Email:</b> ${email}</p>
-               <p><a href="https://tourhab.ru/hub/admin/operators">Очередь заявок →</a></p>`,
+               <p><a href="https://vedarai.ru/hub/admin/operators">Очередь заявок →</a></p>`,
       }).catch(() => {});
     }
 
@@ -141,15 +141,15 @@ export async function POST(request: NextRequest) {
         <p>Компания <b>${companyName}</b> успешно зарегистрирована на платформе KamchatourHub.</p>
         <h3>Следующие шаги:</h3>
         <ol>
-          <li><a href="https://tourhab.ru/hub/operator">Войдите в личный кабинет</a></li>
+          <li><a href="https://vedarai.ru/hub/operator">Войдите в личный кабинет</a></li>
           <li>Добавьте первый тур (кнопка «Создать тур»)</li>
           <li>Настройте расписание и доступность</li>
           <li>Туристы увидят ваши туры в каталоге</li>
         </ol>
         <p>Комиссия платформы: <b>15%</b> от стоимости тура. Выплаты — еженедельно по пятницам.</p>
-        <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@tourhab.ru'}">${adminEmail ?? 'info@tourhab.ru'}</a></p>
+        <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@vedarai.ru'}">${adminEmail ?? 'info@vedarai.ru'}</a></p>
         <hr>
-        <p style="color:#888;font-size:12px">KamchatourHub — tourhab.ru</p>
+        <p style="color:#888;font-size:12px">KamchatourHub — vedarai.ru</p>
       `,
     }).catch(() => {});
 

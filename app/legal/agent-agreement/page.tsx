@@ -3,8 +3,8 @@ import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
 
 export const metadata = {
-  title: 'Агентский договор — TourHab',
-  description: 'Шаблон агентского договора между платформой TourHab и туроператором Камчатки. Комиссия 10%, AI-обработка лидов, прозрачные условия.',
+  title: 'Агентский договор — Ведар',
+  description: 'Шаблон агентского договора между платформой Ведар и туроператором Камчатки. Комиссия 10%, AI-обработка лидов, прозрачные условия.',
 };
 
 export default function AgentAgreementPage() {
@@ -28,7 +28,7 @@ export default function AgentAgreementPage() {
             <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-8 mb-4">1. Предмет договора</h2>
             <p>
               ООО &laquo;ПОС-СЕРВИС&raquo; (ОГРН 1114101005952, ИНН 4101147649), действующее под брендом
-              TourHab (далее &mdash; Агент), и туроператор (далее &mdash; Принципал) заключают настоящий
+              Ведар (далее &mdash; Агент), и туроператор (далее &mdash; Принципал) заключают настоящий
               агентский договор в соответствии со ст. 1005-1011 ГК РФ,
               Федеральным законом от 24.11.1996 No 132-ФЗ &laquo;Об основах туристской деятельности
               в Российской Федерации&raquo;, Федеральным законом от 22.05.2003 No 54-ФЗ
@@ -37,7 +37,7 @@ export default function AgentAgreementPage() {
             </p>
             <p>
               Агент обязуется от своего имени, но за счёт Принципала, привлекать туристов
-              для приобретения туристических услуг Принципала через платформу tourhab.ru,
+              для приобретения туристических услуг Принципала через платформу vedarai.ru,
               мессенджер-ботов (Telegram, MAX) и партнёрские каналы.
             </p>
           </section>
@@ -150,7 +150,7 @@ export default function AgentAgreementPage() {
               <p><span className="font-semibold">ИНН:</span> 4101147649</p>
               <p><span className="font-semibold">ОГРН:</span> 1114101005952</p>
               <p><span className="font-semibold">Адрес:</span> 683024, Камчатский край, г. Петропавловск-Камчатский, пр-кт 50 лет Октября, д. 17/1</p>
-              <p><span className="font-semibold">Платформа:</span> tourhab.ru</p>
+              <p><span className="font-semibold">Платформа:</span> vedarai.ru</p>
             </div>
           </section>
 

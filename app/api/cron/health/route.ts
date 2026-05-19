@@ -4,7 +4,7 @@
  * При проблемах — алерт в Telegram admin.
  *
  * Запуск: cron-job.org каждый час
- *   URL: https://tourhab.ru/api/cron/health?secret=<CRON_SECRET>
+ *   URL: https://vedarai.ru/api/cron/health?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -196,8 +196,8 @@ export async function GET(request: NextRequest) {
 
     const lines: string[] = [
       crits.length > 0
-        ? '<b>TourHab ALERT</b> — критические проблемы'
-        : '<b>TourHab</b> — предупреждения системы',
+        ? '<b>Ведар ALERT</b> — критические проблемы'
+        : '<b>Ведар</b> — предупреждения системы',
       '',
       ...crits.map(i => `CRIT: ${i.text}`),
       ...warns.map(i => `WARN: ${i.text}`),

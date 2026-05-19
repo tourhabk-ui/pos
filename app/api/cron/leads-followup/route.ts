@@ -15,7 +15,7 @@
  *          или query-параметр ?secret=<CRON_SECRET>
  *
  * Запуск: cron-job.org каждые 30 минут
- *   URL:  https://tourhab.ru/api/cron/leads-followup?secret=<CRON_SECRET>
+ *   URL:  https://vedarai.ru/api/cron/leads-followup?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
           (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
           '',
           '⚡️ Турист ещё не получил ответа. Пожалуйста, свяжитесь с ним!',
-          `<a href="https://tourhab.ru/hub/operator/bookings">Открыть в CRM →</a>`,
+          `<a href="https://vedarai.ru/hub/operator/bookings">Открыть в CRM →</a>`,
         ].filter(Boolean).join('\n');
 
         await telegramService.sendMessage({
@@ -215,7 +215,7 @@ export async function GET(request: NextRequest) {
               `<b>Уведомлений отправлено:</b> ${followupCount}`,
               '',
               'Свободных операторов не осталось. Обработайте вручную.',
-              `<a href="https://tourhab.ru/hub/admin/leads">CRM лиды →</a>`,
+              `<a href="https://vedarai.ru/hub/admin/leads">CRM лиды →</a>`,
               `<code>${lead.id}</code>`,
             ].filter(Boolean).join('\n'),
             parseMode: 'HTML',

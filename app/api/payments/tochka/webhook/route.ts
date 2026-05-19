@@ -3,7 +3,7 @@
  * Точка Bank вызывает этот endpoint при успешной оплате по QR.
  *
  * Настройка вебхука: ЛК Точки → Интеграции → Уведомления →
- *   URL: https://tourhab.ru/api/payments/tochka/webhook
+ *   URL: https://vedarai.ru/api/payments/tochka/webhook
  *   События: payment.completed
  */
 
@@ -90,7 +90,7 @@ async function notifyOperator(bookingId: number, touristName: string, amount: nu
     `Турист: ${touristName}`,
     `Сумма: ${amount.toLocaleString('ru-RU')} р.`,
     '',
-    `tourhab.ru/hub/operator/bookings`,
+    `vedarai.ru/hub/operator/bookings`,
   ].join('\n');
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

@@ -119,7 +119,7 @@ class EmailService {
       <!-- Шапка -->
       <tr>
         <td style="background:#D44A0C;padding:24px 32px;">
-          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">TourHab</p>
+          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;letter-spacing:0.02em;">Ведар</p>
           <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8);">Туристическая платформа Камчатки</p>
         </td>
       </tr>
@@ -157,7 +157,7 @@ class EmailService {
             Ваша заявка передана оператору. В течение 24\u00A0часов он свяжется с вами для подтверждения деталей и оплаты.
           </p>
           <p style="margin:0;font-size:14px;color:#6B6560;line-height:1.6;">
-            Следить за статусом бронирования можно в личном кабинете на <a href="https://tourhab.ru/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">tourhab.ru</a>.
+            Следить за статусом бронирования можно в личном кабинете на <a href="https://vedarai.ru/hub/tourist/bookings" style="color:#D44A0C;text-decoration:none;">vedarai.ru</a>.
           </p>
         </td>
       </tr>
@@ -167,7 +167,7 @@ class EmailService {
         <td style="padding:24px 32px;">
           <p style="margin:0;font-size:14px;color:#6B6560;line-height:1.6;">
             Здравствуйте, <strong style="color:#1A1714;">${this.esc(data.touristName)}</strong>!<br>
-            Спасибо за выбор TourHab. Желаем яркого путешествия на Камчатке.
+            Спасибо за выбор Ведар. Желаем яркого путешествия на Камчатке.
           </p>
         </td>
       </tr>
@@ -179,8 +179,8 @@ class EmailService {
       <tr>
         <td style="padding:20px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;line-height:1.6;">
-            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; tourhab.ru<br>
-            Это автоматическое письмо. Для связи: <a href="mailto:support@tourhab.ru" style="color:#D44A0C;text-decoration:none;">support@tourhab.ru</a>
+            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
+            Это автоматическое письмо. Для связи: <a href="mailto:support@vedarai.ru" style="color:#D44A0C;text-decoration:none;">support@vedarai.ru</a>
           </p>
         </td>
       </tr>
@@ -214,7 +214,7 @@ class EmailService {
     <table width="560" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:12px;overflow:hidden;max-width:560px;width:100%;">
       <tr>
         <td style="background:#D44A0C;padding:24px 32px;">
-          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;">TourHab</p>
+          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;">Ведар</p>
           <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8);">Новая заявка на тур</p>
         </td>
       </tr>
@@ -243,7 +243,7 @@ class EmailService {
       </tr>
       <tr>
         <td style="padding:24px 32px;">
-          <a href="https://tourhab.ru/hub/operator/bookings" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
+          <a href="https://vedarai.ru/hub/operator/bookings" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
             Открыть в кабинете →
           </a>
         </td>
@@ -252,7 +252,7 @@ class EmailService {
       <tr>
         <td style="padding:16px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;">
-            TourHab &mdash; tourhab.ru &mdash; ООО &laquo;ПОС-СЕРВИС&raquo;
+            Ведар &mdash; vedarai.ru &mdash; ООО &laquo;ПОС-СЕРВИС&raquo;
           </p>
         </td>
       </tr>
@@ -291,7 +291,7 @@ class EmailService {
     <table width="560" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:12px;overflow:hidden;max-width:560px;width:100%;">
       <tr>
         <td style="background:#6B6560;padding:24px 32px;">
-          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;">TourHab</p>
+          <p style="margin:0;font-size:22px;font-weight:700;color:#FFFFFF;">Ведар</p>
           <p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8);">Бронирование отменено</p>
         </td>
       </tr>
@@ -327,7 +327,7 @@ class EmailService {
       </tr>`}
       <tr>
         <td style="padding:24px 32px;">
-          <a href="https://tourhab.ru/marketplace" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
+          <a href="https://vedarai.ru/marketplace" style="display:inline-block;background:#D44A0C;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;">
             Найти другой тур →
           </a>
         </td>
@@ -336,8 +336,8 @@ class EmailService {
       <tr>
         <td style="padding:16px 32px;background:#FAFAFA;">
           <p style="margin:0;font-size:11px;color:#9A9590;">
-            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; tourhab.ru<br>
-            Вопросы: <a href="mailto:support@tourhab.ru" style="color:#D44A0C;text-decoration:none;">support@tourhab.ru</a>
+            ООО &laquo;ПОС-СЕРВИС&raquo;, ИНН&nbsp;4101147649 &mdash; vedarai.ru<br>
+            Вопросы: <a href="mailto:support@vedarai.ru" style="color:#D44A0C;text-decoration:none;">support@vedarai.ru</a>
           </p>
         </td>
       </tr>

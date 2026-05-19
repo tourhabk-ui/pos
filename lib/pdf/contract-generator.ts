@@ -1,6 +1,6 @@
 /**
  * Генератор PDF: Договор об оказании туристических услуг.
- * Составлен AI Юристом TourHab (апрель 2026).
+ * Составлен AI Юристом Ведар (апрель 2026).
  * Основание: ФЗ №132-ФЗ, ГК РФ, ФЗ №152-ФЗ, ЗоЗПП.
  */
 
@@ -33,7 +33,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
       margins: { top: 50, bottom: 50, left: 55, right: 55 },
       info: {
         Title: `Договор №${data.bookingId}`,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: `Туристические услуги: ${data.tourName}`,
         CreationDate: new Date(),
       },
@@ -56,9 +56,9 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
 
     // ── Шапка ──────────────────────────────────────────────────────────────────
     doc.fontSize(20).font('Helvetica-Bold').fillColor(ACCENT)
-       .text('TourHab', { continued: true })
+       .text('Ведар', { continued: true })
        .font('Helvetica').fillColor(MUTED).fontSize(10)
-       .text('  tourhab.ru', { align: 'left' });
+       .text('  vedarai.ru', { align: 'left' });
 
     doc.moveDown(0.3);
     doc.moveTo(55, doc.y).lineTo(55 + W, doc.y).strokeColor(LINE).lineWidth(1).stroke();
@@ -76,7 +76,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     section(doc, 'СТОРОНЫ', ACCENT);
 
     doc.fontSize(10).font('Helvetica-Bold').fillColor(DARK).text('Исполнитель: ', { continued: true })
-       .font('Helvetica').text(`${data.operatorName}, платформа TourHab (tourhab.ru)`);
+       .font('Helvetica').text(`${data.operatorName}, платформа Ведар (vedarai.ru)`);
     doc.moveDown(0.4);
     doc.font('Helvetica-Bold').text('Заказчик: ', { continued: true })
        .font('Helvetica').text(`${data.touristName}, тел. ${data.touristPhone}${data.touristEmail ? ', ' + data.touristEmail : ''}`);
@@ -164,7 +164,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     doc.fontSize(9).font('Helvetica').fillColor(MUTED).text(
       'Договор регулируется законодательством РФ. Споры — в претензионном порядке, ' +
       'срок ответа 10 р.д., при недостижении согласия — в суде по месту Исполнителя. ' +
-      'Договор акцептован Заказчиком в электронной форме на платформе TourHab в момент ' +
+      'Договор акцептован Заказчиком в электронной форме на платформе Ведар в момент ' +
       'подтверждения бронирования (ГК РФ, ст. 438).',
       { width: W }
     );
@@ -184,7 +184,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     doc.moveTo(55, doc.y).lineTo(55 + W, doc.y).strokeColor(LINE).lineWidth(0.5).stroke();
     doc.moveDown(0.5);
     doc.fontSize(8).font('Helvetica').fillColor(MUTED)
-       .text(`Договор №${data.bookingId} сформирован автоматически платформой TourHab (tourhab.ru) · ${fmt(data.issueDate)}`, { align: 'center', width: W });
+       .text(`Договор №${data.bookingId} сформирован автоматически платформой Ведар (vedarai.ru) · ${fmt(data.issueDate)}`, { align: 'center', width: W });
 
     doc.end();
   });

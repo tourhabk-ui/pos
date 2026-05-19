@@ -1,8 +1,8 @@
-# TourHab — Volcano OS
+# Ведар — Volcano OS
 
 **Камчатка без связи. С контролем.**
 
-**[tourhab.ru](https://tourhab.ru)** · PWA · offline map · Kuzmich AI · 294 маршрута · 778 мест
+**[vedarai.ru](https://vedarai.ru)** · PWA · offline map · Kuzmich AI · 294 маршрута · 778 мест
 
 Мобильная операционная система для туриста на Камчатке. Работает в авиарежиме. Показывает где ты, что вокруг, как дойти, и что делать если что-то пошло не так.
 
@@ -175,7 +175,7 @@ Push в `tourhabk-ui/pos main` → Timeweb автодеплой → `start.js` �
 
 **Live.** Деплоится автоматически на Timeweb при push в `tourhabk-ui/pos main`.
 
-**[tourhab.ru](https://tourhab.ru)**
+**[vedarai.ru](https://vedarai.ru)**
 
 ---
 

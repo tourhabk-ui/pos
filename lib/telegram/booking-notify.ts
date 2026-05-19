@@ -61,7 +61,7 @@ export function notifyTouristBookingCreated(
           'Оператор рассмотрит заявку в течение нескольких часов.',
           'Статус брони можно проверить в личном кабинете.',
           '',
-          `<a href="https://tourhab.ru/hub/tourist/bookings">Мои бронирования →</a>`,
+          `<a href="https://vedarai.ru/hub/tourist/bookings">Мои бронирования →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });
@@ -101,7 +101,7 @@ export function notifyTouristBookingConfirmed(
           '',
           'Подготовьтесь к поездке — оператор свяжется с вами ближе к дате.',
           '',
-          `<a href="https://tourhab.ru/hub/tourist/bookings">Детали брони →</a>`,
+          `<a href="https://vedarai.ru/hub/tourist/bookings">Детали брони →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
       });

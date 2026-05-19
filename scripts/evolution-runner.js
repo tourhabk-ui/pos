@@ -6,7 +6,7 @@
  * Само заседание выполняется асинхронно на сервере.
  */
 
-const PROD_URL    = process.env.TOURHAB_URL   || 'https://tourhab.ru';
+const PROD_URL    = process.env.TOURHAB_URL   || 'https://vedarai.ru';
 const CRON_SECRET = process.env.CRON_SECRET   || '';
 const DRY_RUN     = process.env.DRY_RUN === 'true';
 

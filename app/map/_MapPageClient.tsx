@@ -460,7 +460,7 @@ export default function MapPageClient() {
               {/* SMS с координатами (работает без интернета) */}
               {userPos && (
                 <a
-                  href={`sms:+79000000000?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — TourHab.ru`}
+                  href={`sms:+79000000000?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — Ведар.ru`}
                   className="w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-lg bg-[var(--bg-card)]/10 border border-[var(--border)] text-white font-semibold text-sm hover:bg-[var(--bg-card)]/15 active:bg-[var(--bg-card)]/20 transition-all"
                 >
                   💬 SMS с координатами (без интернета)

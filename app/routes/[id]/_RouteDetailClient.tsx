@@ -15,7 +15,6 @@ import {
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import LeadModal from '@/components/routes/LeadModal';
-import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
@@ -154,8 +153,8 @@ const ACTIVITY_ICONS: Record<string, React.ElementType> = {
   snowmobile: Snowflake, jeep: Car, other: MapPin,
 };
 
-function OfferCard({ offer, activityType, onBook }: {
-  offer: Offer; activityType: string | null; onBook: () => void;
+function OfferCard({ offer, activityType }: {
+  offer: Offer; activityType: string | null;
 }) {
   const price = offer.effectivePrice ?? offer.priceBase;
   const nextDate = offer.nextDeparture
@@ -171,9 +170,9 @@ function OfferCard({ offer, activityType, onBook }: {
   const seasonStr = formatSeasonDates(offer.seasonStart, offer.seasonEnd);
 
   return (
-    <div
-      className="ds-card overflow-hidden hover:shadow-lg transition-all duration-200 cursor-pointer group flex flex-col md:flex-row md:gap-4"
-      onClick={onBook}
+    <Link
+      href={`/marketplace/tours/${offer.tourId}`}
+      className="ds-card overflow-hidden hover:shadow-lg hover:border-[var(--accent)]/30 transition-all duration-200 group flex flex-col md:flex-row md:gap-4"
     >
       {/* Фото — полная ширина на мобильном, сбоку на десктопном */}
       <div className="relative w-full md:w-40 md:flex-shrink-0 h-48 md:h-auto overflow-hidden">
@@ -314,16 +313,10 @@ function OfferCard({ offer, activityType, onBook }: {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="ds-btn ds-btn-primary px-4 py-2 text-sm font-semibold flex-shrink-0 whitespace-nowrap"
-            onClick={e => { e.stopPropagation(); onBook(); }}
-          >
-            Забронировать
-          </button>
+          <ChevronRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors flex-shrink-0 self-center" />
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -333,13 +326,11 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showLead, setShowLead] = useState(false);
-  const [bookingOffer, setBookingOffer] = useState<Offer | null>(null);
   const [relatedRoutes, setRelatedRoutes] = useState<RouteItem[]>([]);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [showAllOffers, setShowAllOffers] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
   const [sortBy, setSortBy] = useState<'price' | 'rating' | 'date' | 'slots'>('price');
-  const [calendarDate, setCalendarDate] = useState<string | null>(null);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000000]);
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
   const [filterDurationType, setFilterDurationType] = useState<string | null>(null);
@@ -754,7 +745,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 </h2>
                 <div className="space-y-3">
                   {(showAllOffers ? offers : offers.slice(0, 3)).map(offer => (
-                    <OfferCard key={offer.tourId} offer={offer} activityType={route.activityType} onBook={() => setBookingOffer(offer)} />
+                    <OfferCard key={offer.tourId} offer={offer} activityType={route.activityType} />
                   ))}
                 </div>
                 {offers.length > 3 && !showAllOffers && (
@@ -908,9 +899,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       nextSlots: o.nextSlots,
                     }))}
                     onDateSelect={(date, tourId) => {
-                      setCalendarDate(date);
-                      const offer = offers.find(o => o.tourId === tourId) ?? offers[0];
-                      if (offer) setBookingOffer(offer);
+                      router.push(`/marketplace/tours/${tourId}?date=${date}`);
                     }}
                   />
 
@@ -923,7 +912,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
 
                   <div className="space-y-3">
                     {(showAllOffers ? offers : offers.slice(0, 3)).map(offer => (
-                      <OfferCard key={offer.tourId} offer={offer} activityType={route.activityType} onBook={() => setBookingOffer(offer)} />
+                      <OfferCard key={offer.tourId} offer={offer} activityType={route.activityType} />
                     ))}
                   </div>
 
@@ -1124,44 +1113,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         )}
       </div>
 
-      {/* ── Mobile sticky bar ────────────────────────────────────────────────── */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--bg-card)] border-t border-[var(--border)] px-4 py-3 flex items-center gap-3 safe-area-pb">
-        <div className="flex-1 min-w-0">
-          {minPrice > 0 ? (
-            <p className="text-lg font-bold text-[var(--accent)] leading-none">
-              {minPrice.toLocaleString('ru-RU')} ₽
-              <span className="text-xs font-normal text-[var(--text-muted)] ml-1">/чел</span>
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--text-secondary)]">По запросу</p>
-          )}
-          {offers.length > 1 && (
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{offers.length} тура</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => offers.length > 0 ? setBookingOffer(offers[0]) : setShowLead(true)}
-          className="ds-btn ds-btn-primary px-6 py-2.5 text-sm font-semibold flex-shrink-0"
-        >
-          {offers.length > 0 ? 'Забронировать' : 'Оставить заявку'}
-        </button>
-      </div>
-
       <LeadModal open={showLead} onClose={() => setShowLead(false)} routeId={route.id} routeTitle={route.title} />
-      {bookingOffer && (
-        <TourPaymentModal
-          open={bookingOffer !== null}
-          onClose={() => { setBookingOffer(null); setCalendarDate(null); }}
-          tourId={bookingOffer.tourId}
-          tourName={bookingOffer.tourName}
-          operatorName={bookingOffer.operator.name}
-          priceBase={bookingOffer.priceBase}
-          minGroupSize={bookingOffer.minGroupSize}
-          maxGroupSize={bookingOffer.maxGroupSize}
-          nextDeparture={calendarDate ?? bookingOffer.nextDeparture}
-        />
-      )}
       <AssistantButton pageContext={{ type: 'route', title: route.title, category: locLabel }} />
     </>
   );

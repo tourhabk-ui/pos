@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight, MessageCircle, Map, Shield } from 'lucide-react';
+import { ArrowUpRight, Map, Shield, MessageCircle } from 'lucide-react';
 
 function TelegramIcon({ className }: { className?: string }) {
   return (
@@ -44,74 +44,79 @@ const CHANNELS = [
 ];
 
 const ABILITIES = [
-  { Icon: Map, text: 'Составит маршрут с учётом сложности и погоды' },
-  { Icon: Shield, text: 'Предупредит о закрытых зонах и опасностях' },
-  { Icon: MessageCircle, text: 'Ответит на любой вопрос о Камчатке' },
+  { Icon: Map, text: 'Составит маршрут с учётом сложности, сезона и погоды' },
+  { Icon: Shield, text: 'Предупредит о закрытых зонах и реальных опасностях' },
+  { Icon: MessageCircle, text: 'Ответит на любой вопрос о Камчатке 24/7' },
 ];
 
 export function MessengerAgentsSection() {
   return (
-    <section
-      id="chat"
-      className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 md:p-8 flex flex-col h-full"
-    >
-      <p className="text-[10px] uppercase tracking-[0.25em] text-[var(--accent)] font-semibold mb-4">
-        AI-консьерж
-      </p>
+    <section className="border-y border-[var(--border)] bg-[var(--bg-card)]">
+      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[55%_45%]">
 
-      <h3
-        className="font-playfair font-bold text-[var(--text-primary)] leading-snug mb-3"
-        style={{ fontSize: 'clamp(1.5rem, 2.5vw, 2rem)' }}
-      >
-        Кузьмич знает<br />
-        всю Камчатку
-      </h3>
+        {/* Left: identity + channels */}
+        <div className="px-4 md:px-12 py-14 md:py-20 border-b md:border-b-0 md:border-r border-[var(--border)]">
+          <div className="w-8 h-px bg-[var(--accent)] mb-7" />
+          <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--accent)] font-semibold mb-4">
+            AI-консьерж
+          </p>
+          <h2
+            className="font-playfair font-bold text-[var(--text-primary)] leading-[1.08] mb-5"
+            style={{ fontSize: 'clamp(1.9rem, 3vw, 2.6rem)' }}
+          >
+            Кузьмич знает{' '}
+            <em className="italic text-[var(--accent)]">всю Камчатку</em>
+          </h2>
+          <p className="text-[var(--text-secondary)] text-sm leading-relaxed mb-9 max-w-sm">
+            Расскажите куда хотите — он соберёт маршрут, проверит статус точек
+            и предупредит о закрытых или опасных участках.
+          </p>
 
-      <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-6">
-        Расскажите, куда хотите — он соберёт маршрут, проверит статус точек
-        и предупредит о закрытых или опасных участках.
-      </p>
-
-      <ul className="flex flex-col gap-3 mb-7">
-        {ABILITIES.map(({ Icon, text }) => (
-          <li key={text} className="flex items-start gap-3">
-            <div className="w-7 h-7 rounded-md bg-[var(--accent)]/10 flex items-center justify-center shrink-0 mt-0.5">
-              <Icon size={14} className="text-[var(--accent)]" />
-            </div>
-            <span className="text-sm text-[var(--text-secondary)] leading-snug">{text}</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="mt-auto">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)] font-medium mb-2.5">
-          Открыть в
-        </p>
-        <div className="flex flex-col gap-2">
-          {CHANNELS.map(({ title, href, Icon, external }) => {
-            const cls =
-              'flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 hover:bg-[var(--bg-hover)] hover:border-[var(--accent)]/30 transition-all duration-200 group';
-            const inner = (
-              <>
-                <Icon className="h-6 w-6 shrink-0" />
-                <span className="text-sm font-semibold text-[var(--text-primary)]">{title}</span>
-                <ArrowUpRight className="h-3.5 w-3.5 text-[var(--text-muted)] ml-auto group-hover:text-[var(--accent)] transition-colors duration-200" />
-              </>
-            );
-            if (external) {
-              return (
-                <a key={title} href={href} target="_blank" rel="noopener noreferrer" className={cls}>
-                  {inner}
-                </a>
+          <p className="text-[9px] uppercase tracking-[0.22em] text-[var(--text-muted)] font-medium mb-3">
+            Открыть в
+          </p>
+          <div className="flex flex-col gap-2 max-w-xs">
+            {CHANNELS.map(({ title, href, Icon, external }) => {
+              const cls =
+                'flex items-center gap-3 border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 hover:border-[var(--accent)]/40 hover:bg-[var(--bg-hover)] transition-all duration-300 group';
+              const inner = (
+                <>
+                  <Icon className="h-6 w-6 shrink-0" />
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{title}</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-[var(--text-muted)] ml-auto group-hover:text-[var(--accent)] transition-colors duration-300" />
+                </>
               );
-            }
-            return (
-              <Link key={title} href={href} className={cls}>
-                {inner}
-              </Link>
-            );
-          })}
+              if (external) {
+                return (
+                  <a key={title} href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+                    {inner}
+                  </a>
+                );
+              }
+              return (
+                <Link key={title} href={href} className={cls}>
+                  {inner}
+                </Link>
+              );
+            })}
+          </div>
         </div>
+
+        {/* Right: abilities editorial list */}
+        <div className="px-4 md:px-12 py-14 md:py-20 flex flex-col justify-center">
+          <ul className="flex flex-col">
+            {ABILITIES.map(({ Icon, text }, i) => (
+              <li key={i} className="border-t border-[var(--border)] py-6 flex items-start gap-4">
+                <div className="w-7 h-7 border border-[var(--accent)]/25 flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon size={13} className="text-[var(--accent)]" />
+                </div>
+                <span className="text-sm text-[var(--text-secondary)] leading-snug">{text}</span>
+              </li>
+            ))}
+            <li className="border-t border-[var(--border)]" />
+          </ul>
+        </div>
+
       </div>
     </section>
   );

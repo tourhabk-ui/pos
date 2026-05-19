@@ -1,14 +1,14 @@
-# KamchatourHub × МЧС — Интеграция для спасения жизней
+# Ведар × МЧС — Интеграция для спасения жизней
 
 **Дата:** Март 2026
-**Автор:** KamchatourHub (tourhab.ru)
+**Автор:** Ведар (vedarai.ru)
 **Контакт:** [email / телефон]
 
 ---
 
 ## 1. О СИСТЕМЕ
 
-KamchatourHub — платформа туристических маршрутов Камчатки. На платформе:
+Ведар — платформа туристических маршрутов Камчатки. На платформе:
 - **1189 маршрутов** (вулканы, рыбалка, термальные источники, пещеры, горы)
 - **~1000+ туристов/месяц**
 - **~50 активных туристических операторов**
@@ -58,7 +58,7 @@ Guide включает приложение → система знает:
 Вместо того чтобы писать в Telegram пост, МЧС может **pushить alert напрямую**:
 
 ```bash
-curl -X POST https://tourhab.ru/api/mches/alert \
+curl -X POST https://vedarai.ru/api/mches/alert \
   -H "Authorization: Bearer MCHES_API_KEY_XXXXX" \
   -H "Content-Type: application/json" \
   -d '{
@@ -90,7 +90,7 @@ curl -X POST https://tourhab.ru/api/mches/alert \
 МЧС может видеть **где сейчас все группы**:
 
 ```bash
-GET https://tourhab.ru/api/mches/groups-live?zone=avachinsky
+GET https://vedarai.ru/api/mches/groups-live?zone=avachinsky
 
 Response:
 {
@@ -211,7 +211,7 @@ Guide нажимает SOS → приложение отправляет:
 **После инцидента система автоматически собирает:**
 
 ```
-POST https://tourhab.ru/api/mches/incident/{sos_id}/report
+POST https://vedarai.ru/api/mches/incident/{sos_id}/report
 
 {
   "incident_id": "inc_abc123",
@@ -321,7 +321,7 @@ Content-Type: application/json
 ```bash
 # МЧС: "Лавинная опасность на Авачинском до 18:00"
 
-curl -X POST https://tourhab.ru/api/mches/alert \
+curl -X POST https://vedarai.ru/api/mches/alert \
   -H "Authorization: Bearer ..." \
   -d '{
     "alert_type": "avalanche",
@@ -343,7 +343,7 @@ curl -X POST https://tourhab.ru/api/mches/alert \
 ```bash
 # МЧС: "Сейчас какие группы на северном участке?"
 
-curl -X GET "https://tourhab.ru/api/mches/groups-live?zone=northern" \
+curl -X GET "https://vedarai.ru/api/mches/groups-live?zone=northern" \
   -H "Authorization: Bearer ..."
 
 # РЕЗУЛЬТАТ:
@@ -410,7 +410,7 @@ Guide: нажимает красную кнопку SOS в приложении
 
 ## 8. КОНТАКТЫ
 
-**KamchatourHub:**
+**Ведар:**
 - Основатель/CTO: [имя, телефон]
 - Email: [email]
 - Telegram: [ссылка]
