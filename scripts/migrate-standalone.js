@@ -26,6 +26,30 @@ function isAlreadyExistsError(msg) {
     || l.includes('already have');
 }
 
+// Parse a postgres URL robustly — handles passwords with special chars (#, ?, @, =, >)
+// that confuse WHATWG URL / pg's built-in connection-string parser.
+function parseDbUrl(rawUrl) {
+  const trimmed = rawUrl.trim().replace(/^['"]+|['"]+$/g, '');
+  // Regex: tolerates any characters in the password (greedy, backtracked by regex engine).
+  const m = trimmed.match(
+    /^(postgres(?:ql)?:\/\/)([^:/?#]+):(.+)@([^:/?#@]+):(\d+)\/([^?#\s]+)/i
+  );
+  if (!m) return null;
+  const [, , user, password, host, port, database] = m;
+  const dec = v => { try { return decodeURIComponent(v); } catch { return v; } };
+  const useSSL = trimmed.includes('sslmode=verify-full')
+    ? { rejectUnauthorized: true, ca: process.env.DB_SSL_CA || undefined }
+    : trimmed.includes('ssl=true') || trimmed.includes('sslmode=require')
+      ? { rejectUnauthorized: false }
+      : undefined;
+  return {
+    user: dec(user), password: dec(password),
+    host: process.env.DB_HOST_IP || host,
+    port: parseInt(port, 10), database,
+    ssl: useSSL,
+  };
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -33,14 +57,16 @@ async function main() {
     return;
   }
 
+  const parsed = parseDbUrl(databaseUrl);
+  if (!parsed) {
+    console.error('[migrate] Could not parse DATABASE_URL — skipping');
+    return;
+  }
+  console.log('[migrate] connecting host=' + parsed.host + ':' + parsed.port + '/db=' + parsed.database);
+
   const { Pool } = require('pg');
   const pool = new Pool({
-    connectionString: databaseUrl,
-    ssl: databaseUrl.includes('sslmode=verify-full')
-      ? { rejectUnauthorized: true, ca: process.env.DB_SSL_CA || undefined }
-      : databaseUrl.includes('ssl=true') || databaseUrl.includes('sslmode=require')
-        ? { rejectUnauthorized: false }
-        : undefined,
+    ...parsed,
     connectionTimeoutMillis: 15000,
   });
 
