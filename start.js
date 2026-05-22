@@ -10,15 +10,35 @@ const SERVER_PORT = PORT === 3001 ? 3002 : 3001;
 
 process.stdout.write('[start] port=' + PORT + ' server_port=' + SERVER_PORT + ' node=' + process.version + ' pid=' + process.pid + '\n');
 
+// Track whether Next.js is ready to receive traffic.
+let serverReady = false;
+
 // Proxy: answers health checks IMMEDIATELY (before Next.js is ready).
 // All other traffic forwarded to Next.js on SERVER_PORT.
+// While Next.js is starting, non-health requests get a 503 + auto-refresh page.
 // host header fixed to '127.0.0.1' — required by Next.js 15 DNS-rebinding check.
 const proxy = http.createServer((req, res) => {
-  if (['/api/health', '/api/ready', '/health', '/ready'].includes(req.url)) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', pid: process.pid }));
+  const urlPath = req.url ? req.url.split('?')[0] : '/';
+
+  // Answer health/ready checks from any path that looks like a health check.
+  // Timeweb may use / or /api/health or /health — we answer all of them during boot.
+  const isHealthPath = ['/api/health', '/api/ready', '/health', '/ready'].includes(urlPath);
+
+  if (isHealthPath || !serverReady) {
+    // During boot: health endpoints always 200; other paths get 503 + refresh.
+    if (isHealthPath) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', pid: process.pid, ready: serverReady }));
+      return;
+    }
+    // Non-health request while server not ready yet.
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5' });
+    res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Starting…</title>' +
+      '<meta http-equiv="refresh" content="4"></head><body style="font-family:sans-serif;text-align:center;padding:60px">' +
+      '<h2>Vedarai — starting…</h2><p>Page will refresh automatically.</p></body></html>');
     return;
   }
+
   const p = http.request(
     { hostname: '127.0.0.1', port: SERVER_PORT, path: req.url, method: req.method,
       headers: { ...req.headers, host: '127.0.0.1',
@@ -28,6 +48,8 @@ const proxy = http.createServer((req, res) => {
     r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); }
   );
   p.on('error', () => {
+    // Next.js dropped — mark not ready so next health check returns 200 but users see loading.
+    serverReady = false;
     res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5' });
     res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Starting…</title>' +
       '<meta http-equiv="refresh" content="4"></head><body style="font-family:sans-serif;text-align:center;padding:60px">' +
@@ -36,12 +58,16 @@ const proxy = http.createServer((req, res) => {
   req.pipe(p);
 });
 
-// Bind proxy BEFORE migrations — event loop stays free so health checks are answered.
+proxy.on('error', err => {
+  process.stderr.write('[proxy] listen error: ' + err.message + '\n');
+  process.exit(1);
+});
+
+// Bind proxy BEFORE anything else — health checks answered immediately.
 proxy.listen(PORT, '0.0.0.0', () =>
   process.stdout.write('[proxy] listening on :' + PORT + '\n'));
 
 // Run migrations ASYNC (spawn, not execFileSync) so event loop is never blocked.
-// Resolves when done, errors, or times out — server always starts afterwards.
 function runMigrations() {
   return new Promise(resolve => {
     const script = path.join(__dirname, 'scripts', 'migrate-standalone.js');
@@ -117,14 +143,34 @@ function spawnServer() {
     stdio: 'inherit', cwd,
   });
 
+  // Poll until Next.js is actually accepting connections, then flip the ready flag.
+  function pollReady() {
+    const probe = http.request({ hostname: '127.0.0.1', port: SERVER_PORT, path: '/api/health', method: 'GET' }, r => {
+      if (r.statusCode < 500) {
+        serverReady = true;
+        process.stdout.write('[server] ready — forwarding traffic\n');
+      } else {
+        setTimeout(pollReady, 1000);
+      }
+      r.resume();
+    });
+    probe.on('error', () => setTimeout(pollReady, 1000));
+    probe.end();
+  }
+  setTimeout(pollReady, 2000);
+
   child.on('error', err => {
     process.stderr.write('[server] spawn error: ' + err.message + '\n');
+    serverReady = false;
     setTimeout(spawnServer, 3000);
   });
   child.on('exit', (code, signal) => {
     process.stderr.write('[server] exited code=' + code + ' signal=' + signal + ' — restart in 3s\n');
+    serverReady = false;
     setTimeout(spawnServer, 3000);
   });
 }
 
-runMigrations().then(spawnServer);
+// Start migrations and server IN PARALLEL — don't wait 25s for DB timeout before booting.
+runMigrations(); // fire-and-forget
+spawnServer();
