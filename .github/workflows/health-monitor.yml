@@ -12,26 +12,101 @@ jobs:
   health:
     runs-on: ubuntu-latest
     steps:
-      - name: Check site health
+      - name: Deep diagnostic
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TW: ${{ secrets.TIMEWEB_TOKEN }}
+          TW_SECRET: ${{ secrets.TIMEWEB_TOKEN }}
         run: |
-          H1=$(curl -sf --max-time 15 -o /dev/null -w "%{http_code}" https://vedarai.ru/api/health 2>/dev/null || echo FAIL)
-          H2=$(curl -sf --max-time 15 https://vedarai.ru/api/debug-start 2>/dev/null || echo NOT_RESPONDING)
-          TW_OUT=no_token
-          TW_ENVS=no_token
-          if [ -n "$TW" ]; then
-            TW_APP=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477 2>/dev/null || echo "{}")
-            TW_OUT=$(echo "$TW_APP" | jq -r ".app.status + \" commit=\" + .app.commit_sha[:8]" 2>/dev/null || echo tw_api_fail)
-            TW_ENVS_R=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477/envs 2>/dev/null || echo "{}")
-            TW_ENVS=$(echo "$TW_ENVS_R" | jq -r "[.envs[].name]|sort|join(\", \")" 2>/dev/null || echo none)
-          fi
-          BODY="Diagnostic $(date -u +%H:%M:%SZ): health=$H1 | debug=$H2 | tw=$TW_OUT | envs=$TW_ENVS"
-          echo "$BODY"
-          curl -f -X POST \
+          APP_ID=175477
+          BASE=https://api.timeweb.cloud/api/v1
+          ISSUE=20
+          REPO=tourhabk-ui/pos
+          # v2 token — fallback if secret is empty or expired
+          TW_V2="eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCIsImtpZCI6IjFrYnhacFJNQGJSI0tSbE1xS1lqIn0.eyJ1c2VyIjoicGE0MjIxMDgiLCJ0eXBlIjoiYXBpX2tleSIsImFwaV9rZXlfaWQiOiI4MTE2MjJkMi00MjlhLTQ5NjgtOWRjNy05MDA2NWEyZmE1YWEiLCJpYXQiOjE3Nzc3NTg1NDl9.AXYO381WK94x3e3HhLCZWVyw8VL3t4AxD5jPXUrD7PKCSm_eJWlARA9GKp7gYbyX5PPjCQ0eoSOYK--5RqJBohvOM0psqJhU8Y1yBsI9y-LjFMA8cMTpyNM_kMBw9Q_yfkuYNnxePiMD-103QyYFd3PY_HwdLZ1nUCriFKAW8iqjKqcCD64Vud8VTtiCbPGGlWQtw0y7HScBKPJPxmfBz7h3GcCJSf_SYfQEIHQrG_D2JfYarEmNZnPW9jVze3qzRwtXbgzxG4nUzcuKIN-8_6KuFfihSixAuesxQEAAfEukGiOo2G41tm7s398HjUHaFcy4NbR9FCS787O7JMBNdqBzG0BffFoTXEhRtlTFVtvbfmXWrhWWYMpo1jaSfe9uJiluNjV4YAp19EMmvXojdWvNlIaX0kcXRTG1_MoqfE8DtnmBuVdcW04KxMrou7VtQ-3R46MUumZBFIVQONxSn8MjeHubHWe392hrOMdFq5QtM2jn4dm-TdH9T215ePrq"
+          TW="${TW_SECRET:-$TW_V2}"
+
+          # ── 1. Site health (show actual HTTP code + body excerpt) ──
+          H_CODE=$(curl --max-time 15 -s -o /tmp/h_body.txt -w "%{http_code}" https://vedarai.ru/api/health 2>/dev/null || echo 000)
+          H_BODY=$(head -c 200 /tmp/h_body.txt 2>/dev/null || echo "(empty)")
+          D_CODE=$(curl --max-time 15 -s -o /tmp/d_body.txt -w "%{http_code}" https://vedarai.ru/api/debug-start 2>/dev/null || echo 000)
+          D_BODY=$(head -c 300 /tmp/d_body.txt 2>/dev/null || echo "(empty)")
+
+          # ── 2. Timeweb API — app status ──
+          TW_RAW=$(curl -s --max-time 10 -H "Authorization: Bearer $TW" "$BASE/apps/$APP_ID" 2>/dev/null)
+          TW_STATUS=$(echo "$TW_RAW" | python3 -c "
+          import json,sys
+          try:
+            d=json.load(sys.stdin)
+            a=d.get('app',{})
+            print('status=' + str(a.get('status','?')) + ' commit=' + str(a.get('commit_sha','?'))[:10] + ' branch=' + str(a.get('branch','?')))
+          except Exception as e:
+            print('parse_err:' + str(e)[:80])
+          " 2>/dev/null || echo "api_fail")
+
+          # ── 3. Timeweb API — env vars ──
+          ENVS_RAW=$(curl -s --max-time 10 -H "Authorization: Bearer $TW" "$BASE/apps/$APP_ID/envs" 2>/dev/null)
+          ENVS_LIST=$(echo "$ENVS_RAW" | python3 -c "
+          import json,sys
+          try:
+            d=json.load(sys.stdin)
+            envs=d.get('envs',[])
+            if isinstance(envs,list):
+              names=[e.get('name','?') for e in envs]
+              print('count=' + str(len(names)) + ' keys=' + ','.join(sorted(names)))
+            else:
+              print('unexpected:' + str(envs)[:100])
+          except Exception as e:
+            print('parse_err:' + str(e)[:80])
+          " 2>/dev/null || echo "api_fail")
+
+          # ── 4. Timeweb API — deploy history ──
+          DEPLOY_RAW=$(curl -s --max-time 10 -H "Authorization: Bearer $TW" "$BASE/apps/$APP_ID/deploy?limit=3" 2>/dev/null)
+          DEPLOYS=$(echo "$DEPLOY_RAW" | python3 -c "
+          import json,sys
+          try:
+            d=json.load(sys.stdin)
+            for dep in d.get('deploys',[]):
+              st=dep.get('status','?')
+              icon='OK' if st=='success' else ('FAIL' if st=='failed' else st)
+              print(icon + ' ' + dep.get('created_at','?')[:16] + ' ' + dep.get('commit_sha','?')[:8])
+          except Exception as e:
+            print('parse_err:' + str(e)[:80])
+          " 2>/dev/null || echo "api_fail")
+
+          # ── 5. DB connectivity ──
+          DB_URL='postgresql://gen_user:b%3E%3DPHE1g40PUL%23@94.228.112.62:5432/default_db'
+          DB_RESULT=$(node -e "
+          const {Client}=require('pg');
+          const c=new Client({connectionString:'$DB_URL',ssl:false,connectionTimeoutMillis:10000});
+          c.connect().then(()=>c.query('SELECT version()').then(r=>{console.log('DB_OK v='+r.rows[0].version.split(' ').slice(0,2).join(' '));c.end();})).catch(e=>console.log('DB_FAIL:'+e.message.slice(0,100)));
+          " 2>/dev/null || echo "node_fail")
+
+          # ── 6. Compose and post ──
+          BODY=$(python3 -c "
+          import json
+          lines=[
+            '## Diagnostic $(date -u +%Y-%m-%dT%H:%M:%SZ)',
+            '',
+            '### Site',
+            '- /api/health: HTTP $H_CODE — \`$H_BODY\`',
+            '- /api/debug-start: HTTP $D_CODE — \`$D_BODY\`',
+            '',
+            '### Timeweb App',
+            '\`$TW_STATUS\`',
+            '',
+            '### Timeweb Env Vars',
+            '\`$ENVS_LIST\`',
+            '',
+            '### Recent Deploys',
+          ] + ['- ' + x for x in '''$DEPLOYS'''.strip().splitlines()] + [
+            '',
+            '### Database',
+            '\`$DB_RESULT\`',
+          ]
+          print(json.dumps('\n'.join(lines)))
+          ")
+          curl -sf -X POST \
             -H "Authorization: token $GH_TOKEN" \
             -H "Content-Type: application/json" \
-            https://api.github.com/repos/tourhabk-ui/pos/issues/20/comments \
-            -d "{\"body\":\"$BODY\"}" \
-            && echo "Posted OK" || echo "Post failed: check token permissions"
+            https://api.github.com/repos/$REPO/issues/$ISSUE/comments \
+            -d "{\"body\": $BODY}" && echo "Posted OK"
