@@ -1,0 +1,218 @@
+name: Fix — DB Private IP Connection
+
+# Автоматически находит новый приватный IP базы "Reasonable Erinome"
+# и обновляет DATABASE_URL в приложении "Fair Polydeuces" (id=175477)
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_password:
+        description: 'Пароль базы данных (из панели Timeweb → БД → Подключение → .env)'
+        required: true
+      confirm:
+        description: 'Введи "fix" для подтверждения обновления env и редеплоя'
+        required: true
+        default: ''
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+
+    steps:
+      - name: Find DB cluster and private IP
+        id: db_info
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Searching for DB cluster..."
+          echo "════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/dbs")
+          echo "GET /dbs → HTTP $HTTP"
+
+          # Try alternate endpoints if /dbs doesn't work
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "$BASE/databases")
+            echo "GET /databases → HTTP $HTTP"
+          fi
+
+          cat /tmp/dbs.json | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except:
+              print('Could not parse JSON')
+              sys.exit(1)
+
+          # Try different response shapes
+          clusters = (d.get('dbs') or d.get('databases') or d.get('clusters') or
+                      d.get('db_clusters') or [])
+
+          if not clusters and isinstance(d, list):
+              clusters = d
+
+          print(f'Found {len(clusters)} cluster(s)')
+          for c in clusters:
+              name = c.get('name', '')
+              host = (c.get('host') or c.get('ip') or c.get('private_host') or
+                      c.get('private_ip') or c.get('network_info',{}).get('host') or '?')
+              port = c.get('port', 5432)
+              db_id = c.get('id', '?')
+              print(f'  id={db_id} name={name!r} host={host} port={port}')
+              if 'erinome' in name.lower() or 'reasonable' in name.lower():
+                  print(f'::notice::FOUND TARGET: id={db_id} host={host}')
+                  with open('/tmp/target_host.txt', 'w') as f:
+                      f.write(str(host))
+                  with open('/tmp/target_port.txt', 'w') as f:
+                      f.write(str(port))
+          " 2>&1 || echo "Python parse failed, raw response:"
+
+          if [ ! -f /tmp/target_host.txt ]; then
+            echo "::warning::Could not auto-detect host, showing raw response:"
+            cat /tmp/dbs.json | python3 -m json.tool 2>/dev/null | head -80 || cat /tmp/dbs.json | head -80
+          fi
+
+      - name: Build new DATABASE_URL
+        id: build_url
+        run: |
+          # Get host from previous step or fallback
+          if [ -f /tmp/target_host.txt ]; then
+            DB_HOST=$(cat /tmp/target_host.txt)
+            DB_PORT=$(cat /tmp/target_port.txt 2>/dev/null || echo "5432")
+          else
+            echo "::error::Could not determine DB host automatically"
+            echo "Check the output above for the correct private IP"
+            exit 1
+          fi
+
+          DB_PASS="${{ inputs.db_password }}"
+          DB_USER="gen_user"
+          DB_NAME="default_db"
+
+          NEW_URL="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+          echo "New DATABASE_URL host: $DB_HOST:$DB_PORT"
+          echo "DB_URL=$NEW_URL" >> $GITHUB_ENV
+
+      - name: Update app env vars
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Updating DATABASE_URL in app..."
+          echo "════════════════════════════════════"
+
+          # Get current envs to preserve all other vars
+          curl -s -o /tmp/current_envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          # Build update payload: replace DATABASE_URL and DATABASE_SSL
+          python3 -c "
+          import json, os
+
+          new_url = os.environ['DB_URL']
+
+          try:
+              d = json.load(open('/tmp/current_envs.json'))
+              envs = d.get('envs', [])
+          except:
+              envs = []
+
+          # Remove old DATABASE_URL and DATABASE_SSL entries
+          envs = [e for e in envs if e.get('name') not in ('DATABASE_URL', 'DATABASE_SSL')]
+
+          # Add updated values
+          envs.append({'name': 'DATABASE_URL', 'value': new_url, 'is_secret': True})
+          envs.append({'name': 'DATABASE_SSL', 'value': 'false', 'is_secret': False})
+
+          payload = json.dumps({'envs': envs})
+          with open('/tmp/update_payload.json', 'w') as f:
+              f.write(payload)
+
+          print(f'Payload has {len(envs)} env vars')
+          print('Updated DATABASE_URL and DATABASE_SSL=false')
+          " 2>&1
+
+          # Try PUT first, then PATCH
+          HTTP=$(curl -s -o /tmp/update_result.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/update_payload.json \
+            "$BASE/apps/$APP_ID/envs")
+          echo "PUT /envs → HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "201" ]; then
+            HTTP=$(curl -s -o /tmp/update_result.json -w "%{http_code}" \
+              -X PATCH \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/update_payload.json \
+              "$BASE/apps/$APP_ID/envs")
+            echo "PATCH /envs → HTTP $HTTP"
+          fi
+
+          cat /tmp/update_result.json | python3 -m json.tool 2>/dev/null | head -30 || cat /tmp/update_result.json | head -30
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo "✅ Env vars updated"
+          else
+            echo "::error::Failed to update env vars (HTTP $HTTP)"
+            exit 1
+          fi
+
+      - name: Trigger redeploy
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Triggering redeploy..."
+          echo "════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/deploy_result.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$BASE/apps/$APP_ID/deploy")
+
+          echo "POST /deploy → HTTP $HTTP"
+          cat /tmp/deploy_result.json | python3 -m json.tool 2>/dev/null | head -20
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo ""
+            echo "════════════════════════════════════════════════"
+            echo "✅ REDEPLOY TRIGGERED"
+            echo "   Watch: https://app.timeweb.cloud/apps/$APP_ID"
+            echo "   Site:  https://vedarai.ru/api/health"
+            echo "════════════════════════════════════════════════"
+          else
+            echo "::warning::Deploy trigger returned HTTP $HTTP (may still work)"
+          fi
+
+      - name: Dry run notice
+        if: ${{ inputs.confirm != 'fix' }}
+        run: |
+          echo "════════════════════════════════════════════════"
+          echo "  DRY RUN — no changes made"
+          echo "  To apply: re-run with confirm='fix'"
+          echo "════════════════════════════════════════════════"
+
+      - name: Verify site
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "Waiting 90s for deploy to complete..."
+          sleep 90
+          for i in 1 2 3; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://vedarai.ru/api/health" 2>/dev/null || echo "0")
+            echo "Attempt $i: vedarai.ru/api/health → HTTP $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "✅ SITE IS UP"
+              break
+            fi
+            sleep 30
+          done
