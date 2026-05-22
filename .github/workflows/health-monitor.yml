@@ -4,12 +4,15 @@ on:
     paths:
       - .trigger-health
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   health:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Check vedarai.ru
+      - name: Check site health
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TW: ${{ secrets.TIMEWEB_TOKEN }}
@@ -19,21 +22,16 @@ jobs:
           TW_OUT=no_token
           TW_ENVS=no_token
           if [ -n "$TW" ]; then
-            TW_OUT=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477 2>/dev/null | jq -r ".app | \"status=\" + .status + \" commit=\" + .commit_sha[:8]" 2>/dev/null || echo tw_api_fail)
-            TW_ENVS=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477/envs 2>/dev/null | jq -r "[.envs[].name]|sort|join(\", \")" 2>/dev/null || echo none)
+            TW_APP=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477 2>/dev/null || echo "{}")
+            TW_OUT=$(echo "$TW_APP" | jq -r ".app.status + \" commit=\" + .app.commit_sha[:8]" 2>/dev/null || echo tw_api_fail)
+            TW_ENVS_R=$(curl -sf --max-time 10 -H "Authorization: Bearer $TW" https://api.timeweb.cloud/api/v1/apps/175477/envs 2>/dev/null || echo "{}")
+            TW_ENVS=$(echo "$TW_ENVS_R" | jq -r "[.envs[].name]|sort|join(\", \")" 2>/dev/null || echo none)
           fi
-          cat > diagnostic-result.txt << EOF
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-health_http=$H1
-debug_start=$H2
-tw_app=$TW_OUT
-tw_envs=$TW_ENVS
-EOF
-          cat diagnostic-result.txt
-      - name: Commit results
-        run: |
-          git config user.email "action@github.com"
-          git config user.name "GitHub Action"
-          git add diagnostic-result.txt
-          git diff --staged --quiet || git commit -m "chore: diagnostic results [skip ci]"
-          git push
+          BODY="Diagnostic $(date -u +%H:%M:%SZ): health=$H1 | debug=$H2 | tw=$TW_OUT | envs=$TW_ENVS"
+          echo "$BODY"
+          curl -f -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/tourhabk-ui/pos/issues/20/comments \
+            -d "{\"body\":\"$BODY\"}" \
+            && echo "Posted OK" || echo "Post failed: check token permissions"
