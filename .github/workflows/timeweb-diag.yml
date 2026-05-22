@@ -1,75 +1,59 @@
-name: Timeweb — Production Diagnostic
-
+name: Timeweb Diagnostic
 on:
   workflow_dispatch:
 
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    env:
-      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
-      APP_ID: "175477"
-      BASE: "https://api.timeweb.cloud/api/v1"
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      ISSUE_NUMBER: "20"
-      REPO: "tourhabk-ui/pos"
-
     steps:
-      - name: Collect all info and post to issue
+      - name: Collect status and post to issue
+        env:
+          TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OUTPUT=""
+          APP_ID="175477"
+          BASE="https://api.timeweb.cloud/api/v1"
 
-          # ── App Status ──
-          APP_JSON=$(curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/apps/$APP_ID" 2>&1 || echo '{"error":"api_failed"}')
-          APP_STATUS=$(echo "$APP_JSON" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-app=d.get('app',{})
-print('**App status:** ' + app.get('status','?'))
-print('**Commit:** ' + app.get('commit_sha','?')[:10])
-print('**Branch:** ' + app.get('branch','?'))
-print('**Domain:** ' + app.get('fqdn','?'))
-" 2>/dev/null || echo "**App API:** $APP_JSON")
-          OUTPUT="$OUTPUT\n## App Status\n$APP_STATUS"
+          APP=$(curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/apps/$APP_ID" 2>/dev/null || echo '{}')
+          ENVS=$(curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/apps/$APP_ID/envs" 2>/dev/null || echo '{}')
+          H1=$(curl -sf --max-time 15 -o /dev/null -w '%{http_code}' 'https://vedarai.ru/api/health' 2>/dev/null || echo 'FAIL')
+          H2=$(curl -sf --max-time 15 'https://vedarai.ru/api/debug-start' 2>/dev/null || echo '{"err":"not_responding"}')
 
-          # ── Env Vars (names only) ──
-          ENVS_JSON=$(curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/apps/$APP_ID/envs" 2>&1 || echo '{"error":"api_failed"}')
-          ENV_STATUS=$(echo "$ENVS_JSON" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-envs=d.get('envs',[])
-names=sorted([e.get('name','?') for e in envs]) if isinstance(envs,list) else list(envs.keys())
-print('**Env vars set (' + str(len(names)) + '):**')
-for n in names:
-    print('- ' + n)
-" 2>/dev/null || echo "**Envs API:** $ENVS_JSON")
-          OUTPUT="$OUTPUT\n\n## Env Variables\n$ENV_STATUS"
+          python3 - "$APP" "$ENVS" "$H1" "$H2" "$GH_TOKEN" <<'ENDPY'
+import json, sys, urllib.request, datetime
 
-          # ── Deploy history ──
-          DEPLOY_JSON=$(curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/apps/$APP_ID/deploy?limit=3" 2>&1 || echo '{"error":"api_failed"}')
-          DEPLOY_STATUS=$(echo "$DEPLOY_JSON" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-deploys=d.get('deploys',[])
-print('**Last 3 deploys:**')
-for dep in deploys:
-    icon='✅' if dep.get('status')=='success' else ('❌' if dep.get('status')=='failed' else '🟡')
-    print(f\"- {icon} {dep.get('created_at','?')[:19]} — {dep.get('commit_sha','?')[:7]} — {dep.get('status','?')}\")
-" 2>/dev/null || echo "**Deploys API:** $DEPLOY_JSON")
-          OUTPUT="$OUTPUT\n\n## Deploy History\n$DEPLOY_STATUS"
+app_raw, envs_raw, h1, h2_raw, token = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 
-          # ── Site health check ──
-          HEALTH=$(curl -sf --max-time 10 "https://vedarai.ru/api/health" 2>/dev/null && echo "UP (200)" || echo "DOWN / unreachable")
-          DEBUG=$(curl -sf --max-time 10 "https://vedarai.ru/api/debug-start" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print('Next.js UP — node=' + d.get('node','?') + ' uptime=' + str(int(d.get('uptime',0))) + 's env=' + str(d.get('env',{})))" 2>/dev/null || echo "Next.js not responding")
-          OUTPUT="$OUTPUT\n\n## Site Health\n- **/api/health:** $HEALTH\n- **/api/debug-start:** $DEBUG"
+a = json.loads(app_raw).get('app', {})
+e = json.loads(envs_raw).get('envs', [])
+names = sorted([x.get('name','?') for x in e]) if isinstance(e, list) else list(e.keys())
 
-          # ── Post to issue ──
-          BODY=$(printf '%s' "$OUTPUT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
-          curl -sf -X POST \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
-            -d "{\"body\": $BODY}" > /dev/null
+try:
+    d2 = json.loads(h2_raw)
+    debug = f"node={d2.get('node','?')} uptime={int(d2.get('uptime',0))}s DB={d2.get('env',{}).get('DATABASE_URL','?')} JWT={d2.get('env',{}).get('JWT_SECRET','?')}"
+except Exception:
+    debug = h2_raw[:200]
 
-          echo "Posted results to issue #$ISSUE_NUMBER"
-          printf '%b\n' "$OUTPUT"
+ts = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+body = f"""## Timeweb Diagnostic {ts}
+
+**App:** status={a.get('status','?')} commit={str(a.get('commit_sha','?'))[:10]} branch={a.get('branch','?')}
+
+**Env vars ({len(names)}):**
+{chr(10).join('- '+n for n in names)}
+
+**Health:**
+- /api/health: HTTP {h1}
+- /api/debug-start: {debug}
+"""
+
+data = json.dumps({'body': body}).encode()
+req = urllib.request.Request(
+    'https://api.github.com/repos/tourhabk-ui/pos/issues/20/comments',
+    data=data,
+    headers={'Authorization': 'token ' + token, 'Content-Type': 'application/json'}
+)
+urllib.request.urlopen(req)
+print(body)
+print('Posted to issue #20')
+ENDPY
