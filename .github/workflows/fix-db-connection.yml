@@ -6,11 +6,8 @@ name: Fix — DB Private IP Connection
 on:
   workflow_dispatch:
     inputs:
-      db_password:
-        description: 'Пароль базы данных (из панели Timeweb → БД → Подключение → .env)'
-        required: true
       confirm:
-        description: 'Введи "fix" для подтверждения обновления env и редеплоя'
+        description: 'Введи "fix" для применения изменений и редеплоя'
         required: true
         default: ''
 
@@ -23,19 +20,19 @@ jobs:
       BASE: "https://api.timeweb.cloud/api/v1"
 
     steps:
-      - name: Find DB cluster and private IP
+      - name: Find DB cluster, private IP and password
         id: db_info
         run: |
           echo "════════════════════════════════════"
-          echo "  Searching for DB cluster..."
+          echo "  Searching for DB clusters..."
           echo "════════════════════════════════════"
 
+          # Try /dbs endpoint
           HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN" \
             "$BASE/dbs")
           echo "GET /dbs → HTTP $HTTP"
 
-          # Try alternate endpoints if /dbs doesn't work
           if [ "$HTTP" != "200" ]; then
             HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
               -H "Authorization: Bearer $TOKEN" \
@@ -43,62 +40,121 @@ jobs:
             echo "GET /databases → HTTP $HTTP"
           fi
 
-          cat /tmp/dbs.json | python3 -c "
-          import json, sys
-          try:
-              d = json.load(sys.stdin)
-          except:
-              print('Could not parse JSON')
-              sys.exit(1)
+          python3 << 'PYEOF'
+          import json, subprocess, os
 
-          # Try different response shapes
+          try:
+              d = json.load(open('/tmp/dbs.json'))
+          except Exception as e:
+              print(f'JSON parse error: {e}')
+              with open('/tmp/dbs.json') as f:
+                  print(f.read()[:2000])
+              exit(1)
+
           clusters = (d.get('dbs') or d.get('databases') or d.get('clusters') or
                       d.get('db_clusters') or [])
-
           if not clusters and isinstance(d, list):
               clusters = d
 
           print(f'Found {len(clusters)} cluster(s)')
+          target = None
           for c in clusters:
               name = c.get('name', '')
               host = (c.get('host') or c.get('ip') or c.get('private_host') or
-                      c.get('private_ip') or c.get('network_info',{}).get('host') or '?')
-              port = c.get('port', 5432)
-              db_id = c.get('id', '?')
-              print(f'  id={db_id} name={name!r} host={host} port={port}')
+                      c.get('private_ip') or
+                      (c.get('network_info') or {}).get('host') or '?')
+              port = str(c.get('port', 5432))
+              db_id = str(c.get('id', '?'))
+              pwd = (c.get('password') or c.get('master_password') or
+                     c.get('db_password') or '')
+              print(f'  id={db_id} name={name!r} host={host} port={port} has_pwd={bool(pwd)}')
               if 'erinome' in name.lower() or 'reasonable' in name.lower():
-                  print(f'::notice::FOUND TARGET: id={db_id} host={host}')
-                  with open('/tmp/target_host.txt', 'w') as f:
-                      f.write(str(host))
-                  with open('/tmp/target_port.txt', 'w') as f:
-                      f.write(str(port))
-          " 2>&1 || echo "Python parse failed, raw response:"
+                  target = c
+                  print(f'  >>> TARGET FOUND: {name}')
+                  open('/tmp/target_host.txt','w').write(host)
+                  open('/tmp/target_port.txt','w').write(port)
+                  if pwd:
+                      open('/tmp/target_pwd.txt','w').write(pwd)
+                  # Also dump full cluster details for inspection
+                  # Mask password in output
+                  safe = dict(c)
+                  for k in ('password','master_password','db_password'):
+                      if k in safe:
+                          safe[k] = '***'
+                  print(f'  Full details: {json.dumps(safe, indent=2)[:500]}')
 
-          if [ ! -f /tmp/target_host.txt ]; then
-            echo "::warning::Could not auto-detect host, showing raw response:"
-            cat /tmp/dbs.json | python3 -m json.tool 2>/dev/null | head -80 || cat /tmp/dbs.json | head -80
-          fi
+          if not target:
+              print('::warning::Target cluster not found by name — showing all:')
+              for c in clusters:
+                  safe = {k:('***' if 'pass' in k.lower() else v) for k,v in c.items()}
+                  print(json.dumps(safe, indent=2)[:300])
+              # Use first cluster as fallback
+              if clusters:
+                  c = clusters[0]
+                  host = (c.get('host') or c.get('ip') or c.get('private_host') or
+                          c.get('private_ip') or '?')
+                  port = str(c.get('port', 5432))
+                  open('/tmp/target_host.txt','w').write(host)
+                  open('/tmp/target_port.txt','w').write(port)
+                  pwd = (c.get('password') or c.get('master_password') or '')
+                  if pwd:
+                      open('/tmp/target_pwd.txt','w').write(pwd)
+                  print(f'Using first cluster: host={host}')
+          PYEOF
+
+      - name: Try to get password from current app DATABASE_URL
+        run: |
+          # Read existing DATABASE_URL from app env vars (if not secret-masked)
+          curl -s -o /tmp/app_envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          python3 << 'PYEOF'
+          import json, re, os
+
+          if os.path.exists('/tmp/target_pwd.txt'):
+              print('Password already obtained from DB cluster API')
+              exit(0)
+
+          try:
+              d = json.load(open('/tmp/app_envs.json'))
+              envs = d.get('envs', [])
+          except:
+              envs = []
+
+          for e in envs:
+              if e.get('name') == 'DATABASE_URL':
+                  val = e.get('value', '')
+                  if val and val != '***' and '@' in val:
+                      # Extract password from postgresql://user:PASS@host:port/db
+                      m = re.match(r'postgres(?:ql)?://[^:]+:([^@]+)@', val)
+                      if m:
+                          pwd = m.group(1)
+                          from urllib.parse import unquote
+                          pwd = unquote(pwd)
+                          open('/tmp/target_pwd.txt','w').write(pwd)
+                          print(f'Password extracted from existing DATABASE_URL')
+                      break
+
+          if not os.path.exists('/tmp/target_pwd.txt'):
+              print('::error::Could not obtain DB password automatically.')
+              print('::error::Please re-run this workflow and add DB_PASSWORD input.')
+              print('To find password: Timeweb → БД Reasonable Erinome → Подключение → .env')
+              exit(1)
+          PYEOF
 
       - name: Build new DATABASE_URL
         id: build_url
         run: |
-          # Get host from previous step or fallback
-          if [ -f /tmp/target_host.txt ]; then
-            DB_HOST=$(cat /tmp/target_host.txt)
-            DB_PORT=$(cat /tmp/target_port.txt 2>/dev/null || echo "5432")
-          else
-            echo "::error::Could not determine DB host automatically"
-            echo "Check the output above for the correct private IP"
-            exit 1
-          fi
-
-          DB_PASS="${{ inputs.db_password }}"
+          DB_HOST=$(cat /tmp/target_host.txt)
+          DB_PORT=$(cat /tmp/target_port.txt 2>/dev/null || echo "5432")
+          DB_PASS=$(cat /tmp/target_pwd.txt)
           DB_USER="gen_user"
           DB_NAME="default_db"
 
           NEW_URL="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-          echo "New DATABASE_URL host: $DB_HOST:$DB_PORT"
-          echo "DB_URL=$NEW_URL" >> $GITHUB_ENV
+          echo "New DATABASE_URL: postgresql://gen_user:***@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+          echo "DB_URL=${NEW_URL}" >> $GITHUB_ENV
 
       - name: Update app env vars
         if: ${{ inputs.confirm == 'fix' }}
