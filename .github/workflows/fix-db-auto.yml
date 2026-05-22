@@ -57,7 +57,8 @@ jobs:
           # Using hostname instead of hardcoded IP survives network migrations.
 
           DB_PWD='b>=PHE1g40PUL#'
-          NEW_URL="postgresql://gen_user:${DB_PWD}@8ad609fcbfd2ad0bd069be47.twc1.net:5432/default_db"
+          # New private IP after Timeweb network migration (May 10)
+          NEW_URL="postgresql://gen_user:b%3E%3DPHE1g40PUL%23@192.168.0.4:5432/default_db"
 
           curl -s -o /tmp/envs.json \
             -H "Authorization: Bearer $TOKEN" \
@@ -66,7 +67,7 @@ jobs:
           python3 << PYEOF
           import json, os
 
-          new_url = "postgresql://gen_user:b>=PHE1g40PUL#@8ad609fcbfd2ad0bd069be47.twc1.net:5432/default_db"
+          new_url = "postgresql://gen_user:b%3E%3DPHE1g40PUL%23@192.168.0.4:5432/default_db"
 
           d = json.load(open('/tmp/envs.json'))
           envs = d.get('envs', [])
@@ -79,7 +80,7 @@ jobs:
 
           payload = json.dumps({'envs': envs})
           open('/tmp/update.json', 'w').write(payload)
-          print(f'Prepared update: {len(envs)} vars, DB host=8ad609fcbfd2ad0bd069be47.twc1.net')
+          print(f'Prepared update: {len(envs)} vars, DB host=192.168.0.4')
           PYEOF
 
           # Try PUT
