@@ -48,4 +48,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # start.js: health proxy на :3000, Next.js на :3001
 # Критично для Timeweb healthcheck (таймаут 3 минуты)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
+  CMD curl -sf http://localhost:3000/api/health || exit 1
+
 CMD ["node", "start.js"]

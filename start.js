@@ -5,7 +5,8 @@ const path = require('path');
 const fs = require('fs');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const SERVER_PORT = 3001;
+// SERVER_PORT must differ from PORT to avoid bind conflict when Timeweb overrides PORT.
+const SERVER_PORT = PORT === 3001 ? 3002 : 3001;
 
 // Proxy: health checks answered immediately; real requests forwarded to Next.js.
 // host header fixed to '127.0.0.1' — required by Next.js 15 DNS-rebinding check.
@@ -26,7 +27,13 @@ const proxy = http.createServer((req, res) => {
     { hostname: '127.0.0.1', port: SERVER_PORT, path: req.url, method: req.method, headers: forwardedHeaders },
     r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); }
   );
-  p.on('error', () => { res.writeHead(503); res.end('starting'); });
+  p.on('error', () => {
+    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Starting...</title>' +
+      '<meta http-equiv="refresh" content="4"></head><body style="font-family:sans-serif;text-align:center;padding:60px">' +
+      '<h2>Vedarai starting up...</h2><p>Refreshing automatically...</p></body></html>';
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '5' });
+    res.end(html);
+  });
   req.pipe(p);
 });
 proxy.listen(PORT, '0.0.0.0', () => process.stdout.write('[proxy] listening on :' + PORT + '\n'));
@@ -36,7 +43,7 @@ const migrateScript = path.join(__dirname, 'scripts', 'migrate-standalone.js');
 if (fs.existsSync(migrateScript)) {
   try {
     execFileSync('node', [migrateScript], {
-      env: process.env, stdio: 'inherit', cwd: __dirname, timeout: 60000,
+      env: process.env, stdio: 'inherit', cwd: __dirname, timeout: 20000,
     });
   } catch (e) {
     process.stderr.write('[migrate] error (continuing): ' + e.message + '\n');
