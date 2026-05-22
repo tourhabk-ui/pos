@@ -39,74 +39,72 @@ if (fs.existsSync(migrateScript)) {
       env: process.env, stdio: 'inherit', cwd: __dirname, timeout: 60000,
     });
   } catch (e) {
-    process.stderr.write('[migrate] error during startup (continuing): ' + e.message + '\n');
+    process.stderr.write('[migrate] error (continuing): ' + e.message + '\n');
   }
 }
 
 // Detect which server binary to use:
-//
-//   1. Our Dockerfile (multi-stage):
-//      .next/standalone/ → /app/, so server.js is at /app/server.js
-//
-//   2. Timeweb buildpack (npm ci → npm run build → npm start):
-//      server.js is at /app/.next/standalone/server.js
-//      Static assets must be copied into the standalone dir before starting.
-//
-//   3. Last resort: `next start`
+//   1. Our Dockerfile: .next/standalone/ → /app/, so server.js lands at /app/server.js
+//   2. Timeweb buildpack: server.js at /app/.next/standalone/server.js, copy static first
+//   3. Last resort: next start
 
 const standaloneAtRoot  = path.join(__dirname, 'server.js');
 const standaloneInBuild = path.join(__dirname, '.next', 'standalone', 'server.js');
 const nextBin           = path.join(__dirname, 'node_modules', '.bin', 'next');
 
-let child;
+process.stdout.write('[start] dir=' + __dirname + '\n');
+process.stdout.write('[start] server.js@root=' + fs.existsSync(standaloneAtRoot) + '\n');
+process.stdout.write('[start] server.js@build=' + fs.existsSync(standaloneInBuild) + '\n');
+process.stdout.write('[start] node=' + process.version + '\n');
 
-if (fs.existsSync(standaloneAtRoot)) {
-  // Case 1: Our multi-stage Docker build
-  process.stdout.write('[start] mode=docker-standalone\n');
-  child = spawn('node', [standaloneAtRoot], {
-    env: { ...process.env, PORT: String(SERVER_PORT), HOSTNAME: '127.0.0.1' },
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
+function spawnServer() {
+  let cmd, args, cwd, label;
 
-} else if (fs.existsSync(standaloneInBuild)) {
-  // Case 2: Timeweb buildpack — standalone server exists, copy static files first
-  process.stdout.write('[start] mode=timeweb-standalone\n');
-  const standaloneDir = path.join(__dirname, '.next', 'standalone');
-
-  const copies = [
-    { src: path.join(__dirname, '.next', 'static'), dst: path.join(standaloneDir, '.next', 'static') },
-    { src: path.join(__dirname, 'public'),           dst: path.join(standaloneDir, 'public') },
-  ];
-  for (const { src, dst } of copies) {
-    if (fs.existsSync(src) && !fs.existsSync(dst)) {
-      try {
-        fs.cpSync(src, dst, { recursive: true });
-        process.stdout.write('[start] copied ' + path.basename(src) + ' -> standalone/\n');
-      } catch (e) {
-        process.stderr.write('[start] copy failed (' + path.basename(src) + '): ' + e.message + '\n');
+  if (fs.existsSync(standaloneAtRoot)) {
+    label = 'docker-standalone';
+    cmd   = 'node';
+    args  = [standaloneAtRoot];
+    cwd   = __dirname;
+  } else if (fs.existsSync(standaloneInBuild)) {
+    label = 'timeweb-standalone';
+    const standaloneDir = path.join(__dirname, '.next', 'standalone');
+    const copies = [
+      { src: path.join(__dirname, '.next', 'static'), dst: path.join(standaloneDir, '.next', 'static') },
+      { src: path.join(__dirname, 'public'),           dst: path.join(standaloneDir, 'public') },
+    ];
+    for (const { src, dst } of copies) {
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        try { fs.cpSync(src, dst, { recursive: true }); } catch (e) {
+          process.stderr.write('[start] copy failed: ' + e.message + '\n');
+        }
       }
     }
+    cmd  = 'node';
+    args = [standaloneInBuild];
+    cwd  = standaloneDir;
+  } else {
+    label = 'next-start';
+    cmd   = 'node';
+    args  = [nextBin, 'start', '-p', String(SERVER_PORT), '-H', '127.0.0.1'];
+    cwd   = __dirname;
   }
 
-  child = spawn('node', [standaloneInBuild], {
+  process.stdout.write('[start] mode=' + label + '\n');
+  const child = spawn(cmd, args, {
     env: { ...process.env, PORT: String(SERVER_PORT), HOSTNAME: '127.0.0.1' },
     stdio: 'inherit',
-    cwd: standaloneDir,
+    cwd,
   });
 
-} else {
-  // Case 3: Fallback
-  process.stdout.write('[start] mode=next-start (fallback)\n');
-  child = spawn('node', [nextBin, 'start', '-p', String(SERVER_PORT), '-H', '127.0.0.1'], {
-    env: { ...process.env, PORT: String(SERVER_PORT), HOSTNAME: '127.0.0.1' },
-    stdio: 'inherit',
-    cwd: __dirname,
+  child.on('error', err => {
+    process.stderr.write('[server] spawn error: ' + err.message + '\n');
+    setTimeout(spawnServer, 3000);
+  });
+
+  child.on('exit', (code, signal) => {
+    process.stderr.write('[server] exited code=' + code + ' signal=' + signal + ' — restarting in 3s\n');
+    setTimeout(spawnServer, 3000);
   });
 }
 
-child.on('error', err => process.stderr.write('[server] failed to start: ' + err.message + '\n'));
-child.on('exit', (code, signal) => {
-  process.stderr.write('[server] exited: code=' + code + ' signal=' + signal + '\n');
-  process.exit(code || 1);
-});
+spawnServer();
