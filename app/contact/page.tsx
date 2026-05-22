@@ -12,14 +12,14 @@ export const metadata: Metadata = {
     'Петропавловск-Камчатский туры',
     'заявка на тур Камчатка',
   ],
-  alternates: { canonical: 'https://tourhab.ru/contact' },
+  alternates: { canonical: 'https://vedarai.ru/contact' },
   openGraph: {
     title: 'Оставить заявку на тур по Камчатке',
     description: 'Подбор маршрута по Камчатке: вулканы, рыбалка, горячие источники, экспедиции с локальными операторами.',
-    url: 'https://tourhab.ru/contact',
+    url: 'https://vedarai.ru/contact',
     type: 'website',
     locale: 'ru_RU',
-    siteName: 'TourHab',
+    siteName: 'Ведар',
   },
   twitter: {
     card: 'summary_large_image',
@@ -32,9 +32,9 @@ export default function ContactPage() {
   const localBusinessSchema = {
     '@context': 'https://schema.org',
     '@type': 'LocalBusiness',
-    name: 'TourHab',
-    url: 'https://tourhab.ru/contact',
-    image: 'https://tourhab.ru/og-image.jpg',
+    name: 'Ведар',
+    url: 'https://vedarai.ru/contact',
+    image: 'https://vedarai.ru/og-image.jpg',
     telephone: '+7 (914) 782-22-22',
     address: {
       '@type': 'PostalAddress',

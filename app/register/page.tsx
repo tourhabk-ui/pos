@@ -4,7 +4,9 @@ export const dynamic = 'force-dynamic';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Calendar, Users, Phone, Shield, AlertTriangle, Download, ArrowLeft, Trash2, CheckCircle, Loader2 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
+import { MapPin, Calendar, Users, Phone, Shield, AlertTriangle, Download, ArrowLeft, Trash2, CheckCircle, Loader2, Copy, Check } from 'lucide-react';
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -29,6 +31,14 @@ export default function RegisterRoutePage() {
   const [submitted, setSubmitted] = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedReturn, setCopiedReturn] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!submitted || !registrationId || !qrCanvasRef.current) return;
+    const returnUrl = `${window.location.origin}/return?id=${registrationId}`;
+    QRCode.toCanvas(qrCanvasRef.current, returnUrl, { width: 160, margin: 1 }).catch(() => undefined);
+  }, [submitted, registrationId]);
 
   const [routeName, setRouteName] = useState('');
   const [routeDescription, setRouteDescription] = useState('');
@@ -170,6 +180,35 @@ export default function RegisterRoutePage() {
               <p className="text-xs text-[var(--text-muted)]">г. Петропавловск-Камчатский, ул. Ленинская, 28</p>
             </div>
           </div>
+
+          {/* Return notification block */}
+          {registrationId && (
+            <div className="ds-card p-4 mb-6 text-left">
+              <p className="font-semibold text-sm text-[var(--text-primary)] mb-1">Когда вернётесь — отметьтесь</p>
+              <p className="text-xs text-[var(--text-muted)] mb-3">
+                Сохраните ссылку или QR-код — после возвращения нажмите, чтобы закрыть маршрут и остановить эскалацию.
+              </p>
+              <div className="flex items-start gap-4">
+                <canvas ref={qrCanvasRef} className="rounded-lg shrink-0" style={{ width: 96, height: 96 }} />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <p className="text-xs text-[var(--text-muted)] break-all font-mono">
+                    /return?id={registrationId.slice(0, 8)}…
+                  </p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(`${window.location.origin}/return?id=${registrationId}`).then(() => {
+                        setCopiedReturn(true);
+                        setTimeout(() => setCopiedReturn(false), 2000);
+                      });
+                    }}
+                    className="ds-btn ds-btn-secondary text-xs flex items-center gap-1.5 w-full justify-center"
+                  >
+                    {copiedReturn ? <><Check className="w-3.5 h-3.5 text-[var(--success)]" /> Скопировано</> : <><Copy className="w-3.5 h-3.5" /> Копировать ссылку</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <button onClick={() => router.push('/map')} className="ds-btn ds-btn-primary w-full">
             Вернуться к карте
@@ -353,7 +392,7 @@ export default function RegisterRoutePage() {
                 <input type="checkbox" checked={contactConsent} onChange={e => setContactConsent(e.target.checked)} className="mt-1 w-4 h-4 rounded accent-[var(--accent)]" />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Контакт <strong>{emergencyName || '___'}</strong> согласен получать уведомления
-                  от TourHab о статусе маршрута (Telegram / Email).
+                  от Ведар о статусе маршрута (Telegram / Email).
                 </span>
               </label>
             </div>
@@ -393,7 +432,7 @@ export default function RegisterRoutePage() {
                     или лично в Главное управление МЧС России по Камчатскому краю.
                   </p>
                   <p className="text-xs text-[var(--text-muted)] mt-2">
-                    TourHab не гарантирует получение уведомления экстренным контактом
+                    Ведар не гарантирует получение уведомления экстренным контактом
                     и не несёт ответственности за реакцию третьих лиц.
                   </p>
                 </div>
@@ -403,7 +442,7 @@ export default function RegisterRoutePage() {
                 <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-1 w-4 h-4 rounded accent-[var(--accent)]" />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Я понимаю что это <strong>не официальная регистрация</strong> и
-                  TourHab <strong>не является службой спасения</strong>.
+                  Ведар <strong>не является службой спасения</strong>.
                   Я самостоятельно подам заявку в МЧС.
                 </span>
               </label>

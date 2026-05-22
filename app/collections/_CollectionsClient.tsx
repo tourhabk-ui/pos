@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BookOpen, Mountain, Flame, Leaf, Users } from 'lucide-react';
+import { BookOpen, Mountain, Flame, Leaf, Users, AlertCircle } from 'lucide-react';
 import Image from 'next/image';
 
 interface Collection {
@@ -67,15 +67,18 @@ function CollectionCard({ col }: { col: Collection }) {
 export function CollectionsClient() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
   useEffect(() => {
+    setFetchError(false);
     const url = activeTag
       ? `/api/collections?tag=${encodeURIComponent(activeTag)}`
       : '/api/collections';
     fetch(url)
       .then(r => r.json())
       .then(d => setCollections(d.collections ?? []))
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, [activeTag]);
 
@@ -125,10 +128,15 @@ export function CollectionsClient() {
               </div>
             ))}
           </div>
+        ) : fetchError ? (
+          <div className="flex items-center gap-3 p-5 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)]">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <p className="text-sm">Не удалось загрузить подборки. Проверьте соединение и попробуйте позже.</p>
+          </div>
         ) : collections.length === 0 ? (
           <div className="text-center py-20 text-[var(--text-muted)]">
             <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
-            <p>Подборок пока нет</p>
+            <p>{activeTag ? `Подборок с тегом «${activeTag}» нет` : 'Подборок пока нет'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

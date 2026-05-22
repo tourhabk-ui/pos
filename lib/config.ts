@@ -6,7 +6,7 @@ export const config = {
     name: 'Kamchatour Hub',
     version: '1.0.0',
     description: 'Современная туристическая платформа для Камчатского края',
-    url: process.env.NEXT_PUBLIC_APP_URL || 'https://tourhab.ru',
+    url: process.env.NEXT_PUBLIC_APP_URL || 'https://vedarai.ru',
     environment: process.env.NODE_ENV || 'development',
     debug: process.env.NODE_ENV === 'development',
   },
@@ -156,7 +156,7 @@ export const config = {
           pass: process.env.SMTP_PASS || '',
         },
       },
-      from: process.env.EMAIL_FROM || 'noreply@tourhab.ru',
+      from: process.env.EMAIL_FROM || 'noreply@vedarai.ru',
     },
     sms: {
       smsRu: {
@@ -192,7 +192,7 @@ export const config = {
   // Настройки безопасности
   security: {
     cors: {
-      origin: process.env.CORS_ORIGIN?.split(',') || ['https://tourhab.ru'],
+      origin: process.env.CORS_ORIGIN?.split(',') || ['https://vedarai.ru'],
       credentials: true,
     },
     rateLimit: {

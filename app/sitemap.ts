@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { CATEGORY_SLUGS } from '@/lib/routes/category-meta';
 
-const BASE = 'https://tourhab.ru';
+const BASE = 'https://vedarai.ru';
 
 const LOCATION_PRIORITY: Record<string, number> = {
   volcano:    0.8,

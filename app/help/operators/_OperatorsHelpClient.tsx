@@ -73,7 +73,7 @@ export default function OperatorsHelpClient() {
             <span className="text-sm font-medium text-[var(--accent)] uppercase tracking-wider">Для операторов</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold text-[var(--text-primary)] mb-3" style={{ fontFamily: 'var(--font-playfair)' }}>
-            Инструкция оператора TourHab
+            Инструкция оператора Ведар
           </h1>
           <p className="text-[var(--text-secondary)] text-lg max-w-2xl">
             Полное руководство: от регистрации до первой выплаты. Размещайте туры, принимайте бронирования и выходите на международные OTA.
@@ -107,7 +107,7 @@ export default function OperatorsHelpClient() {
           <h2 className="ds-h2 mb-6">Как начать работу</h2>
           <div className="ds-card p-6 space-y-0">
             <Step num={1} icon={UserPlus} title="Регистрация"
-              desc="Перейдите на tourhab.ru/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
+              desc="Перейдите на vedarai.ru/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
             <Step num={2} icon={Shield} title="Проверка и одобрение"
               desc="После регистрации заявка поступает в очередь администраторов. Среднее время проверки — 1 рабочий день. Вы получите уведомление на email и в Telegram о статусе заявки." />
             <Step num={3} icon={Package} title="Заполнение профиля"
@@ -215,7 +215,7 @@ export default function OperatorsHelpClient() {
             },
             {
               q: 'Что если турист требует возврат?',
-              a: 'Обратитесь в поддержку через раздел «Уведомления» или напрямую admin@tourhab.ru. Возврат рассматривается индивидуально согласно правилам отмены тура. Если тур отменён по вине оператора — возврат 100%.',
+              a: 'Обратитесь в поддержку через раздел «Уведомления» или напрямую admin@vedarai.ru. Возврат рассматривается индивидуально согласно правилам отмены тура. Если тур отменён по вине оператора — возврат 100%.',
             },
           ]} />
         </section>
@@ -238,11 +238,11 @@ export default function OperatorsHelpClient() {
           <Accordion items={[
             {
               q: 'Что нужно для подключения к OTA?',
-              a: 'Ничего дополнительного от вас не требуется — OCTO API уже настроен для всех туров на платформе. Администратор TourHab создаёт API-ключ и подаёт заявку на партнёрство с OTA. После одобрения ваши туры появляются автоматически.',
+              a: 'Ничего дополнительного от вас не требуется — OCTO API уже настроен для всех туров на платформе. Администратор Ведар создаёт API-ключ и подаёт заявку на партнёрство с OTA. После одобрения ваши туры появляются автоматически.',
             },
             {
               q: 'Изменится ли цена для иностранных туристов?',
-              a: 'Базовая цена та же, что вы указываете в системе. OTA могут добавлять собственную наценку. Вы получаете выплату по вашей цене минус комиссия TourHab.',
+              a: 'Базовая цена та же, что вы указываете в системе. OTA могут добавлять собственную наценку. Вы получаете выплату по вашей цене минус комиссия Ведар.',
             },
             {
               q: 'Как работают динамические цены в OTA?',
@@ -256,7 +256,7 @@ export default function OperatorsHelpClient() {
           <h2 className="ds-h2 mb-4">Поддержка операторов</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { icon: Mail, title: 'Email', value: 'operators@tourhab.ru', desc: 'Ответ в течение 4 часов в рабочее время' },
+              { icon: Mail, title: 'Email', value: 'operators@vedarai.ru', desc: 'Ответ в течение 4 часов в рабочее время' },
               { icon: MessageSquare, title: 'Telegram', value: '@tourhab_support', desc: 'Быстрые вопросы — отвечаем в мессенджере' },
               { icon: Clock, title: 'Рабочее время', value: 'Пн–Пт 9:00–18:00', desc: 'Камчатское время (UTC+12)' },
             ].map(({ icon: Icon, title, value, desc }) => (

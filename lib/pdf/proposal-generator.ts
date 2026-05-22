@@ -3,7 +3,7 @@
  * Использует PDFKit (чистый Node.js, без браузера).
  *
  * Структура PDF:
- *   — Шапка: логотип TourHab + дата
+ *   — Шапка: логотип Ведар + дата
  *   — Заголовок: персонализированный headline
  *   — Секция "Для вас подобрали": summary
  *   — Highlights: 4 ключевых преимущества
@@ -29,7 +29,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
       margins: { top: 60, bottom: 60, left: 60, right: 60 },
       info: {
         Title: proposal.headline,
-        Author: 'TourHab — Камчатка',
+        Author: 'Ведар — Камчатка',
         Subject: `Персональное предложение для ${clientName}`,
         CreationDate: new Date(),
       },
@@ -55,7 +55,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
     doc.fillColor('#FFFFFF')
        .fontSize(22)
        .font('Helvetica-Bold')
-       .text('TourHab', 60, 28);
+       .text('Ведар', 60, 28);
 
     doc.fontSize(10)
        .font('Helvetica')
@@ -226,12 +226,12 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
     doc.fillColor('#FFFFFF')
        .fontSize(10)
        .font('Helvetica-Bold')
-       .text('TourHab — Туризм на Камчатке', 60, footerY);
+       .text('Ведар — Туризм на Камчатке', 60, footerY);
 
     doc.fillColor('#9A9590')
        .fontSize(9)
        .font('Helvetica')
-       .text('tourhab.ru · Предложение действительно 7 дней', 60, footerY + 18);
+       .text('vedarai.ru · Предложение действительно 7 дней', 60, footerY + 18);
 
     doc.fillColor('#9A9590')
        .fontSize(8)

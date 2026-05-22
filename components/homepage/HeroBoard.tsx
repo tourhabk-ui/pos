@@ -13,6 +13,7 @@ const IMAGES = [
 export function HeroBoard() {
   const [visible, setVisible] = useState(false);
   const [imgIdx, setImgIdx] = useState(0);
+  const [loaded, setLoaded] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 80);
@@ -20,65 +21,74 @@ export function HeroBoard() {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setImgIdx(i => (i + 1) % IMAGES.length), 6000);
+    const id = setInterval(() => setImgIdx(i => (i + 1) % IMAGES.length), 7000);
     return () => clearInterval(id);
   }, []);
 
   return (
-    <section className="relative overflow-hidden" style={{ minHeight: '78vh' }}>
-      {/* Slideshow background */}
+    <section
+      className="relative overflow-hidden"
+      style={{
+        minHeight: '82vh',
+        background: 'linear-gradient(160deg, #1a0f0a 0%, #3d1c0c 25%, #5c2d16 45%, #2a3a4a 70%, #111c28 100%)',
+      }}
+    >
       {IMAGES.map((src, i) => (
         <div
           key={src}
-          className="absolute inset-0 transition-opacity duration-1000"
-          style={{ opacity: imgIdx === i ? 1 : 0 }}
+          className="absolute inset-0 transition-opacity duration-1200"
+          style={{ opacity: imgIdx === i && loaded.has(i) ? 1 : 0, transitionDuration: '1200ms' }}
         >
           <img
             src={src}
             alt="Камчатка"
             className="w-full h-full object-cover object-center"
             loading={i === 0 ? 'eager' : 'lazy'}
+            fetchPriority={i === 0 ? 'high' : 'auto'}
+            onLoad={() => setLoaded(prev => new Set(prev).add(i))}
           />
         </div>
       ))}
 
-      {/* Gradient overlay: photo at top, bg-primary at bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/55 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-[var(--bg-primary)]/40 to-transparent" />
+      {/* Refined overlay — let the photo breathe */}
+      <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[var(--bg-primary)]/30 to-transparent" />
 
-      {/* Content anchored to bottom-left */}
-      <div
-        className="relative z-10 flex flex-col justify-end"
-        style={{ minHeight: '78vh' }}
-      >
-        <div className="max-w-7xl mx-auto w-full px-4 md:px-8 pb-16 md:pb-24">
+      <div className="relative z-10 flex flex-col justify-end" style={{ minHeight: '82vh' }}>
+        <div className="max-w-7xl mx-auto w-full px-4 md:px-8 pb-20 md:pb-28">
+
+          {/* Thin accent rule — animates in */}
+          <div
+            className={`h-px bg-[var(--accent)] mb-7 transition-all duration-700 ${
+              visible ? 'opacity-100 w-10' : 'opacity-0 w-0'
+            }`}
+          />
+
           <p
-            className={`mb-4 text-[11px] font-semibold tracking-[0.35em] uppercase text-[var(--accent)] transition-all duration-500 ${
+            className={`mb-4 text-[10px] font-semibold tracking-[0.4em] uppercase text-[var(--accent)] transition-all duration-500 ${
               visible ? 'opacity-100' : 'opacity-0 translate-y-2'
             }`}
           >
-            Туристическая платформа Камчатки
+            Камчатка · штурман туриста
           </p>
 
           <h1
-            className={`font-playfair font-bold leading-[1.05] text-[var(--text-primary)] transition-all duration-700 delay-100 ${
+            className={`font-playfair font-bold leading-[1.03] text-[var(--text-primary)] transition-all duration-700 delay-100 ${
               visible ? 'opacity-100' : 'opacity-0 translate-y-4'
             }`}
-            style={{ fontSize: 'clamp(2.4rem, 6vw, 5rem)' }}
+            style={{ fontSize: 'clamp(2.6rem, 6.5vw, 5.5rem)' }}
           >
-            Камчатка,{' '}
-            <span className="text-[var(--accent)]">которую вы почувствуете</span>
-            <br />
-            по-настоящему
+            Знай{' '}
+            <em className="not-italic text-[var(--accent)] italic">куда идёшь</em>
           </h1>
 
           <p
-            className={`mt-5 mb-8 max-w-lg text-base leading-relaxed text-[var(--text-secondary)] transition-all duration-700 delay-200 ${
+            className={`mt-6 mb-9 max-w-md text-base leading-relaxed text-[var(--text-secondary)] transition-all duration-700 delay-200 ${
               visible ? 'opacity-100' : 'opacity-0 translate-y-4'
             }`}
           >
-            Не маркетплейс туров — персональный инструмент планирования.
-            AI, живая карта и только проверенные операторы.
+            778 мест, 294 маршрута, реальные опасности и статус вулканов —
+            всё что нужно до выхода на маршрут.
           </p>
 
           <div
@@ -99,16 +109,16 @@ export function HeroBoard() {
         </div>
       </div>
 
-      {/* Slideshow dots */}
-      <div className="absolute bottom-6 right-6 z-10 flex gap-1.5">
+      {/* Thin bar indicators */}
+      <div className="absolute bottom-7 right-7 z-10 flex gap-1.5 items-center">
         {IMAGES.map((_, i) => (
           <button
             key={i}
             onClick={() => setImgIdx(i)}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
+            className={`rounded-full transition-all duration-500 ${
               imgIdx === i
-                ? 'w-6 bg-[var(--accent)]'
-                : 'w-1.5 bg-[var(--text-muted)]/50'
+                ? 'w-7 h-1 bg-[var(--accent)]'
+                : 'w-2.5 h-1 bg-white/30 hover:bg-white/50'
             }`}
             aria-label={`Фото ${i + 1}`}
           />

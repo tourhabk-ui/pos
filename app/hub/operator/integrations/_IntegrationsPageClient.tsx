@@ -112,10 +112,28 @@ export default function IntegrationsPageClient() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[var(--accent)]/20 border-t-[var(--accent)] rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[var(--text-muted)]">Загрузка интеграций...</p>
+      <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+        <div className="space-y-1">
+          <div className="h-6 w-56 bg-[var(--bg-hover)] rounded" />
+          <div className="h-4 w-72 bg-[var(--bg-hover)] rounded" />
+        </div>
+        <div className="grid gap-5">
+          {[1,2].map(i => (
+            <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start gap-4">
+                  <div className="w-14 h-14 bg-[var(--bg-hover)] rounded-md" />
+                  <div className="space-y-2">
+                    <div className="h-5 w-40 bg-[var(--bg-hover)] rounded" />
+                    <div className="h-4 w-24 bg-[var(--bg-hover)] rounded" />
+                  </div>
+                </div>
+                <div className="h-8 w-28 bg-[var(--bg-hover)] rounded-lg" />
+              </div>
+              <div className="h-4 w-full bg-[var(--bg-hover)] rounded" />
+              <div className="h-4 w-3/4 bg-[var(--bg-hover)] rounded mt-2" />
+            </div>
+          ))}
         </div>
       </div>
     );

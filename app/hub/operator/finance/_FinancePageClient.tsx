@@ -199,8 +199,27 @@ export default function FinancePageClient() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+      <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+        <div className="h-5 w-24 bg-[var(--bg-hover)] rounded" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[1,2,3].map(i => (
+            <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+              <div className="h-3 w-20 bg-[var(--bg-hover)] rounded" />
+              <div className="h-6 w-28 bg-[var(--bg-hover)] rounded" />
+              <div className="h-3 w-32 bg-[var(--bg-hover)] rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+          <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+          {[1,2,3,4,5].map(i => (
+            <div key={i} className="flex items-center justify-between py-2 border-b border-[var(--border)]">
+              <div className="h-4 w-36 bg-[var(--bg-hover)] rounded" />
+              <div className="h-4 w-20 bg-[var(--bg-hover)] rounded" />
+              <div className="h-5 w-16 bg-[var(--bg-hover)] rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

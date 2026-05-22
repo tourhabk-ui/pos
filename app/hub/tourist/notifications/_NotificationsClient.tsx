@@ -127,8 +127,17 @@ export default function NotificationsClient() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-2 animate-pulse">
+            {[1,2,3,4,5].map(i => (
+              <div key={i} className="flex items-start gap-3 p-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
+                <div className="w-8 h-8 bg-[var(--bg-hover)] rounded-full shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 bg-[var(--bg-hover)] rounded w-3/4" />
+                  <div className="h-3 bg-[var(--bg-hover)] rounded w-1/2" />
+                </div>
+                <div className="h-3 w-12 bg-[var(--bg-hover)] rounded shrink-0" />
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20">

@@ -47,7 +47,7 @@ async function getUserStats(userId: string, role: string): Promise<UserStats> {
 
 function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
   const name = ctx.name.split(' ')[0]; // только имя
-  const site = 'https://tourhab.ru';
+  const site = 'https://vedarai.ru';
 
   if (ctx.role === 'tourist') {
     const bookingLine = stats.bookings && stats.bookings > 0
@@ -116,7 +116,7 @@ function buildWelcomeText(ctx: WelcomeContext, stats: UserStats): string {
   }
 
   // Fallback
-  return `<b>Привет, ${name}!</b>\n\nЛичный канал с TourHab подключён. Здесь будут важные уведомления.`;
+  return `<b>Привет, ${name}!</b>\n\nЛичный канал с Ведар подключён. Здесь будут важные уведомления.`;
 }
 
 /**

@@ -9,7 +9,7 @@
  *   - Регистрируем URL в личном кабинете Авито → Автозагрузка
  *   - Авито сам обновляет листинги каждые несколько часов
  *   - Не нужен OAuth, не нужно одобрение API
- *   - В описании каждого тура: ссылка на tourhab.ru/hub/tour/{id}
+ *   - В описании каждого тура: ссылка на vedarai.ru/hub/tour/{id}
  *
  * РЕЖИМ 2 — REST API (после получения одобрения)
  *   - OAuth 2.0 Client Credentials
@@ -58,7 +58,7 @@ async function getToken(): Promise<string> {
 
 // ── XML Автозагрузка ───────────────────────────────────────────────────────
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tourhab.ru';
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 function escapeXml(s: string): string {
   return s
@@ -157,9 +157,9 @@ export const avitoAdapter: ChannelAdapter = {
 
   async pushBooking(_input: PushBookingInput): Promise<PushBookingResult> {
     // Авито — доска объявлений, не маркетплейс.
-    // Бронирование происходит на tourhab.ru — ссылка зашита в описание тура.
+    // Бронирование происходит на vedarai.ru — ссылка зашита в описание тура.
     // Авито используется только для генерации лидов (трафик → наш сайт).
-    return { success: false, error: 'Авито не поддерживает прямое бронирование — пользователи направляются на tourhab.ru' };
+    return { success: false, error: 'Авито не поддерживает прямое бронирование — пользователи направляются на vedarai.ru' };
   },
 
   async pollOrders(_since: Date): Promise<ChannelBooking[]> {

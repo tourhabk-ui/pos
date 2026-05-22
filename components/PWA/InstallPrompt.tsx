@@ -50,15 +50,15 @@ export function InstallPrompt() {
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-[var(--bg-card)] shadow-lg rounded-lg p-4 z-50 border border-[var(--border)]">
       <div className="flex items-start gap-3">
         {/* Иконка — SVG placeholder, будет заменена на PWA иконку */}
-        <div className="w-12 h-12 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
-          <svg className="w-6 h-6 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h3A2.5 2.5 0 0016 5.5V3.935m3 8.965a2.5 2.5 0 01-4 0m-5.055 3.035a2.5 2.5 0 01-4 0M12 2a10 10 0 100 20 10 10 0 000-20z" />
-          </svg>
-        </div>
+        <img
+          src="/icons/icon-192.png"
+          alt="Ведар"
+          className="w-12 h-12 rounded-xl shrink-0"
+        />
         <div className="flex-1">
-          <h3 className="font-medium text-[var(--text-primary)]">Камчатка в кармане</h3>
+          <h3 className="font-medium text-[var(--text-primary)]">Знай куда идёшь — офлайн</h3>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Установите приложение для офлайн-доступа к маршрутам и SOS.
+            Маршруты, карта и SOS работают без интернета. Важно на Камчатке.
           </p>
           <div className="flex gap-2 mt-3">
             <button

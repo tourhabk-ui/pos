@@ -4,7 +4,8 @@
  *
  * ?source=visitkamchatka  — паспорта маршрутов (visitkamchatka.ru)
  * ?source=kamchatkaland   — тематические статьи о местах (kamchatkaland.ru)
- * ?source=all             — оба источника (по умолчанию)
+ * ?source=idilesom        — места и маршруты (idilesom.com, через BrightData)
+ * ?source=all             — все источники
  * ?batch=N                — размер батча (default 20)
  *
  * Auth: Bearer CRON_SECRET
@@ -15,6 +16,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runVisitKamchatkaImporter } from '@/lib/agents/visitkamchatka-importer';
 import { runKamchatkalandImporter } from '@/lib/agents/kamchatkaland-importer';
 import { runPlacesEnricher } from '@/lib/agents/places-enricher';
+import { runIdilesomImporter } from '@/lib/agents/idilesom-importer';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -42,6 +44,9 @@ export async function GET(request: NextRequest) {
     }
     if (source === 'places' || source === 'all') {
       results.places = await runPlacesEnricher(batch);
+    }
+    if (source === 'idilesom') {
+      results.idilesom = await runIdilesomImporter(batch);
     }
 
     return NextResponse.json({ success: true, ...results });

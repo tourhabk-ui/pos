@@ -15,9 +15,9 @@
  * Защита: ?secret=CRON_SECRET
  *
  * Настройка cron-job.org (3 задачи):
- *   https://tourhab.ru/api/cron/kuzmich?secret=SECRET&type=route   → 21:00 UTC ежедневно
- *   https://tourhab.ru/api/cron/kuzmich?secret=SECRET&type=tip     → 02:00 UTC ежедневно
- *   https://tourhab.ru/api/cron/kuzmich?secret=SECRET&type=sezon   → 07:00 UTC ежедневно
+ *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=route   → 21:00 UTC ежедневно
+ *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=tip     → 02:00 UTC ежедневно
+ *   https://vedarai.ru/api/cron/kuzmich?secret=SECRET&type=sezon   → 07:00 UTC ежедневно
  */
 
 import { NextRequest, NextResponse } from 'next/server';

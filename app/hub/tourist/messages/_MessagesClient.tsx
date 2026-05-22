@@ -200,8 +200,16 @@ export default function MessagesClient() {
             activeId ? 'hidden md:flex' : 'flex'
           }`}>
             {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-6 h-6 animate-spin text-[var(--accent)]" />
+              <div className="flex-1 p-3 space-y-2 animate-pulse">
+                {[1,2,3].map(i => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-hover)]">
+                    <div className="w-9 h-9 bg-[var(--bg-card)] rounded-full shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3.5 bg-[var(--bg-card)] rounded w-2/3" />
+                      <div className="h-3 bg-[var(--bg-card)] rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 px-4 text-center">

@@ -15,7 +15,7 @@ const inter = Inter({
   variable: '--font-outfit', // переменная сохранена для обратной совместимости
 });
 
-const BASE_URL = 'https://tourhab.ru';
+const BASE_URL = 'https://vedarai.ru';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -26,10 +26,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: 'TourHab — помощник и планировщик путешествия по Камчатке',
-    template: '%s | TourHab Камчатка',
+    default: 'Ведар — помощник и планировщик путешествия по Камчатке',
+    template: '%s | Ведар Камчатка',
   },
-  description: 'TourHab помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
+  description: 'Ведар помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
   keywords: [
     'туры на Камчатку',
     'рыбалка Камчатка',
@@ -71,7 +71,7 @@ export const metadata: Metadata = {
     locale: 'ru_RU',
     url: BASE_URL,
     siteName: 'Kamchatour',
-    title: 'TourHab — помощник по Камчатке',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
     images: [
       {
@@ -84,7 +84,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'TourHab — помощник по Камчатке',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
     images: ['/images/hero/hero-light.jpeg'],
   },
@@ -159,15 +159,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
-                "name": "TourHab — помощник по Камчатке",
-                "url": "https://tourhab.ru",
+                "name": "Ведар — помощник по Камчатке",
+                "url": "https://vedarai.ru",
                 "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и реальные туры от проверенных операторов.",
                 "inLanguage": "ru",
                 "potentialAction": {
                   "@type": "SearchAction",
                   "target": {
                     "@type": "EntryPoint",
-                    "urlTemplate": "https://tourhab.ru/routes?q={search_term_string}"
+                    "urlTemplate": "https://vedarai.ru/routes?q={search_term_string}"
                   },
                   "query-input": "required name=search_term_string"
                 }
@@ -175,10 +175,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "TouristInformationCenter",
-                "name": "TourHab",
+                "name": "Ведар",
                 "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
-                "url": "https://tourhab.ru",
-                "logo": "https://tourhab.ru/logo-kamchatka.svg",
+                "url": "https://vedarai.ru",
+                "logo": "https://vedarai.ru/logo-kamchatka.svg",
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
@@ -214,13 +214,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "LocalBusiness",
-                "@id": "https://tourhab.ru/#localbusiness",
-                "name": "TourHab",
+                "@id": "https://vedarai.ru/#localbusiness",
+                "name": "Ведар",
                 "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
-                "url": "https://tourhab.ru",
-                "logo": "https://tourhab.ru/logo-kamchatka.svg",
+                "url": "https://vedarai.ru",
+                "logo": "https://vedarai.ru/logo-kamchatka.svg",
                 "telephone": "+7 (914) 782-22-22",
-                "email": "info@tourhab.ru",
+                "email": "info@vedarai.ru",
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
@@ -250,14 +250,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "name": "Топ достопримечательностей Камчатки",
                 "description": "Главные природные и исторические объекты Камчатки",
                 "itemListElement": [
-                  { "@type": "ListItem", "position": 1, "name": "Долина гейзеров", "url": "https://tourhab.ru/routes/796c18b3-e199-4ac6-bbd6-de50d560ff40" },
-                  { "@type": "ListItem", "position": 2, "name": "Ключевская сопка", "url": "https://tourhab.ru/routes/54b106de-d81a-42af-9a41-32ee49604309" },
-                  { "@type": "ListItem", "position": 3, "name": "Кальдера Узон", "url": "https://tourhab.ru/routes/a6330106-13d5-40f0-9c77-d252daf5b95f" },
-                  { "@type": "ListItem", "position": 4, "name": "Курильское озеро — медведи", "url": "https://tourhab.ru/routes/8ef745b1-7de3-4899-9431-809f9c8521de" },
-                  { "@type": "ListItem", "position": 5, "name": "Халактырский пляж", "url": "https://tourhab.ru/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8" },
-                  { "@type": "ListItem", "position": 6, "name": "Вулкан Горелый", "url": "https://tourhab.ru/routes/430e1a7a-a1c2-4c5a-a8fd-866817f096ac" },
-                  { "@type": "ListItem", "position": 7, "name": "Вулкан Мутновский", "url": "https://tourhab.ru/routes/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9" },
-                  { "@type": "ListItem", "position": 8, "name": "Плоский Толбачик", "url": "https://tourhab.ru/routes/fd0e39dc-36cc-4fa4-9be9-f0640b039fba" }
+                  { "@type": "ListItem", "position": 1, "name": "Долина гейзеров", "url": "https://vedarai.ru/routes/796c18b3-e199-4ac6-bbd6-de50d560ff40" },
+                  { "@type": "ListItem", "position": 2, "name": "Ключевская сопка", "url": "https://vedarai.ru/routes/54b106de-d81a-42af-9a41-32ee49604309" },
+                  { "@type": "ListItem", "position": 3, "name": "Кальдера Узон", "url": "https://vedarai.ru/routes/a6330106-13d5-40f0-9c77-d252daf5b95f" },
+                  { "@type": "ListItem", "position": 4, "name": "Курильское озеро — медведи", "url": "https://vedarai.ru/routes/8ef745b1-7de3-4899-9431-809f9c8521de" },
+                  { "@type": "ListItem", "position": 5, "name": "Халактырский пляж", "url": "https://vedarai.ru/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8" },
+                  { "@type": "ListItem", "position": 6, "name": "Вулкан Горелый", "url": "https://vedarai.ru/routes/430e1a7a-a1c2-4c5a-a8fd-866817f096ac" },
+                  { "@type": "ListItem", "position": 7, "name": "Вулкан Мутновский", "url": "https://vedarai.ru/routes/acb8f5d3-9b44-48ec-9a81-1c8c71e451b9" },
+                  { "@type": "ListItem", "position": 8, "name": "Плоский Толбачик", "url": "https://vedarai.ru/routes/fd0e39dc-36cc-4fa4-9be9-f0640b039fba" }
                 ]
               }
             ])

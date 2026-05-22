@@ -5,19 +5,19 @@ import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
 
 export const metadata: Metadata = {
-  title: 'Рыбы Камчатки — справочник видов | TourHab',
+  title: 'Рыбы Камчатки — справочник видов | Ведар',
   description:
     'Полный справочник промысловых рыб Камчатки: лосось, чавыча, нерка, кижуч, горбуша, краб, палтус. Сезоны, методы ловли, рекорды, ареалы обитания.',
   keywords: [
     'рыбы Камчатки', 'лосось Камчатка', 'чавыча', 'нерка', 'кижуч', 'горбуша',
     'рыбалка Камчатка', 'камчатский краб', 'палтус', 'рыболовные туры',
   ],
-  alternates: { canonical: 'https://tourhab.ru/fish' },
+  alternates: { canonical: 'https://vedarai.ru/fish' },
   openGraph: {
     title: 'Рыбы Камчатки — справочник видов',
     description: '15 видов промысловых рыб Камчатки: сезоны, методы ловли, рекорды.',
-    url: 'https://tourhab.ru/fish',
-    siteName: 'TourHab',
+    url: 'https://vedarai.ru/fish',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },

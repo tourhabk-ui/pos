@@ -13,7 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-const PROD_URL = 'https://tourhab.ru';
+const PROD_URL = 'https://vedarai.ru';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
 interface BoardMeetingResult {
@@ -133,7 +133,7 @@ export async function fetchInitiatives(): Promise<AgentInitiative[]> {
 export async function analyzeInitiative(init: AgentInitiative): Promise<string | null> {
   logEvent('analyzing_initiative', { title: init.title, from: init.from_name });
 
-  const prompt = `You are VibeCoder, the development director of TourHab platform.
+  const prompt = `You are VibeCoder, the development director of Ведар platform.
 
 Initiative from ${init.from_name}:
 - Type: ${init.action_type}

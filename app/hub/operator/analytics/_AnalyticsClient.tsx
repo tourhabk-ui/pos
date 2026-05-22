@@ -70,7 +70,38 @@ export default function AnalyticsClient() {
     void fetchAnalytics();
   }, [period]);
 
-  if (loading) return <div className="p-6"><LoadingSpinner message="Загрузка аналитики..." /></div>;
+  if (loading) return (
+    <div className="p-5 lg:p-6 space-y-5 animate-pulse">
+      <div className="flex items-center justify-between">
+        <div className="h-5 w-32 bg-[var(--bg-hover)] rounded" />
+        <div className="flex gap-2">
+          {[1,2,3,4].map(i => <div key={i} className="h-8 w-12 bg-[var(--bg-hover)] rounded-lg" />)}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1,2,3,4].map(i => (
+          <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+            <div className="h-3 w-24 bg-[var(--bg-hover)] rounded" />
+            <div className="h-7 w-20 bg-[var(--bg-hover)] rounded" />
+            <div className="h-3 w-16 bg-[var(--bg-hover)] rounded" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+        <div className="h-4 w-32 bg-[var(--bg-hover)] rounded" />
+        <div className="h-40 bg-[var(--bg-hover)] rounded" />
+      </div>
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
+        <div className="h-4 w-28 bg-[var(--bg-hover)] rounded" />
+        {[1,2,3].map(i => (
+          <div key={i} className="flex items-center justify-between py-2 border-b border-[var(--border)]">
+            <div className="h-4 w-40 bg-[var(--bg-hover)] rounded" />
+            <div className="h-4 w-20 bg-[var(--bg-hover)] rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   if (error) {
     return (
@@ -120,7 +151,7 @@ export default function AnalyticsClient() {
       </div>
 
       {/* Summary metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MetricCard
           icon={DollarSign}
           label="Выручка"

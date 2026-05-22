@@ -4,9 +4,9 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v8'; // bumped: auth routes bypass SW
+const CACHE_NAME = 'vedar-v1';  // bumped: auth routes bypass SW
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
-const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
+const API_CACHE_NAME = 'vedar-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
 const TILE_CACHE_PREFIX = 'kh-tiles-';

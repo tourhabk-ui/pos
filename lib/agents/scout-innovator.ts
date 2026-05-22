@@ -85,7 +85,7 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты Scout-Innovator — стратегический аналитик туристической платформы TourHab (Камчатка).
+      content: `Ты Scout-Innovator — стратегический аналитик туристической платформы Ведар (Камчатка).
 На основе собранных разведданных формируй 2-3 конкретных, выполнимых предложения для владельца платформы.
 
 Каждое предложение — это конкретное действие + ожидаемый результат (не теория).

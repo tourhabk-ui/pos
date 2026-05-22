@@ -83,8 +83,8 @@ export default function SosPage() {
     : coordsLoading ? 'Определяем...' : 'Недоступны';
 
   const smsBody = coords
-    ? `SOS! Мне нужна помощь. Мои координаты: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} — TourHab.ru`
-    : 'SOS! Мне нужна помощь — TourHab.ru';
+    ? `SOS! Мне нужна помощь. Мои координаты: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} — Ведар.ru`
+    : 'SOS! Мне нужна помощь — Ведар.ru';
 
   return (
     <div style={{

@@ -229,7 +229,7 @@ function parseRssItems(xml: string, limit = 6): RawResult[] {
 
 async function fetchRss(url: string): Promise<RawResult[]> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'TourHab-Bot/1.0' },
+    headers: { 'User-Agent': 'Ведар-Bot/1.0' },
     signal:  AbortSignal.timeout(7000),
   });
   if (!res.ok) return [];

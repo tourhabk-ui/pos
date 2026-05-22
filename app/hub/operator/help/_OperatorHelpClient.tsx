@@ -153,7 +153,7 @@ export default function OperatorHelpClient() {
       desc: 'OCTO API для подключения к OTA (Tiqets, Headout)',
       tips: [
         'Ваши туры уже доступны через OCTO API',
-        'API-ключи создаёт администратор TourHab',
+        'API-ключи создаёт администратор Ведар',
         'Webhook URL — для получения уведомлений о бронированиях из OTA',
       ],
     },
@@ -186,7 +186,7 @@ export default function OperatorHelpClient() {
           Быстрый доступ к инструкциям по каждому разделу кабинета.
           Полная инструкция:{' '}
           <Link href="/help/operators" className="text-[var(--ocean)] hover:underline inline-flex items-center gap-1">
-            tourhab.ru/help/operators <ExternalLink size={12} />
+            vedarai.ru/help/operators <ExternalLink size={12} />
           </Link>
         </p>
       </div>
@@ -266,7 +266,7 @@ export default function OperatorHelpClient() {
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Зарегистрируйтесь как оператор</p>
               <p className="text-sm text-[var(--text-secondary)] mb-2">
-                Отправьте боту команду с вашим email от аккаунта на TourHab:
+                Отправьте боту команду с вашим email от аккаунта на Ведар:
               </p>
               <div className="space-y-2">
                 <div className="bg-[var(--bg-hover)] rounded-md px-3 py-2 font-mono text-sm text-[var(--text-primary)] flex items-center justify-between">
@@ -321,8 +321,8 @@ export default function OperatorHelpClient() {
           <p className="font-semibold text-[var(--text-primary)] mb-1">Нужна помощь?</p>
           <p className="text-sm text-[var(--text-secondary)]">
             Email:{' '}
-            <a href="mailto:operators@tourhab.ru" className="text-[var(--ocean)] hover:underline">
-              operators@tourhab.ru
+            <a href="mailto:operators@vedarai.ru" className="text-[var(--ocean)] hover:underline">
+              operators@vedarai.ru
             </a>
             {' · '}
             Telegram: <span className="text-[var(--ocean)]">@tourhab_support</span>

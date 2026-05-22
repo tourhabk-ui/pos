@@ -14,7 +14,7 @@ export CRON_SECRET="93cb1fbc1f67bcab036693ef0802ed86b35edc62a938b02333ecd8819655
 export ADMIN_JWT="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 # 3. Опционально: custom URL
-export TOURHAB_URL="https://tourhab.ru"  # default
+export TOURHAB_URL="https://vedarai.ru"  # default
 ```
 
 ---
@@ -41,20 +41,20 @@ export CRON_SECRET="your_secret"
 
 ```bash
 # Проверить готовность системы
-curl https://tourhab.ru/api/agents/board-meeting/preflight \
+curl https://vedarai.ru/api/agents/board-meeting/preflight \
   -H "Authorization: Bearer $JWT"
 
 # Запустить совещание (CRON)
-curl https://tourhab.ru/api/cron/board-meeting?secret=$CRON_SECRET
+curl https://vedarai.ru/api/cron/board-meeting?secret=$CRON_SECRET
 
 # ИЛИ запустить совещание (ADMIN JWT)
-curl -X POST https://tourhab.ru/api/agents/board-meeting \
+curl -X POST https://vedarai.ru/api/agents/board-meeting \
   -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
   -d '{"topic":"Test Run"}'
 
 # Мониторить в отдельном терминале
-curl -s https://tourhab.ru/api/agents/board-meeting/debug?format=stream | jq '.'
+curl -s https://vedarai.ru/api/agents/board-meeting/debug?format=stream | jq '.'
 ```
 
 ---
@@ -220,7 +220,7 @@ data: {"timestamp":"2026-04-02T12:35:06Z","type":"done","data":{"meeting_id":"mt
 
 ```bash
 # Проверь URL
-curl https://tourhab.ru/health
+curl https://vedarai.ru/health
 
 # Или используй localhost (Codespace)
 export TOURHAB_URL="http://localhost:3000"
@@ -240,7 +240,7 @@ export CRON_SECRET="..."
 
 ```bash
 # Проверь preflight
-curl https://tourhab.ru/api/agents/board-meeting/preflight \
+curl https://vedarai.ru/api/agents/board-meeting/preflight \
   -H "Authorization: Bearer $JWT" | jq '.checks[] | select(.status=="error")'
 ```
 
@@ -248,7 +248,7 @@ curl https://tourhab.ru/api/agents/board-meeting/preflight \
 
 ```bash
 # Проверь соединение
-curl https://tourhab.ru/api/agents/board-meeting/preflight | jq '.checks[] | select(.name=="Database")'
+curl https://vedarai.ru/api/agents/board-meeting/preflight | jq '.checks[] | select(.name=="Database")'
 
 # На Timeweb: проверь env vars
 psql $DATABASE_URL -c "SELECT 1"
@@ -275,13 +275,13 @@ Debug события хранятся в памяти процесса (до 100
 
 ```bash
 # Текущий снимок
-curl https://tourhab.ru/api/agents/board-meeting/debug | jq '.stats'
+curl https://vedarai.ru/api/agents/board-meeting/debug | jq '.stats'
 
 # SSE поток (real-time)
-curl -s https://tourhab.ru/api/agents/board-meeting/debug?format=stream | jq '.'
+curl -s https://vedarai.ru/api/agents/board-meeting/debug?format=stream | jq '.'
 
 # Очистить буфер
-curl https://tourhab.ru/api/agents/board-meeting/debug?format=clear
+curl https://vedarai.ru/api/agents/board-meeting/debug?format=clear
 ```
 
 ---

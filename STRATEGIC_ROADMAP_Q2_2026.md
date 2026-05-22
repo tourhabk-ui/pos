@@ -1,4 +1,4 @@
-# TourHab — STRATEGIC ROADMAP Q2 2026
+# Ведар — STRATEGIC ROADMAP Q2 2026
 
 **Обновлено:** 26 марта 2026 (по факту кода в репозитории)
 **Цель:** 50 активных операторов, 500 бронирований/мес к концу Q2
@@ -24,7 +24,7 @@
 - **TripBuilder** — планировщик маршрутов
 - **14 cron-задач** (digest, safety, SOS, agents-evolve, payouts…)
 - **Semantic search** — `/api/discovery/semantic-search`
-- **robots.txt** — правильный домен tourhab.ru
+- **robots.txt** — правильный домен vedarai.ru
 - **CI/CD** — GitHub → Timeweb автодеплой
 
 ### НЕ РЕАЛИЗОВАНО (критичные пробелы)
@@ -55,7 +55,7 @@
 
 - [ ] Timeweb задеплоил коммит 0a9af271 (build ID сменился)
 - [ ] Миграция 083 применена (`POST /api/admin/migrations/apply {"migrations":["083"]}`)
-- [ ] OperatorPromo видна на tourhab.ru (скролл главной до конца)
+- [ ] OperatorPromo видна на vedarai.ru (скролл главной до конца)
 - [ ] AI Lead Processor протестирован на реальных лидах (5+)
 - [ ] PDF генерируется без ошибок
 - [ ] Telegram уведомления доходят операторам

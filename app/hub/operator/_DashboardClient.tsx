@@ -85,7 +85,7 @@ export default function OperatorDashboard() {
 
       {/* Metrics */}
       {metrics && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={TrendingUp} title="Доход (7д)" value={`${metrics.revenue_7d} ₽`} />
           <StatCard icon={Calendar} title="Букировки" value={metrics.bookings_7d} />
           <StatCard icon={BarChart3} title="Туры активные" value={metrics.tours_active} />

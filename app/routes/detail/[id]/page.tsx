@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import RouteCardClient from './_RouteCardClient';
 
 export const metadata: Metadata = {
-  title: 'Маршрут | TourHab',
+  title: 'Маршрут | Ведар',
   description: 'Описание маршрута, точки, опасности, снаряжение и регистрация МЧС',
 };
 

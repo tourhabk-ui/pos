@@ -101,7 +101,7 @@ export default function LoyaltyClient() {
 
   const copyCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -110,7 +110,7 @@ export default function LoyaltyClient() {
 
   const shareCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     if (navigator.share) {
       navigator.share({ title: 'KamchatourHub', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
     } else {
@@ -134,8 +134,20 @@ export default function LoyaltyClient() {
         </h1>
 
         {loading ? (
-          <div className="flex justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          <div className="space-y-4 animate-pulse">
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 bg-[var(--bg-hover)] rounded-full" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-5 w-24 bg-[var(--bg-hover)] rounded" />
+                  <div className="h-3 w-40 bg-[var(--bg-hover)] rounded" />
+                </div>
+              </div>
+              <div className="h-2 w-full bg-[var(--bg-hover)] rounded-full" />
+            </div>
+            {[1,2,3].map(i => (
+              <div key={i} className="h-20 bg-[var(--bg-hover)] rounded-lg" />
+            ))}
           </div>
         ) : error ? (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">

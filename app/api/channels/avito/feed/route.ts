@@ -4,7 +4,7 @@
  *
  * Регистрируй этот URL в личном кабинете Авито:
  *   Настройки → Автозагрузка → Добавить фид
- *   URL: https://tourhab.ru/api/channels/avito/feed
+ *   URL: https://vedarai.ru/api/channels/avito/feed
  *
  * Авито обновляет фид каждые 2-4 часа автоматически.
  */

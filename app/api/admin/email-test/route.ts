@@ -53,13 +53,13 @@ export async function POST(request: NextRequest) {
 
   const result = await emailService.sendEmail({
     to:      parsed.data.to,
-    subject: 'TourHab — тест SMTP',
+    subject: 'Ведар — тест SMTP',
     html: `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8"></head>
 <body style="font-family:Helvetica,Arial,sans-serif;background:#F5F0EB;padding:32px;">
   <table width="560" style="background:#fff;border-radius:12px;overflow:hidden;margin:0 auto;">
     <tr><td style="background:#D44A0C;padding:20px 28px;">
-      <p style="margin:0;font-size:20px;font-weight:700;color:#fff;">TourHab</p>
+      <p style="margin:0;font-size:20px;font-weight:700;color:#fff;">Ведар</p>
       <p style="margin:4px 0 0;font-size:12px;color:rgba(255,255,255,0.8);">Туристическая платформа Камчатки</p>
     </td></tr>
     <tr><td style="padding:28px;">
@@ -69,12 +69,12 @@ export async function POST(request: NextRequest) {
         через <strong>${process.env.SMTP_HOST ?? 'SMTP_HOST не задан'}:${process.env.SMTP_PORT ?? '?'}</strong>.
       </p>
       <p style="color:#9A9590;font-size:12px;margin-top:20px;">
-        tourhab.ru — ООО «ПОС-СЕРВИС», ИНН 4101147649
+        vedarai.ru — ООО «ПОС-СЕРВИС», ИНН 4101147649
       </p>
     </td></tr>
   </table>
 </body></html>`,
-    text: 'TourHab SMTP тест — всё работает.',
+    text: 'Ведар SMTP тест — всё работает.',
   });
 
   return NextResponse.json(result, { status: result.success ? 200 : 502 });

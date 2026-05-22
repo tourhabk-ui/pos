@@ -12,7 +12,7 @@
  * POST: Webhook для получения команд из Telegram
  *       Требует регистрации webhook:
  *       curl -X POST https://api.telegram.org/botTOKEN/setWebhook \
- *         -d url=https://tourhab.ru/api/telegram/admin \
+ *         -d url=https://vedarai.ru/api/telegram/admin \
  *         -d secret_token=SECRET
  *
  * Env vars (Timeweb):
@@ -175,7 +175,7 @@ async function checkHealth(): Promise<string> {
   return [
     `AI: OpenRouter=${orOk ? 'OK' : 'X'}`,
     `БД: ${issues.length === 0 ? 'OK' : issues.join('; ')}`,
-    `Сайт: https://tourhab.ru`,
+    `Сайт: https://vedarai.ru`,
   ].join('\n');
 }
 
@@ -190,7 +190,7 @@ async function runDigest(): Promise<string> {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты AI-директор туристической платформы TourHab (Камчатка).
+      content: `Ты AI-директор туристической платформы Ведар (Камчатка).
 Анализируй метрики кратко. Дай 1 строку общей оценки и 3 приоритета на день.`,
     },
     {
@@ -210,7 +210,7 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
     case '/start':
     case '/help':
       await reply(chatId, [
-        '<b>TourHab Admin</b>',
+        '<b>Ведар Admin</b>',
         '',
         '/health — AI + БД',
         '/stats — цифры платформы',
@@ -336,7 +336,7 @@ async function handleFreeText(text: string, chatId: number): Promise<void> {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `Ты AI-директор платформы TourHab (Камчатка). Отвечаешь владельцу кратко и по делу.\nДанные платформы:\n${stats}`,
+        content: `Ты AI-директор платформы Ведар (Камчатка). Отвечаешь владельцу кратко и по делу.\nДанные платформы:\n${stats}`,
       },
       ...history,
     ];

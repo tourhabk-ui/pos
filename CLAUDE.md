@@ -1,7 +1,11 @@
-# KamchatourHub — Claude Code Rules
+# Ведар — Claude Code Rules
 
 > Туристическая платформа Камчатки. Цель: рабочий задеплоенный код без регрессий.
 > Подробности об архитектуре, сервисах и хитростях — в `.claude/MEMORY.md`.
+
+**Перед любой работой над UI или продуктом — читать:**
+- `.claude/MISSION.md` — философия продукта, "Знай куда идёшь", штурман vs тур-агент, лёгкий флирт
+- `.claude/DESIGN.md` — визуальный язык, editorial-эстетика, тонкие линии, что запрещено
 
 ---
 
@@ -279,8 +283,6 @@ git push origin main  # → sync-to-tourhabk.yml → tourhabk-ui/pos → Timeweb
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`
 GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`
-
-> Совет директоров (13 AI-агентов, board meeting, 5 раундов) — **удалён апрель 2026** как неэффективный. 10,318 строк. Коммиты: `9da9e8d2`, `5d4d83f9`. Подробности: `AGENTS.md`
 
 **Полный реестр агентов:** `AGENTS.md`
 

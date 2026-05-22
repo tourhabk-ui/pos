@@ -155,8 +155,21 @@ export default function ClientsPageClient() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <LoadingSpinner size="lg" message="Загрузка клиентов..." />
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden animate-pulse">
+            <div className="border-b border-[var(--border)] bg-[var(--bg-hover)] grid grid-cols-6 gap-4 px-4 py-3">
+              {[1,2,3,4,5,6].map(i => <div key={i} className="h-3 bg-[var(--bg-card)] rounded" />)}
+            </div>
+            {[1,2,3,4,5,6,7].map(i => (
+              <div key={i} className="flex items-center gap-4 px-4 py-4 border-b border-[var(--border)]">
+                <div className="w-10 h-10 bg-[var(--bg-hover)] rounded-full shrink-0" />
+                <div className="flex-1 h-4 bg-[var(--bg-hover)] rounded" />
+                <div className="w-24 h-4 bg-[var(--bg-hover)] rounded" />
+                <div className="w-12 h-4 bg-[var(--bg-hover)] rounded" />
+                <div className="w-20 h-4 bg-[var(--bg-hover)] rounded" />
+                <div className="w-24 h-4 bg-[var(--bg-hover)] rounded" />
+                <div className="w-16 h-5 bg-[var(--bg-hover)] rounded-full" />
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center py-20 gap-4">

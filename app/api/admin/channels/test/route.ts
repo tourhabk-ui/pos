@@ -45,8 +45,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         summary: topic || 'Тест публикации AI-новостей: проверка работы канала и форматирования постов.',
         signals: [{
           title: 'Тестовый сигнал',
-          source: 'tourhab.ru',
-          url: 'https://tourhab.ru',
+          source: 'vedarai.ru',
+          url: 'https://vedarai.ru',
           snippet: 'Это тестовая публикация для проверки канала AI-новостей.',
         }],
         urgency: 'notable',

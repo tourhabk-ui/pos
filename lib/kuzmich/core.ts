@@ -88,7 +88,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 1. ХРАНИТЕЛЬ И СОВЕТНИК ПО БЕЗОПАСНОСТИ (главная роль)
   Когда спрашивают о конкретном месте — используй инструмент get_guardian_context чтобы получить актуальный статус: открыто ли, есть ли алерты КБГС, сколько людей сегодня, какие опасности.
   Если место в жёлтом или красном статусе — говори об этом первым, до всего остального.
-  Экстренно: SOS tourhab.ru, телефон 112, МЧС Камчатка 8-415-2-11-05-05.
+  Экстренно: SOS vedarai.ru, телефон 112, МЧС Камчатка 8-415-2-11-05-05.
 
 2. ЗНАТОК МЕСТА
   Ты знаешь не только GPS-координаты. Ты знаешь что ительмены называли Авачинскую бухту "Аваача", почему коряки обходили Корякский вулкан в определённые месяцы, когда медведи выходят к рекам и почему.
@@ -975,7 +975,7 @@ async function notifyOperatorNewBooking(
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       : 'не указана';
     const priceStr = total.toLocaleString('ru-RU') + ' ₽';
-    const payLink  = `https://tourhab.ru/booking-success/${bookingId}`;
+    const payLink  = `https://vedarai.ru/booking-success/${bookingId}`;
 
     const text = [
       `<b>Новое бронирование #${bookingId}</b>`,
@@ -1259,7 +1259,7 @@ export async function handleBookingStep(
 
     const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const totalStr = (b.tour!.base_price * b.participants!).toLocaleString('ru-RU');
-    const payLink  = `https://tourhab.ru/booking-success/${bookingId}`;
+    const payLink  = `https://vedarai.ru/booking-success/${bookingId}`;
     await reply(chatId, [
       `Бронирование принято! Номер: <b>#${bookingId}</b>`,
       '',
@@ -1419,7 +1419,7 @@ const KUZMICH_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'get_tours',
-      description: 'Получить активные туры из платформы TourHab с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.',
+      description: 'Получить активные туры из платформы Ведар с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.',
       parameters: { type: 'object', properties: { activity_type: { type: 'string', description: 'Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.' } }, required: [] },
     },
   },
@@ -1451,7 +1451,7 @@ const KUZMICH_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'search_taaft',
-      description: 'Найти внешний AI-инструмент или онлайн-сервис для специфической задачи: определить растение или животное по фото, транскрибировать аудио, обработать GPX-трек, перевести текст, создать аудиогид, проверить лавинную обстановку. Используй когда нужен специализированный инструмент за пределами TourHab.',
+      description: 'Найти внешний AI-инструмент или онлайн-сервис для специфической задачи: определить растение или животное по фото, транскрибировать аудио, обработать GPX-трек, перевести текст, создать аудиогид, проверить лавинную обстановку. Используй когда нужен специализированный инструмент за пределами Ведар.',
       parameters: {
         type: 'object',
         properties: {
@@ -1723,7 +1723,7 @@ export async function processMessage(opts: {
   if (cmd === '/start') {
     const name = userName ?? 'друг';
     await replyFn(chatId, [
-      `Привет, ${name}! Я Кузьмич — AI-агент платформы TourHab.`,
+      `Привет, ${name}! Я Кузьмич — AI-агент платформы Ведар.`,
       '',
       '<b>Что умею:</b>',
       '- Подобрать тур: рыбалка, вулканы, медведи, термальные источники...',
@@ -1740,7 +1740,7 @@ export async function processMessage(opts: {
   // /help
   if (cmd === '/help') {
     await replyFn(chatId, [
-      '<b>Кузьмич — многофункциональный агент TourHab</b>',
+      '<b>Кузьмич — многофункциональный агент Ведар</b>',
       '',
       '<b>Туры и бронирование:</b>',
       '"хочу рыбалку в июле, 3 человека"',
@@ -1753,7 +1753,7 @@ export async function processMessage(opts: {
       '"опасно ли сейчас на Мутновском?"',
       '',
       '<b>Безопасность:</b>',
-      'SOS → tourhab.ru → кнопка SOS',
+      'SOS → vedarai.ru → кнопка SOS',
       'Экстренная: 112 | МЧС: 8-415-2-11-05-05',
       '',
       '<b>Фото:</b> пришли снимок — скажу где это',
