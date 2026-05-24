@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: 'Задокументированные случаи гибели туристов на Камчатке. Изучайте реальные риски, причины и уроки — чтобы не повторять чужих ошибок.',
 };
 
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 interface IncidentRow {
   id: number;

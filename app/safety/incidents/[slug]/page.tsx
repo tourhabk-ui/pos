@@ -53,7 +53,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 export default async function IncidentPage({ params }: Props) {
   const { slug } = await params;
