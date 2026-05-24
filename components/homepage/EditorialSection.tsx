@@ -1,7 +1,15 @@
-const FACTS = [
-  { num: '6',   text: 'туристов погибло на Ключевском — 2022' },
-  { num: '154', text: 'маршрута требуют регистрации в МЧС' },
-  { num: '763', text: 'точки с профилем безопасности' },
+import Link from 'next/link';
+
+interface Fact {
+  num: string;
+  text: string;
+  href?: string;
+}
+
+const FACTS: Fact[] = [
+  { num: '6',   text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents/klyuchevskoy-2022' },
+  { num: '154', text: 'маршрута требуют регистрации в МЧС',     href: '/routes?kind=route' },
+  { num: '763', text: 'точки с профилем безопасности',          href: '/routes?kind=place' },
 ];
 
 export function EditorialSection() {
@@ -24,21 +32,48 @@ export function EditorialSection() {
             реальные данные о вулканах, закрытых зонах и опасностях
             с актуальным статусом на каждой точке.
           </p>
+          <Link
+            href="/safety/incidents"
+            className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-[var(--danger)] hover:underline"
+          >
+            Задокументированные трагедии на маршрутах
+            <span aria-hidden>→</span>
+          </Link>
         </div>
 
         {/* Right: facts with hairline rules */}
         <div>
-          {FACTS.map((f, i) => (
-            <div key={i} className="border-t border-[var(--border)] py-5 flex items-baseline gap-5">
-              <span
-                className="font-playfair font-bold text-[var(--accent)] shrink-0 tabular-nums"
-                style={{ fontSize: 'clamp(1.3rem, 1.8vw, 1.65rem)' }}
-              >
-                {f.num}
-              </span>
-              <p className="text-sm text-[var(--text-secondary)] leading-snug">{f.text}</p>
-            </div>
-          ))}
+          {FACTS.map((f, i) => {
+            const inner = (
+              <>
+                <span
+                  className="font-playfair font-bold shrink-0 tabular-nums"
+                  style={{
+                    fontSize: 'clamp(1.3rem, 1.8vw, 1.65rem)',
+                    color: i === 0 ? 'var(--danger)' : 'var(--accent)',
+                  }}
+                >
+                  {f.num}
+                </span>
+                <p className="text-sm text-[var(--text-secondary)] leading-snug">{f.text}</p>
+              </>
+            );
+
+            return (
+              <div key={i} className="border-t border-[var(--border)] py-5">
+                {f.href ? (
+                  <Link
+                    href={f.href}
+                    className="flex items-baseline gap-5 group hover:opacity-80 transition-opacity"
+                  >
+                    {inner}
+                  </Link>
+                ) : (
+                  <div className="flex items-baseline gap-5">{inner}</div>
+                )}
+              </div>
+            );
+          })}
           <div className="border-t border-[var(--border)]" />
         </div>
 

@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
            ark.payload->'geometry'        AS geometry,
            ark.payload->>'volcano_status' AS volcano_status,
            ark.created_at,
-           (ari.route_id IS NOT NULL) AS has_ai_image
+           (ari.route_id IS NOT NULL AND COALESCE(ari.photo_verified, true) <> false) AS has_ai_image
          FROM agent_route_knowledge ark
          LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
          ${where}
@@ -221,7 +221,10 @@ export async function GET(request: NextRequest) {
       success: true,
       data: dataResult.rows.map(r => {
         const payload = (r.payload as Record<string, unknown>) ?? {};
-        const imageUrl = pickPrimaryImage(payload) || getCategoryFallbackImage(r.category as string);
+        const hasAiImage = Boolean(r.has_ai_image);
+        const imageUrl = (hasAiImage ? `/api/images/route/${r.id as string}` : null)
+          ?? pickPrimaryImage(payload)
+          ?? getCategoryFallbackImage(r.category as string);
 
         return {
           ...(imageUrl ? { imageUrl } : {}),
@@ -244,7 +247,7 @@ export async function GET(request: NextRequest) {
           bestMonths:   (r.best_months as number[] | null) ?? null,
           geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
           volcanoStatus: (r.volcano_status as string | null) ?? null,
-          hasAiImage:   Boolean(r.has_ai_image),
+          hasAiImage:   hasAiImage,
         };
       }),
       meta: {
