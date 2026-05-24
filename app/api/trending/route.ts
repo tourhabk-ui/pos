@@ -15,6 +15,7 @@ export async function GET(request: Request) {
       `SELECT p.id, p.name, p.location_type, p.lat, p.lng, p.view_count,
               (SELECT ai.image_url FROM ai_route_images ai WHERE ai.route_id = p.ark_id LIMIT 1) AS image_url
        FROM places p
+       WHERE p.is_visible = true
        ORDER BY p.view_count DESC, p.created_at DESC
        LIMIT $1`,
       [limit]
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
     const { rows } = await pool.query(
       `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, view_count
        FROM kamchatka_routes
+       WHERE is_visible = true
        ORDER BY view_count DESC, created_at DESC
        LIMIT $1`,
       [limit]
