@@ -70,7 +70,7 @@ function parseCoords(text: string): { lat: number | null; lng: number | null } {
   if (decimalMatch) {
     const lat = parseFloat(decimalMatch[1].replace(',', '.'));
     const lng = parseFloat(decimalMatch[2].replace(',', '.'));
-    if (lat >= 50 && lat <= 62 && lng >= 155 && lng <= 165) {
+    if (lat >= 50 && lat <= 62 && lng >= 154 && lng <= 170) {
       return { lat, lng };
     }
   }

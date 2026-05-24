@@ -133,8 +133,8 @@ async function scrapePage(id: string): Promise<Entry | null> {
     .filter(t => t.length > 30);
   const description = descBlocks[0] || ogDesc || '';
 
-  const latM = html.match(/"latitude"\s*:\s*([\d.]+)/);
-  const lngM = html.match(/"longitude"\s*:\s*([\d.]+)/);
+  const latM = html.match(/"latitude"\s*:\s*(-?[\d.]+)/);
+  const lngM = html.match(/"longitude"\s*:\s*(-?[\d.]+)/);
   let lat = latM ? parseFloat(latM[1]) : null;
   let lng = lngM ? parseFloat(lngM[1]) : null;
 
@@ -157,6 +157,10 @@ async function scrapePage(id: string): Promise<Entry | null> {
     lng = mid[0]; lat = mid[1];
   }
   if (!lat || !lng) return null;
+
+  // Валидация bbox Камчатки (включая Командорские острова)
+  const inKamchatka = lat >= 50 && lat <= 62 && lng >= 154 && lng <= 170;
+  if (!inKamchatka) return null;
 
   return { id, title, description, lat, lng, coordinates, sourceUrl: `https://idilesom.com/kam/places/${id}` };
 }
