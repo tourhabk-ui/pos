@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame } from 'lucide-react';
+import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame, PawPrint, Volume2, ShieldCheck, Backpack } from 'lucide-react';
 
 interface RescueMessage {
   role: 'user' | 'assistant';
@@ -405,6 +405,7 @@ export default function SafetyHubClient() {
           { id: 'avalanche', label: 'Лавины' },
           { id: 'seismic',  label: 'Сейсмика' },
           { id: 'weather',  label: 'Погода' },
+          { id: 'bears',    label: 'Медведи' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1121,6 +1122,154 @@ export default function SafetyHubClient() {
           )}
         </div>
       )}
+      {/* ── Медведи ── */}
+      {activeTab === 'bears' && (
+        <div className="space-y-4">
+
+          {/* Вводная карточка */}
+          <div
+            className="border rounded-lg p-5"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--warning) 40%, transparent)',
+              background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <PawPrint className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--warning)' }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>
+                  Мы в гостях у диких животных
+                </p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">
+                  С наступлением лета медведи активны на маршрутах и у природных источников.
+                  Несколько простых правил делают встречу безопасной для вас и для медведя.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Профилактика */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Volume2 className="w-4 h-4 text-[var(--ocean)]" />
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Как избежать встречи</h3>
+            </div>
+            <ul className="space-y-3">
+              {[
+                'Шумите на маршруте — разговаривайте, используйте свисток. Медведь уйдёт сам, если услышит вас заранее.',
+                'Не ходите в одиночку. Группы из 3+ человек значительно безопаснее.',
+                'Храните еду в герметичных контейнерах, не в палатке. Консервы и пахнущие продукты — в 100 м от лагеря.',
+                'Не оставляйте мусор на стоянке. Медведь с кормовой памятью будет возвращаться снова.',
+                'Уточните у местных гидов последние места встреч с медведями перед выходом.',
+              ].map((rule, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5"
+                    style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)' }}>
+                    {i + 1}
+                  </span>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{rule}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* При встрече */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <PawPrint className="w-4 h-4 text-[var(--warning)]" />
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">При встрече с медведем</h3>
+            </div>
+            <ul className="space-y-3">
+              {[
+                { text: 'Не беги — бег включает инстинкт преследования. Медведь догонит.', warn: true },
+                { text: 'Говори громко и спокойно. Медведь должен понять, что перед ним человек.', warn: false },
+                { text: 'Стань визуально больше — подними руки, раскрой куртку. Не приседай.', warn: false },
+                { text: 'Медленно отступай назад, не поворачивайся спиной. Держи медведя в поле зрения.', warn: false },
+                { text: 'Дай медведю путь к отступлению — не загораживай его маршрут к лесу.', warn: false },
+              ].map((item, i) => (
+                <li key={i} className="flex gap-3">
+                  <span
+                    className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5"
+                    style={item.warn
+                      ? { background: 'color-mix(in srgb, var(--danger) 15%, transparent)', color: 'var(--danger)' }
+                      : { background: 'color-mix(in srgb, var(--warning) 15%, transparent)', color: 'var(--warning)' }
+                    }
+                  >
+                    {i + 1}
+                  </span>
+                  <p className={`text-sm leading-relaxed ${item.warn ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    {item.text}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* При нападении */}
+          <div
+            className="border rounded-lg p-5"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--danger) 30%, transparent)',
+              background: 'color-mix(in srgb, var(--danger) 6%, transparent)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--danger)' }} />
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--danger)' }}>При нападении</h3>
+            </div>
+            <ul className="space-y-3">
+              {[
+                'Используй антимедвежий спрей с расстояния 5–7 м. Направь в морду.',
+                'Упади на живот, руки — сцеплены на затылке, локти прикрывают шею. Ноги чуть врозь — сложнее перевернуть.',
+                'Притворись мёртвым. Не кричи, не двигайся. Медведь может проверить — оставайся неподвижным.',
+                'Дождись пока медведь уйдёт на безопасное расстояние, затем вставай медленно.',
+                'Активно защищайся только если медведь не отступает — бей по носу и глазам.',
+              ].map((rule, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5"
+                    style={{ background: 'color-mix(in srgb, var(--danger) 20%, transparent)', color: 'var(--danger)' }}>
+                    {i + 1}
+                  </span>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{rule}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Снаряжение */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Backpack className="w-4 h-4 text-[var(--accent)]" />
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Обязательное снаряжение</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {['Антимедвежий спрей (250+ мл)', 'Свисток', 'Фонарь с ярким лучом', 'Герметичные контейнеры для еды'].map((item) => (
+                <span key={item} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[var(--border)] text-[var(--text-secondary)]">
+                  <ShieldCheck className="w-3 h-3 text-[var(--success)]" />
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Источник */}
+          <div className="flex items-center gap-2 pt-1">
+            <p className="text-xs text-[var(--text-muted)]">
+              Материал подготовлен при поддержке{' '}
+              <a
+                href="https://vk.ru/dikayakamchatka"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--ocean)] hover:underline"
+              >
+                Дикая Камчатка
+              </a>
+            </p>
+          </div>
+
+        </div>
+      )}
+
     </div>
   );
 }
