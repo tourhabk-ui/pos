@@ -9,9 +9,6 @@ import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSec
 import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 
-const HomeBottomNav = dynamic(
-  () => import('@/components/homepage/HomeBottomNav').then(m => ({ default: m.HomeBottomNav }))
-);
 const HomeMapPreview = dynamic(
   () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview }))
 );
@@ -60,9 +57,6 @@ export default async function Page() {
 
       </main>
       <Footer />
-      <div className="md:hidden">
-        <HomeBottomNav />
-      </div>
       <SOSButton />
     </div>
   );
