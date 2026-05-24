@@ -1,44 +1,68 @@
--- Migration 676: Cross-table deduplication — kamchatka_routes vs places
+-- Migration 676: Comprehensive deduplication — places and kamchatka_routes
 --
 -- Problem: agent_route_knowledge is UNION ALL over places + kamchatka_routes.
--- During data migration some geographic points ended up in BOTH tables,
--- causing them to appear twice in the map, search, and trending endpoints.
+-- Two sources of visible duplicates:
+--   A) Same geographic point in BOTH places AND kamchatka_routes (cross-table)
+--   B) Multiple entries in places with same name but coords off by > 0.0005°
+--      (migration 675 safety net used ROUND(lat,3) ≈ 55m; this adds 0.003° ≈ 300m)
 --
 -- Strategy:
---   1. Hide kamchatka_routes entries that duplicate a places entry
---      (same name + coords within 0.005°≈500m, no geometry track, no waypoints).
---      `places` is the master for geographic points per architecture.
---   2. Hide within-table kamchatka_routes duplicates
---      (same title + close coords — keep the one with most description content).
---   3. Fix kamchatka_routes entries missing is_visible that should be visible.
+--   1. Within places: hide near-duplicates by name + coords within 300m
+--      (extends migration 675's safety net which only caught exact-rounded coords)
+--   2. Cross-table: hide kamchatka_routes entries that duplicate a places entry
+--      (no geometry track, no waypoints, same name + coords ≤500m)
+--   3. Within kamchatka_routes: same-title + close-coords duplicates
 --
--- All operations use is_visible = false (soft-delete, fully reversible).
+-- All uses is_visible = false (soft-delete, fully reversible).
 
--- ── 1. Cross-table: hide kamchatka_routes that duplicate a places entry ───────
+-- ── 1. Within places: extended near-duplicate detection ────────────────────
+--
+-- Same name (case-insensitive) + coordinates within 0.003° (~300m at Kamchatka
+-- latitude). Keeps the entry with the longest description; ties broken by higher id.
+-- Migration 675 already handled exact-rounded coords (≈55m); this catches the rest.
+
+UPDATE places p
+SET is_visible = false
+WHERE p.is_visible = true
+  AND p.lat IS NOT NULL
+  AND p.lng IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM places p2
+    WHERE p2.is_visible = true
+      AND p2.ark_id != p.ark_id
+      AND LOWER(TRIM(p2.name)) = LOWER(TRIM(p.name))
+      AND ABS(p2.lat - p.lat) < 0.003
+      AND ABS(p2.lng - p.lng) < 0.003
+      AND (
+        COALESCE(LENGTH(p2.description), 0) > COALESCE(LENGTH(p.description), 0)
+        OR (
+          COALESCE(LENGTH(p2.description), 0) = COALESCE(LENGTH(p.description), 0)
+          AND p2.id > p.id
+        )
+      )
+  );
+
+-- ── 2. Cross-table: hide kamchatka_routes that duplicate a places entry ────────
 --
 -- Conditions:
---   a) kamchatka_routes has NO geometry track (geometry IS NULL or empty JSON)
---   b) kamchatka_routes has NO waypoints (not a real multi-stop route)
---   c) A matching places entry exists: same name (case-insensitive, trimmed)
---      AND coordinates within 0.005 degrees (~500m)
+--   a) No geometry track (not a real route with a path)
+--   b) No waypoints (not a multi-stop route)
+--   c) Matching places entry: same name (case-insensitive) + coords within 500m
 
 UPDATE kamchatka_routes r
 SET is_visible = false
 WHERE r.is_visible = true
   AND r.lat IS NOT NULL
   AND r.lng IS NOT NULL
-  -- No real geometry track
   AND (
     r.geometry IS NULL
     OR r.geometry::text = 'null'
     OR r.geometry::text = '{}'
     OR r.geometry::text = '[]'
   )
-  -- No waypoints (this is a point, not a route)
   AND NOT EXISTS (
     SELECT 1 FROM route_waypoints rw WHERE rw.route_id = r.id
   )
-  -- Matching places entry exists
   AND EXISTS (
     SELECT 1 FROM places p
     WHERE p.is_visible = true
@@ -49,11 +73,11 @@ WHERE r.is_visible = true
       AND ABS(p.lng - r.lng) < 0.005
   );
 
--- ── 2. Cross-table: also hide exact coordinate duplicates (rounded to 3dp) ────
+-- ── 3. Cross-table: hide kamchatka_routes with exact same coordinates ──────────
 --
 -- Some entries have same-rounded coords but slightly different names
--- (e.g. "Вулкан Корякский" vs "Корякский вулкан"). Hide the route entry
--- if coords match to 3dp AND the route has no geometry/waypoints.
+-- (e.g. "Вулкан Корякский" vs "Корякский вулкан"). If coordinates match to 3dp
+-- AND the route has no geometry/waypoints — hide it (places is master).
 
 UPDATE kamchatka_routes r
 SET is_visible = false
@@ -78,10 +102,10 @@ WHERE r.is_visible = true
       AND ROUND(p.lng::numeric, 3) = ROUND(r.lng::numeric, 3)
   );
 
--- ── 3. Within kamchatka_routes: hide duplicates (same title + close coords) ───
+-- ── 4. Within kamchatka_routes: same title + close coords ─────────────────────
 --
--- For pairs of routes with same title (case-insensitive) and coords within
--- 0.005°, hide the one with less description content (lower id as tiebreaker).
+-- For pairs of routes with same title and coords within 500m,
+-- hide the one with less description content (lower id as tiebreaker).
 
 UPDATE kamchatka_routes r
 SET is_visible = false
