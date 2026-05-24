@@ -234,10 +234,10 @@ export async function buildRAGContext(
   const intent = detectTourIntent(message);
 
   // Hybrid retrieval: fulltext + semantic + RRF fusion
-  // semanticSearch loads a local ML model — cap at 5s so it never stalls Кузьмич.
+  // Cap at 3s — Gemini embedding API is ~200ms; timeout guards against network issues.
   const semanticWithTimeout: Promise<SemanticSearchResult[]> = Promise.race([
     semanticSearch(message, 8),
-    new Promise<SemanticSearchResult[]>((resolve) => setTimeout(() => resolve([]), 5_000)),
+    new Promise<SemanticSearchResult[]>((resolve) => setTimeout(() => resolve([]), 3_000)),
   ]).catch((): SemanticSearchResult[] => []);
   const [fulltextRoutes, semanticResults, tours] = await Promise.all([
     findRoutesByText(message, 8),

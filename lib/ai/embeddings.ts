@@ -1,12 +1,13 @@
 /**
- * Семантический поиск маршрутов — локальная модель MiniLM + in-memory cosine similarity.
+ * Семантический поиск — Google Gemini text-embedding-004 + in-memory cosine similarity.
  *
- * Модель: Xenova/paraphrase-multilingual-MiniLM-L12-v2 (384 dims, русский)
+ * Модель: text-embedding-004 (768 dims, multilingual)
+ * API: generativelanguage.googleapis.com — ~200ms, GEMINI_API_KEY
  * Хранение: JSONB массив float в agent_route_knowledge.embedding
- * Поиск: in-memory cosine similarity (~259 записей, <1ms)
  */
 
 import { query } from '@/lib/database';
+import { getGeminiKey } from '@/lib/ai/provider-config';
 
 // ── Типы ──────────────────────────────────────────────────────
 
@@ -34,71 +35,48 @@ interface CachedRoute {
   embedding: number[];
 }
 
-// ── Singleton: модель загружается один раз ─────────────────────
+const GEMINI_EMBED_DIM = 768;
 
-type PipelineInstance = {
-  (text: string, options: Record<string, unknown>): Promise<{ data: Float32Array }>;
-};
-
-let pipelineInstance: PipelineInstance | null = null;
-let pipelineLoading: Promise<PipelineInstance> | null = null;
-
-async function getEmbeddingPipeline(): Promise<PipelineInstance> {
-  if (pipelineInstance) return pipelineInstance;
-
-  if (!pipelineLoading) {
-    const load = (async () => {
-      const { pipeline } = await import('@huggingface/transformers');
-      const pipe = await pipeline(
-        'feature-extraction',
-        'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-        { device: 'cpu', dtype: 'fp32' }
-      );
-      pipelineInstance = pipe as unknown as PipelineInstance;
-      return pipelineInstance;
-    })();
-    // Timeout guards against stalled HuggingFace downloads on restricted servers.
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('model load timeout')), 8_000)
-    );
-    pipelineLoading = Promise.race([load, timeout]).catch(err => {
-      pipelineLoading = null; // allow retry on next request
-      throw err;
-    }) as Promise<PipelineInstance>;
-  }
-
-  return pipelineLoading;
-}
-
-/**
- * Pre-warm the model so first search request is fast.
- * Call from instrumentation.ts on server start (non-blocking).
- */
-export async function warmModel(): Promise<void> {
-  await getEmbeddingPipeline();
-}
-
-// ── Генерация эмбеддинга ──────────────────────────────────────
+// ── Генерация эмбеддинга через Gemini API ────────────────────
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const pipe = await getEmbeddingPipeline();
-  const cleanText = text.replace(/\s+/g, ' ').trim().slice(0, 512);
+  const apiKey = getGeminiKey();
+  if (!apiKey) return [];
 
-  const output = await pipe(cleanText, { pooling: 'mean', normalize: true });
-  return Array.from(output.data);
+  const clean = text.replace(/\s+/g, ' ').trim().slice(0, 2048);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/text-embedding-004',
+          content: { parts: [{ text: clean }] },
+        }),
+        signal: AbortSignal.timeout(5_000),
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json() as { embedding?: { values?: number[] } };
+    return data?.embedding?.values ?? [];
+  } catch {
+    return [];
+  }
 }
+
+// ── No-op warmup (Gemini needs no pre-loading) ───────────────
+export async function warmModel(): Promise<void> { /* no-op */ }
 
 // ── In-memory cache маршрутов ─────────────────────────────────
 
 let embeddingCache: CachedRoute[] | null = null;
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function loadEmbeddingCache(): Promise<CachedRoute[]> {
   const now = Date.now();
-  if (embeddingCache && now - cacheTimestamp < CACHE_TTL_MS) {
-    return embeddingCache;
-  }
+  if (embeddingCache && now - cacheTimestamp < CACHE_TTL_MS) return embeddingCache;
 
   const result = await query<{
     id: string;
@@ -113,7 +91,7 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
   }>(
     `SELECT id, title, description, category, source_url, source_name, lat, lng, embedding
      FROM agent_route_knowledge
-     WHERE embedding IS NOT NULL`
+     WHERE embedding IS NOT NULL AND array_length(embedding, 1) = ${GEMINI_EMBED_DIM}`
   );
 
   embeddingCache = result.rows.map((row) => ({
@@ -132,9 +110,6 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
   return embeddingCache;
 }
 
-/**
- * Invalidate the in-memory cache (call after re-indexing).
- */
 export function invalidateCache(): void {
   embeddingCache = null;
   cacheTimestamp = 0;
@@ -143,36 +118,30 @@ export function invalidateCache(): void {
 // ── Cosine similarity ─────────────────────────────────────────
 
 function dotProduct(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    sum += a[i] * b[i];
-  }
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
   return sum;
 }
 
-// ── Главная функция: семантический поиск ──────────────────────
+// ── Семантический поиск ───────────────────────────────────────
 
-const SIMILARITY_THRESHOLD = 0.3;
+const SIMILARITY_THRESHOLD = 0.6;
 
 export async function semanticSearch(
   queryText: string,
-  limit: number = 10
+  limit = 10,
 ): Promise<SemanticSearchResult[]> {
   const queryEmbedding = await generateEmbedding(queryText);
+  if (queryEmbedding.length === 0) return [];
+
   const cache = await loadEmbeddingCache();
+  if (cache.length === 0) return [];
 
-  if (cache.length === 0) {
-    return [];
-  }
-
-  // Cosine similarity = dot product (vectors are pre-normalized by MiniLM)
   const scored: (CachedRoute & { similarity: number })[] = [];
-
   for (const route of cache) {
     const sim = dotProduct(queryEmbedding, route.embedding);
-    if (sim >= SIMILARITY_THRESHOLD) {
-      scored.push({ ...route, similarity: sim });
-    }
+    if (sim >= SIMILARITY_THRESHOLD) scored.push({ ...route, similarity: sim });
   }
 
   scored.sort((a, b) => b.similarity - a.similarity);

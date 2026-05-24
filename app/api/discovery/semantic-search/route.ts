@@ -2,8 +2,8 @@
  * GET /api/discovery/semantic-search
  * Семантический поиск маршрутов по естественному языковому запросу.
  *
- * Источник: agent_route_knowledge (259 маршрутов, Камчатка).
- * Модель: Xenova/paraphrase-multilingual-MiniLM-L12-v2 (384 dims, русский).
+ * Источник: agent_route_knowledge (Камчатка).
+ * Модель: Google text-embedding-004 (768 dims, multilingual, ~200ms).
  * Fallback: PostgreSQL tsvector (русский GIN индекс).
  *
  * Params:
