@@ -15,11 +15,10 @@
 --
 -- All uses is_visible = false (soft-delete, fully reversible).
 
--- ── 1. Within places: extended near-duplicate detection ────────────────────
+-- ── 1a. Within places: same name + extended radius (300m) ─────────────────
 --
--- Same name (case-insensitive) + coordinates within 0.003° (~300m at Kamchatka
--- latitude). Keeps the entry with the longest description; ties broken by higher id.
--- Migration 675 already handled exact-rounded coords (≈55m); this catches the rest.
+-- Extends migration 675 safety net (ROUND(lat,3) ≈ 55m) to catch same-name
+-- places imported with slightly different coordinates.
 
 UPDATE places p
 SET is_visible = false
@@ -33,6 +32,40 @@ WHERE p.is_visible = true
       AND LOWER(TRIM(p2.name)) = LOWER(TRIM(p.name))
       AND ABS(p2.lat - p.lat) < 0.003
       AND ABS(p2.lng - p.lng) < 0.003
+      AND (
+        COALESCE(LENGTH(p2.description), 0) > COALESCE(LENGTH(p.description), 0)
+        OR (
+          COALESCE(LENGTH(p2.description), 0) = COALESCE(LENGTH(p.description), 0)
+          AND p2.id > p.id
+        )
+      )
+  );
+
+-- ── 1b. Within places: same location_type + very close coords (≤200m) ────────
+--
+-- Catches same-place entries with DIFFERENT names, e.g.:
+--   "Авачинская сопка" vs "Авачинский вулкан" vs "Авачинский вулкан: путь..."
+-- Safe for single-point geographic features (volcano, mountain, lake, etc.)
+-- because two DISTINCT features of the same type won't sit within 200m.
+-- Excludes hot_spring and geyser (thermal fields can have multiple distinct
+-- springs within a small area).
+
+UPDATE places p
+SET is_visible = false
+WHERE p.is_visible = true
+  AND p.lat IS NOT NULL
+  AND p.lng IS NOT NULL
+  AND p.location_type IN (
+    'volcano', 'mountain', 'lake', 'bay', 'island',
+    'rock', 'cape', 'waterfall', 'glacier', 'valley'
+  )
+  AND EXISTS (
+    SELECT 1 FROM places p2
+    WHERE p2.is_visible = true
+      AND p2.ark_id != p.ark_id
+      AND p2.location_type = p.location_type
+      AND ABS(p2.lat - p.lat) < 0.002
+      AND ABS(p2.lng - p.lng) < 0.002
       AND (
         COALESCE(LENGTH(p2.description), 0) > COALESCE(LENGTH(p.description), 0)
         OR (
