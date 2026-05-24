@@ -1,18 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <!-- Volcanic dark background -->
-  <rect width="512" height="512" rx="110" fill="#18100A"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="lava" x1="256" y1="470" x2="256" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#100604"/>
+      <stop offset="30%"  stop-color="#3E1206"/>
+      <stop offset="62%"  stop-color="#A83008"/>
+      <stop offset="82%"  stop-color="#D44A0C"/>
+      <stop offset="100%" stop-color="#F09018"/>
+    </linearGradient>
 
-  <!-- Back mountain — muted, receding -->
-  <path d="M38 408 L196 178 L318 408Z" fill="#2D1A0E"/>
+    <radialGradient id="volcano-glow" cx="43%" cy="28%" r="40%">
+      <stop offset="0%"   stop-color="#FFEC80" stop-opacity="1"/>
+      <stop offset="30%"  stop-color="#F07020" stop-opacity="0.8"/>
+      <stop offset="70%"  stop-color="#C03808" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#D44A0C" stop-opacity="0"/>
+    </radialGradient>
 
-  <!-- Main peak — accent volcanic orange -->
-  <path d="M138 408 L256 116 L374 408Z" fill="#D44A0C"/>
+    <filter id="blur-soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12"/>
+    </filter>
+    <filter id="blur-tight" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5"/>
+    </filter>
+  </defs>
 
-  <!-- Snow cap cutout — creates depth -->
-  <path d="M220 226 L256 148 L292 226Z" fill="#18100A" opacity="0.55"/>
+  <!-- Фон -->
+  <rect width="512" height="512" rx="108" fill="#18100A"/>
 
-  <!-- Navigation waypoint at peak — "you are here, you know where you go" -->
-  <circle cx="256" cy="96" r="34" fill="#F5F0EB"/>
-  <circle cx="256" cy="96" r="15" fill="#18100A"/>
-  <circle cx="256" cy="96" r="6"  fill="#D44A0C"/>
+  <!-- Силуэт Камчатки -->
+  <path d="
+    M 256,46
+    C 214,44 172,58 162,84
+    L 156,118
+    C 154,146 152,170 155,198
+    C 157,220 154,242 158,268
+    C 161,288 157,306 160,328
+    C 163,350 168,372 174,394
+    C 180,416 194,438 210,456
+    C 226,468 242,474 256,472
+    C 270,472 284,464 296,452
+    C 310,438 320,418 328,396
+    C 336,374 340,352 338,328
+    C 336,308 342,292 352,275
+    C 360,260 365,244 360,226
+    C 357,212 368,196 366,178
+    C 363,158 356,136 352,112
+    C 348,90 348,70 340,58
+    C 320,46 284,44 256,46 Z
+  " fill="url(#lava)"/>
+
+  <!-- Широкое атмосферное свечение над Ключевской группой -->
+  <ellipse cx="218" cy="148" rx="75" ry="60"
+    fill="#F06010" opacity="0.35" filter="url(#blur-soft)"/>
+
+  <!-- Средний ореол — интенсивнее -->
+  <ellipse cx="220" cy="146" rx="40" ry="32"
+    fill="#FFB030" opacity="0.55" filter="url(#blur-tight)"/>
+
+  <!-- Радиальный градиент поверх — создаёт эффект внутреннего свечения -->
+  <rect width="512" height="512" rx="108"
+    fill="url(#volcano-glow)" opacity="0.7"/>
+
+  <!-- Яркое жерло -->
+  <ellipse cx="218" cy="140" rx="9" ry="7"
+    fill="#FFF0A0" opacity="1" filter="url(#blur-tight)"/>
+  <ellipse cx="218" cy="140" rx="4" ry="3"
+    fill="#FFFFFF" opacity="0.9"/>
 </svg>
