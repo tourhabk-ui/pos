@@ -13,7 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { detectTourIntent, findRelevantTours } from './booking-intent';
-import { semanticSearch } from './embeddings';
+import { semanticSearch, type SemanticSearchResult } from './embeddings';
 import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
 
 // ── In-memory TTL cache (5 min, max 200 entries) ────────────────
@@ -234,9 +234,14 @@ export async function buildRAGContext(
   const intent = detectTourIntent(message);
 
   // Hybrid retrieval: fulltext + semantic + RRF fusion
+  // semanticSearch loads a local ML model — cap at 5s so it never stalls Кузьмич.
+  const semanticWithTimeout: Promise<SemanticSearchResult[]> = Promise.race([
+    semanticSearch(message, 8),
+    new Promise<SemanticSearchResult[]>((resolve) => setTimeout(() => resolve([]), 5_000)),
+  ]).catch((): SemanticSearchResult[] => []);
   const [fulltextRoutes, semanticResults, tours] = await Promise.all([
     findRoutesByText(message, 8),
-    semanticSearch(message, 8).catch(() => []),
+    semanticWithTimeout,
     intent.detected
       ? findRelevantTours(intent.activityType, intent.rawWords, 3)
       : Promise.resolve([]),

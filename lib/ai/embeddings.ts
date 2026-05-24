@@ -47,7 +47,7 @@ async function getEmbeddingPipeline(): Promise<PipelineInstance> {
   if (pipelineInstance) return pipelineInstance;
 
   if (!pipelineLoading) {
-    pipelineLoading = (async () => {
+    const load = (async () => {
       const { pipeline } = await import('@huggingface/transformers');
       const pipe = await pipeline(
         'feature-extraction',
@@ -57,6 +57,14 @@ async function getEmbeddingPipeline(): Promise<PipelineInstance> {
       pipelineInstance = pipe as unknown as PipelineInstance;
       return pipelineInstance;
     })();
+    // Timeout guards against stalled HuggingFace downloads on restricted servers.
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('model load timeout')), 8_000)
+    );
+    pipelineLoading = Promise.race([load, timeout]).catch(err => {
+      pipelineLoading = null; // allow retry on next request
+      throw err;
+    }) as Promise<PipelineInstance>;
   }
 
   return pipelineLoading;
