@@ -238,10 +238,10 @@ export async function checkDataIntegrity(): Promise<{
 
 // Whitelist of tables allowed for export/import (prevent SQL injection)
 const SAFE_TABLES = new Set([
-  'activities', 'partners', 'assets', 'tours', 'users',
-  'bookings', 'reviews', 'notifications', 'tourist_wishlist',
+  'activities', 'partners', 'assets', 'operator_tours', 'users',
+  'operator_bookings', 'reviews', 'notifications', 'tourist_wishlist',
   'guide_schedule', 'guide_earnings', 'guide_groups',
-  'support_tickets', 'audit_logs', 'agent_route_knowledge',
+  'support_tickets', 'audit_logs', 'places', 'kamchatka_routes',
   'eco_points_log', 'user_sessions',
 ]);
 

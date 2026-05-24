@@ -136,7 +136,7 @@ export async function GET(
       [r.ark_id]
     );
 
-    // Routes through this place (via route_waypoints — may be empty for now)
+    // Routes through this place (via route_waypoints — place_id is UUID = places.ark_id)
     const routesResult = await query(
       `SELECT kr.id, kr.title, kr.activity_type, kr.difficulty, kr.distance_km, kr.duration_hours
        FROM route_waypoints rw
@@ -144,7 +144,7 @@ export async function GET(
        WHERE rw.place_id = $1
        ORDER BY rw.position
        LIMIT 10`,
-      [r.place_pk]
+      [r.ark_id]
     );
 
     // Tours to this place (via route_waypoints → kamchatka_routes → operator_tours)
@@ -160,7 +160,7 @@ export async function GET(
          AND ot.is_visible = true
        ORDER BY ot.id, ot.base_price ASC
        LIMIT 5`,
-      [r.place_pk]
+      [r.ark_id]
     );
 
     const hazardTypes = Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [];
