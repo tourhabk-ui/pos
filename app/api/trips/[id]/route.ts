@@ -103,7 +103,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
         flight_arrival_time   = COALESCE($11, flight_arrival_time),
         flight_departure_time = COALESCE($12, flight_departure_time),
         needs_airport_transfer = COALESCE($13, needs_airport_transfer)
-      WHERE id = $1
+      WHERE id = $1 AND user_id = $14 AND deleted_at IS NULL
       RETURNING *
     `, [
       id,
@@ -119,6 +119,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
       d.flightArrivalTime !== undefined ? d.flightArrivalTime : null,
       d.flightDepartureTime !== undefined ? d.flightDepartureTime : null,
       d.needsAirportTransfer !== undefined ? d.needsAirportTransfer : null,
+      authOrResponse.userId,
     ]);
 
     return NextResponse.json({ success: true, data: rows[0] });
@@ -142,8 +143,8 @@ export async function DELETE(request: NextRequest, ctx: RouteContext) {
   }
 
   await pool.query(
-    'UPDATE user_trips SET deleted_at = NOW() WHERE id = $1',
-    [id]
+    'UPDATE user_trips SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    [id, authOrResponse.userId]
   );
 
   return NextResponse.json({ success: true });

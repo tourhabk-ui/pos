@@ -68,16 +68,16 @@ export async function POST(
     const tourCheckResult = await query<TourBookCheckRow>(
       `SELECT
         t.id,
-        t.name,
-        t.price,
-        t.max_group_size,
-        t.min_group_size,
+        t.title          AS name,
+        t.base_price     AS price,
+        t.max_participants AS max_group_size,
+        t.min_participants AS min_group_size,
         t.is_active,
         p.name as operator_name,
         p.email as operator_email
-      FROM tours t
+      FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
-      WHERE t.id = $1 AND t.is_active = true`,
+      WHERE t.id = $1 AND t.is_active = true AND t.deleted_at IS NULL`,
       [tourId]
     );
 
@@ -114,10 +114,11 @@ export async function POST(
     // Проверяем доступность на выбранную дату
     const availabilityCheck = await query<{ bookings: string }>(
       `SELECT COUNT(*) as bookings
-       FROM bookings
+       FROM operator_bookings
        WHERE tour_id = $1
-         AND DATE(start_date) = $2
-         AND status NOT IN ('cancelled')`,
+         AND booking_date = $2::DATE
+         AND booking_status NOT IN ('cancelled')
+         AND deleted_at IS NULL`,
       [tourId, date]
     );
 
@@ -136,47 +137,49 @@ export async function POST(
 
     // Рассчитываем стоимость
     const adultPrice = parseFloat(tour.price);
-    const childPrice = adultPrice * 0.5; // Дети со скидкой 50%
+    const childPrice = adultPrice * 0.5;
     const totalPrice = (adults * adultPrice) + (children * childPrice);
 
-    // Создаем бронирование
+    // Получаем email пользователя до INSERT
+    const userResult = await query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [userId]);
+    const userEmail = userResult.rows[0]?.email ?? null;
+    const userName = userResult.rows[0]?.name || 'Гость';
+
+    // Создаем бронирование в operator_bookings (реальная таблица, не VIEW)
     const bookingResult = await query(
-      `INSERT INTO bookings (
+      `INSERT INTO operator_bookings (
         user_id,
         tour_id,
-        start_date,
-        end_date,
-        guests_count,
-        total_price,
+        operator_tour_id,
+        tourist_email,
+        tourist_name,
+        booking_date,
+        participants,
+        adult_count,
+        child_count,
+        base_total_price,
         currency,
-        status,
+        booking_status,
         payment_status,
-        special_requests,
-        created_at,
-        updated_at
+        special_requests
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      VALUES ($1::UUID, $2, $2, $3, $4, $5::DATE, $6, $7, $8, $9, 'RUB', 'pending', 'pending', $10)
       RETURNING id`,
       [
         userId,
         tourId,
+        userEmail,
+        userName,
         date,
-        date, // Для однодневных туров start_date = end_date
         totalParticipants,
+        adults,
+        children,
         totalPrice,
-        'RUB',
-        'pending', // статус
-        'pending', // payment_status
         specialRequirements || null,
       ]
     );
 
     const bookingId = bookingResult.rows[0].id;
-
-    // Получаем email пользователя
-    const userResult = await query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [userId]);
-    const userEmail = userResult.rows[0]?.email ?? null;
-    const userName = userResult.rows[0]?.name || 'Гость';
 
     // Создаем платеж через CloudPayments (передаём токен из входящего запроса)
     let paymentData = null;

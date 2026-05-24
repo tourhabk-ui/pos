@@ -8,12 +8,17 @@ import {
 
 export const runtime = 'nodejs'; // SSE requires Node.js runtime
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function GET(req: NextRequest): Promise<Response> {
   const deviceId = req.nextUrl.searchParams.get('deviceId');
   const room = req.nextUrl.searchParams.get('room');
 
   if (!deviceId || !room) {
     return new Response('Missing deviceId or room', { status: 400 });
+  }
+  if (!UUID_RE.test(deviceId) || !UUID_RE.test(room)) {
+    return new Response('Invalid deviceId or room format', { status: 400 });
   }
 
   const encoder = new TextEncoder();
