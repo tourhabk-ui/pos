@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
               SUM(COALESCE(final_price, base_total_price)) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days' AND booking_status = 'confirmed') AS current_revenue,
               SUM(COALESCE(final_price, base_total_price)) FILTER (WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days' AND booking_status = 'confirmed') AS previous_revenue
             FROM operator_bookings
+            WHERE deleted_at IS NULL
           ),
           user_stats AS (
             SELECT
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
             SELECT
               COUNT(DISTINCT u.id) AS users_with_bookings
             FROM users u
-            WHERE EXISTS (SELECT 1 FROM operator_bookings b WHERE b.metadata->>'user_id' = u.id::text)
+            WHERE EXISTS (SELECT 1 FROM operator_bookings b WHERE b.user_id = u.id)
           )
           SELECT
             cp.current_bookings,
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
             SUM(COALESCE(b.final_price, b.base_total_price)) AS revenue
           FROM operator_bookings b
           WHERE b.booking_status = 'confirmed'
+            AND b.deleted_at IS NULL
             AND b.created_at >= NOW() - INTERVAL '12 months'
           GROUP BY DATE_TRUNC('month', b.created_at)
           ORDER BY month ASC
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest) {
         query<CategoryCountRow>(`
           SELECT category, COUNT(*) as count
           FROM operator_tours
-          WHERE is_active = true
+          WHERE is_active = true AND deleted_at IS NULL
           GROUP BY category
           ORDER BY count DESC
           LIMIT 10
@@ -84,7 +86,8 @@ export async function GET(request: NextRequest) {
             COUNT(b.id) AS bookings,
             COALESCE(SUM(COALESCE(b.final_price, b.base_total_price)) FILTER (WHERE b.booking_status = 'confirmed'), 0) AS revenue
           FROM operator_tours t
-          LEFT JOIN operator_bookings b ON b.operator_tour_id = t.id
+          LEFT JOIN operator_bookings b ON b.operator_tour_id = t.id AND b.deleted_at IS NULL
+          WHERE t.deleted_at IS NULL
           GROUP BY t.id, t.title
           ORDER BY bookings DESC
           LIMIT 5
@@ -96,12 +99,13 @@ export async function GET(request: NextRequest) {
             'New booking' AS title,
             CONCAT('Новое бронирование: ', t.title) AS description,
             b.created_at AS timestamp,
-            (b.metadata->>'user_id')::uuid AS user_id,
+            b.user_id,
             u.name AS user_name,
             NULL AS user_avatar
           FROM operator_bookings b
-          JOIN operator_tours t ON t.id = b.operator_tour_id
-          LEFT JOIN users u ON u.id = (b.metadata->>'user_id')::uuid
+          JOIN operator_tours t ON t.id = b.operator_tour_id AND t.deleted_at IS NULL
+          LEFT JOIN users u ON u.id = b.user_id
+          WHERE b.deleted_at IS NULL
           ORDER BY b.created_at DESC
           LIMIT 10
         `),
