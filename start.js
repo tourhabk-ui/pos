@@ -45,7 +45,20 @@ const proxy = http.createServer((req, res) => {
         'x-forwarded-host':  req.headers['x-forwarded-host']  || req.headers['host'] || '',
         'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
         'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1' } },
-    r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); }
+    r => {
+      const outHeaders = { ...r.headers };
+      // Rewrite internal redirect URLs so browser never sees 127.0.0.1:PORT
+      if (outHeaders['location'] && outHeaders['location'].includes('127.0.0.1')) {
+        const publicProto = req.headers['x-forwarded-proto'] || 'https';
+        const publicHost  = req.headers['x-forwarded-host']  || req.headers['host'] || '';
+        outHeaders['location'] = outHeaders['location'].replace(
+          /https?:\/\/127\.0\.0\.1:\d+/,
+          publicProto + '://' + publicHost
+        );
+      }
+      res.writeHead(r.statusCode, outHeaders);
+      r.pipe(res);
+    }
   );
   p.on('error', () => {
     // Next.js dropped — mark not ready so next health check returns 200 but users see loading.
