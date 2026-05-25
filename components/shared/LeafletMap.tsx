@@ -46,6 +46,8 @@ interface LeafletMapProps {
   showUserLocation?: boolean;
   /** Высота приоритета: «battery» (экономит батарею) или «highAccuracy» (максимум точности) */
   locationPriority?: 'battery' | 'highAccuracy';
+  /** GeoJSON LineString трек маршрута — рисуется как цветная линия поверх карты */
+  track?: { type: string; coordinates: number[][] } | null;
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -89,6 +91,7 @@ export default function LeafletMap({
   onMarkerClick,
   showUserLocation = false,
   locationPriority = 'highAccuracy',
+  track,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -279,6 +282,29 @@ export default function LeafletMap({
       map.addLayer(clusterGroup);
       clusterRef.current = clusterGroup;
 
+      // GPS-трек маршрута (GeoJSON LineString — координаты в формате [lon, lat])
+      if (track?.type === 'LineString' && Array.isArray(track.coordinates) && track.coordinates.length >= 2) {
+        const trackLatLngs = track.coordinates
+          .filter(c => Array.isArray(c) && c.length >= 2)
+          .map(c => L.latLng(c[1], c[0])) as L.LatLng[];
+        if (trackLatLngs.length >= 2) {
+          // Подложка — толстая, полупрозрачная
+          L.polyline(trackLatLngs, {
+            color: '#D44A0C',
+            weight: 6,
+            opacity: 0.35,
+          }).addTo(map);
+          // Основная линия — яркая тонкая
+          L.polyline(trackLatLngs, {
+            color: '#D44A0C',
+            weight: 3,
+            opacity: 0.9,
+          }).addTo(map);
+          // Подгоняем вид карты под трек
+          map.fitBounds(L.latLngBounds(trackLatLngs), { padding: [24, 24], maxZoom: 13 });
+        }
+      }
+
       // Подгоняем вид под все маркеры (через кластер)
       if (allCoords.length > 1) {
         map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
@@ -364,7 +390,7 @@ export default function LeafletMap({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority]);
+  }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority, track]);
 
   return (
     <div

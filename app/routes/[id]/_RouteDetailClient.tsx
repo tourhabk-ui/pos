@@ -143,6 +143,7 @@ interface RouteDetail {
   distanceKm: number | null;
   elevationGainM: number | null;
   durationHours: number | null;
+  geometry: { type: string; coordinates: number[][] } | null;
 }
 
 // ── Карточка оффера ───────────────────────────────────────────────────────────
@@ -408,6 +409,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
   }
 
   const hasGeo = route.lat != null && route.lng != null;
+  const hasTrack = route.geometry?.type === 'LineString' && (route.geometry.coordinates?.length ?? 0) >= 2;
+  const trackStart = hasTrack ? route.geometry!.coordinates[0] : null;
   const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
 
@@ -855,14 +858,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <Download className="w-4 h-4" /> Скачать GPX
                   </a>
                   <a
-                    href={`omaps://map?ll=${route.lng},${route.lat}&z=12`}
+                    href={`geo:${trackStart ? trackStart[1] : route.lat},${trackStart ? trackStart[0] : route.lng}?q=${encodeURIComponent(route.title)}`}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)] text-sm font-semibold hover:bg-[var(--success)]/20 transition-colors"
                   >
-                    <Navigation className="w-4 h-4" /> Organic Maps
+                    <Navigation className="w-4 h-4" /> Как добраться
                   </a>
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                  Скачайте GPX файл и откройте его в Organic Maps / Maps.me / навигаторе
+                  {hasTrack ? 'Трек загружен — скачайте GPX для офлайн-навигации' : 'Откроет точку старта в вашем картографическом приложении'}
                 </p>
               </section>
             )}
@@ -872,11 +875,17 @@ export default function RouteDetailClient({ id }: { id: string }) {
               <section className="lg:hidden">
                 <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-[var(--accent)]" /> На карте
+                  {hasTrack && (
+                    <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20">
+                      GPS-трек
+                    </span>
+                  )}
                 </h2>
                 <LeafletMap
                   center={[Number(route.lat), Number(route.lng)]}
                   zoom={10}
                   markers={[{ coords: [Number(route.lat), Number(route.lng)], title: route.title, description: locLabel, color: 'red', type: MarkerType.TOUR, category: route.locationType ?? 'other' }]}
+                  track={route.geometry}
                   height="240px"
                   className="w-full rounded-lg"
                 />
@@ -986,10 +995,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Download className="w-3.5 h-3.5" /> Скачать GPX
                     </a>
                     <a
-                      href={`omaps://map?ll=${route.lng},${route.lat}&z=12`}
+                      href={`geo:${trackStart ? trackStart[1] : route.lat},${trackStart ? trackStart[0] : route.lng}?q=${encodeURIComponent(route.title)}`}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)] text-xs font-semibold hover:bg-[var(--success)]/20 transition-colors"
                     >
-                      <Navigation className="w-3.5 h-3.5" /> Organic Maps
+                      <Navigation className="w-3.5 h-3.5" /> Как добраться
                     </a>
                   </div>
                 </div>
@@ -1000,11 +1009,17 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 <div>
                   <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <MapPin className="w-3 h-3" /> На карте
+                    {hasTrack && (
+                      <span className="ml-auto text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20">
+                        GPS
+                      </span>
+                    )}
                   </h2>
                   <LeafletMap
                     center={[Number(route.lat), Number(route.lng)]}
                     zoom={10}
                     markers={[{ coords: [Number(route.lat), Number(route.lng)], title: route.title, description: locLabel, color: 'red', type: MarkerType.TOUR, category: route.locationType ?? 'other' }]}
+                    track={route.geometry}
                     height="220px"
                     className="w-full rounded-lg"
                   />
