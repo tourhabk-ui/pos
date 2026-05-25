@@ -395,7 +395,7 @@ export default function LeafletMap({
     <div
       ref={containerRef}
       style={{ height }}
-      className={`overflow-clip ${className}`}
+      className={`overflow-clip isolate ${className}`}
     />
   );
 }
