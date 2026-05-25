@@ -23,6 +23,7 @@ interface BatchResult {
   next_offset?: number;
   total_ids?: number;
   done?: boolean;
+  all_ids?: string[];
   log?: string[];
   error?: string;
 }
@@ -45,14 +46,18 @@ export default function AdminToolsPage() {
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
-  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[]): Promise<void> {
+  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], cachedIds?: string[]): Promise<void> {
     if (stopRef.current) return;
 
     let data: BatchResult;
     try {
       const res = await fetch(
-        `/api/admin/import-tracks?offset=${offset}&batch=25&skip_existing=true`,
-        { method: 'POST' }
+        `/api/admin/import-tracks?offset=${offset}&batch=20&skip_existing=true`,
+        {
+          method: 'POST',
+          headers: cachedIds ? { 'Content-Type': 'application/json' } : {},
+          body: cachedIds ? JSON.stringify({ ids: cachedIds }) : undefined,
+        }
       );
       if (!res.ok) {
         const text = await res.text();
@@ -71,6 +76,7 @@ export default function AdminToolsPage() {
       return;
     }
 
+    const ids = data.all_ids ?? cachedIds;
     const newTotals: Totals = {
       imported: acc.imported + (data.imported ?? 0),
       skipped: acc.skipped + (data.skipped ?? 0),
@@ -91,7 +97,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 25, newTotals, newLog, newMatches);
+    await runBatch(data.next_offset ?? offset + 20, newTotals, newLog, newMatches, ids ?? undefined);
   }
 
   async function startImport() {
@@ -104,7 +110,7 @@ export default function AdminToolsPage() {
     setLog([]);
     setError(null);
     const empty: Totals = { imported: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
-    await runBatch(0, empty, [], []);
+    await runBatch(0, empty, [], [], undefined);
   }
 
   function stopImport() {
@@ -132,7 +138,7 @@ export default function AdminToolsPage() {
               в нашей БД по географической близости (≤5 км). Обновляет поле geometry в kamchatka_routes.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">
-              Батчи по 25 мест · Пауза 500 мс между запросами · Пропускает маршруты с треком
+              Батчи по 20 мест · Пауза 500 мс · ID кэшируются в браузере · Пропускает маршруты с треком
             </p>
           </div>
         </div>
