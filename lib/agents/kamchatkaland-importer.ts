@@ -133,27 +133,31 @@ async function upsertArticle(
   const dedupeKey = `kl_${slug}`;
   const title = ARTICLE_TITLES[slug] ?? slug.replace(/-/g, ' ');
   const url = `${BASE}/note/${slug}`;
-  const searchText = `${title} ${description}`.slice(0, 3000);
   const sourceHash = createHash('md5').update(description).digest('hex');
+  const metadata = JSON.stringify({
+    category: meta.category,
+    activity_type: meta.activity_type,
+    location_type: meta.location_type,
+    source_hash: sourceHash,
+    import_source: SOURCE_NAME,
+  });
 
   const { rowCount } = await pool.query(
-    `INSERT INTO agent_route_knowledge
-       (id, route_dedupe_key, title, description, category, activity_type, location_type,
-        source_url, source_name, search_text, source_hash, kind,
-        is_visible, source_updated_at, last_synced_at, created_at, updated_at)
+    `INSERT INTO kamchatka_routes
+       (id, dedupe_key, title, description, category, activity_type,
+        source_url, source_name, metadata, is_visible,
+        created_at, updated_at)
      VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
-       $7, $8, $9, $10, 'place',
-       true, NOW(), NOW(), NOW(), NOW()
+       gen_random_uuid(), $1, $2, $3, $4, $5,
+       $6, $7, $8::jsonb, true,
+       NOW(), NOW()
      )
-     ON CONFLICT (route_dedupe_key) DO UPDATE SET
-       description    = EXCLUDED.description,
-       search_text    = EXCLUDED.search_text,
-       source_hash    = EXCLUDED.source_hash,
-       last_synced_at = NOW(),
-       updated_at     = NOW()`,
-    [dedupeKey, title, description, meta.category, meta.activity_type, meta.location_type,
-     url, SOURCE_NAME, searchText, sourceHash],
+     ON CONFLICT (dedupe_key) DO UPDATE SET
+       description = EXCLUDED.description,
+       metadata    = EXCLUDED.metadata,
+       updated_at  = NOW()`,
+    [dedupeKey, title, description, meta.category, meta.activity_type,
+     url, SOURCE_NAME, metadata],
   );
 
   return (rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
@@ -167,7 +171,7 @@ export async function runKamchatkalandImporter(batchSize = 10): Promise<Kamchatk
 
   // Найти статьи, которых нет или которые устарели
   const existingKeys = await pool.query<{ k: string }>(
-    `SELECT route_dedupe_key AS k FROM agent_route_knowledge WHERE source_name = $1`,
+    `SELECT dedupe_key AS k FROM kamchatka_routes WHERE source_name = $1`,
     [SOURCE_NAME],
   );
   const existing = new Set(existingKeys.rows.map(r => r.k));

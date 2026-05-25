@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     if (tourId) {
       const ownershipCheck = await query<OpTourOwnerRow>(
-        `SELECT id FROM tours WHERE id = $1 AND operator_id = $2`,
+        `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2`,
         [tourId, operatorId]
       );
 
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
         ts.status,
         t.season
       FROM tour_availability ts
-      JOIN tours t ON ts.tour_id = t.id
+      JOIN operator_tours t ON ts.tour_id = t.id
       WHERE t.operator_id = $1
     `;
     const values: (string | number | boolean | null)[] = [operatorId];
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
 
     // Проверяем что тур принадлежит оператору
     const tourResult = await query<OpTourForScheduleRow>(
-      `SELECT id, name, operator_id FROM tours WHERE id = $1`,
+      `SELECT id, name, operator_id FROM operator_tours WHERE id = $1`,
       [tourId]
     );
 

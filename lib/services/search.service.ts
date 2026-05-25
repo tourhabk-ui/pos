@@ -44,7 +44,7 @@ export const searchService = {
     if (!query.trim()) return [];
     const result = await pool.query(
       `SELECT DISTINCT name
-       FROM tours
+       FROM operator_tours
        WHERE is_active = TRUE AND name ILIKE $1
        ORDER BY name ASC
        LIMIT $2`,
@@ -66,7 +66,7 @@ export const searchService = {
     params.push(Math.min(Math.max(limit, 1), 50));
     const result = await pool.query(
       `SELECT *
-       FROM tours
+       FROM operator_tours
        WHERE ${conditions.join(' AND ')}
        ORDER BY COALESCE(rating, 0) DESC, created_at DESC
        LIMIT $${params.length}`,
@@ -77,7 +77,7 @@ export const searchService = {
   async getTrending(limit = 10) {
     const result = await pool.query(
       `SELECT *
-       FROM tours
+       FROM operator_tours
        WHERE is_active = TRUE
        ORDER BY COALESCE(review_count, 0) DESC, COALESCE(rating, 0) DESC
        LIMIT $1`,
@@ -88,7 +88,7 @@ export const searchService = {
   async getPopularTags(limit = 20) {
     const result = await pool.query(
       `SELECT category, COUNT(*)::int AS cnt
-       FROM tours
+       FROM operator_tours
        WHERE is_active = TRUE AND category IS NOT NULL
        GROUP BY category
        ORDER BY cnt DESC
@@ -102,7 +102,7 @@ export const searchService = {
   },
   async getSimilar(tourId: string, limit = 5) {
     const sourceTour = await pool.query(
-      `SELECT id, category, difficulty FROM tours WHERE id = $1 LIMIT 1`,
+      `SELECT id, category, difficulty FROM operator_tours WHERE id = $1 LIMIT 1`,
       [tourId]
     );
     const base = sourceTour.rows[0];
@@ -112,7 +112,7 @@ export const searchService = {
 
     const result = await pool.query(
       `SELECT *
-       FROM tours
+       FROM operator_tours
        WHERE
          is_active = TRUE
          AND id <> $1

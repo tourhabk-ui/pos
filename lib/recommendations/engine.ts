@@ -61,7 +61,7 @@ async function getSimilarUsersRecommendations(
        JOIN bookings b3 ON b3.user_id = b2.user_id
                        AND b3.status IN ('confirmed', 'completed')
        -- Детали тура
-       JOIN tours t ON t.id = b3.tour_id
+       JOIN operator_tours t ON t.id = b3.tour_id
                    AND t.id != ALL($2::text[])
                    AND t.is_active = true
        WHERE b1.user_id = $1
@@ -107,7 +107,7 @@ async function getContentBasedRecommendations(
          AVG(price)                                         AS avg_price,
          MODE() WITHIN GROUP (ORDER BY category)           AS top_category,
          MODE() WITHIN GROUP (ORDER BY difficulty)         AS top_difficulty
-       FROM tours
+       FROM operator_tours
        WHERE id = ANY($1::text[])`,
       [bookedTourIds]
     );
@@ -123,7 +123,7 @@ async function getContentBasedRecommendations(
          id, title, description, price, difficulty,
          duration, category, location, rating,
          images, eco_points_reward
-       FROM tours
+       FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
          AND (
@@ -166,7 +166,7 @@ async function getEcoOptimizedRecommendations(
 
     if (bookedTourIds.length > 0) {
       const cats = await query<{ category: string }>(
-        `SELECT DISTINCT category FROM tours WHERE id = ANY($1::text[]) AND category IS NOT NULL LIMIT 3`,
+        `SELECT DISTINCT category FROM operator_tours WHERE id = ANY($1::text[]) AND category IS NOT NULL LIMIT 3`,
         [bookedTourIds]
       );
       if (cats.rows.length > 0) {
@@ -181,7 +181,7 @@ async function getEcoOptimizedRecommendations(
          id, title, description, price, difficulty,
          duration, category, location, rating,
          images, eco_points_reward
-       FROM tours
+       FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
          AND eco_points_reward IS NOT NULL
@@ -243,7 +243,7 @@ export async function getRecommendations(
     const fallback = await query<RecommendedTour>(
       `SELECT id, title, description, price, difficulty, duration,
               category, location, rating, images, eco_points_reward
-       FROM tours WHERE is_active = true
+       FROM operator_tours WHERE is_active = true
        ORDER BY rating DESC NULLS LAST, created_at DESC
        LIMIT $1`,
       [limit]

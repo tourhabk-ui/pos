@@ -253,7 +253,7 @@ async function selectTours(
         rating,
         coordinates,
         season
-      FROM tours
+      FROM operator_tours
       WHERE 
         is_active = true
         AND difficulty = ANY($1)

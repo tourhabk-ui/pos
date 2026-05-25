@@ -116,7 +116,7 @@ const BOOKING_SELECT = `
     u.name AS user_name,
     u.email AS user_email
   FROM bookings b
-  LEFT JOIN tours t ON b.tour_id = t.id
+  LEFT JOIN operator_tours t ON b.tour_id = t.id
   LEFT JOIN users u ON b.user_id = u.id
 `;
 
@@ -317,7 +317,7 @@ export async function rescheduleBooking(
     const bookingResult = await client.query(
       `SELECT b.*, t.operator_id AS tour_operator_id, t.max_group_size, t.price AS tour_price, t.name AS tour_name
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE b.id = $1
        FOR UPDATE`,
       [bookingId]
@@ -343,7 +343,7 @@ export async function rescheduleBooking(
     // Проверяем владение текущим туром оператором
     if (role === 'operator') {
       const ownsCurrent = await client.query(
-        `SELECT 1 FROM tours t JOIN partners p ON t.operator_id = p.id WHERE t.id = $1 AND p.user_id = $2`,
+        `SELECT 1 FROM operator_tours t JOIN partners p ON t.operator_id = p.id WHERE t.id = $1 AND p.user_id = $2`,
         [bookingRow.tour_id, actorId]
       );
 
@@ -354,7 +354,7 @@ export async function rescheduleBooking(
 
     // Получаем целевой тур
     const targetTourResult = await client.query(
-      `SELECT id, operator_id, max_group_size, price, name, is_active FROM tours WHERE id = $1`,
+      `SELECT id, operator_id, max_group_size, price, name, is_active FROM operator_tours WHERE id = $1`,
       [input.targetTourId]
     );
 
@@ -699,7 +699,7 @@ export async function listBookings(params: {
   const countResult = await query(
     `SELECT COUNT(*) AS total
      FROM bookings b
-     LEFT JOIN tours t ON b.tour_id = t.id
+     LEFT JOIN operator_tours t ON b.tour_id = t.id
      ${countWhere}`,
     countParams as string[]
   );

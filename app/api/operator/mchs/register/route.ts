@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
     const ownershipResult = await query<{ id: string }>(
       `SELECT b.id
        FROM bookings b
-       JOIN tours t ON t.id = b.tour_id
+       JOIN operator_tours t ON t.id = b.tour_id
        WHERE b.id = $1 AND t.operator_id = $2
        LIMIT 1`,
       [data.bookingId, operatorId]

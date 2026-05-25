@@ -153,8 +153,8 @@ export async function GET(request: NextRequest) {
        FROM operator_booking_transfers t
        JOIN bookings b ON b.id = t.booking_id
        JOIN users tourist ON tourist.id = b.user_id
-       LEFT JOIN tours source_tour ON source_tour.id = b.tour_id
-       LEFT JOIN tours target_tour ON target_tour.id = t.target_tour_id
+       LEFT JOIN operator_tours source_tour ON source_tour.id = b.tour_id
+       LEFT JOIN operator_tours target_tour ON target_tour.id = t.target_tour_id
        LEFT JOIN partners from_partner ON from_partner.id = t.from_operator_partner_id
        LEFT JOIN partners to_partner ON to_partner.id = t.to_operator_partner_id
        WHERE ${whereParts.join(' AND ')}
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
     }>(
       `SELECT b.id, b.total_price, b.status, t.name as tour_name
        FROM bookings b
-       JOIN tours t ON t.id = b.tour_id
+       JOIN operator_tours t ON t.id = b.tour_id
        WHERE b.id = $1 AND t.operator_id = $2
        LIMIT 1`,
       [payload.bookingId, context.partnerId]
@@ -497,7 +497,7 @@ export async function PATCH(request: NextRequest) {
 
     const targetTourResult = await query<{ id: string }>(
       `SELECT id
-       FROM tours
+       FROM operator_tours
        WHERE id = $1 AND operator_id = $2
        LIMIT 1`,
       [payload.targetTourId, context.partnerId]

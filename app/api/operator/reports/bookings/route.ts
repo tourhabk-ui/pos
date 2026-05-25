@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as count,
         SUM(total_price) as revenue
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           COUNT(*) FILTER (WHERE status = 'completed') as completed,
           COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled
         FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
         MIN(EXTRACT(DAY FROM (start_date - created_at::DATE))) as min_lead_time_days,
         MAX(EXTRACT(DAY FROM (start_date - created_at::DATE))) as max_lead_time_days
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
         END as group_size,
         COUNT(*) as count
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
           b.user_id,
           COUNT(*) as booking_count
         FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3

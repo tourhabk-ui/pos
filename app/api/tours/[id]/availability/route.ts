@@ -39,7 +39,7 @@ export async function GET(
     // Проверяем существование тура
     const tourQuery = `
       SELECT id, name, max_group_size, min_group_size, price, is_active
-      FROM tours
+      FROM operator_tours
       WHERE id = $1
     `;
     const tourResult = await query<TourCheckRow>(tourQuery, [id]);

@@ -187,7 +187,7 @@ export async function getTouristRecommendations(userId: string, limit: number = 
 
     let toursQuery = `
       SELECT t.*, p.name as partner_name
-      FROM tours t
+      FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
       WHERE t.is_active = TRUE
     `;

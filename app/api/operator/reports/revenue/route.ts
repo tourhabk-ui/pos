@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN b.payment_status = 'pending' THEN b.total_price ELSE 0 END) as pending_revenue,
         AVG(b.total_price) as avg_booking_value
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) as paid_revenue,
         AVG(b.total_price) as avg_booking_value
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as count,
         SUM(total_price) as total
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
         MIN(b.total_price) as min_booking_value,
         MAX(b.total_price) as max_booking_value
       FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3

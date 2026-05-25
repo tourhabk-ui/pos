@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     // Get tours count
     const toursResult = await query<OpStatsToursRow>(
-      'SELECT COUNT(*) as total, SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active FROM tours WHERE operator_id = $1',
+      'SELECT COUNT(*) as total, SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active FROM operator_tours WHERE operator_id = $1',
       [operatorId]
     );
 
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE t.operator_id = $1`,
       [operatorId]
     );
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
                            AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM CURRENT_DATE)
                            THEN b.total_price ELSE 0 END), 0) as monthly_revenue
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE t.operator_id = $1`,
       [operatorId]
     );
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
         t.name as tour_name,
         u.name as user_name
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN users u ON b.user_id = u.id
        WHERE t.operator_id = $1
        ORDER BY b.created_at DESC

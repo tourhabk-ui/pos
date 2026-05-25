@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE is_verified = true) as verified,
         COUNT(*) FILTER (WHERE created_at >= $2) as recent_reviews
       FROM reviews r
-      JOIN tours t ON r.tour_id = t.id
+      JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1`,
       [operatorId, startDate]
     );
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
         COUNT(r.id) as reviews_count,
         AVG(r.rating) as avg_rating,
         COUNT(*) FILTER (WHERE r.created_at >= $2) as recent_count
-      FROM tours t
+      FROM operator_tours t
       LEFT JOIN reviews r ON t.id = r.tour_id
       WHERE t.operator_id = $1
       GROUP BY t.id, t.name
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as reviews_count,
         AVG(r.rating) as avg_rating
       FROM reviews r
-      JOIN tours t ON r.tour_id = t.id
+      JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1
         AND r.created_at >= $2
       GROUP BY DATE(r.created_at)
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
         t.name as tour_name,
         u.name as user_name
       FROM reviews r
-      JOIN tours t ON r.tour_id = t.id
+      JOIN operator_tours t ON r.tour_id = t.id
       JOIN users u ON r.user_id = u.id
       WHERE t.operator_id = $1
         AND r.rating <= 3
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
         MIN(EXTRACT(EPOCH FROM (operator_reply_at - created_at))/3600) as min_response_hours,
         MAX(EXTRACT(EPOCH FROM (operator_reply_at - created_at))/3600) as max_response_hours
       FROM reviews r
-      JOIN tours t ON r.tour_id = t.id
+      JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1
         AND operator_reply_at IS NOT NULL
         AND created_at >= $2`,

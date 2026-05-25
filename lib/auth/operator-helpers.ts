@@ -201,7 +201,7 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
   try {
     const result = await query(
       `SELECT t.id 
-       FROM tours t
+       FROM operator_tours t
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND t.id = $2`,
       [userId, tourId]
@@ -221,7 +221,7 @@ export async function verifyBookingOwnership(userId: string, bookingId: string):
     const result = await query(
       `SELECT b.id 
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND b.id = $2`,
       [userId, bookingId]
@@ -271,7 +271,7 @@ export async function getOperatorStats(userId: string): Promise<any> {
         SELECT
           COUNT(*) as total_tours,
           COUNT(CASE WHEN is_active THEN 1 END) as active_tours
-        FROM tours WHERE operator_id = $1
+        FROM operator_tours WHERE operator_id = $1
       ),
       booking_stats AS (
         SELECT
@@ -283,7 +283,7 @@ export async function getOperatorStats(userId: string): Promise<any> {
             0
           ) as completion_rate
         FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
       ),
       review_stats AS (
@@ -291,7 +291,7 @@ export async function getOperatorStats(userId: string): Promise<any> {
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(*) as total_reviews
         FROM reviews r
-        JOIN tours t ON r.tour_id = t.id
+        JOIN operator_tours t ON r.tour_id = t.id
         WHERE t.operator_id = $1
       )
       SELECT * FROM tour_stats, booking_stats, review_stats`,

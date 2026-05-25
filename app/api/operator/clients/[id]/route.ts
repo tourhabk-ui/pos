@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 async function verifyClientAccess(clientId: string, partnerId: string): Promise<boolean> {
   const res = await query(
     `SELECT 1 FROM bookings b
-     JOIN tours t ON b.tour_id = t.id
+     JOIN operator_tours t ON b.tour_id = t.id
      WHERE b.user_id = $1 AND t.operator_id = $2
      LIMIT 1`,
     [clientId, partnerId]
@@ -78,7 +78,7 @@ export async function GET(
          b.start_date, b.created_at,
          t.name AS tour_name
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE b.user_id = $1 AND t.operator_id = $2
        ORDER BY b.created_at DESC
        LIMIT 50`,
@@ -95,7 +95,7 @@ export async function GET(
          r.id, r.rating, r.comment, r.is_verified, r.created_at,
          t.name AS tour_name
        FROM reviews r
-       JOIN tours t ON r.tour_id = t.id
+       JOIN operator_tours t ON r.tour_id = t.id
        WHERE r.user_id = $1 AND t.operator_id = $2
        ORDER BY r.created_at DESC
        LIMIT 20`,

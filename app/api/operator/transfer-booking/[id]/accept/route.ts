@@ -114,7 +114,7 @@ export async function PATCH(
     // Если передан targetTourId — проверяем, что тур принадлежит принимающему оператору
     if (targetTourId) {
       const tourCheck = await query<{ id: string }>(
-        `SELECT id FROM tours WHERE id = $1 AND operator_id = $2 LIMIT 1`,
+        `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 LIMIT 1`,
         [targetTourId, operatorId]
       );
       if (tourCheck.rows.length === 0) {

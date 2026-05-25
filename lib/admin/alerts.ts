@@ -75,7 +75,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   // 3. Активные туры без бронирований 30 дней
   try {
     const result = await query<TotalRow>(
-      `SELECT COUNT(*) as total FROM tours
+      `SELECT COUNT(*) as total FROM operator_tours
        WHERE is_active = true
          AND id NOT IN (
            SELECT DISTINCT tour_id FROM bookings
@@ -103,7 +103,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
     const result = await query<AlertBadReviewBurstRow>(
       `SELECT t.name as tour_name, COUNT(*) as bad_reviews
        FROM reviews r
-       JOIN tours t ON r.tour_id = t.id
+       JOIN operator_tours t ON r.tour_id = t.id
        WHERE r.rating <= 2 AND r.created_at >= NOW() - INTERVAL '7 days'
        GROUP BY t.id, t.name
        HAVING COUNT(*) >= 3
@@ -131,7 +131,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
               COUNT(*) FILTER (WHERE b.status = 'cancelled') as cancelled,
               COUNT(*) as total
        FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE b.created_at >= NOW() - INTERVAL '30 days'
        GROUP BY p.id, p.company_name
