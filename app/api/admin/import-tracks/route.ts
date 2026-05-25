@@ -115,14 +115,20 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
 }
 
 function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
-  const tLat = track.coordinates[0][1];
-  const tLng = track.coordinates[0][0];
+  const coords = track.coordinates;
+  // Check start, middle (track.lat/lng), and end — take minimum distance
+  const checkPoints: [number, number][] = [
+    [coords[0][1], coords[0][0]],
+    [track.lat, track.lng],
+    [coords[coords.length - 1][1], coords[coords.length - 1][0]],
+  ];
+
   let best: OurRoute | null = null;
   let bestDist = MAX_MATCH_DIST_KM;
   for (const r of routes) {
     if (r.hasGeometry) continue;
-    const d = distKm(tLat, tLng, r.lat, r.lng);
-    if (d < bestDist) { bestDist = d; best = r; }
+    const minDist = Math.min(...checkPoints.map(([lat, lng]) => distKm(lat, lng, r.lat, r.lng)));
+    if (minDist < bestDist) { bestDist = minDist; best = r; }
   }
   return best ? { route: best, distKm: Math.round(bestDist * 10) / 10 } : null;
 }
@@ -130,8 +136,8 @@ function findMatch(track: { lat: number; lng: number; coordinates: number[][] },
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const authError = await requireAdmin(req);
-  if (authError) return authError;
+  const authResult = await requireAdmin(req);
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
   const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
