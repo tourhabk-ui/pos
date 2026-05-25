@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink } from 'lucide-react';
+import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus } from 'lucide-react';
 
 interface MatchItem {
   ourTitle: string;
@@ -11,13 +11,22 @@ interface MatchItem {
   routeId: string;
 }
 
+interface DraftItem {
+  title: string;
+  pts: number;
+  distKm: number;
+  sourceUrl: string;
+}
+
 interface BatchResult {
   success: boolean;
   imported?: number;
+  created?: number;
   skipped?: number;
   noMatch?: number;
   errors?: number;
   matches?: MatchItem[];
+  drafts?: DraftItem[];
   batch_processed?: number;
   offset?: number;
   next_offset?: number;
@@ -30,6 +39,7 @@ interface BatchResult {
 
 interface Totals {
   imported: number;
+  created: number;
   skipped: number;
   noMatch: number;
   errors: number;
@@ -42,11 +52,12 @@ export default function AdminToolsPage() {
   const [done, setDone] = useState(false);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [allMatches, setAllMatches] = useState<MatchItem[]>([]);
+  const [allDrafts, setAllDrafts] = useState<DraftItem[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
-  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], cachedIds?: string[]): Promise<void> {
+  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], prevDrafts: DraftItem[], cachedIds?: string[]): Promise<void> {
     if (stopRef.current) return;
 
     let data: BatchResult;
@@ -79,6 +90,7 @@ export default function AdminToolsPage() {
     const ids = data.all_ids ?? cachedIds;
     const newTotals: Totals = {
       imported: acc.imported + (data.imported ?? 0),
+      created: acc.created + (data.created ?? 0),
       skipped: acc.skipped + (data.skipped ?? 0),
       noMatch: acc.noMatch + (data.noMatch ?? 0),
       errors: acc.errors + (data.errors ?? 0),
@@ -87,9 +99,11 @@ export default function AdminToolsPage() {
     };
     const newLog = [...prevLog, ...(data.log ?? [])];
     const newMatches = [...prevMatches, ...(data.matches ?? [])];
+    const newDrafts = [...prevDrafts, ...(data.drafts ?? [])];
     setTotals(newTotals);
     setLog(newLog);
     setAllMatches(newMatches);
+    setAllDrafts(newDrafts);
 
     if (data.done || stopRef.current) {
       setDone(true);
@@ -97,7 +111,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, ids ?? undefined);
+    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, newDrafts, ids ?? undefined);
   }
 
   async function startImport() {
@@ -107,10 +121,11 @@ export default function AdminToolsPage() {
     setDone(false);
     setTotals(null);
     setAllMatches([]);
+    setAllDrafts([]);
     setLog([]);
     setError(null);
-    const empty: Totals = { imported: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
-    await runBatch(0, empty, [], [], undefined);
+    const empty: Totals = { imported: 0, created: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
+    await runBatch(0, empty, [], [], [], undefined);
   }
 
   function stopImport() {
@@ -134,11 +149,11 @@ export default function AdminToolsPage() {
           <div>
             <h2 className="font-semibold text-[var(--text-primary)]">Импорт GPS-треков с idilesom.com</h2>
             <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-              Парсит GPS-треки с idilesom.com/kam/places и idilesom.com/kam/routes, сопоставляет с маршрутами
-              в нашей БД по географической близости (≤10 км). Обновляет поле geometry в kamchatka_routes.
+              Парсит GPS-треки с idilesom.com/kam/places и /kam/routes. Совпавшие — обновляет geometry в нашей БД.
+              Новые камчатские треки — создаёт черновые маршруты (is_visible=false) для ревью.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">
-              Батчи по 5 · Пауза 500 мс · Проверяет старт/середину/конец трека · Пропускает маршруты с треком
+              Батчи по 5 · Пауза 500 мс · Проверяет старт/середину/конец · Bbox Камчатки · ON CONFLICT DO NOTHING
             </p>
           </div>
         </div>
@@ -169,7 +184,7 @@ export default function AdminToolsPage() {
         {running && totals && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-[var(--text-secondary)]">
-              <span>Обработано {totals.processed} из {totals.total} мест</span>
+              <span>Обработано {totals.processed} из {totals.total} источников</span>
               <span>{pct}%</span>
             </div>
             <div className="h-2 rounded-full bg-[var(--bg-hover)] overflow-hidden">
@@ -183,7 +198,7 @@ export default function AdminToolsPage() {
 
         {running && !totals && (
           <p className="text-sm text-[var(--text-secondary)] animate-pulse">
-            Собираем список мест с idilesom.com...
+            Собираем список с idilesom.com (places + routes)...
           </p>
         )}
 
@@ -202,11 +217,12 @@ export default function AdminToolsPage() {
             </div>
 
             {totals && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                 {[
-                  { label: 'Импортировано', value: totals.imported, color: 'var(--success)' },
+                  { label: 'Обновлено', value: totals.imported, color: 'var(--success)' },
+                  { label: 'Новых черновиков', value: totals.created, color: 'var(--ocean)' },
                   { label: 'Нет трека', value: totals.skipped, color: 'var(--text-muted)' },
-                  { label: 'Нет совпадения', value: totals.noMatch, color: 'var(--warning)' },
+                  { label: 'Вне Камчатки', value: totals.noMatch, color: 'var(--warning)' },
                   { label: 'Ошибки', value: totals.errors, color: 'var(--danger)' },
                 ].map(s => (
                   <div key={s.label} className="text-center">
@@ -238,7 +254,7 @@ export default function AdminToolsPage() {
       {allMatches.length > 0 && (
         <div className="ds-card p-6 space-y-3">
           <h2 className="font-semibold text-[var(--text-primary)]">
-            Найденные совпадения ({allMatches.length})
+            Обновлены треки ({allMatches.length})
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -270,6 +286,49 @@ export default function AdminToolsPage() {
                       <span className={`text-xs px-1.5 py-0.5 rounded ${m.distKm < 1 ? 'bg-[var(--success)]/10 text-[var(--success)]' : m.distKm < 3 ? 'bg-[var(--warning)]/10 text-[var(--warning)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
                         {m.distKm} км
                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {allDrafts.length > 0 && (
+        <div className="ds-card p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <FilePlus className="w-4 h-4 text-[var(--ocean)]" />
+            <h2 className="font-semibold text-[var(--text-primary)]">
+              Новые черновики ({allDrafts.length})
+            </h2>
+            <span className="text-xs text-[var(--text-muted)]">is_visible=false, требуют ревью</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)]">
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Название</th>
+                  <th className="text-right py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Точки</th>
+                  <th className="text-right py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Дист.</th>
+                  <th className="text-right py-2 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Источник</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allDrafts.map((d, idx) => (
+                  <tr key={idx} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
+                    <td className="py-2 pr-4 text-[var(--text-primary)]">{d.title}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--text-secondary)]">{d.pts}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--text-secondary)]">{d.distKm} км</td>
+                    <td className="py-2 text-right">
+                      <a
+                        href={d.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--ocean)] hover:underline inline-flex items-center gap-1 text-xs"
+                      >
+                        idilesom <ExternalLink className="w-3 h-3" />
+                      </a>
                     </td>
                   </tr>
                 ))}

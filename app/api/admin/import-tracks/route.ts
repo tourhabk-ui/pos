@@ -4,6 +4,10 @@
  * Скрейпит как /kam/places так и /kam/routes.
  * ID имеют префикс: "places:123" или "routes:456".
  * Работает батчами: ?offset=0&batch=5 → следующий вызов ?offset=5&batch=5 и т.д.
+ *
+ * Режимы:
+ *  - Совпал с нашим маршрутом → обновляет geometry
+ *  - Не совпал, но трек валидный камчатский → создаёт черновой маршрут (is_visible=false)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,6 +20,10 @@ export const maxDuration = 60;
 
 const DELAY_MS = 500;
 const MAX_MATCH_DIST_KM = 10;
+// Камчатка: примерный bbox
+const KAM_LAT_MIN = 50.5, KAM_LAT_MAX = 62.0;
+const KAM_LNG_MIN = 155.0, KAM_LNG_MAX = 173.5;
+const MIN_DRAFT_POINTS = 10;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
@@ -128,6 +136,25 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
     .map(r => ({ id: r.id, title: r.title, lat: parseFloat(r.lat), lng: parseFloat(r.lng), hasGeometry: r.has_geom }));
 }
 
+function isInKamchatka(lat: number, lng: number): boolean {
+  return lat >= KAM_LAT_MIN && lat <= KAM_LAT_MAX && lng >= KAM_LNG_MIN && lng <= KAM_LNG_MAX;
+}
+
+function calcTrackDistKm(coords: number[][]): number {
+  let d = 0;
+  for (let i = 1; i < coords.length; i++) {
+    d += distKm(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
+  }
+  return Math.round(d * 10) / 10;
+}
+
+function sourceIdToUrl(sourceId: string): string {
+  const colonIdx = sourceId.indexOf(':');
+  const section = colonIdx >= 0 ? sourceId.slice(0, colonIdx) : 'places';
+  const id = colonIdx >= 0 ? sourceId.slice(colonIdx + 1) : sourceId;
+  return `https://idilesom.com/kam/${section}/${id}`;
+}
+
 function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
   const coords = track.coordinates;
   const checkPoints: [number, number][] = [
@@ -159,7 +186,8 @@ export async function POST(req: NextRequest) {
 
   const log: string[] = [];
   const matches: { ourTitle: string; sourceTitle: string; pts: number; distKm: number; routeId: string }[] = [];
-  let imported = 0, skipped = 0, noMatch = 0, errors = 0;
+  const drafts: { title: string; pts: number; distKm: number; sourceUrl: string }[] = [];
+  let imported = 0, skipped = 0, noMatch = 0, created = 0, errors = 0;
 
   try {
     const ourRoutes = await loadOurRoutes(skipExisting);
@@ -198,10 +226,35 @@ export async function POST(req: NextRequest) {
         if (!track) { skipped++; await sleep(DELAY_MS); continue; }
 
         const found = findMatch(track, ourRoutes);
-        if (!found) { noMatch++; await sleep(DELAY_MS); continue; }
+
+        if (!found) {
+          // Не совпал с нашим маршрутом — создаём черновой если в Камчатке
+          if (track.coordinates.length >= MIN_DRAFT_POINTS && isInKamchatka(track.lat, track.lng) && track.title) {
+            const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
+            const trackLen = calcTrackDistKm(track.coordinates);
+            const srcUrl = sourceIdToUrl(sourceId);
+            const dedupeKey = `idilesom:${sourceId}`;
+            await pool.query(
+              `INSERT INTO kamchatka_routes (title, lat, lng, geometry, source_url, source_name, is_visible, dedupe_key)
+               VALUES ($1,$2,$3,$4,$5,'idilesom',false,$6)
+               ON CONFLICT (dedupe_key) DO NOTHING`,
+              [track.title, track.lat, track.lng, JSON.stringify(geojson), srcUrl, dedupeKey]
+            );
+            created++;
+            drafts.push({ title: track.title, pts: track.coordinates.length, distKm: trackLen, sourceUrl: srcUrl });
+            log.push(`  [${offset + i + 1}/${totalIds}] NEW: "${track.title.slice(0, 50)}" (${track.coordinates.length} pts, ${trackLen} км) → черновик`);
+          } else {
+            noMatch++;
+          }
+          await sleep(DELAY_MS);
+          continue;
+        }
 
         const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
-        await pool.query('UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2', [JSON.stringify(geojson), found.route.id]);
+        await pool.query(
+          'UPDATE kamchatka_routes SET geometry = $1, source_url = COALESCE(source_url, $3) WHERE id = $2',
+          [JSON.stringify(geojson), found.route.id, sourceIdToUrl(sourceId)]
+        );
         found.route.hasGeometry = true;
 
         imported++;
@@ -220,10 +273,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       imported,
+      created,
       skipped,
       noMatch,
       errors,
       matches,
+      drafts,
       batch_processed: ids.length,
       offset,
       next_offset: nextOffset,
