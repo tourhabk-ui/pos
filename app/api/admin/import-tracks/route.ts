@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const DELAY_MS = 500;
-const MAX_MATCH_DIST_KM = 5;
+const MAX_MATCH_DIST_KM = 10;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
@@ -152,12 +152,18 @@ export async function POST(req: NextRequest) {
       if (Array.isArray(body?.ids) && body.ids.length > 0) clientIds = body.ids;
     } catch { /* no body */ }
 
+    log.push(`Наших маршрутов без трека: ${ourRoutes.length}`);
+
     if (clientIds) {
       allIds = clientIds;
     } else {
       log.push('Собираем ID мест с idilesom.com...');
       allIds = await fetchPlaceIds(50);
       log.push(`  Найдено ${allIds.length} мест`);
+    }
+
+    if (ourRoutes.length === 0) {
+      return NextResponse.json({ success: true, imported: 0, skipped: 0, noMatch: 0, errors: 0, matches: [], batch_processed: 0, offset, next_offset: offset, total_ids: allIds.length, done: true, log: [...log, 'Все маршруты уже имеют треки — нечего импортировать'] });
     }
 
     const totalIds = allIds.length;

@@ -52,7 +52,7 @@ export default function AdminToolsPage() {
     let data: BatchResult;
     try {
       const res = await fetch(
-        `/api/admin/import-tracks?offset=${offset}&batch=20&skip_existing=true`,
+        `/api/admin/import-tracks?offset=${offset}&batch=5&skip_existing=true`,
         {
           method: 'POST',
           headers: cachedIds ? { 'Content-Type': 'application/json' } : {},
@@ -97,7 +97,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 20, newTotals, newLog, newMatches, ids ?? undefined);
+    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, ids ?? undefined);
   }
 
   async function startImport() {
