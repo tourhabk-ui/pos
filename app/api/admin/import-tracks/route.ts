@@ -145,11 +145,24 @@ export async function POST(req: NextRequest) {
   try {
     const ourRoutes = await loadOurRoutes(skipExisting);
 
-    log.push('Собираем ID мест с idilesom.com...');
-    const allIds = await fetchPlaceIds(50);
+    let allIds: string[];
+    let clientIds: string[] | null = null;
+    try {
+      const body = await req.json() as { ids?: string[] };
+      if (Array.isArray(body?.ids) && body.ids.length > 0) clientIds = body.ids;
+    } catch { /* no body */ }
+
+    if (clientIds) {
+      allIds = clientIds;
+    } else {
+      log.push('Собираем ID мест с idilesom.com...');
+      allIds = await fetchPlaceIds(50);
+      log.push(`  Найдено ${allIds.length} мест`);
+    }
+
     const totalIds = allIds.length;
     const ids = allIds.slice(offset, offset + batch);
-    log.push(`  Всего мест: ${totalIds}, обрабатываем [${offset}…${offset + ids.length - 1}]`);
+    log.push(`  Обрабатываем [${offset}…${offset + ids.length - 1}] из ${totalIds}`);
 
     for (let i = 0; i < ids.length; i++) {
       const placeId = ids[i];
@@ -189,6 +202,7 @@ export async function POST(req: NextRequest) {
       next_offset: nextOffset,
       total_ids: totalIds,
       done,
+      all_ids: clientIds ? undefined : allIds,
       log,
     });
   } catch (err) {
