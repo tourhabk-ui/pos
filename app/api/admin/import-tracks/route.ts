@@ -114,7 +114,7 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
     .map(r => ({ id: r.id, title: r.title, lat: parseFloat(r.lat), lng: parseFloat(r.lng), hasGeometry: r.has_geom }));
 }
 
-function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): OurRoute | null {
+function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
   const tLat = track.coordinates[0][1];
   const tLng = track.coordinates[0][0];
   let best: OurRoute | null = null;
@@ -124,7 +124,7 @@ function findMatch(track: { lat: number; lng: number; coordinates: number[][] },
     const d = distKm(tLat, tLng, r.lat, r.lng);
     if (d < bestDist) { bestDist = d; best = r; }
   }
-  return best;
+  return best ? { route: best, distKm: Math.round(bestDist * 10) / 10 } : null;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -139,6 +139,7 @@ export async function POST(req: NextRequest) {
   const skipExisting = searchParams.get('skip_existing') !== 'false';
 
   const log: string[] = [];
+  const matches: { ourTitle: string; sourceTitle: string; pts: number; distKm: number; routeId: string }[] = [];
   let imported = 0, skipped = 0, noMatch = 0, errors = 0;
 
   try {
@@ -156,15 +157,16 @@ export async function POST(req: NextRequest) {
         const track = await scrapeTrack(placeId);
         if (!track) { skipped++; await sleep(DELAY_MS); continue; }
 
-        const match = findMatch(track, ourRoutes);
-        if (!match) { noMatch++; await sleep(DELAY_MS); continue; }
+        const found = findMatch(track, ourRoutes);
+        if (!found) { noMatch++; await sleep(DELAY_MS); continue; }
 
         const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
-        await pool.query('UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2', [JSON.stringify(geojson), match.id]);
-        match.hasGeometry = true;
+        await pool.query('UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2', [JSON.stringify(geojson), found.route.id]);
+        found.route.hasGeometry = true;
 
         imported++;
-        log.push(`  [${offset + i + 1}/${totalIds}] OK: "${match.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts)`);
+        matches.push({ ourTitle: found.route.title, sourceTitle: track.title, pts: track.coordinates.length, distKm: found.distKm, routeId: found.route.id });
+        log.push(`  [${offset + i + 1}/${totalIds}] OK: "${found.route.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts, ${found.distKm} км)`);
       } catch (err) {
         errors++;
         log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
@@ -181,6 +183,7 @@ export async function POST(req: NextRequest) {
       skipped,
       noMatch,
       errors,
+      matches,
       batch_processed: ids.length,
       offset,
       next_offset: nextOffset,

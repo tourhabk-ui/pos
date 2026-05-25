@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map } from 'lucide-react';
+import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink } from 'lucide-react';
+
+interface MatchItem {
+  ourTitle: string;
+  sourceTitle: string;
+  pts: number;
+  distKm: number;
+  routeId: string;
+}
 
 interface BatchResult {
   success: boolean;
@@ -9,6 +17,7 @@ interface BatchResult {
   skipped?: number;
   noMatch?: number;
   errors?: number;
+  matches?: MatchItem[];
   batch_processed?: number;
   offset?: number;
   next_offset?: number;
@@ -31,11 +40,12 @@ export default function AdminToolsPage() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [allMatches, setAllMatches] = useState<MatchItem[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
-  async function runBatch(offset: number, acc: Totals, prevLog: string[]): Promise<void> {
+  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[]): Promise<void> {
     if (stopRef.current) return;
 
     let data: BatchResult;
@@ -70,8 +80,10 @@ export default function AdminToolsPage() {
       total: data.total_ids ?? acc.total,
     };
     const newLog = [...prevLog, ...(data.log ?? [])];
+    const newMatches = [...prevMatches, ...(data.matches ?? [])];
     setTotals(newTotals);
     setLog(newLog);
+    setAllMatches(newMatches);
 
     if (data.done || stopRef.current) {
       setDone(true);
@@ -79,7 +91,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 25, newTotals, newLog);
+    await runBatch(data.next_offset ?? offset + 25, newTotals, newLog, newMatches);
   }
 
   async function startImport() {
@@ -88,10 +100,11 @@ export default function AdminToolsPage() {
     setRunning(true);
     setDone(false);
     setTotals(null);
+    setAllMatches([]);
     setLog([]);
     setError(null);
     const empty: Totals = { imported: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
-    await runBatch(0, empty, []);
+    await runBatch(0, empty, [], []);
   }
 
   function stopImport() {
@@ -101,7 +114,7 @@ export default function AdminToolsPage() {
   const pct = totals && totals.total > 0 ? Math.round((totals.processed / totals.total) * 100) : 0;
 
   return (
-    <div className="ds-page py-8 max-w-3xl mx-auto space-y-6">
+    <div className="ds-page py-8 max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="ds-h1 mb-1">Инструменты</h1>
         <p className="text-[var(--text-secondary)] text-sm">Одноразовые операции с данными</p>
@@ -215,6 +228,50 @@ export default function AdminToolsPage() {
           </div>
         )}
       </div>
+
+      {allMatches.length > 0 && (
+        <div className="ds-card p-6 space-y-3">
+          <h2 className="font-semibold text-[var(--text-primary)]">
+            Найденные совпадения ({allMatches.length})
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)]">
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Наш маршрут</th>
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">idilesom</th>
+                  <th className="text-right py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Точки</th>
+                  <th className="text-right py-2 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Дист.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allMatches.map((m, idx) => (
+                  <tr key={idx} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
+                    <td className="py-2 pr-4">
+                      <a
+                        href={`/routes/${m.routeId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--ocean)] hover:underline flex items-center gap-1"
+                      >
+                        {m.ourTitle}
+                        <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                      </a>
+                    </td>
+                    <td className="py-2 pr-4 text-[var(--text-secondary)]">{m.sourceTitle}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--text-secondary)]">{m.pts}</td>
+                    <td className="py-2 text-right tabular-nums">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${m.distKm < 1 ? 'bg-[var(--success)]/10 text-[var(--success)]' : m.distKm < 3 ? 'bg-[var(--warning)]/10 text-[var(--warning)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+                        {m.distKm} км
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
