@@ -33,7 +33,7 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
       )}
 
       {/* Map */}
-      <div className="w-full rounded-lg overflow-hidden border border-[var(--border)]">
+      <div className="w-full rounded-lg overflow-clip border border-[var(--border)]">
         <LeafletMap
           center={[lat, lng]}
           zoom={11}

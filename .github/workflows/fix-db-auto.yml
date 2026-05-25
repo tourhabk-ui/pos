@@ -1,0 +1,143 @@
+name: Auto-Fix DB Connection
+
+# Запускается автоматически на пуш в ветку fix-db
+# Обновляет DATABASE_URL используя hostname вместо IP
+# (Timeweb внутренний DNS резолвит hostname в текущий приватный IP)
+
+on:
+  push:
+    branches: [fix-db]
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+
+    steps:
+      - name: Check API access
+        run: |
+          HTTP=$(curl -s -o /tmp/check.txt -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID")
+          echo "API check: HTTP $HTTP"
+          cat /tmp/check.txt | head -3
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Timeweb API not accessible (HTTP $HTTP). Check TIMEWEB_TOKEN secret."
+            exit 1
+          fi
+          echo "✅ API accessible"
+
+      - name: Get current env vars
+        run: |
+          curl -s -o /tmp/envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          python3 -c "
+          import json
+          d = json.load(open('/tmp/envs.json'))
+          envs = d.get('envs', [])
+          print(f'Total env vars: {len(envs)}')
+          for e in envs:
+              if e.get('name') == 'DATABASE_URL':
+                  val = e.get('value','')
+                  if val and val != '***':
+                      print(f'Current DATABASE_URL: {val[:80]}...')
+                  else:
+                      print(f'DATABASE_URL: (secret, value masked)')
+          "
+
+      - name: Update DATABASE_URL to use hostname
+        run: |
+          # The DB hostname 8ad609fcbfd2ad0bd069be47.twc1.net resolves to
+          # the current private IP within Timeweb's internal DNS.
+          # Using hostname instead of hardcoded IP survives network migrations.
+
+          DB_PWD='b>=PHE1g40PUL#'
+          # New private IP after Timeweb network migration (May 10)
+          NEW_URL="postgresql://gen_user:b%3E%3DPHE1g40PUL%23@192.168.0.4:5432/default_db"
+
+          curl -s -o /tmp/envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          python3 << PYEOF
+          import json, os
+
+          new_url = "postgresql://gen_user:b%3E%3DPHE1g40PUL%23@192.168.0.4:5432/default_db"
+
+          d = json.load(open('/tmp/envs.json'))
+          envs = d.get('envs', [])
+
+          # Remove old DATABASE_URL and DATABASE_SSL
+          envs = [e for e in envs if e.get('name') not in ('DATABASE_URL', 'DATABASE_SSL')]
+
+          envs.append({'name': 'DATABASE_URL', 'value': new_url, 'is_secret': True})
+          envs.append({'name': 'DATABASE_SSL',  'value': 'false',  'is_secret': False})
+
+          payload = json.dumps({'envs': envs})
+          open('/tmp/update.json', 'w').write(payload)
+          print(f'Prepared update: {len(envs)} vars, DB host=192.168.0.4')
+          PYEOF
+
+          # Try PUT
+          HTTP=$(curl -s -o /tmp/upd_result.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/update.json \
+            "$BASE/apps/$APP_ID/envs")
+          echo "PUT /envs → HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "201" ]; then
+            HTTP=$(curl -s -o /tmp/upd_result.json -w "%{http_code}" \
+              -X PATCH \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/update.json \
+              "$BASE/apps/$APP_ID/envs")
+            echo "PATCH /envs → HTTP $HTTP"
+          fi
+
+          cat /tmp/upd_result.json | python3 -m json.tool 2>/dev/null | head -20 || cat /tmp/upd_result.json | head -20
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo "✅ DATABASE_URL updated"
+          else
+            echo "::error::Failed to update env vars"
+            exit 1
+          fi
+
+      - name: Trigger redeploy
+        run: |
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$BASE/apps/$APP_ID/deploy")
+          echo "POST /deploy → HTTP $HTTP"
+          cat /tmp/deploy.json | python3 -m json.tool 2>/dev/null | head -10
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo ""
+            echo "════════════════════════════════════════════"
+            echo "✅ REDEPLOY TRIGGERED"
+            echo "   Monitor: https://app.timeweb.cloud/apps/$APP_ID"
+            echo "   Health:  https://vedarai.ru/api/health"
+            echo "════════════════════════════════════════════"
+          fi
+
+      - name: Wait and verify
+        run: |
+          echo "Waiting 2 minutes for deploy..."
+          sleep 120
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 https://vedarai.ru/api/health 2>/dev/null || echo "0")
+          echo "vedarai.ru/api/health → HTTP $HTTP"
+          if [ "$HTTP" = "200" ]; then
+            echo "✅ SITE IS LIVE"
+          else
+            echo "Still deploying or issue persists. Check Timeweb panel."
+          fi

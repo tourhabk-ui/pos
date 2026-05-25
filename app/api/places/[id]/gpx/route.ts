@@ -37,6 +37,9 @@ export async function GET(
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const lat = parseFloat(r.lat as string);
     const lng = parseFloat(r.lng as string);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return new NextResponse('Координаты места недоступны', { status: 422 });
+    }
     const now = new Date().toISOString();
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>

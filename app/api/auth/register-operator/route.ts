@@ -23,6 +23,9 @@ const CATEGORIES = ['operator', 'guide', 'transfer', 'hotel', 'rent', 'fishing']
 
 const Schema = z.object({
   companyName:  z.string().min(2, 'Название компании обязательно'),
+  companyInn:   z.string().regex(/^\d{10}(\d{2})?$/, 'ИНН должен содержать 10 или 12 цифр').optional(),
+  companyOgrn:  z.string().regex(/^\d{13}(\d{2})?$/, 'ОГРН должен содержать 13 или 15 цифр').optional(),
+  efrtNumber:   z.string().max(50).optional(),
   category:     z.enum(CATEGORIES),
   description:  z.string().max(500).optional().default(''),
   contactName:  z.string().min(2, 'Имя контактного лица обязательно'),
@@ -60,7 +63,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { companyName, category, description, contactName, phone, email, password } = parsed.data;
+    const { companyName, companyInn, companyOgrn, efrtNumber, category, description, contactName, phone, email, password } = parsed.data;
 
     client = await pool.connect();
 
@@ -89,21 +92,24 @@ export async function POST(request: NextRequest) {
       `INSERT INTO partners (
          user_id, name, company_name, category, description, short_description,
          contact, contacts, is_public, is_verified,
+         company_inn, company_ogrn, efrt_number,
          profile_status, applied_at,
          created_at, updated_at
        )
-       VALUES ($1,$2,$2,$3,$4,$4,$5::jsonb,$5::jsonb,false,false,'pending',NOW(),NOW(),NOW())
+       VALUES ($1,$2,$2,$3,$4,$4,$5::jsonb,$5::jsonb,false,false,$6,$7,$8,'pending',NOW(),NOW(),NOW())
        RETURNING id, slug`,
-      [user.id, companyName, category, description || companyName, contact]
+      [user.id, companyName, category, description || companyName, contact,
+       companyInn || null, companyOgrn || null, efrtNumber || null]
     );
     const partner = partnerResult.rows[0];
 
     // Audit trail
     await client.query(
       `INSERT INTO operator_applications
-         (partner_id, user_id, company_name, contact_phone, contact_email, description)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [partner.id, user.id, companyName, phone, email, description || '']
+         (partner_id, user_id, company_name, contact_phone, contact_email, description, company_inn, company_ogrn, efrt_number)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [partner.id, user.id, companyName, phone, email, description || '',
+       companyInn || null, companyOgrn || null, efrtNumber || null]
     );
 
     await client.query('COMMIT');

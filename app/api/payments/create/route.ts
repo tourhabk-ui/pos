@@ -124,6 +124,25 @@ export async function POST(request: NextRequest) {
 
     const payment = paymentResult.rows[0];
 
+    // Фискальный чек 54-ФЗ для CloudPayments
+    // Передаётся в виджет CloudPayments как cloudPayments.Invoice.Items
+    const receipt = {
+      Items: [
+        {
+          label: description || `Туристическая услуга #${bookingId.substring(0, 8)}`,
+          price: amount,
+          quantity: 1.0,
+          amount,
+          vat: 0,       // НДС 0% (УСН / без НДС)
+          method: 4,    // Полный расчёт
+          object: 4,    // Услуга
+        },
+      ],
+      taxationSystem: 1, // УСН доход (менять на актуальную систему налогообложения)
+      email: userEmail,
+      phone: '',
+    };
+
     // Возвращаем данные для CloudPayments widget
     return NextResponse.json({
       success: true,
@@ -136,7 +155,8 @@ export async function POST(request: NextRequest) {
         accountId: userId,
         email: userEmail,
         status: payment.status,
-        createdAt: new Date(payment.created_at)
+        createdAt: new Date(payment.created_at),
+        receipt,  // 54-ФЗ: передать в CloudPayments widget как cloudPayments.cloudPayments
       }
     });
 

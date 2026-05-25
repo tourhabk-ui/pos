@@ -42,7 +42,11 @@ export async function POST(request: NextRequest) {
     // CloudPayments requires code: 0 on success
     return NextResponse.json({ code: 0 });
   } catch (error) {
-    // Log but return 200 — CloudPayments retries on any non-200, flooding logs for 24h
+    // Return 200 — CloudPayments retries on non-200, flooding logs for 24h.
+    // Log to stderr so Timeweb collects it.
+    const msg = error instanceof Error ? error.message : String(error);
+    const inv = webhookData?.InvoiceId ?? 'unknown';
+    process.stderr.write(`[webhook:operator] ERROR invoice=${inv} ${msg}\n`);
     return NextResponse.json({ code: 0 });
   }
 }

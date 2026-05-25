@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { Bot, Send, Loader2, User, Sun, Moon, MapPin, ChevronRight } from 'lucide-react';
 import Logo from '@/components/shared/Logo';
 import { useTheme } from '@/contexts/ThemeContext';
-import BottomNav from '@/components/shared/BottomNav';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -267,7 +266,6 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
       </div>
     </div>
 
-      <BottomNav activePath="/" />
     </div>
   );
 }

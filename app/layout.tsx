@@ -122,10 +122,9 @@ export const metadata: Metadata = {
 import './globals.css'
 import React from 'react'
 import { Providers } from '@/components/Providers'
-import YandexMetrika from '@/components/shared/YandexMetrika'
 import TravelPayoutsDrive from '@/components/shared/TravelPayoutsDrive'
-import MicrosoftClarity from '@/components/shared/MicrosoftClarity'
 import StickyLeadButton from '@/components/shared/StickyLeadButton'
+import CookieBanner from '@/components/legal/CookieBanner'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
@@ -263,8 +262,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             ])
           }}
         />
-        <YandexMetrika />
-        <MicrosoftClarity />
+        <CookieBanner />
         <TravelPayoutsDrive />
         <StickyLeadButton />
         <KuzmichWidget />

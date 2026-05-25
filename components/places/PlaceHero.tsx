@@ -22,7 +22,8 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
   const [copied, setCopied] = useState(false);
   const label = LOCATION_TYPE_LABELS[locationType ?? 'other'] ?? 'Место';
   const imgSrc = photoUrl ?? (photoCount > 0 ? `/api/images/route/${placeId}` : null);
-  const coordStr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+  const coordStr = hasCoords ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
 
   function copyCoords() {
     navigator.clipboard?.writeText(coordStr).then(() => {
@@ -77,15 +78,17 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
             {name}
           </h1>
 
-          <button
-            onClick={copyCoords}
-            className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-mono hover:text-[var(--text-primary)] transition-colors"
-          >
-            {copied
-              ? <><Check className="w-3 h-3 text-[var(--success)]" /> Скопировано</>
-              : <><Copy className="w-3 h-3" /> {coordStr}</>
-            }
-          </button>
+          {hasCoords && (
+            <button
+              onClick={copyCoords}
+              className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-mono hover:text-[var(--text-primary)] transition-colors"
+            >
+              {copied
+                ? <><Check className="w-3 h-3 text-[var(--success)]" /> Скопировано</>
+                : <><Copy className="w-3 h-3" /> {coordStr}</>
+              }
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -26,8 +26,10 @@ export interface ScrapedRoute {
   filename: string;
   pdfUrl: string;
   season: 'summer' | 'winter' | 'all';
-  htmlSlug: string | null; // если есть HTML-страница
+  htmlSlug: string | null;
   description: string | null;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface ImportResult {
@@ -209,16 +211,20 @@ async function upsertKamchatkaRoute(route: ScrapedRoute): Promise<'inserted' | '
     import_source: SOURCE_NAME,
   });
 
+  const routeLat = route.lat ?? null;
+  const routeLng = route.lng ?? null;
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes
-       (id, dedupe_key, slug, title, description, category, source_url, source_name, metadata, created_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW())
+       (id, dedupe_key, slug, title, description, category, lat, lng, source_url, source_name, metadata, created_at, updated_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $9, $10, $6, $7, $8::jsonb, NOW(), NOW())
      ON CONFLICT (dedupe_key) DO UPDATE
        SET title       = EXCLUDED.title,
            description = COALESCE(EXCLUDED.description, kamchatka_routes.description),
+           lat         = COALESCE(EXCLUDED.lat, kamchatka_routes.lat),
+           lng         = COALESCE(EXCLUDED.lng, kamchatka_routes.lng),
            source_url  = EXCLUDED.source_url,
            updated_at  = NOW()`,
-    [dk, slug, route.title, route.description, category, route.pdfUrl, SOURCE_NAME, metadata],
+    [dk, slug, route.title, route.description, category, route.pdfUrl, SOURCE_NAME, metadata, routeLat, routeLng],
   );
 
   return (rowCount ?? 0) > 0 ? 'inserted' : 'skip';

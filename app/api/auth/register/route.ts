@@ -14,6 +14,7 @@ const RegisterSchema = z.object({
   role: z.enum(VALID_ROLES).optional(),
   roles: z.array(z.enum(VALID_ROLES)).optional(),
   pd_consent: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие на обработку персональных данных' }) }),
+  marketing_consent: z.boolean().optional().default(false),
   referralCode: z.string().max(20).optional(),
 });
 
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const { email, password, name, role, roles, referralCode } = parsed.data;
+    const { email, password, name, role, roles, referralCode, marketing_consent } = parsed.data;
 
     // Определяем роль: переданная роль > первая из массива ролей > tourist
     const userRole = role ?? roles?.[0] ?? 'tourist';
@@ -76,10 +77,10 @@ export async function POST(request: NextRequest) {
     // Создаем пользователя
     const preferences = { roles: allRoles };
     const result = await client.query(
-      `INSERT INTO users (email, password_hash, name, role, preferences, pd_consent_at, pd_consent_ip, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), $6, NOW(), NOW())
+      `INSERT INTO users (email, password_hash, name, role, preferences, pd_consent_at, pd_consent_ip, pd_consent_given, marketing_consent, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), $6, TRUE, $7, NOW(), NOW())
        RETURNING id, email, name, role, preferences, created_at`,
-      [email.toLowerCase(), hashedPassword, name, userRole, JSON.stringify(preferences), ip]
+      [email.toLowerCase(), hashedPassword, name, userRole, JSON.stringify(preferences), ip, marketing_consent ?? false]
     );
     
     const user = result.rows[0];

@@ -39,6 +39,7 @@ export default function AuthPageClient() {
   const [phone, setPhone] = useState('');
   const [partnerRoles, setPartnerRoles] = useState<string[]>([]);
   const [pdConsent, setPdConsent] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
 
   const toggleRole = (roleId: string) => {
     setPartnerRoles(prev =>
@@ -126,6 +127,7 @@ export default function AuthPageClient() {
           role: userType === 'tourist' ? 'tourist' : partnerRoles[0],
           roles: userType === 'tourist' ? ['tourist'] : partnerRoles,
           pd_consent: true,
+          marketing_consent: marketingConsent,
         }),
       });
 
@@ -463,6 +465,19 @@ export default function AuthPageClient() {
                     обработку персональных данных
                   </Link>{' '}
                   в соответствии с 152-ФЗ
+                </span>
+              </label>
+
+              {/* Marketing consent 38-ФЗ — отдельный, необязательный */}
+              <label className="flex items-start gap-2.5 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={marketingConsent}
+                  onChange={e => setMarketingConsent(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-[var(--border)] accent-[var(--accent)] cursor-pointer shrink-0"
+                />
+                <span className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Согласен получать персональные предложения, акции и новости Ведар по email (необязательно)
                 </span>
               </label>
 

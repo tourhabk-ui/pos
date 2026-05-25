@@ -43,9 +43,26 @@ const proxy = http.createServer((req, res) => {
     { hostname: '127.0.0.1', port: SERVER_PORT, path: req.url, method: req.method,
       headers: { ...req.headers, host: '127.0.0.1',
         'x-forwarded-host':  req.headers['x-forwarded-host']  || req.headers['host'] || '',
-        'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
+        // Default http, not https: Timeweb sets https in prod; avoids https://localhost in local dev.
+        'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http',
         'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1' } },
-    r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); }
+    r => {
+      const outHeaders = { ...r.headers };
+      // Rewrite internal redirect URLs so browser never sees 127.0.0.1 or localhost
+      const loc = outHeaders['location'];
+      if (loc && (loc.includes('127.0.0.1') || loc.includes('localhost'))) {
+        const publicProto = req.headers['x-forwarded-proto'] || 'http';
+        const publicHost  = req.headers['x-forwarded-host']  || req.headers['host'] || '';
+        if (publicHost) {
+          outHeaders['location'] = loc.replace(
+            /https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/,
+            publicProto + '://' + publicHost
+          );
+        }
+      }
+      res.writeHead(r.statusCode, outHeaders);
+      r.pipe(res);
+    }
   );
   p.on('error', () => {
     // Next.js dropped — mark not ready so next health check returns 200 but users see loading.

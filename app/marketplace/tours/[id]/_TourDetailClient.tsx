@@ -72,6 +72,10 @@ interface TourFull {
   review_count: number | null;
   operator_name: string;
   operator_id: string;
+  operator_inn: string | null;
+  operator_legal_address: string | null;
+  operator_efrt_number: string | null;
+  operator_slug: string | null;
 }
 
 /* ─── Helpers ─── */
@@ -421,11 +425,18 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 {tour.operator_name.charAt(0).toUpperCase()}
               </span>
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--text-primary)]">
                 {tour.operator_name}
               </p>
               <p className="text-xs text-[var(--text-muted)]">Реальный оператор, который проводит этот тур</p>
+              {(tour.operator_inn || tour.operator_efrt_number) && (
+                <p className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">
+                  {tour.operator_inn && <>ИНН: {tour.operator_inn}</>}
+                  {tour.operator_inn && tour.operator_efrt_number && <span className="mx-1">·</span>}
+                  {tour.operator_efrt_number && <>ЕФРТ: {tour.operator_efrt_number}</>}
+                </p>
+              )}
             </div>
           </div>
 

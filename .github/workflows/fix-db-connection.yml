@@ -1,0 +1,274 @@
+name: Fix — DB Private IP Connection
+
+# Автоматически находит новый приватный IP базы "Reasonable Erinome"
+# и обновляет DATABASE_URL в приложении "Fair Polydeuces" (id=175477)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Введи "fix" для применения изменений и редеплоя'
+        required: true
+        default: ''
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+
+    steps:
+      - name: Find DB cluster, private IP and password
+        id: db_info
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Searching for DB clusters..."
+          echo "════════════════════════════════════"
+
+          # Try /dbs endpoint
+          HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/dbs")
+          echo "GET /dbs → HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            HTTP=$(curl -s -o /tmp/dbs.json -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "$BASE/databases")
+            echo "GET /databases → HTTP $HTTP"
+          fi
+
+          python3 << 'PYEOF'
+          import json, subprocess, os
+
+          try:
+              d = json.load(open('/tmp/dbs.json'))
+          except Exception as e:
+              print(f'JSON parse error: {e}')
+              with open('/tmp/dbs.json') as f:
+                  print(f.read()[:2000])
+              exit(1)
+
+          clusters = (d.get('dbs') or d.get('databases') or d.get('clusters') or
+                      d.get('db_clusters') or [])
+          if not clusters and isinstance(d, list):
+              clusters = d
+
+          print(f'Found {len(clusters)} cluster(s)')
+          target = None
+          for c in clusters:
+              name = c.get('name', '')
+              host = (c.get('host') or c.get('ip') or c.get('private_host') or
+                      c.get('private_ip') or
+                      (c.get('network_info') or {}).get('host') or '?')
+              port = str(c.get('port', 5432))
+              db_id = str(c.get('id', '?'))
+              pwd = (c.get('password') or c.get('master_password') or
+                     c.get('db_password') or '')
+              print(f'  id={db_id} name={name!r} host={host} port={port} has_pwd={bool(pwd)}')
+              if 'erinome' in name.lower() or 'reasonable' in name.lower():
+                  target = c
+                  print(f'  >>> TARGET FOUND: {name}')
+                  open('/tmp/target_host.txt','w').write(host)
+                  open('/tmp/target_port.txt','w').write(port)
+                  if pwd:
+                      open('/tmp/target_pwd.txt','w').write(pwd)
+                  # Also dump full cluster details for inspection
+                  # Mask password in output
+                  safe = dict(c)
+                  for k in ('password','master_password','db_password'):
+                      if k in safe:
+                          safe[k] = '***'
+                  print(f'  Full details: {json.dumps(safe, indent=2)[:500]}')
+
+          if not target:
+              print('::warning::Target cluster not found by name — showing all:')
+              for c in clusters:
+                  safe = {k:('***' if 'pass' in k.lower() else v) for k,v in c.items()}
+                  print(json.dumps(safe, indent=2)[:300])
+              # Use first cluster as fallback
+              if clusters:
+                  c = clusters[0]
+                  host = (c.get('host') or c.get('ip') or c.get('private_host') or
+                          c.get('private_ip') or '?')
+                  port = str(c.get('port', 5432))
+                  open('/tmp/target_host.txt','w').write(host)
+                  open('/tmp/target_port.txt','w').write(port)
+                  pwd = (c.get('password') or c.get('master_password') or '')
+                  if pwd:
+                      open('/tmp/target_pwd.txt','w').write(pwd)
+                  print(f'Using first cluster: host={host}')
+          PYEOF
+
+      - name: Try to get password from current app DATABASE_URL
+        run: |
+          # Read existing DATABASE_URL from app env vars (if not secret-masked)
+          curl -s -o /tmp/app_envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          python3 << 'PYEOF'
+          import json, re, os
+
+          if os.path.exists('/tmp/target_pwd.txt'):
+              print('Password already obtained from DB cluster API')
+              exit(0)
+
+          try:
+              d = json.load(open('/tmp/app_envs.json'))
+              envs = d.get('envs', [])
+          except:
+              envs = []
+
+          for e in envs:
+              if e.get('name') == 'DATABASE_URL':
+                  val = e.get('value', '')
+                  if val and val != '***' and '@' in val:
+                      # Extract password from postgresql://user:PASS@host:port/db
+                      m = re.match(r'postgres(?:ql)?://[^:]+:([^@]+)@', val)
+                      if m:
+                          pwd = m.group(1)
+                          from urllib.parse import unquote
+                          pwd = unquote(pwd)
+                          open('/tmp/target_pwd.txt','w').write(pwd)
+                          print(f'Password extracted from existing DATABASE_URL')
+                      break
+
+          if not os.path.exists('/tmp/target_pwd.txt'):
+              print('::error::Could not obtain DB password automatically.')
+              print('::error::Please re-run this workflow and add DB_PASSWORD input.')
+              print('To find password: Timeweb → БД Reasonable Erinome → Подключение → .env')
+              exit(1)
+          PYEOF
+
+      - name: Build new DATABASE_URL
+        id: build_url
+        run: |
+          DB_HOST=$(cat /tmp/target_host.txt)
+          DB_PORT=$(cat /tmp/target_port.txt 2>/dev/null || echo "5432")
+          DB_PASS=$(cat /tmp/target_pwd.txt)
+          DB_USER="gen_user"
+          DB_NAME="default_db"
+
+          NEW_URL="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+          echo "New DATABASE_URL: postgresql://gen_user:***@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+          echo "DB_URL=${NEW_URL}" >> $GITHUB_ENV
+
+      - name: Update app env vars
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Updating DATABASE_URL in app..."
+          echo "════════════════════════════════════"
+
+          # Get current envs to preserve all other vars
+          curl -s -o /tmp/current_envs.json \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE/apps/$APP_ID/envs"
+
+          # Build update payload: replace DATABASE_URL and DATABASE_SSL
+          python3 -c "
+          import json, os
+
+          new_url = os.environ['DB_URL']
+
+          try:
+              d = json.load(open('/tmp/current_envs.json'))
+              envs = d.get('envs', [])
+          except:
+              envs = []
+
+          # Remove old DATABASE_URL and DATABASE_SSL entries
+          envs = [e for e in envs if e.get('name') not in ('DATABASE_URL', 'DATABASE_SSL')]
+
+          # Add updated values
+          envs.append({'name': 'DATABASE_URL', 'value': new_url, 'is_secret': True})
+          envs.append({'name': 'DATABASE_SSL', 'value': 'false', 'is_secret': False})
+
+          payload = json.dumps({'envs': envs})
+          with open('/tmp/update_payload.json', 'w') as f:
+              f.write(payload)
+
+          print(f'Payload has {len(envs)} env vars')
+          print('Updated DATABASE_URL and DATABASE_SSL=false')
+          " 2>&1
+
+          # Try PUT first, then PATCH
+          HTTP=$(curl -s -o /tmp/update_result.json -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/update_payload.json \
+            "$BASE/apps/$APP_ID/envs")
+          echo "PUT /envs → HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "201" ]; then
+            HTTP=$(curl -s -o /tmp/update_result.json -w "%{http_code}" \
+              -X PATCH \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/update_payload.json \
+              "$BASE/apps/$APP_ID/envs")
+            echo "PATCH /envs → HTTP $HTTP"
+          fi
+
+          cat /tmp/update_result.json | python3 -m json.tool 2>/dev/null | head -30 || cat /tmp/update_result.json | head -30
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo "✅ Env vars updated"
+          else
+            echo "::error::Failed to update env vars (HTTP $HTTP)"
+            exit 1
+          fi
+
+      - name: Trigger redeploy
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "════════════════════════════════════"
+          echo "  Triggering redeploy..."
+          echo "════════════════════════════════════"
+
+          HTTP=$(curl -s -o /tmp/deploy_result.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$BASE/apps/$APP_ID/deploy")
+
+          echo "POST /deploy → HTTP $HTTP"
+          cat /tmp/deploy_result.json | python3 -m json.tool 2>/dev/null | head -20
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo ""
+            echo "════════════════════════════════════════════════"
+            echo "✅ REDEPLOY TRIGGERED"
+            echo "   Watch: https://app.timeweb.cloud/apps/$APP_ID"
+            echo "   Site:  https://vedarai.ru/api/health"
+            echo "════════════════════════════════════════════════"
+          else
+            echo "::warning::Deploy trigger returned HTTP $HTTP (may still work)"
+          fi
+
+      - name: Dry run notice
+        if: ${{ inputs.confirm != 'fix' }}
+        run: |
+          echo "════════════════════════════════════════════════"
+          echo "  DRY RUN — no changes made"
+          echo "  To apply: re-run with confirm='fix'"
+          echo "════════════════════════════════════════════════"
+
+      - name: Verify site
+        if: ${{ inputs.confirm == 'fix' }}
+        run: |
+          echo "Waiting 90s for deploy to complete..."
+          sleep 90
+          for i in 1 2 3; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://vedarai.ru/api/health" 2>/dev/null || echo "0")
+            echo "Attempt $i: vedarai.ru/api/health → HTTP $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "✅ SITE IS UP"
+              break
+            fi
+            sleep 30
+          done
