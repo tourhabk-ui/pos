@@ -2,10 +2,6 @@
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
  * Работает батчами: ?offset=0&batch=20 → следующий вызов ?offset=20&batch=20 и т.д.
- *
- * ?offset=N      — начать с N-го плейса (default 0)
- * ?batch=N       — обработать N мест за вызов (default 20, max 40)
- * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -135,8 +131,9 @@ function findMatch(track: { lat: number; lng: number; coordinates: number[][] },
 
 export async function POST(req: NextRequest) {
   try {
-    const authError = await requireAdmin(req);
-    if (authError) return authError;
+    // requireAdmin returns JWTPayload on success, NextResponse on failure
+    const authResult = await requireAdmin(req);
+    if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(req.url);
     const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
@@ -165,7 +162,7 @@ export async function POST(req: NextRequest) {
       allIds = await fetchPlaceIds(50);
       if (allIds.length === 0) {
         return NextResponse.json(
-          { success: false, error: 'idilesom.com недоступен (заблокирован сетью Timeweb или нет BrightData токена). Установите BRIGHTDATA_API_TOKEN.', log },
+          { success: false, error: 'idilesom.com недоступен или нет BrightData токена (BRIGHTDATA_API_TOKEN). Установите токен в Timeweb → Переменные окружения.', log },
           { status: 503 }
         );
       }
