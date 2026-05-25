@@ -34,7 +34,8 @@ export async function GET(
          kr.equipment     AS kr_equipment,
          kr.distance_km,
          kr.elevation_gain_m,
-         kr.duration_hours AS kr_duration_hours
+         kr.duration_hours AS kr_duration_hours,
+         kr.geometry
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
@@ -162,6 +163,7 @@ export async function GET(
         distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
         durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
+        geometry: (r.geometry as { type: string; coordinates: number[][] } | null) ?? null,
         createdAt:   r.created_at as string,
         offers,
       },
