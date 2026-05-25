@@ -13,7 +13,6 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { createHash } from 'crypto';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
 
 const BASE_URL = 'https://visitkamchatka.ru';
@@ -228,40 +227,6 @@ async function upsertKamchatkaRoute(route: ScrapedRoute): Promise<'inserted' | '
   );
 
   return (rowCount ?? 0) > 0 ? 'inserted' : 'skip';
-}
-
-// ── INSERT в agent_route_knowledge ────────────────────────────────────────────
-
-async function upsertAgentKnowledge(route: ScrapedRoute): Promise<void> {
-  const dk = dedupeKey(route.filename);
-  const category = detectCategory(route.title);
-  const activityType = detectActivityType(route.title, route.season);
-  const searchText = [route.title, 'Камчатка', category, route.season === 'winter' ? 'зима' : route.season === 'summer' ? 'лето' : ''].join(' ');
-  const sourceHash = createHash('md5').update(route.title + route.filename).digest('hex');
-  const payload = JSON.stringify({
-    title: route.title,
-    season: route.season,
-    pdf_url: route.pdfUrl,
-    source: SOURCE_NAME,
-    description: route.description ?? null,
-  });
-
-  await pool.query(
-    `INSERT INTO agent_route_knowledge
-       (id, route_dedupe_key, category, title, description, source_url, source_name,
-        search_text, payload, source_hash, is_visible, activity_type, zone, kind,
-        last_synced_at, created_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, true, $10, 'avachinsky', 'route', NOW(), NOW(), NOW())
-     ON CONFLICT (route_dedupe_key) DO UPDATE
-       SET title          = EXCLUDED.title,
-           description    = COALESCE(EXCLUDED.description, agent_route_knowledge.description),
-           search_text    = EXCLUDED.search_text,
-           payload        = EXCLUDED.payload,
-           last_synced_at = NOW(),
-           updated_at     = NOW()`,
-    [dk, category, route.title, route.description, route.pdfUrl, SOURCE_NAME,
-     searchText, payload, sourceHash, activityType],
-  );
 }
 
 // ── Главная функция импорта ───────────────────────────────────────────────────

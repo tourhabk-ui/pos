@@ -136,6 +136,25 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
     .map(r => ({ id: r.id, title: r.title, lat: parseFloat(r.lat), lng: parseFloat(r.lng), hasGeometry: r.has_geom }));
 }
 
+// Загружаем координаты existing places чтобы не создавать дубли в kamchatka_routes
+async function loadPlaceCoords(): Promise<{ lat: number; lng: number }[]> {
+  const { rows } = await pool.query<{ lat: string; lng: string }>(
+    `SELECT lat::text, lng::text FROM places WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL`
+  );
+  return rows.map(r => ({ lat: parseFloat(r.lat), lng: parseFloat(r.lng) }));
+}
+
+function isNearAnyPlace(track: { lat: number; lng: number; coordinates: number[][] }, places: { lat: number; lng: number }[]): boolean {
+  const coords = track.coordinates;
+  const checkPoints: [number, number][] = [
+    [coords[0][1], coords[0][0]],
+    [track.lat, track.lng],
+    [coords[coords.length - 1][1], coords[coords.length - 1][0]],
+  ];
+  // Если трек "вокруг" уже известного места (≤2 км) — это не новый маршрут, это место
+  return places.some(p => Math.min(...checkPoints.map(([lat, lng]) => distKm(lat, lng, p.lat, p.lng))) <= 2);
+}
+
 function isInKamchatka(lat: number, lng: number): boolean {
   return lat >= KAM_LAT_MIN && lat <= KAM_LAT_MAX && lng >= KAM_LNG_MIN && lng <= KAM_LNG_MAX;
 }
@@ -190,7 +209,10 @@ export async function POST(req: NextRequest) {
   let imported = 0, skipped = 0, noMatch = 0, created = 0, errors = 0;
 
   try {
-    const ourRoutes = await loadOurRoutes(skipExisting);
+    const [ourRoutes, placeCoords] = await Promise.all([
+      loadOurRoutes(skipExisting),
+      loadPlaceCoords(),
+    ]);
 
     let allIds: string[];
     let clientIds: string[] | null = null;
@@ -230,19 +252,25 @@ export async function POST(req: NextRequest) {
         if (!found) {
           // Не совпал с нашим маршрутом — создаём черновой если в Камчатке
           if (track.coordinates.length >= MIN_DRAFT_POINTS && isInKamchatka(track.lat, track.lng) && track.title) {
-            const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
-            const trackLen = calcTrackDistKm(track.coordinates);
-            const srcUrl = sourceIdToUrl(sourceId);
-            const dedupeKey = `idilesom:${sourceId}`;
-            await pool.query(
-              `INSERT INTO kamchatka_routes (title, lat, lng, geometry, source_url, source_name, is_visible, dedupe_key)
-               VALUES ($1,$2,$3,$4,$5,'idilesom',false,$6)
-               ON CONFLICT (dedupe_key) DO NOTHING`,
-              [track.title, track.lat, track.lng, JSON.stringify(geojson), srcUrl, dedupeKey]
-            );
-            created++;
-            drafts.push({ title: track.title, pts: track.coordinates.length, distKm: trackLen, sourceUrl: srcUrl });
-            log.push(`  [${offset + i + 1}/${totalIds}] NEW: "${track.title.slice(0, 50)}" (${track.coordinates.length} pts, ${trackLen} км) → черновик`);
+            // Не создавать маршрут если это уже есть как place (≤2 км от известного места)
+            if (isNearAnyPlace(track, placeCoords)) {
+              noMatch++;
+              log.push(`  [${offset + i + 1}/${totalIds}] SKIP (уже place): "${track.title.slice(0, 50)}"`);
+            } else {
+              const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
+              const trackLen = calcTrackDistKm(track.coordinates);
+              const srcUrl = sourceIdToUrl(sourceId);
+              const dedupeKey = `idilesom:${sourceId}`;
+              await pool.query(
+                `INSERT INTO kamchatka_routes (title, lat, lng, geometry, source_url, source_name, is_visible, dedupe_key)
+                 VALUES ($1,$2,$3,$4,$5,'idilesom',false,$6)
+                 ON CONFLICT (dedupe_key) DO NOTHING`,
+                [track.title, track.lat, track.lng, JSON.stringify(geojson), srcUrl, dedupeKey]
+              );
+              created++;
+              drafts.push({ title: track.title, pts: track.coordinates.length, distKm: trackLen, sourceUrl: srcUrl });
+              log.push(`  [${offset + i + 1}/${totalIds}] NEW: "${track.title.slice(0, 50)}" (${track.coordinates.length} pts, ${trackLen} км) → черновик`);
+            }
           } else {
             noMatch++;
           }
