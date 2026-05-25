@@ -72,6 +72,50 @@ check \
   "console\.log\b" \
   "console.log в продакшн-коде — удали или замени на структурированный лог"
 
+# ── TypeScript: any типы ──────────────────────────────────────
+warn_check() {
+  local pattern="$1"
+  local message="$2"
+  local matches
+  matches=$(echo "$CHANGED" | xargs grep -n -E "$pattern" 2>/dev/null \
+    | grep -v "node_modules" \
+    | grep -v "// allow:" \
+    | grep -v "\.d\.ts:" \
+    | grep -v "providers\.ts" || true)
+  if [ -n "$matches" ]; then
+    warn "ПРЕДУПРЕЖДЕНИЕ: $message"
+    echo "$matches" | head -3
+  fi
+}
+
+check \
+  ": any[^a-zA-Z]|as any[^a-zA-Z]" \
+  "TypeScript any → используй unknown + type guards или конкретный тип"
+
+# ── Архитектура: прямой SELECT * ─────────────────────────────
+warn_check \
+  "SELECT \*" \
+  "SELECT * → укажи явные колонки"
+
+# ── Дизайн: прямые hex-цвета в JSX ──────────────────────────
+check \
+  "className=.*#[0-9A-Fa-f]{6}|style=.*#[0-9A-Fa-f]{6}" \
+  "Хардкод hex в className/style → используй CSS vars (var(--accent), var(--ocean))"
+
+# ── Дизайн: запрещённые Tailwind классы ──────────────────────
+check \
+  "\brounded-2xl\b" \
+  "rounded-2xl запрещён → используй rounded-lg максимум"
+
+check \
+  "\bfont-black\b" \
+  "font-black запрещён → используй font-bold"
+
+# ── INSERT INTO agent_route_knowledge (запрещено — это VIEW) ─
+check \
+  "INSERT INTO agent_route_knowledge\b" \
+  "INSERT INTO agent_route_knowledge запрещён — это VIEW. Пиши в places или kamchatka_routes"
+
 # ── Итог ──────────────────────────────────────────────────────
 if [ "$ERRORS" -gt 0 ]; then
   red ""
