@@ -52,7 +52,7 @@ export default function AdminToolsPage() {
     let data: BatchResult;
     try {
       const res = await fetch(
-        `/api/admin/import-tracks?offset=${offset}&batch=20&skip_existing=true`,
+        `/api/admin/import-tracks?offset=${offset}&batch=5&skip_existing=true`,
         {
           method: 'POST',
           headers: cachedIds ? { 'Content-Type': 'application/json' } : {},
@@ -97,7 +97,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 20, newTotals, newLog, newMatches, ids ?? undefined);
+    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, ids ?? undefined);
   }
 
   async function startImport() {
@@ -135,10 +135,10 @@ export default function AdminToolsPage() {
             <h2 className="font-semibold text-[var(--text-primary)]">Импорт GPS-треков с idilesom.com</h2>
             <p className="text-sm text-[var(--text-secondary)] mt-0.5">
               Парсит GPS-треки со всех страниц idilesom.com/kam/places и сопоставляет их с маршрутами
-              в нашей БД по географической близости (≤5 км). Обновляет поле geometry в kamchatka_routes.
+              в нашей БД по географической близости (≤10 км). Обновляет поле geometry в kamchatka_routes.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">
-              Батчи по 20 мест · Пауза 500 мс · ID кэшируются в браузере · Пропускает маршруты с треком
+              Батчи по 5 мест · Пауза 500 мс между запросами · Пропускает маршруты с треком
             </p>
           </div>
         </div>
