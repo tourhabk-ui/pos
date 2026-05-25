@@ -11,17 +11,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const DELAY_MS = 800;
+const DELAY_MS = 600;
 const MAX_MATCH_DIST_KM = 5;
-const HEADERS = {
+const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 };
+
+/** BrightData с fallback на plain fetch */
+async function fetchHtml(url: string): Promise<string | null> {
+  const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru' });
+  if (bd) return bd;
+  try {
+    const res = await fetch(url, { headers: PLAIN_HEADERS });
+    return res.ok ? res.text() : null;
+  } catch { return null; }
+}
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -36,32 +47,35 @@ function distKm(lat1: number, lng1: number, lat2: number, lng2: number): number 
 async function fetchPlaceIds(maxPages = 50): Promise<string[]> {
   const all = new Set<string>();
 
-  const r1 = await fetch('https://idilesom.com/kam/places', { headers: HEADERS });
-  if (!r1.ok) throw new Error(`idilesom page 1 returned ${r1.status}`);
-  const html = await r1.text();
+  const html = await fetchHtml('https://idilesom.com/kam/places');
+  if (!html) throw new Error('Не удалось загрузить idilesom.com/kam/places');
   (html.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
 
   for (let page = 2; page <= maxPages; page++) {
     await sleep(DELAY_MS);
-    const res = await fetch(`https://idilesom.com/kam/places?page=${page}`, {
-      headers: { ...HEADERS, 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
-    });
-    if (!res.ok) break;
-    const data = await res.json() as { empty?: boolean; list?: string };
-    if (data.empty) break;
-    const ids = (data.list?.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+    // Пробуем AJAX-пагинацию через BrightData
+    const pageHtml = await fetchHtml(`https://idilesom.com/kam/places?page=${page}`);
+    if (!pageHtml) break;
+    // AJAX возвращает JSON {list, empty} или HTML страницу
+    let ids: string[] = [];
+    try {
+      const data = JSON.parse(pageHtml) as { empty?: boolean; list?: string };
+      if (data.empty) break;
+      ids = (data.list?.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+    } catch {
+      ids = (pageHtml.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+    }
     const before = all.size;
     ids.forEach(id => all.add(id));
-    if (all.size === before) break; // no new ids
+    if (all.size === before) break;
   }
 
   return [...all];
 }
 
 async function scrapeTrack(placeId: string): Promise<{ title: string; lat: number; lng: number; coordinates: number[][] } | null> {
-  const res = await fetch(`https://idilesom.com/kam/places/${placeId}`, { headers: HEADERS });
-  if (!res.ok) return null;
-  const html = await res.text();
+  const html = await fetchHtml(`https://idilesom.com/kam/places/${placeId}`);
+  if (!html) return null;
 
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
