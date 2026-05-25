@@ -19,7 +19,7 @@ interface Params { params: Promise<{ id: string }> }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const authError = await requireAdmin(req);
-  if (authError) return authError;
+  if (authError instanceof NextResponse) return authError;
 
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/.test(id)) {
@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   const authError = await requireAdmin(req);
-  if (authError) return authError;
+  if (authError instanceof NextResponse) return authError;
 
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/.test(id)) {
