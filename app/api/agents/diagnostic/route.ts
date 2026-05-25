@@ -77,7 +77,9 @@ export async function GET(req: NextRequest) {
 
         if (tableExists) {
           try {
-            const countResult = await pool.query(`SELECT COUNT(*)::int as cnt FROM ${table} LIMIT 1`);
+            const safeTable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table) ? table : null;
+            if (!safeTable) throw new Error(`Invalid table name: ${table}`);
+            const countResult = await pool.query(`SELECT COUNT(*)::int as cnt FROM ${safeTable} LIMIT 1`);
             check.row_count = countResult.rows[0]?.cnt ?? 0;
             test_query_succeeded = true;
           } catch (e) {
