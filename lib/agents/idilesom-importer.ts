@@ -206,12 +206,13 @@ export async function runIdilesomImporter(batch = 30): Promise<ImportResult> {
 
       if (kind === 'place') {
         const arkId = makeArkId(`idilesom-place-${id}`);
+        const dedupeKey = `idilesom.com:places:${id}`;
         await pool.query(`
-          INSERT INTO places (ark_id, name, description, lat, lng, location_type, source_url, source_name, is_visible)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)
-          ON CONFLICT DO NOTHING
+          INSERT INTO places (ark_id, name, description, lat, lng, location_type, source_url, source_name, is_visible, dedupe_key)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9)
+          ON CONFLICT (ark_id) DO NOTHING
         `, [arkId, entry.title, entry.description || null, entry.lat, entry.lng,
-            detectLocationType(entry.title, entry.description), entry.sourceUrl, SOURCE_NAME]);
+            detectLocationType(entry.title, entry.description), entry.sourceUrl, SOURCE_NAME, dedupeKey]);
         knownPlaces.push(entry.title);
         result.inserted_places++;
       } else {
