@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink } from 'lucide-react';
+import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus, BookOpen } from 'lucide-react';
 
 interface MatchItem {
   ourTitle: string;
@@ -11,13 +11,22 @@ interface MatchItem {
   routeId: string;
 }
 
+interface DraftItem {
+  title: string;
+  pts: number;
+  distKm: number;
+  sourceUrl: string;
+}
+
 interface BatchResult {
   success: boolean;
   imported?: number;
+  created?: number;
   skipped?: number;
   noMatch?: number;
   errors?: number;
   matches?: MatchItem[];
+  drafts?: DraftItem[];
   batch_processed?: number;
   offset?: number;
   next_offset?: number;
@@ -30,6 +39,7 @@ interface BatchResult {
 
 interface Totals {
   imported: number;
+  created: number;
   skipped: number;
   noMatch: number;
   errors: number;
@@ -37,16 +47,51 @@ interface Totals {
   total: number;
 }
 
+interface VkResult {
+  ok: boolean;
+  total?: number;
+  inserted?: number;
+  updated?: number;
+  errors?: number;
+  routes?: { title: string; status: string }[];
+  error?: string;
+}
+
 export default function AdminToolsPage() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [allMatches, setAllMatches] = useState<MatchItem[]>([]);
+  const [allDrafts, setAllDrafts] = useState<DraftItem[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
-  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], cachedIds?: string[]): Promise<void> {
+  const [vkRunning, setVkRunning] = useState(false);
+  const [vkResult, setVkResult] = useState<VkResult | null>(null);
+  const [vkError, setVkError] = useState<string | null>(null);
+
+  async function startVkImport() {
+    if (!confirm('Запустить импорт 134 маршрутов с visitkamchatka.ru? Займёт ~2 минуты.')) return;
+    setVkRunning(true);
+    setVkResult(null);
+    setVkError(null);
+    try {
+      const res = await fetch('/api/admin/import/visitkamchatka', { method: 'POST' });
+      const data = await res.json() as VkResult;
+      if (!res.ok || !data.ok) {
+        setVkError(data.error ?? `HTTP ${res.status}`);
+      } else {
+        setVkResult(data);
+      }
+    } catch (err) {
+      setVkError((err as Error).message);
+    } finally {
+      setVkRunning(false);
+    }
+  }
+
+  async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], prevDrafts: DraftItem[], cachedIds?: string[]): Promise<void> {
     if (stopRef.current) return;
 
     let data: BatchResult;
@@ -79,6 +124,7 @@ export default function AdminToolsPage() {
     const ids = data.all_ids ?? cachedIds;
     const newTotals: Totals = {
       imported: acc.imported + (data.imported ?? 0),
+      created: acc.created + (data.created ?? 0),
       skipped: acc.skipped + (data.skipped ?? 0),
       noMatch: acc.noMatch + (data.noMatch ?? 0),
       errors: acc.errors + (data.errors ?? 0),
@@ -87,9 +133,11 @@ export default function AdminToolsPage() {
     };
     const newLog = [...prevLog, ...(data.log ?? [])];
     const newMatches = [...prevMatches, ...(data.matches ?? [])];
+    const newDrafts = [...prevDrafts, ...(data.drafts ?? [])];
     setTotals(newTotals);
     setLog(newLog);
     setAllMatches(newMatches);
+    setAllDrafts(newDrafts);
 
     if (data.done || stopRef.current) {
       setDone(true);
@@ -97,7 +145,7 @@ export default function AdminToolsPage() {
       return;
     }
 
-    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, ids ?? undefined);
+    await runBatch(data.next_offset ?? offset + 5, newTotals, newLog, newMatches, newDrafts, ids ?? undefined);
   }
 
   async function startImport() {
@@ -107,10 +155,11 @@ export default function AdminToolsPage() {
     setDone(false);
     setTotals(null);
     setAllMatches([]);
+    setAllDrafts([]);
     setLog([]);
     setError(null);
-    const empty: Totals = { imported: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
-    await runBatch(0, empty, [], [], undefined);
+    const empty: Totals = { imported: 0, created: 0, skipped: 0, noMatch: 0, errors: 0, processed: 0, total: 0 };
+    await runBatch(0, empty, [], [], [], undefined);
   }
 
   function stopImport() {
@@ -134,11 +183,11 @@ export default function AdminToolsPage() {
           <div>
             <h2 className="font-semibold text-[var(--text-primary)]">Импорт GPS-треков с idilesom.com</h2>
             <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-              Парсит GPS-треки со всех страниц idilesom.com/kam/places и сопоставляет их с маршрутами
-              в нашей БД по географической близости (≤10 км). Обновляет поле geometry в kamchatka_routes.
+              Парсит GPS-треки с idilesom.com/kam/places и /kam/routes. Совпавшие — обновляет geometry в нашей БД.
+              Новые камчатские треки — создаёт черновые маршруты (is_visible=false) для ревью.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">
-              Батчи по 5 мест · Пауза 500 мс между запросами · Пропускает маршруты с треком
+              Батчи по 5 · Пауза 500 мс · Проверяет старт/середину/конец · Bbox Камчатки · ON CONFLICT DO NOTHING
             </p>
           </div>
         </div>
@@ -169,7 +218,7 @@ export default function AdminToolsPage() {
         {running && totals && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-[var(--text-secondary)]">
-              <span>Обработано {totals.processed} из {totals.total} мест</span>
+              <span>Обработано {totals.processed} из {totals.total} источников</span>
               <span>{pct}%</span>
             </div>
             <div className="h-2 rounded-full bg-[var(--bg-hover)] overflow-hidden">
@@ -183,7 +232,7 @@ export default function AdminToolsPage() {
 
         {running && !totals && (
           <p className="text-sm text-[var(--text-secondary)] animate-pulse">
-            Собираем список мест с idilesom.com...
+            Собираем список с idilesom.com (places + routes)...
           </p>
         )}
 
@@ -202,11 +251,12 @@ export default function AdminToolsPage() {
             </div>
 
             {totals && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                 {[
-                  { label: 'Импортировано', value: totals.imported, color: 'var(--success)' },
+                  { label: 'Обновлено', value: totals.imported, color: 'var(--success)' },
+                  { label: 'Новых черновиков', value: totals.created, color: 'var(--ocean)' },
                   { label: 'Нет трека', value: totals.skipped, color: 'var(--text-muted)' },
-                  { label: 'Нет совпадения', value: totals.noMatch, color: 'var(--warning)' },
+                  { label: 'Вне Камчатки', value: totals.noMatch, color: 'var(--warning)' },
                   { label: 'Ошибки', value: totals.errors, color: 'var(--danger)' },
                 ].map(s => (
                   <div key={s.label} className="text-center">
@@ -238,7 +288,7 @@ export default function AdminToolsPage() {
       {allMatches.length > 0 && (
         <div className="ds-card p-6 space-y-3">
           <h2 className="font-semibold text-[var(--text-primary)]">
-            Найденные совпадения ({allMatches.length})
+            Обновлены треки ({allMatches.length})
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -278,6 +328,119 @@ export default function AdminToolsPage() {
           </div>
         </div>
       )}
+
+      {allDrafts.length > 0 && (
+        <div className="ds-card p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <FilePlus className="w-4 h-4 text-[var(--ocean)]" />
+            <h2 className="font-semibold text-[var(--text-primary)]">
+              Новые черновики ({allDrafts.length})
+            </h2>
+            <span className="text-xs text-[var(--text-muted)]">is_visible=false, требуют ревью</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)]">
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Название</th>
+                  <th className="text-right py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Точки</th>
+                  <th className="text-right py-2 pr-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Дист.</th>
+                  <th className="text-right py-2 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Источник</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allDrafts.map((d, idx) => (
+                  <tr key={idx} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
+                    <td className="py-2 pr-4 text-[var(--text-primary)]">{d.title}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--text-secondary)]">{d.pts}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--text-secondary)]">{d.distKm} км</td>
+                    <td className="py-2 text-right">
+                      <a
+                        href={d.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--ocean)] hover:underline inline-flex items-center gap-1 text-xs"
+                      >
+                        idilesom <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="ds-card p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
+            <BookOpen className="w-5 h-5 text-[var(--accent)]" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)]">Импорт маршрутов — visitkamchatka.ru</h2>
+            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+              134 официальных паспорта маршрутов Камчатки → kamchatka_routes + Кузьмич.
+              Upsert по dedupe_key — повторный запуск безопасен.
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Однократный вызов · ~2 мин · PDF-описания · difficulty, distance, season
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            onClick={startVkImport}
+            disabled={vkRunning}
+            className="ds-btn ds-btn-primary flex items-center gap-2 disabled:opacity-60"
+          >
+            {vkRunning
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Импортируем...</>
+              : <><Play className="w-4 h-4" /> Запустить импорт</>
+            }
+          </button>
+        </div>
+
+        {vkError && (
+          <div className="rounded-lg p-4 border bg-[var(--danger)]/5 border-[var(--danger)]/20 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[var(--danger)] flex-shrink-0" />
+            <span className="text-sm text-[var(--danger)]">{vkError}</span>
+          </div>
+        )}
+
+        {vkResult && (
+          <div className="rounded-lg p-4 border bg-[var(--success)]/5 border-[var(--success)]/20 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-[var(--success)]" />
+              <span className="font-semibold text-sm text-[var(--text-primary)]">Готово</span>
+            </div>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Импортировано: <strong>{vkResult.inserted}</strong> новых, <strong>{vkResult.updated}</strong> обновлено
+              {(vkResult.errors ?? 0) > 0 && <>, <span className="text-[var(--danger)]">{vkResult.errors} ошибок</span></>}
+              {' '}(всего {vkResult.total})
+            </p>
+            {vkResult.routes && vkResult.routes.length > 0 && (
+              <details>
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  Список ({vkResult.routes.length})
+                </summary>
+                <div className="mt-2 max-h-48 overflow-auto space-y-0.5">
+                  {vkResult.routes.map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5 border-b border-[var(--border)] last:border-0">
+                      <span className="text-[var(--text-secondary)] truncate pr-4">{r.title}</span>
+                      <span className={r.status === 'inserted' ? 'text-[var(--success)]' : r.status === 'updated' ? 'text-[var(--ocean)]' : r.status === 'skip' ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'}>
+                        {r.status === 'inserted' ? 'новый' : r.status === 'updated' ? 'обновлён' : r.status === 'skip' ? 'пропущен' : r.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
