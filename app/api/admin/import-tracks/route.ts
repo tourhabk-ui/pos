@@ -1,10 +1,10 @@
 /**
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
- * Scrapes HTML directly — no BrightData required.
+ * Работает батчами: ?offset=0&batch=25 → следующий вызов ?offset=25&batch=25 и т.д.
  *
- * ?page=N      — одна конкретная страница idilesom (для отладки)
- * ?limit=N     — максимум N мест обработать (default 500)
+ * ?offset=N      — начать с N-го плейса (default 0)
+ * ?batch=N       — обработать N мест за вызов (default 25, max 50)
  * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
  */
 
@@ -14,9 +14,9 @@ import { pool } from '@/lib/db-pool';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 60;
 
-const DELAY_MS = 600;
+const DELAY_MS = 500;
 const MAX_MATCH_DIST_KM = 5;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
@@ -24,7 +24,6 @@ const PLAIN_HEADERS = {
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 };
 
-/** BrightData с fallback на plain fetch */
 async function fetchHtml(url: string): Promise<string | null> {
   const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru' });
   if (bd) return bd;
@@ -53,10 +52,8 @@ async function fetchPlaceIds(maxPages = 50): Promise<string[]> {
 
   for (let page = 2; page <= maxPages; page++) {
     await sleep(DELAY_MS);
-    // Пробуем AJAX-пагинацию через BrightData
     const pageHtml = await fetchHtml(`https://idilesom.com/kam/places?page=${page}`);
     if (!pageHtml) break;
-    // AJAX возвращает JSON {list, empty} или HTML страницу
     let ids: string[] = [];
     try {
       const data = JSON.parse(pageHtml) as { empty?: boolean; list?: string };
@@ -137,21 +134,21 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
 
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(1000, parseInt(searchParams.get('limit') ?? '500'));
+  const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
+  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '25')));
   const skipExisting = searchParams.get('skip_existing') !== 'false';
 
   const log: string[] = [];
   let imported = 0, skipped = 0, noMatch = 0, errors = 0;
 
   try {
-    log.push('Загружаем наши маршруты...');
     const ourRoutes = await loadOurRoutes(skipExisting);
-    log.push(`  ${ourRoutes.length} маршрутов для обновления`);
 
     log.push('Собираем ID мест с idilesom.com...');
     const allIds = await fetchPlaceIds(50);
-    const ids = allIds.slice(0, limit);
-    log.push(`  Найдено ${allIds.length} мест, обработаем ${ids.length}`);
+    const totalIds = allIds.length;
+    const ids = allIds.slice(offset, offset + batch);
+    log.push(`  Всего мест: ${totalIds}, обрабатываем [${offset}…${offset + ids.length - 1}]`);
 
     for (let i = 0; i < ids.length; i++) {
       const placeId = ids[i];
@@ -167,13 +164,16 @@ export async function POST(req: NextRequest) {
         match.hasGeometry = true;
 
         imported++;
-        log.push(`  [${i + 1}/${ids.length}] OK: "${match.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts)`);
+        log.push(`  [${offset + i + 1}/${totalIds}] OK: "${match.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts)`);
       } catch (err) {
         errors++;
-        log.push(`  [${i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
+        log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
       }
       await sleep(DELAY_MS);
     }
+
+    const nextOffset = offset + ids.length;
+    const done = nextOffset >= totalIds;
 
     return NextResponse.json({
       success: true,
@@ -181,7 +181,11 @@ export async function POST(req: NextRequest) {
       skipped,
       noMatch,
       errors,
-      total_processed: ids.length,
+      batch_processed: ids.length,
+      offset,
+      next_offset: nextOffset,
+      total_ids: totalIds,
+      done,
       log,
     });
   } catch (err) {
