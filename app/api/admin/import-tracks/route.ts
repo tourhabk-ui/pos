@@ -1,7 +1,11 @@
 /**
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
- * Работает батчами: ?offset=0&batch=20 → следующий вызов ?offset=20&batch=20 и т.д.
+ * Работает батчами: ?offset=0&batch=5 → следующий вызов ?offset=5&batch=5 и т.д.
+ *
+ * ?offset=N      — начать с N-го плейса (default 0)
+ * ?batch=N       — обработать N мест за вызов (default 5, max 50)
+ * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,8 +17,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const DELAY_MS = 500;
-const FETCH_TIMEOUT_MS = 15_000;
-const MAX_MATCH_DIST_KM = 5;
+const MAX_MATCH_DIST_KM = 10;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
@@ -22,13 +25,10 @@ const PLAIN_HEADERS = {
 };
 
 async function fetchHtml(url: string): Promise<string | null> {
-  const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru', timeoutMs: FETCH_TIMEOUT_MS });
+  const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru' });
   if (bd) return bd;
   try {
-    const res = await fetch(url, {
-      headers: PLAIN_HEADERS,
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const res = await fetch(url, { headers: PLAIN_HEADERS, signal: AbortSignal.timeout(15_000) });
     return res.ok ? res.text() : null;
   } catch { return null; }
 }
@@ -47,7 +47,7 @@ async function fetchPlaceIds(maxPages = 50): Promise<string[]> {
   const all = new Set<string>();
 
   const html = await fetchHtml('https://idilesom.com/kam/places');
-  if (!html) return [];
+  if (!html) throw new Error('Не удалось загрузить idilesom.com/kam/places');
   (html.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
 
   for (let page = 2; page <= maxPages; page++) {
@@ -130,48 +130,44 @@ function findMatch(track: { lat: number; lng: number; coordinates: number[][] },
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const authResult = await requireAdmin(req);
+  if (authResult instanceof NextResponse) return authResult;
+
+  const { searchParams } = new URL(req.url);
+  const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
+  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '5')));
+  const skipExisting = searchParams.get('skip_existing') !== 'false';
+
+  const log: string[] = [];
+  const matches: { ourTitle: string; sourceTitle: string; pts: number; distKm: number; routeId: string }[] = [];
+  let imported = 0, skipped = 0, noMatch = 0, errors = 0;
+
   try {
-    // requireAdmin returns JWTPayload on success, NextResponse on failure
-    const authResult = await requireAdmin(req);
-    if (authResult instanceof NextResponse) return authResult;
-
-    const { searchParams } = new URL(req.url);
-    const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
-    const batch = Math.min(40, Math.max(1, parseInt(searchParams.get('batch') ?? '20')));
-    const skipExisting = searchParams.get('skip_existing') !== 'false';
-
-    const log: string[] = [];
-    const matches: { ourTitle: string; sourceTitle: string; pts: number; distKm: number; routeId: string }[] = [];
-    let imported = 0, skipped = 0, noMatch = 0, errors = 0;
-
     const ourRoutes = await loadOurRoutes(skipExisting);
-    log.push(`Наших маршрутов для обновления: ${ourRoutes.length}`);
+    log.push(`Наших маршрутов без трека: ${ourRoutes.length}`);
 
     let allIds: string[];
     let clientIds: string[] | null = null;
     try {
       const body = await req.json() as { ids?: string[] };
       if (Array.isArray(body?.ids) && body.ids.length > 0) clientIds = body.ids;
-    } catch { /* no body — first call */ }
+    } catch { /* no body */ }
 
     if (clientIds) {
       allIds = clientIds;
-      log.push(`Используем кэш ID (всего ${allIds.length})`);
     } else {
       log.push('Собираем ID мест с idilesom.com...');
       allIds = await fetchPlaceIds(50);
-      if (allIds.length === 0) {
-        return NextResponse.json(
-          { success: false, error: 'idilesom.com недоступен или нет BrightData токена (BRIGHTDATA_API_TOKEN). Установите токен в Timeweb → Переменные окружения.', log },
-          { status: 503 }
-        );
-      }
       log.push(`  Найдено ${allIds.length} мест`);
+    }
+
+    if (ourRoutes.length === 0) {
+      return NextResponse.json({ success: true, imported: 0, skipped: 0, noMatch: 0, errors: 0, matches: [], batch_processed: 0, offset, next_offset: offset, total_ids: allIds.length, done: true, log: [...log, 'Все маршруты уже имеют треки — нечего импортировать'] });
     }
 
     const totalIds = allIds.length;
     const ids = allIds.slice(offset, offset + batch);
-    log.push(`Обрабатываем [${offset}…${offset + ids.length - 1}] из ${totalIds}`);
+    log.push(`  Обрабатываем [${offset}…${offset + ids.length - 1}] из ${totalIds}`);
 
     for (let i = 0; i < ids.length; i++) {
       const placeId = ids[i];
@@ -191,7 +187,7 @@ export async function POST(req: NextRequest) {
         log.push(`  [${offset + i + 1}/${totalIds}] OK: "${found.route.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts, ${found.distKm} км)`);
       } catch (err) {
         errors++;
-        log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 80)}`);
+        log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
       }
       await sleep(DELAY_MS);
     }
@@ -216,7 +212,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     return NextResponse.json(
-      { success: false, error: (err as Error).message ?? String(err), log: [] },
+      { success: false, error: (err as Error).message, log },
       { status: 500 }
     );
   }
