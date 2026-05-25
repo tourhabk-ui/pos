@@ -585,7 +585,7 @@ export default function MapPageClient() {
 
       {/* Карта */}
       <div className="px-4 pb-4">
-        <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
+        <div className="relative rounded-lg overflow-hidden isolate border border-[var(--border)]">
           <LeafletMap
             center={[53.0444, 158.6483]}
             zoom={7}

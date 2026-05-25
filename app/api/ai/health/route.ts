@@ -5,31 +5,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { callAIWaterfallDebug } from '@/lib/ai/providers';
+import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getGeminiKey, getXaiKey, getYandexKey, getMiniMaxKey, getGLMKey } from '@/lib/ai/provider-config';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 const DEBUG_TOKEN = 'kamhub-debug-2026';
-
-async function testProvider(
-  name: string,
-  fn: () => Promise<Response>
-): Promise<{ name: string; ok: boolean; status: number; error?: string; answer?: string }> {
-  try {
-    const res = await fn();
-    if (res.ok) {
-      const data: unknown = await res.json();
-      const answer =
-        (data as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ??
-        (data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ??
-        'ok';
-      return { name, ok: true, status: res.status, answer: String(answer).slice(0, 60) };
-    }
-    const body = await res.text().catch(() => '');
-    return { name, ok: false, status: res.status, error: body.slice(0, 200) };
-  } catch (e) {
-    return { name, ok: false, status: 0, error: e instanceof Error ? e.message : String(e) };
-  }
-}
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');
@@ -37,56 +19,49 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
-  const minimaxKey = process.env.MINIMAX_API_KEY;
-  const xaiKey = process.env.XAI_API_KEY;
+  const orKey = getOpenRouterKey();
+  const mimoKey = getMiMoKey();
+  const dsKey = getDeepSeekKey();
+  const anthKey = getAnthropicKey();
+  const gemKey = getGeminiKey();
+  const xaiKey = getXaiKey();
 
   const keySummary = {
-    OPENROUTER_API_KEY: openrouterKey ? `SET (${openrouterKey.length}ch, ${openrouterKey.slice(0, 8)}...)` : 'MISSING',
-    DEEPSEEK_API_KEY: deepseekKey ? `SET (${deepseekKey.length}ch, ${deepseekKey.slice(0, 8)}...)` : 'MISSING',
-    MINIMAX_API_KEY: minimaxKey ? `SET (${minimaxKey.length}ch, ${minimaxKey.slice(0, 8)}...)` : 'MISSING',
-    XAI_API_KEY: xaiKey ? `SET (${xaiKey.length}ch, ${xaiKey.slice(0, 8)}...)` : 'MISSING',
-    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'MISSING',
-    JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'MISSING',
+    OR_API_KEY:          orKey   ? `SET (${orKey.slice(0, 8)}...)`   : 'MISSING',
+    XIAOMI_API_KEY:      mimoKey ? `SET (${mimoKey.slice(0, 8)}...)` : 'MISSING',
+    DEEPSEEK_API_KEY:    dsKey   ? `SET (${dsKey.slice(0, 8)}...)`   : 'MISSING',
+    ANTHROPIC_API_KEY:   anthKey ? `SET (${anthKey.slice(0, 8)}...)` : 'MISSING',
+    GEMINI_API_KEY:      gemKey  ? `SET (${gemKey.slice(0, 8)}...)`  : 'MISSING',
+    XAI_API_KEY:         xaiKey  ? `SET (${xaiKey.slice(0, 8)}...)`  : 'MISSING',
+    YANDEX_API_KEY:      getYandexKey()  ? 'SET' : 'MISSING',
+    MINIMAX_API_KEY:     getMiniMaxKey() ? 'SET' : 'MISSING (needs MINIMAX_API_KEY + MINIMAX_GROUP_ID)',
+    GLM_API_KEY:         getGLMKey()     ? 'SET' : 'MISSING',
+    NVIDIA_API_KEY:      process.env.NVIDIA_API_KEY ? 'SET' : 'MISSING',
+    DATABASE_URL:        process.env.DATABASE_URL  ? 'SET' : 'MISSING',
+    JWT_SECRET:          process.env.JWT_SECRET    ? 'SET' : 'MISSING',
+    BRIGHTDATA_TOKEN:    process.env.BRIGHTDATA_TOKEN ? 'SET' : 'MISSING',
+    TELEGRAM_BOT_TOKEN:  process.env.TELEGRAM_BOT_TOKEN ? 'SET' : 'MISSING',
   };
 
-  const tests = await Promise.all([
-    openrouterKey
-      ? testProvider('OpenRouter', () =>
-          fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openrouterKey}` },
-            body: JSON.stringify({ model: 'anthropic/claude-sonnet-4-6', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'OpenRouter', ok: false, status: 0, error: 'OPENROUTER_API_KEY MISSING' },
+  const testMessages = [{ role: 'user' as const, content: 'Ответь одним словом: работаю' }];
+  const providerTests = await callAIWaterfallDebug(testMessages);
 
-    deepseekKey
-      ? testProvider('DeepSeek', () =>
-          fetch('https://api.deepseek.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${deepseekKey}` },
-            body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'DeepSeek', ok: false, status: 0, error: 'DEEPSEEK_API_KEY MISSING' },
-
-    minimaxKey
-      ? testProvider('MiniMax', () =>
-          fetch('https://api.minimaxi.chat/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${minimaxKey}` },
-            body: JSON.stringify({ model: 'MiniMax-Text-01', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
-          })
-        )
-      : { name: 'MiniMax', ok: false, status: 0, error: 'MINIMAX_API_KEY MISSING' },
-  ]);
+  const working = providerTests.filter(r => r.status === 'success');
+  const missing = providerTests.filter(r => r.status === 'no_key');
+  const failed = providerTests.filter(r => r.status !== 'success' && r.status !== 'no_key');
 
   return NextResponse.json({
+    summary: {
+      total_providers: providerTests.length,
+      working: working.length,
+      missing_key: missing.length,
+      failed: failed.length,
+      ai_available: working.length > 0,
+    },
     keys: keySummary,
-    providerTests: tests,
+    providerTests,
     nodeVersion: process.version,
     nodeEnv: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
   });
 }
