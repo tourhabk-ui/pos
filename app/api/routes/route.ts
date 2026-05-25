@@ -101,6 +101,8 @@ const QuerySchema = z.object({
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
   price_min:     z.coerce.number().min(0).optional(),
   price_max:     z.coerce.number().min(0).optional(),
+  // slim=true — карта: только id/title/lat/lng/типы + 130 символов описания
+  slim:          z.enum(['true', 'false']).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -111,7 +113,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Неверные параметры запроса' }, { status: 400 });
   }
 
-  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max } = parsed.data;
+  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, slim } = parsed.data;
+  const isSlim = slim === 'true';
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['is_visible = TRUE'];
@@ -177,38 +180,53 @@ export async function GET(request: NextRequest) {
     'title ASC';
 
   try {
+    const slimSelect = `
+      SELECT
+        ark.id,
+        ark.location_type,
+        ark.activity_type,
+        ark.title,
+        LEFT(ark.description, 130) AS description,
+        ark.lat,
+        ark.lng,
+        ark.payload->>'volcano_status' AS volcano_status
+      FROM agent_route_knowledge ark
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT $${idx} OFFSET $${idx + 1}`;
+
+    const fullSelect = `
+      SELECT
+        ark.id,
+        ark.route_dedupe_key,
+        ark.kind,
+        ark.category,
+        ark.location_type,
+        ark.activity_type,
+        ark.title,
+        ark.description,
+        ark.lat,
+        ark.lng,
+        ark.source_url,
+        ark.source_name,
+        ark.payload,
+        ark.payload->'price_from'      AS price_from,
+        ark.payload->'season'          AS season,
+        ark.payload->'difficulty'      AS difficulty,
+        ark.payload->'duration_days'   AS duration_days,
+        ark.payload->'best_months'     AS best_months,
+        ark.payload->'geometry'        AS geometry,
+        ark.payload->>'volcano_status' AS volcano_status,
+        ark.created_at,
+        (ari.route_id IS NOT NULL AND COALESCE(ari.photo_verified, true) <> false) AS has_ai_image
+      FROM agent_route_knowledge ark
+      LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT $${idx} OFFSET $${idx + 1}`;
+
     const [dataResult, countResult] = await Promise.all([
-      query(
-        `SELECT
-           ark.id,
-           ark.route_dedupe_key,
-           ark.kind,
-           ark.category,
-           ark.location_type,
-           ark.activity_type,
-           ark.title,
-           ark.description,
-           ark.lat,
-           ark.lng,
-           ark.source_url,
-           ark.source_name,
-           ark.payload,
-           ark.payload->'price_from'      AS price_from,
-           ark.payload->'season'          AS season,
-           ark.payload->'difficulty'      AS difficulty,
-           ark.payload->'duration_days'   AS duration_days,
-           ark.payload->'best_months'     AS best_months,
-           ark.payload->'geometry'        AS geometry,
-           ark.payload->>'volcano_status' AS volcano_status,
-           ark.created_at,
-           (ari.route_id IS NOT NULL AND COALESCE(ari.photo_verified, true) <> false) AS has_ai_image
-         FROM agent_route_knowledge ark
-         LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
-         ${where}
-         ORDER BY ${orderBy}
-         LIMIT $${idx} OFFSET $${idx + 1}`,
-        [...params, limit, offset]
-      ),
+      query(isSlim ? slimSelect : fullSelect, [...params, limit, offset]),
       query(
         `SELECT COUNT(*)::int AS total FROM agent_route_knowledge ark ${where}`,
         params
@@ -219,37 +237,48 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: dataResult.rows.map(r => {
-        const payload = (r.payload as Record<string, unknown>) ?? {};
-        const hasAiImage = Boolean(r.has_ai_image);
-        const imageUrl = (hasAiImage ? `/api/images/route/${r.id as string}` : null)
-          ?? pickPrimaryImage(payload)
-          ?? getCategoryFallbackImage(r.category as string);
+      data: isSlim
+        ? dataResult.rows.map(r => ({
+            id:           r.id as string,
+            locationType: (r.location_type as string | null) ?? null,
+            activityType: (r.activity_type as string | null) ?? null,
+            title:        r.title as string,
+            description:  (r.description as string | null) ?? '',
+            lat:          r.lat != null ? parseFloat(r.lat as string) : null,
+            lng:          r.lng != null ? parseFloat(r.lng as string) : null,
+            volcanoStatus:(r.volcano_status as string | null) ?? null,
+          }))
+        : dataResult.rows.map(r => {
+            const payload = (r.payload as Record<string, unknown>) ?? {};
+            const hasAiImage = Boolean(r.has_ai_image);
+            const imageUrl = (hasAiImage ? `/api/images/route/${r.id as string}` : null)
+              ?? pickPrimaryImage(payload)
+              ?? getCategoryFallbackImage(r.category as string);
 
-        return {
-          ...(imageUrl ? { imageUrl } : {}),
-          id:           r.id as string,
-          slug:         r.route_dedupe_key as string,
-          kind:         (r.kind as string) ?? 'place',
-          category:     r.category as string,
-          locationType: (r.location_type as string | null) ?? null,
-          activityType: (r.activity_type as string | null) ?? null,
-          title:        r.title as string,
-          description:  (r.description as string | null) ?? '',
-          lat:          r.lat != null ? parseFloat(r.lat as string) : null,
-          lng:          r.lng != null ? parseFloat(r.lng as string) : null,
-          sourceUrl:    (r.source_url as string | null) ?? null,
-          sourceName:   (r.source_name as string | null) ?? null,
-          priceFrom:    r.price_from != null ? Number(r.price_from) : null,
-          season:       (r.season as string | null) ?? null,
-          difficulty:   (r.difficulty as string | null) ?? null,
-          durationDays: r.duration_days != null ? Number(r.duration_days) : null,
-          bestMonths:   (r.best_months as number[] | null) ?? null,
-          geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
-          volcanoStatus: (r.volcano_status as string | null) ?? null,
-          hasAiImage:   hasAiImage,
-        };
-      }),
+            return {
+              ...(imageUrl ? { imageUrl } : {}),
+              id:           r.id as string,
+              slug:         r.route_dedupe_key as string,
+              kind:         (r.kind as string) ?? 'place',
+              category:     r.category as string,
+              locationType: (r.location_type as string | null) ?? null,
+              activityType: (r.activity_type as string | null) ?? null,
+              title:        r.title as string,
+              description:  (r.description as string | null) ?? '',
+              lat:          r.lat != null ? parseFloat(r.lat as string) : null,
+              lng:          r.lng != null ? parseFloat(r.lng as string) : null,
+              sourceUrl:    (r.source_url as string | null) ?? null,
+              sourceName:   (r.source_name as string | null) ?? null,
+              priceFrom:    r.price_from != null ? Number(r.price_from) : null,
+              season:       (r.season as string | null) ?? null,
+              difficulty:   (r.difficulty as string | null) ?? null,
+              durationDays: r.duration_days != null ? Number(r.duration_days) : null,
+              bestMonths:   (r.best_months as number[] | null) ?? null,
+              geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
+              volcanoStatus: (r.volcano_status as string | null) ?? null,
+              hasAiImage:   hasAiImage,
+            };
+          }),
       meta: {
         total,
         page,
