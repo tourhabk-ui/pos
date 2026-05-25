@@ -18,7 +18,7 @@ const CollectionSchema = z.object({
 
 export async function GET(req: NextRequest) {
   const authError = await requireAdmin(req);
-  if (authError) return authError;
+  if (authError instanceof NextResponse) return authError;
 
   const { rows } = await pool.query(
     `SELECT id, slug, title, description, tags, is_public, view_count, created_at,
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const authError = await requireAdmin(req);
-  if (authError) return authError;
+  if (authError instanceof NextResponse) return authError;
 
   const body = await req.json().catch(() => null);
   const parsed = CollectionSchema.safeParse(body);
