@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus } from 'lucide-react';
+import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus, BookOpen } from 'lucide-react';
 
 interface MatchItem {
   ourTitle: string;
@@ -47,6 +47,16 @@ interface Totals {
   total: number;
 }
 
+interface VkResult {
+  ok: boolean;
+  total?: number;
+  inserted?: number;
+  updated?: number;
+  errors?: number;
+  routes?: { title: string; status: string }[];
+  error?: string;
+}
+
 export default function AdminToolsPage() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -56,6 +66,31 @@ export default function AdminToolsPage() {
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
+
+  // visitkamchatka.ru import state
+  const [vkRunning, setVkRunning] = useState(false);
+  const [vkResult, setVkResult] = useState<VkResult | null>(null);
+  const [vkError, setVkError] = useState<string | null>(null);
+
+  async function startVkImport() {
+    if (!confirm('Запустить импорт 134 маршрутов с visitkamchatka.ru? Займёт ~2 минуты.')) return;
+    setVkRunning(true);
+    setVkResult(null);
+    setVkError(null);
+    try {
+      const res = await fetch('/api/admin/import/visitkamchatka', { method: 'POST' });
+      const data = await res.json() as VkResult;
+      if (!res.ok || !data.ok) {
+        setVkError(data.error ?? `HTTP ${res.status}`);
+      } else {
+        setVkResult(data);
+      }
+    } catch (err) {
+      setVkError((err as Error).message);
+    } finally {
+      setVkRunning(false);
+    }
+  }
 
   async function runBatch(offset: number, acc: Totals, prevLog: string[], prevMatches: MatchItem[], prevDrafts: DraftItem[], cachedIds?: string[]): Promise<void> {
     if (stopRef.current) return;
@@ -337,6 +372,77 @@ export default function AdminToolsPage() {
           </div>
         </div>
       )}
+
+      {/* ── visitkamchatka.ru import ──────────────────────────────────────── */}
+      <div className="ds-card p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">
+            <BookOpen className="w-5 h-5 text-[var(--accent)]" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)]">Импорт маршрутов — visitkamchatka.ru</h2>
+            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+              134 официальных паспорта маршрутов Камчатки → kamchatka_routes + Кузьмич.
+              Upsert по dedupe_key — повторный запуск безопасен.
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Однократный вызов · ~2 мин · PDF-описания · difficulty, distance, season
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            onClick={startVkImport}
+            disabled={vkRunning}
+            className="ds-btn ds-btn-primary flex items-center gap-2 disabled:opacity-60"
+          >
+            {vkRunning
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Импортируем...</>
+              : <><Play className="w-4 h-4" /> Запустить импорт</>
+            }
+          </button>
+        </div>
+
+        {vkError && (
+          <div className="rounded-lg p-4 border bg-[var(--danger)]/5 border-[var(--danger)]/20 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[var(--danger)] flex-shrink-0" />
+            <span className="text-sm text-[var(--danger)]">{vkError}</span>
+          </div>
+        )}
+
+        {vkResult && (
+          <div className="rounded-lg p-4 border bg-[var(--success)]/5 border-[var(--success)]/20 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-[var(--success)]" />
+              <span className="font-semibold text-sm text-[var(--text-primary)]">Готово</span>
+            </div>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Импортировано: <strong>{vkResult.inserted}</strong> новых, <strong>{vkResult.updated}</strong> обновлено
+              {(vkResult.errors ?? 0) > 0 && <>, <span className="text-[var(--danger)]">{vkResult.errors} ошибок</span></>}
+              {' '}(всего {vkResult.total})
+            </p>
+            {vkResult.routes && vkResult.routes.length > 0 && (
+              <details>
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  Список ({vkResult.routes.length})
+                </summary>
+                <div className="mt-2 max-h-48 overflow-auto space-y-0.5">
+                  {vkResult.routes.map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5 border-b border-[var(--border)] last:border-0">
+                      <span className="text-[var(--text-secondary)] truncate pr-4">{r.title}</span>
+                      <span className={r.status === 'inserted' ? 'text-[var(--success)]' : r.status === 'updated' ? 'text-[var(--ocean)]' : r.status === 'skip' ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'}>
+                        {r.status === 'inserted' ? 'новый' : r.status === 'updated' ? 'обновлён' : r.status === 'skip' ? 'пропущен' : r.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
