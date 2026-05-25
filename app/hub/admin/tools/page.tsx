@@ -134,11 +134,11 @@ export default function AdminToolsPage() {
           <div>
             <h2 className="font-semibold text-[var(--text-primary)]">Импорт GPS-треков с idilesom.com</h2>
             <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-              Парсит GPS-треки со всех страниц idilesom.com/kam/places и сопоставляет их с маршрутами
-              в нашей БД по географической близости (≤5 км). Обновляет поле geometry в kamchatka_routes.
+              Парсит GPS-треки с idilesom.com/kam/places и idilesom.com/kam/routes, сопоставляет с маршрутами
+              в нашей БД по географической близости (≤10 км). Обновляет поле geometry в kamchatka_routes.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">
-              Батчи по 25 мест · Пауза 500 мс между запросами · Пропускает маршруты с треком
+              Батчи по 5 · Пауза 500 мс · Проверяет старт/середину/конец трека · Пропускает маршруты с треком
             </p>
           </div>
         </div>

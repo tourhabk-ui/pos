@@ -1,11 +1,9 @@
 /**
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
- * Работает батчами: ?offset=0&batch=25 → следующий вызов ?offset=25&batch=25 и т.д.
- *
- * ?offset=N      — начать с N-го плейса (default 0)
- * ?batch=N       — обработать N мест за вызов (default 25, max 50)
- * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
+ * Скрейпит как /kam/places так и /kam/routes.
+ * ID имеют префикс: "places:123" или "routes:456".
+ * Работает батчами: ?offset=0&batch=5 → следующий вызов ?offset=5&batch=5 и т.д.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -43,35 +41,51 @@ function distKm(lat1: number, lng1: number, lat2: number, lng2: number): number 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function fetchPlaceIds(maxPages = 50): Promise<string[]> {
+async function fetchSectionIds(section: 'places' | 'routes', maxPages = 50): Promise<string[]> {
   const all = new Set<string>();
+  const baseUrl = `https://idilesom.com/kam/${section}`;
+  const pattern = new RegExp(`/kam/${section}/(\\d+)`, 'g');
 
-  const html = await fetchHtml('https://idilesom.com/kam/places');
-  if (!html) throw new Error('Не удалось загрузить idilesom.com/kam/places');
-  (html.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
+  const html = await fetchHtml(baseUrl);
+  if (!html) return [];
+
+  const firstMatches = html.match(pattern) ?? [];
+  firstMatches.forEach(m => all.add(m.split('/').pop()!));
 
   for (let page = 2; page <= maxPages; page++) {
     await sleep(DELAY_MS);
-    const pageHtml = await fetchHtml(`https://idilesom.com/kam/places?page=${page}`);
+    const pageHtml = await fetchHtml(`${baseUrl}?page=${page}`);
     if (!pageHtml) break;
     let ids: string[] = [];
     try {
       const data = JSON.parse(pageHtml) as { empty?: boolean; list?: string };
       if (data.empty) break;
-      ids = (data.list?.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+      ids = (data.list?.match(pattern) ?? []).map(m => m.split('/').pop()!);
     } catch {
-      ids = (pageHtml.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+      ids = (pageHtml.match(pattern) ?? []).map(m => m.split('/').pop()!);
     }
     const before = all.size;
     ids.forEach(id => all.add(id));
     if (all.size === before) break;
   }
 
-  return [...all];
+  return [...all].map(id => `${section}:${id}`);
 }
 
-async function scrapeTrack(placeId: string): Promise<{ title: string; lat: number; lng: number; coordinates: number[][] } | null> {
-  const html = await fetchHtml(`https://idilesom.com/kam/places/${placeId}`);
+async function fetchAllSourceIds(): Promise<string[]> {
+  const [placeIds, routeIds] = await Promise.all([
+    fetchSectionIds('places'),
+    fetchSectionIds('routes'),
+  ]);
+  return [...placeIds, ...routeIds];
+}
+
+async function scrapeTrack(sourceId: string): Promise<{ title: string; lat: number; lng: number; coordinates: number[][] } | null> {
+  const colonIdx = sourceId.indexOf(':');
+  const section = colonIdx >= 0 ? sourceId.slice(0, colonIdx) : 'places';
+  const id = colonIdx >= 0 ? sourceId.slice(colonIdx + 1) : sourceId;
+
+  const html = await fetchHtml(`https://idilesom.com/kam/${section}/${id}`);
   if (!html) return null;
 
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -116,7 +130,6 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
 
 function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
   const coords = track.coordinates;
-  // Check start, middle (track.lat/lng), and end — take minimum distance
   const checkPoints: [number, number][] = [
     [coords[0][1], coords[0][0]],
     [track.lat, track.lng],
@@ -141,7 +154,7 @@ export async function POST(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
-  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '25')));
+  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '5')));
   const skipExisting = searchParams.get('skip_existing') !== 'false';
 
   const log: string[] = [];
@@ -163,9 +176,11 @@ export async function POST(req: NextRequest) {
     if (clientIds) {
       allIds = clientIds;
     } else {
-      log.push('Собираем ID мест с idilesom.com...');
-      allIds = await fetchPlaceIds(50);
-      log.push(`  Найдено ${allIds.length} мест`);
+      log.push('Собираем ID с idilesom.com (places + routes)...');
+      allIds = await fetchAllSourceIds();
+      const placesCount = allIds.filter(id => id.startsWith('places:')).length;
+      const routesCount = allIds.filter(id => id.startsWith('routes:')).length;
+      log.push(`  Найдено ${allIds.length} источников (места: ${placesCount}, маршруты: ${routesCount})`);
     }
 
     if (ourRoutes.length === 0) {
@@ -177,9 +192,9 @@ export async function POST(req: NextRequest) {
     log.push(`  Обрабатываем [${offset}…${offset + ids.length - 1}] из ${totalIds}`);
 
     for (let i = 0; i < ids.length; i++) {
-      const placeId = ids[i];
+      const sourceId = ids[i];
       try {
-        const track = await scrapeTrack(placeId);
+        const track = await scrapeTrack(sourceId);
         if (!track) { skipped++; await sleep(DELAY_MS); continue; }
 
         const found = findMatch(track, ourRoutes);
@@ -194,7 +209,7 @@ export async function POST(req: NextRequest) {
         log.push(`  [${offset + i + 1}/${totalIds}] OK: "${found.route.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts, ${found.distKm} км)`);
       } catch (err) {
         errors++;
-        log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
+        log.push(`  [${offset + i + 1}] ERROR id=${sourceId}: ${(err as Error).message.slice(0, 60)}`);
       }
       await sleep(DELAY_MS);
     }
