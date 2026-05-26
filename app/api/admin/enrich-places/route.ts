@@ -70,7 +70,7 @@ function buildPrompt(p: {
 
 export async function POST(req: NextRequest) {
   const authErr = await requireAdmin(req);
-  if (authErr) return authErr;
+  if (authErr instanceof NextResponse) return authErr;
 
   const body = await req.json().catch(() => ({}));
   const { batch, force } = Schema.parse(body);

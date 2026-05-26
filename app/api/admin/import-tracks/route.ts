@@ -1,10 +1,10 @@
 /**
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
- * Работает батчами: ?offset=0&batch=25 → следующий вызов ?offset=25&batch=25 и т.д.
+ * Работает батчами: ?offset=0&batch=5 → следующий вызов ?offset=5&batch=5 и т.д.
  *
  * ?offset=N      — начать с N-го плейса (default 0)
- * ?batch=N       — обработать N мест за вызов (default 25, max 50)
+ * ?batch=N       — обработать N мест за вызов (default 5, max 50)
  * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
  */
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const DELAY_MS = 500;
-const MAX_MATCH_DIST_KM = 5;
+const MAX_MATCH_DIST_KM = 10;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
@@ -28,7 +28,7 @@ async function fetchHtml(url: string): Promise<string | null> {
   const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru' });
   if (bd) return bd;
   try {
-    const res = await fetch(url, { headers: PLAIN_HEADERS });
+    const res = await fetch(url, { headers: PLAIN_HEADERS, signal: AbortSignal.timeout(15_000) });
     return res.ok ? res.text() : null;
   } catch { return null; }
 }
@@ -115,14 +115,20 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
 }
 
 function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
-  const tLat = track.coordinates[0][1];
-  const tLng = track.coordinates[0][0];
+  const coords = track.coordinates;
+  // Check start, middle (track.lat/lng), and end — take minimum distance
+  const checkPoints: [number, number][] = [
+    [coords[0][1], coords[0][0]],
+    [track.lat, track.lng],
+    [coords[coords.length - 1][1], coords[coords.length - 1][0]],
+  ];
+
   let best: OurRoute | null = null;
   let bestDist = MAX_MATCH_DIST_KM;
   for (const r of routes) {
     if (r.hasGeometry) continue;
-    const d = distKm(tLat, tLng, r.lat, r.lng);
-    if (d < bestDist) { bestDist = d; best = r; }
+    const minDist = Math.min(...checkPoints.map(([lat, lng]) => distKm(lat, lng, r.lat, r.lng)));
+    if (minDist < bestDist) { bestDist = minDist; best = r; }
   }
   return best ? { route: best, distKm: Math.round(bestDist * 10) / 10 } : null;
 }
@@ -130,12 +136,12 @@ function findMatch(track: { lat: number; lng: number; coordinates: number[][] },
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const authError = await requireAdmin(req);
-  if (authError) return authError;
+  const authResult = await requireAdmin(req);
+  if (authResult instanceof NextResponse) return authResult;
 
   const { searchParams } = new URL(req.url);
   const offset = Math.max(0, parseInt(searchParams.get('offset') ?? '0'));
-  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '25')));
+  const batch = Math.min(50, Math.max(1, parseInt(searchParams.get('batch') ?? '5')));
   const skipExisting = searchParams.get('skip_existing') !== 'false';
 
   const log: string[] = [];
@@ -144,6 +150,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const ourRoutes = await loadOurRoutes(skipExisting);
+    log.push(`Наших маршрутов без трека: ${ourRoutes.length}`);
 
     let allIds: string[];
     let clientIds: string[] | null = null;
@@ -158,6 +165,10 @@ export async function POST(req: NextRequest) {
       log.push('Собираем ID мест с idilesom.com...');
       allIds = await fetchPlaceIds(50);
       log.push(`  Найдено ${allIds.length} мест`);
+    }
+
+    if (ourRoutes.length === 0) {
+      return NextResponse.json({ success: true, imported: 0, skipped: 0, noMatch: 0, errors: 0, matches: [], batch_processed: 0, offset, next_offset: offset, total_ids: allIds.length, done: true, log: [...log, 'Все маршруты уже имеют треки — нечего импортировать'] });
     }
 
     const totalIds = allIds.length;
