@@ -94,8 +94,8 @@ export default function LeafletMap({
   track,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const clusterRef = useRef<any>(null);
+  const mapRef = useRef<import('leaflet').Map | null>(null);
+  const clusterRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -152,7 +152,12 @@ export default function LeafletMap({
       }).addTo(map);
 
       // Группа кластеров
-      const clusterGroup = (L as any).markerClusterGroup({
+      type LeafletWithCluster = typeof L & {
+        markerClusterGroup: (options?: Record<string, unknown>) => import('leaflet').LayerGroup & {
+          addLayer(layer: import('leaflet').Layer): void;
+        };
+      };
+      const clusterGroup = (L as LeafletWithCluster).markerClusterGroup({
         chunkedLoading: true,
         chunkInterval: 200,
         chunkDelay: 50,
@@ -161,7 +166,7 @@ export default function LeafletMap({
         showCoverageOnHover: false,
         zoomToBoundsOnClick: true,
         disableClusteringAtZoom: 11,
-        iconCreateFunction: (cluster: any) => {
+        iconCreateFunction: (cluster: { getChildCount: () => number }) => {
           const count = cluster.getChildCount();
           let size: 'small' | 'medium' | 'large' = 'small';
           let bgColor = '#0f172a'; // slate-900

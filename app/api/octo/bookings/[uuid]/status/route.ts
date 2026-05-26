@@ -54,7 +54,7 @@ export async function PATCH(
     const webhookEvent = status === 'REDEEMED' ? 'booking:redeemed' : 'booking:no_show';
 
     // Find booking by octo_uuid
-    const bookingResult = await pool.query<Record<string, unknown>>(
+    const bookingResult = await pool.query(
       `SELECT * FROM operator_bookings
        WHERE octo_uuid = $1 AND deleted_at IS NULL`,
       [uuid]
@@ -78,7 +78,7 @@ export async function PATCH(
     }
 
     // Update booking status
-    const updateResult = await pool.query<any>(
+    const updateResult = await pool.query(
       `UPDATE operator_bookings
        SET booking_status = $1, updated_at = NOW()
        WHERE id = $2

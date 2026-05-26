@@ -78,7 +78,7 @@ export function TransferSearchWidget({ className, onSearchResults }: TransferSea
   };
 
   // Функция для обновления параметров поиска
-  const updateSearchParam = (key: keyof TransferSearchRequest, value: any) => {
+  const updateSearchParam = (key: keyof TransferSearchRequest, value: TransferSearchRequest[typeof key]) => {
     setSearchParams(prev => ({
       ...prev,
       [key]: value

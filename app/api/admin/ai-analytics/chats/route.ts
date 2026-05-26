@@ -42,11 +42,14 @@ export async function GET(req: NextRequest) {
         const raw = rows[0].messages;
         let msgs: Array<{ role: string; content: string; created_at: string }> = [];
         if (Array.isArray(raw)) {
-          msgs = raw.map((m: any) => ({
-            role: m.role ?? 'user',
-            content: m.content ?? '',
-            created_at: m.created_at ?? rows[0].updated_at,
-          }));
+          msgs = raw.map((m: unknown) => {
+            const msg = m as Record<string, unknown>;
+            return {
+              role: String(msg.role ?? 'user'),
+              content: String(msg.content ?? ''),
+              created_at: String(msg.created_at ?? rows[0].updated_at),
+            };
+          });
         }
         return NextResponse.json({ messages: msgs });
       }

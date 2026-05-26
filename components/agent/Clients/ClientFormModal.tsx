@@ -173,7 +173,7 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
               <select
                 id="client-status"
                 value={formData.status}
-                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'prospect' | 'active' | 'inactive' }))}
                 className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
               >
                 <option value="prospect">Потенциальный</option>
@@ -189,7 +189,7 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
               <select
                 id="client-source"
                 value={formData.source}
-                onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value as any }))}
+                onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value }))}
                 className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
               >
                 <option value="direct">Прямой контакт</option>
