@@ -1,11 +1,13 @@
 /**
  * POST /api/admin/import-tracks
  * Импортирует GPS-треки с idilesom.com в kamchatka_routes.geometry.
+ * Скрейпит как /kam/places так и /kam/routes.
+ * ID имеют префикс: "places:123" или "routes:456".
  * Работает батчами: ?offset=0&batch=5 → следующий вызов ?offset=5&batch=5 и т.д.
  *
- * ?offset=N      — начать с N-го плейса (default 0)
- * ?batch=N       — обработать N мест за вызов (default 5, max 50)
- * ?skip_existing=true — пропускать маршруты у которых уже есть geometry
+ * Режимы:
+ *  - Совпал с нашим маршрутом → обновляет geometry
+ *  - Не совпал, но трек валидный камчатский → создаёт черновой маршрут (is_visible=false)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,6 +20,10 @@ export const maxDuration = 60;
 
 const DELAY_MS = 500;
 const MAX_MATCH_DIST_KM = 10;
+// Камчатка: примерный bbox
+const KAM_LAT_MIN = 50.5, KAM_LAT_MAX = 62.0;
+const KAM_LNG_MIN = 155.0, KAM_LNG_MAX = 173.5;
+const MIN_DRAFT_POINTS = 10;
 const PLAIN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
   'Accept-Language': 'ru-RU,ru;q=0.9',
@@ -43,35 +49,51 @@ function distKm(lat1: number, lng1: number, lat2: number, lng2: number): number 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function fetchPlaceIds(maxPages = 50): Promise<string[]> {
+async function fetchSectionIds(section: 'places' | 'routes', maxPages = 50): Promise<string[]> {
   const all = new Set<string>();
+  const baseUrl = `https://idilesom.com/kam/${section}`;
+  const pattern = new RegExp(`/kam/${section}/(\\d+)`, 'g');
 
-  const html = await fetchHtml('https://idilesom.com/kam/places');
-  if (!html) throw new Error('Не удалось загрузить idilesom.com/kam/places');
-  (html.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
+  const html = await fetchHtml(baseUrl);
+  if (!html) return [];
+
+  const firstMatches = html.match(pattern) ?? [];
+  firstMatches.forEach(m => all.add(m.split('/').pop()!));
 
   for (let page = 2; page <= maxPages; page++) {
     await sleep(DELAY_MS);
-    const pageHtml = await fetchHtml(`https://idilesom.com/kam/places?page=${page}`);
+    const pageHtml = await fetchHtml(`${baseUrl}?page=${page}`);
     if (!pageHtml) break;
     let ids: string[] = [];
     try {
       const data = JSON.parse(pageHtml) as { empty?: boolean; list?: string };
       if (data.empty) break;
-      ids = (data.list?.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+      ids = (data.list?.match(pattern) ?? []).map(m => m.split('/').pop()!);
     } catch {
-      ids = (pageHtml.match(/\/kam\/places\/(\d+)/g) ?? []).map(m => m.split('/').pop()!);
+      ids = (pageHtml.match(pattern) ?? []).map(m => m.split('/').pop()!);
     }
     const before = all.size;
     ids.forEach(id => all.add(id));
     if (all.size === before) break;
   }
 
-  return [...all];
+  return [...all].map(id => `${section}:${id}`);
 }
 
-async function scrapeTrack(placeId: string): Promise<{ title: string; lat: number; lng: number; coordinates: number[][] } | null> {
-  const html = await fetchHtml(`https://idilesom.com/kam/places/${placeId}`);
+async function fetchAllSourceIds(): Promise<string[]> {
+  const [placeIds, routeIds] = await Promise.all([
+    fetchSectionIds('places'),
+    fetchSectionIds('routes'),
+  ]);
+  return [...placeIds, ...routeIds];
+}
+
+async function scrapeTrack(sourceId: string): Promise<{ title: string; lat: number; lng: number; coordinates: number[][] } | null> {
+  const colonIdx = sourceId.indexOf(':');
+  const section = colonIdx >= 0 ? sourceId.slice(0, colonIdx) : 'places';
+  const id = colonIdx >= 0 ? sourceId.slice(colonIdx + 1) : sourceId;
+
+  const html = await fetchHtml(`https://idilesom.com/kam/${section}/${id}`);
   if (!html) return null;
 
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -114,9 +136,46 @@ async function loadOurRoutes(skipExisting: boolean): Promise<OurRoute[]> {
     .map(r => ({ id: r.id, title: r.title, lat: parseFloat(r.lat), lng: parseFloat(r.lng), hasGeometry: r.has_geom }));
 }
 
+// Загружаем координаты existing places чтобы не создавать дубли в kamchatka_routes
+async function loadPlaceCoords(): Promise<{ lat: number; lng: number }[]> {
+  const { rows } = await pool.query<{ lat: string; lng: string }>(
+    `SELECT lat::text, lng::text FROM places WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL`
+  );
+  return rows.map(r => ({ lat: parseFloat(r.lat), lng: parseFloat(r.lng) }));
+}
+
+function isNearAnyPlace(track: { lat: number; lng: number; coordinates: number[][] }, places: { lat: number; lng: number }[]): boolean {
+  const coords = track.coordinates;
+  const checkPoints: [number, number][] = [
+    [coords[0][1], coords[0][0]],
+    [track.lat, track.lng],
+    [coords[coords.length - 1][1], coords[coords.length - 1][0]],
+  ];
+  // Если трек "вокруг" уже известного места (≤2 км) — это не новый маршрут, это место
+  return places.some(p => Math.min(...checkPoints.map(([lat, lng]) => distKm(lat, lng, p.lat, p.lng))) <= 2);
+}
+
+function isInKamchatka(lat: number, lng: number): boolean {
+  return lat >= KAM_LAT_MIN && lat <= KAM_LAT_MAX && lng >= KAM_LNG_MIN && lng <= KAM_LNG_MAX;
+}
+
+function calcTrackDistKm(coords: number[][]): number {
+  let d = 0;
+  for (let i = 1; i < coords.length; i++) {
+    d += distKm(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
+  }
+  return Math.round(d * 10) / 10;
+}
+
+function sourceIdToUrl(sourceId: string): string {
+  const colonIdx = sourceId.indexOf(':');
+  const section = colonIdx >= 0 ? sourceId.slice(0, colonIdx) : 'places';
+  const id = colonIdx >= 0 ? sourceId.slice(colonIdx + 1) : sourceId;
+  return `https://idilesom.com/kam/${section}/${id}`;
+}
+
 function findMatch(track: { lat: number; lng: number; coordinates: number[][] }, routes: OurRoute[]): { route: OurRoute; distKm: number } | null {
   const coords = track.coordinates;
-  // Check start, middle (track.lat/lng), and end — take minimum distance
   const checkPoints: [number, number][] = [
     [coords[0][1], coords[0][0]],
     [track.lat, track.lng],
@@ -146,11 +205,14 @@ export async function POST(req: NextRequest) {
 
   const log: string[] = [];
   const matches: { ourTitle: string; sourceTitle: string; pts: number; distKm: number; routeId: string }[] = [];
-  let imported = 0, skipped = 0, noMatch = 0, errors = 0;
+  const drafts: { title: string; pts: number; distKm: number; sourceUrl: string }[] = [];
+  let imported = 0, skipped = 0, noMatch = 0, created = 0, errors = 0;
 
   try {
-    const ourRoutes = await loadOurRoutes(skipExisting);
-    log.push(`Наших маршрутов без трека: ${ourRoutes.length}`);
+    const [ourRoutes, placeCoords] = await Promise.all([
+      loadOurRoutes(skipExisting),
+      loadPlaceCoords(),
+    ]);
 
     let allIds: string[];
     let clientIds: string[] | null = null;
@@ -159,12 +221,16 @@ export async function POST(req: NextRequest) {
       if (Array.isArray(body?.ids) && body.ids.length > 0) clientIds = body.ids;
     } catch { /* no body */ }
 
+    log.push(`Наших маршрутов без трека: ${ourRoutes.length}`);
+
     if (clientIds) {
       allIds = clientIds;
     } else {
-      log.push('Собираем ID мест с idilesom.com...');
-      allIds = await fetchPlaceIds(50);
-      log.push(`  Найдено ${allIds.length} мест`);
+      log.push('Собираем ID с idilesom.com (places + routes)...');
+      allIds = await fetchAllSourceIds();
+      const placesCount = allIds.filter(id => id.startsWith('places:')).length;
+      const routesCount = allIds.filter(id => id.startsWith('routes:')).length;
+      log.push(`  Найдено ${allIds.length} источников (места: ${placesCount}, маршруты: ${routesCount})`);
     }
 
     if (ourRoutes.length === 0) {
@@ -176,16 +242,47 @@ export async function POST(req: NextRequest) {
     log.push(`  Обрабатываем [${offset}…${offset + ids.length - 1}] из ${totalIds}`);
 
     for (let i = 0; i < ids.length; i++) {
-      const placeId = ids[i];
+      const sourceId = ids[i];
       try {
-        const track = await scrapeTrack(placeId);
+        const track = await scrapeTrack(sourceId);
         if (!track) { skipped++; await sleep(DELAY_MS); continue; }
 
         const found = findMatch(track, ourRoutes);
-        if (!found) { noMatch++; await sleep(DELAY_MS); continue; }
+
+        if (!found) {
+          // Не совпал с нашим маршрутом — создаём черновой если в Камчатке
+          if (track.coordinates.length >= MIN_DRAFT_POINTS && isInKamchatka(track.lat, track.lng) && track.title) {
+            // Не создавать маршрут если это уже есть как place (≤2 км от известного места)
+            if (isNearAnyPlace(track, placeCoords)) {
+              noMatch++;
+              log.push(`  [${offset + i + 1}/${totalIds}] SKIP (уже place): "${track.title.slice(0, 50)}"`);
+            } else {
+              const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
+              const trackLen = calcTrackDistKm(track.coordinates);
+              const srcUrl = sourceIdToUrl(sourceId);
+              const dedupeKey = `idilesom:${sourceId}`;
+              await pool.query(
+                `INSERT INTO kamchatka_routes (title, lat, lng, geometry, source_url, source_name, is_visible, dedupe_key)
+                 VALUES ($1,$2,$3,$4,$5,'idilesom',false,$6)
+                 ON CONFLICT (dedupe_key) DO NOTHING`,
+                [track.title, track.lat, track.lng, JSON.stringify(geojson), srcUrl, dedupeKey]
+              );
+              created++;
+              drafts.push({ title: track.title, pts: track.coordinates.length, distKm: trackLen, sourceUrl: srcUrl });
+              log.push(`  [${offset + i + 1}/${totalIds}] NEW: "${track.title.slice(0, 50)}" (${track.coordinates.length} pts, ${trackLen} км) → черновик`);
+            }
+          } else {
+            noMatch++;
+          }
+          await sleep(DELAY_MS);
+          continue;
+        }
 
         const geojson = { type: 'LineString', coordinates: track.coordinates, source: 'idilesom' };
-        await pool.query('UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2', [JSON.stringify(geojson), found.route.id]);
+        await pool.query(
+          'UPDATE kamchatka_routes SET geometry = $1, source_url = COALESCE(source_url, $3) WHERE id = $2',
+          [JSON.stringify(geojson), found.route.id, sourceIdToUrl(sourceId)]
+        );
         found.route.hasGeometry = true;
 
         imported++;
@@ -193,7 +290,7 @@ export async function POST(req: NextRequest) {
         log.push(`  [${offset + i + 1}/${totalIds}] OK: "${found.route.title.slice(0, 40)}" ← "${track.title.slice(0, 35)}" (${track.coordinates.length} pts, ${found.distKm} км)`);
       } catch (err) {
         errors++;
-        log.push(`  [${offset + i + 1}] ERROR id=${placeId}: ${(err as Error).message.slice(0, 60)}`);
+        log.push(`  [${offset + i + 1}] ERROR id=${sourceId}: ${(err as Error).message.slice(0, 60)}`);
       }
       await sleep(DELAY_MS);
     }
@@ -204,10 +301,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       imported,
+      created,
       skipped,
       noMatch,
       errors,
       matches,
+      drafts,
       batch_processed: ids.length,
       offset,
       next_offset: nextOffset,
