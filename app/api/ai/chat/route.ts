@@ -32,6 +32,7 @@ import { recordEngagementSignal } from '@/lib/kuzmich/engagement';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
+import { handleSlashCommand } from '@/lib/ai/slash-commands';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 
@@ -215,6 +216,28 @@ export async function POST(request: NextRequest) {
 
     // Build AI prompt
     const rawMessage = message.trim();
+
+    // ── Slash commands — перехват перед AI, без расхода лимита ────────
+    if (!imageBase64) {
+      const slashResult = await handleSlashCommand(rawMessage);
+      if (slashResult.handled) {
+        const assistantMsg: ChatMessage = { role: 'assistant', content: slashResult.response, timestamp: Date.now() };
+        history.push({ role: 'user', content: rawMessage, timestamp: Date.now() });
+        history.push(assistantMsg);
+        if (sessionId) {
+          await saveSession(sessionId, userId, safeRole, history, currentCount, isAuthenticated,
+            session?.interests_encrypted ?? null);
+        }
+        return NextResponse.json({
+          success: true,
+          data: { answer: slashResult.response, sessionId: sessionId ?? null, role: safeRole,
+            messagesInHistory: history.length, remainingFree: isAuthenticated ? null : Math.max(0, FREE_MESSAGE_LIMIT - currentCount),
+            isAuthenticated },
+        });
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     const messageWithVision = visionDescription
       ? `[Фото пользователя: ${visionDescription}]${rawMessage ? `\n\n${rawMessage}` : ''}`
       : rawMessage;
@@ -233,7 +256,7 @@ export async function POST(request: NextRequest) {
     const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
 
     const [ragContext, agentInsights] = await Promise.all([
-      buildRAGContext(message.trim(), safeRole, geo),
+      buildRAGContext(message.trim(), safeRole, geo).catch(() => ''),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
     ]);
     const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
