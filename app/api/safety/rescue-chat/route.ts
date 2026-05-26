@@ -6,8 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { callAIWaterfall } from '@/lib/ai/providers';
-import { getOpenRouterKey } from '@/lib/ai/provider-config';
+import { callAIWaterfall, callOpenRouterStream } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -151,37 +150,23 @@ export async function POST(req: NextRequest) {
 
   // ── STREAMING PATH ──────────────────────────────────────────────────────────
   if (wantStream) {
-    const apiKey = getOpenRouterKey();
-    if (apiKey) {
-      try {
-        const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://vedarai.ru',
-          },
-          body: JSON.stringify({
-            model:      'openai/gpt-4o-mini',
-            messages,
-            stream:     true,
-            max_tokens: 450,
-            temperature: 0.3,
-          }),
-          signal: AbortSignal.timeout(25_000),
-        });
+    try {
+      const orRes = await callOpenRouterStream(
+        messages,
+        'openai/gpt-4o-mini',
+        AbortSignal.timeout(25_000),
+      );
 
-        if (orRes.ok && orRes.body) {
-          return new Response(orRes.body, {
-            headers: {
-              'Content-Type':  'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'X-Accel-Buffering': 'no',
-            },
-          });
-        }
-      } catch { /* fallback below */ }
-    }
+      if (orRes?.ok && orRes.body) {
+        return new Response(orRes.body, {
+          headers: {
+            'Content-Type':  'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+          },
+        });
+      }
+    } catch { /* fallback below */ }
   }
 
   // ── NON-STREAMING FALLBACK ──────────────────────────────────────────────────

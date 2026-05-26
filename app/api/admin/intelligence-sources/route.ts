@@ -5,6 +5,10 @@ import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
+const ALLOWED_FIELDS = new Set([
+  'url', 'label', 'domain', 'source_type', 'search_query', 'ai_filter', 'active',
+]);
+
 const CreateSchema = z.object({
   url: z.string().url(),
   source_type: z.enum(['rss', 'search_tavily', 'search_brave']).default('rss'),
@@ -123,7 +127,7 @@ export async function PATCH(request: NextRequest) {
     let idx = 1;
 
     for (const [key, value] of Object.entries(fields)) {
-      if (value !== undefined) {
+      if (value !== undefined && ALLOWED_FIELDS.has(key)) {
         setClauses.push(`${key} = $${idx++}`);
         params.push(value);
       }

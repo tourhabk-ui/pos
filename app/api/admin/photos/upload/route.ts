@@ -15,6 +15,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import path from 'path';
 import fs from 'fs/promises';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
+import { callAnthropicVision, callGeminiVision } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,60 +55,20 @@ interface AnalysisResult {
 }
 
 async function analyzeImage(imageBase64: string): Promise<AnalysisResult | null> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-
   try {
-    if (anthropicKey) {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 300,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
-              { type: 'text', text: VISION_PROMPT },
-            ],
-          }],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { content?: Array<{ text?: string }> };
-        const text = data?.content?.[0]?.text ?? '';
-        const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        return JSON.parse(clean) as AnalysisResult;
-      }
+    // Anthropic vision via URL source (data URL for base64 content)
+    const dataUrl = `data:image/jpeg;base64,${imageBase64}`;
+    const anthropicText = await callAnthropicVision(dataUrl, VISION_PROMPT, 300);
+    if (anthropicText) {
+      const clean = anthropicText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      return JSON.parse(clean) as AnalysisResult;
     }
 
-    if (openrouterKey) {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openrouterKey}` },
-        body: JSON.stringify({
-          model: 'anthropic/claude-haiku-4-5',
-          max_tokens: 300,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-              { type: 'text', text: VISION_PROMPT },
-            ],
-          }],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-        const text = data?.choices?.[0]?.message?.content ?? '';
-        const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        return JSON.parse(clean) as AnalysisResult;
-      }
+    // Fallback: Gemini vision via OpenRouter (accepts base64 directly)
+    const geminiText = await callGeminiVision(imageBase64, 'image/jpeg', VISION_PROMPT);
+    if (geminiText) {
+      const clean = geminiText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      return JSON.parse(clean) as AnalysisResult;
     }
   } catch {
     // Vision недоступен — вернём null, UI покажет ручные поля

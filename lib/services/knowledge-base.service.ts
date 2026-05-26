@@ -5,6 +5,8 @@
 
 import { pool, toStringOrNull, toNumberOrNull } from './_helpers';
 
+const ALLOWED_UPDATE_FIELDS = new Set(['title', 'content', 'category', 'tags']);
+
 export const knowledgeBaseService = {
   async search(searchQuery: string) {
     try {
@@ -29,23 +31,23 @@ export const knowledgeBaseService = {
       const offset = (page - 1) * limit;
       const category = toStringOrNull(params.category);
 
-      const conditions: string[] = [];
-      const queryParams: unknown[] = [];
-      if (category) {
-        conditions.push(`category = $${queryParams.length + 1}`);
-        queryParams.push(category);
-      }
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
       const [countRes, dataRes] = await Promise.all([
-        pool.query(`SELECT COUNT(*)::int AS total FROM knowledge_base_articles ${where}`, queryParams),
-        pool.query(
-          `SELECT id, title, slug, category, tags, author, views, helpful, created_at
-           FROM knowledge_base_articles ${where}
-           ORDER BY helpful DESC, created_at DESC
-           LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`,
-          [...queryParams, limit, offset]
-        ),
+        category
+          ? pool.query(`SELECT COUNT(*)::int AS total FROM knowledge_base_articles WHERE category = $1`, [category])
+          : pool.query(`SELECT COUNT(*)::int AS total FROM knowledge_base_articles`),
+        category
+          ? pool.query(
+              `SELECT id, title, slug, category, tags, author, views, helpful, created_at
+               FROM knowledge_base_articles WHERE category = $1
+               ORDER BY helpful DESC, created_at DESC LIMIT $2 OFFSET $3`,
+              [category, limit, offset]
+            )
+          : pool.query(
+              `SELECT id, title, slug, category, tags, author, views, helpful, created_at
+               FROM knowledge_base_articles
+               ORDER BY helpful DESC, created_at DESC LIMIT $1 OFFSET $2`,
+              [limit, offset]
+            ),
       ]);
       return {
         articles: dataRes.rows,
@@ -58,7 +60,8 @@ export const knowledgeBaseService = {
   async getById(id: string) {
     try {
       const res = await pool.query(
-        `SELECT * FROM knowledge_base_articles WHERE id = $1`,
+        `SELECT id, title, slug, content, category, tags, author, views, helpful, created_at, updated_at
+         FROM knowledge_base_articles WHERE id = $1`,
         [id]
       );
       return res.rows[0] ?? null;
@@ -88,14 +91,13 @@ export const knowledgeBaseService = {
   },
   async update(id: string, data: Record<string, unknown>) {
     try {
-      const fields = Object.entries(data)
-        .filter(([k]) => ['title', 'content', 'category', 'tags'].includes(k))
-        .map(([k], i) => `${k} = $${i + 2}`);
-      if (fields.length === 0) return { id, ...data };
-      const values = fields.map(f => data[f.split(' = ')[0].trim()]);
+      const allowed = Array.from(ALLOWED_UPDATE_FIELDS).filter(k => k in data);
+      if (allowed.length === 0) return { id, ...data };
+      const fields = allowed.map((k, i) => `${k} = $${i + 2}`);
+      const values = allowed.map(k => data[k]);
       const res = await pool.query(
         `UPDATE knowledge_base_articles SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING *`,
-        [id, ...Object.values(data).filter((_, i) => fields[i] !== undefined)]
+        [id, ...values]
       );
       return res.rows[0] ?? { id, ...data };
     } catch {

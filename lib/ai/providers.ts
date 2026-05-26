@@ -1196,6 +1196,37 @@ export async function callAnthropicRaw(
   }
 }
 
+// ── OpenRouter Streaming ──────────────────────────────────────────────────────
+/**
+ * Returns a raw fetch Response with stream: true from OpenRouter.
+ * Used by streaming endpoints that pipe SSE tokens directly to the client.
+ * Returns null if the API key is missing or the request fails.
+ */
+export async function callOpenRouterStream(
+  messages: ChatMessage[] | ORIterationMessage[],
+  model: string,
+  signal?: AbortSignal,
+): Promise<Response | null> {
+  const key = getOpenRouterKey();
+  if (!key) return null;
+
+  try {
+    return await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedar Kamchatka',
+      },
+      body: JSON.stringify({ model, messages, stream: true, max_tokens: 1500, temperature: 0.7 }),
+      signal,
+    });
+  } catch {
+    return null;
+  }
+}
+
 // ── OpenRouter agentic iteration (tool-use loop, multi-turn) ─────────────────
 // Используется sdk-runner для поддержания цикла tool calls.
 // В отличие от callOpenrouter(), принимает произвольный массив сообщений
