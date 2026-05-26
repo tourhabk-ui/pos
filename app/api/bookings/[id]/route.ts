@@ -58,7 +58,7 @@ export async function GET(
       }
       // Проверяем владение туром
       const ownerCheck = await query(
-        `SELECT 1 FROM tours t
+        `SELECT 1 FROM operator_tours t
          JOIN partners p ON t.operator_id = p.id
          WHERE t.id = $1 AND p.user_id = $2`,
         [booking.tour.id, auth.userId]

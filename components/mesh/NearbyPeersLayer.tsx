@@ -31,7 +31,7 @@ export default function NearbyPeersLayer({ peers, map }: Props) {
         existing.delete(peer.deviceId);
       } else {
         const icon = LeafletLib.divIcon({
-          html: `<div style="width:12px;height:12px;border-radius:50%;background:#3FB950;border:2px solid white;box-shadow:0 0 6px rgba(63,185,80,0.7)"></div>`,
+          html: `<div style="width:12px;height:12px;border-radius:50%;background:#3FB950;border:2px solid #F5F0EB;box-shadow:0 0 6px rgba(63,185,80,0.7)"></div>`,
           iconSize: [12, 12],
           iconAnchor: [6, 6],
           className: '',

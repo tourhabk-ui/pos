@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
        p.slug as op_slug,
        p.contact->>'phone' as op_phone,
        p.contact->>'email' as op_email
-     FROM tours t
+     FROM operator_tours t
      JOIN partners p ON t.operator_id = p.id
      WHERE ${conditions.join(' AND ')}
      ORDER BY p.name, t.name`,

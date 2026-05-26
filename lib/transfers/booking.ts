@@ -26,9 +26,32 @@ export interface BookingRequest {
   specialRequests?: string;
 }
 
+export interface TransferBookingRow {
+  id: string;
+  user_id: string;
+  operator_id: string;
+  route_id: string;
+  vehicle_id: string;
+  driver_id: string;
+  schedule_id: string;
+  booking_date: string;
+  departure_time: string;
+  passengers_count: number;
+  total_price: string;
+  status: string;
+  confirmation_code: string;
+  special_requests?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  created_at: string;
+  updated_at: string;
+  scheduleInfo?: { fromLocation: string; toLocation: string };
+  [key: string]: unknown;
+}
+
 export interface BookingResult {
   success: boolean;
-  booking?: any;
+  booking?: TransferBookingRow;
   error?: string;
   errorCode?: string;
 }

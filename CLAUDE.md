@@ -258,6 +258,20 @@ git push origin main  # → sync-to-tourhabk.yml → tourhabk-ui/pos → Timeweb
 
 ---
 
+## 6.1 ИНСТРУМЕНТЫ CLAUDE CODE
+
+### PostgreSQL MCP
+`.claude/settings.json` → `mcpServers.postgres` — при старте сессии автоматически
+подключается к `$DATABASE_URL`. Позволяет запрашивать схему и данные прямо из чата.
+Проверить: `/mcp` в Claude Code.
+
+### Claude Code Router
+Шаблон `.claude/ccr-config.json`. Маршрутизирует вызовы по типу задачи:
+- `default` → OpenRouter/Sonnet, `background` → DeepSeek, `think` → Opus, `longContext` → Gemini
+- Установка: `npm i -g claude-code-router`, скопировать конфиг в `~/.claude-code-router/config.json`
+
+---
+
 ## 7. НЕ ТРОГАТЬ
 
 - `middleware.ts` — Edge JWT + rate-limit

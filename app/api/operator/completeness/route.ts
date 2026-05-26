@@ -20,6 +20,35 @@ interface TourCompletion {
   missing_recommended: string[];
 }
 
+interface TourRow {
+  id: string;
+  title: string | null;
+  description: string | null;
+  short_description: string | null;
+  base_price: number | null;
+  max_participants: number | null;
+  min_participants: number | null;
+  location_type: string | null;
+  activity_type: string | null;
+  location_name: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  duration_hours: number | null;
+  difficulty: string | null;
+  season_start: string | null;
+  season_end: string | null;
+  duration_type: string | null;
+  included: unknown[] | null;
+  not_included: unknown[] | null;
+  what_to_bring: unknown[] | null;
+  tour_image: string | null;
+  photos: unknown[] | null;
+  price_old: number | null;
+  price_unit: string | null;
+  transportation: unknown[] | null;
+  is_published: boolean;
+}
+
 export async function GET(request: NextRequest) {
   const userOrResponse = await requireOperator(request);
   if (userOrResponse instanceof NextResponse) {
@@ -38,7 +67,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const { rows: tours } = await pool.query<any>(
+    const { rows: tours } = await pool.query<TourRow>(
       `SELECT
          id, title, description, short_description,
          base_price, max_participants, min_participants,
@@ -98,7 +127,7 @@ export async function GET(request: NextRequest) {
 
       return {
         tour_id: tour.id,
-        tour_title: tour.title,
+        tour_title: tour.title ?? '',
         is_published: tour.is_published,
         required_score: Math.round(requiredScore),
         recommended_score: Math.round(recommendedScore),

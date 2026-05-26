@@ -319,8 +319,8 @@ export default function MapPageClient() {
             onClick={() => setShowSos(!showSos)}
             className={`flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
               showSos
-                ? 'bg-white text-red-600'
-                : 'bg-red-600 text-white hover:bg-red-700'
+                ? 'bg-[var(--bg-primary)] text-[var(--danger)]'
+                : 'bg-[var(--danger)] text-white hover:opacity-90'
             }`}
             style={!showSos ? { animation: 'kh-sos-pulse 2s ease-out infinite' } : {}}
           >
@@ -451,10 +451,10 @@ export default function MapPageClient() {
               >
                 {sosSending === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}
                 {sosSending === 'sent' && <CheckCircle className="w-4 h-4" />}
-                {sosSending === 'idle' && '📍 Отправить координаты'}
+                {sosSending === 'idle' && 'Отправить координаты'}
                 {sosSending === 'sending' && 'Отправляю...'}
-                {sosSending === 'sent' && '✅ Координаты отправлены'}
-                {sosSending === 'error' && '⚠️ Ошибка — позвоните 112'}
+                {sosSending === 'sent' && 'Координаты отправлены'}
+                {sosSending === 'error' && 'Ошибка — позвоните 112'}
               </button>
 
               {/* SMS с координатами (работает без интернета) */}
@@ -690,7 +690,7 @@ export default function MapPageClient() {
           bg-green-600/90 text-white text-xs font-semibold shadow-lg
           hover:bg-green-700 transition-colors"
       >
-        ✅ Я вернулся
+        Я вернулся
       </Link>
 
       <BottomNav activePath="/map" />

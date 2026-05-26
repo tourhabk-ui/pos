@@ -149,7 +149,7 @@ function sqlRules(): unknown {
   return {
     forbidden_tables: {
       'FROM bookings': 'Use FROM operator_bookings',
-      'FROM tours':
+      'FROM operator_tours':
         'Use FROM operator_tours (or v_kamchatka_routes_api for public routes)',
       'SELECT *': 'Always list explicit columns',
     },

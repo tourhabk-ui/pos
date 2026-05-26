@@ -63,12 +63,12 @@ export async function POST(request: NextRequest) {
         p.email as operator_email,
         u.email as user_email,
         COALESCE(u.name, u.email) as user_name
-      FROM bookings b
+      FROM operator_bookings b
       JOIN tours t ON b.tour_id = t.id
       JOIN partners p ON t.operator_id = p.id
       JOIN users u ON b.user_id = u.id
       WHERE DATE(b.start_date) = $1
-        AND b.status = 'confirmed'
+        AND b.booking_status = 'confirmed'
         AND b.payment_status = 'paid'
         AND u.email IS NOT NULL
       LIMIT 200

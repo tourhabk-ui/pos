@@ -38,7 +38,7 @@ export async function GET(
     // Проверяем существование тура
     const tourQuery = `
       SELECT id, name, max_group_size, tour_type, is_active
-      FROM tours
+      FROM operator_tours
       WHERE id = $1
     `;
     const tourResult = await query<TourTimeslotRow>(tourQuery, [id]);

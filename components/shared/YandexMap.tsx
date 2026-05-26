@@ -16,9 +16,20 @@ interface YandexMapProps {
   height?: string;
 }
 
+/** Minimal Yandex Maps API surface used in this component */
+interface YmapsApi {
+  ready(callback: () => void): void;
+  Map: new (container: HTMLElement | null, options: { center: number[]; zoom: number; controls: string[] }) => {
+    geoObjects: { add(obj: unknown): void; getBounds(): unknown };
+    setBounds(bounds: unknown, options: Record<string, unknown>): void;
+    destroy(): void;
+  };
+  Placemark: new (coords: number[], data: Record<string, string>, options: Record<string, string>) => unknown;
+}
+
 declare global {
   interface Window {
-    ymaps: any;
+    ymaps: YmapsApi;
   }
 }
 
@@ -38,7 +49,7 @@ export default function YandexMap({
   height = '500px'
 }: YandexMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [mapInstance, setMapInstance] = useState<any>(null);
+  const [mapInstance, setMapInstance] = useState<{ destroy(): void } | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
 

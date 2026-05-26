@@ -49,18 +49,18 @@ export class ExecutionTracker {
 
     try {
       const result = await pool.query(query);
-      return result.rows.map((row: any) => ({
-        initiative_id: row.initiative_id,
-        from_agent_id: row.from_agent_id,
-        title: row.title,
-        decision_at: row.decision_at,
-        assigned_to: row.assigned_to,
+      return result.rows.map((row: Record<string, unknown>) => ({
+        initiative_id: String(row.initiative_id ?? ''),
+        from_agent_id: String(row.from_agent_id ?? ''),
+        title: String(row.title ?? ''),
+        decision_at: new Date(String(row.decision_at ?? new Date())),
+        assigned_to: String(row.assigned_to ?? ''),
         execution_status: row.execution_status as ExecutionStatus['execution_status'],
-        started_at: row.started_at ? new Date(row.started_at) : null,
-        completed_at: row.completed_at ? new Date(row.completed_at) : null,
-        failure_reason: row.failure_reason,
-        progress_pct: row.progress_pct,
-        days_elapsed: row.days_elapsed,
+        started_at: row.started_at ? new Date(row.started_at as string | number) : null,
+        completed_at: row.completed_at ? new Date(row.completed_at as string | number) : null,
+        failure_reason: row.failure_reason != null ? String(row.failure_reason) : null,
+        progress_pct: Number(row.progress_pct ?? 0),
+        days_elapsed: Number(row.days_elapsed ?? 0),
       }));
     } catch {
       return [];

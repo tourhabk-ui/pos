@@ -100,7 +100,7 @@ export default async function IncidentsPage() {
                     <MapPin className="w-3 h-3" />
                     {incident.location_name}
                   </span>
-                  <span className="ds-badge" style={{ background: 'var(--danger)', color: '#fff', opacity: 0.85 }}>
+                  <span className="ds-badge" style={{ background: 'var(--danger)', color: 'white', opacity: 0.85 }}>
                     {TYPE_LABELS[incident.location_type] ?? incident.location_type}
                   </span>
                 </div>

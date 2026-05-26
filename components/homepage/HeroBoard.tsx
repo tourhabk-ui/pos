@@ -118,7 +118,7 @@ export function HeroBoard() {
             className={`rounded-full transition-all duration-500 ${
               imgIdx === i
                 ? 'w-7 h-1 bg-[var(--accent)]'
-                : 'w-2.5 h-1 bg-white/30 hover:bg-white/50'
+                : 'w-2.5 h-1 bg-[var(--bg-primary)]/30 hover:bg-[var(--bg-primary)]/50'
             }`}
             aria-label={`Фото ${i + 1}`}
           />

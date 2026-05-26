@@ -93,7 +93,7 @@ export function RecentBookingsTable({ bookings, onViewDetails }: RecentBookingsT
       key: 'status',
       title: 'Статус',
       render: (booking) => (
-        <StatusBadge status={getStatusType(booking.status) as any} />
+        <StatusBadge status={getStatusType(booking.status)} />
       )
     },
     {

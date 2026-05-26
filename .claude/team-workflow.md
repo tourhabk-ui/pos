@@ -1,6 +1,6 @@
 # Ведар — Team Workflow & Operations Guide
 
-> Обновлено: Март 2026 | Стек: Next.js 15, TypeScript, PostgreSQL, Timeweb Cloud
+> Обновлено: Май 2026 | Стек: Next.js 15, TypeScript, PostgreSQL, Timeweb Cloud
 
 ---
 
@@ -17,11 +17,26 @@ git push origin main    # → автодеплой Timeweb (~5-7 минут)
 - Логи: Timeweb Cloud панель → App ID 159529
 
 **Env переменные (только на Timeweb, никогда в коде):**
-`DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-`TELEGRAM_CHANNEL_ID`, `CLOUDPAYMENTS_PUBLIC_ID`, `CLOUDPAYMENTS_SECRET`,
-`CRON_SECRET`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
-`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`,
-`NEXT_PUBLIC_YANDEX_MAPS_APIKEY`, `NEXT_PUBLIC_YANDEX_METRIKA_ID`
+
+| Переменная | Назначение |
+|-----------|-----------|
+| `DATABASE_URL` | PostgreSQL подключение |
+| `JWT_SECRET` | Подписание JWT токенов |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_CHANNEL_ID` | Telegram алерты |
+| `CLOUDPAYMENTS_PUBLIC_ID`, `CLOUDPAYMENTS_SECRET` | Платёжная система |
+| `CRON_SECRET` | Защита cron endpoints |
+| `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Хранилище файлов |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | Email |
+| `NEXT_PUBLIC_YANDEX_MAPS_APIKEY`, `NEXT_PUBLIC_YANDEX_METRIKA_ID` | Яндекс сервисы |
+| **AI провайдеры:** | |
+| `OPENROUTER_API_KEY` | OpenRouter — основной провайдер (Gemini, GPT, Llama, DeepSeek) |
+| `DEEPSEEK_API_KEY` | DeepSeek API напрямую |
+| `GEMINI_API_KEY` | Google Gemini напрямую |
+| `ANTHROPIC_API_KEY` | Claude API напрямую |
+| `XAI_API_KEY` | xAI Grok |
+| `XIAOMI_API_KEY` | MiMo (Xiaomi) |
+| `MINIMAX_API_KEY` | MiniMax |
+| `YANDEX_API_KEY`, `YANDEX_FOLDER_ID` | YandexGPT |
 
 ---
 
@@ -64,16 +79,26 @@ git push origin main    # → автодеплой Timeweb (~5-7 минут)
 
 ## 4. КОНТЕНТ
 
-### Новый маршрут в каталог (agent_route_knowledge)
+### Новая точка/место (`places`)
 ```sql
-INSERT INTO agent_route_knowledge (route_dedupe_key, category, location_type, activity_type,
-  title, description, search_text, source_hash, lat, lng, zone, is_visible, payload)
-VALUES ('slug|lat|lng', 'category', 'volcano|river|bay|...', 'trekking|boat_trip|...',
-  'Название', 'Описание', 'поисковые слова', md5('slug|lat|lng'),
-  55.0, 158.0, 'avachinsky|northern|western|eastern', TRUE,
-  '{"difficulty":"easy","season":["июль"],"price_from":5000,"duration_hours":8}'::jsonb)
-ON CONFLICT (route_dedupe_key) DO UPDATE SET ...;
+INSERT INTO places (name, lat, lng, location_type, description, zone, is_visible)
+VALUES ('Вулкан Корякский', 53.322, 158.686, 'volcano',
+  'Описание ≥300 символов...', 'avachinsky', TRUE);
+-- После вставки создать профили:
+INSERT INTO location_safety_profile (agent_route_id, ...) VALUES (NEW.ark_id, ...);
+INSERT INTO location_real_time_status (agent_route_id, ...) VALUES (NEW.ark_id, ...);
 ```
+
+### Новый маршрут (`kamchatka_routes`)
+```sql
+INSERT INTO kamchatka_routes (title, description, distance_km, difficulty, zone, is_visible)
+VALUES ('Маршрут к кратеру', 'Описание...', 12.5, 'hard', 'avachinsky', TRUE);
+-- Связать с точками через route_waypoints
+INSERT INTO route_waypoints (route_id, place_id, position) VALUES (route_id, place_id, 0);
+```
+
+> ⚠️ `agent_route_knowledge` — теперь VIEW (Migration 663). Прямой INSERT запрещён.
+> Старая таблица: `_agent_route_knowledge_legacy` — не трогать.
 
 ### Не применённые seed-скрипты (ждут операторов)
 - `scripts/seed-operator-topkam.sql`
@@ -83,18 +108,51 @@ ON CONFLICT (route_dedupe_key) DO UPDATE SET ...;
 
 ---
 
-## 5. АРХИТЕКТУРНЫЕ ПРАВИЛА
+## 5. ИНСТРУМЕНТЫ РАЗРАБОТЧИКА
+
+### PostgreSQL MCP (Claude Code)
+Настроен в `.claude/settings.json`. При старте сессии Claude Code автоматически
+подключается к БД через `@modelcontextprotocol/server-postgres` (читает `DATABASE_URL`).
+Позволяет напрямую запрашивать схему, данные и планы запросов из чата.
+```
+/mcp  — проверить статус подключения
+```
+
+### Claude Code Router
+Шаблон конфига в `.claude/ccr-config.json`. Маршрутизация по типу задачи:
+- `default` → OpenRouter / Claude Sonnet (стандарт)
+- `background` → DeepSeek (дешевле для агентов и cron)
+- `think` → Claude Opus (архитектурные решения)
+- `longContext` → Gemini Flash (большие файлы)
+
+Установка: `npm install -g claude-code-router`
+Скопировать `ccr-config.json` в `~/.claude-code-router/config.json` с реальными ключами.
+
+### AI Waterfall (lib/ai/providers.ts)
+Все AI-вызовы в продакшн-коде — только через `callAIWaterfall()` или `callAIFast()`.
+Прямые вызовы (`callDeepSeek`, `callOpenrouter` и т.д.) — только в `lib/ai/providers.ts`.
+Порядок fallback: OpenRouter → DeepSeek → Gemini → MiMo → GLM → Nvidia → MuseSpark → Yandex → MiniMax → Anthropic.
+Диагностика: `GET /api/ai/health?token=kamhub-debug-2026`
+
+---
+
+## 6. АРХИТЕКТУРНЫЕ ПРАВИЛА
 
 ```
 ЗАПРЕЩЕНО:
-  import pool from           →  import { pool } from '@/lib/db-pool'
-  SELECT * FROM kamchatka_routes  →  только v_kamchatka_routes_api
-  fetch('https://vedarai.ru')     →  в server components таймаутит — import { query }
-  console.log в app/         →  запрещён (console.error — допустим только в catch)
-  Хардкод hex цветов         →  только var(--token)
-  Glassmorphism              →  абсолютно запрещён
-  Эмодзи в .tsx              →  только lucide-react иконки
-  JSONB ->  оператор         →  предпочитать ->> для строк
+  import pool from                   →  import { pool } from '@/lib/db-pool'
+  SELECT * FROM kamchatka_routes     →  только v_kamchatka_routes_api
+  FROM bookings                      →  только FROM operator_bookings (колонка: booking_status, не status)
+  FROM tours                         →  только FROM operator_tours
+  INSERT INTO agent_route_knowledge  →  писать в places / kamchatka_routes
+  callDeepSeek() / callOpenrouter()  →  только callAIWaterfall() / callAIFast()
+  fetch('https://vedarai.ru')        →  в server components таймаутит — import { query }
+  console.log в app/                 →  запрещён (console.error — допустим только в catch)
+  Хардкод hex цветов                 →  только var(--token)
+  Glassmorphism                      →  абсолютно запрещён
+  Эмодзи в .tsx                      →  только lucide-react иконки
+  any в TypeScript                    →  только unknown + type guards
+  JSONB ->  оператор                 →  предпочитать ->> для строк
 ```
 
 **Паттерн API route:**
@@ -120,7 +178,7 @@ export async function POST(request: NextRequest) {
 
 ---
 
-## 6. ФИНАНСОВЫЙ КОНТУР
+## 7. ФИНАНСОВЫЙ КОНТУР
 
 ```
 Турист платит → CloudPayments webhook → tour_payments (HELD)
@@ -133,7 +191,7 @@ Admin trigger → operator_payouts (PENDING→PAID)
 
 ---
 
-## 7. OCTO API
+## 8. OCTO API
 
 **Файлы:** `lib/octo/` (auth, schemas, service, mappers, webhooks) + `app/api/octo/`
 
@@ -146,7 +204,7 @@ Admin trigger → operator_payouts (PENDING→PAID)
 
 ---
 
-## 8. СПЛАВЫ — СТАТУС
+## 9. СПЛАВЫ — СТАТУС
 
 | Что | Статус |
 |-----|--------|
@@ -159,4 +217,4 @@ Admin trigger → operator_payouts (PENDING→PAID)
 
 ---
 
-> vedarai.ru | Admin: /hub/admin | App ID: 159529 | Branch: main (auto-deploy)
+> vedarai.ru | Admin: /hub/admin | App ID: 159529 | Branch: main (auto-deploy) | MCP: postgres | AI: callAIWaterfall()

@@ -36,12 +36,12 @@ export const bookingService = {
     };
   },
   async getById(id: string) {
-    const result = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [id]);
+    const result = await pool.query(`SELECT *, booking_status AS status FROM operator_bookings WHERE id = $1`, [id]);
     return this.normalize(result.rows[0] ?? null);
   },
   async getByIdForUser(id: string, userId: string) {
     const result = await pool.query(
-      `SELECT * FROM bookings WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT *, booking_status AS status FROM operator_bookings WHERE id = $1 AND user_id = $2 LIMIT 1`,
       [id, userId]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -59,23 +59,21 @@ export const bookingService = {
     }
 
     const result = await pool.query(
-      `INSERT INTO bookings (
+      `INSERT INTO operator_bookings (
          user_id,
          tour_id,
-         date,
          start_date,
-         participants,
          guests_count,
          total_price,
-         status,
+         booking_status,
          payment_status,
          special_requests,
          created_at,
          updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'pending', $8, NOW(), NOW())
-       RETURNING *`,
-      [userId, tourId, startDate, startDate, participants, participants, totalPrice, specialRequests]
+       VALUES ($1, $2, $3, $4, $5, 'pending', 'pending', $6, NOW(), NOW())
+       RETURNING *, booking_status AS status`,
+      [userId, tourId, startDate, participants, totalPrice, specialRequests]
     );
     return this.normalize(result.rows[0] ?? null);
   },
@@ -87,13 +85,13 @@ export const bookingService = {
         : null;
 
     const result = await pool.query(
-      `UPDATE bookings
+      `UPDATE operator_bookings
        SET
-         status = COALESCE($2, status),
+         booking_status = COALESCE($2, booking_status),
          special_requests = COALESCE($3, special_requests),
          updated_at = NOW()
        WHERE id = $1
-       RETURNING *`,
+       RETURNING *, booking_status AS status`,
       [id, data.status ?? null, specialRequests]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -106,26 +104,26 @@ export const bookingService = {
         : null;
 
     const result = await pool.query(
-      `UPDATE bookings
+      `UPDATE operator_bookings
        SET
-         status = COALESCE($3, status),
+         booking_status = COALESCE($3, booking_status),
          special_requests = COALESCE($4, special_requests),
          updated_at = NOW()
        WHERE id = $1 AND user_id = $2
-       RETURNING *`,
+       RETURNING *, booking_status AS status`,
       [id, userId, data.status ?? null, specialRequests]
     );
     return this.normalize(result.rows[0] ?? null);
   },
   async confirmPayment(bookingId: string, _transactionId: string) {
     const result = await pool.query(
-      `UPDATE bookings
+      `UPDATE operator_bookings
        SET
-         status = 'confirmed',
+         booking_status = 'confirmed',
          payment_status = 'paid',
          updated_at = NOW()
        WHERE id = $1
-       RETURNING *`,
+       RETURNING *, booking_status AS status`,
       [bookingId]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -133,9 +131,9 @@ export const bookingService = {
   async cancel(id: string, reason: string, userId?: string) {
     const result = userId
       ? await pool.query(
-          `UPDATE bookings
+          `UPDATE operator_bookings
            SET
-             status = 'cancelled',
+             booking_status = 'cancelled',
              updated_at = NOW(),
              special_requests = CASE
                WHEN $3::text = '' THEN special_requests
@@ -143,13 +141,13 @@ export const bookingService = {
                ELSE special_requests || E'\n' || $3
              END
            WHERE id = $1 AND user_id = $2
-           RETURNING *`,
+           RETURNING *, booking_status AS status`,
           [id, userId, reason]
         )
       : await pool.query(
-          `UPDATE bookings
+          `UPDATE operator_bookings
            SET
-             status = 'cancelled',
+             booking_status = 'cancelled',
              updated_at = NOW(),
              special_requests = CASE
                WHEN $2::text = '' THEN special_requests
@@ -157,7 +155,7 @@ export const bookingService = {
                ELSE special_requests || E'\n' || $2
              END
            WHERE id = $1
-           RETURNING *`,
+           RETURNING *, booking_status AS status`,
           [id, reason]
         );
 
@@ -175,7 +173,7 @@ export const bookingService = {
     const limit = (params.limit as number) || 20;
     const offset = (params.offset as number) || 0;
     const result = await pool.query(
-      `SELECT * FROM bookings ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      `SELECT *, booking_status AS status FROM operator_bookings ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     return { bookings: result.rows.map(row => this.normalize(row)) };

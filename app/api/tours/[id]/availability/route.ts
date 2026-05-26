@@ -39,7 +39,7 @@ export async function GET(
     // Проверяем существование тура
     const tourQuery = `
       SELECT id, name, max_group_size, min_group_size, price, is_active
-      FROM tours
+      FROM operator_tours
       WHERE id = $1
     `;
     const tourResult = await query<TourCheckRow>(tourQuery, [id]);
@@ -73,9 +73,9 @@ export async function GET(
         SELECT
           DATE(b.start_date) as booking_date,
           COALESCE(SUM(b.guests_count), 0) as booked_count
-        FROM bookings b
+        FROM operator_bookings b
         WHERE b.tour_id = $3
-          AND b.status IN ('confirmed', 'pending')
+          AND b.booking_status IN ('confirmed', 'pending')
           AND DATE(b.start_date) BETWEEN $1 AND $2
         GROUP BY DATE(b.start_date)
       )

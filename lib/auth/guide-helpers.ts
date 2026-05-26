@@ -525,7 +525,7 @@ export async function getGuideExpertiseZones(guideId: string): Promise<Record<st
         ST_Y(t.location::geometry) as latitude,
         t.duration,
         t.difficulty_level
-      FROM tours t
+      FROM operator_tours t
       WHERE t.guide_id = $1
         AND t.location IS NOT NULL
       ORDER BY t.title`,

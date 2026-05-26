@@ -36,50 +36,50 @@ export async function GET(request: NextRequest) {
 
     // Get tours count
     const toursResult = await query<OpStatsToursRow>(
-      'SELECT COUNT(*) as total, SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active FROM tours WHERE operator_id = $1',
+      'SELECT COUNT(*) as total, SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active FROM operator_tours WHERE operator_id = $1',
       [operatorId]
     );
 
     // Get bookings stats
     const bookingsResult = await query<OpStatsBookingsRow>(
-      `SELECT 
+      `SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+        SUM(CASE WHEN booking_status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN booking_status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN booking_status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN booking_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE t.operator_id = $1`,
       [operatorId]
     );
 
     // Get revenue stats
     const revenueResult = await query<OpStatsRevenueRow>(
-      `SELECT 
+      `SELECT
         COALESCE(SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END), 0) as total_revenue,
         COALESCE(SUM(CASE WHEN b.payment_status = 'pending' THEN b.total_price ELSE 0 END), 0) as pending_revenue,
-        COALESCE(SUM(CASE WHEN b.status = 'completed' AND b.payment_status = 'paid' 
-                           AND EXTRACT(MONTH FROM b.date) = EXTRACT(MONTH FROM CURRENT_DATE)
+        COALESCE(SUM(CASE WHEN b.booking_status = 'completed' AND b.payment_status = 'paid'
+                           AND EXTRACT(MONTH FROM b.start_date) = EXTRACT(MONTH FROM CURRENT_DATE)
                            THEN b.total_price ELSE 0 END), 0) as monthly_revenue
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        WHERE t.operator_id = $1`,
       [operatorId]
     );
 
     // Get recent bookings
     const recentBookingsResult = await query<OpStatsRecentBookingRow>(
-      `SELECT 
+      `SELECT
         b.id,
-        b.date,
-        b.participants,
+        b.start_date AS date,
+        b.guests_count AS participants,
         b.total_price,
-        b.status,
+        b.booking_status AS status,
         t.name as tour_name,
         u.name as user_name
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN users u ON b.user_id = u.id
        WHERE t.operator_id = $1
        ORDER BY b.created_at DESC

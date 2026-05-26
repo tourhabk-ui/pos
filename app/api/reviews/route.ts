@@ -172,8 +172,8 @@ export async function POST(request: NextRequest) {
     // Проверяем, что пользователь прошел тур (есть завершенная бронь)
     const bookingCheck = await query(`
       SELECT 1
-      FROM bookings
-      WHERE user_id = $1 AND tour_id = $2 AND status = 'completed'
+      FROM operator_bookings
+      WHERE user_id = $1 AND tour_id = $2 AND booking_status = 'completed'
       LIMIT 1
     `, [userId, tourId]);
 

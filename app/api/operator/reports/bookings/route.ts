@@ -40,29 +40,29 @@ export async function GET(request: NextRequest) {
 
     // Bookings by status
     const statusResult = await query<OpBookingStatusRow>(
-      `SELECT 
-        status,
+      `SELECT
+        booking_status AS status,
         COUNT(*) as count,
         SUM(total_price) as revenue
-      FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      FROM operator_bookings b
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-      GROUP BY status`,
+      GROUP BY booking_status`,
       [operatorId, startDate, endDate]
     );
 
     // Conversion funnel
     const funnelResult = await query<OpBookingFunnelRow>(
       `WITH funnel AS (
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'pending') as pending,
-          COUNT(*) FILTER (WHERE status = 'confirmed') as confirmed,
-          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-          COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled
-        FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        SELECT
+          COUNT(*) FILTER (WHERE booking_status = 'pending') as pending,
+          COUNT(*) FILTER (WHERE booking_status = 'confirmed') as confirmed,
+          COUNT(*) FILTER (WHERE booking_status = 'completed') as completed,
+          COUNT(*) FILTER (WHERE booking_status = 'cancelled') as cancelled
+        FROM operator_bookings b
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3
@@ -81,36 +81,36 @@ export async function GET(request: NextRequest) {
 
     // Lead time analysis
     const leadTimeResult = await query<OpLeadTimeRow>(
-      `SELECT 
+      `SELECT
         AVG(EXTRACT(DAY FROM (start_date - created_at::DATE))) as avg_lead_time_days,
         MIN(EXTRACT(DAY FROM (start_date - created_at::DATE))) as min_lead_time_days,
         MAX(EXTRACT(DAY FROM (start_date - created_at::DATE))) as max_lead_time_days
-      FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      FROM operator_bookings b
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
         AND b.start_date IS NOT NULL
-        AND b.status != 'cancelled'`,
+        AND b.booking_status != 'cancelled'`,
       [operatorId, startDate, endDate]
     );
 
     // Guests distribution
     const guestsResult = await query<OpGuestsDistributionRow>(
-      `SELECT 
-        CASE 
+      `SELECT
+        CASE
           WHEN COALESCE(guests_count, participants) = 1 THEN '1'
           WHEN COALESCE(guests_count, participants) BETWEEN 2 AND 4 THEN '2-4'
           WHEN COALESCE(guests_count, participants) BETWEEN 5 AND 10 THEN '5-10'
           ELSE '10+'
         END as group_size,
         COUNT(*) as count
-      FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      FROM operator_bookings b
+      JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-        AND b.status != 'cancelled'
+        AND b.booking_status != 'cancelled'
       GROUP BY group_size
       ORDER BY group_size`,
       [operatorId, startDate, endDate]
@@ -118,19 +118,19 @@ export async function GET(request: NextRequest) {
 
     // Repeat customers
     const repeatCustomersResult = await query<OpRepeatCustomersRow>(
-      `SELECT 
+      `SELECT
         COUNT(DISTINCT user_id) as total_customers,
         COUNT(DISTINCT CASE WHEN booking_count > 1 THEN user_id END) as repeat_customers
       FROM (
-        SELECT 
+        SELECT
           b.user_id,
           COUNT(*) as booking_count
-        FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        FROM operator_bookings b
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.created_at <= $3
-          AND b.status != 'cancelled'
+          AND b.booking_status != 'cancelled'
         GROUP BY b.user_id
       ) customer_bookings`,
       [operatorId, startDate, endDate]

@@ -103,7 +103,7 @@ export default function RequestClient() {
             {/* Telegram — primary CTA */}
             <a href={BOT_URL} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl font-semibold text-sm text-[var(--bg-primary)] transition-opacity hover:opacity-90 mb-5"
-              style={{ background: '#2AABEE' }}>
+              style={{ background: 'var(--telegram)' }}>
               <MessageCircle className="w-5 h-5" />
               Написать Кузьмичу в Telegram
             </a>

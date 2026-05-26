@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
          t.created_at,
          b.total_price as booking_total_price,
          b.start_date as booking_start_date,
-         b.status as booking_status,
+         b.booking_status,
          source_tour.name as source_tour_name,
          target_tour.name as target_tour_name,
          from_partner.name as from_operator_name,
@@ -151,10 +151,10 @@ export async function GET(request: NextRequest) {
          tourist.name as tourist_name,
          tourist.email as tourist_email
        FROM operator_booking_transfers t
-       JOIN bookings b ON b.id = t.booking_id
+       JOIN operator_bookings b ON b.id = t.booking_id
        JOIN users tourist ON tourist.id = b.user_id
-       LEFT JOIN tours source_tour ON source_tour.id = b.tour_id
-       LEFT JOIN tours target_tour ON target_tour.id = t.target_tour_id
+       LEFT JOIN operator_tours source_tour ON source_tour.id = b.tour_id
+       LEFT JOIN operator_tours target_tour ON target_tour.id = t.target_tour_id
        LEFT JOIN partners from_partner ON from_partner.id = t.from_operator_partner_id
        LEFT JOIN partners to_partner ON to_partner.id = t.to_operator_partner_id
        WHERE ${whereParts.join(' AND ')}
@@ -257,12 +257,12 @@ export async function POST(request: NextRequest) {
     const bookingOwnershipResult = await query<{
       id: string;
       total_price: string;
-      status: string;
+      booking_status: string;
       tour_name: string | null;
     }>(
-      `SELECT b.id, b.total_price, b.status, t.name as tour_name
-       FROM bookings b
-       JOIN tours t ON t.id = b.tour_id
+      `SELECT b.id, b.total_price, b.booking_status, t.name as tour_name
+       FROM operator_bookings b
+       JOIN operator_tours t ON t.id = b.tour_id
        WHERE b.id = $1 AND t.operator_id = $2
        LIMIT 1`,
       [payload.bookingId, context.partnerId]
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (['completed', 'cancelled'].includes(bookingOwnershipResult.rows[0].status)) {
+    if (['completed', 'cancelled'].includes(bookingOwnershipResult.rows[0].booking_status)) {
       return NextResponse.json(
         { success: false, error: 'Нельзя перебросить завершённое или отменённое бронирование' } as ApiResponse<null>,
         { status: 400 }
@@ -497,7 +497,7 @@ export async function PATCH(request: NextRequest) {
 
     const targetTourResult = await query<{ id: string }>(
       `SELECT id
-       FROM tours
+       FROM operator_tours
        WHERE id = $1 AND operator_id = $2
        LIMIT 1`,
       [payload.targetTourId, context.partnerId]
@@ -512,9 +512,9 @@ export async function PATCH(request: NextRequest) {
 
     const bookingInfo = await query<{
       total_price: string;
-      status: string;
+      booking_status: string;
     }>(
-      `SELECT total_price, status FROM bookings WHERE id = $1 LIMIT 1`,
+      `SELECT total_price, booking_status FROM operator_bookings WHERE id = $1 LIMIT 1`,
       [transfer.booking_id]
     );
 
@@ -525,7 +525,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    if (['cancelled', 'completed'].includes(bookingInfo.rows[0].status)) {
+    if (['cancelled', 'completed'].includes(bookingInfo.rows[0].booking_status)) {
       return NextResponse.json(
         { success: false, error: 'Нельзя принять переброс для завершённого или отменённого бронирования' } as ApiResponse<null>,
         { status: 400 }
@@ -553,7 +553,7 @@ export async function PATCH(request: NextRequest) {
 
       // 2) Переназначаем бронирование на тур оператора Б (владение сменится через tour.operator_id).
       await client.query(
-        `UPDATE bookings
+        `UPDATE operator_bookings
          SET tour_id = $2, updated_at = NOW()
          WHERE id = $1`,
         [transfer.booking_id, payload.targetTourId]

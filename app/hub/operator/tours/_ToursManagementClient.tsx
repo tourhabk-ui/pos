@@ -452,7 +452,7 @@ export default function ToursManagementClient() {
                         onClick={() => void saveAvailability(tour.id)}
                         disabled={savingAvail}
                         className="p-1 rounded-md transition-colors"
-                        style={{ background: 'var(--success)', color: '#fff' }}
+                        style={{ background: 'var(--success)', color: 'white' }}
                         title="Сохранить"
                       >
                         <Check className="w-3.5 h-3.5" />

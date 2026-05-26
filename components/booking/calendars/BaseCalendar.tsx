@@ -134,7 +134,7 @@ export const BaseCalendar: React.FC<BaseCalendarProps> = ({
           locale: 'ru',
           calendarClassName,
           showPopperArrow: false,
-        } as any)}
+        } as unknown as React.ComponentProps<typeof DatePicker>)}
         aria-label="Выбор даты или диапазона дат"
         calendarStartDay={1} // UX: неделя начинается с понедельника
       />
