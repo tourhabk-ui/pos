@@ -257,7 +257,9 @@ export async function POST(request: NextRequest) {
                 try {
                   const parsedChunk = JSON.parse(payload) as {
                     choices?: Array<{ delta?: { content?: string } }>;
+                    error?: { message?: string };
                   };
+                  if (parsedChunk.error) break;
                   const token = parsedChunk.choices?.[0]?.delta?.content ?? '';
                   if (!token) continue;
 
@@ -270,7 +272,10 @@ export async function POST(request: NextRequest) {
                 }
               }
             }
-          } else {
+          }
+
+          // If streaming produced no content, use non-streaming fallback
+          if (!fullAnswer) {
             fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
             for (const word of fullAnswer.split(/(\s+)/)) {
               if (!word) continue;
