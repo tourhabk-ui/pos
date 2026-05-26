@@ -28,6 +28,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { callAIWithModelDirect, callOpenRouterStream } from '@/lib/ai/providers';
+import { handleSlashCommand } from '@/lib/ai/slash-commands';
 import { extractAndEncryptInterests } from '@/lib/ai/interest-extractor';
 import {
   loadUserMemory,
@@ -179,6 +180,31 @@ export async function POST(request: NextRequest) {
     const userMsg: ChatMessage = { role: 'user', content: message.trim(), timestamp: Date.now() };
     history.push(userMsg);
 
+    // ── Slash commands — перехват перед AI, без расхода лимита ────────
+    const slashResult = await handleSlashCommand(message.trim());
+    if (slashResult.handled) {
+      const enc = new TextEncoder();
+      const slashStream = new ReadableStream({
+        async start(controller) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'start' })}\n\n`));
+          for (const word of slashResult.response.split(/(\s+)/)) {
+            if (word) controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'token', content: word })}\n\n`));
+          }
+          const assistantMsg: ChatMessage = { role: 'assistant', content: slashResult.response, timestamp: Date.now() };
+          history.push(assistantMsg);
+          if (sessionId) {
+            await saveSession(sessionId, userId, safeRole, history, currentCount, isAuthenticated, session?.interests_encrypted ?? null);
+          }
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'end', finalResponse: slashResult.response })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(slashStream, {
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' },
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     const basePrompt = getSystemPrompt(safeRole);
     const memContext = userMemory ? buildMemoryContext(userMemory, tripHistory) : '';
 
@@ -257,7 +283,9 @@ export async function POST(request: NextRequest) {
                 try {
                   const parsedChunk = JSON.parse(payload) as {
                     choices?: Array<{ delta?: { content?: string } }>;
+                    error?: { message?: string };
                   };
+                  if (parsedChunk.error) break;
                   const token = parsedChunk.choices?.[0]?.delta?.content ?? '';
                   if (!token) continue;
 
@@ -270,7 +298,10 @@ export async function POST(request: NextRequest) {
                 }
               }
             }
-          } else {
+          }
+
+          // If streaming produced no content, use non-streaming fallback
+          if (!fullAnswer) {
             fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
             for (const word of fullAnswer.split(/(\s+)/)) {
               if (!word) continue;
