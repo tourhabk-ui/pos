@@ -13,7 +13,7 @@
 --   7. Physically deletes hidden places that are exact duplicates of a visible entry
 --      (same name + coords within 55m) — reclaims space, no data loss
 
--- ── 1. Add dedupe_key column ─────────────────────────────────────────────────
+-- ── 1. Add dedupe_key column ───────────────────────────────────────────
 ALTER TABLE places ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
 
 -- ── 2. Backfill: idilesom entries → idilesom.com:places:{id} ────────────────
@@ -24,7 +24,7 @@ SET dedupe_key = 'idilesom.com:places:' || (
 WHERE source_url ~ '/kam/places/[^/?#]+$'
   AND dedupe_key IS NULL;
 
--- ── 3. Backfill: visitkamchatka entries → visitkamchatka.ru:{filename} ───────
+-- ── 3. Backfill: visitkamchatka entries → visitkamchatka.ru:{filename} ─────────
 UPDATE places
 SET dedupe_key = 'visitkamchatka.ru:' || (
   regexp_match(source_url, '/upload/route_passports/([^/?#]+)$')
@@ -32,7 +32,7 @@ SET dedupe_key = 'visitkamchatka.ru:' || (
 WHERE source_url ~ '/upload/route_passports/[^/?#]+$'
   AND dedupe_key IS NULL;
 
--- ── 4. Backfill: any other source_url → source_name:md5(source_url) ──────────
+-- ── 4. Backfill: any other source_url → source_name:md5(source_url) ───────────
 UPDATE places
 SET dedupe_key = COALESCE(source_name, 'unknown') || ':url:' ||
   substring(md5(source_url), 1, 16)
@@ -81,12 +81,12 @@ WHERE p.is_visible = true
       )
   );
 
--- ── 7. UNIQUE index on dedupe_key (partial — only non-null) ──────────────────
+-- ── 7. UNIQUE index on dedupe_key (partial — only non-null visible) ──────────
 CREATE UNIQUE INDEX IF NOT EXISTS idx_places_dedupe_key
   ON places (dedupe_key)
   WHERE dedupe_key IS NOT NULL AND is_visible = true;
 
--- ── 8. UNIQUE index on (source_name, source_url) (partial) ───────────────────
+-- ── 8. UNIQUE index on (source_name, source_url) (partial) ─────────────────
 CREATE UNIQUE INDEX IF NOT EXISTS idx_places_source_url_unique
   ON places (source_name, source_url)
   WHERE source_url IS NOT NULL AND source_name IS NOT NULL AND is_visible = true;

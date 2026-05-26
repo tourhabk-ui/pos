@@ -28,7 +28,7 @@ export interface ImportResult {
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
-// ─── Classification ───────────────────────────────────────────────────────────
+// ─── Classification ───────────────────────────────────────────────────────────────
 
 function classify(title: string, desc: string): 'place' | 'route' {
   const t = (title + ' ' + desc).toLowerCase();
@@ -46,7 +46,7 @@ function detectLocationType(title: string, desc: string): string {
   if (/источник|термаль|нарзан/.test(t))      return 'hot_spring';
   if (/озеро|лагуна/.test(t))                 return 'lake';
   if (/водопад/.test(t))                      return 'waterfall';
-  if (/пляж/.test(t))                         return 'beach';
+  if (/пляж/.test(t))                        return 'beach';
   if (/бухта/.test(t))                        return 'bay';
   if (/мыс/.test(t))                          return 'cape';
   if (/\bрека\b|ручей/.test(t))               return 'river';
@@ -62,7 +62,7 @@ function makeArkId(seed: string): string {
     .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
 }
 
-// ─── Title similarity ─────────────────────────────────────────────────────────
+// ─── Title similarity ────────────────────────────────────────────────────────
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -76,7 +76,7 @@ function isSimilar(a: string, b: string): boolean {
   return overlap >= 2 || (wa.length === 1 && wb.has(wa[0]));
 }
 
-// ─── Fetch all IDs from listing ───────────────────────────────────────────────
+// ─── Fetch all IDs from listing ─────────────────────────────────────────────
 
 async function fetchAllIds(batch: number): Promise<string[]> {
   const seen = new Set<string>();
@@ -158,14 +158,13 @@ async function scrapePage(id: string): Promise<Entry | null> {
   }
   if (!lat || !lng) return null;
 
-  // Валидация bbox Камчатки (включая Командорские острова)
   const inKamchatka = lat >= 50 && lat <= 62 && lng >= 154 && lng <= 170;
   if (!inKamchatka) return null;
 
   return { id, title, description, lat, lng, coordinates, sourceUrl: `https://idilesom.com/kam/places/${id}` };
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────────────
 
 export async function runIdilesomImporter(batch = 30): Promise<ImportResult> {
   const started = Date.now();
@@ -180,8 +179,8 @@ export async function runIdilesomImporter(batch = 30): Promise<ImportResult> {
 
   let ids: string[];
   try {
-    ids = await fetchAllIds(batch * 3); // fetch more than needed to account for dups/no-coords
-  } catch (e) {
+    ids = await fetchAllIds(batch * 3);
+  } catch {
     result.errors++;
     result.duration_ms = Date.now() - started;
     return result;

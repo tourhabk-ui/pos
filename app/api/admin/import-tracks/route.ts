@@ -34,7 +34,7 @@ async function fetchHtml(url: string): Promise<string | null> {
   const bd = await fetchViaBrightData(url, { zone: 'web_unlocker1', country: 'ru' });
   if (bd) return bd;
   try {
-    const res = await fetch(url, { headers: PLAIN_HEADERS });
+    const res = await fetch(url, { headers: PLAIN_HEADERS, signal: AbortSignal.timeout(15_000) });
     return res.ok ? res.text() : null;
   } catch { return null; }
 }

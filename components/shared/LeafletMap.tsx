@@ -98,12 +98,14 @@ function buildPopupHtml(marker: MapMarker): string {
 }
 
 function populateCluster(
-  L: any,
-  cluster: any,
-  map: any,
+  L: unknown,
+  cluster: { clearLayers: () => void; addLayer: (m: unknown) => void },
+  map: unknown,
   markers: MapMarker[],
   onMarkerClick?: (id: string) => void,
 ) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Lx = L as any; const mx = map as any;
   cluster.clearLayers();
 
   markers.forEach((marker, idx) => {
@@ -114,15 +116,15 @@ function populateCluster(
       const geomHex = COLOR_MAP[marker.geometry.color ?? marker.color ?? 'teal'] ?? '#0D9488';
       const coords = marker.geometry.coordinates as [number, number][];
       if (marker.geometry.type === 'polygon') {
-        L.polygon(coords, { color: geomHex, weight: marker.geometry.weight ?? 2, fillOpacity: 0.15 }).addTo(map);
+        Lx.polygon(coords, { color: geomHex, weight: marker.geometry.weight ?? 2, fillOpacity: 0.15 }).addTo(mx);
       } else {
-        L.polyline(coords, { color: geomHex, weight: (marker.geometry.weight ?? 3) + 3, opacity: 0.25, lineCap: 'round', lineJoin: 'round' }).addTo(map);
-        L.polyline(coords, { color: geomHex, weight: marker.geometry.weight ?? 3, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+        Lx.polyline(coords, { color: geomHex, weight: (marker.geometry.weight ?? 3) + 3, opacity: 0.25, lineCap: 'round', lineJoin: 'round' }).addTo(mx);
+        Lx.polyline(coords, { color: geomHex, weight: marker.geometry.weight ?? 3, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(mx);
       }
     }
 
     const svgFn = SVG_ICONS[marker.category ?? 'other'] ?? SVG_ICONS.other;
-    const icon = L.divIcon({
+    const icon = Lx.divIcon({
       html: svgFn(hex),
       className: 'kh-marker',
       iconSize: [24, 28],
@@ -130,7 +132,7 @@ function populateCluster(
       popupAnchor: [0, -26],
     });
 
-    const m = L.marker(marker.coords, { icon });
+    const m = Lx.marker(marker.coords, { icon });
     if (!marker.suppressBalloon) m.bindPopup(buildPopupHtml(marker), { maxWidth: 260 });
     if (onMarkerClick) m.on('click', () => onMarkerClick(markerId));
     cluster.addLayer(m);
@@ -150,11 +152,10 @@ export default function LeafletMap({
   track,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clusterRef = useRef<any>(null);
-  const leafletRef = useRef<any>(null);
-
-  // Map config key — if these change, reinitialize the whole map
   const mapConfigRef = useRef('');
 
   useEffect(() => {
@@ -170,31 +171,30 @@ export default function LeafletMap({
       import('leaflet.markercluster'),
     ]).then(([L]) => {
       if (!containerRef.current) return;
-      leafletRef.current = L;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Lx = L as any;
 
-      // Fast path: only markers changed, reuse existing map
       if (!needsReinit && mapRef.current && clusterRef.current) {
-        populateCluster(L, clusterRef.current, mapRef.current, markers, onMarkerClick);
+        populateCluster(Lx, clusterRef.current, mapRef.current, markers, onMarkerClick);
         return;
       }
 
       mapConfigRef.current = configKey;
 
-      // Destroy old map if any
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
         clusterRef.current = null;
       }
 
-      const map = L.map(containerRef.current, {
-        center: L.latLng(center[0], center[1]),
+      const map = Lx.map(containerRef.current, {
+        center: Lx.latLng(center[0], center[1]),
         zoom,
         zoomControl: false,
         attributionControl: attribution !== false,
         minZoom: 5,
         maxZoom: 12,
-        maxBounds: L.latLngBounds(L.latLng(48.0, 153.0), L.latLng(64.0, 178.0)),
+        maxBounds: Lx.latLngBounds(Lx.latLng(48.0, 153.0), Lx.latLng(64.0, 178.0)),
         maxBoundsViscosity: 1.0,
       });
 
@@ -205,16 +205,15 @@ export default function LeafletMap({
         document.head.appendChild(s);
       }
 
-      L.control.zoom({ position: 'topright' }).addTo(map);
+      Lx.control.zoom({ position: 'topright' }).addTo(map);
 
-      // CartoDB Voyager — fast global CDN, good for tourism maps
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      Lx.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
         attribution: attribution !== false ? '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>' : '',
       }).addTo(map);
 
-      const clusterGroup = (L as any).markerClusterGroup({
+      const clusterGroup = Lx.markerClusterGroup({
         chunkedLoading: true,
         chunkInterval: 200,
         chunkDelay: 50,
@@ -223,14 +222,14 @@ export default function LeafletMap({
         showCoverageOnHover: false,
         zoomToBoundsOnClick: true,
         disableClusteringAtZoom: 11,
-        iconCreateFunction: (cluster: any) => {
+        iconCreateFunction: (cluster: { getChildCount: () => number }) => {
           const count = cluster.getChildCount();
           const large = count >= 100;
           const medium = count >= 10 && !large;
           const dim = large ? 44 : medium ? 36 : 30;
           const fontSize = large ? 15 : medium ? 13 : 12;
           const bgColor = large ? '#ea580c' : medium ? '#475569' : '#0f172a';
-          return L.divIcon({
+          return Lx.divIcon({
             html: `<div style="background:${bgColor};color:#fff;width:${dim}px;height:${dim}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${fontSize}px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.25)">${count}</div>`,
             className: 'kh-cluster',
             iconSize: [dim, dim],
@@ -238,38 +237,34 @@ export default function LeafletMap({
         },
       });
 
-      populateCluster(L, clusterGroup, map, markers, onMarkerClick);
+      populateCluster(Lx, clusterGroup, map, markers, onMarkerClick);
       map.addLayer(clusterGroup);
       clusterRef.current = clusterGroup;
 
-      // GPS track (route detail pages)
       if (track?.type === 'LineString' && Array.isArray(track.coordinates) && track.coordinates.length >= 2) {
         const trackLatLngs = track.coordinates
           .filter(c => Array.isArray(c) && c.length >= 2)
-          .map(c => L.latLng(c[1], c[0])) as L.LatLng[];
+          .map(c => Lx.latLng(c[1], c[0]));
         if (trackLatLngs.length >= 2) {
-          L.polyline(trackLatLngs, { color: '#D44A0C', weight: 6, opacity: 0.35 }).addTo(map);
-          L.polyline(trackLatLngs, { color: '#D44A0C', weight: 3, opacity: 0.9 }).addTo(map);
-          map.fitBounds(L.latLngBounds(trackLatLngs), { padding: [24, 24], maxZoom: 13 });
+          Lx.polyline(trackLatLngs, { color: '#D44A0C', weight: 6, opacity: 0.35 }).addTo(map);
+          Lx.polyline(trackLatLngs, { color: '#D44A0C', weight: 3, opacity: 0.9 }).addTo(map);
+          map.fitBounds(Lx.latLngBounds(trackLatLngs), { padding: [24, 24], maxZoom: 13 });
         }
       }
 
-      // Fit to all markers (skip if track already set bounds)
       if (!track && markers.length > 1) {
-        const coords = markers.map(m => m.coords);
-        map.fitBounds(coords as unknown as L.LatLngBoundsExpression, { padding: [50, 50] });
+        map.fitBounds(markers.map(m => m.coords), { padding: [50, 50] });
       }
 
-      // User location (blue dot)
       if (showUserLocation && typeof navigator !== 'undefined' && navigator.geolocation) {
-        const userIcon = L.divIcon({
+        const userIcon = Lx.divIcon({
           html: `<div style="position:relative;width:20px;height:20px;"><div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(66,133,244,0.2);animation:kh-pulse 2s ease-out infinite"></div><div style="width:20px;height:20px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6)"></div></div>`,
           className: 'kh-user-location',
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         });
-        const userMarker = L.marker([center[0], center[1]], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
-        const accuracyCircle = L.circle([center[0], center[1]], { radius: 1000, color: '#4285f4', fillColor: '#4285f4', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(map);
+        const userMarker = Lx.marker([center[0], center[1]], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+        const accuracyCircle = Lx.circle([center[0], center[1]], { radius: 1000, color: '#4285f4', fillColor: '#4285f4', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(map);
 
         userLocationWatchId = navigator.geolocation.watchPosition(
           (pos) => {
@@ -295,7 +290,6 @@ export default function LeafletMap({
         mapRef.current.remove();
         mapRef.current = null;
         clusterRef.current = null;
-        leafletRef.current = null;
         mapConfigRef.current = '';
       }
     };
