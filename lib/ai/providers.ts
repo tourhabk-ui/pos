@@ -1106,6 +1106,168 @@ export async function callMuseSpark(messages: ChatMessage[]): Promise<string | n
   }
 }
 
+// ── Anthropic Vision (image analysis) ────────────────────────
+export async function callAnthropicVision(
+  imageUrl: string,
+  prompt: string,
+  maxTokens = 300,
+): Promise<string | null> {
+  const apiKey = getAnthropicKey();
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'url', url: imageUrl } },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (data !== null && typeof data === 'object' && 'content' in data &&
+        Array.isArray((data as Record<string, unknown>).content)) {
+      const c = (data as { content: Array<Record<string, unknown>> }).content;
+      return typeof c[0]?.text === 'string' ? c[0].text : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Anthropic Raw (system+user, arbitrary model, optional prompt caching) ─────
+export async function callAnthropicRaw(
+  systemPrompt: string,
+  userContent: string,
+  model: string,
+  maxTokens: number,
+  temperature = 0.2,
+  usePromptCaching = false,
+): Promise<string | null> {
+  const apiKey = getAnthropicKey();
+  if (!apiKey) return null;
+
+  try {
+    const system = usePromptCaching
+      ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+      : systemPrompt;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        ...(usePromptCaching ? { 'anthropic-beta': 'prompt-caching-2024-07-31' } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        system,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (data !== null && typeof data === 'object' && 'content' in data &&
+        Array.isArray((data as Record<string, unknown>).content)) {
+      const c = (data as { content: Array<Record<string, unknown>> }).content;
+      return typeof c[0]?.text === 'string' ? c[0].text : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── OpenRouter agentic iteration (tool-use loop, multi-turn) ─────────────────
+// Используется sdk-runner для поддержания цикла tool calls.
+// В отличие от callOpenrouter(), принимает произвольный массив сообщений
+// включая role='tool', и возвращает сырой выбор (content + tool_calls).
+export interface ORIterationMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+  tool_call_id?: string;
+  name?: string;
+}
+export interface ORIterationResult {
+  content: string | null;
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+  finish_reason: string;
+  usage?: { prompt_tokens: number; completion_tokens: number };
+}
+export interface ORToolDef {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+export async function callOpenRouterIteration(
+  messages: ORIterationMessage[],
+  toolDefs: ORToolDef[],
+  model: string,
+  maxTokens = 2048,
+  temperature = 0.3,
+): Promise<ORIterationResult> {
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY не настроен');
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization:   `Bearer ${apiKey}`,
+      'Content-Type':  'application/json',
+      'X-Title':       'KamchatourHub Agent SDK',
+      'HTTP-Referer':  'https://vedarai.ru',
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      tools:       toolDefs.length > 0 ? toolDefs : undefined,
+      tool_choice: toolDefs.length > 0 ? 'auto'   : undefined,
+      max_tokens:  maxTokens,
+      temperature,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const data = await res.json() as {
+    choices: Array<{
+      message: { content: string | null; tool_calls?: ORIterationResult['tool_calls'] };
+      finish_reason: string;
+    }>;
+    usage?: { prompt_tokens: number; completion_tokens: number };
+  };
+  const choice = data.choices[0];
+  if (!choice) throw new Error('OpenRouter: пустой ответ');
+  return {
+    content:      choice.message.content,
+    tool_calls:   choice.message.tool_calls,
+    finish_reason: choice.finish_reason,
+    usage:         data.usage,
+  };
+}
+
 // ── Waterfall: race tiers for speed ─────────────────────────
 // Tier 1: OpenRouter + DeepSeek + Gemini + MiMo + MuseSpark — race (кто быстрее)
 // Tier 2: Yandex + MiniMax — fallback

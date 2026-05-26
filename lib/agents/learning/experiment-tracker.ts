@@ -70,7 +70,9 @@ export class ExperimentTracker {
 
   async list(status?: string): Promise<Experiment[]> {
     const { rows } = await pool.query<Experiment>(`
-      SELECT * FROM agent_experiments
+      SELECT id, name, description, intent, variant_a, variant_b,
+             metric, status, winner, results, created_at, updated_at
+      FROM agent_experiments
       WHERE ($1::text IS NULL OR status = $1)
       ORDER BY created_at DESC
       LIMIT 50
@@ -80,7 +82,9 @@ export class ExperimentTracker {
 
   async getById(id: string): Promise<Experiment | null> {
     const { rows } = await pool.query<Experiment>(
-      `SELECT * FROM agent_experiments WHERE id = $1`,
+      `SELECT id, name, description, intent, variant_a, variant_b,
+              metric, status, winner, results, created_at, updated_at
+       FROM agent_experiments WHERE id = $1`,
       [id]
     );
     return rows[0] ?? null;

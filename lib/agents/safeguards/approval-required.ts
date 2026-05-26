@@ -233,7 +233,9 @@ export class ApprovalRequired {
 
   async pending(): Promise<Approval[]> {
     const { rows } = await pool.query<Approval>(`
-      SELECT * FROM agent_approvals
+      SELECT id, action_type, description, context, status,
+             requested_by, reviewed_by, reviewed_at, review_notes, expires_at, created_at
+      FROM agent_approvals
       WHERE status = 'pending'
         AND (expires_at IS NULL OR expires_at > NOW())
       ORDER BY created_at ASC

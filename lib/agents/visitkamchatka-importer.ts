@@ -184,8 +184,8 @@ async function fetchRoutePassport(slug: string): Promise<RoutePassport | null> {
 async function getNewSlugs(slugs: string[]): Promise<string[]> {
   if (slugs.length === 0) return [];
   const { rows } = await pool.query<{ dedupe: string }>(
-    `SELECT route_dedupe_key AS dedupe FROM agent_route_knowledge
-     WHERE source_name = $1 AND route_dedupe_key = ANY($2)`,
+    `SELECT dedupe_key AS dedupe FROM kamchatka_routes
+     WHERE source_name = $1 AND dedupe_key = ANY($2)`,
     [SOURCE_NAME, slugs.map(s => `vk_${s}`)],
   );
   const existing = new Set(rows.map(r => r.dedupe));
@@ -196,10 +196,10 @@ async function getNewSlugs(slugs: string[]): Promise<string[]> {
 
 async function getSlugsNeedingUpdate(limit: number): Promise<string[]> {
   const { rows } = await pool.query<{ route_dedupe_key: string }>(
-    `SELECT route_dedupe_key FROM agent_route_knowledge
+    `SELECT dedupe_key AS route_dedupe_key FROM kamchatka_routes
      WHERE source_name = $1
        AND (description IS NULL OR LENGTH(description) < 300)
-       AND route_dedupe_key LIKE 'vk_%'
+       AND dedupe_key LIKE 'vk_%'
      ORDER BY RANDOM()
      LIMIT $2`,
     [SOURCE_NAME, limit],
@@ -224,29 +224,27 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
     .filter(Boolean).join(' ').slice(0, 3000);
   const sourceHash = createHash('md5').update(p.description).digest('hex');
 
+  const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
+  const metadata = JSON.stringify({ ...JSON.parse(payload), source_hash: sourceHash, search_text: searchText });
+
   const { rowCount } = await pool.query(
-    `INSERT INTO agent_route_knowledge
-       (id, route_dedupe_key, title, description, category, activity_type,
-        lat, lng, source_url, source_name, search_text, payload, source_hash,
-        is_visible, source_updated_at, last_synced_at, created_at, updated_at)
+    `INSERT INTO kamchatka_routes
+       (id, dedupe_key, slug, title, description, category, activity_type,
+        lat, lng, source_url, source_name, metadata, is_visible, created_at, updated_at)
      VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5,
-       $6, $7, $8, $9, $10, $11::jsonb, $12,
-       true, NOW(), NOW(), NOW(), NOW()
+       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+       $7, $8, $9, $10, $11::jsonb, true, NOW(), NOW()
      )
-     ON CONFLICT (route_dedupe_key) DO UPDATE SET
-       description       = EXCLUDED.description,
-       category          = COALESCE(EXCLUDED.category, agent_route_knowledge.category),
-       activity_type     = COALESCE(EXCLUDED.activity_type, agent_route_knowledge.activity_type),
-       lat               = COALESCE(EXCLUDED.lat, agent_route_knowledge.lat),
-       lng               = COALESCE(EXCLUDED.lng, agent_route_knowledge.lng),
-       search_text       = EXCLUDED.search_text,
-       payload           = EXCLUDED.payload::jsonb,
-       source_hash       = EXCLUDED.source_hash,
-       last_synced_at    = NOW(),
-       updated_at        = NOW()`,
-    [dedupeKey, p.title, p.description, p.category, p.activity_type,
-     p.lat, p.lng, p.url, SOURCE_NAME, searchText, payload, sourceHash],
+     ON CONFLICT (dedupe_key) DO UPDATE SET
+       description   = EXCLUDED.description,
+       category      = COALESCE(EXCLUDED.category,      kamchatka_routes.category),
+       activity_type = COALESCE(EXCLUDED.activity_type, kamchatka_routes.activity_type),
+       lat           = COALESCE(EXCLUDED.lat,           kamchatka_routes.lat),
+       lng           = COALESCE(EXCLUDED.lng,           kamchatka_routes.lng),
+       metadata      = EXCLUDED.metadata::jsonb,
+       updated_at    = NOW()`,
+    [dedupeKey, slug, p.title, p.description, p.category, p.activity_type,
+     p.lat, p.lng, p.url, SOURCE_NAME, metadata],
   );
 
   return (rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
