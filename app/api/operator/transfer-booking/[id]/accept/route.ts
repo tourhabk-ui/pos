@@ -91,8 +91,8 @@ export async function PATCH(
     }
 
     // Проверяем состояние бронирования — нельзя принять переброс завершённого/отменённого
-    const bookingResult = await query<{ total_price: string; status: string; tour_id: string }>(
-      `SELECT total_price, status, tour_id FROM bookings WHERE id = $1 LIMIT 1`,
+    const bookingResult = await query<{ total_price: string; booking_status: string; tour_id: string }>(
+      `SELECT total_price, booking_status, tour_id FROM operator_bookings WHERE id = $1 LIMIT 1`,
       [transfer.booking_id]
     );
 
@@ -104,7 +104,7 @@ export async function PATCH(
     }
 
     const booking = bookingResult.rows[0];
-    if (['cancelled', 'completed'].includes(booking.status)) {
+    if (['cancelled', 'completed'].includes(booking.booking_status)) {
       return NextResponse.json(
         { success: false, error: 'Нельзя принять переброс для завершённого или отменённого бронирования' } as ApiResponse<null>,
         { status: 400 }
@@ -147,7 +147,7 @@ export async function PATCH(
       // 2) Переназначаем бронирование на тур оператора Б (если указан)
       if (targetTourId) {
         await client.query(
-          `UPDATE bookings SET tour_id = $2, updated_at = NOW() WHERE id = $1`,
+          `UPDATE operator_bookings SET tour_id = $2, updated_at = NOW() WHERE id = $1`,
           [transfer.booking_id, targetTourId]
         );
       }

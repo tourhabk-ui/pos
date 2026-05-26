@@ -60,12 +60,12 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) as paid_revenue,
         SUM(CASE WHEN b.payment_status = 'pending' THEN b.total_price ELSE 0 END) as pending_revenue,
         AVG(b.total_price) as avg_booking_value
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-        AND b.status != 'cancelled'
+        AND b.booking_status != 'cancelled'
       GROUP BY period
       ORDER BY period ASC`,
       [operatorId, startDate, endDate]
@@ -80,12 +80,12 @@ export async function GET(request: NextRequest) {
         SUM(b.total_price) as total_revenue,
         SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END) as paid_revenue,
         AVG(b.total_price) as avg_booking_value
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-        AND b.status != 'cancelled'
+        AND b.booking_status != 'cancelled'
       GROUP BY t.id, t.name
       ORDER BY total_revenue DESC
       LIMIT 10`,
@@ -98,12 +98,12 @@ export async function GET(request: NextRequest) {
         payment_status,
         COUNT(*) as count,
         SUM(total_price) as total
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-        AND b.status != 'cancelled'
+        AND b.booking_status != 'cancelled'
       GROUP BY payment_status`,
       [operatorId, startDate, endDate]
     );
@@ -119,12 +119,12 @@ export async function GET(request: NextRequest) {
         AVG(b.total_price) as avg_booking_value,
         MIN(b.total_price) as min_booking_value,
         MAX(b.total_price) as max_booking_value
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.created_at <= $3
-        AND b.status != 'cancelled'`,
+        AND b.booking_status != 'cancelled'`,
       [operatorId, startDate, endDate]
     );
 

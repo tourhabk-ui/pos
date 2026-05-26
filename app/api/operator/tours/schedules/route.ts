@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
         ts.price,
         ts.max_participants as available_spots,
         COALESCE(
-          (SELECT COUNT(*) FROM bookings b WHERE b.schedule_id = ts.id AND b.status = 'confirmed'),
+          (SELECT COUNT(*) FROM operator_bookings b WHERE b.schedule_id = ts.id AND b.booking_status = 'confirmed'),
           0
         ) as booked_spots,
         ts.status,

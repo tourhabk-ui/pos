@@ -13,7 +13,7 @@ const ALLOWED_SORT_FIELDS = new Set([
   'updated_at',
   'start_date',
   'total_price',
-  'status',
+  'booking_status',
   'payment_status',
 ]);
 
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     let paramIndex = 2;
 
     if (status && status !== 'all') {
-      whereConditions.push(`b.status = $${paramIndex}`);
+      whereConditions.push(`b.booking_status = $${paramIndex}`);
       queryParams.push(status);
       paramIndex++;
     }
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     // Подсчёт
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM bookings b
+      FROM operator_bookings b
       JOIN tours t ON b.tour_id = t.id
       JOIN users u ON b.user_id = u.id
       ${whereClause}
@@ -97,12 +97,12 @@ export async function GET(request: NextRequest) {
         b.start_date as date,
         b.guests_count,
         b.total_price,
-        b.status,
+        b.booking_status AS status,
         b.payment_status,
         b.special_requirements as notes,
         b.created_at,
         b.updated_at
-      FROM bookings b
+      FROM operator_bookings b
       JOIN tours t ON b.tour_id = t.id
       JOIN users u ON b.user_id = u.id
       ${whereClause}

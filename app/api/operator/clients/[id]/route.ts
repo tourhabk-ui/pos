@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 /** Проверяет, что клиент является клиентом этого оператора */
 async function verifyClientAccess(clientId: string, partnerId: string): Promise<boolean> {
   const res = await query(
-    `SELECT 1 FROM bookings b
+    `SELECT 1 FROM operator_bookings b
      JOIN operator_tours t ON b.tour_id = t.id
      WHERE b.user_id = $1 AND t.operator_id = $2
      LIMIT 1`,
@@ -74,10 +74,10 @@ export async function GET(
     }
     const bookingsRes = await query<BookingRow>(
       `SELECT
-         b.id, b.status, b.total_price::numeric, b.guests_count,
+         b.id, b.booking_status AS status, b.total_price::numeric, b.guests_count,
          b.start_date, b.created_at,
          t.name AS tour_name
-       FROM bookings b
+       FROM operator_bookings b
        JOIN operator_tours t ON b.tour_id = t.id
        WHERE b.user_id = $1 AND t.operator_id = $2
        ORDER BY b.created_at DESC

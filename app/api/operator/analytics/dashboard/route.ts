@@ -46,16 +46,16 @@ export async function GET(request: NextRequest) {
         COUNT(DISTINCT t.id) as total_tours,
         COUNT(DISTINCT CASE WHEN t.is_active THEN t.id END) as active_tours,
         COUNT(DISTINCT b.id) as total_bookings,
-        COUNT(DISTINCT CASE WHEN b.status = 'pending' THEN b.id END) as pending_bookings,
-        COUNT(DISTINCT CASE WHEN b.status = 'confirmed' THEN b.id END) as confirmed_bookings,
-        COUNT(DISTINCT CASE WHEN b.status = 'completed' THEN b.id END) as completed_bookings,
-        COUNT(DISTINCT CASE WHEN b.status = 'cancelled' THEN b.id END) as cancelled_bookings,
+        COUNT(DISTINCT CASE WHEN b.booking_status = 'pending' THEN b.id END) as pending_bookings,
+        COUNT(DISTINCT CASE WHEN b.booking_status = 'confirmed' THEN b.id END) as confirmed_bookings,
+        COUNT(DISTINCT CASE WHEN b.booking_status = 'completed' THEN b.id END) as completed_bookings,
+        COUNT(DISTINCT CASE WHEN b.booking_status = 'cancelled' THEN b.id END) as cancelled_bookings,
         COALESCE(SUM(b.total_price), 0) as total_revenue,
         COALESCE(SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_price ELSE 0 END), 0) as paid_revenue,
         COALESCE(SUM(CASE WHEN b.payment_status = 'pending' THEN b.total_price ELSE 0 END), 0) as pending_revenue,
-        COALESCE(AVG(CASE WHEN b.status != 'cancelled' THEN b.total_price END), 0) as avg_booking_value
+        COALESCE(AVG(CASE WHEN b.booking_status != 'cancelled' THEN b.total_price END), 0) as avg_booking_value
       FROM operator_tours t
-      LEFT JOIN bookings b ON t.id = b.tour_id AND b.created_at >= $2
+      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.created_at >= $2
       WHERE t.operator_id = $1`,
       [operatorId, startDate]
     );
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) as bookings_count,
         SUM(b.total_price) as revenue,
         COUNT(DISTINCT b.user_id) as unique_customers
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         AVG(CASE WHEN r.rating IS NOT NULL THEN r.rating END) as avg_rating,
         COUNT(DISTINCT r.id) as reviews_count
       FROM operator_tours t
-      LEFT JOIN bookings b ON t.id = b.tour_id AND b.created_at >= $2 AND b.status != 'cancelled'
+      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.created_at >= $2 AND b.booking_status != 'cancelled'
       LEFT JOIN reviews r ON t.id = r.tour_id
       WHERE t.operator_id = $1
       GROUP BY t.id, t.name
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     const recentBookingsResult = await query<OpAnalyticsRecentBookingRow>(
       `SELECT
         b.id,
-        b.status,
+        b.booking_status AS status,
         b.payment_status,
         b.total_price,
         b.created_at,
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
         t.name as tour_name,
         u.name as customer_name,
         u.email as customer_email
-      FROM bookings b
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       JOIN users u ON b.user_id = u.id
       WHERE t.operator_id = $1
@@ -122,11 +122,11 @@ export async function GET(request: NextRequest) {
     // Conversion metrics
     const conversionResult = await query<OpAnalyticsConversionRow>(
       `SELECT
-        COUNT(*) FILTER (WHERE status = 'pending') as pending,
-        COUNT(*) FILTER (WHERE status = 'confirmed') as confirmed,
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled
-      FROM bookings b
+        COUNT(*) FILTER (WHERE booking_status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE booking_status = 'confirmed') as confirmed,
+        COUNT(*) FILTER (WHERE booking_status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE booking_status = 'cancelled') as cancelled
+      FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2`,
@@ -146,11 +146,11 @@ export async function GET(request: NextRequest) {
         SELECT
           b.user_id,
           COUNT(*) as booking_count
-        FROM bookings b
+        FROM operator_bookings b
         JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
-          AND b.status != 'cancelled'
+          AND b.booking_status != 'cancelled'
         GROUP BY b.user_id
       ) customer_bookings`,
       [operatorId, startDate]

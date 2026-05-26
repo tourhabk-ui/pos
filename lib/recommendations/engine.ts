@@ -52,20 +52,20 @@ async function getSimilarUsersRecommendations(
          t.id, t.title, t.description, t.price, t.difficulty,
          t.duration, t.category, t.location, t.rating,
          t.images, t.eco_points_reward
-       FROM bookings b1
+       FROM operator_bookings b1
        -- Находим похожих пользователей (2+ общих тура)
-       JOIN bookings b2 ON b2.tour_id = b1.tour_id
+       JOIN operator_bookings b2 ON b2.tour_id = b1.tour_id
                        AND b2.user_id != $1
-                       AND b2.status IN ('confirmed', 'completed')
+                       AND b2.booking_status IN ('confirmed', 'completed')
        -- Их другие бронирования
-       JOIN bookings b3 ON b3.user_id = b2.user_id
-                       AND b3.status IN ('confirmed', 'completed')
+       JOIN operator_bookings b3 ON b3.user_id = b2.user_id
+                       AND b3.booking_status IN ('confirmed', 'completed')
        -- Детали тура
        JOIN operator_tours t ON t.id = b3.tour_id
                    AND t.id != ALL($2::text[])
                    AND t.is_active = true
        WHERE b1.user_id = $1
-         AND b1.status IN ('confirmed', 'completed')
+         AND b1.booking_status IN ('confirmed', 'completed')
        GROUP BY t.id, t.title, t.description, t.price, t.difficulty,
                 t.duration, t.category, t.location, t.rating,
                 t.images, t.eco_points_reward
@@ -209,9 +209,9 @@ export async function getRecommendations(
 ): Promise<RecommendedTour[]> {
   // Получаем последние 5 бронирований пользователя
   const bookingsResult = await query<{ tour_id: string }>(
-    `SELECT tour_id FROM bookings
+    `SELECT tour_id FROM operator_bookings
      WHERE user_id = $1
-       AND status IN ('confirmed', 'completed')
+       AND booking_status IN ('confirmed', 'completed')
      ORDER BY created_at DESC
      LIMIT 5`,
     [userId]

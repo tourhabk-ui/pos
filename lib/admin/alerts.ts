@@ -20,10 +20,10 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   try {
     const result = await query<AlertBookingVolumeRow>(
       `WITH current_week AS (
-        SELECT COUNT(*) as cnt FROM bookings WHERE created_at >= NOW() - INTERVAL '7 days'
+        SELECT COUNT(*) as cnt FROM operator_bookings WHERE created_at >= NOW() - INTERVAL '7 days'
       ),
       previous_week AS (
-        SELECT COUNT(*) as cnt FROM bookings
+        SELECT COUNT(*) as cnt FROM operator_bookings
         WHERE created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days'
       )
       SELECT c.cnt as current_count, p.cnt as previous_count
@@ -78,7 +78,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
       `SELECT COUNT(*) as total FROM operator_tours
        WHERE is_active = true
          AND id NOT IN (
-           SELECT DISTINCT tour_id FROM bookings
+           SELECT DISTINCT tour_id FROM operator_bookings
            WHERE created_at >= NOW() - INTERVAL '30 days' AND tour_id IS NOT NULL
          )`,
       []
@@ -128,15 +128,15 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   try {
     const result = await query<AlertCancellationRateRow>(
       `SELECT p.company_name, p.id,
-              COUNT(*) FILTER (WHERE b.status = 'cancelled') as cancelled,
+              COUNT(*) FILTER (WHERE b.booking_status = 'cancelled') as cancelled,
               COUNT(*) as total
-       FROM bookings b
+       FROM operator_bookings b
        JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE b.created_at >= NOW() - INTERVAL '30 days'
        GROUP BY p.id, p.company_name
        HAVING COUNT(*) >= 5
-         AND COUNT(*) FILTER (WHERE b.status = 'cancelled')::float / COUNT(*)::float > 0.3
+         AND COUNT(*) FILTER (WHERE b.booking_status = 'cancelled')::float / COUNT(*)::float > 0.3
        LIMIT 5`,
       []
     );

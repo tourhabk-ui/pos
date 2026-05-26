@@ -73,9 +73,9 @@ export async function GET(
         SELECT
           DATE(b.start_date) as booking_date,
           COALESCE(SUM(b.guests_count), 0) as booked_count
-        FROM bookings b
+        FROM operator_bookings b
         WHERE b.tour_id = $3
-          AND b.status IN ('confirmed', 'pending')
+          AND b.booking_status IN ('confirmed', 'pending')
           AND DATE(b.start_date) BETWEEN $1 AND $2
         GROUP BY DATE(b.start_date)
       )

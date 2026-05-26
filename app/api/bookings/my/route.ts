@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
         b.date,
         b.participants,
         b.total_price,
-        b.status,
+        b.booking_status AS status,
         b.payment_status,
         b.special_requests,
         b.created_at,
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         array_agg(DISTINCT a.url) as tour_images,
         p.name as operator_name,
         p.contact as operator_contact
-       FROM bookings b
+       FROM operator_bookings b
        JOIN tours t ON b.tour_id = t.id
        LEFT JOIN partners p ON t.operator_id = p.id
        LEFT JOIN tour_assets ta ON t.id = ta.tour_id

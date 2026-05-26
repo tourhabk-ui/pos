@@ -297,16 +297,16 @@ export const tourService = {
     const bookingsStatsResult = await pool.query(
       `SELECT
          COUNT(*)::int AS total_bookings,
-         COUNT(*) FILTER (WHERE status = 'confirmed')::int AS confirmed_bookings,
-         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_bookings,
-         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'confirmed')::int AS confirmed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'completed')::int AS completed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'cancelled')::int AS cancelled_bookings,
          COALESCE(SUM(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed') AND payment_status = 'paid'
+           WHERE booking_status IN ('confirmed', 'completed') AND payment_status = 'paid'
          ), 0) AS total_revenue,
          COALESCE(AVG(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed')
+           WHERE booking_status IN ('confirmed', 'completed')
          ), 0) AS average_booking_value
-       FROM bookings
+       FROM operator_bookings
        WHERE tour_id = $1`,
       [id]
     );

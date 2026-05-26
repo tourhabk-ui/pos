@@ -219,8 +219,8 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
 export async function verifyBookingOwnership(userId: string, bookingId: string): Promise<boolean> {
   try {
     const result = await query(
-      `SELECT b.id 
-       FROM bookings b
+      `SELECT b.id
+       FROM operator_bookings b
        JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND b.id = $2`,
@@ -278,11 +278,11 @@ export async function getOperatorStats(userId: string): Promise<any> {
           COUNT(*) as total_bookings,
           COALESCE(SUM(total_price), 0) as total_revenue,
           COALESCE(
-            COUNT(CASE WHEN status = 'completed' THEN 1 END)::DECIMAL / 
+            COUNT(CASE WHEN booking_status = 'completed' THEN 1 END)::DECIMAL /
             NULLIF(COUNT(*), 0) * 100,
             0
           ) as completion_rate
-        FROM bookings b
+        FROM operator_bookings b
         JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
       ),

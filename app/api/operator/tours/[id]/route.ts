@@ -288,8 +288,8 @@ export async function DELETE(
 
     // Check for active bookings
     const bookingsCheck = await query<CountRow>(
-      `SELECT COUNT(*) as count FROM bookings 
-       WHERE tour_id = $1 AND status IN ('pending', 'confirmed')`,
+      `SELECT COUNT(*) as count FROM operator_bookings
+       WHERE tour_id = $1 AND booking_status IN ('pending', 'confirmed')`,
       [id]
     );
 
