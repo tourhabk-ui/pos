@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'vedar-v1';  // bumped: auth routes bypass SW
+const CACHE_NAME = 'vedar-v2';  // bumped: /hub/safety precached for offline AI Спасатель
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'vedar-api-v1'; // отдельный кэш для API-ответов
 
@@ -63,6 +63,7 @@ const PRECACHE_URLS = [
   '/offline/manage',
   '/sos',          // критично: экстренная помощь всегда офлайн
   '/safety/offline', // критично: инструкции выживания всегда офлайн
+  '/hub/safety',   // критично: AI Спасатель + локальные протоколы (медведь, травма и т.д.)
 ];
 
 // Установка: кэшируем базовые страницы (обязательно) + тайлы зум 7-9 (фоновая загрузка)
@@ -264,7 +265,7 @@ async function cacheTilesForRegion(tileUrls, regionId, client) {
 }
 
 // ─── Whitelist: страницы которые умеют работать офлайн (IndexedDB / клиентское состояние) ───
-const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage'];
+const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage', '/hub/safety'];
 
 function isOfflineCapable(pathname) {
   return OFFLINE_CAPABLE_ROUTES.some(route =>
@@ -275,7 +276,10 @@ function isOfflineCapable(pathname) {
 // ─── Fetch: cache-first для статики и туров, network-first для остального ──
 
 // Роуты которые НИКОГДА не должны перехватываться SW — всегда сеть
-const SW_BYPASS_PREFIXES = ['/auth/', '/hub/', '/api/auth/', '/register'];
+// ИСКЛЮЧЕНИЕ: /hub/safety — страница AI Спасателя, должна работать офлайн
+const SW_BYPASS_PREFIXES = ['/auth/', '/api/auth/', '/register'];
+const SW_BYPASS_HUB_PREFIXES = ['/hub/'];
+const SW_OFFLINE_HUB_ROUTES = ['/hub/safety'];
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -286,6 +290,9 @@ self.addEventListener('fetch', (event) => {
 
   // Auth и защищённые роуты — SW не вмешивается (не кэшируем, не fallback на /offline)
   if (SW_BYPASS_PREFIXES.some(p => url.pathname.startsWith(p))) return;
+  // /hub/* — bypass, кроме SW_OFFLINE_HUB_ROUTES (/hub/safety и т.д.)
+  if (SW_BYPASS_HUB_PREFIXES.some(p => url.pathname.startsWith(p)) &&
+      !SW_OFFLINE_HUB_ROUTES.some(r => url.pathname === r || url.pathname.startsWith(r + '/'))) return;
 
   // /api/places/[id] — кэшируем отдельно: это критичные данные для офлайна
   if (isPlaceApiRequest(url.href)) {
