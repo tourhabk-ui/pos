@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     );
 
     const recentReviews = await query(
-      `SELECT * FROM tourist_reviews WHERE tourist_id = $1 ORDER BY created_at DESC LIMIT 5`,
+      `SELECT id, tourist_id, tour_id, rating, comment, created_at FROM tourist_reviews WHERE tourist_id = $1 ORDER BY created_at DESC LIMIT 5`,
       [profile.id]
     );
 
