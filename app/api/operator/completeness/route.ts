@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const { rows: tours } = await pool.query<any>(
+    const { rows: tours } = await pool.query<Record<string, unknown>>(
       `SELECT
          id, title, description, short_description,
          base_price, max_participants, min_participants,

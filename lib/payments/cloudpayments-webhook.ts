@@ -38,7 +38,7 @@ export interface CloudPaymentsWebhook {
   IpAddress?: string;
   IpCountry?: string;
   Description?: string;
-  Data?: any;
+  Data?: Record<string, unknown>;
 }
 
 /**
@@ -94,7 +94,7 @@ export function validateCloudPaymentsSignature(
 /**
  * Валидация данных webhook
  */
-export function validateWebhookData(data: any): {
+export function validateWebhookData(data: Record<string, unknown>): {
   valid: boolean;
   errors: string[];
 } {
@@ -124,13 +124,13 @@ export function validateWebhookData(data: any): {
     errors.push('Amount must be a number');
   }
   
-  if (data.Amount && data.Amount <= 0) {
+  if (data.Amount && (data.Amount as number) <= 0) {
     errors.push('Amount must be positive');
   }
-  
+
   // Валидация статуса
   const validStatuses = ['Completed', 'Declined', 'Pending', 'Cancelled'];
-  if (data.Status && !validStatuses.includes(data.Status)) {
+  if (data.Status && !validStatuses.includes(data.Status as string)) {
     errors.push(`Invalid status: ${data.Status}`);
   }
   
@@ -216,7 +216,7 @@ export async function processCloudPaymentsWebhook(
   }
   
   // 3. Валидация данных
-  const dataValidation = validateWebhookData(webhookData);
+  const dataValidation = validateWebhookData(webhookData as unknown as Record<string, unknown>);
   if (!dataValidation.valid) {
     return {
       success: false,

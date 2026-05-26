@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } }).JSDOM;
 
 export interface PlacesEnricherResult {
   matched: number;

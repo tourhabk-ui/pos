@@ -131,7 +131,7 @@ function DayCell({
         <div className="mt-0.5 space-y-0.5 w-full">
           <div className="flex items-center gap-1">
             <span className="text-[9px] font-bold px-1 rounded"
-              style={{ background: 'var(--success)', color: '#fff' }}>
+              style={{ background: 'var(--success)', color: 'white' }}>
               {dayData!.total}
             </span>
             {dayData!.isAnomaly && (

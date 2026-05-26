@@ -236,7 +236,15 @@ export async function verifyBookingOwnership(userId: string, bookingId: string):
 /**
  * Get operator statistics
  */
-export async function getOperatorStats(userId: string): Promise<any> {
+export async function getOperatorStats(userId: string): Promise<{
+  totalTours: number;
+  activeTours: number;
+  totalBookings: number;
+  totalRevenue: number;
+  avgRating: number;
+  totalReviews: number;
+  completionRate: number;
+} | null> {
   try {
     const partnerId = await getOperatorPartnerId(userId);
     
@@ -253,15 +261,15 @@ export async function getOperatorStats(userId: string): Promise<any> {
     );
     
     if (cacheResult.rows.length > 0) {
-      const cached = cacheResult.rows[0];
+      const cached = cacheResult.rows[0] as Record<string, unknown>;
       return {
-        totalTours: cached.total_tours,
-        activeTours: cached.active_tours,
-        totalBookings: cached.total_bookings,
-        totalRevenue: parseFloat(cached.total_revenue as string),
-        avgRating: parseFloat(cached.avg_rating as string),
-        totalReviews: cached.total_reviews,
-        completionRate: parseFloat(cached.completion_rate as string)
+        totalTours: Number(cached.total_tours),
+        activeTours: Number(cached.active_tours),
+        totalBookings: Number(cached.total_bookings),
+        totalRevenue: parseFloat(String(cached.total_revenue ?? '0')),
+        avgRating: parseFloat(String(cached.avg_rating ?? '0')),
+        totalReviews: Number(cached.total_reviews),
+        completionRate: parseFloat(String(cached.completion_rate ?? '0'))
       };
     }
     

@@ -117,10 +117,10 @@ export class TransferPaymentSystem {
         await this.updatePaymentStatus(paymentId, 'success');
         
         // 4. Резервируем средства
-        await this.reserveFunds(paymentId, payment.amount);
-        
+        await this.reserveFunds(paymentId, payment.amount as number);
+
         // 5. Обновляем статус бронирования
-        await this.updateBookingStatus(payment.booking_id, 'confirmed');
+        await this.updateBookingStatus(payment.booking_id as string, 'confirmed');
         
         // 6. Отправляем уведомления
         await this.sendPaymentNotifications(paymentId, 'success');
@@ -132,7 +132,7 @@ export class TransferPaymentSystem {
         };
       } else if (cloudPaymentsStatus.status === 'failed') {
         await this.updatePaymentStatus(paymentId, 'failed');
-        await this.updateBookingStatus(payment.booking_id, 'cancelled');
+        await this.updateBookingStatus(payment.booking_id as string, 'cancelled');
         
         return {
           success: false,
@@ -374,21 +374,21 @@ export class TransferPaymentSystem {
   }
 
   // Получение платежа по ID
-  async getPaymentById(paymentId: string): Promise<any> {
+  async getPaymentById(paymentId: string): Promise<Record<string, unknown> | undefined> {
     const result = await query(
       'SELECT * FROM transfer_payments WHERE id = $1',
       [paymentId]
     );
-    return result.rows[0];
+    return result.rows[0] as Record<string, unknown> | undefined;
   }
 
   // Получение бронирования по ID
-  private async getBookingById(bookingId: string): Promise<any> {
+  private async getBookingById(bookingId: string): Promise<Record<string, unknown> | undefined> {
     const result = await query(
       'SELECT * FROM transfer_bookings WHERE id = $1',
       [bookingId]
     );
-    return result.rows[0];
+    return result.rows[0] as Record<string, unknown> | undefined;
   }
 
   // Обновление статуса платежа

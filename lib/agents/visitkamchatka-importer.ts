@@ -13,7 +13,7 @@
  */
 
 // jsdom has no @types package — use dynamic require with explicit cast
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } }).JSDOM;
 import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 

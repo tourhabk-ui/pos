@@ -401,7 +401,7 @@ export default function IncidentsAdminPage() {
                   {inc.injured > 0 && (
                     <span className="text-[var(--warning)]">{inc.injured} пострадало</span>
                   )}
-                  <span className="ds-badge text-[10px] px-2 py-0.5" style={{ background: 'var(--danger)', color: '#fff', opacity: 0.85 }}>
+                  <span className="ds-badge text-[10px] px-2 py-0.5" style={{ background: 'var(--danger)', color: 'white', opacity: 0.85 }}>
                     {TYPE_LABELS[inc.location_type] ?? inc.location_type}
                   </span>
                   <span className="font-mono text-[var(--text-muted)]">/{inc.slug}</span>

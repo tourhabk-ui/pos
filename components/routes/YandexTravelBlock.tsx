@@ -87,7 +87,7 @@ export default function YandexTravelBlock({ routeId, source = 'route_detail' }: 
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded-sm flex items-center justify-center" style={{ background: 'var(--accent)' }}>
-            <span className="text-[9px] font-black text-[var(--bg-primary)] leading-none">Я</span>
+            <span className="text-[9px] font-bold text-[var(--bg-primary)] leading-none">Я</span>
           </div>
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
             Яндекс Путешествия

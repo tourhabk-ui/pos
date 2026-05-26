@@ -964,7 +964,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
-                    style={{ background: '#2AABEE' }}
+                    style={{ background: 'var(--telegram)' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> Telegram
                   </a>
@@ -973,7 +973,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90"
-                    style={{ background: '#7C3AED' }}
+                    style={{ background: 'var(--viber)' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> MAX
                   </a>

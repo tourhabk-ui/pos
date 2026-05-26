@@ -109,7 +109,7 @@ export class TransferMatchingEngine {
   private async getPotentialDrivers(
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
-  ): Promise<any[]> {
+  ): Promise<Record<string, unknown>[]> {
     const queryText = `
       SELECT DISTINCT
         d.id,
@@ -169,7 +169,7 @@ export class TransferMatchingEngine {
 
   // Расчет баллов для водителей
   private async calculateDriverScores(
-    drivers: any[],
+    drivers: Record<string, unknown>[],
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
   ): Promise<DriverScore[]> {
@@ -185,21 +185,28 @@ export class TransferMatchingEngine {
 
   // Расчет балла для одного водителя
   private async calculateDriverScore(
-    driver: any,
+    driver: Record<string, unknown>,
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
   ): Promise<DriverScore> {
     const reasons: string[] = [];
     let totalScore = 0;
 
+    const rating = Number(driver.rating ?? 0);
+    const pricePerPerson = parseFloat(String(driver.price_per_person ?? '0'));
+    const experienceYears = Number(driver.experience_years ?? 0);
+    const currentLocation = driver.current_location as { x: number; y: number } | undefined;
+    const features = Array.isArray(driver.features) ? driver.features as string[] : [];
+    const languages = Array.isArray(driver.languages) ? driver.languages as string[] : [];
+
     // 1. Рейтинг водителя (0-1)
-    const ratingScore = Math.min(driver.rating / 5, 1);
+    const ratingScore = Math.min(rating / 5, 1);
     totalScore += ratingScore * this.weights.rating;
     if (ratingScore > 0.8) reasons.push('Высокий рейтинг');
 
     // 2. Цена поездки (0-1, чем дешевле, тем лучше)
     const maxPrice = criteria.maxPrice;
-    const currentPrice = parseFloat(driver.price_per_person) * booking.passengersCount;
+    const currentPrice = pricePerPerson * booking.passengersCount;
     const priceScore = Math.max(0, 1 - (currentPrice / maxPrice));
     totalScore += priceScore * this.weights.price;
     if (priceScore > 0.8) reasons.push('Выгодная цена');
@@ -207,7 +214,7 @@ export class TransferMatchingEngine {
     // 3. Расстояние до пассажира (0-1, чем ближе, тем лучше)
     const distance = this.calculateDistance(
       booking.fromCoordinates || { lat: 0, lng: 0 },
-      { lat: driver.current_location.y, lng: driver.current_location.x }
+      { lat: currentLocation?.y ?? 0, lng: currentLocation?.x ?? 0 }
     );
     const distanceScore = Math.max(0, 1 - (distance / criteria.maxDistance));
     totalScore += distanceScore * this.weights.distance;
@@ -219,7 +226,7 @@ export class TransferMatchingEngine {
     if (availabilityScore > 0) reasons.push('Доступен сейчас');
 
     // 5. Опыт водителя (0-1)
-    const experienceScore = Math.min(driver.experience_years / 10, 1);
+    const experienceScore = Math.min(experienceYears / 10, 1);
     totalScore += experienceScore * this.weights.experience;
     if (experienceScore > 0.7) reasons.push('Опытный водитель');
 
@@ -237,39 +244,41 @@ export class TransferMatchingEngine {
     const finalScore = Math.max(0, Math.min(1, totalScore));
 
     return {
-      driverId: driver.id,
+      driverId: String(driver.id ?? ''),
       score: finalScore,
       reasons,
       details: {
-        rating: driver.rating,
+        rating,
         price: currentPrice,
         distance: distance,
         availability: availabilityScore,
-        experience: driver.experience_years,
-        features: driver.features || [],
-        languages: driver.languages || []
+        experience: experienceYears,
+        features,
+        languages
       }
     };
   }
 
   // Расчет бонусных баллов
-  private calculateBonusScore(driver: any, criteria: MatchingCriteria): number {
+  private calculateBonusScore(driver: Record<string, unknown>, criteria: MatchingCriteria): number {
     let bonus = 0;
 
     // Бонус за соответствие функциям
-    const matchingFeatures = (driver.features || []).filter((feature: string) =>
+    const features = Array.isArray(driver.features) ? driver.features as string[] : [];
+    const matchingFeatures = features.filter((feature: string) =>
       criteria.features.includes(feature)
     );
-    bonus += (matchingFeatures.length / criteria.features.length) * 0.1;
+    bonus += (matchingFeatures.length / (criteria.features.length || 1)) * 0.1;
 
     // Бонус за знание языков
-    const matchingLanguages = (driver.languages || []).filter((lang: string) =>
+    const langs = Array.isArray(driver.languages) ? driver.languages as string[] : [];
+    const matchingLanguages = langs.filter((lang: string) =>
       criteria.languages.includes(lang)
     );
-    bonus += (matchingLanguages.length / criteria.languages.length) * 0.1;
+    bonus += (matchingLanguages.length / (criteria.languages.length || 1)) * 0.1;
 
     // Бонус за высокую вместимость
-    if (driver.capacity > criteria.capacity) {
+    if (Number(driver.capacity ?? 0) > criteria.capacity) {
       bonus += 0.05;
     }
 
@@ -277,20 +286,21 @@ export class TransferMatchingEngine {
   }
 
   // Расчет штрафных баллов
-  private calculatePenaltyScore(driver: any, criteria: MatchingCriteria): number {
+  private calculatePenaltyScore(driver: Record<string, unknown>, criteria: MatchingCriteria): number {
     let penalty = 0;
 
     // Штраф за несоответствие рабочему времени
     const currentHour = new Date().getHours();
-    const workingStart = parseInt(driver.working_hours?.start?.split(':')[0] || '0');
-    const workingEnd = parseInt(driver.working_hours?.end?.split(':')[0] || '24');
-    
+    const workingHours = driver.working_hours as { start?: string; end?: string } | undefined;
+    const workingStart = parseInt(workingHours?.start?.split(':')[0] || '0');
+    const workingEnd = parseInt(workingHours?.end?.split(':')[0] || '24');
+
     if (currentHour < workingStart || currentHour > workingEnd) {
       penalty -= 0.2;
     }
 
     // Штраф за низкую доступность мест
-    const availabilityRatio = driver.available_seats / driver.capacity;
+    const availabilityRatio = Number(driver.available_seats ?? 0) / (Number(driver.capacity ?? 1) || 1);
     if (availabilityRatio < 0.3) {
       penalty -= 0.1;
     }

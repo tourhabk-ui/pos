@@ -25,11 +25,11 @@ export default function GlobalError({
           <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
             Что-то пошло не так
           </h1>
-          <p style={{ color: '#666', marginBottom: '1.5rem', maxWidth: '400px' }}>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', maxWidth: '400px' }}>
             Произошла непредвиденная ошибка. Попробуйте обновить страницу.
           </p>
           {error.digest && (
-            <p style={{ color: '#999', fontSize: '0.75rem', marginBottom: '1rem' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '1rem' }}>
               Код ошибки: {error.digest}
             </p>
           )}

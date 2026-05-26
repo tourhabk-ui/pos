@@ -111,7 +111,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             </button>
             <a href={tgUrl} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
-              style={{ background: '#2AABEE22', color: '#2AABEE', border: '1px solid #2AABEE44' }}>
+              style={{ background: 'var(--telegram)22', color: 'var(--telegram)', border: '1px solid var(--telegram)44' }}>
               <ExternalLink className="w-4 h-4" />Telegram
             </a>
             <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"

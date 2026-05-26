@@ -90,7 +90,7 @@ export default function SosPage() {
     <div style={{
       minHeight: '100dvh',
       background: 'var(--bg-primary)',
-      color: '#fff',
+      color: 'white',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       display: 'flex',
       flexDirection: 'column',
@@ -138,12 +138,12 @@ export default function SosPage() {
           alignItems: 'center',
           gap: '10px',
         }}>
-          <MapPin size={18} style={{ color: '#3b82f6', flexShrink: 0 }} />
+          <MapPin size={18} style={{ color: 'var(--ocean)', flexShrink: 0 }} />
           <div>
             <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Ваши координаты
             </p>
-            <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: '#fff' }}>
+            <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
               {coordsLabel}
             </p>
           </div>
@@ -173,7 +173,7 @@ export default function SosPage() {
                   borderRadius: '8px',
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
+                  color: 'white',
                   fontSize: '14px',
                   outline: 'none',
                 }}
@@ -195,7 +195,7 @@ export default function SosPage() {
                   borderRadius: '8px',
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
+                  color: 'white',
                   fontSize: '14px',
                   outline: 'none',
                 }}
@@ -216,7 +216,7 @@ export default function SosPage() {
                 : sendStatus === 'error' ? '#ca8a04'
                 : sendStatus === 'sending' || sendStatus === 'locating' ? 'rgba(220,38,38,0.5)'
                 : '#dc2626',
-              color: '#fff',
+              color: 'white',
               fontWeight: 700,
               fontSize: '14px',
               cursor: sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent' ? 'default' : 'pointer',
@@ -253,7 +253,7 @@ export default function SosPage() {
                 borderRadius: '10px',
                 border: '1px solid rgba(255,255,255,0.15)',
                 background: 'rgba(255,255,255,0.05)',
-                color: '#fff',
+                color: 'white',
                 fontWeight: 600,
                 fontSize: '13px',
                 textDecoration: 'none',
@@ -282,7 +282,7 @@ export default function SosPage() {
                 background: c.primary ? 'rgba(220,38,38,0.12)' : 'rgba(255,255,255,0.04)',
                 border: c.primary ? '1px solid rgba(220,38,38,0.3)' : '1px solid rgba(255,255,255,0.08)',
                 textDecoration: 'none',
-                color: '#fff',
+                color: 'white',
               }}
             >
               <div style={{
@@ -310,7 +310,7 @@ export default function SosPage() {
                 fontWeight: 700,
                 fontFamily: 'monospace',
                 flexShrink: 0,
-                color: c.primary ? '#f87171' : '#fff',
+                color: c.primary ? '#f87171' : 'white',
               }}>
                 {c.phone}
               </div>
@@ -330,7 +330,7 @@ export default function SosPage() {
             borderRadius: '12px',
             background: 'rgba(59,130,246,0.1)',
             border: '1px solid rgba(59,130,246,0.3)',
-            color: '#fff',
+            color: 'white',
             textDecoration: 'none',
             fontWeight: 600,
             fontSize: '13px',
