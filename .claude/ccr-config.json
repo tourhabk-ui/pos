@@ -1,0 +1,33 @@
+{
+  "Providers": [
+    {
+      "name": "openrouter",
+      "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "api_key": "$OPENROUTER_API_KEY",
+      "models": [
+        "anthropic/claude-sonnet-4-6",
+        "anthropic/claude-opus-4-7",
+        "google/gemini-2.0-flash-001",
+        "deepseek/deepseek-chat-v3-0324"
+      ]
+    },
+    {
+      "name": "deepseek",
+      "api_base_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "$DEEPSEEK_API_KEY",
+      "models": ["deepseek-chat", "deepseek-reasoner"]
+    },
+    {
+      "name": "anthropic",
+      "api_base_url": "https://api.anthropic.com/v1/messages",
+      "api_key": "$ANTHROPIC_API_KEY",
+      "models": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"]
+    }
+  ],
+  "Router": {
+    "default": "openrouter,anthropic/claude-sonnet-4-6",
+    "background": "deepseek,deepseek-chat",
+    "think": "openrouter,anthropic/claude-opus-4-7",
+    "longContext": "openrouter,google/gemini-2.0-flash-001"
+  }
+}
