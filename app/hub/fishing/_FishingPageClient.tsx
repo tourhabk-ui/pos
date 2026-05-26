@@ -138,7 +138,7 @@ export function FishingPageClient({ tours }: { tours: FishingTour[] }) {
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-lg mb-10"
-        style={{ background: 'linear-gradient(135deg, #0a1628 0%, #1a3a5c 50%, #0d2137 100%)' }}>
+        style={{ background: 'linear-gradient(135deg, var(--bg-primary) 0%, color-mix(in srgb, var(--ocean) 20%, var(--bg-primary)) 50%, var(--bg-primary) 100%)' }}>
         <div className="relative px-8 py-14 md:py-20 max-w-3xl">
           <div className="flex items-center gap-2 mb-4">
             <Fish className="w-5 h-5 text-[var(--ocean)]" />

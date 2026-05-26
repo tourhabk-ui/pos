@@ -70,9 +70,9 @@ const COLOR_MAP: Record<string, string> = {
 function buildPopupHtml(marker: MapMarker): string {
   const hex = COLOR_MAP[marker.color ?? 'blue'] ?? '#2568B0';
   let html = `<div style="font-family:sans-serif;max-width:220px">`;
-  html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${marker.title}</strong>`;
+  html += `<strong style="font-size:13px;color:#1A1714;display:block;margin-bottom:4px">${marker.title}</strong>`;
   if (marker.description) {
-    html += `<span style="color:#555;font-size:12px;line-height:1.4">${marker.description}</span>`;
+    html += `<span style="color:#6B6560;font-size:12px;line-height:1.4">${marker.description}</span>`;
   }
   if (marker.href) {
     html += `<a href="${marker.href}" style="color:${hex};font-size:12px;font-weight:600;text-decoration:none;display:inline-block;margin-top:6px">Смотреть маршрут →</a>`;

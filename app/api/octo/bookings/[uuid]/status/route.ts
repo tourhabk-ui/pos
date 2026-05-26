@@ -55,7 +55,7 @@ export async function PATCH(
 
     // Find booking by octo_uuid
     const bookingResult = await pool.query(
-      `SELECT * FROM operator_bookings
+      `SELECT id, booking_status, octo_uuid FROM operator_bookings
        WHERE octo_uuid = $1 AND deleted_at IS NULL`,
       [uuid]
     );

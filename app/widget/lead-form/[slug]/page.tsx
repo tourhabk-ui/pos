@@ -147,7 +147,7 @@ export default function LeadFormPage() {
           />
         )}
         <div>
-          <p style={{ fontWeight: 600, fontSize: 14, color: '#1A1714', lineHeight: 1.2 }}>
+          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.2 }}>
             {config?.name ?? 'Заявка на тур'}
           </p>
           <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>

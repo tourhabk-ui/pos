@@ -1975,7 +1975,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                 </a>
                 <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
-                  style={{ background: '#FF6B0022', color: 'var(--accent)', border: '1px solid var(--accent)44' }}>
+                  style={{ background: 'color-mix(in srgb, var(--accent) 13%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 27%, transparent)' }}>
                   <ExternalLink className="w-3.5 h-3.5" />MAX
                 </a>
               </div>
