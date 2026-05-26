@@ -53,7 +53,9 @@ export async function GET(request: NextRequest) {
 
     // Get operator settings
     const settingsResult = await query<OpSettingsRow>(
-      'SELECT * FROM operator_settings WHERE user_id = $1',
+      `SELECT user_id, auto_confirm_bookings, booking_lead_time, cancellation_policy, refund_policy,
+              min_group_size, max_advance_booking_days, timezone, currency, commission_rate, settings
+       FROM operator_settings WHERE user_id = $1`,
       [userId]
     );
 

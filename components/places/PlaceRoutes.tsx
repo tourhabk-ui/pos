@@ -14,13 +14,7 @@ const DIFFICULTY_COLORS: Record<string, string> = {
 };
 
 export default function PlaceRoutes({ routes, placeId: _ }: Props) {
-  // Route_waypoints not populated yet — block hidden when empty
-  if (!routes.length) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[PlaceRoutes] no routes via waypoints — block hidden');
-    }
-    return null;
-  }
+  if (!routes.length) return null;
 
   return (
     <section className="max-w-3xl mx-auto px-4 space-y-3">
