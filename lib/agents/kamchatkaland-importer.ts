@@ -137,7 +137,7 @@ async function upsertArticle(
   const sourceHash = createHash('md5').update(description).digest('hex');
 
   const metadata = JSON.stringify({ location_type: meta.location_type, source_hash: sourceHash, search_text: searchText });
-  const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
+  const routeSlug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
 
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes
@@ -151,7 +151,7 @@ async function upsertArticle(
        description = EXCLUDED.description,
        metadata    = EXCLUDED.metadata::jsonb,
        updated_at  = NOW()`,
-    [dedupeKey, slug, title, description, meta.category, meta.activity_type,
+    [dedupeKey, routeSlug, title, description, meta.category, meta.activity_type,
      url, SOURCE_NAME, metadata],
   );
 
