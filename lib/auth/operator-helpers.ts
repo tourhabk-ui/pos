@@ -201,7 +201,7 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
   try {
     const result = await query(
       `SELECT t.id 
-       FROM tours t
+       FROM operator_tours t
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND t.id = $2`,
       [userId, tourId]
@@ -219,9 +219,9 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
 export async function verifyBookingOwnership(userId: string, bookingId: string): Promise<boolean> {
   try {
     const result = await query(
-      `SELECT b.id 
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+      `SELECT b.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE p.user_id = $1 AND b.id = $2`,
       [userId, bookingId]
@@ -236,7 +236,15 @@ export async function verifyBookingOwnership(userId: string, bookingId: string):
 /**
  * Get operator statistics
  */
-export async function getOperatorStats(userId: string): Promise<any> {
+export async function getOperatorStats(userId: string): Promise<{
+  totalTours: number;
+  activeTours: number;
+  totalBookings: number;
+  totalRevenue: number;
+  avgRating: number;
+  totalReviews: number;
+  completionRate: number;
+} | null> {
   try {
     const partnerId = await getOperatorPartnerId(userId);
     
@@ -253,15 +261,15 @@ export async function getOperatorStats(userId: string): Promise<any> {
     );
     
     if (cacheResult.rows.length > 0) {
-      const cached = cacheResult.rows[0];
+      const cached = cacheResult.rows[0] as Record<string, unknown>;
       return {
-        totalTours: cached.total_tours,
-        activeTours: cached.active_tours,
-        totalBookings: cached.total_bookings,
-        totalRevenue: parseFloat(cached.total_revenue as string),
-        avgRating: parseFloat(cached.avg_rating as string),
-        totalReviews: cached.total_reviews,
-        completionRate: parseFloat(cached.completion_rate as string)
+        totalTours: Number(cached.total_tours),
+        activeTours: Number(cached.active_tours),
+        totalBookings: Number(cached.total_bookings),
+        totalRevenue: parseFloat(String(cached.total_revenue ?? '0')),
+        avgRating: parseFloat(String(cached.avg_rating ?? '0')),
+        totalReviews: Number(cached.total_reviews),
+        completionRate: parseFloat(String(cached.completion_rate ?? '0'))
       };
     }
     
@@ -271,19 +279,19 @@ export async function getOperatorStats(userId: string): Promise<any> {
         SELECT
           COUNT(*) as total_tours,
           COUNT(CASE WHEN is_active THEN 1 END) as active_tours
-        FROM tours WHERE operator_id = $1
+        FROM operator_tours WHERE operator_id = $1
       ),
       booking_stats AS (
         SELECT
           COUNT(*) as total_bookings,
           COALESCE(SUM(total_price), 0) as total_revenue,
           COALESCE(
-            COUNT(CASE WHEN status = 'completed' THEN 1 END)::DECIMAL / 
+            COUNT(CASE WHEN booking_status = 'completed' THEN 1 END)::DECIMAL /
             NULLIF(COUNT(*), 0) * 100,
             0
           ) as completion_rate
-        FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
+        FROM operator_bookings b
+        JOIN operator_tours t ON b.tour_id = t.id
         WHERE t.operator_id = $1
       ),
       review_stats AS (
@@ -291,7 +299,7 @@ export async function getOperatorStats(userId: string): Promise<any> {
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(*) as total_reviews
         FROM reviews r
-        JOIN tours t ON r.tour_id = t.id
+        JOIN operator_tours t ON r.tour_id = t.id
         WHERE t.operator_id = $1
       )
       SELECT * FROM tour_stats, booking_stats, review_stats`,

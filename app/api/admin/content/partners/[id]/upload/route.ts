@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const PARTNER_IMAGE_COLUMNS = { hero: 'hero_image', logo: 'logo_image' } as const;
 
 /**
  * POST /api/admin/content/partners/[id]/upload
@@ -58,8 +59,7 @@ export async function POST(
     const buffer = Buffer.from(await file.arrayBuffer());
     const { url } = await uploadToS3(s3Key, buffer, file.type);
 
-    // Update DB column
-    const column = type === 'hero' ? 'hero_image' : 'logo_image';
+    const column = PARTNER_IMAGE_COLUMNS[type as 'hero' | 'logo'];
     await query(`UPDATE partners SET ${column} = $1, updated_at = NOW() WHERE id = $2`, [url, id]);
 
     // Delete old S3 object if it was uploaded before (contains our S3 endpoint)
@@ -101,7 +101,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Некорректный тип: hero или logo' }, { status: 400 });
     }
 
-    const column = type === 'hero' ? 'hero_image' : 'logo_image';
+    const column = PARTNER_IMAGE_COLUMNS[type as 'hero' | 'logo'];
     const existing = await query<{ hero_image: string | null; logo_image: string | null }>(
       'SELECT hero_image, logo_image FROM partners WHERE id = $1',
       [id]

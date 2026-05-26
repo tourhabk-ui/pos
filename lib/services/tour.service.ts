@@ -103,7 +103,7 @@ export const tourService = {
       const orderField = allowedSortFields[sortBy] ?? 't.rating';
 
       const count = await pool.query(
-        `SELECT COUNT(*)::int AS total FROM tours t ${whereClause}`,
+        `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
         queryParams
       );
       const total = Number(count.rows[0]?.total ?? 0);
@@ -112,7 +112,7 @@ export const tourService = {
         `SELECT
            t.*,
            p.name AS operator_name
-         FROM tours t
+         FROM operator_tours t
          LEFT JOIN partners p ON t.operator_id = p.id
          ${whereClause}
          ORDER BY ${orderField} ${sortOrder}
@@ -135,7 +135,7 @@ export const tourService = {
       `SELECT
          t.*,
          p.name AS operator_name
-       FROM tours t
+       FROM operator_tours t
        LEFT JOIN partners p ON t.operator_id = p.id
        WHERE t.id = $1
        LIMIT 1`,
@@ -173,7 +173,7 @@ export const tourService = {
     }
 
     const result = await pool.query(
-      `INSERT INTO tours (
+      `INSERT INTO operator_tours (
          name,
          description,
          category,
@@ -264,7 +264,7 @@ export const tourService = {
 
     values.push(id);
     const result = await pool.query(
-      `UPDATE tours
+      `UPDATE operator_tours
        SET ${updates.join(', ')}, updated_at = NOW()
        WHERE id = $${values.length}
        RETURNING *`,
@@ -277,7 +277,7 @@ export const tourService = {
     const tour = await this.getById(id);
     if (tour?.isActive) throw new TourAlreadyPublishedError(id);
     const result = await pool.query(
-      `UPDATE tours SET is_active = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      `UPDATE operator_tours SET is_active = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
       [id]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -286,7 +286,7 @@ export const tourService = {
     const tour = await this.getById(id);
     if (!tour) throw new TourNotFoundError(id);
     const result = await pool.query(
-      `UPDATE tours SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      `UPDATE operator_tours SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *`,
       [id]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -297,16 +297,16 @@ export const tourService = {
     const bookingsStatsResult = await pool.query(
       `SELECT
          COUNT(*)::int AS total_bookings,
-         COUNT(*) FILTER (WHERE status = 'confirmed')::int AS confirmed_bookings,
-         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_bookings,
-         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'confirmed')::int AS confirmed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'completed')::int AS completed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'cancelled')::int AS cancelled_bookings,
          COALESCE(SUM(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed') AND payment_status = 'paid'
+           WHERE booking_status IN ('confirmed', 'completed') AND payment_status = 'paid'
          ), 0) AS total_revenue,
          COALESCE(AVG(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed')
+           WHERE booking_status IN ('confirmed', 'completed')
          ), 0) AS average_booking_value
-       FROM bookings
+       FROM operator_bookings
        WHERE tour_id = $1`,
       [id]
     );
@@ -345,7 +345,7 @@ export const tourService = {
     };
   },
   async delete(id: string) {
-    const result = await pool.query(`DELETE FROM tours WHERE id = $1 RETURNING id`, [id]);
+    const result = await pool.query(`DELETE FROM operator_tours WHERE id = $1 RETURNING id`, [id]);
     if (!result.rows[0]) {
       throw new TourNotFoundError(id);
     }

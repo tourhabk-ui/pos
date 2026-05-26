@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
       }
 
       const booking = bookingResult.booking;
+      if (!booking) return NextResponse.json({ success: false, error: 'Booking data missing' }, { status: 500 });
 
       // 2. СОЗДАНИЕ ПЛАТЕЖА
       const paymentRequest = {
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
           phone: requestData.contactInfo.phone,
           name: requestData.contactInfo.name || 'Не указано'
         },
-        description: `Оплата трансфера ${booking.scheduleInfo.fromLocation} → ${booking.scheduleInfo.toLocation}`
+        description: `Оплата трансфера ${booking.scheduleInfo?.fromLocation ?? ''} → ${booking.scheduleInfo?.toLocation ?? ''}`
       };
 
       const paymentResult = await transferPayments.createPayment(paymentRequest);
@@ -176,10 +177,10 @@ export async function POST(request: NextRequest) {
             departureTime: booking.departure_time,
             passengersCount: booking.passengers_count,
             totalPrice: parseFloat(booking.total_price),
-            status: booking.status,
-            specialRequests: booking.special_requests,
-            contactPhone: booking.contact_phone,
-            contactEmail: booking.contact_email,
+            status: booking.status as 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'in_progress',
+            specialRequests: booking.special_requests ?? undefined,
+            contactPhone: booking.contact_phone ?? '',
+            contactEmail: booking.contact_email ?? '',
             confirmationCode: booking.confirmation_code,
             createdAt: new Date(booking.created_at),
             updatedAt: new Date(booking.updated_at)
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
 
 // Функция для отправки реальных уведомлений
 async function sendRealBookingNotifications(
-  booking: Record<string, unknown>,
+  booking: import('@/lib/transfers/booking').TransferBookingRow,
   schedule: Record<string, unknown>,
   driver: Record<string, unknown> | null,
   contactInfo: Record<string, unknown>

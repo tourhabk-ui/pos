@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const rating = searchParams.get('rating')
       ? parseFloat(searchParams.get('rating')!)
       : undefined;
-    const sortBy = searchParams.get('sortBy') as any || 'rating';
+    const sortBy = searchParams.get('sortBy') || 'rating';
 
     // AI-теги фильтры (из ai_tags JSONB колонки)
     const tagLandscape = searchParams.get('landscape');
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         category: string; difficulty: string; ai_tags: Record<string, unknown>;
       }>(
         `SELECT id, title, description, price, category, difficulty, ai_tags
-         FROM tours
+         FROM operator_tours
          WHERE ${conditions.join(' AND ')}
          ORDER BY rating DESC NULLS LAST
          LIMIT $${pIdx} OFFSET $${pIdx + 1}`,

@@ -293,7 +293,9 @@ export const formatPrice = (price: number, currency: string = '₽'): string => 
 /**
  * Дебаунс функция
  */
-export const debounce = <T extends (...args: any[]) => any>(
+// REST params pattern: `any[]` is acceptable in generic constraint for debounce
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const debounce = <T extends (...args: any[]) => unknown>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {

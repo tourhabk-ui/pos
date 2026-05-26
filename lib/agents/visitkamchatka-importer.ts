@@ -13,7 +13,7 @@
  */
 
 // jsdom has no @types package — use dynamic require with explicit cast
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } }).JSDOM;
 import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 
@@ -213,19 +213,20 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
   if (!p.description || p.description.length < 80) return 'skipped';
 
   const dedupeKey = `vk_${p.slug}`;
-  const payload = JSON.stringify({
+  const sourceHash = createHash('md5').update(p.description).digest('hex');
+  const searchText = [p.title, p.description, p.difficulty, p.season, p.activity_type]
+    .filter(Boolean).join(' ').slice(0, 3000);
+  const metadata = JSON.stringify({
     distance_km: p.distance_km,
     duration_h: p.duration_h,
     difficulty: p.difficulty,
     season: p.season,
     hazards: p.hazards,
+    source_hash: sourceHash,
+    search_text: searchText,
   });
-  const searchText = [p.title, p.description, p.difficulty, p.season, p.activity_type]
-    .filter(Boolean).join(' ').slice(0, 3000);
-  const sourceHash = createHash('md5').update(p.description).digest('hex');
 
   const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
-  const metadata = JSON.stringify({ ...JSON.parse(payload), source_hash: sourceHash, search_text: searchText });
 
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes

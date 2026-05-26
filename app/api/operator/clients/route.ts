@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           MAX(b.created_at)                                                       AS last_booking_date
         FROM users u
         JOIN bookings b ON b.user_id = u.id
-        JOIN tours t    ON b.tour_id = t.id
+        JOIN operator_tours t    ON b.tour_id = t.id
         WHERE t.operator_id = $1
         GROUP BY u.id, u.name, u.email, u.phone
       ),

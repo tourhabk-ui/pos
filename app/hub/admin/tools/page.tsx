@@ -67,6 +67,7 @@ export default function AdminToolsPage() {
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef(false);
 
+  // visitkamchatka.ru import state
   const [vkRunning, setVkRunning] = useState(false);
   const [vkResult, setVkResult] = useState<VkResult | null>(null);
   const [vkError, setVkError] = useState<string | null>(null);
@@ -372,6 +373,7 @@ export default function AdminToolsPage() {
         </div>
       )}
 
+      {/* ── visitkamchatka.ru import ──────────────────────────────────────── */}
       <div className="ds-card p-6 space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0">

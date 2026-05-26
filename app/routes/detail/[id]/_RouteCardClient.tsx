@@ -30,10 +30,10 @@ const SEASON_LABELS: Record<string, string> = {
   summer: 'Июнь — Сентябрь', winter: 'Декабрь — Март', all: 'Круглый год',
 };
 
-const HAZARD_ICONS: Record<string, string> = {
-  avalanche: '🏔', rockfall: '🪨', thermal: '🌋', altitude: '⛰',
-  wildlife: '🐻', river_crossing: '🌊', fog: '🌫', ice: '🧊',
-  volcanic_gas: '💨', steep: '📐', plants: '🌿',
+const HAZARD_LABELS: Record<string, string> = {
+  avalanche: 'Лавина', rockfall: 'Камнепад', thermal: 'Термальный', altitude: 'Высота',
+  wildlife: 'Животные', river_crossing: 'Переправа', fog: 'Туман', ice: 'Лёд',
+  volcanic_gas: 'Газ', steep: 'Крутой склон', plants: 'Растения',
 };
 
 const DIFFICULTY_LABELS = ['', 'Лёгкий', 'Ниже среднего', 'Средний', 'Сложный', 'Экстремальный'];
@@ -280,7 +280,7 @@ export default function RouteCardClient({ id }: { id: string }) {
                         {w.notes && <span>{w.notes}</span>}
                         {w.hazardTypes.length > 0 && (
                           <span className="text-[var(--warning)]">
-                            {w.hazardTypes.map(h => HAZARD_ICONS[h] ?? '⚠').join(' ')}
+                            {w.hazardTypes.map(h => HAZARD_LABELS[h] ?? h).join(', ')}
                           </span>
                         )}
                       </div>
@@ -302,7 +302,7 @@ export default function RouteCardClient({ id }: { id: string }) {
             <div className="space-y-2">
               {route.hazards.map((h, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm">
-                  <span className="text-base">{HAZARD_ICONS[h] ?? '⚠'}</span>
+                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0" />
                   <span className="text-[var(--text-secondary)]">{h}</span>
                 </div>
               ))}

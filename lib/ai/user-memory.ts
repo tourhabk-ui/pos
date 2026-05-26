@@ -348,7 +348,7 @@ export interface TripRecord {
 export async function loadTripHistory(userId: string): Promise<TripRecord[]> {
   try {
     // Legacy bookings + operator bookings merged // allow:
-    const legacySQL = `SELECT t.title, b.date::text AS booking_date, b.status, b.participants, NULL::int AS rating FROM bookings b JOIN tours t ON t.id = b.tour_id WHERE b.user_id = $1 ORDER BY b.date DESC LIMIT 10`; // allow:
+    const legacySQL = `SELECT t.title, b.start_date::text AS booking_date, b.booking_status AS status, b.guests_count AS participants, NULL::int AS rating FROM operator_bookings b JOIN operator_tours t ON t.id = b.tour_id WHERE b.user_id = $1 ORDER BY b.start_date DESC LIMIT 10`; // allow:
     const [legacy, opBookings] = await Promise.all([
       pool.query<TripRecord>(legacySQL, [userId]),
       pool.query<TripRecord>(

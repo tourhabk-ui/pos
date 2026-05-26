@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
         COALESCE(AVG(r.rating), 0) as avg_rating,
         COUNT(DISTINCT r.id) as total_reviews
       FROM partners p
-      LEFT JOIN tours t ON p.id = t.operator_id
+      LEFT JOIN operator_tours t ON p.id = t.operator_id
       LEFT JOIN bookings b ON t.id = b.tour_id
       LEFT JOIN reviews r ON t.id = r.tour_id
       WHERE p.user_id = $1`,

@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
         p.name as operator_name,
         p.hero_image as partner_hero_image,
         p.gallery as partner_gallery
-      FROM tours t
+      FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
       ${newSchema ? whereClause : whereClause.replace(/t\.title\s+ILIKE/g, 't.name ILIKE')}
       ORDER BY t.created_at DESC
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
 
     // Подсчёт (аналогично)
     const countBase = (newSchema: boolean) =>
-      `SELECT COUNT(*)::int AS total FROM tours t ${newSchema ? whereClause : whereClause.replace(/t\.title\s+ILIKE/g, 't.name ILIKE')}`;
+      `SELECT COUNT(*)::int AS total FROM operator_tours t ${newSchema ? whereClause : whereClause.replace(/t\.title\s+ILIKE/g, 't.name ILIKE')}`;
     let countResult;
     try {
       countResult = await query<TotalRow>(countBase(true), queryParams.slice(0, -2));
@@ -328,7 +328,7 @@ export async function POST(request: NextRequest) {
     }
 
     const insertQuery = `
-      INSERT INTO tours (
+      INSERT INTO operator_tours (
         title, description, short_description, category, difficulty,
         duration, price, currency, season, coordinates,
         requirements, included, not_included,

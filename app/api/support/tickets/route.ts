@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { ticketService } from '@/lib/services'
+import type { Ticket, TicketFilter } from '@/pillars/support-pillar/services/ticket.service'
 import { CreateTicketSchema, validateInput, CreateTicketInput } from '@/lib/validation/support-schemas'
 import { requireAuth } from '@/lib/auth/middleware'
 
@@ -17,10 +18,10 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const isPrivileged = auth.role === 'admin' || auth.role === 'agent'
 
-    const filter = {
-      status: (searchParams.get('status') || undefined) as any,
-      priority: (searchParams.get('priority') || undefined) as any,
-      category: (searchParams.get('category') || undefined) as any,
+    const filter: TicketFilter = {
+      status: searchParams.get('status') || undefined,
+      priority: searchParams.get('priority') || undefined,
+      category: searchParams.get('category') || undefined,
       customerId: isPrivileged
         ? (searchParams.get('customerId') || undefined)
         : auth.userId,
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
       limit: parseInt(searchParams.get('limit') || '20'),
       sortBy: searchParams.get('sortBy') || 'createdAt',
       sortOrder: searchParams.get('sortOrder') || 'DESC',
-    } as any
+    }
 
     const result = await ticketService.listTickets(filter)
 
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
       ticketData = { ...validation.data, customerId: auth.userId }
     }
 
-    const ticket = await ticketService.createTicket(ticketData as any)
+    const ticket = await ticketService.createTicket(ticketData as Partial<Ticket>)
 
     return NextResponse.json({
       success: true,

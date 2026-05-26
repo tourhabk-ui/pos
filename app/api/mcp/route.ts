@@ -172,7 +172,7 @@ async function getTours(args: Record<string, unknown>): Promise<string> {
   let sql = `
     SELECT t.id, t.title, t.description, t.price, t.duration_days,
            td.start_date, td.available_slots, td.price_override
-    FROM tours t
+    FROM operator_tours t
     LEFT JOIN tour_departures td ON td.tour_id = t.id AND td.status = 'open'
       AND td.start_date >= CURRENT_DATE
     WHERE t.status = 'active'

@@ -367,7 +367,7 @@ export default function FreeDatesPanel() {
                       className="flex-1 py-1.5 text-[10px] font-bold rounded transition-colors"
                       style={{
                         background: formWeekdays.includes(d) ? 'var(--accent)' : 'var(--bg-hover)',
-                        color:      formWeekdays.includes(d) ? '#fff' : 'var(--text-secondary)',
+                        color:      formWeekdays.includes(d) ? 'white' : 'var(--text-secondary)',
                       }}>
                       {label}
                     </button>
@@ -433,7 +433,7 @@ export default function FreeDatesPanel() {
 
             <button type="submit" disabled={submitting}
               className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-opacity"
-              style={{ background: 'var(--accent)', color: '#fff', opacity: submitting ? 0.7 : 1 }}>
+              style={{ background: 'var(--accent)', color: 'white', opacity: submitting ? 0.7 : 1 }}>
               {submitting
                 ? <><div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--bg-primary)] rounded-full animate-spin" /> Открываем даты...</>
                 : <><Zap className="w-4 h-4" /> Открыть даты</>}

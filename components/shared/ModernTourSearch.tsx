@@ -1,5 +1,17 @@
 'use client';
 
+/** Minimal interface for the Web Speech API SpeechRecognition object */
+interface SpeechRecognitionInstance {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: Record<string, unknown>) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
@@ -178,7 +190,7 @@ export function ModernTourSearch() {
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout>();
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   // Memoized activities with icons
     // Пример error handling для поиска (можно расширить на другие async действия)
@@ -206,21 +218,24 @@ export function ModernTourSearch() {
   // Проверка поддержки голосового ввода
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
+      type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+      const w = window as unknown as Record<string, SpeechRecognitionConstructor | undefined>;
+      const SpeechRecognitionCtor: SpeechRecognitionConstructor | undefined = w.SpeechRecognition || w.webkitSpeechRecognition;
+      if (SpeechRecognitionCtor) {
         setVoiceSupported(true);
-        const recognition = new SpeechRecognition();
+        const recognition = new SpeechRecognitionCtor();
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = 'ru-RU';
 
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
+        recognition.onresult = (event: Record<string, unknown>) => {
+          const results = event.results as Array<Array<{ transcript: string }>>;
+          const transcript = results[0]?.[0]?.transcript ?? '';
           setFilters(prev => ({ ...prev, query: transcript }));
           setIsListening(false);
         };
 
-        recognition.onerror = (event: any) => {
+        recognition.onerror = (_event: unknown) => {
           setIsListening(false);
         };
 
@@ -307,7 +322,7 @@ export function ModernTourSearch() {
         const data = await response.json();
 
         if (data.success && data.data?.availableTransfers) {
-          setResults(data.data.availableTransfers.map((t: any) => ({
+          setResults(data.data.availableTransfers.map((t: import('@/types/transfer').TransferOption) => ({
             id: t.scheduleId,
             title: `${t.route.fromLocation} → ${t.route.toLocation}`,
             description: `Трансфер на ${t.vehicle.vehicleType}`,
@@ -324,7 +339,7 @@ export function ModernTourSearch() {
             toLocation: t.route.toLocation,
             departureTime: t.departureTime,
             vehicleType: t.vehicle.vehicleType,
-            operatorName: t.operatorName,
+            operatorName: t.operator?.name,
             availableSeats: t.availableSeats,
           } as TourResult & TransferResult)));
           setSearchMode('sql');
@@ -358,7 +373,7 @@ export function ModernTourSearch() {
       const data = await response.json();
 
       if (data.success && data.data) {
-        setResults(data.data.map((tour: any) => ({ ...tour, isEco: tour.ecoFriendly || false })));
+        setResults(data.data.map((tour: Record<string, unknown>) => ({ ...tour, isEco: tour.ecoFriendly || false })) as TourResult[]);
       }
       setSearchMode('sql');
     } catch {
@@ -637,7 +652,7 @@ export function ModernTourSearch() {
                   <select 
                     id="filter-difficulty"
                     value={filters.difficulty}
-                    onChange={(e) => setFilters(prev => ({ ...prev, difficulty: e.target.value as any }))}
+                    onChange={(e) => setFilters(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' | 'any' }))}
                     className="filter-select w-full p-3 border border-[var(--border)] rounded-lg bg-[var(--bg-card)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] text-sm"
                     aria-label="Сложность тура"
                   >

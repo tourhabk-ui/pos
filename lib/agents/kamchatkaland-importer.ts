@@ -14,7 +14,7 @@
 import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } }).JSDOM;
 
 const BASE = 'https://kamchatkaland.ru';
 const SOURCE_NAME = 'kamchatkaland.ru';
@@ -133,10 +133,16 @@ async function upsertArticle(
   const dedupeKey = `kl_${slug}`;
   const title = ARTICLE_TITLES[slug] ?? slug.replace(/-/g, ' ');
   const url = `${BASE}/note/${slug}`;
-  const searchText = `${title} ${description}`.slice(0, 3000);
   const sourceHash = createHash('md5').update(description).digest('hex');
-
-  const metadata = JSON.stringify({ location_type: meta.location_type, source_hash: sourceHash, search_text: searchText });
+  const searchText = `${title} ${description}`.slice(0, 3000);
+  const metadata = JSON.stringify({
+    category: meta.category,
+    activity_type: meta.activity_type,
+    location_type: meta.location_type,
+    source_hash: sourceHash,
+    search_text: searchText,
+    import_source: SOURCE_NAME,
+  });
   const routeSlug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
 
   const { rowCount } = await pool.query(

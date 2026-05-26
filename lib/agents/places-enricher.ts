@@ -14,10 +14,10 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callDeepSeek } from '@/lib/ai/providers';
+import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } }).JSDOM;
 
 export interface PlacesEnricherResult {
   matched: number;
@@ -162,7 +162,7 @@ async function rewriteDescription(title: string, rawDesc: string): Promise<strin
     },
   ];
   try {
-    const result = await callDeepSeek(messages);
+    const result = await callAIWaterfall(messages);
     return result?.trim() ?? null;
   } catch (e) {
     process.stdout.write(`  rewrite error: ${e instanceof Error ? e.message : String(e)}\n`);

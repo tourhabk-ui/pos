@@ -89,7 +89,7 @@ export default function WidgetPage() {
 
   if (error) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#6B6560' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
         {error}
       </div>
     );
@@ -97,7 +97,7 @@ export default function WidgetPage() {
 
   if (!config) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#6B6560' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
         Загрузка...
       </div>
     );
@@ -135,7 +135,7 @@ export default function WidgetPage() {
           <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.2 }}>
             {config.name}
           </div>
-          <div style={{ fontSize: 11, color: '#6B6560' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
             AI-помощник TourHub
           </div>
         </div>

@@ -215,13 +215,13 @@ function DayCell({
       <div className="flex flex-wrap gap-0.5 w-full">
         {newCount > 0 && (
           <span className="text-[9px] font-bold px-1 py-0.5 rounded"
-            style={{ background: 'var(--warning)', color: '#fff' }}>
+            style={{ background: 'var(--warning)', color: 'white' }}>
             {newCount}
           </span>
         )}
         {confCnt > 0 && (
           <span className="text-[9px] font-bold px-1 py-0.5 rounded"
-            style={{ background: 'var(--success)', color: '#fff' }}>
+            style={{ background: 'var(--success)', color: 'white' }}>
             {confCnt}
           </span>
         )}
@@ -310,7 +310,7 @@ function BookingCard({
             <button onClick={() => onStatusChange(booking.id, 'confirmed')}
               disabled={isUpdating}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors"
-              style={{ background: 'var(--success)', color: '#fff' }}>
+              style={{ background: 'var(--success)', color: 'white' }}>
               {isUpdating
                 ? <div className="w-3 h-3 border border-[var(--border)] border-t-[var(--bg-primary)] rounded-full animate-spin" />
                 : <Check className="w-3.5 h-3.5" />}
@@ -328,7 +328,7 @@ function BookingCard({
             <button onClick={() => onStatusChange(booking.id, 'completed')}
               disabled={isUpdating}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors"
-              style={{ background: 'var(--ocean)', color: '#fff' }}>
+              style={{ background: 'var(--ocean)', color: 'white' }}>
               <CheckCircle2 className="w-3.5 h-3.5" />
               Завершить
             </button>
