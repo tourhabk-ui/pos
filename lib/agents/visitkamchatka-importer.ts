@@ -228,6 +228,9 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
 
   const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
 
+  const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
+  const metadata = JSON.stringify({ ...JSON.parse(payload), source_hash: sourceHash, search_text: searchText });
+
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes
        (id, dedupe_key, slug, title, description, category, activity_type,
