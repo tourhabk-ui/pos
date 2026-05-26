@@ -5,6 +5,12 @@ import { requireAdmin } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+const ALLOWED_FIELDS = new Set([
+  'slug', 'incident_date', 'title', 'location_name', 'location_type',
+  'casualties', 'injured', 'description', 'cause', 'lessons',
+  'mchs_involved', 'source_url',
+]);
+
 const PatchSchema = z.object({
   slug:          z.string().min(3).max(120).regex(/^[a-z0-9-]+$/).optional(),
   incident_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -45,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   let idx = 1;
 
   for (const [key, val] of Object.entries(d)) {
-    if (val !== undefined) {
+    if (val !== undefined && ALLOWED_FIELDS.has(key)) {
       fields.push(`${key} = $${idx++}`);
       values.push(val);
     }

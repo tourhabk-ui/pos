@@ -1,23 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { callAIWaterfall } from '@/lib/ai/providers';
 
 export const runtime = 'edge';
 
 const deepseekLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
-
-interface DeepSeekMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-interface DeepSeekRequest {
-  model: string;
-  messages: DeepSeekMessage[];
-  temperature?: number;
-  max_tokens?: number;
-  stream?: boolean;
-}
 
 const DeepSeekChatSchema = z.object({
   message: z.string().min(1, 'Сообщение обязательно'),
@@ -43,20 +31,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const { message, context } = parsed.data;
+    const { message } = parsed.data;
 
-    // DeepSeek API Key (добавьте в .env)
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
-
-    if (!apiKey) {
-      return NextResponse.json({
-        success: false,
-        error: 'DeepSeek API key not configured',
-      }, { status: 500 });
-    }
-
-    // Системный промпт для AI.Kam
-    const systemPrompt = `Ты AI.Kam - умный помощник по Камчатке. 
+    const systemPrompt = `Ты AI.Kam - умный помощник по Камчатке.
 
 Твоя роль:
 - Помогать туристам узнать о Камчатке
@@ -76,47 +53,15 @@ export async function POST(request: NextRequest) {
 
 Отвечай кратко, по-русски, с эмодзи для наглядности.`;
 
-    const messages: DeepSeekMessage[] = [
+    const aiMessage = await callAIWaterfall([
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: message }
-    ];
-
-    // Запрос к DeepSeek API
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages,
-        temperature: 0.7,
-        max_tokens: 500,
-        stream: false,
-      } as DeepSeekRequest),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to get response from AI',
-        details: errorData,
-      }, { status: response.status });
-    }
-
-    const data = await response.json();
-    
-    const aiMessage = data.choices[0]?.message?.content || 'Извините, не смог обработать запрос.';
+      { role: 'user', content: message },
+    ]);
 
     return NextResponse.json({
       success: true,
       data: {
         message: aiMessage,
-        model: data.model,
-        usage: data.usage,
       },
     });
 
@@ -130,15 +75,12 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/ai/deepseek/status - Проверка статуса API
-export async function GET(request: NextRequest) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  
+export async function GET(_request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
-      configured: !!apiKey,
-      model: 'deepseek-chat',
-      endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      configured: true,
+      model: 'waterfall',
     },
   });
 }

@@ -6,8 +6,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { callAnthropicRaw } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
+
+const ALLOWED_FIELDS = new Set([
+  'short_description', 'difficulty', 'included', 'not_included', 'what_to_bring',
+  'duration_hours', 'duration_type', 'location_name', 'latitude', 'longitude', 'notes',
+]);
 
 interface TourData {
   id: string;
@@ -83,27 +89,11 @@ Rules:
 - latitude/longitude: must be realistic Kamchatka coordinates (50-60°N, 155-165°E)
 - notes: include useful local knowledge about the location or activity season`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-6',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  const responseText = await callAnthropicRaw('', prompt, 'claude-opus-4-6', 500, 0.2);
 
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${response.statusText}`);
+  if (!responseText) {
+    throw new Error('AI service unavailable');
   }
-
-  const data = await response.json() as { content: Array<{ type: string; text: string }> };
-  const responseText =
-    data.content[0]?.type === 'text' ? data.content[0].text : '{}';
 
   // Parse JSON response
   const parsed = JSON.parse(responseText);
@@ -236,6 +226,7 @@ export async function POST(request: NextRequest) {
     }
 
     const setClause = Object.entries(updates)
+      .filter(([key]) => ALLOWED_FIELDS.has(key))
       .map(([key, val]) => `${key} = ${val}`)
       .join(', ');
 

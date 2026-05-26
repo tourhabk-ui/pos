@@ -24,11 +24,10 @@ import { safeMsg } from '@/lib/errors/sanitize';
 import { query } from '@/lib/database';
 import { getSystemPrompt, buildMessageHistory, type ChatMessage, type ChatRole } from '@/lib/ai/prompts';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
-import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIWithModelDirect, callOpenRouterStream } from '@/lib/ai/providers';
 import { extractAndEncryptInterests } from '@/lib/ai/interest-extractor';
 import {
   loadUserMemory,
@@ -116,35 +115,13 @@ async function saveSession(
 }
 
 async function streamViaOpenRouter(messages: ChatMessage[]): Promise<Response | null> {
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
-
-  const payload = messages.map((m) => ({ role: m.role, content: m.content }));
-
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Ведар Chat Stream',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: payload,
-        temperature: 0.5,
-        max_tokens: 800,
-        stream: true,
-      }),
-      signal: AbortSignal.timeout(25_000),
-    });
-
-    if (!response.ok || !response.body) return null;
-    return response;
-  } catch {
-    return null;
-  }
+  const response = await callOpenRouterStream(
+    messages,
+    'openai/gpt-4o-mini',
+    AbortSignal.timeout(25_000),
+  );
+  if (!response?.ok || !response.body) return null;
+  return response;
 }
 
 export async function POST(request: NextRequest) {
