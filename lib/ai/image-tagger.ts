@@ -3,6 +3,8 @@
  * Использует Claude Vision API (Anthropic) для анализа изображений
  */
 
+import { callAnthropicVision } from '@/lib/ai/providers';
+
 export interface TourImageTags {
   landscape: string[];
   activity: string[];
@@ -57,12 +59,7 @@ function parseTagsFromText(text: string): TourImageTags {
   };
 }
 
-// ── Anthropic Claude Vision анализ ───────────────────────────
-async function analyzeWithClaude(imageUrl: string): Promise<TourImageTags | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-
-  const prompt = `Analyze this Kamchatka tourism photo and return JSON tags ONLY.
+const VISION_PROMPT = `Analyze this Kamchatka tourism photo and return JSON tags ONLY.
 
 Return STRICTLY this JSON format:
 {
@@ -78,40 +75,11 @@ Rules:
 - difficulty: easy=flat trail/family, moderate=hills/some gear, extreme=glacier/summit
 - Return ONLY the JSON object, no other text`;
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 300,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'url', url: imageUrl } },
-              { type: 'text', text: prompt },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      return null;
-    }
-
-    const data = await res.json();
-    const text = data?.content?.[0]?.text ?? '';
-    const raw = parseTagsFromText(text);
-    return sanitizeTags(raw);
-  } catch (err) {
-    return null;
-  }
+// ── Anthropic Claude Vision анализ ───────────────────────────
+async function analyzeWithClaude(imageUrl: string): Promise<TourImageTags | null> {
+  const text = await callAnthropicVision(imageUrl, VISION_PROMPT, 300);
+  if (!text) return null;
+  return sanitizeTags(parseTagsFromText(text));
 }
 
 // ── Основная функция: теггинг одного изображения ─────────────

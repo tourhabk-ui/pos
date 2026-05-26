@@ -11,6 +11,7 @@
  */
 
 import { query } from '@/lib/database';
+import { callAnthropicRaw } from '@/lib/ai/providers';
 
 // ─────────────────────────────────────────────────────────────────
 // Типы
@@ -112,56 +113,13 @@ interface AgentRouteRecord {
   source_name: string | null;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Общий помощник: вызов Anthropic Claude
-// Паттерн из lib/ai/image-tagger.ts
-// ─────────────────────────────────────────────────────────────────
-
 async function callClaude(
   systemPrompt: string,
   userContent: string,
   maxTokens: number,
   temperature = 0.2
 ): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-6',
-        max_tokens: maxTokens,
-        temperature,
-        // Cache the static agent persona prompt — reused across many agent calls in a round
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
-
-    if (!res.ok) return null;
-
-    const data: unknown = await res.json();
-    if (
-      data !== null &&
-      typeof data === 'object' &&
-      'content' in data &&
-      Array.isArray((data as Record<string, unknown>).content)
-    ) {
-      const content = (data as { content: Array<Record<string, unknown>> }).content;
-      const item = content[0];
-      return typeof item?.text === 'string' ? item.text : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return callAnthropicRaw(systemPrompt, userContent, 'claude-opus-4-6', maxTokens, temperature, true);
 }
 
 // ─────────────────────────────────────────────────────────────────

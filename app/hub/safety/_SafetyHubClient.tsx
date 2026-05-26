@@ -368,10 +368,16 @@ export default function SafetyHubClient() {
       // ── NON-STREAMING FALLBACK ─────────────────────────────────
       } else {
         const data = await res.json() as { reply?: string; error?: string };
-        setRescueMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.reply ?? data.error ?? 'Нет ответа. При угрозе — 112.',
-        }]);
+        if (!res.ok || data.error || !data.reply) {
+          // Провайдеры недоступны → локальный протокол + экстренные номера
+          const local = getLocalProtocol(text);
+          const fallback = local
+            ? `${local}\n\n───\nAI-связь недоступна. При угрозе жизни: 112 | 8 (4152) 41-03-03 (ПАСС)`
+            : 'Связь с AI потеряна. Позвоните: 112 или 8 (4152) 41-03-03 (ПАСС Камчатки)\n\n3 свистка подряд = сигнал бедствия.';
+          setRescueMessages(prev => [...prev, { role: 'assistant', content: fallback }]);
+        } else {
+          setRescueMessages(prev => [...prev, { role: 'assistant', content: data.reply! }]);
+        }
       }
 
     } catch {

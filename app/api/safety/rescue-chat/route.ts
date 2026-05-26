@@ -185,8 +185,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ── NON-STREAMING FALLBACK ──────────────────────────────────────────────────
+  // callAIWaterfall никогда не кидает — при полном отказе всех провайдеров
+  // возвращает sentinel-строку. Детектируем это и возвращаем 503 явно,
+  // чтобы клиент мог показать локальный протокол с номерами 112.
   try {
     const reply = await callAIWaterfall(messages);
+    if (!reply || reply.startsWith('Извините, сервис') || reply.startsWith('Сервис временно')) {
+      throw new Error('providers_unavailable');
+    }
     return NextResponse.json({ reply });
   } catch {
     return NextResponse.json(

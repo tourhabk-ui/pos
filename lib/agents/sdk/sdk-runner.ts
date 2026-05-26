@@ -10,7 +10,7 @@
  *   SDK:      message → Claude → [tool?] → execute → Claude → [tool?] → ... → ответ (N вызовов)
  */
 
-import { getOpenRouterKey } from '@/lib/ai/provider-config';
+import { callOpenRouterIteration, type ORIterationMessage, type ORToolDef } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -46,32 +46,6 @@ export interface SDKRunResult {
   outputTokens:    number;
 }
 
-interface ORMessage {
-  role:         'system' | 'user' | 'assistant' | 'tool';
-  content:      string | null;
-  tool_calls?:  ORToolCall[];
-  tool_call_id?: string;
-  name?:        string;
-}
-
-interface ORToolCall {
-  id:       string;
-  type:     'function';
-  function: { name: string; arguments: string };
-}
-
-interface ORResponse {
-  choices: Array<{
-    message: {
-      role:        string;
-      content:     string | null;
-      tool_calls?: ORToolCall[];
-    };
-    finish_reason: string;
-  }>;
-  usage?: { prompt_tokens: number; completion_tokens: number };
-}
-
 // ── Core Runner ───────────────────────────────────────────────────────────────
 
 export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult> {
@@ -82,18 +56,15 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
     experimentId,
   } = config;
 
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) throw new Error('OR_API_KEY не настроен');
-
   const startMs = Date.now();
-  const messages: ORMessage[] = [
+  const messages: ORIterationMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user',   content: userMessage },
   ];
 
-  const toolDefs = tools.map(t => ({
+  const toolDefs: ORToolDef[] = tools.map(t => ({
     type:     'function' as const,
-    function: { name: t.name, description: t.description, parameters: t.parameters },
+    function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
   }));
 
   const toolMap = new Map(tools.map(t => [t.name, t]));
@@ -108,49 +79,21 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
   while (iterations < maxIterations) {
     iterations++;
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method:  'POST',
-      headers: {
-        'Authorization':    `Bearer ${apiKey}`,
-        'Content-Type':     'application/json',
-        'X-Title':          'KamchatourHub Agent SDK',
-        'HTTP-Referer':     'https://vedarai.ru',
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        tools:       toolDefs.length > 0 ? toolDefs : undefined,
-        tool_choice: toolDefs.length > 0 ? 'auto'    : undefined,
-        max_tokens:  2048,
-        temperature: 0.3,
-      }),
-    });
+    const iteration = await callOpenRouterIteration(messages, toolDefs, model);
+    inputTokens  += iteration.usage?.prompt_tokens     ?? 0;
+    outputTokens += iteration.usage?.completion_tokens ?? 0;
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 300)}`);
-    }
-
-    const data = await res.json() as ORResponse;
-    inputTokens  += data.usage?.prompt_tokens     ?? 0;
-    outputTokens += data.usage?.completion_tokens ?? 0;
-
-    const choice = data.choices[0];
-    if (!choice) throw new Error('OpenRouter: пустой ответ');
-
-    const assistantMsg = choice.message;
     messages.push({
       role:       'assistant',
-      content:    assistantMsg.content,
-      tool_calls: assistantMsg.tool_calls,
+      content:    iteration.content,
+      tool_calls: iteration.tool_calls,
     });
 
     // ── Финальный ответ ─────────────────────────────────────────────────
-    if (choice.finish_reason === 'stop' || !assistantMsg.tool_calls?.length) {
-      const response = assistantMsg.content ?? '';
+    if (iteration.finish_reason === 'stop' || !iteration.tool_calls?.length) {
+      const response = iteration.content ?? '';
       const durationMs = Date.now() - startMs;
 
-      // Логируем сессию
       await logSession({
         agentId, intent, variant: 'sdk', experimentId,
         toolCallsCount, iterations, inputTokens, outputTokens,
@@ -163,7 +106,7 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
     }
 
     // ── Выполняем tool calls ─────────────────────────────────────────────
-    for (const call of assistantMsg.tool_calls ?? []) {
+    for (const call of iteration.tool_calls ?? []) {
       const toolName = call.function.name;
       const tool = toolMap.get(toolName);
       const callStart = Date.now();

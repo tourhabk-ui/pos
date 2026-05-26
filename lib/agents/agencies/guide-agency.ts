@@ -21,7 +21,7 @@ interface ScheduleRow {
   start_date: string;
   end_date: string | null;
   booked_slots: number;
-  status: string;
+  booking_status: string;
 }
 
 interface GroupsRow {
@@ -65,20 +65,19 @@ export class GuideAgency {
     try {
       const { rows } = await pool.query<ScheduleRow>(
         `SELECT
-           b.id            AS booking_id,
-           t.title         AS tour_title,
-           td.start_date::text AS start_date,
-           td.end_date::text   AS end_date,
-           td.booked_slots,
-           b.status
-         FROM operator_bookings b
-         JOIN tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
-           AND b.booking_status = 'confirmed'
-           AND td.start_date >= CURRENT_DATE
-           AND b.deleted_at IS NULL
-         ORDER BY td.start_date
+           ob.id              AS booking_id,
+           t.title            AS tour_title,
+           ob.booking_date::text AS start_date,
+           NULL::text            AS end_date,
+           ob.participants    AS booked_slots,
+           ob.booking_status
+         FROM operator_bookings ob
+         JOIN operator_tours t ON t.id = ob.operator_tour_id
+         WHERE t.operator_id = $1
+           AND ob.booking_status = 'confirmed'
+           AND ob.booking_date >= CURRENT_DATE
+           AND ob.deleted_at IS NULL
+         ORDER BY ob.booking_date
          LIMIT 10`,
         [context.user.userId]
       );
@@ -90,7 +89,7 @@ export class GuideAgency {
       const lines = ['<b>Ваше расписание:</b>', ''];
       for (const r of rows) {
         const dates = r.end_date ? `${r.start_date} — ${r.end_date}` : r.start_date;
-        lines.push(`${r.tour_title} | ${dates} | ${r.booked_slots} чел | ${r.status}`);
+        lines.push(`${r.tour_title} | ${dates} | ${r.booked_slots} чел | ${r.booking_status}`);
       }
 
       return { response: lines.join('\n'), data: { schedule: rows } };
@@ -108,15 +107,14 @@ export class GuideAgency {
     try {
       const { rows } = await pool.query<GroupsRow>(
         `SELECT
-           COUNT(DISTINCT b.id)::text         AS active_groups,
-           COALESCE(SUM(td.booked_slots), 0)::text AS total_tourists
-         FROM operator_bookings b
-         JOIN tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
-           AND b.booking_status = 'confirmed'
-           AND td.start_date >= CURRENT_DATE
-           AND b.deleted_at IS NULL`,
+           COUNT(DISTINCT ob.id)::text                AS active_groups,
+           COALESCE(SUM(ob.participants), 0)::text    AS total_tourists
+         FROM operator_bookings ob
+         JOIN operator_tours t ON t.id = ob.operator_tour_id
+         WHERE t.operator_id = $1
+           AND ob.booking_status = 'confirmed'
+           AND ob.booking_date >= CURRENT_DATE
+           AND ob.deleted_at IS NULL`,
         [context.user.userId]
       );
 
@@ -139,14 +137,13 @@ export class GuideAgency {
     try {
       const { rows } = await pool.query<EarningsRow>(
         `SELECT
-           COUNT(DISTINCT b.id)::text                                   AS completed_tours,
-           SUM(COALESCE(td.price_override, t.price, 0) * td.booked_slots)::text AS estimated_earnings
-         FROM operator_bookings b
-         JOIN tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
-           AND b.booking_status = 'confirmed'
-           AND b.deleted_at IS NULL`,
+           COUNT(DISTINCT ob.id)::text              AS completed_tours,
+           COALESCE(SUM(ob.final_price), 0)::text   AS estimated_earnings
+         FROM operator_bookings ob
+         JOIN operator_tours t ON t.id = ob.operator_tour_id
+         WHERE t.operator_id = $1
+           AND ob.booking_status = 'confirmed'
+           AND ob.deleted_at IS NULL`,
         [context.user.userId]
       );
 

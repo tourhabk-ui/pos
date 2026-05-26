@@ -195,8 +195,8 @@ async function getNewSlugs(slugs: string[]): Promise<string[]> {
 // ── Получить slug'и с NULL/короткими описаниями для обновления ────
 
 async function getSlugsNeedingUpdate(limit: number): Promise<string[]> {
-  const { rows } = await pool.query<{ dedupe_key: string }>(
-    `SELECT dedupe_key FROM kamchatka_routes
+  const { rows } = await pool.query<{ route_dedupe_key: string }>(
+    `SELECT dedupe_key AS route_dedupe_key FROM kamchatka_routes
      WHERE source_name = $1
        AND (description IS NULL OR LENGTH(description) < 300)
        AND dedupe_key LIKE 'vk_%'
@@ -204,7 +204,7 @@ async function getSlugsNeedingUpdate(limit: number): Promise<string[]> {
      LIMIT $2`,
     [SOURCE_NAME, limit],
   );
-  return rows.map(r => r.dedupe_key.replace(/^vk_/, ''));
+  return rows.map(r => r.route_dedupe_key.replace(/^vk_/, ''));
 }
 
 // ── Upsert одного маршрута ────────────────────────────────────────
@@ -213,34 +213,38 @@ async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | '
   if (!p.description || p.description.length < 80) return 'skipped';
 
   const dedupeKey = `vk_${p.slug}`;
+  const sourceHash = createHash('md5').update(p.description).digest('hex');
+  const searchText = [p.title, p.description, p.difficulty, p.season, p.activity_type]
+    .filter(Boolean).join(' ').slice(0, 3000);
   const metadata = JSON.stringify({
     distance_km: p.distance_km,
     duration_h: p.duration_h,
     difficulty: p.difficulty,
     season: p.season,
     hazards: p.hazards,
-    source_hash: createHash('md5').update(p.description).digest('hex'),
+    source_hash: sourceHash,
+    search_text: searchText,
   });
+
+  const slug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
 
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes
-       (id, dedupe_key, title, description, category, activity_type,
-        lat, lng, source_url, source_name, metadata,
-        is_visible, created_at, updated_at)
+       (id, dedupe_key, slug, title, description, category, activity_type,
+        lat, lng, source_url, source_name, metadata, is_visible, created_at, updated_at)
      VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5,
-       $6, $7, $8, $9, $10::jsonb,
-       true, NOW(), NOW()
+       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+       $7, $8, $9, $10, $11::jsonb, true, NOW(), NOW()
      )
      ON CONFLICT (dedupe_key) DO UPDATE SET
        description   = EXCLUDED.description,
-       category      = COALESCE(EXCLUDED.category, kamchatka_routes.category),
+       category      = COALESCE(EXCLUDED.category,      kamchatka_routes.category),
        activity_type = COALESCE(EXCLUDED.activity_type, kamchatka_routes.activity_type),
-       lat           = COALESCE(EXCLUDED.lat, kamchatka_routes.lat),
-       lng           = COALESCE(EXCLUDED.lng, kamchatka_routes.lng),
-       metadata      = EXCLUDED.metadata,
+       lat           = COALESCE(EXCLUDED.lat,           kamchatka_routes.lat),
+       lng           = COALESCE(EXCLUDED.lng,           kamchatka_routes.lng),
+       metadata      = EXCLUDED.metadata::jsonb,
        updated_at    = NOW()`,
-    [dedupeKey, p.title, p.description, p.category, p.activity_type,
+    [dedupeKey, slug, p.title, p.description, p.category, p.activity_type,
      p.lat, p.lng, p.url, SOURCE_NAME, metadata],
   );
 

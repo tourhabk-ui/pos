@@ -134,29 +134,30 @@ async function upsertArticle(
   const title = ARTICLE_TITLES[slug] ?? slug.replace(/-/g, ' ');
   const url = `${BASE}/note/${slug}`;
   const sourceHash = createHash('md5').update(description).digest('hex');
+  const searchText = `${title} ${description}`.slice(0, 3000);
   const metadata = JSON.stringify({
     category: meta.category,
     activity_type: meta.activity_type,
     location_type: meta.location_type,
     source_hash: sourceHash,
+    search_text: searchText,
     import_source: SOURCE_NAME,
   });
+  const routeSlug = dedupeKey.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-');
 
   const { rowCount } = await pool.query(
     `INSERT INTO kamchatka_routes
-       (id, dedupe_key, title, description, category, activity_type,
-        source_url, source_name, metadata, is_visible,
-        created_at, updated_at)
+       (id, dedupe_key, slug, title, description, category, activity_type,
+        source_url, source_name, metadata, is_visible, created_at, updated_at)
      VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5,
-       $6, $7, $8::jsonb, true,
-       NOW(), NOW()
+       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+       $7, $8, $9::jsonb, true, NOW(), NOW()
      )
      ON CONFLICT (dedupe_key) DO UPDATE SET
        description = EXCLUDED.description,
-       metadata    = EXCLUDED.metadata,
+       metadata    = EXCLUDED.metadata::jsonb,
        updated_at  = NOW()`,
-    [dedupeKey, title, description, meta.category, meta.activity_type,
+    [dedupeKey, routeSlug, title, description, meta.category, meta.activity_type,
      url, SOURCE_NAME, metadata],
   );
 
