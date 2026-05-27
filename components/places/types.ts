@@ -98,7 +98,7 @@ export interface PlaceData {
   zone: string | null;
   district: string | null;
   photoUrl: string | null;
-  images: unknown[];
+  images: string[];
   photoCount: number;
   bestSeason: string | null;
   seasonalNotes: Record<string, string> | null;
