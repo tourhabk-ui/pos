@@ -1,0 +1,62 @@
+patterns:
+  # ── Hardcoded secrets ────────────────────────────────────────────
+  - rule_name: hardcoded_openrouter_key
+    substrings: ["sk-or-v1-"]
+    reminder: "Хардкод OpenRouter ключа. Используй process.env.OR_API_KEY через getOpenRouterKey()."
+
+  - rule_name: hardcoded_anthropic_key
+    substrings: ["sk-ant-"]
+    reminder: "Хардкод Anthropic ключа. Используй process.env.ANTHROPIC_API_KEY через getAnthropicKey()."
+
+  - rule_name: hardcoded_jwt_secret
+    substrings: ["JWT_SECRET=", "jwt_secret="]
+    reminder: "JWT_SECRET в коде запрещён. Только через .env.local."
+
+  # ── SQL injection риски ──────────────────────────────────────────
+  - rule_name: sql_string_concat
+    regex: "(query|pool\\.query)\\([^)]*\\+\\s*[a-zA-Z]"
+    paths: ["**/*.ts"]
+    reminder: "Конкатенация строк в SQL запросе — используй параметризованные запросы ($1, $2)."
+
+  - rule_name: sql_template_literal_injection
+    regex: "pool\\.query\\(`[^`]*\\$\\{(?!\\d)"
+    paths: ["**/*.ts"]
+    reminder: "Интерполяция переменных в SQL через шаблонные строки — используй параметры $1, $2."
+
+  # ── AI провайдеры ────────────────────────────────────────────────
+  - rule_name: direct_ai_provider_call
+    substrings: ["callAnthropicRaw(", "callOpenrouter(", "callDeepSeek(", "callMiMo("]
+    paths: ["**/app/**/*.ts", "**/lib/**/*.ts"]
+    exclude_paths: ["**/lib/ai/providers.ts", "**/cron/health/**", "**/telegram/admin/**"]
+    reminder: "Прямой вызов AI провайдера. Используй callAIWaterfall() или callAIFast() из lib/ai/providers."
+
+  # ── Запрещённые таблицы ──────────────────────────────────────────
+  - rule_name: direct_kamchatka_routes_read
+    regex: "FROM\\s+kamchatka_routes"
+    paths: ["**/app/api/**/*.ts"]
+    reminder: "SELECT из kamchatka_routes напрямую запрещён. Используй FROM v_kamchatka_routes_api."
+
+  - rule_name: select_star
+    regex: "SELECT \\* FROM (?!sqlite_|pg_|information_schema)"
+    paths: ["**/app/api/**/*.ts", "**/lib/**/*.ts"]
+    reminder: "SELECT * → укажи явные колонки."
+
+  # ── Auth проверки ────────────────────────────────────────────────
+  - rule_name: missing_auth_in_api
+    regex: "export async function (POST|PUT|PATCH|DELETE)\\("
+    paths: ["**/app/api/**/*.ts"]
+    exclude_paths: ["**/app/api/auth/**", "**/app/api/webhook**", "**/app/api/payments/**"]
+    reminder: "Мутирующий метод без явной auth проверки? Убедись что есть requireAuth/requireAdmin/requireOperator."
+
+  # ── Запрещённые паттерны кода ────────────────────────────────────
+  - rule_name: console_log_production
+    regex: "console\\.log\\("
+    paths: ["**/app/**/*.ts", "**/app/**/*.tsx", "**/components/**/*.tsx", "**/lib/**/*.ts"]
+    exclude_paths: ["**/lib/database/migrate.ts", "**/scripts/**", "**/*.test.ts"]
+    reminder: "console.log в продакшн-коде запрещён."
+
+  - rule_name: any_type_usage
+    regex: ":\\s*any[\\s;,)]"
+    paths: ["**/*.ts", "**/*.tsx"]
+    exclude_paths: ["**/*.d.ts", "**/node_modules/**"]
+    reminder: "Тип any запрещён. Используй unknown + type guards или конкретный тип."

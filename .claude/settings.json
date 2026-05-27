@@ -1,4 +1,7 @@
 {
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": true
+  },
   "permissions": {
     "defaultMode": "auto",
     "allow": [
