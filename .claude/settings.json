@@ -49,14 +49,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null); result=$(cd \"$root\" && npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
+            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null); [ -f \"$root/CLAUDE.md\" ] || exit 0; result=$(cd \"$root\" && npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
             "if": "Bash(git commit*)",
             "timeout": 60,
             "statusMessage": "TypeScript проверка перед коммитом..."
           },
           {
             "type": "command",
-            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null); bash \"$root/.claude/hooks/db-schema-check.sh\"",
+            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null); [ -f \"$root/CLAUDE.md\" ] || exit 0; bash \"$root/.claude/hooks/db-schema-check.sh\"",
             "if": "Bash(git commit*)",
             "timeout": 10,
             "statusMessage": "DB schema проверка..."
