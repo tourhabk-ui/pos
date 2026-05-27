@@ -1,6 +1,7 @@
 # Ведар — Claude Code Rules
 
 > Туристическая платформа Камчатки. Цель: рабочий задеплоенный код без регрессий.
+> Платформа также известна как **TourHab** / **Volcano OS**.
 > Подробности об архитектуре, сервисах и хитростях — в `.claude/MEMORY.md`.
 
 **Перед любой работой над UI или продуктом — читать:**
@@ -139,6 +140,9 @@ _*Client.tsx  — client (логика, useState)
 lib/services/lead-processor.service.ts — AI Lead Processor (квалификация лидов)
 lib/pdf/proposal-generator.ts          — PDF-предложения (PDFKit)
 lib/notifications/lead-notify.ts       — Telegram-нотификации о лидах
+scripts/import-tours.js                — импорт туров из внешних источников
+scripts/scrape-idilesom.js             — скрейп idilesom.ru (данные маршрутов)
+scripts/scrape-idilesom-direct.js      — прямой скрейп idilesom.ru
 ```
 
 ---
@@ -226,6 +230,8 @@ guide_certifications (112)         ← аттестации гидов
 ---
 
 ## 5. ПРОЦЕСС
+
+**Offline-first**: ключевые функции (карта, SOS, маршруты) должны работать без интернета.
 
 Перед кодом — план: что меняешь, какие файлы затронуты, риски.
 
