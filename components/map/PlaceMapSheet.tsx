@@ -101,6 +101,9 @@ export default function PlaceMapSheet({ placeId, initialData, userPos, isOffline
       {/* Sheet */}
       <div
         className="fixed bottom-0 left-0 right-0 z-[750] bg-[var(--bg-card)] rounded-t-2xl shadow-2xl flex flex-col"
+
+      {/* Sheet */}
+      <div
         style={{ animation: 'slideUp 0.25s ease-out', maxHeight: '65vh' }}
       >
         {/* Pull handle */}
