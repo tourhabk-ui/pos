@@ -58,7 +58,7 @@ export default function OfflineGPSBanner() {
               aria-label="Скопировать координаты"
               className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors"
               style={{
-                background: 'rgba(255,255,255,0.08)',
+                background: 'var(--border)',
                 color: copied ? 'var(--success)' : 'var(--text-secondary)',
               }}
             >

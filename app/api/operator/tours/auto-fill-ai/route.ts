@@ -6,7 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
-import { callAnthropicRaw } from '@/lib/ai/providers';
+import { callAIWithModel } from '@/lib/ai/providers';
+import type { ChatMessage } from '@/lib/ai/prompts';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,10 @@ Rules:
 - latitude/longitude: must be realistic Kamchatka coordinates (50-60°N, 155-165°E)
 - notes: include useful local knowledge about the location or activity season`;
 
-  const responseText = await callAnthropicRaw('', prompt, 'claude-opus-4-6', 500, 0.2);
+  const msgs: ChatMessage[] = [{ role: 'user', content: prompt }];
+  const result = await callAIWithModel(msgs, 'anthropic/claude-opus-4-6',
+    { maxTokens: 500, temperature: 0.2, jsonMode: true });
+  const responseText = result.text;
 
   if (!responseText) {
     throw new Error('AI service unavailable');

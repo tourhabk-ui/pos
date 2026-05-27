@@ -52,12 +52,12 @@ export async function GET(request: NextRequest) {
     );
 
     const recentReviews = await query(
-      `SELECT * FROM tourist_reviews WHERE tourist_id = $1 ORDER BY created_at DESC LIMIT 5`,
+      `SELECT id, tourist_id, tour_id, rating, comment, created_at FROM tourist_reviews WHERE tourist_id = $1 ORDER BY created_at DESC LIMIT 5`,
       [profile.id]
     );
 
     const upcomingTrips = await query(
-      `SELECT * FROM tourist_trips WHERE tourist_id = $1 AND status IN ('planning', 'upcoming') ORDER BY start_date ASC LIMIT 5`,
+      `SELECT id, tourist_id, trip_name, destination, start_date, end_date, trip_type, budget, participants, itinerary, notes, is_public, status, created_at, updated_at FROM tourist_trips WHERE tourist_id = $1 AND status IN ('planning', 'upcoming') ORDER BY start_date ASC LIMIT 5`,
       [profile.id]
     );
 

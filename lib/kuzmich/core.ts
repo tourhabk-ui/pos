@@ -444,7 +444,7 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
          (
            SELECT title, description, NULL::text AS lat, NULL::text AS lng, source_name,
                   ts_rank(to_tsvector('russian', title), plainto_tsquery('russian', $1)) AS rank
-           FROM kamchatka_routes
+           FROM v_kamchatka_routes_api
            WHERE to_tsvector('russian', title) @@ plainto_tsquery('russian', $1)
              AND description IS NOT NULL
            ORDER BY rank DESC
