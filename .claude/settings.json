@@ -1,6 +1,9 @@
 {
   "enabledPlugins": {
-    "security-guidance@claude-plugins-official": true
+    "security-guidance@claude-plugins-official": true,
+    "data@knowledge-work-plugins": true,
+    "operations@knowledge-work-plugins": true,
+    "customer-support@knowledge-work-plugins": true
   },
   "permissions": {
     "defaultMode": "auto",
