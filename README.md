@@ -21,7 +21,7 @@
 
 **Слоган:** *«Камчатка без связи. С контролем.»*
 
-**Codename:** Volcano OS
+**Codename:** Volcano OS / TourHab
 
 ---
 
@@ -29,7 +29,7 @@
 
 ```
 Next.js 15 App Router + TypeScript strict
-PostgreSQL (raw SQL, no ORM, 172 миграции)
+PostgreSQL (raw SQL, no ORM, 185 миграций)
 JWT auth + role-based middleware
 AI waterfall: OpenRouter → DeepSeek → Gemini → MiniMax → Anthropic
 Telegram Bot API (Kuzmich + операторы)
@@ -40,10 +40,10 @@ Timeweb Cloud — auto-deploy on push to main (репо: tourhabk-ui/pos)
 
 | Метрика | Значение |
 |---|---|
-| TypeScript файлов | 1 223 |
-| API маршрутов | 494 |
-| UI компонентов | 168 |
-| SQL миграций | 172 |
+| TypeScript файлов | 1 282 |
+| API маршрутов | 489 |
+| UI компонентов | 170 |
+| SQL миграций | 185 |
 | Мест (places) | 778 |
 | Маршрутов | 294 |
 | Партнёров/гидов | 125 |
@@ -66,9 +66,11 @@ app/
 lib/
   kuzmich/core.ts       -- Agent loop, tools, booking
   ai/rag-context.ts     -- RAG контекст + search_count
-  ai/providers.ts       -- AI provider waterfall
+  ai/providers.ts       -- AI provider waterfall (7 провайдеров)
+  ai/slash-commands.ts  -- /маршруты /места /туры /sos /помощь
   offline/              -- IndexedDB для офлайн-режима
   agents/               -- Watchdog, Editor, Scout Digest
+  agents/learning/      -- FeedbackLoop, SkillOpt infrastructure
   services/             -- Flights, hotels, insurance, transfers
 ```
 
@@ -91,11 +93,21 @@ lib/
 ### Kuzmich
 
 1. **Agent loop** — 4 tool call'а за ход: поиск маршрутов, погода, места знаний, информация
-2. **Геоконтекст** — координаты пользователя + ближайшие точки из БД
-3. **Vision** — распознавание фото через Gemini (OpenRouter)
-4. **Voice** — транскрипция голосовых сообщений
-5. **Memory** — per-user notes, синтез каждые 5 сообщений
-6. **search_count** — неинкрементальный подсчёт запросов для data-driven top-100
+2. **Slash-команды** — `/маршруты`, `/места`, `/туры`, `/операторы`, `/sos`, `/помощь` везде (виджет, страница, Telegram)
+3. **Геоконтекст** — координаты пользователя + ближайшие точки из БД
+4. **Vision** — распознавание фото через Gemini (OpenRouter)
+5. **Voice** — транскрипция голосовых сообщений
+6. **Memory** — per-user notes, синтез каждые 5 сообщений
+7. **Feedback loop** — автоматическая оценка ответов (safety/accuracy/helpfulness 0–10)
+8. **search_count** — неинкрементальный подсчёт запросов для data-driven top-100
+
+### AI Provider Waterfall
+
+```
+Tier 1 (race): OpenRouter · DeepSeek · Gemini · MiMo · GLM · NVIDIA
+Tier 2 (fallback): YandexGPT · MiniMax
+Tier 3 (sequential): Anthropic Claude
+```
 
 ### Background agents
 
@@ -105,7 +117,7 @@ lib/
 | Editor | 02:00 UTC | AI-enrichment описаний маршрутов |
 | Scout Digest | 07:00 UTC | RSS → AI synthesis → Telegram |
 | Intelligence Monitor | каждые 6ч | Конкуренты, индустрия, технологии |
-| Kuzmich Place Enricher | 04:00 UTC | Генерирует заметки Кузьмича о местах (kuzmich_review) |
+| Kuzmich Place Enricher | 04:00 UTC | Генерирует заметки Кузьмича о местах |
 
 ---
 
@@ -117,6 +129,28 @@ lib/
 - **Палитра**: CSS custom properties, полный dark mode
 - **Акцент**: `#D44A0C` (вулканический оранжевый)
 - **Иконки**: lucide-react
+
+---
+
+## Claude Code — инструменты разработки
+
+Проект использует Claude Code с набором кастомных скиллов:
+
+| Скилл | Назначение |
+|---|---|
+| `/audit` | Аудит кода на нарушения правил CLAUDE.md |
+| `/preflight` | Предполётная проверка перед коммитом (TS, тесты, SQL, auth) |
+| `/skill-opt` | SkillOpt ReflACT — автооптимизация скиллов по реальным фейлам из БД |
+| `/migration` | Создать SQL-миграцию по стандарту проекта |
+| `/parallel-dev` | Параллельная разработка API + UI |
+| `/image-generator` | Генерация изображений через Gemini Imagen 3 |
+| `/understand` | Глубокое сканирование кодовой базы → knowledge graph |
+| `/swiss-knife` | Проверка что платформа остаётся инструментом, а не витриной |
+
+### Security
+
+- `security-guidance@claude-plugins-official` — автоматическая проверка кода на уязвимости при каждом редактировании и коммите
+- `.claude/security-patterns.yaml` — 10 кастомных правил (SQL injection, hardcoded keys, прямые AI-провайдеры и др.)
 
 ---
 
@@ -137,6 +171,7 @@ npm run dev           # Dev server
 npm run build         # Production build
 npm run migrate       # Применить миграции (локально)
 npx tsc --noEmit      # Type check
+npx vitest run        # Тесты
 ```
 
 ### Деплой
@@ -150,15 +185,16 @@ Push в `tourhabk-ui/pos main` → Timeweb автодеплой → `start.js` �
 ### Завершено
 - PWA на homescreen
 - Офлайн-карта (тайлы + IndexedDB + GPS)
-- Kuzmich с геоконтекстом для веб-чата
+- Kuzmich с геоконтекстом для веб-чата, Telegram, виджета
+- Slash-команды Кузьмича на всех каналах
 - search_count для data-driven top-100
 - SOS панель с экстренными номерами
-- 778 мест (вулканы, озёра, источники, гейзеры) + 294 маршрута
+- 778 мест + 294 маршрута с полными данными
 - Карточки мест с безопасностью, отзывами, GPX-экспортом
-- Анонимные отзывы о местах (без регистрации)
 - 5 background AI агентов (Watchdog, Editor, Scout, Intelligence, Kuzmich Enricher)
+- Feedback loop + автоматическая оценка ответов Кузьмича
+- SkillOpt ReflACT — самообучение скиллов по данным фейлов
 - Полная дизайн-система (CSS vars, dark mode, DS utility classes)
-- Мобильная навигация (pill nav) на всех страницах
 
 ### В работе
 - Kuzmich Place Enricher — заполнение kuzmich_review (20 мест/день)
