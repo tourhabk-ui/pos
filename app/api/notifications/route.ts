@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       `INSERT INTO notifications (
         user_id, type, title, message, data, priority, action_url, expires_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *`,
+      RETURNING id, user_id, type, title, message, data, is_read, priority, action_url, created_at, read_at, expires_at`,
       [
         userId,
         type,

@@ -107,7 +107,9 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
         flight_departure_time = COALESCE($12, flight_departure_time),
         needs_airport_transfer = COALESCE($13, needs_airport_transfer)
       WHERE id = $1 AND user_id = $14 AND deleted_at IS NULL
-      RETURNING *
+      RETURNING id, user_id, title, arrival_date, departure_date, places, activities, days, transport_by_day,
+        flight_arrival, flight_departure, flight_arrival_time, flight_departure_time,
+        needs_airport_transfer, deleted_at, created_at, updated_at
     `, [
       id,
       d.title ?? null,
