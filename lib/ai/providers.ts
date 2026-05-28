@@ -679,10 +679,10 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
     }
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(20_000),
       }
@@ -1571,8 +1571,8 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const reqBody: Record<string, unknown> = { contents };
         if (systemMsg) reqBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody), signal: AbortSignal.timeout(15_000),
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(reqBody), signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
