@@ -106,6 +106,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
           markOpenRouterAuthFailure();
           return null;
         }
+        console.warn(`[ai] openrouter ${id} non-ok: ${res.status}`);
         continue; // next model
       }
 
@@ -114,7 +115,10 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
       const text: string | undefined = data?.choices?.[0]?.message?.content;
       if (text?.trim()) return text;
       // No valid content — try next model
-    } catch { continue; }
+    } catch (e) {
+      console.warn(`[ai] openrouter ${id}:`, e instanceof Error ? e.message : String(e));
+      continue;
+    }
   }
 
   return null;
@@ -185,7 +189,8 @@ export async function callOpenRouterModel(
     const text = data?.choices?.[0]?.message?.content;
     if (!text?.trim()) return null;
     return { text: text.trim(), model_used: modelId };
-  } catch {
+  } catch (e) {
+    console.warn('[ai] openrouter-model', modelId, e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -431,6 +436,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
     }
     return null;
   } catch (e) {
+    console.warn('[ai] anthropic:', e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -484,7 +490,8 @@ export async function callYandexGPT(messages: ChatMessage[]): Promise<string | n
     const text: string | undefined =
       data?.result?.alternatives?.[0]?.message?.text;
     return text?.trim() || null;
-  } catch {
+  } catch (e) {
+    console.warn('[ai] yandexgpt:', e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -556,7 +563,10 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
     const data = await res.json();
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     return text?.trim() || null;
-  } catch { return null; }
+  } catch (e) {
+    console.warn('[ai] deepseek:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }
 
 // ── GLM 5.1 (ZhipuAI direct API — bigmodel.cn) ────────────────
@@ -681,7 +691,10 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
     const data = await res.json();
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     return text?.trim() || null;
-  } catch { return null; }
+  } catch (e) {
+    console.warn('[ai] gemini-direct:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }
 
 // ── Gemini Vision (image analysis) via OpenRouter ─────────────
