@@ -96,11 +96,11 @@ export default function PlaceMapSheet({ placeId, initialData, userPos, isOffline
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/30 z-[499]" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30 z-[749]" onClick={onClose} />
 
       {/* Sheet */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[500] bg-[var(--bg-card)] rounded-t-2xl shadow-2xl flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-[750] bg-[var(--bg-card)] rounded-t-2xl shadow-2xl flex flex-col"
         style={{ animation: 'slideUp 0.25s ease-out', maxHeight: '65vh' }}
       >
         {/* Pull handle */}
