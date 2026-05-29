@@ -8,8 +8,8 @@ import { logAgentRun } from '@/lib/agents/run-logger';
  * Запускать каждые 30 минут.
  */
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get('secret');
+  const authHeader = req instanceof Request ? req.headers.get('authorization') : null;
+  const secret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

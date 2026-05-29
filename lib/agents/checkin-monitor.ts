@@ -22,6 +22,10 @@ interface OverdueCheckin {
   last_lng: string | null;
 }
 
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function tgSend(text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -56,22 +60,22 @@ export async function runCheckinMonitor(): Promise<{ alerted: number; checked: n
   for (const c of rows) {
     const overdue = Math.round((Date.now() - new Date(c.return_deadline).getTime()) / 60000);
     const geo = c.last_lat && c.last_lng
-      ? `\n<b>Последняя позиция:</b> ${c.last_lat}, ${c.last_lng} (указана при регистрации)`
+      ? `\n<b>Последняя позиция:</b> ${esc(c.last_lat)}, ${esc(c.last_lng)} (указана при регистрации)`
       : '';
 
     const contact = [
-      c.emergency_phone ? `тел: ${c.emergency_phone}` : null,
-      c.emergency_telegram ? `Telegram: ${c.emergency_telegram}` : null,
+      c.emergency_phone ? `тел: ${esc(c.emergency_phone)}` : null,
+      c.emergency_telegram ? `Telegram: ${esc(c.emergency_telegram)}` : null,
     ].filter(Boolean).join(', ');
 
     const msg = [
       '⚠️ <b>Турист не вернулся вовремя</b>',
       '',
-      `<b>Турист:</b> ${c.tourist_name}`,
-      `<b>Маршрут:</b> ${c.route_name}`,
+      `<b>Турист:</b> ${esc(c.tourist_name)}`,
+      `<b>Маршрут:</b> ${esc(c.route_name)}`,
       `<b>Ожидался к:</b> ${new Date(c.return_deadline).toLocaleString('ru-RU', { timeZone: 'Asia/Kamchatka' })} (КСВ)`,
       `<b>Опоздание:</b> ${overdue} мин`,
-      `<b>Экстренный контакт:</b> ${c.emergency_name} — ${contact || 'не указан'}`,
+      `<b>Экстренный контакт:</b> ${esc(c.emergency_name)} — ${contact || 'не указан'}`,
       geo,
     ].filter(s => s !== undefined).join('\n');
 
