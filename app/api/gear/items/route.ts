@@ -130,7 +130,10 @@ export async function POST(request: NextRequest) {
         quantity, available_quantity, deposit_amount, insurance_cost_per_day,
         images, specifications, features, condition, tags, is_active
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, true)
-      RETURNING *`,
+      RETURNING id, partner_id, name, description, category, subcategory, brand, model,
+        price_per_day, price_per_week, price_per_month, quantity, available_quantity,
+        deposit_amount, insurance_cost_per_day, images, specifications, features,
+        condition, tags, is_active, created_at, updated_at`,
       [
         partnerId, name, description, category, subcategory, brand, model,
         pricePerDay, pricePerWeek, pricePerMonth,

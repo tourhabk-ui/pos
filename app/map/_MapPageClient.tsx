@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
+import { Sun, Moon, User, X, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
 import Logo from '@/components/shared/Logo';
@@ -12,6 +12,8 @@ import { MarkerType, type MapMarkerGeometry } from '@/components/shared/LeafletM
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
+const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet'), { ssr: false });
+const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip'), { ssr: false });
 
 // ГДЕ — типы локаций с цветами и иконками на карте
 const LOCATION_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -110,7 +112,8 @@ export default function MapPageClient() {
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [selectedPlaceInitial, setSelectedPlaceInitial] = useState<RoutePoint | null>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
   const [showSos, setShowSos] = useState(false);
@@ -126,8 +129,13 @@ export default function MapPageClient() {
     { name: 'ПСО «Камчатка» (ПКГО)', phone: '+74152412730', type: 'Спасатели' },
   ] as const;
 
-  const selectedRoute = selectedId ? allRoutes.find(r => r.id === selectedId) ?? null : null;
-  const handleMarkerClick = useCallback((id: string) => setSelectedId(id), []);
+  const handleMarkerClick = useCallback((id: string) => {
+    const point = allRoutes.find(r => r.id === id);
+    if (point) {
+      setSelectedPlaceId(id);
+      setSelectedPlaceInitial(point);
+    }
+  }, [allRoutes]);
 
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {
@@ -274,8 +282,7 @@ export default function MapPageClient() {
       type:        MarkerType.TOUR,
       category:    r.locationType ?? 'other',
       geometry:    r.geometry ?? undefined,
-      // В офлайне: показываем балун (без suppressBalloon) — человек должен видеть описание точки без клика на маршрут-страницу (нет интернета)
-      suppressBalloon: false,
+      suppressBalloon: true,
     };
   }), [filtered, activeFilter, userPos]);
 
@@ -473,61 +480,15 @@ export default function MapPageClient() {
           </div>
         )}
 
-        {/* Панель выбранного маршрута */}
-        {selectedRoute && (
-          <div
-            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80 border border-[var(--border)] shadow-2xl"
-            style={{ animation: 'slideUp 0.2s ease-out' }}
-          >
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--accent)]" />
-                    <span className="text-[10px] text-white/50 uppercase tracking-wide">
-                      {LOCATION_TYPE_CONFIG[selectedRoute.locationType ?? 'other']?.label ?? 'Маршрут'}
-                    </span>
-                  </div>
-                  <h3 className="font-semibold text-white leading-snug"
-                      style={{ fontFamily: 'var(--font-playfair)' }}>
-                    {selectedRoute.title}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-card)]/10 text-white/50 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Расстояние от пользователя */}
-              {userPos && (
-                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--bg-card)]/5">
-                  <Navigation className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm text-white font-bold">
-                    {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
-                  </span>
-                  <span className="text-xs text-white/40">от вас</span>
-                </div>
-              )}
-
-              {selectedRoute.description && (
-                <p className="text-sm text-white/60 leading-relaxed line-clamp-3 mb-4">
-                  {selectedRoute.description.split('\n')[0]}
-                </p>
-              )}
-
-              <Link
-                href={`/routes/${selectedRoute.id}`}
-                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg
-                  bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                Открыть маршрут
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
+        {/* Карточка места */}
+        {selectedPlaceId && selectedPlaceInitial && (
+          <PlaceMapSheet
+            placeId={selectedPlaceId}
+            initialData={selectedPlaceInitial}
+            userPos={userPos}
+            isOffline={true}
+            onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); }}
+          />
         )}
       </div>
     );
@@ -597,6 +558,13 @@ export default function MapPageClient() {
             locationPriority="highAccuracy"
           />
 
+          {/* Погода у пользователя */}
+          {userPos && (
+            <div className="absolute top-3 left-3 z-[500]">
+              <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />
+            </div>
+          )}
+
           {/* Кнопка GPS */}
           <button
             onClick={() => setShowMyLocation(!showMyLocation)}
@@ -622,65 +590,15 @@ export default function MapPageClient() {
         </div>
       </div>
 
-      {/* ── Панель маршрута ─────────────────────────────────────────────── */}
-      {selectedRoute && (
-        <div
-          className="fixed bottom-[5.5rem] left-2 right-2 rounded-xl md:bottom-4 md:right-4 md:left-auto md:w-96 z-[500]
-            bg-[var(--bg-card)] border border-[var(--border)] shadow-2xl"
-          style={{ animation: 'slideUp 0.2s ease-out' }}
-        >
-          <div className="p-4">
-            {/* Шапка */}
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--accent)]" />
-                  <span className="text-xs text-[var(--text-muted)] uppercase tracking-wide">
-                    {LOCATION_TYPE_CONFIG[selectedRoute.locationType ?? 'other']?.label ?? 'Маршрут'}
-                  </span>
-                </div>
-                <h3 className="font-semibold text-[var(--text-primary)] leading-snug"
-                    style={{ fontFamily: 'var(--font-playfair)' }}>
-                  {selectedRoute.title}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedId(null)}
-                className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Расстояние */}
-            {userPos && (
-              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
-                <Navigation className="w-4 h-4 text-blue-500" />
-                <span className="text-sm font-bold text-[var(--text-primary)]">
-                  {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">от вас</span>
-              </div>
-            )}
-
-            {/* Описание */}
-            {selectedRoute.description && (
-              <p className="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-4 mb-4">
-                {selectedRoute.description.split('\n')[0]}
-              </p>
-            )}
-
-            {/* Кнопка */}
-            <Link
-              href={`/routes/${selectedRoute.id}`}
-              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg
-                bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
-            >
-              Открыть маршрут
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </div>
+      {/* Карточка места */}
+      {selectedPlaceId && selectedPlaceInitial && (
+        <PlaceMapSheet
+          placeId={selectedPlaceId}
+          initialData={selectedPlaceInitial}
+          userPos={userPos}
+          isOffline={false}
+          onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); }}
+        />
       )}
 
       {/* Кнопка «Я вернулся» — для активных маршрутов */}

@@ -1,6 +1,7 @@
 'use client';
 
-import { Leaf, ShieldCheck, ExternalLink, Info, Calendar, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { Leaf, ShieldCheck, ExternalLink, Info, Calendar, AlertTriangle, ChevronDown } from 'lucide-react';
 import type { PlaceEco as PlaceEcoData } from './types';
 
 interface Props {
@@ -120,6 +121,7 @@ function parseRules(rules: string): string[] {
 }
 
 export default function PlaceEco({ eco, placeName, locationType }: Props) {
+  const [expanded, setExpanded] = useState(false);
   if (!eco.zone || eco.zone === 'none') return null;
 
   const label    = ZONE_LABELS[eco.zone] ?? eco.zone;
@@ -127,7 +129,6 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
   const seasons  = ECO_SEASONS_BY_ZONE[eco.zone] ?? [];
   const isStrict = eco.zone === 'UNESCO' || eco.zone === 'federal_reserve';
 
-  // Use migration-provided rules if they exist, otherwise fall back to static
   const ruleList: string[] = eco.rules
     ? parseRules(eco.rules)
     : (ZONE_RULES[eco.zone] ?? []);
@@ -136,23 +137,30 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
     <section className="max-w-3xl mx-auto px-4">
       <div className="ds-card overflow-hidden border border-[var(--border)]">
 
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <div className={`px-5 py-4 flex items-center gap-3 ${isStrict ? 'bg-[var(--success)]/8' : 'bg-[var(--ocean)]/6'}`}>
-          <div className={`p-2 rounded-lg ${isStrict ? 'bg-[var(--success)]/18 text-[var(--success)]' : 'bg-[var(--ocean)]/14 text-[var(--ocean)]'}`}>
+        {/* ── Header (clickable toggle) ───────────────────────────────────────── */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className={`w-full px-5 py-4 flex items-center gap-3 text-left transition-colors hover:bg-[var(--bg-hover)] ${isStrict ? 'bg-[var(--success)]/8' : 'bg-[var(--ocean)]/6'}`}
+        >
+          <div className={`p-2 rounded-lg shrink-0 ${isStrict ? 'bg-[var(--success)]/18 text-[var(--success)]' : 'bg-[var(--ocean)]/14 text-[var(--ocean)]'}`}>
             <Leaf size={18} strokeWidth={2} />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">Экология и охрана природы</p>
             <p className="font-semibold text-[var(--text-primary)] leading-tight">{label}</p>
           </div>
           {eco.permitRequired && (
-            <span className="ml-auto text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--warning)]/15 text-[var(--warning)] shrink-0">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--warning)]/15 text-[var(--warning)] shrink-0">
               Нужен пропуск
             </span>
           )}
-        </div>
+          <ChevronDown
+            size={16}
+            className={`shrink-0 text-[var(--text-muted)] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          />
+        </button>
 
-        <div className="px-5 py-4 space-y-5">
+        {expanded && <div className="px-5 py-4 space-y-5">
 
           {/* ── Zone description ───────────────────────────────────────────────── */}
           {desc && (
@@ -239,7 +247,7 @@ export default function PlaceEco({ eco, placeName, locationType }: Props) {
             </div>
           )}
 
-        </div>
+        </div>}
       </div>
     </section>
   );

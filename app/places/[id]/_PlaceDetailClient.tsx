@@ -2,28 +2,27 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Navigation, Download, Phone, MessageCircle } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
+const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar'),        { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
 const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'),   { ssr: false });
 const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'),      { ssr: false });
 const PlaceCharacteristics  = dynamic(() => import('@/components/places/PlaceCharacteristics'),  { ssr: false });
 const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSafety'),           { ssr: false });
-const PlaceAccess           = dynamic(() => import('@/components/places/PlaceAccess'),           { ssr: false });
 const PlaceSeason           = dynamic(() => import('@/components/places/PlaceSeason'),           { ssr: false });
 const PlaceRoutes           = dynamic(() => import('@/components/places/PlaceRoutes'),           { ssr: false });
+const PlaceAccess           = dynamic(() => import('@/components/places/PlaceAccess'),           { ssr: false });
 const PlaceKuzmich          = dynamic(() => import('@/components/places/PlaceKuzmich'),          { ssr: false });
 const PlaceReviews          = dynamic(() => import('@/components/places/PlaceReviews'),          { ssr: false });
 const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNearby'),           { ssr: false });
+const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
 const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco'),              { ssr: false });
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
-const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
-const PlaceWeather          = dynamic(() => import('@/components/places/PlaceWeather'),          { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 
@@ -111,7 +110,6 @@ export default function PlaceDetailClient({ id }: { id: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Показываем кэш сразу — пока грузится сеть
       const cached = lsRead(id);
       if (cached && !cancelled) {
         setPlace(cached);
@@ -127,7 +125,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           if (j?.success && j.data) {
             setPlace(j.data);
             setFromCache(false);
-            lsWrite(id, j.data); // сохраняем для следующего офлайн-визита
+            lsWrite(id, j.data);
           } else if (!cached) {
             setError(j.error ?? 'Место не найдено');
           }
@@ -164,7 +162,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
       <Header />
       <OfflineGPSBanner />
 
-      {/* 1. Hero — full-width photo with name overlay */}
+      {/* 1. Hero — swipeable photo gallery */}
       <PlaceHero
         placeId={place.id}
         name={place.name}
@@ -173,6 +171,15 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         lng={place.lng}
         photoUrl={place.photoUrl}
         photoCount={place.photoCount}
+        images={place.images}
+      />
+
+      {/* 2. Sticky action bar: navigate / bookmark / share / weather */}
+      <PlaceActionBar
+        placeId={place.id}
+        name={place.name}
+        lat={place.lat}
+        lng={place.lng}
       />
 
       {/* Offline cache notice */}
@@ -183,15 +190,10 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         </div>
       )}
 
-      {/* 2. Realtime alert — sticky on danger */}
+      {/* 3. Realtime alert */}
       {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
 
-      {/* 2b. Live weather at this location */}
-      <div className="max-w-3xl mx-auto px-4 mt-4">
-        <PlaceWeather lat={place.lat} lng={place.lng} placeName={place.name} />
-      </div>
-
-      {/* 3. Description */}
+      {/* 4. Description */}
       <PlaceDescription
         name={place.name}
         essence={place.essence}
@@ -199,10 +201,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         placeId={place.id}
       />
 
-      {/* 3b. Indigenous — context before characteristics */}
-      {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
-
-      {/* 4. Stat pills + hazard chips */}
+      {/* 5. Stat pills + hazard chips */}
       <PlaceCharacteristics
         locationType={place.locationType}
         zone={place.zone}
@@ -210,21 +209,8 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         terrainType={place.safety.terrainType}
       />
 
-      {/* 5. Safety block */}
+      {/* 6. Safety block */}
       <PlaceSafety safety={place.safety} placeId={place.id} />
-
-      {/* 6. Eco */}
-      {place.eco && (
-        <div className="max-w-3xl mx-auto px-4 mt-6">
-          <PlaceEco eco={place.eco} placeName={place.name} />
-        </div>
-      )}
-
-      {/* 6b. Universal LNT — for all places */}
-      <PlaceLNT
-        capacityPerDay={place.safety.capacityPerDay}
-        ecoZone={place.eco?.zone ?? null}
-      />
 
       {/* 7. Season */}
       {hasSeason && (
@@ -238,15 +224,14 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         </div>
       )}
 
-      {/* 8. Routes through this place */}
+      {/* 8. Routes through this place — high priority content */}
       {place.routes.length > 0 && (
         <div className="max-w-3xl mx-auto px-4 mt-8">
           <PlaceRoutes routes={place.routes} placeId={place.id} />
         </div>
       )}
 
-
-      {/* 10. Map + access */}
+      {/* 9. Map + access */}
       <div className="mt-8">
         <PlaceAccess
           placeId={place.id}
@@ -258,7 +243,7 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         />
       </div>
 
-      {/* 11. Kuzmich */}
+      {/* 10. Kuzmich */}
       <div className="max-w-3xl mx-auto px-4 mt-6">
         <PlaceKuzmich
           placeId={place.id}
@@ -267,24 +252,40 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         />
       </div>
 
-      {/* 12. Reviews */}
+      {/* 11. Reviews */}
       <div className="max-w-3xl mx-auto px-4 mt-6">
         <PlaceReviews placeId={place.id} reviews={place.reviews} />
       </div>
 
-      {/* 13. Nearby places — horizontal scroll mobile */}
+      {/* 12. Nearby places */}
       {place.nearby.length > 0 && (
         <div className="mt-6">
           <PlaceNearby nearby={place.nearby} placeId={place.id} />
         </div>
       )}
 
-      {/* 11. Tours to this place */}
+      {/* 13. Tours to this place */}
       {place.tours.length > 0 && (
         <div className="mt-8">
           <PlaceTours tours={place.tours} />
         </div>
       )}
+
+      {/* 14. Eco — collapsed by default */}
+      {place.eco && (
+        <div className="max-w-3xl mx-auto px-4 mt-6">
+          <PlaceEco eco={place.eco} placeName={place.name} />
+        </div>
+      )}
+
+      {/* 15. LNT — collapsed by default */}
+      <PlaceLNT
+        capacityPerDay={place.safety.capacityPerDay}
+        ecoZone={place.eco?.zone ?? null}
+      />
+
+      {/* 16. Indigenous — collapsed by default */}
+      {place.indigenous && <PlaceIndigenous indigenous={place.indigenous} />}
 
       {/* Footer */}
       <div className="max-w-3xl mx-auto px-4 mt-10 mb-24 md:mb-12">
@@ -295,7 +296,6 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         />
       </div>
 
-      {/* Mobile sticky bottom bar */}
       <MobileBottomBar place={place} />
     </>
   );

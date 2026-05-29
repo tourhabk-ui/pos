@@ -123,7 +123,8 @@ export async function POST(request: NextRequest) {
         tourist_id, document_type, document_number, issuing_country, issuing_authority,
         issue_date, expiry_date, file_url, file_name, file_size, notes
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING *`,
+      RETURNING id, tourist_id, document_type, document_number, issuing_country, issuing_authority,
+        issue_date, expiry_date, file_url, file_name, file_size, notes, created_at, updated_at`,
       [
         profile.id, documentType, documentNumber || null, issuingCountry || null, issuingAuthority || null,
         issueDate || null, expiryDate || null, fileUrl || null, fileName || null, fileSize || null, notes || null

@@ -27,7 +27,7 @@ export default function OfflineGPSBanner() {
       style={{
         background: '#1A1714',
         color: 'var(--text-primary)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        borderBottom: '1px solid var(--border)',
       }}
     >
       <WifiOff className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--warning)' }} aria-hidden="true" />

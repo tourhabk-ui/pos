@@ -18,9 +18,6 @@ export { tourService } from './tour.service';
 export { reviewService } from './review.service';
 export { searchService } from './search.service';
 
-// Booking / Availability
-export { bookingService, availabilityService } from './booking.service';
-
 // Partner (operators)
 export { partnerService } from './partner.service';
 

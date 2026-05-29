@@ -190,7 +190,7 @@ export async function GET(
           if (Number(r.photo_count) > 0) return `/api/images/route/${r.ark_id}`;
           return null;
         })(),
-        images: (r.images as unknown[] | null) ?? [],
+        images: ((r.images as unknown[] | null) ?? []).filter((x): x is string => typeof x === 'string'),
         photoCount: Number(r.photo_count),
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
