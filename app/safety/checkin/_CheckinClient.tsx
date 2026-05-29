@@ -69,7 +69,10 @@ export default function CheckinClient() {
   async function cancel() {
     setCancelLoading(true);
     try {
-      const res = await fetch(`/api/safety/checkin?token=${cancelToken}`, { method: 'DELETE' });
+      const res = await fetch('/api/safety/checkin', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${cancelToken}` },
+      });
       const data = await res.json() as { success?: boolean };
       if (data.success) setCancelDone(true);
     } catch { /* */ } finally {

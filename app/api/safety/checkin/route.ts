@@ -91,7 +91,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const token = new URL(req.url).searchParams.get('token');
+  const auth = req.headers.get('authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!token || !/^[0-9a-f]{32}$/.test(token)) {
     return NextResponse.json({ error: 'Некорректный токен' }, { status: 400 });
   }
@@ -113,7 +114,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const token = new URL(req.url).searchParams.get('token');
+  const auth = req.headers.get('authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
   if (!token || !/^[0-9a-f]{32}$/.test(token)) {
     return NextResponse.json({ error: 'Некорректный токен' }, { status: 400 });
   }
