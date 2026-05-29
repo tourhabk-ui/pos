@@ -14,6 +14,25 @@ import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
+// Rate limit: 3 check-ins per 10 minutes per IP (in-memory, same pattern as /api/safety/sos)
+const rateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT_MS = 10 * 60 * 1000;
+const RATE_LIMIT_MAX = 3;
+const MIN_DEADLINE_MS = 30 * 60 * 1000; // deadline must be at least 30 min in the future
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const hits = (rateLimitMap.get(ip) ?? []).filter(t => now - t < RATE_LIMIT_MS);
+  rateLimitMap.set(ip, hits);
+  if (hits.length >= RATE_LIMIT_MAX) return true;
+  hits.push(now);
+  // Purge IPs older than 1 hour
+  for (const [k, ts] of rateLimitMap.entries()) {
+    if (ts.every(t => now - t > 60 * 60 * 1000)) rateLimitMap.delete(k);
+  }
+  return false;
+}
+
 const CreateSchema = z.object({
   tourist_name:       z.string().min(2).max(100),
   route_name:         z.string().min(2).max(200),
@@ -28,6 +47,14 @@ const CreateSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? req.headers.get('x-real-ip')
+    ?? 'unknown';
+
+  if (isRateLimited(ip)) {
+    return NextResponse.json({ error: 'Слишком много запросов. Попробуйте позже.' }, { status: 429 });
+  }
+
   let body: unknown;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 });
@@ -40,8 +67,11 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data;
   const deadline = new Date(d.return_deadline);
-  if (deadline <= new Date()) {
-    return NextResponse.json({ error: 'Время возврата должно быть в будущем' }, { status: 400 });
+  if (deadline.getTime() - Date.now() < MIN_DEADLINE_MS) {
+    return NextResponse.json(
+      { error: 'Время возврата должно быть минимум через 30 минут' },
+      { status: 400 }
+    );
   }
 
   const { rows } = await pool.query<{ id: string; cancel_token: string }>(

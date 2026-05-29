@@ -26,12 +26,12 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-async function tgSend(text: string): Promise<void> {
+async function tgSend(text: string): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) return false;
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -41,7 +41,12 @@ async function tgSend(text: string): Promise<void> {
         disable_web_page_preview: true,
       }),
     });
-  } catch { /* silent */ }
+    if (!res.ok) return false;
+    const data = await res.json() as { ok: boolean };
+    return data.ok === true;
+  } catch {
+    return false;
+  }
 }
 
 export async function runCheckinMonitor(): Promise<{ alerted: number; checked: number }> {
@@ -79,16 +84,18 @@ export async function runCheckinMonitor(): Promise<{ alerted: number; checked: n
       geo,
     ].filter(s => s !== undefined).join('\n');
 
-    await tgSend(msg);
+    const sent = await tgSend(msg);
 
-    await pool.query(
-      `UPDATE tourist_checkins
-       SET status = 'alerted', alert_sent_at = NOW(), alert_count = 1
-       WHERE id = $1`,
-      [c.id]
-    );
-
-    alerted++;
+    if (sent) {
+      await pool.query(
+        `UPDATE tourist_checkins
+         SET status = 'alerted', alert_sent_at = NOW(), alert_count = 1
+         WHERE id = $1`,
+        [c.id]
+      );
+      alerted++;
+    }
+    // If tgSend failed: alert_count stays 0, next cron tick will retry
   }
 
   return { alerted, checked: rows.length };
