@@ -91,7 +91,7 @@ Rules:
 - notes: include useful local knowledge about the location or activity season`;
 
   const msgs: ChatMessage[] = [{ role: 'user', content: prompt }];
-  const result = await callAIWithModel(msgs, 'anthropic/claude-opus-4-6',
+  const result = await callAIWithModel(msgs, 'anthropic/claude-opus-4-8',
     { maxTokens: 500, temperature: 0.2, jsonMode: true });
   const responseText = result.text;
 

@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
     const userId = operatorOrResponse.userId;
 
     const result = await query<OpSettingsRow>(
-      'SELECT * FROM operator_settings WHERE user_id = $1',
+      `SELECT auto_confirm_bookings, booking_lead_time, cancellation_policy, refund_policy,
+              min_group_size, max_advance_booking_days, timezone, currency, commission_rate, settings
+       FROM operator_settings WHERE user_id = $1`,
       [userId]
     );
 
@@ -42,7 +44,8 @@ export async function GET(request: NextRequest) {
       const createResult = await query<OpSettingsRow>(
         `INSERT INTO operator_settings (user_id) 
          VALUES ($1) 
-         RETURNING *`,
+         RETURNING auto_confirm_bookings, booking_lead_time, cancellation_policy, refund_policy,
+                   min_group_size, max_advance_booking_days, timezone, currency, commission_rate, settings`,
         [userId]
       );
       

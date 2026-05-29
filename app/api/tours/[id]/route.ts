@@ -56,7 +56,9 @@ export async function GET(
         source_url: string | null; source_name: string | null;
         payload: Record<string, unknown> | null;
         created_at: Date; updated_at: Date;
-      }>('SELECT * FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE', [id]);
+      }>(`SELECT id, title, description, category, lat, lng, source_url, source_name,
+              payload, created_at, updated_at
+          FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`, [id]);
 
       if (arkResult.rows.length === 0) {
         return NextResponse.json(
