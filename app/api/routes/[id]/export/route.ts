@@ -100,6 +100,17 @@ export async function GET(
     lines.push('    </author>');
     lines.push('  </metadata>');
 
+    // Named waypoints from route_waypoints → places
+    const wptResult = await query<{ name: string; lat: string; lng: string; location_type: string | null }>(
+      `SELECT p.name, p.lat::text, p.lng::text, p.location_type
+       FROM route_waypoints rw
+       JOIN places p ON p.id = rw.place_id
+       WHERE rw.route_id = $1
+       ORDER BY rw.position`,
+      [id]
+    );
+    const waypoints = wptResult.rows;
+
     if (trackpoints.length > 1) {
       // Track (маршрут с треком)
       lines.push('  <trk>');
@@ -126,6 +137,16 @@ export async function GET(
       lines.push('  </wpt>');
     }
 
+    // Named stops along the route
+    for (const wpt of waypoints) {
+      lines.push(`  <wpt lat="${wpt.lat}" lon="${wpt.lng}">`);
+      lines.push(`    <name>${escapeXml(wpt.name)}</name>`);
+      if (wpt.location_type) {
+        lines.push(`    <type>${escapeXml(wpt.location_type)}</type>`);
+      }
+      lines.push('  </wpt>');
+    }
+
     lines.push('</gpx>');
 
     const gpxContent = lines.join('\n');
@@ -138,8 +159,7 @@ export async function GET(
         'Cache-Control': 'public, max-age=86400',
       },
     });
-  } catch (error) {
-    console.error('GPX export error:', error);
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
