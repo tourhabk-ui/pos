@@ -188,8 +188,8 @@ jobs:
           echo "═══════════════════════════════════════"
           echo "  SITE HEALTH CHECK"
           echo "═══════════════════════════════════════"
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://tourhab.ru/api/health" 2>/dev/null || echo "timeout")
-          echo "https://tourhab.ru/api/health → HTTP $HTTP"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://vedarai.ru/api/health" 2>/dev/null || echo "timeout")
+          echo "https://vedarai.ru/api/health → HTTP $HTTP"
           if [ "$HTTP" = "200" ]; then
             echo "Site is UP"
           else
