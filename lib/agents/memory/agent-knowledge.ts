@@ -11,6 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { sanitizeKnowledgeContent } from '@/lib/security/rag-sanitize';
 
 export interface KnowledgePage {
   id: number;
@@ -80,7 +81,7 @@ export class KnowledgeBase {
           params.slug,
           params.type,
           params.title,
-          params.compiled_truth,
+          sanitizeKnowledgeContent(params.compiled_truth).sanitized,
           JSON.stringify(params.metadata ?? {}),
           params.agent_id ?? null,
         ]

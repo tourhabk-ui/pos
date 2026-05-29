@@ -1,4 +1,5 @@
 import { pool } from '@/lib/db-pool';
+import { wrapForRAG } from '@/lib/security/rag-sanitize';
 
 interface GuardianPlaceRow {
   name: string;
@@ -150,11 +151,8 @@ export async function getGuardianContext(placeName: string): Promise<string> {
   }
 
   for (const k of knowledgeRes.rows) {
-    if (k.type === 'indigenous') {
-      parts.push(`[Традиционные знания] ${k.title}: ${k.compiled_truth.slice(0, 200)}`);
-    } else {
-      parts.push(`${k.title}: ${k.compiled_truth.slice(0, 200)}`);
-    }
+    const prefix = k.type === 'indigenous' ? '[Традиционные знания] ' : '';
+    parts.push(wrapForRAG(`${prefix}${k.title}`, k.compiled_truth.slice(0, 200)));
   }
 
   return parts.join('\n');

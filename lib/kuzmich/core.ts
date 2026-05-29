@@ -10,6 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
+import { wrapForRAG } from '@/lib/security/rag-sanitize';
 import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
@@ -373,8 +374,8 @@ export async function buildTourContext(): Promise<string> {
       return `${p.name}${dist}${desc}`;
     });
 
-    // Agent knowledge block
-    const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
+    // Agent knowledge block — wrapped in XML delimiters to prevent prompt injection
+    const knowledgeLines = knowledgeResult.rows.map(k => wrapForRAG(k.title, k.compiled_truth));
 
     // Load live context: weather + news + MChS alerts
     const liveBlock = await loadLiveContext();
