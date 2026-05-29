@@ -80,7 +80,7 @@ export class KnowledgeBase {
         [
           params.slug,
           params.type,
-          params.title,
+          sanitizeKnowledgeContent(params.title).sanitized,
           sanitizeKnowledgeContent(params.compiled_truth).sanitized,
           JSON.stringify(params.metadata ?? {}),
           params.agent_id ?? null,

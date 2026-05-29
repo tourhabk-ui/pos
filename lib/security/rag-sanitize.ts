@@ -5,6 +5,10 @@
  * Layer 2 (read):  wrap retrieved content in XML delimiters so the model
  *                  treats it as external data, not instructions.
  *
+ * Design note: the XML wrap is the primary defense. The regex sanitizer is
+ * best-effort logging + cleanup — it cannot be exhaustive (encoding bypasses,
+ * confusables, novel phrasings). Do not rely on it as a sole gate.
+ *
  * Patterns from OWASP LLM01 + Perez & Ribeiro (2022).
  */
 
@@ -29,6 +33,20 @@ const INJECTION_PATTERNS: RegExp[] = [
   /новые\s+инструкции:/i,
 ];
 
+// Zero-width / invisible chars that can hide injection text from the regex
+const ZERO_WIDTH_RE = /[​-‏‪-‮⁠-⁤﻿]/g;
+
+/**
+ * Normalize text before matching:
+ *  1. NFKC (decomposes confusable lookalikes, e.g. ｉｇｎｏｒｅ → ignore)
+ *  2. Strip zero-width chars
+ *
+ * Stored content keeps its original form; normalization is only for matching.
+ */
+function normalize(text: string): string {
+  return text.normalize('NFKC').replace(ZERO_WIDTH_RE, '');
+}
+
 export interface SanitizeResult {
   safe: boolean;
   sanitized: string;
@@ -38,16 +56,20 @@ export interface SanitizeResult {
 /**
  * Sanitize content before storing in agent_knowledge.
  * Returns cleaned text and a flag indicating whether injection was detected.
+ *
+ * Fix applied to the stored string, not just the normalized form, so
+ * that the stored value never contains the raw injection text either.
  */
-export function sanitizeKnowledgeContent(content: string): SanitizeResult {
+export function sanitizeKnowledgeContent(raw: string): SanitizeResult {
   const flaggedPatterns: string[] = [];
+  let sanitized = raw;
+  const normalized = normalize(raw);
 
-  let sanitized = content;
   for (const pattern of INJECTION_PATTERNS) {
-    if (pattern.test(sanitized)) {
+    if (pattern.test(normalized)) {
       flaggedPatterns.push(pattern.source);
-      // Remove the sentence containing the injection attempt
-      sanitized = sanitized.replace(pattern, '[REMOVED]');
+      // Replace ALL occurrences (g flag via new RegExp to avoid lastIndex mutation)
+      sanitized = sanitized.replace(new RegExp(pattern.source, 'gi'), '[REMOVED]');
     }
   }
 
@@ -58,22 +80,31 @@ export function sanitizeKnowledgeContent(content: string): SanitizeResult {
   };
 }
 
+// Delimiter that content cannot break out of: strip the closing tag from
+// both title and content before interpolation.
+const CLOSING_TAG_RE = /<\/knowledge_base_entry\s*>/gi;
+
 /**
  * Wrap RAG content in XML delimiters at read time.
- * This signals to the model that what follows is external reference data,
- * not instructions — providing defense-in-depth even if stored content
- * was not sanitized.
+ * The closing tag is stripped from both title and content so that
+ * malicious stored content cannot escape the delimiter boundary.
  */
 export function wrapForRAG(title: string, content: string): string {
-  return `<knowledge_base_entry title="${title.replace(/"/g, '')}">\n${content}\n</knowledge_base_entry>`;
+  const safeTitle = title
+    .replace(/"/g, '')              // can't break out of attribute
+    .replace(CLOSING_TAG_RE, '')    // can't prematurely close wrapper
+    .replace(/[\r\n]/g, ' ');       // no newlines in attribute value
+  const safeContent = content.replace(CLOSING_TAG_RE, '[REMOVED]');
+  return `<knowledge_base_entry title="${safeTitle}">\n${safeContent}\n</knowledge_base_entry>`;
 }
 
 /**
  * Check whether a string contains injection patterns (for audit/reporting).
- * Does not modify the string.
+ * Matches against NFKC-normalized form to catch encoding tricks.
  */
 export function detectInjection(content: string): string[] {
+  const normalized = normalize(content);
   return INJECTION_PATTERNS
-    .filter(p => p.test(content))
+    .filter(p => p.test(normalized))
     .map(p => p.source);
 }
