@@ -412,8 +412,9 @@ export async function buildTourContext(): Promise<string> {
 async function getQueryAwareKnowledge(text: string): Promise<string> {
   if (!text || text.length < 4) return '';
   try {
-    const { rows } = await pool.query<{ title: string; compiled_truth: string }>(
-      `SELECT title, LEFT(compiled_truth, 400) AS compiled_truth
+    // Step 1: FTS on agent_knowledge — most relevant entries for this query
+    const { rows: direct } = await pool.query<{ slug: string; title: string; compiled_truth: string }>(
+      `SELECT slug, title, LEFT(compiled_truth, 400) AS compiled_truth
        FROM agent_knowledge
        WHERE agent_id = 'kuzmich'
          AND search_vector @@ plainto_tsquery('russian', $1)
@@ -421,9 +422,46 @@ async function getQueryAwareKnowledge(text: string): Promise<string> {
        LIMIT 8`,
       [text.slice(0, 200)]
     );
-    if (!rows.length) return '';
-    return rows.map(k => wrapForRAG(k.title, k.compiled_truth)).join('\n');
+
+    // Step 2: 1-hop graph expansion — entries linked FROM direct results
+    const directSlugs = direct.map(r => r.slug);
+    const expanded: Array<{ title: string; compiled_truth: string }> = [];
+    if (directSlugs.length > 0) {
+      const { rows: linked } = await pool.query<{ title: string; compiled_truth: string }>(
+        `SELECT DISTINCT ak.title, LEFT(ak.compiled_truth, 300) AS compiled_truth
+         FROM agent_knowledge_links akl
+         JOIN agent_knowledge ak ON ak.slug = akl.to_slug
+         WHERE akl.from_slug = ANY($1::text[])
+           AND ak.agent_id = 'kuzmich'
+           AND ak.slug != ALL($1::text[])
+         LIMIT 4`,
+        [directSlugs]
+      );
+      expanded.push(...linked);
+    }
+
+    const all = [...direct, ...expanded];
+    if (!all.length) return '';
+    return all.map(k => wrapForRAG(k.title, k.compiled_truth)).join('\n');
   } catch { return ''; }
+}
+
+async function linkSearchResultToRelated(slug: string, query: string): Promise<void> {
+  try {
+    // Find top-3 existing knowledge entries related to this query and create links
+    const { rows } = await pool.query<{ slug: string }>(
+      `SELECT slug FROM agent_knowledge
+       WHERE agent_id = 'kuzmich'
+         AND slug != $1
+         AND search_vector @@ plainto_tsquery('russian', $2)
+       ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $2)) DESC
+       LIMIT 3`,
+      [slug, query.slice(0, 200)]
+    );
+    for (const r of rows) {
+      await knowledgeBase.link(slug, r.slug, 'search_related', query.slice(0, 100));
+    }
+  } catch { /* fire-and-forget */ }
 }
 
 // ── Динамический поиск мест по запросу пользователя ─────────────────────────
@@ -963,6 +1001,9 @@ async function recordBookingPatternInBrain(
     // Добавляем запись о конкретном бронировании
     const entry = `booking #${bookingId}: ${b.participants} чел, ${dateStr}, ${total.toLocaleString('ru-RU')} ₽, канал=${platform ?? 'web'}`;
     await knowledgeBase.appendTimeline(slug, entry);
+
+    // Link pattern to related knowledge entries for this tour
+    void linkSearchResultToRelated(slug, b.tour.title);
   } catch { /* fire-and-forget, не блокируем бронирование */ }
 }
 
@@ -1417,12 +1458,16 @@ async function saveSearchResultToKB(query: string, result: string): Promise<void
     .replace(/[^a-zа-яё0-9]/gi, '_')
     .replace(/_+/g, '_')
     .slice(0, 50)}_${Date.now() % 100000}`;
-  await pool.query(
+  const inserted = await pool.query<{ id: string }>(
     `INSERT INTO agent_knowledge(slug,type,title,compiled_truth,agent_id,edit_count,created_at,updated_at)
      VALUES($1,'search_result',$2,$3,'kuzmich',0,NOW(),NOW())
-     ON CONFLICT(slug) DO NOTHING`,
+     ON CONFLICT(slug) DO NOTHING
+     RETURNING id`,
     [slug, query.slice(0, 100), `${result.slice(0, 500)}\n[Веб-поиск, ${new Date().toLocaleDateString('ru-RU')}]`],
-  ).catch(() => {});
+  ).catch(() => null);
+  if (inserted?.rows.length) {
+    void linkSearchResultToRelated(slug, query);
+  }
 }
 
 // ── Level 2: Tool use ────────────────────────────────────────────────────────
