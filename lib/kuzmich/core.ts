@@ -11,7 +11,7 @@
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
 import { wrapForRAG } from '@/lib/security/rag-sanitize';
-import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
+import { callAIWaterfall, callOpenRouterWithTools } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -1624,10 +1624,19 @@ async function aiChatAgentLoop(
   systemContent: string,
   history: ChatMessage[],
   extraUserMsg: ChatMessage[],
+  dynamicCtx: string,
 ): Promise<string | null> {
+  // Inject dynamic context (place + query-aware knowledge + memory) as a
+  // mid-conversation system message immediately before the current user turn.
+  // This keeps the static system prompt fully cached across turns while
+  // per-request context is appended without busting the cache.
+  const historyMsgs = history.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg));
+  const insertIdx = dynamicCtx ? Math.max(0, historyMsgs.length - 1) : historyMsgs.length;
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
-    ...history.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
+    ...historyMsgs.slice(0, insertIdx),
+    ...(dynamicCtx ? [{ role: 'system' as const, content: dynamicCtx }] : []),
+    ...historyMsgs.slice(insertIdx),
     ...extraUserMsg.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
   ];
 
@@ -1685,15 +1694,13 @@ export async function aiChat(opts: {
     getQueryAwareKnowledge(text),
   ]);
 
-  // Строим системный промпт с маркером для prompt caching:
-  // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
-  // — ниже маркера: динамика (placeCtx + queryKnowledge меняются по запросу, memCtx по юзеру)
+  // Static system prompt: always cached across all turns.
+  // Dynamic context (per-request: place, query-aware KB, user memory) is
+  // injected as a mid-conversation system message so that the static cache
+  // prefix is never invalidated by per-request data.
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
-  const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', queryKnowledge || '', memCtx || ''].filter(Boolean).join('\n\n');
-  const systemContent = dynamic
-    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
-    : cacheable;
+  const staticSystem = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
+  const dynamicCtx = [placeCtx || '', queryKnowledge || '', memCtx || ''].filter(Boolean).join('\n\n');
 
   // Если есть описание фото — прокидываем его первым сообщением
   const extraUserMsg: ChatMessage[] = visionDescription
@@ -1701,22 +1708,27 @@ export async function aiChat(opts: {
     : [];
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg)
+  let answer = await aiChatAgentLoop(userContent, staticSystem, history, extraUserMsg, dynamicCtx)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
   // ── Fallback: waterfall without tools ───────────────────────────────────
   if (!answer) {
     // Level 1: preemptive search for price/contact/schedule queries
-    let enrichedSystem = systemContent;
+    let searchAppend = '';
     if (needsPreemptiveSearch(userContent)) {
       const preSearch = await searchWeb(userContent);
-      if (preSearch) enrichedSystem += `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
+      if (preSearch) searchAppend = `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
     }
 
+    // Build messages with mid-conversation system injection
+    const dynWithSearch = dynamicCtx + searchAppend;
+    const insertIdx = Math.max(0, history.length - 1);
     const fallbackMessages: ChatMessage[] = [
-      { role: 'system', content: enrichedSystem },
-      ...history,
+      { role: 'system', content: staticSystem },
+      ...history.slice(0, insertIdx),
+      ...(dynWithSearch ? [{ role: 'system' as const, content: dynWithSearch }] : []),
+      ...history.slice(insertIdx),
       ...extraUserMsg,
     ];
 
@@ -1728,9 +1740,12 @@ export async function aiChat(opts: {
       const searchResults = await searchWeb(userContent);
       if (searchResults) {
         void saveSearchResultToKB(userContent, searchResults);
+        const searchCtx = `${dynamicCtx}\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.`;
         const retryMessages: ChatMessage[] = [
-          { role: 'system', content: systemContent + `\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.` },
-          ...history,
+          { role: 'system', content: staticSystem },
+          ...history.slice(0, insertIdx),
+          { role: 'system', content: searchCtx },
+          ...history.slice(insertIdx),
           ...extraUserMsg,
         ];
         const retry = await callAIWaterfall(retryMessages);
