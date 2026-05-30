@@ -5,6 +5,7 @@ import {
   MessageSquare, Users, Brain, CreditCard, RefreshCw,
   TrendingUp, Sparkles, BarChart2, Activity, ThumbsUp, ThumbsDown, Globe,
   ChevronDown, ChevronRight, Send, User, Copy, Check,
+  DollarSign, ListChecks, AlertCircle, CheckSquare,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -319,6 +320,231 @@ function ChatRow({ chat, type }: { chat: TgChat | WebChat; type: 'tg' | 'web' })
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Kuzmich Conversion ───────────────────────────────────────────────────────
+
+interface ConversionSummary {
+  total_bookings: number;
+  kuzmich_bookings: number;
+  kuzmich_confirmed: number;
+  kuzmich_share_pct: number;
+  kuzmich_revenue_rub: number;
+  kuzmich_avg_check_rub: number;
+  satisfaction_rate_pct: number | null;
+  feedback_total: number;
+}
+interface TopTour { tour_id: string; title: string; bookings: number; revenue: number }
+interface ByPlatform { platform: string; bookings: number; revenue: number }
+
+function KuzmichConversionSection() {
+  const [summary, setSummary] = useState<ConversionSummary | null>(null);
+  const [topTours, setTopTours] = useState<TopTour[]>([]);
+  const [byPlatform, setByPlatform] = useState<ByPlatform[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/kuzmich-conversion?days=30');
+        const json = await res.json() as { success: boolean; summary: ConversionSummary; top_tours: TopTour[]; by_platform: ByPlatform[] };
+        if (json.success) {
+          setSummary(json.summary);
+          setTopTours(json.top_tours.slice(0, 5));
+          setByPlatform(json.by_platform);
+        }
+      } catch { /* silent */ } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const fmt = (n: number) => n.toLocaleString('ru-RU');
+
+  return (
+    <div className="ds-card p-5">
+      <h2 className="ds-h2 flex items-center gap-2 mb-4">
+        <DollarSign size={16} className="text-[var(--success)]" />
+        Конверсия Кузьмича — 30 дней
+      </h2>
+      {loading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 ds-skeleton rounded-lg" />)}
+        </div>
+      ) : !summary ? (
+        <p className="text-xs text-[var(--text-muted)]">Нет данных</p>
+      ) : (
+        <div className="space-y-4">
+          {/* KPI row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Выручка через Кузьмича', value: `${fmt(Math.round(summary.kuzmich_revenue_rub))} ₽`, color: 'var(--success)' },
+              { label: 'Бронирований', value: `${summary.kuzmich_confirmed} / ${summary.kuzmich_bookings}`, color: 'var(--ocean)' },
+              { label: 'Доля от всех', value: `${summary.kuzmich_share_pct}%`, color: 'var(--accent)' },
+              { label: 'Средний чек', value: summary.kuzmich_avg_check_rub > 0 ? `${fmt(Math.round(summary.kuzmich_avg_check_rub))} ₽` : '—', color: 'var(--text-secondary)' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-[var(--bg-hover)] rounded-lg p-3">
+                <p className="text-[10px] text-[var(--text-muted)] mb-1">{label}</p>
+                <p className="text-lg font-bold" style={{ color }}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Top tours */}
+            {topTours.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Топ туры</p>
+                <div className="space-y-1.5">
+                  {topTours.map(t => (
+                    <div key={t.tour_id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-[var(--text-secondary)] truncate flex-1">{t.title}</span>
+                      <span className="shrink-0 font-semibold text-[var(--text-primary)]">{t.bookings} бр.</span>
+                      <span className="shrink-0 text-[var(--success)]">{fmt(Math.round(t.revenue))} ₽</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* By platform + satisfaction */}
+            <div className="space-y-3">
+              {byPlatform.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">По каналам</p>
+                  <div className="space-y-1">
+                    {byPlatform.map(p => (
+                      <div key={p.platform} className="flex items-center gap-2 text-xs">
+                        <span className="w-12 font-mono uppercase text-[var(--text-muted)]">{p.platform}</span>
+                        <span className="text-[var(--text-primary)]">{p.bookings} бр.</span>
+                        <span className="text-[var(--success)]">{fmt(Math.round(p.revenue))} ₽</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {summary.satisfaction_rate_pct !== null && (
+                <div className="flex items-center gap-2">
+                  <ThumbsUp size={13} className="text-[var(--success)]" />
+                  <span className="text-xs text-[var(--text-secondary)]">
+                    Удовлетворённость: <strong className="text-[var(--text-primary)]">{summary.satisfaction_rate_pct}%</strong>
+                    {' '}({summary.feedback_total} оценок)
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Scout Digest Action Queue ────────────────────────────────────────────────
+
+interface IntelItem {
+  id: string;
+  key: string;
+  summary: string | null;
+  urgency: string;
+  created_at: string;
+  processed: boolean;
+  action_items: Array<{ idx: number; text: string; priority: string; done: boolean }>;
+}
+
+const URGENCY_STYLE: Record<string, string> = {
+  critical: 'bg-[var(--danger)]/10 text-[var(--danger)] border-[var(--danger)]/20',
+  high:     'bg-[var(--warning)]/10 text-[var(--warning)] border-[var(--warning)]/20',
+  medium:   'bg-[var(--ocean)]/10 text-[var(--ocean)] border-[var(--ocean)]/20',
+  low:      'bg-[var(--border)] text-[var(--text-muted)] border-[var(--border)]',
+};
+
+function ScoutActionQueue() {
+  const [items, setItems] = useState<IntelItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [marking, setMarking] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/intelligence-feed?unprocessed=true&limit=10');
+      const json = await res.json() as { success: boolean; items: IntelItem[] };
+      if (json.success) setItems(json.items);
+    } catch { /* silent */ } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const markDone = async (id: string) => {
+    setMarking(id);
+    try {
+      await fetch('/api/admin/intelligence-feed', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, processed: true }),
+      });
+      setItems(prev => prev.filter(i => i.id !== id));
+    } catch { /* silent */ } finally {
+      setMarking(null);
+    }
+  };
+
+  if (!loading && items.length === 0) return null;
+
+  return (
+    <div className="ds-card p-5">
+      <h2 className="ds-h2 flex items-center gap-2 mb-4">
+        <ListChecks size={16} className="text-[var(--warning)]" />
+        Очередь разведки Scout
+        {!loading && <span className="ml-auto text-xs font-normal text-[var(--text-muted)]">{items.length} необработанных</span>}
+      </h2>
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 ds-skeleton rounded-lg" />)}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map(item => {
+            const style = URGENCY_STYLE[item.urgency] ?? URGENCY_STYLE.medium;
+            return (
+              <div key={item.id} className={`rounded-lg border p-3 ${style}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle size={12} className="shrink-0" />
+                      <span className="text-[10px] font-semibold uppercase tracking-wider">{item.urgency}</span>
+                      <span className="text-[10px] opacity-60">{fmtDate(item.created_at)}</span>
+                    </div>
+                    <p className="text-xs text-[var(--text-primary)] line-clamp-2">{item.summary ?? item.key}</p>
+                    {item.action_items.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5">
+                        {item.action_items.slice(0, 3).map(a => (
+                          <li key={a.idx} className="text-[11px] text-[var(--text-secondary)] flex items-start gap-1">
+                            <span className="shrink-0 mt-0.5">→</span>
+                            <span className="line-clamp-1">{a.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => void markDone(item.id)}
+                    disabled={marking === item.id}
+                    title="Отметить выполненным"
+                    className="shrink-0 p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+                  >
+                    <CheckSquare size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -669,6 +895,12 @@ export default function AIAnalyticsClient() {
                 </div>
               </div>
             )}
+
+            {/* Kuzmich conversion metrics */}
+            <KuzmichConversionSection />
+
+            {/* Scout Digest action queue */}
+            <ScoutActionQueue />
 
             {/* Chats drill-down */}
             <ChatsSection />

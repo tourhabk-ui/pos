@@ -341,11 +341,12 @@ export async function buildTourContext(): Promise<string> {
         LIMIT 100
       `),
       pool.query<{ title: string; compiled_truth: string }>(`
-        SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
+        SELECT title, compiled_truth
         FROM agent_knowledge
         WHERE agent_id = 'kuzmich'
+          AND type IN ('fact', 'indigenous', 'contact', 'safety', 'faq')
         ORDER BY updated_at DESC
-        LIMIT 50
+        LIMIT 10
       `),
     ]);
 
@@ -404,6 +405,25 @@ export async function buildTourContext(): Promise<string> {
   } catch {
     return '';
   }
+}
+
+// ── Query-aware knowledge retrieval (per-request FTS on agent_knowledge) ────
+
+async function getQueryAwareKnowledge(text: string): Promise<string> {
+  if (!text || text.length < 4) return '';
+  try {
+    const { rows } = await pool.query<{ title: string; compiled_truth: string }>(
+      `SELECT title, LEFT(compiled_truth, 400) AS compiled_truth
+       FROM agent_knowledge
+       WHERE agent_id = 'kuzmich'
+         AND search_vector @@ plainto_tsquery('russian', $1)
+       ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $1)) DESC
+       LIMIT 8`,
+      [text.slice(0, 200)]
+    );
+    if (!rows.length) return '';
+    return rows.map(k => wrapForRAG(k.title, k.compiled_truth)).join('\n');
+  } catch { return ''; }
 }
 
 // ── Динамический поиск мест по запросу пользователя ─────────────────────────
@@ -1614,19 +1634,20 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, queryKnowledge] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
     searchPlaceKnowledge(text),
+    getQueryAwareKnowledge(text),
   ]);
 
   // Строим системный промпт с маркером для prompt caching:
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
-  // — ниже маркера: динамика (placeCtx меняется по запросу, memCtx по юзеру) — без кеша
+  // — ниже маркера: динамика (placeCtx + queryKnowledge меняются по запросу, memCtx по юзеру)
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', memCtx || ''].filter(Boolean).join('\n\n');
+  const dynamic = [placeCtx || '', queryKnowledge || '', memCtx || ''].filter(Boolean).join('\n\n');
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
