@@ -62,11 +62,12 @@ export interface SanitizeResult {
  */
 export function sanitizeKnowledgeContent(raw: string): SanitizeResult {
   const flaggedPatterns: string[] = [];
-  let sanitized = raw;
-  const normalized = normalize(raw);
+  // Work on normalized form so that fullwidth/confusable-encoded injections
+  // (e.g. ｉｇｎｏｒｅ → ignore after NFKC) are both detected AND removed.
+  let sanitized = normalize(raw);
 
   for (const pattern of INJECTION_PATTERNS) {
-    if (pattern.test(normalized)) {
+    if (pattern.test(sanitized)) {
       flaggedPatterns.push(pattern.source);
       // Replace ALL occurrences (g flag via new RegExp to avoid lastIndex mutation)
       sanitized = sanitized.replace(new RegExp(pattern.source, 'gi'), '[REMOVED]');

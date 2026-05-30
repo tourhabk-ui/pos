@@ -170,7 +170,7 @@ export async function runEditor(): Promise<EditorResult> {
       await pool.query(
         `UPDATE agent_route_knowledge
          SET description = $1,
-             search_text = COALESCE(search_text, '') || ' ' || $1
+             search_text = $1
          WHERE id = $2`,
         [newDescription, route.id],
       );

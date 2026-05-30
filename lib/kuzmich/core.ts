@@ -458,9 +458,7 @@ async function linkSearchResultToRelated(slug: string, query: string): Promise<v
        LIMIT 3`,
       [slug, query.slice(0, 200)]
     );
-    for (const r of rows) {
-      await knowledgeBase.link(slug, r.slug, 'search_related', query.slice(0, 100));
-    }
+    await Promise.all(rows.map(r => knowledgeBase.link(slug, r.slug, 'search_related', query.slice(0, 100))));
   } catch { /* fire-and-forget */ }
 }
 

@@ -1,7 +1,7 @@
 /**
  * POST /api/safety/checkin  — создать чекин
- * GET  /api/safety/checkin?token=  — статус по токену
- * DELETE /api/safety/checkin?token= — отменить по токену
+ * GET  /api/safety/checkin  — статус (Authorization: Bearer <token>)
+ * DELETE /api/safety/checkin — отменить (Authorization: Bearer <token>)
  *
  * AUTH: намеренно публичный — туристы без аккаунта должны иметь возможность
  * зарегистрировать чекин (аналогично /api/safety/sos).
