@@ -53,6 +53,19 @@ export async function GET(
     const r = result.rows[0];
     const payload = (r.payload as Record<string, unknown>) ?? {};
 
+    // Загружаем точки маршрута
+    const waypointsResult = await query(
+      `SELECT rw.position,
+         p.id AS place_uuid, p.ark_id AS place_id, p.name AS place_name,
+         p.location_type, p.lat AS place_lat, p.lng AS place_lng
+       FROM route_waypoints rw
+       JOIN places p ON p.id = rw.place_id
+       WHERE rw.route_id = $1
+       ORDER BY rw.position
+       LIMIT 25`,
+      [r.id]
+    );
+
     // Загружаем предложения операторов из operator_tours (через v_route_marketplace)
     let offers: unknown[] = [];
     {
@@ -166,6 +179,15 @@ export async function GET(
         geometry: (r.geometry as { type: string; coordinates: number[][] } | null) ?? null,
         createdAt:   r.created_at as string,
         offers,
+        waypoints: waypointsResult.rows.map(w => ({
+          position:     w.position as number,
+          placeUuid:    w.place_uuid as string,
+          placeId:      (w.place_id as string | null) ?? null,
+          name:         w.place_name as string,
+          locationType: (w.location_type as string | null) ?? null,
+          lat:          w.place_lat != null ? parseFloat(w.place_lat as string) : null,
+          lng:          w.place_lng != null ? parseFloat(w.place_lng as string) : null,
+        })),
       },
     });
   } catch (error) {
