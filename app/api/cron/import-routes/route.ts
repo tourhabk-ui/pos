@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
-import { runVisitKamchatkaImporter } from '@/lib/agents/visitkamchatka-importer';
+import { importVisitKamchatka } from '@/lib/services/visitkamchatka-importer';
 import { runKamchatkalandImporter } from '@/lib/agents/kamchatkaland-importer';
 import { runPlacesEnricher } from '@/lib/agents/places-enricher';
 import { runIdilesomImporter } from '@/lib/agents/idilesom-importer';
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     const results: Record<string, unknown> = {};
 
     if (source === 'visitkamchatka' || source === 'all') {
-      results.visitkamchatka = await runVisitKamchatkaImporter(batch);
+      results.visitkamchatka = await importVisitKamchatka();
     }
     if (source === 'kamchatkaland' || source === 'all') {
       results.kamchatkaland = await runKamchatkalandImporter(Math.ceil(batch / 2));

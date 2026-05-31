@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus, BookOpen } from 'lucide-react';
+import { Play, Square, CheckCircle, AlertTriangle, Loader2, Map, ExternalLink, FilePlus, BookOpen, Globe } from 'lucide-react';
 
 interface MatchItem {
   ourTitle: string;
@@ -57,6 +57,18 @@ interface VkResult {
   error?: string;
 }
 
+interface OsmResult {
+  ok: boolean;
+  dry_run?: boolean;
+  imported: number;
+  skipped: number;
+  errors: number;
+  error_details?: string[];
+  routes_without_geometry: number;
+  processed: number;
+  details?: { id: string; title: string; status: string; pts?: number }[];
+}
+
 export default function AdminToolsPage() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -71,6 +83,37 @@ export default function AdminToolsPage() {
   const [vkRunning, setVkRunning] = useState(false);
   const [vkResult, setVkResult] = useState<VkResult | null>(null);
   const [vkError, setVkError] = useState<string | null>(null);
+
+  // OSM geometry import state
+  const [osmRunning, setOsmRunning] = useState(false);
+  const [osmResult, setOsmResult] = useState<OsmResult | null>(null);
+  const [osmError, setOsmError] = useState<string | null>(null);
+  const [osmDryRun, setOsmDryRun] = useState(false);
+
+  async function startOsmImport() {
+    const label = osmDryRun ? 'dry-run (без записи в БД)' : 'реальный импорт GPS-треков из OpenStreetMap';
+    if (!confirm(`Запустить ${label}? Займёт 3-5 минут.`)) return;
+    setOsmRunning(true);
+    setOsmResult(null);
+    setOsmError(null);
+    try {
+      const res = await fetch('/api/admin/import/osm-geometry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 80, dry_run: osmDryRun }),
+      });
+      const data = await res.json() as OsmResult;
+      if (!res.ok || !data.ok) {
+        setOsmError((data as { error?: string }).error ?? `HTTP ${res.status}`);
+      } else {
+        setOsmResult(data);
+      }
+    } catch (err) {
+      setOsmError((err as Error).message);
+    } finally {
+      setOsmRunning(false);
+    }
+  }
 
   async function startVkImport() {
     if (!confirm('Запустить импорт 134 маршрутов с visitkamchatka.ru? Займёт ~2 минуты.')) return;
@@ -434,6 +477,109 @@ export default function AdminToolsPage() {
                       <span className="text-[var(--text-secondary)] truncate pr-4">{r.title}</span>
                       <span className={r.status === 'inserted' ? 'text-[var(--success)]' : r.status === 'updated' ? 'text-[var(--ocean)]' : r.status === 'skip' ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'}>
                         {r.status === 'inserted' ? 'новый' : r.status === 'updated' ? 'обновлён' : r.status === 'skip' ? 'пропущен' : r.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── OpenStreetMap geometry import ─────────────────────────────────── */}
+      <div className="ds-card p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--ocean)]/10 flex items-center justify-center flex-shrink-0">
+            <Globe className="w-5 h-5 text-[var(--ocean)]" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)]">GPS-треки из OpenStreetMap</h2>
+            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+              Загружает geometry (GeoJSON LineString) для маршрутов без GPS-трека через Overpass API.
+              Сопоставление по имени OSM-тега или близости к точке старта.
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Батч до 80 · ~3-5 мин · кластерный параллельный запрос · ежедневно в 03:00 UTC
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={startOsmImport}
+            disabled={osmRunning}
+            className="ds-btn ds-btn-primary flex items-center gap-2 disabled:opacity-60"
+          >
+            {osmRunning
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Импортируем...</>
+              : <><Play className="w-4 h-4" /> {osmDryRun ? 'Dry-run' : 'Запустить импорт'}</>
+            }
+          </button>
+          <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={osmDryRun}
+              onChange={e => setOsmDryRun(e.target.checked)}
+              className="rounded"
+            />
+            Dry-run (не писать в БД)
+          </label>
+        </div>
+
+        {osmError && (
+          <div className="rounded-lg p-4 border bg-[var(--danger)]/5 border-[var(--danger)]/20 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[var(--danger)] flex-shrink-0" />
+            <span className="text-sm text-[var(--danger)]">{osmError}</span>
+          </div>
+        )}
+
+        {osmResult && (
+          <div className="rounded-lg p-4 border bg-[var(--success)]/5 border-[var(--success)]/20 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-[var(--success)]" />
+              <span className="font-semibold text-sm text-[var(--text-primary)]">
+                {osmResult.dry_run ? 'Dry-run завершён' : 'Готово'}
+              </span>
+            </div>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Обработано: <strong>{osmResult.processed}</strong> ·
+              Импортировано: <strong>{osmResult.imported}</strong> ·
+              Пропущено: <strong>{osmResult.skipped}</strong>
+              {osmResult.errors > 0 && <>, <span className="text-[var(--danger)]">{osmResult.errors} ошибок</span></>}
+              {osmResult.routes_without_geometry > 0 && (
+                <> · осталось без трека: <strong>{osmResult.routes_without_geometry}</strong></>
+              )}
+            </p>
+            {osmResult.error_details && osmResult.error_details.length > 0 && (
+              <details>
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  Ошибки ({osmResult.error_details.length})
+                </summary>
+                <div className="mt-2 max-h-32 overflow-auto space-y-0.5">
+                  {osmResult.error_details.map((e, i) => (
+                    <div key={i} className="text-xs text-[var(--danger)] py-0.5">{e}</div>
+                  ))}
+                </div>
+              </details>
+            )}
+            {osmResult.details && osmResult.details.length > 0 && (
+              <details>
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  Детали ({osmResult.details.length})
+                </summary>
+                <div className="mt-2 max-h-48 overflow-auto space-y-0.5">
+                  {osmResult.details.map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5 border-b border-[var(--border)] last:border-0">
+                      <span className="text-[var(--text-secondary)] truncate pr-4">{r.title}</span>
+                      <span className={
+                        r.status === 'imported' || r.status === 'dry_run' ? 'text-[var(--success)]' :
+                        r.status === 'skipped' ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'
+                      }>
+                        {r.status === 'imported' ? `импортирован (${r.pts} pts)` :
+                         r.status === 'dry_run' ? `dry-run (${r.pts} pts)` :
+                         r.status === 'skipped' ? 'не найден' : r.status}
                       </span>
                     </div>
                   ))}
