@@ -19,5 +19,5 @@ jobs:
           BATCH="${{ github.event.inputs.batch || '20' }}"
           curl -sf \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://tourhab.ru/api/cron/import-routes?batch=${BATCH}" \
+            "https://vedarai.ru/api/cron/import-routes?batch=${BATCH}" \
             | jq .

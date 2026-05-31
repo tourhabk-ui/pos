@@ -162,6 +162,17 @@ async function afterAiReply(chatId: number, answer?: string): Promise<void> {
   if (answer && hasTourRecommendation(answer)) {
     await sendBookingInlineButton(chatId);
   }
+  // Sample feedback prompt at ~20% to avoid cluttering every conversation
+  if (Math.random() < 0.2) {
+    await tgReply(chatId, 'Помог ли этот ответ?', {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '👍 Да', callback_data: 'feedback_good' },
+          { text: '👎 Нет', callback_data: 'feedback_bad' },
+        ]],
+      },
+    });
+  }
 }
 
 // ── Скачать файл из Telegram → base64 ────────────────────────────────────────
@@ -419,6 +430,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await saveRating(chatId, 'tourist', 1);
         await tgAnswerCallback(cq.id, 'Принято, буду лучше');
         await tgReply(chatId, 'Жаль. Расскажи что не так — постараюсь исправить.');
+      } else if (cq.data === 'feedback_good' || cq.data === 'feedback_bad') {
+        const rating = cq.data === 'feedback_good' ? 'good' : 'bad';
+        await pool.query(
+          `INSERT INTO ai_actions_log (action_type, metadata, created_at)
+           VALUES ('agent_feedback', $1::jsonb, NOW())`,
+          [JSON.stringify({ chat_id: String(chatId), rating, agent_id: 'kuzmich', source: 'telegram_inline' })],
+        ).catch(() => {});
+        await tgAnswerCallback(cq.id, 'Спасибо за отзыв!');
       } else if (cq.data === 'book_now') {
         await tgAnswerCallback(cq.id);
         await processMessage({

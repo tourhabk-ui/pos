@@ -114,6 +114,7 @@ export default function MapPageClient() {
   const [isOffline, setIsOffline] = useState(false);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedPlaceInitial, setSelectedPlaceInitial] = useState<RoutePoint | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<{ type: string; coordinates: number[][] } | null>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
   const [showSos, setShowSos] = useState(false);
@@ -134,6 +135,16 @@ export default function MapPageClient() {
     if (point) {
       setSelectedPlaceId(id);
       setSelectedPlaceInitial(point);
+      setSelectedTrack(null);
+      // Подгружаем GPS-трек маршрута (если есть)
+      fetch(`/api/routes/${id}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.success && d.data?.geometry?.type === 'LineString') {
+            setSelectedTrack(d.data.geometry);
+          }
+        })
+        .catch(() => {});
     }
   }, [allRoutes]);
 
@@ -346,6 +357,7 @@ export default function MapPageClient() {
           showUserLocation={showMyLocation}
           locationPriority="highAccuracy"
           className="bg-black"
+          highlightTrack={selectedTrack}
         />
 
         {/* Фильтры — снизу, поверх карты, крупные для перчаток */}
@@ -487,7 +499,7 @@ export default function MapPageClient() {
             initialData={selectedPlaceInitial}
             userPos={userPos}
             isOffline={true}
-            onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); }}
+            onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); setSelectedTrack(null); }}
           />
         )}
       </div>
@@ -556,6 +568,7 @@ export default function MapPageClient() {
             onMarkerClick={handleMarkerClick}
             showUserLocation={showMyLocation}
             locationPriority="highAccuracy"
+            highlightTrack={selectedTrack}
           />
 
           {/* Погода у пользователя */}
@@ -597,7 +610,7 @@ export default function MapPageClient() {
           initialData={selectedPlaceInitial}
           userPos={userPos}
           isOffline={false}
-          onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); }}
+          onClose={() => { setSelectedPlaceId(null); setSelectedPlaceInitial(null); setSelectedTrack(null); }}
         />
       )}
 

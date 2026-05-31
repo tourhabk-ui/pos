@@ -23,7 +23,8 @@ interface OverdueCheckin {
 }
 
 function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Strip newlines first to prevent injecting fake alert fields into Telegram messages
+  return s.replace(/[\r\n]/g, ' ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 async function tgSend(text: string): Promise<boolean> {

@@ -10,7 +10,8 @@
 
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
-import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
+import { wrapForRAG } from '@/lib/security/rag-sanitize';
+import { callAIWaterfall, callOpenRouterWithTools } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -340,11 +341,12 @@ export async function buildTourContext(): Promise<string> {
         LIMIT 100
       `),
       pool.query<{ title: string; compiled_truth: string }>(`
-        SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
+        SELECT title, compiled_truth
         FROM agent_knowledge
         WHERE agent_id = 'kuzmich'
+          AND type IN ('fact', 'indigenous', 'contact', 'safety', 'faq')
         ORDER BY updated_at DESC
-        LIMIT 50
+        LIMIT 10
       `),
     ]);
 
@@ -373,8 +375,8 @@ export async function buildTourContext(): Promise<string> {
       return `${p.name}${dist}${desc}`;
     });
 
-    // Agent knowledge block
-    const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
+    // Agent knowledge block — wrapped in XML delimiters to prevent prompt injection
+    const knowledgeLines = knowledgeResult.rows.map(k => wrapForRAG(k.title, k.compiled_truth));
 
     // Load live context: weather + news + MChS alerts
     const liveBlock = await loadLiveContext();
@@ -403,6 +405,61 @@ export async function buildTourContext(): Promise<string> {
   } catch {
     return '';
   }
+}
+
+// ── Query-aware knowledge retrieval (per-request FTS on agent_knowledge) ────
+
+async function getQueryAwareKnowledge(text: string): Promise<string> {
+  if (!text || text.length < 4) return '';
+  try {
+    // Step 1: FTS on agent_knowledge — most relevant entries for this query
+    const { rows: direct } = await pool.query<{ slug: string; title: string; compiled_truth: string }>(
+      `SELECT slug, title, LEFT(compiled_truth, 400) AS compiled_truth
+       FROM agent_knowledge
+       WHERE agent_id = 'kuzmich'
+         AND search_vector @@ plainto_tsquery('russian', $1)
+       ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $1)) DESC
+       LIMIT 8`,
+      [text.slice(0, 200)]
+    );
+
+    // Step 2: 1-hop graph expansion — entries linked FROM direct results
+    const directSlugs = direct.map(r => r.slug);
+    const expanded: Array<{ title: string; compiled_truth: string }> = [];
+    if (directSlugs.length > 0) {
+      const { rows: linked } = await pool.query<{ title: string; compiled_truth: string }>(
+        `SELECT DISTINCT ak.title, LEFT(ak.compiled_truth, 300) AS compiled_truth
+         FROM agent_knowledge_links akl
+         JOIN agent_knowledge ak ON ak.slug = akl.to_slug
+         WHERE akl.from_slug = ANY($1::text[])
+           AND ak.agent_id = 'kuzmich'
+           AND ak.slug != ALL($1::text[])
+         LIMIT 4`,
+        [directSlugs]
+      );
+      expanded.push(...linked);
+    }
+
+    const all = [...direct, ...expanded];
+    if (!all.length) return '';
+    return all.map(k => wrapForRAG(k.title, k.compiled_truth)).join('\n');
+  } catch { return ''; }
+}
+
+async function linkSearchResultToRelated(slug: string, query: string): Promise<void> {
+  try {
+    // Find top-3 existing knowledge entries related to this query and create links
+    const { rows } = await pool.query<{ slug: string }>(
+      `SELECT slug FROM agent_knowledge
+       WHERE agent_id = 'kuzmich'
+         AND slug != $1
+         AND search_vector @@ plainto_tsquery('russian', $2)
+       ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $2)) DESC
+       LIMIT 3`,
+      [slug, query.slice(0, 200)]
+    );
+    await Promise.all(rows.map(r => knowledgeBase.link(slug, r.slug, 'search_related', query.slice(0, 100))));
+  } catch { /* fire-and-forget */ }
 }
 
 // ── Динамический поиск мест по запросу пользователя ─────────────────────────
@@ -942,6 +999,9 @@ async function recordBookingPatternInBrain(
     // Добавляем запись о конкретном бронировании
     const entry = `booking #${bookingId}: ${b.participants} чел, ${dateStr}, ${total.toLocaleString('ru-RU')} ₽, канал=${platform ?? 'web'}`;
     await knowledgeBase.appendTimeline(slug, entry);
+
+    // Link pattern to related knowledge entries for this tour
+    void linkSearchResultToRelated(slug, b.tour.title);
   } catch { /* fire-and-forget, не блокируем бронирование */ }
 }
 
@@ -1396,12 +1456,16 @@ async function saveSearchResultToKB(query: string, result: string): Promise<void
     .replace(/[^a-zа-яё0-9]/gi, '_')
     .replace(/_+/g, '_')
     .slice(0, 50)}_${Date.now() % 100000}`;
-  await pool.query(
+  const inserted = await pool.query<{ id: string }>(
     `INSERT INTO agent_knowledge(slug,type,title,compiled_truth,agent_id,edit_count,created_at,updated_at)
      VALUES($1,'search_result',$2,$3,'kuzmich',0,NOW(),NOW())
-     ON CONFLICT(slug) DO NOTHING`,
+     ON CONFLICT(slug) DO NOTHING
+     RETURNING id`,
     [slug, query.slice(0, 100), `${result.slice(0, 500)}\n[Веб-поиск, ${new Date().toLocaleDateString('ru-RU')}]`],
-  ).catch(() => {});
+  ).catch(() => null);
+  if (inserted?.rows.length) {
+    void linkSearchResultToRelated(slug, query);
+  }
 }
 
 // ── Level 2: Tool use ────────────────────────────────────────────────────────
@@ -1560,10 +1624,19 @@ async function aiChatAgentLoop(
   systemContent: string,
   history: ChatMessage[],
   extraUserMsg: ChatMessage[],
+  dynamicCtx: string,
 ): Promise<string | null> {
+  // Inject dynamic context (place + query-aware knowledge + memory) as a
+  // mid-conversation system message immediately before the current user turn.
+  // This keeps the static system prompt fully cached across turns while
+  // per-request context is appended without busting the cache.
+  const historyMsgs = history.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg));
+  const insertIdx = dynamicCtx ? Math.max(0, historyMsgs.length - 1) : historyMsgs.length;
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
-    ...history.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
+    ...historyMsgs.slice(0, insertIdx),
+    ...(dynamicCtx ? [{ role: 'system' as const, content: dynamicCtx }] : []),
+    ...historyMsgs.slice(insertIdx),
     ...extraUserMsg.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
   ];
 
@@ -1613,22 +1686,21 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, queryKnowledge] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
     searchPlaceKnowledge(text),
+    getQueryAwareKnowledge(text),
   ]);
 
-  // Строим системный промпт с маркером для prompt caching:
-  // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
-  // — ниже маркера: динамика (placeCtx меняется по запросу, memCtx по юзеру) — без кеша
+  // Static system prompt: always cached across all turns.
+  // Dynamic context (per-request: place, query-aware KB, user memory) is
+  // injected as a mid-conversation system message so that the static cache
+  // prefix is never invalidated by per-request data.
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
-  const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', memCtx || ''].filter(Boolean).join('\n\n');
-  const systemContent = dynamic
-    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
-    : cacheable;
+  const staticSystem = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
+  const dynamicCtx = [placeCtx || '', queryKnowledge || '', memCtx || ''].filter(Boolean).join('\n\n');
 
   // Если есть описание фото — прокидываем его первым сообщением
   const extraUserMsg: ChatMessage[] = visionDescription
@@ -1636,22 +1708,27 @@ export async function aiChat(opts: {
     : [];
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg)
+  let answer = await aiChatAgentLoop(userContent, staticSystem, history, extraUserMsg, dynamicCtx)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
   // ── Fallback: waterfall without tools ───────────────────────────────────
   if (!answer) {
     // Level 1: preemptive search for price/contact/schedule queries
-    let enrichedSystem = systemContent;
+    let searchAppend = '';
     if (needsPreemptiveSearch(userContent)) {
       const preSearch = await searchWeb(userContent);
-      if (preSearch) enrichedSystem += `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
+      if (preSearch) searchAppend = `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
     }
 
+    // Build messages with mid-conversation system injection
+    const dynWithSearch = dynamicCtx + searchAppend;
+    const insertIdx = Math.max(0, history.length - 1);
     const fallbackMessages: ChatMessage[] = [
-      { role: 'system', content: enrichedSystem },
-      ...history,
+      { role: 'system', content: staticSystem },
+      ...history.slice(0, insertIdx),
+      ...(dynWithSearch ? [{ role: 'system' as const, content: dynWithSearch }] : []),
+      ...history.slice(insertIdx),
       ...extraUserMsg,
     ];
 
@@ -1663,9 +1740,12 @@ export async function aiChat(opts: {
       const searchResults = await searchWeb(userContent);
       if (searchResults) {
         void saveSearchResultToKB(userContent, searchResults);
+        const searchCtx = `${dynamicCtx}\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.`;
         const retryMessages: ChatMessage[] = [
-          { role: 'system', content: systemContent + `\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.` },
-          ...history,
+          { role: 'system', content: staticSystem },
+          ...history.slice(0, insertIdx),
+          { role: 'system', content: searchCtx },
+          ...history.slice(insertIdx),
           ...extraUserMsg,
         ];
         const retry = await callAIWaterfall(retryMessages);

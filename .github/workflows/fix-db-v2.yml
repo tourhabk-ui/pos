@@ -108,7 +108,7 @@ jobs:
         run: |
           echo "Waiting 90s for deploy..."
           sleep 90
-          for url in "https://tourhab.ru/api/health" "https://vedarai.ru/api/health"; do
+          for url in "https://vedarai.ru/api/health" "https://vedarai.ru/api/health"; do
             HTTP=$(curl -s -o /tmp/h.txt -w "%{http_code}" --max-time 15 "$url" 2>/dev/null || echo "0")
             echo "$url → HTTP $HTTP"
             [ "$HTTP" = "200" ] && echo "✅ SITE UP" && cat /tmp/h.txt

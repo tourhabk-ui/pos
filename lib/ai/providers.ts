@@ -385,18 +385,22 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
   if (!apiKey) return null;
 
   try {
-    const systemMsg = messages.find(m => m.role === 'system');
-    const turns = messages.filter(m => m.role !== 'system');
-    const firstUserIdx = turns.findIndex(m => m.role === 'user');
-    const clean = firstUserIdx >= 0 ? turns.slice(firstUserIdx) : turns;
-    const window = clean.slice(-6);
-    const startIdx = window.findIndex(m => m.role === 'user');
-    const trimmed = startIdx > 0 ? window.slice(startIdx) : window;
+    // First system message → top-level system param (cache_control applied there).
+    // Subsequent system messages stay in the messages array as mid-conversation
+    // instructions (Anthropic API supports this for per-request context updates).
+    const firstSysIdx = messages.findIndex(m => m.role === 'system');
+    const systemMsg = firstSysIdx >= 0 ? messages[firstSysIdx] : null;
+    const withoutFirstSys = messages.filter((_, i) => i !== firstSysIdx);
 
-    if (!trimmed.length) return null;
+    // Trim conversation to last 8 entries, preserving mid-conv system messages
+    const firstUserIdx = withoutFirstSys.findIndex(m => m.role === 'user');
+    const fromFirstUser = firstUserIdx >= 0 ? withoutFirstSys.slice(firstUserIdx) : withoutFirstSys;
+    const trimmed = fromFirstUser.slice(-8);
+
+    if (!trimmed.some(m => m.role === 'user')) return null;
 
     const anthropicMessages = trimmed.map(m => ({
-      role: m.role as 'user' | 'assistant',
+      role: m.role as 'user' | 'assistant' | 'system',
       content: m.content,
     }));
 

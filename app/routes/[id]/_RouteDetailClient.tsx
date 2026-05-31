@@ -124,6 +124,16 @@ interface Offer {
   nextDeparture: string | null; nextSlots: number | null;
 }
 
+interface WaypointStop {
+  position: number;
+  placeUuid: string;
+  placeId: string | null;
+  name: string;
+  locationType: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
 interface RouteDetail {
   id: string; category: string; locationType: string | null; activityType: string | null;
   title: string; description: string;
@@ -144,6 +154,7 @@ interface RouteDetail {
   elevationGainM: number | null;
   durationHours: number | null;
   geometry: { type: string; coordinates: number[][] } | null;
+  waypoints: WaypointStop[];
 }
 
 // ── Карточка оффера ───────────────────────────────────────────────────────────
@@ -614,6 +625,36 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     {descExpanded ? 'Свернуть' : 'Читать полностью'}
                   </button>
                 )}
+              </section>
+            )}
+
+            {/* Точки маршрута */}
+            {(route.waypoints?.length ?? 0) > 0 && (
+              <section>
+                <h2 className="text-lg font-bold text-[var(--text-primary)] mb-4" style={{ fontFamily: 'var(--font-playfair)' }}>
+                  Точки маршрута
+                </h2>
+                <ol className="space-y-2">
+                  {route.waypoints.map((wp, i) => (
+                    <li key={wp.placeUuid} className="flex items-center gap-3">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center border border-[var(--accent)]/30">
+                        {i + 1}
+                      </span>
+                      <Link
+                        href={`/places/${wp.placeUuid}`}
+                        className="flex items-center gap-2 flex-1 hover:text-[var(--accent)] transition-colors"
+                      >
+                        <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                        <span className="text-sm font-medium text-[var(--text-primary)]">{wp.name}</span>
+                        {wp.locationType && (
+                          <span className="text-xs text-[var(--text-muted)]">
+                            {LOCATION_TYPE_LABELS[wp.locationType] ?? wp.locationType}
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
               </section>
             )}
 

@@ -22,7 +22,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/evo_resp.json -w "%{http_code}" \
             --max-time 180 \
-            "https://tourhab.ru/api/cron/evo?secret=$CRON_SECRET&type=full")
+            "https://vedarai.ru/api/cron/evo?secret=$CRON_SECRET&type=full")
 
           echo "Evo HTTP: $HTTP"
           cat /tmp/evo_resp.json 2>/dev/null || true

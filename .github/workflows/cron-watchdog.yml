@@ -16,6 +16,6 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 60 \
-            "https://tourhab.ru/api/cron/watchdog?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/watchdog?secret=$CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

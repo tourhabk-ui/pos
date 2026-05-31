@@ -43,15 +43,20 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '30', 10) || 30));
   const tierFilter = url.searchParams.get('tier') ?? 'active';
+  const unprocessedOnly = url.searchParams.get('unprocessed') === 'true';
 
   try {
     const tierClause = tierFilter === 'all' ? '' : 'AND memory_tier <= 2';
+    const unprocessedClause = unprocessedOnly
+      ? `AND (value->>'processed' IS NULL OR value->>'processed' = 'false')`
+      : '';
 
     const { rows } = await pool.query<IntelligenceRow>(`
       SELECT id, key, source, created_at::text, updated_at::text, memory_tier, value
       FROM agent_memory
       WHERE memory_type = 'intelligence'
         ${tierClause}
+        ${unprocessedClause}
       ORDER BY created_at DESC
       LIMIT $1
     `, [limit]);
@@ -102,5 +107,39 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error('[intelligence-feed] GET failed:', err instanceof Error ? err.message : err);
     return NextResponse.json({ success: false, error: 'Ошибка загрузки ленты' }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const authErr = await requireAdmin(request);
+  if (authErr instanceof NextResponse) return authErr;
+
+  let body: unknown;
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 });
+  }
+
+  const { id, processed } = body as { id?: string; processed?: boolean };
+  if (!id || typeof processed !== 'boolean') {
+    return NextResponse.json({ error: 'Требуются поля id и processed' }, { status: 400 });
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return NextResponse.json({ error: 'Некорректный id' }, { status: 400 });
+  }
+
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE agent_memory
+       SET value = value || jsonb_build_object('processed', $1::boolean)
+       WHERE id = $2 AND memory_type = 'intelligence'`,
+      [processed, id]
+    );
+    if (!rowCount) {
+      return NextResponse.json({ error: 'Запись не найдена' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[intelligence-feed] PATCH failed:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Ошибка обновления' }, { status: 500 });
   }
 }

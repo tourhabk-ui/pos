@@ -22,8 +22,44 @@ export interface EditorResult {
   duration_ms: number;
 }
 
-const BATCH_SIZE = 30;
+const BATCH_SIZE = 15;
 const MIN_DESCRIPTION_LENGTH = 300;
+
+// Minimum generated length to accept (shorter = likely truncated or refused)
+const MIN_GENERATED_CHARS = 200;
+
+// Generic AI refusal / hallucination signals — reject if found
+const REJECTION_PATTERNS = [
+  /я не могу/i, /не имею информации/i, /мне не известно/i,
+  /извините, я/i, /как языковая модель/i, /как ИИ/i,
+  /не могу создать/i, /не могу написать/i,
+];
+
+// At least one Kamchatka-specific term must appear (basic relevance check)
+const RELEVANCE_TERMS = [
+  /камчатк/i, /полуостров/i, /тихоокеан/i, /вулкан/i, /гейзер/i,
+  /термальн/i, /медведь/i, /медведей/i, /лосось/i, /тундр/i,
+  /кратер/i, /сопк/i, /лав/i, /тектоник/i, /магм/i, /нерест/i,
+];
+
+function validateGeneratedDescription(title: string, description: string): { valid: boolean; reason?: string } {
+  if (description.length < MIN_GENERATED_CHARS) {
+    return { valid: false, reason: `слишком короткое (${description.length} < ${MIN_GENERATED_CHARS})` };
+  }
+  for (const pat of REJECTION_PATTERNS) {
+    if (pat.test(description)) {
+      return { valid: false, reason: 'содержит отказ/признак галлюцинации' };
+    }
+  }
+  // Title word must appear OR at least one Kamchatka term
+  const titleWord = title.split(/\s+/)[0] ?? '';
+  const hasTitle = titleWord.length > 3 && description.toLowerCase().includes(titleWord.toLowerCase());
+  const hasGeo = RELEVANCE_TERMS.some(p => p.test(description));
+  if (!hasTitle && !hasGeo) {
+    return { valid: false, reason: 'нет признаков релевантности Камчатке' };
+  }
+  return { valid: true };
+}
 
 async function tgSend(text: string): Promise<void> {
   const token  = process.env.TELEGRAM_BOT_TOKEN;
@@ -121,7 +157,12 @@ export async function runEditor(): Promise<EditorResult> {
   for (const route of routes) {
     processed++;
     const newDescription = await generateRouteDescription(route);
-    if (!newDescription || newDescription.length < 100) {
+    if (!newDescription) {
+      errors++;
+      continue;
+    }
+    const validation = validateGeneratedDescription(route.title, newDescription);
+    if (!validation.valid) {
       errors++;
       continue;
     }
@@ -129,7 +170,7 @@ export async function runEditor(): Promise<EditorResult> {
       await pool.query(
         `UPDATE agent_route_knowledge
          SET description = $1,
-             search_text = COALESCE(search_text, '') || ' ' || $1
+             search_text = $1
          WHERE id = $2`,
         [newDescription, route.id],
       );
