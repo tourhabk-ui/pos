@@ -2,13 +2,13 @@ name: Cron — OSM Geometry Import
 
 on:
   schedule:
-    - cron: '0 */8 * * *'  # каждые 8 часов, 40 маршрутов за раз → все 294 за ~3 дня
+    - cron: '0 3 * * *'  # 03:00 UTC ежедневно — параллельный батчинг обрабатывает все 294 за ~5 мин
   workflow_dispatch:        # ручной запуск из GitHub Actions UI
 
 jobs:
   osm-geometry:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Import GPS tracks from OpenStreetMap
         env:

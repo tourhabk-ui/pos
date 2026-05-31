@@ -13,7 +13,7 @@ import { runOsmGeometryImport } from '@/lib/agents/osm-geometry-import';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300; // 5 мин — параллельный батчинг обрабатывает все маршруты за 1 прогон
 
 export async function GET(req: Request) {
   const authHeader = req instanceof Request ? req.headers.get('authorization') : null;
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   }
 
   const start = new Date();
-  const result = await runOsmGeometryImport(40);
+  const result = await runOsmGeometryImport(294); // все маршруты за один прогон
 
   await logAgentRun({
     agent_id: 'osm-geometry-import',
