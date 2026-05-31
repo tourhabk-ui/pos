@@ -45,6 +45,8 @@ interface LeafletMapProps {
   showUserLocation?: boolean;
   locationPriority?: 'battery' | 'highAccuracy';
   track?: { type: string; coordinates: number[][] } | null;
+  // Динамически обновляемый трек (без пересоздания карты)
+  highlightTrack?: { type: string; coordinates: number[][] } | null;
 }
 
 const COLOR_MAP: Record<string, string> = {
@@ -105,7 +107,7 @@ function populateCluster(
   onMarkerClick?: (id: string) => void,
 ) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const Lx = L as any; const mx = map as any;
+  const Lx = L as any; const mx = map as any; // allow: Leaflet has no complete TypeScript definitions
   cluster.clearLayers();
 
   markers.forEach((marker, idx) => {
@@ -150,6 +152,7 @@ export default function LeafletMap({
   showUserLocation = false,
   locationPriority = 'highAccuracy',
   track,
+  highlightTrack,
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -157,6 +160,8 @@ export default function LeafletMap({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clusterRef = useRef<any>(null);
   const mapConfigRef = useRef('');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const highlightLayersRef = useRef<any[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -171,8 +176,7 @@ export default function LeafletMap({
       import('leaflet.markercluster'),
     ]).then(([L]) => {
       if (!containerRef.current) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Lx = L as any;
+      const Lx = L as any; // allow: Leaflet has no complete TypeScript definitions
 
       if (!needsReinit && mapRef.current && clusterRef.current) {
         populateCluster(Lx, clusterRef.current, mapRef.current, markers, onMarkerClick);
@@ -258,7 +262,7 @@ export default function LeafletMap({
 
       if (showUserLocation && typeof navigator !== 'undefined' && navigator.geolocation) {
         const userIcon = Lx.divIcon({
-          html: `<div style="position:relative;width:20px;height:20px;"><div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(66,133,244,0.2);animation:kh-pulse 2s ease-out infinite"></div><div style="width:20px;height:20px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6)"></div></div>`,
+          html: `<div style="position:relative;width:20px;height:20px;"><div style="position:absolute;inset:-8px;border-radius:50%;background:rgba(66,133,244,0.2);animation:kh-pulse 2s ease-out infinite"></div><div style="width:20px;height:20px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 0 8px rgba(66,133,244,0.6)"></div></div>`, // allow: SVG/Canvas requires hex, no CSS vars in Leaflet divIcon HTML strings
           className: 'kh-user-location',
           iconSize: [20, 20],
           iconAnchor: [10, 10],
@@ -295,6 +299,39 @@ export default function LeafletMap({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority, track]);
+
+  // Отдельный эффект для подсветки трека — не пересоздаёт карту
+  useEffect(() => {
+    // Удаляем старые слои трека
+    highlightLayersRef.current.forEach(l => { try { l.remove(); } catch { /* */ } });
+    highlightLayersRef.current = [];
+
+    if (!highlightTrack?.coordinates?.length || !mapRef.current) return;
+
+    import('leaflet').then(L => {
+      const Lx = L as any; // allow: Leaflet has no complete TypeScript definitions
+      if (!mapRef.current) return;
+
+      const coords = highlightTrack.coordinates
+        .filter(c => Array.isArray(c) && c.length >= 2)
+        .map(c => Lx.latLng(c[1], c[0]));
+
+      if (coords.length < 2) return;
+
+      // Двойная линия: тень + акцент (пунктир — намекает на трек похода)
+      const shadow = Lx.polyline(coords, {
+        color: '#D44A0C', weight: 8, opacity: 0.2,
+        lineCap: 'round', lineJoin: 'round',
+      }).addTo(mapRef.current);
+
+      const main = Lx.polyline(coords, {
+        color: '#D44A0C', weight: 4, opacity: 0.9,
+        lineCap: 'round', lineJoin: 'round', dashArray: '10,5',
+      }).addTo(mapRef.current);
+
+      highlightLayersRef.current = [shadow, main];
+    }).catch(() => {});
+  }, [highlightTrack]);
 
   return (
     <div
