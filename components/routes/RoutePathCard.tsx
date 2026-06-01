@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 const DIFFICULTY_CONFIG = {
   easy:   { label: 'Лёгкий',  color: 'var(--success)', Icon: ChevronUp },
@@ -108,6 +109,9 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
             <MapPin className="w-3 h-3" />
             На карте
           </span>
+        )}
+        {(route.hazards?.length ?? 0) > 0 && (
+          <HazardBadgeStrip hazards={(route.hazards ?? []).slice(0, 3)} className="mt-0.5" />
         )}
       </Link>
     </article>

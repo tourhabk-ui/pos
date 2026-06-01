@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
   if (type === 'all' || type === 'routes') {
     const { rows } = await pool.query(
-      `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, view_count
+      `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, view_count, hazards
        FROM v_kamchatka_routes_api
        WHERE is_visible = true
        ORDER BY view_count DESC, created_at DESC

@@ -17,12 +17,12 @@
 
 import { pool } from '@/lib/db-pool';
 
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+const OVERPASS = 'https://overpass.kumi.systems/api/interpreter';
 const BBOX_PAD_LAT = 0.05;   // расширение bbox кластера (градусы)
 const BBOX_PAD_LNG = 0.07;
 const MAX_START_DIST_KM = 5; // максимум расстояние от точки маршрута до старта OSM пути
 const MAX_CLUSTER_SIZE = 10; // маршрутов в одном Overpass запросе
-const PARALLEL_LIMIT = 4;    // параллельных запросов к Overpass
+const PARALLEL_LIMIT = 2;    // параллельных запросов к Overpass (снижено для стабильности)
 
 export interface OsmImportResult {
   imported: number;
@@ -47,7 +47,7 @@ function distKm(lat1: number, lng1: number, lat2: number, lng2: number): number 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Загружает все OSM-пути в bbox покрывающем весь кластер маршрутов */
+/** Загружает все OSM-пути в bbox покрывающем весь кластер маршрутов (с retry) */
 async function fetchWaysForCluster(routes: RouteRow[]): Promise<OsmWay[]> {
   const lats = routes.map(r => parseFloat(r.lat));
   const lngs = routes.map(r => parseFloat(r.lng));
@@ -56,17 +56,25 @@ async function fetchWaysForCluster(routes: RouteRow[]): Promise<OsmWay[]> {
   const w = Math.min(...lngs) - BBOX_PAD_LNG;
   const e = Math.max(...lngs) + BBOX_PAD_LNG;
 
-  const q = `[out:json][timeout:45];way["highway"~"path|track|footway"](${s},${w},${n},${e});out geom;`;
+  const q = `[out:json][timeout:60][maxsize:536870912];way["highway"~"^(path|track|footway)$"](${s},${w},${n},${e});out geom;`;
 
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(q)}`,
-    signal: AbortSignal.timeout(50_000),
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  const data = await res.json() as { elements: OsmWay[] };
-  return (data.elements ?? []).filter(e => e.geometry && e.geometry.length >= 3);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 5_000));
+    const res = await fetch(OVERPASS, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Vedarai-TourHab/1.0 (vedarai.ru)',
+      },
+      body: `data=${encodeURIComponent(q)}`,
+      signal: AbortSignal.timeout(70_000),
+    });
+    if (res.status === 429 || res.status === 406) continue; // retry on rate limit
+    if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+    const data = await res.json() as { elements: OsmWay[] };
+    return (data.elements ?? []).filter(e => e.geometry && e.geometry.length >= 3);
+  }
+  throw new Error('Overpass: все 3 попытки не удались');
 }
 
 /** Нормализует строку для сравнения имён */
@@ -181,7 +189,7 @@ export async function runOsmGeometryImport(
   const { rows: routes } = await pool.query<RouteRow>(`
     SELECT id, title, lat::text, lng::text
     FROM kamchatka_routes
-    WHERE is_visible = true
+    WHERE (is_visible = true OR is_visible IS NULL)
       AND lat IS NOT NULL AND lng IS NOT NULL
       AND geometry IS NULL
     ORDER BY title
@@ -190,7 +198,7 @@ export async function runOsmGeometryImport(
 
   const { rows: countRows } = await pool.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM kamchatka_routes
-     WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL AND geometry IS NULL`,
+     WHERE (is_visible = true OR is_visible IS NULL) AND lat IS NOT NULL AND lng IS NOT NULL AND geometry IS NULL`,
   );
 
   let imported = 0;

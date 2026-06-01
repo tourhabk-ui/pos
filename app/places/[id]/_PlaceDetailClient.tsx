@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Navigation, Download, Phone, MessageCircle } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar'),        { ssr: false });
@@ -181,6 +182,16 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         lat={place.lat}
         lng={place.lng}
       />
+
+      {/* Hazard quick-view — visible above fold */}
+      {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
+        <div className="max-w-3xl mx-auto px-4 pt-3 pb-1">
+          <HazardBadgeStrip
+            hazards={place.safety.hazardTypes}
+            mchsRequired={place.safety.registrationRequired}
+          />
+        </div>
+      )}
 
       {/* Offline cache notice */}
       {fromCache && (

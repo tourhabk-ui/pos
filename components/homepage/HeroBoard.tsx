@@ -76,7 +76,7 @@ export function HeroBoard() {
             className={`font-playfair font-bold leading-[1.03] text-[var(--text-primary)] transition-all duration-700 delay-100 ${
               visible ? 'opacity-100' : 'opacity-0 translate-y-4'
             }`}
-            style={{ fontSize: 'clamp(2.6rem, 6.5vw, 5.5rem)' }}
+            style={{ fontSize: 'clamp(3.2rem, 8vw, 6.5rem)' }}
           >
             Знай{' '}
             <em className="not-italic text-[var(--accent)] italic">куда идёшь</em>
@@ -96,13 +96,13 @@ export function HeroBoard() {
               visible ? 'opacity-100' : 'opacity-0 translate-y-4'
             }`}
           >
-            <Link href="/planner" className="ds-btn ds-btn-primary gap-2">
-              <Bot size={16} />
+            <Link href="/planner" className="ds-btn ds-btn-primary gap-2 px-6 py-3 text-base">
+              <Bot size={17} />
               Подобрать маршрут
-              <ArrowRight size={15} />
+              <ArrowRight size={16} />
             </Link>
-            <Link href="/map" className="ds-btn ds-btn-secondary gap-2">
-              <Map size={15} />
+            <Link href="/map" className="ds-btn ds-btn-secondary gap-2 px-6 py-3 text-base">
+              <Map size={16} />
               Открыть карту
             </Link>
           </div>

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { MapPin, Route, Eye, ArrowLeft, Share2, Copy } from 'lucide-react';
 import { useState } from 'react';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 interface Place {
   id: string;
@@ -23,6 +24,7 @@ interface RouteItem {
   duration_hours: number | null;
   activity_type: string | null;
   description: string | null;
+  hazards?: string[] | null;
 }
 
 interface Collection {
@@ -94,6 +96,9 @@ function RouteCard({ route }: { route: RouteItem }) {
       </div>
       {route.description && (
         <p className="text-sm text-[var(--text-secondary)] mt-2 line-clamp-2">{route.description}</p>
+      )}
+      {(route.hazards?.length ?? 0) > 0 && (
+        <HazardBadgeStrip hazards={(route.hazards ?? []).slice(0, 3)} className="mt-2" />
       )}
     </Link>
   );

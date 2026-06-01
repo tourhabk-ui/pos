@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { House, Map, Sparkles, Compass, ShieldAlert } from 'lucide-react';
@@ -17,6 +17,22 @@ const NAV = [
 
 export function GlobalMobileNav() {
   const pathname = usePathname();
+  const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    itemRefs.current.forEach(el => {
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const t = Math.max(0, 1 - Math.abs(e.clientX - r.x - r.width / 2) / 120);
+      el.style.transform = `scale(${1 + t * 0.4})`;
+    });
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    itemRefs.current.forEach(el => {
+      if (el) el.style.transform = 'scale(1)';
+    });
+  }, []);
 
   // Hide on hub pages (they have sidebar nav) and on map page (takes full screen)
   if (pathname.startsWith('/hub') || pathname === '/map') return null;
@@ -24,6 +40,8 @@ export function GlobalMobileNav() {
   return (
     <nav
       className="lg:hidden"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
       style={{
         position: 'fixed',
         bottom: '12px',
@@ -41,7 +59,7 @@ export function GlobalMobileNav() {
         boxShadow: '0 4px 20px rgba(0,0,0,0.12), 0 1px 0 var(--border)',
       }}
     >
-      {NAV.map((item) => {
+      {NAV.map((item, idx) => {
         const Icon = item.icon;
         const isActive = item.href === '/'
           ? pathname === '/'
@@ -51,6 +69,7 @@ export function GlobalMobileNav() {
           <Link
             key={item.href}
             href={item.href}
+            ref={(el) => { itemRefs.current[idx] = el; }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -62,7 +81,8 @@ export function GlobalMobileNav() {
               textDecoration: 'none',
               fontSize: '10px',
               fontWeight: 600,
-              transition: 'color 0.15s, background 0.15s',
+              transition: 'color 0.15s, background 0.15s, transform 0.1s ease',
+              transformOrigin: 'bottom center',
             }}
             className={isActive ? 'bg-[var(--accent)]/10' : ''}
           >

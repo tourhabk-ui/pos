@@ -36,7 +36,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   // Fetch routes
   const routes = col.route_ids?.length
     ? (await pool.query(
-        `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, description
+        `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, description, hazards
          FROM v_kamchatka_routes_api WHERE id = ANY($1::uuid[])`,
         [col.route_ids]
       )).rows

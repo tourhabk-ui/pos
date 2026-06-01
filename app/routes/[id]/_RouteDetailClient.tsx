@@ -24,6 +24,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -599,6 +600,15 @@ export default function RouteDetailClient({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* ── ОПАСНОСТИ ────────────────────────────────────────────────────────── */}
+      {((route.hazards?.length ?? 0) > 0 || route.mchsRequired) && (
+        <div className="border-b border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="max-w-6xl mx-auto px-4 md:px-8 py-3">
+            <HazardBadgeStrip hazards={route.hazards ?? []} mchsRequired={route.mchsRequired} />
+          </div>
+        </div>
+      )}
+
       {/* ── ОСНОВНОЙ КОНТЕНТ ─────────────────────────────────────────────────── */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 pt-8 pb-24">
         <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
@@ -658,15 +668,6 @@ export default function RouteDetailClient({ id }: { id: string }) {
               </section>
             )}
 
-            {/* Предупреждение */}
-            {(route.dangerLevel === 'high' || route.dangerLevel === 'extreme') && (
-              <div className="flex items-start gap-3 p-4 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25">
-                <AlertTriangle className="w-4 h-4 text-[var(--warning)] flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-[var(--warning)]">
-                  Маршрут повышенной сложности. Требует физической подготовки и опытного гида.
-                </p>
-              </div>
-            )}
 
             {/* Фильтры и сортировка туров */}
             {allOffers.length > 1 && (
