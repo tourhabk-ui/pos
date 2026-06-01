@@ -1,11 +1,12 @@
 name: Deploy to Timeweb Cloud
 
-# Timeweb Cloud auto-deploy включён (is_auto_deploy: true)
-# Деплой запускается автоматически через webhook при push в main
-# Env vars управляются через Timeweb UI или scripts/sync-timeweb-envs.js
+# Quality gate: runs only after CI succeeds on main.
+# Manual dispatch bypasses the CI gate (e.g. force-redeploy without code change).
 #
-# Quality gate: runs only after CI workflow succeeds on main.
-# Manual dispatch (workflow_dispatch) bypasses the CI gate.
+# Timeweb auto-deploy IS enabled but this workflow is the authoritative trigger:
+# 1. CI passes → this workflow fires → POST /deploy → polls until healthy
+# This removes the dependency on Timeweb's GitHub webhook and makes
+# the CI→deploy pipeline explicit and observable.
 
 on:
   workflow_run:
@@ -18,33 +19,50 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+
     steps:
-      - name: Check deploy status
-        env:
-          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      - name: Trigger Timeweb redeploy
         run: |
-          APP_ID="175477"
-          TOKEN="$TIMEWEB_TOKEN"
-
           if [ -z "$TOKEN" ]; then
-            echo "TIMEWEB_TOKEN not set — skip status check"
-            echo "Deploy runs automatically via Timeweb webhook"
-            exit 0
+            echo "::error::TIMEWEB_TOKEN secret is not set"
+            exit 1
           fi
 
-          echo "Checking Timeweb app $APP_ID status..."
-
-          HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST \
             -H "Authorization: Bearer $TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
+            -H "Content-Type: application/json" \
+            "$BASE/apps/$APP_ID/deploy")
 
-          if [ "$HTTP" = "200" ]; then
-            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['status'])" 2>/dev/null || echo "unknown")
-            COMMIT=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['commit_sha'][:7])" 2>/dev/null || echo "unknown")
-            ENVS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(len(d['app'].get('envs',{})))" 2>/dev/null || echo "?")
-            echo "Status: $STATUS | Commit: $COMMIT | Env vars: $ENVS"
+          echo "POST /deploy → HTTP $HTTP"
+          cat /tmp/deploy.json | python3 -m json.tool 2>/dev/null | head -20 || cat /tmp/deploy.json
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo "Deploy triggered successfully."
           else
-            echo "Could not check status (HTTP $HTTP) — deploy still runs via webhook"
+            echo "::error::Deploy trigger failed (HTTP $HTTP)"
+            exit 1
           fi
 
-          echo "Site: https://vedarai.ru"
+      - name: Poll until healthy (max 6 min)
+        run: |
+          echo "Waiting for deploy to complete..."
+          for i in $(seq 1 36); do
+            sleep 10
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+              https://vedarai.ru/api/health 2>/dev/null || echo "0")
+            echo "[${i}0s] /api/health → $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo ""
+              echo "════════════════════════════════════════════"
+              echo "  DEPLOYED — https://vedarai.ru"
+              echo "════════════════════════════════════════════"
+              exit 0
+            fi
+          done
+          echo "::warning::Health check timed out (6 min) — check Timeweb panel"
+          echo "https://app.timeweb.cloud/apps/$APP_ID"

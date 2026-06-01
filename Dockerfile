@@ -1,16 +1,14 @@
 # syntax=docker/dockerfile:1
-# node:22-slim — совместимо с Timeweb (они используют node:24-slim, 22 LTS стабильнее)
 FROM node:22-slim AS base
 
 # ── 1. Dependencies ─────────────────────────────────────────────
 FROM base AS deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ curl \
-    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
+# No native-binding packages (bcrypt/sharp/canvas) — no build tools needed.
+# images.unoptimized:true in next.config.ts excludes sharp (~33 MB).
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --prefer-offline
 
 # ── 2. Build ─────────────────────────────────────────────────────
 FROM base AS builder
@@ -29,6 +27,7 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
+# curl for HEALTHCHECK only — no other runtime deps needed
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,9 +45,9 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# start.js: health proxy на :3000, Next.js на :3001
-# Критично для Timeweb healthcheck (таймаут 3 минуты)
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
+# start.js: health proxy on :3000, Next.js on :3001
+# Timeweb healthcheck timeout is 3 min — start-period covers build+migrate time
+HEALTHCHECK --interval=10s --timeout=5s --start-period=180s --retries=6 \
   CMD curl -sf http://localhost:3000/api/health || exit 1
 
 CMD ["node", "start.js"]
