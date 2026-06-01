@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 export interface RouteItem {
   id: string;
@@ -25,6 +26,7 @@ export interface RouteItem {
   offerCount?: number;
   topOperatorName?: string;
   minOfferPrice?: number | null;
+  hazards?: string[] | null;
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: React.ElementType; accent: string }> = {
@@ -167,6 +169,9 @@ function LegacyCard({ route }: { route: RouteItem }) {
             <MapPin className="w-3 h-3 text-[var(--text-muted)]" />
           )}
         </div>
+        {(route.hazards?.length ?? 0) > 0 && (
+          <HazardBadgeStrip hazards={(route.hazards ?? []).slice(0, 3)} className="mt-1.5" />
+        )}
       </Link>
     </article>
   );
