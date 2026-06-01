@@ -1,7 +1,15 @@
 import Link from 'next/link';
 import { AlertTriangle, Backpack, Radio, Phone, Users, ShieldAlert, Flame, Wind, Mountain, Waves, Eye, Thermometer, CloudLightning, Signal, Leaf, Heart, Book } from 'lucide-react';
 import { HAZARD_LABELS } from './types';
+import { HAZARD_SEVERITY_COLORS } from '@/components/shared/HazardBadgeStrip';
 import type { PlaceSafety as SafetyData } from './types';
+
+const HAZARD_SEVERITY: Record<string, keyof typeof HAZARD_SEVERITY_COLORS> = {
+  bears: 'danger', wildlife: 'danger', volcanic_gas: 'danger',
+  avalanche: 'warning', rockfall: 'warning', thermal: 'warning',
+  altitude: 'warning', ice: 'warning', weather: 'warning',
+  river_crossing: 'ocean', no_signal: 'ocean', fog: 'ocean',
+};
 
 interface Props {
   safety: SafetyData;
@@ -61,10 +69,17 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
               <div className="flex flex-wrap gap-2">
                 {safety.hazardTypes.map(h => {
                   const info = HAZARD_LABELS[h] ?? { label: h };
+                  const sev = HAZARD_SEVERITY[h] ?? 'warning';
+                  const color = HAZARD_SEVERITY_COLORS[sev];
                   return (
                     <span
                       key={h}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)]"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full"
+                      style={{
+                        color,
+                        background: `color-mix(in srgb, ${color} 14%, var(--bg-card))`,
+                        border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+                      }}
                     >
                       <HazardIcon hazard={h} />
                       {info.label}
