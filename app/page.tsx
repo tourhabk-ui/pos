@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import dynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
 import { HeroBoard } from '@/components/homepage/HeroBoard'
+import { KuzmichBriefing } from '@/components/homepage/KuzmichBriefing'
 import { StatsBand } from '@/components/homepage/StatsBand'
 import { EditorialSection } from '@/components/homepage/EditorialSection'
 import { BentoSection } from '@/components/homepage/BentoSection'
@@ -37,6 +38,9 @@ export default async function Page() {
 
         {/* Full-bleed hero */}
         <HeroBoard />
+
+        {/* Kuzmich proactive briefing — live safety + weather + routes */}
+        <KuzmichBriefing />
 
         {/* Stats — static grid, no animation overhead */}
         <StatsBand />
