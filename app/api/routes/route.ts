@@ -10,6 +10,24 @@ import { query } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
 
+function resolveHazards(category: string | null, activityType: string | null, locationType: string | null): string[] {
+  const cat = category ?? '';
+  const act = activityType ?? '';
+  const loc = locationType ?? '';
+  if (act === 'bear_watching' || cat === 'medvedi') return ['bears', 'wildlife'];
+  if (loc === 'volcano' || cat === 'vulkani' || cat === 'volcano' || cat === 'geyzery' || loc === 'geyser')
+    return ['rockfall', 'altitude', 'weather', 'volcanic_gas'];
+  if (loc === 'hot_spring' || cat === 'termalnye_istochniki' || cat === 'thermal' || act === 'thermal')
+    return ['thermal'];
+  if (loc === 'river' || cat === 'rivers' || cat === 'morskie_progulki' || act === 'boat_trip' || act === 'rafting')
+    return ['river_crossing', 'weather'];
+  if (act === 'fishing' || cat === 'rybalka') return ['bears', 'wildlife', 'river_crossing'];
+  if (loc === 'mountain' || loc === 'pass') return ['altitude', 'weather', 'rockfall'];
+  if (['trekking', 'hiking', 'eco', 'camping'].includes(act) || ['trekking', 'mountains', 'eco'].includes(cat))
+    return ['bears', 'weather'];
+  return ['wildlife', 'weather'];
+}
+
 function isImageUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const v = value.trim();
@@ -277,6 +295,7 @@ export async function GET(request: NextRequest) {
               geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
               volcanoStatus: (r.volcano_status as string | null) ?? null,
               hasAiImage:   hasAiImage,
+              hazards:      resolveHazards(r.category as string | null, r.activity_type as string | null, r.location_type as string | null),
             };
           }),
       meta: {

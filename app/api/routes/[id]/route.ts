@@ -9,16 +9,23 @@ import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
-function resolveHazards(stored: string[] | null, category: string | null, activityType: string | null): string[] {
+function resolveHazards(stored: string[] | null, category: string | null, activityType: string | null, locationType: string | null = null): string[] {
   if (stored && stored.length > 0) return stored;
   const cat = category ?? '';
   const act = activityType ?? '';
+  const loc = locationType ?? '';
   if (act === 'bear_watching' || cat === 'medvedi') return ['bears', 'wildlife'];
-  if (cat === 'vulkani' || cat === 'geyzery') return ['rockfall', 'altitude', 'weather', 'volcanic_gas'];
-  if (cat === 'termalnye_istochniki' || act === 'thermal') return ['thermal'];
-  if (cat === 'rivers' || cat === 'morskie_progulki' || act === 'boat_trip' || act === 'rafting') return ['river_crossing', 'weather'];
+  // location_type takes priority for places
+  if (loc === 'volcano' || cat === 'vulkani' || cat === 'volcano' || cat === 'geyzery' || loc === 'geyser')
+    return ['rockfall', 'altitude', 'weather', 'volcanic_gas'];
+  if (loc === 'hot_spring' || cat === 'termalnye_istochniki' || cat === 'thermal' || act === 'thermal')
+    return ['thermal'];
+  if (loc === 'river' || cat === 'rivers' || cat === 'morskie_progulki' || act === 'boat_trip' || act === 'rafting')
+    return ['river_crossing', 'weather'];
   if (act === 'fishing' || cat === 'rybalka') return ['bears', 'wildlife', 'river_crossing'];
-  if (['trekking', 'hiking', 'eco', 'camping'].includes(act) || ['trekking', 'mountains', 'eco'].includes(cat)) return ['bears', 'weather'];
+  if (loc === 'mountain' || loc === 'pass') return ['altitude', 'weather', 'rockfall'];
+  if (['trekking', 'hiking', 'eco', 'camping'].includes(act) || ['trekking', 'mountains', 'eco'].includes(cat))
+    return ['bears', 'weather'];
   return ['wildlife', 'weather'];
 }
 
@@ -185,7 +192,7 @@ export async function GET(
         mchsPhone:       (r.mchs_phone as string | null) ?? null,
         parkName:        (r.park_name as string | null) ?? null,
         parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
-        hazards:         resolveHazards(r.hazards as string[] | null, r.category as string | null, r.activity_type as string | null),
+        hazards:         resolveHazards(r.hazards as string[] | null, r.category as string | null, r.activity_type as string | null, r.location_type as string | null),
         distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
         durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
