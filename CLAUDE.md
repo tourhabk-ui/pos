@@ -18,7 +18,7 @@
 | Database | PostgreSQL — прямой SQL (`lib/database.ts`, `lib/db-pool.ts`), без Prisma |
 | Auth | JWT — `lib/auth.ts`, middleware — `lib/auth/middleware.ts` |
 | Deploy | Timeweb Cloud — приложение **Fair Polydeuces** (репо: `tourhabk-ui/pos`) |
-| CI/CD | push в `pospkam/PosPkTry main` → `.github/workflows/sync-to-tourhabk.yml` → `tourhabk-ui/pos` → Timeweb автодеплой |
+| CI/CD | push в `tourhabk-ui/pos main` → `ci.yml` (tsc + build + vitest) → `deploy.yml` → Timeweb деплой |
 
 **Масштаб:** 94 стр / 256 API routes / 119 компонентов / 8 хабов / 260 маршрутов БД
 
@@ -250,13 +250,13 @@ guide_certifications (112)         ← аттестации гидов
 ```bash
 npx tsc --noEmit      # 0 ошибок
 npx vitest run        # 214 тестов зелёные
-git push origin main  # → sync-to-tourhabk.yml → tourhabk-ui/pos → Timeweb автодеплой
+git push origin main  # → CI (tsc + build + vitest) → deploy.yml → Timeweb деплой
 ```
 
-**Схема деплоя (май 2026):**
-1. Push в `pospkam/PosPkTry main`
-2. GitHub Actions `.github/workflows/sync-to-tourhabk.yml` синхронизирует в `tourhabk-ui/pos main`
-3. Timeweb видит пуш → собирает Docker → `start.js` накатывает миграции → поднимает сервер
+**Схема деплоя (июнь 2026):**
+1. Push в `tourhabk-ui/pos main`
+2. `ci.yml` — tsc + Next.js build + vitest
+3. `deploy.yml` — `POST /apps/175477/deploy` с commit_sha → Timeweb собирает Docker → `start.js` накатывает миграции → поднимает сервер
 
 **Timeweb:** приложение **Fair Polydeuces**, репо `tourhabk-ui/pos`, ветка `main`
 **Переменные окружения:** в настройках приложения на Timeweb Cloud панели, не в коде.
