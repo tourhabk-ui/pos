@@ -23,6 +23,7 @@ jobs:
       TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
       APP_ID: "175477"
       BASE: "https://api.timeweb.cloud/api/v1"
+      COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Trigger Timeweb redeploy
@@ -36,6 +37,7 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
+            -d "{\"commit_sha\": \"$COMMIT_SHA\"}" \
             "$BASE/apps/$APP_ID/deploy")
 
           echo "POST /deploy → HTTP $HTTP"
