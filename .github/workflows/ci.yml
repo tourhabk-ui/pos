@@ -12,7 +12,9 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'next.config.*'
+      - 'Dockerfile'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/deploy.yml'
   pull_request:
     branches: [main]
     paths:
@@ -24,7 +26,9 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'next.config.*'
+      - 'Dockerfile'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/deploy.yml'
 
 concurrency:
   group: ci-${{ github.ref }}

@@ -97,7 +97,7 @@ jobs:
           deploys = d.get('deploys', [])
           if deploys:
               print(deploys[0].get('id', ''))
-          " 2>/dev/null)
+          " 2>/dev/null || true)
 
           if [ -z "$DEPLOY_ID" ]; then
             echo "No deploy found"

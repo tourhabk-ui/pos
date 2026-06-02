@@ -1,11 +1,11 @@
 name: Deploy to Timeweb Cloud
 
-# Timeweb Cloud auto-deploy включён (is_auto_deploy: true)
-# Деплой запускается автоматически через webhook при push в main
-# Env vars управляются через Timeweb UI или scripts/sync-timeweb-envs.js
+# Runs after CI succeeds on main. Also triggerable manually.
 #
-# Quality gate: runs only after CI workflow succeeds on main.
-# Manual dispatch (workflow_dispatch) bypasses the CI gate.
+# Primary deploy mechanism: Timeweb auto-deploy webhook fires on every push to main.
+# This workflow attempts POST /deploy as a secondary trigger and confirms the site
+# is healthy afterwards. It does NOT verify the deployed commit SHA (no /api/version
+# endpoint exists). For commit-level verification, check Timeweb panel manually.
 
 on:
   workflow_run:
@@ -18,33 +18,56 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      APP_ID: "175477"
+      BASE: "https://api.timeweb.cloud/api/v1"
+      COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
     steps:
-      - name: Check deploy status
-        env:
-          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+      - name: Trigger Timeweb redeploy (secondary — auto-deploy webhook is primary)
         run: |
-          APP_ID="175477"
-          TOKEN="$TIMEWEB_TOKEN"
-
           if [ -z "$TOKEN" ]; then
-            echo "TIMEWEB_TOKEN not set — skip status check"
-            echo "Deploy runs automatically via Timeweb webhook"
-            exit 0
+            echo "::error::TIMEWEB_TOKEN secret is not set"
+            exit 1
           fi
 
-          echo "Checking Timeweb app $APP_ID status..."
-
-          HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
+          HTTP=$(curl -s -o /tmp/deploy.json -w "%{http_code}" \
+            -X POST \
             -H "Authorization: Bearer $TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
+            -H "Content-Type: application/json" \
+            -d "{\"commit_sha\": \"$COMMIT_SHA\"}" \
+            "$BASE/apps/$APP_ID/deploy")
 
-          if [ "$HTTP" = "200" ]; then
-            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['status'])" 2>/dev/null || echo "unknown")
-            COMMIT=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['commit_sha'][:7])" 2>/dev/null || echo "unknown")
-            ENVS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(len(d['app'].get('envs',{})))" 2>/dev/null || echo "?")
-            echo "Status: $STATUS | Commit: $COMMIT | Env vars: $ENVS"
+          echo "POST /deploy → HTTP $HTTP (commit: $COMMIT_SHA)"
+          cat /tmp/deploy.json | python3 -m json.tool 2>/dev/null | head -20 || cat /tmp/deploy.json
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
+            echo "Deploy triggered via API."
           else
-            echo "Could not check status (HTTP $HTTP) — deploy still runs via webhook"
+            echo "::warning::API trigger returned HTTP $HTTP — relying on Timeweb auto-deploy webhook."
+            echo "::warning::Check Timeweb panel if site does not come up: https://app.timeweb.cloud/apps/$APP_ID"
           fi
 
-          echo "Site: https://vedarai.ru"
+      - name: Poll until healthy (max 6 min)
+        run: |
+          echo "Waiting for Timeweb build + start (commit $COMMIT_SHA)..."
+          echo "NOTE: HTTP 200 below confirms site is UP, not that this specific commit is deployed."
+          for i in $(seq 1 36); do
+            sleep 10
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+              https://vedarai.ru/api/health 2>/dev/null || echo "0")
+            echo "[${i}0s] /api/health → $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo ""
+              echo "════════════════════════════════════════════"
+              echo "  SITE HEALTHY — https://vedarai.ru"
+              echo "  Verify commit in Timeweb panel if needed:"
+              echo "  https://app.timeweb.cloud/apps/$APP_ID"
+              echo "════════════════════════════════════════════"
+              exit 0
+            fi
+          done
+          echo "::error::Health check timed out (6 min) — check Timeweb panel"
+          echo "https://app.timeweb.cloud/apps/$APP_ID"
+          exit 1
