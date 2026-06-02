@@ -44,10 +44,9 @@ jobs:
           cat /tmp/deploy.json | python3 -m json.tool 2>/dev/null | head -20 || cat /tmp/deploy.json
 
           if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
-            echo "Deploy triggered successfully."
+            echo "Deploy triggered via API."
           else
-            echo "::error::Deploy trigger failed (HTTP $HTTP)"
-            exit 1
+            echo "::warning::API trigger returned HTTP $HTTP — Timeweb auto-deploy webhook should handle it."
           fi
 
       - name: Poll until healthy (max 6 min)
