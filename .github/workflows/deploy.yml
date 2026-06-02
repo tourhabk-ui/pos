@@ -1,12 +1,11 @@
 name: Deploy to Timeweb Cloud
 
-# Quality gate: runs only after CI succeeds on main.
-# Manual dispatch bypasses the CI gate (e.g. force-redeploy without code change).
+# Runs after CI succeeds on main. Also triggerable manually.
 #
-# Timeweb auto-deploy IS enabled but this workflow is the authoritative trigger:
-# 1. CI passes → this workflow fires → POST /deploy → polls until healthy
-# This removes the dependency on Timeweb's GitHub webhook and makes
-# the CI→deploy pipeline explicit and observable.
+# Primary deploy mechanism: Timeweb auto-deploy webhook fires on every push to main.
+# This workflow attempts POST /deploy as a secondary trigger and confirms the site
+# is healthy afterwards. It does NOT verify the deployed commit SHA (no /api/version
+# endpoint exists). For commit-level verification, check Timeweb panel manually.
 
 on:
   workflow_run:
@@ -26,7 +25,7 @@ jobs:
       COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
-      - name: Trigger Timeweb redeploy
+      - name: Trigger Timeweb redeploy (secondary — auto-deploy webhook is primary)
         run: |
           if [ -z "$TOKEN" ]; then
             echo "::error::TIMEWEB_TOKEN secret is not set"
@@ -40,18 +39,20 @@ jobs:
             -d "{\"commit_sha\": \"$COMMIT_SHA\"}" \
             "$BASE/apps/$APP_ID/deploy")
 
-          echo "POST /deploy → HTTP $HTTP"
+          echo "POST /deploy → HTTP $HTTP (commit: $COMMIT_SHA)"
           cat /tmp/deploy.json | python3 -m json.tool 2>/dev/null | head -20 || cat /tmp/deploy.json
 
           if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
             echo "Deploy triggered via API."
           else
-            echo "::warning::API trigger returned HTTP $HTTP — Timeweb auto-deploy webhook should handle it."
+            echo "::warning::API trigger returned HTTP $HTTP — relying on Timeweb auto-deploy webhook."
+            echo "::warning::Check Timeweb panel if site does not come up: https://app.timeweb.cloud/apps/$APP_ID"
           fi
 
       - name: Poll until healthy (max 6 min)
         run: |
-          echo "Waiting for deploy to complete..."
+          echo "Waiting for Timeweb build + start (commit $COMMIT_SHA)..."
+          echo "NOTE: HTTP 200 below confirms site is UP, not that this specific commit is deployed."
           for i in $(seq 1 36); do
             sleep 10
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
@@ -60,10 +61,13 @@ jobs:
             if [ "$HTTP" = "200" ]; then
               echo ""
               echo "════════════════════════════════════════════"
-              echo "  DEPLOYED — https://vedarai.ru"
+              echo "  SITE HEALTHY — https://vedarai.ru"
+              echo "  Verify commit in Timeweb panel if needed:"
+              echo "  https://app.timeweb.cloud/apps/$APP_ID"
               echo "════════════════════════════════════════════"
               exit 0
             fi
           done
-          echo "::warning::Health check timed out (6 min) — check Timeweb panel"
+          echo "::error::Health check timed out (6 min) — check Timeweb panel"
           echo "https://app.timeweb.cloud/apps/$APP_ID"
+          exit 1
