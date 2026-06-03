@@ -87,7 +87,7 @@ export function BentoSection() {
                 href={el.href}
                 className="group relative h-[280px] md:h-[340px] overflow-hidden rounded-lg bg-[var(--bg-card)] border border-[var(--border)]"
               >
-                <div className="absolute inset-0 bg-[var(--bg-primary)]/40 group-hover:bg-[var(--bg-primary)]/60 transition-colors duration-500 z-10" />
+                <div className="absolute inset-0 bg-black/30 group-hover:bg-black/55 transition-colors duration-500 z-10" />
                 <Image
                   src={el.image}
                   alt={el.title}
@@ -97,18 +97,18 @@ export function BentoSection() {
                 />
 
                 <div className="relative z-20 p-6 md:p-8 h-full flex flex-col justify-between">
-                  <span className="font-playfair italic text-4xl md:text-5xl font-bold text-[var(--text-muted)] leading-none">
+                  <span className="font-playfair italic text-4xl md:text-5xl font-bold leading-none text-white/30 group-hover:text-[var(--accent)]/70 transition-colors duration-500">
                     {el.number}
                   </span>
 
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <Icon size={16} className="text-[var(--accent)] flex-shrink-0" />
-                      <h3 className="font-playfair text-lg md:text-2xl text-[var(--text-primary)] font-bold uppercase tracking-wider leading-tight">
+                      <Icon size={16} className="text-white/80 flex-shrink-0" />
+                      <h3 className="font-playfair text-lg md:text-2xl text-white font-bold uppercase tracking-wider leading-tight">
                         {el.title}
                       </h3>
                     </div>
-                    <p className="text-[var(--text-muted)] text-xs md:text-sm font-light mb-4">
+                    <p className="text-white/60 text-xs md:text-sm font-light mb-4">
                       {el.subtitle}
                     </p>
                     <div className="w-8 h-px bg-[var(--accent)] transition-all duration-500 group-hover:w-full" />
