@@ -4,7 +4,34 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Bird, AlertCircle } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Bird, AlertCircle, CloudSun, Map, Navigation, ArrowRight } from 'lucide-react';
+
+const TOOLS = [
+  {
+    icon: CloudSun,
+    title: 'Погода',
+    desc: '7-дневный прогноз',
+    href: '/safety',
+  },
+  {
+    icon: Flame,
+    title: 'Вулканы',
+    desc: 'Статус KVERT',
+    href: '/safety',
+  },
+  {
+    icon: Map,
+    title: 'Маршруты',
+    desc: 'Места и треки',
+    href: '/routes',
+  },
+  {
+    icon: Navigation,
+    title: 'Планировщик',
+    desc: 'AI-маршрут под вас',
+    href: '/ai-assistant',
+  },
+];
 
 interface ElementCard {
   id: string;
@@ -23,7 +50,7 @@ const ELEMENTS: ElementCard[] = [
     title: 'ОГОНЬ',
     subtitle: 'Вулканы и мощь земли',
     icon: <Flame size={24} />,
-    href: '/routes?type=volcano',
+    href: '/routes?location_type=volcano',
     bgImage: '/images/bento/mutnovsky.jpg'
   },
   {
@@ -32,7 +59,7 @@ const ELEMENTS: ElementCard[] = [
     title: 'ЛЕД И СНЕГ',
     subtitle: 'Зимний спорт и хели-ски',
     icon: <Snowflake size={24} />,
-    href: '/routes?type=hot_spring',
+    href: '/routes?category=snegohod',
     bgImage: '/images/bento/paratunka.jpg'
   },
   {
@@ -41,7 +68,7 @@ const ELEMENTS: ElementCard[] = [
     title: 'ВОДА',
     subtitle: 'Океан, реки и серфинг',
     icon: <Waves size={24} />,
-    href: '/routes?type=beach',
+    href: '/routes?category=morskie_progulki',
     bgImage: '/images/bento/khalaktyr.jpg'
   },
   {
@@ -50,7 +77,7 @@ const ELEMENTS: ElementCard[] = [
     title: 'ТЕРМЫ',
     subtitle: 'Горячие источники и релакс',
     icon: <Droplets size={24} />,
-    href: '/routes?type=hot_spring',
+    href: '/routes?location_type=hot_spring',
     bgImage: '/images/bento/laguna.jpg'
   },
   {
@@ -59,7 +86,7 @@ const ELEMENTS: ElementCard[] = [
     title: 'ДИКАЯ ПРИРОДА',
     subtitle: 'Медведи, орлы и не только',
     icon: <Bird size={24} />,
-    href: '/routes?kind=place',
+    href: '/routes?category=medvedi',
     bgImage: '/images/bento/cape.jpg'
   },
   {
@@ -103,8 +130,62 @@ export function KuzmichHub() {
         </div>
       </div>
 
+      {/* Kuzmich Intro + Travel Tools */}
+      <div className="container mx-auto px-6 -mt-10 relative z-20 mb-12">
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 md:p-8 mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-8">
+            <div className="relative w-16 h-16 rounded-full overflow-hidden flex-shrink-0 border-2 border-[var(--accent)]">
+              <Image
+                src="/images/hero/bears-kurilskoye.jpg"
+                alt="Кузьмич"
+                fill
+                className="object-cover"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[var(--text-muted)] text-[10px] uppercase tracking-[0.3em] font-bold mb-1">
+                Кузьмич говорит
+              </p>
+              <p className="font-playfair text-lg md:text-xl italic text-[var(--text-primary)] leading-snug">
+                "Привет! Помогу спланировать маршрут по Камчатке — расскажи что интересует."
+              </p>
+            </div>
+            <Link
+              href="/ai-assistant"
+              className="ds-btn ds-btn-primary flex-shrink-0 flex items-center gap-2"
+            >
+              Спросить <ArrowRight size={16} />
+            </Link>
+          </div>
+
+          <p className="text-[var(--text-muted)] text-[10px] uppercase tracking-[0.3em] font-bold mb-4">
+            Инструменты путешественника
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <Link
+                  key={tool.title}
+                  href={tool.href}
+                  className="group flex items-center gap-3 p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] hover:border-[var(--accent)]/40 transition-colors"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[var(--accent)]/20 transition-colors">
+                    <Icon size={18} className="text-[var(--accent)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[var(--text-primary)] leading-tight">{tool.title}</p>
+                    <p className="text-xs text-[var(--text-muted)]">{tool.desc}</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* Grid Section */}
-      <div className="container mx-auto px-6 -mt-20 relative z-20">
+      <div className="container mx-auto px-6 relative z-20">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {ELEMENTS.map((el) => (
             <Link key={el.id} href={el.href} className="group relative h-[300px] overflow-hidden rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
