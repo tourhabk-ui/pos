@@ -11,9 +11,9 @@ const STATS = [
 
 export function StatsBand() {
   return (
-    <div className="overflow-hidden border-y border-[var(--border)] bg-[var(--bg-card)]">
+    <div className="overflow-hidden border-y border-[var(--border)] bg-[var(--bg-card)] group">
       {/* Marquee — two copies for seamless loop */}
-      <div className="flex animate-marquee whitespace-nowrap py-6" aria-hidden>
+      <div className="flex animate-marquee whitespace-nowrap py-6 group-hover:[animation-play-state:paused]" aria-hidden>
         {[...STATS, ...STATS].map((s, i) => (
           <div
             key={i}
