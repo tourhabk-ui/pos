@@ -3,115 +3,120 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowUpRight } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Bird, ShieldCheck } from 'lucide-react';
 
-const CATEGORIES = [
+const ELEMENTS = [
   {
-    title: 'Вулканы',
-    subtitle: 'Живая мощь земли',
-    image: '/images/bento/mutnovsky.jpg',
+    number: '01',
+    title: 'ОГОНЬ',
+    subtitle: 'Вулканы и мощь земли',
+    icon: Flame,
     href: '/routes?location_type=volcano',
-    tag: '01 / Элемент'
+    image: '/images/bento/mutnovsky.jpg',
   },
   {
-    title: 'Океан',
-    subtitle: 'Черные пляжи и серфинг',
-    image: '/images/bento/khalaktyr.jpg',
-    href: '/routes?location_type=beach',
-    tag: '02 / Стихия'
-  },
-  {
-    title: 'Медведи',
-    subtitle: 'Хозяева тайги',
-    image: '/images/bento/cape.jpg',
-    href: '/routes?kind=place',
-    tag: '03 / Жизнь'
-  },
-  {
-    title: 'Зима',
+    number: '02',
+    title: 'СНЕГ',
     subtitle: 'Хели-ски и ледники',
+    icon: Snowflake,
+    href: '/routes?category=snegohod',
     image: '/images/bento/paratunka.jpg',
+  },
+  {
+    number: '03',
+    title: 'ОКЕАН',
+    subtitle: 'Чёрные пляжи и серфинг',
+    icon: Waves,
+    href: '/routes?category=morskie_progulki',
+    image: '/images/bento/khalaktyr.jpg',
+  },
+  {
+    number: '04',
+    title: 'ТЕРМЫ',
+    subtitle: 'Горячие источники',
+    icon: Droplets,
     href: '/routes?location_type=hot_spring',
-    tag: '04 / Сезон'
+    image: '/images/bento/laguna.jpg',
+  },
+  {
+    number: '05',
+    title: 'ПРИРОДА',
+    subtitle: 'Медведи, орлы, нерест',
+    icon: Bird,
+    href: '/routes?category=medvedi',
+    image: '/images/bento/cape.jpg',
+  },
+  {
+    number: '06',
+    title: 'БЕЗОПАСНОСТЬ',
+    subtitle: 'Статус вулканов и маршрутов',
+    icon: ShieldCheck,
+    href: '/safety',
+    image: '/images/hero/hero-light.jpeg',
   },
 ];
 
 export function BentoSection() {
   return (
-    <section className="py-24 bg-[var(--bg-primary)]">
+    <section className="py-20 bg-[var(--bg-primary)]">
       <div className="container mx-auto px-6">
-        <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-6">
-          <div className="max-w-2xl">
-            <h2 className="font-playfair text-5xl md:text-7xl font-bold mb-6 leading-tight text-[var(--text-primary)]">
-              Стихии <br /> <span className="text-[var(--accent)] italic">Камчатки</span>
+        <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
+          <div>
+            <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-[10px] mb-4 inline-block">
+              Исследовать по стихии
+            </span>
+            <h2 className="font-playfair text-4xl md:text-6xl font-bold leading-tight text-[var(--text-primary)]">
+              Стихии <br />
+              <span className="text-[var(--accent)] italic">Камчатки</span>
             </h2>
-            <p className="text-[var(--text-secondary)] text-lg md:text-xl leading-relaxed font-light">
-              Мы разделили полуостров на ключевые элементы, чтобы вы могли найти свое идеальное приключение — от жара кратеров до ледяного спокойствия бухт.
-            </p>
           </div>
-          <Link href="/routes" className="text-xs font-bold uppercase tracking-[0.3em] border-b border-[var(--accent)] pb-2 text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors">
+          <Link
+            href="/routes"
+            className="text-xs font-bold uppercase tracking-[0.3em] border-b border-[var(--accent)] pb-1 text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors flex-shrink-0"
+          >
             Все маршруты
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 min-h-[800px]">
-          {/* Large Card */}
-          <div className="md:col-span-2 md:row-span-2 relative group overflow-hidden rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
-            <Image 
-              src={CATEGORIES[0].image} 
-              alt={CATEGORIES[0].title}
-              fill
-              className="object-cover transition-transform duration-700 group-hover:scale-110 opacity-60" 
-            />
-            <div className="relative z-20 p-10 h-full flex flex-col justify-end">
-              <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-[10px] mb-4">{CATEGORIES[0].tag}</span>
-              <h3 className="font-playfair text-5xl md:text-6xl text-[var(--text-primary)] font-bold mb-6 leading-none">{CATEGORIES[0].title}</h3>
-              <p className="text-[var(--text-secondary)] max-w-xs mb-8 text-lg font-light">{CATEGORIES[0].subtitle}</p>
-              <Link href={CATEGORIES[0].href} className="w-14 h-14 rounded-full border border-[var(--border)] flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--accent)] hover:border-[var(--accent)] hover:text-[var(--bg-card)] transition-all">
-                <ArrowUpRight size={28} />
-              </Link>
-            </div>
-          </div>
-
-          {/* Small Cards */}
-          <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {CATEGORIES.slice(1, 3).map((cat) => (
-              <div key={cat.title} className="relative group overflow-hidden rounded-lg min-h-[350px] bg-[var(--bg-card)] border border-[var(--border)]">
-                <Image 
-                  src={cat.image} 
-                  alt={cat.title}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {ELEMENTS.map((el) => {
+            const Icon = el.icon;
+            return (
+              <Link
+                key={el.number}
+                href={el.href}
+                className="group relative h-[280px] md:h-[340px] overflow-hidden rounded-lg bg-[var(--bg-card)] border border-[var(--border)]"
+              >
+                <div className="absolute inset-0 bg-[var(--bg-primary)]/40 group-hover:bg-[var(--bg-primary)]/60 transition-colors duration-500 z-10" />
+                <Image
+                  src={el.image}
+                  alt={el.title}
                   fill
-                  className="object-cover transition-transform duration-700 group-hover:scale-110 opacity-50" 
+                  className="object-cover opacity-70 transition-transform duration-700 group-hover:scale-110"
+                  sizes="(max-width: 768px) 50vw, 33vw"
                 />
-                <div className="relative z-20 p-8 h-full flex flex-col justify-end">
-                  <span className="text-[var(--accent)] font-bold tracking-[0.3em] uppercase text-[9px] mb-3">{cat.tag}</span>
-                  <h3 className="font-playfair text-3xl text-[var(--text-primary)] font-bold mb-3">{cat.title}</h3>
-                  <p className="text-[var(--text-muted)] text-sm mb-6 font-light">{cat.subtitle}</p>
-                  <Link href={cat.href} className="text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 hover:text-[var(--accent)] transition-colors">
-                    Исследовать <ArrowUpRight size={14} />
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
 
-          {/* Medium Card */}
-          <div className="md:col-span-2 relative group overflow-hidden rounded-lg min-h-[350px] bg-[var(--bg-card)] border border-[var(--border)]">
-            <Image 
-              src={CATEGORIES[3].image} 
-              alt={CATEGORIES[3].title}
-              fill
-              className="object-cover transition-transform duration-700 group-hover:scale-110 opacity-60" 
-            />
-            <div className="relative z-20 p-10 h-full flex flex-col justify-end">
-              <span className="text-[var(--accent)] font-bold tracking-[0.3em] uppercase text-[9px] mb-3">{CATEGORIES[3].tag}</span>
-              <h3 className="font-playfair text-4xl text-[var(--text-primary)] font-bold mb-4">{CATEGORIES[3].title}</h3>
-              <p className="text-[var(--text-secondary)] max-w-sm mb-6 font-light">{CATEGORIES[3].subtitle}</p>
-              <Link href={CATEGORIES[3].href} className="text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 hover:text-[var(--accent)] transition-colors">
-                Смотреть сезонные туры <ArrowUpRight size={16} />
+                <div className="relative z-20 p-6 md:p-8 h-full flex flex-col justify-between">
+                  <span className="font-playfair italic text-4xl md:text-5xl font-bold text-[var(--text-muted)] leading-none">
+                    {el.number}
+                  </span>
+
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Icon size={16} className="text-[var(--accent)] flex-shrink-0" />
+                      <h3 className="font-playfair text-lg md:text-2xl text-[var(--text-primary)] font-bold uppercase tracking-wider leading-tight">
+                        {el.title}
+                      </h3>
+                    </div>
+                    <p className="text-[var(--text-muted)] text-xs md:text-sm font-light mb-4">
+                      {el.subtitle}
+                    </p>
+                    <div className="w-8 h-px bg-[var(--accent)] transition-all duration-500 group-hover:w-full" />
+                  </div>
+                </div>
               </Link>
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
     </section>
