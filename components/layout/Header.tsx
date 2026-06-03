@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sun, Moon, UserCircle, ShoppingCart } from 'lucide-react';
+import { Sun, Moon, UserCircle, ShoppingCart, Search } from 'lucide-react';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useCart } from '@/contexts/CartContext';
@@ -105,6 +105,16 @@ export function Header() {
 
       {/* Right side — icon buttons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+        {/* Search */}
+        <button
+          onClick={() => window.dispatchEvent(new Event('open-search'))}
+          aria-label="Поиск (Ctrl+K)"
+          style={iconBtn}
+          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+        >
+          <Search size={18} />
+        </button>
+
         {/* Я на Камчатке */}
         <GeoToggle />
 
