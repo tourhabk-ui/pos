@@ -5,6 +5,12 @@
 
 export type ChatRole = 'tourist' | 'operator' | 'guide' | 'admin' | 'agent' | 'transfer';
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  timestamp?: number;
+}
+
 const ANTI_HALLUCINATION_RULES = `
 СТРОГИЕ ПРАВИЛА:
 - Отвечай ТОЛЬКО на вопросы, связанные с Камчаткой и туризмом
@@ -71,3 +77,27 @@ ${ANTI_HALLUCINATION_RULES}
 export const GUIDE_PROMPT = `Ты — AI-помощник гида на платформе TourHab (tourhab.ru).
 ${ANTI_HALLUCINATION_RULES}
 Помогаешь с безопасностью и маршрутами. Русский язык.`;
+
+
+export function getSystemPrompt(role: ChatRole): string {
+  switch (role) {
+    case 'operator':  return OPERATOR_PROMPT;
+    case 'guide':     return GUIDE_PROMPT;
+    case 'tourist':
+    default:          return TOURIST_PROMPT;
+  }
+}
+
+export function buildMessageHistory(
+  systemPrompt: string,
+  history: { role: string; content: string; timestamp?: number }[],
+  limit: number
+): ChatMessage[] {
+  const recent = history.slice(-limit);
+  return [
+    { role: 'system', content: systemPrompt },
+    ...recent
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+  ];
+}
