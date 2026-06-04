@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 import dynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
-import { HeroBoard } from '@/components/homepage/HeroBoard'
+import { HeroPersonalized } from '@/components/homepage/HeroPersonalized'
+import { StoriesRail } from '@/components/homepage/StoriesRail'
+import { TravelerCard } from '@/components/homepage/TravelerCard'
+import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
 import { StatsBand } from '@/components/homepage/StatsBand'
 import { BentoSection } from '@/components/homepage/BentoSection'
 import { EditorialSection } from '@/components/homepage/EditorialSection'
@@ -36,10 +39,19 @@ export default async function Page() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <OnSiteBanner />
-      <main className="flex-1">
+      <main className="flex-1 pt-[56px]">
 
-        {/* Full-bleed hero */}
-        <HeroBoard />
+        {/* Personalized hero — greeting + weather + CTA */}
+        <HeroPersonalized />
+
+        {/* Stories rail */}
+        <StoriesRail />
+
+        {/* Featured traveler story */}
+        <TravelerCard />
+
+        {/* Social proof + style badge */}
+        <LiveOnTrails />
 
         {/* Stats marquee */}
         <StatsBand />
@@ -59,8 +71,10 @@ export default async function Page() {
         </div>
 
       </main>
-      <Footer />
-      <div className="md:hidden">
+      <div className="lg:block pb-[80px] lg:pb-0">
+        <Footer />
+      </div>
+      <div className="lg:hidden">
         <HomeBottomNav />
       </div>
       <SOSButton />
