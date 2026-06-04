@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { X, Navigation, Bookmark, Share2, ArrowRight, MapPin } from 'lucide-react';
@@ -55,6 +55,19 @@ function toggleBookmark(id: string) {
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {
   const [detail, setDetail] = useState<DetailData | null>(null);
   const [bookmarked, setBookmarked] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef<number | null>(null);
+
+  // Swipe-down to close
+  function onTouchStart(e: React.TouchEvent) {
+    dragStartY.current = e.touches[0].clientY;
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (dragStartY.current === null) return;
+    const delta = e.changedTouches[0].clientY - dragStartY.current;
+    if (delta > 80) onClose();
+    dragStartY.current = null;
+  }
 
   useEffect(() => {
     setBookmarked(isBookmarked(initialData.id));
@@ -107,9 +120,16 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
 
       {/* Sheet */}
       <div
+        ref={sheetRef}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
         className="fixed bottom-0 left-0 right-0 z-[499] rounded-t-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)' }}
       >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 rounded-full bg-[var(--border)]" />
+        </div>
         {/* Photo strip */}
         <div className="relative h-40 bg-[var(--bg-hover)]">
           {detail?.photoUrl ? (
