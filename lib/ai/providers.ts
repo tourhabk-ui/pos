@@ -52,9 +52,9 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 // Пробует несколько моделей по очереди — защита от rate limit одной модели.
 // Порядок: сначала быстрые и надёжные, timeout снижен до 12s
 const OR_MODELS = [
-  { id: 'google/gemini-2.0-flash-001',                  timeout: 12_000 }, // самый быстрый ~1-2s
-  { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // надёжный
-  { id: 'deepseek/deepseek-chat-v3-0324',               timeout: 12_000 }, // дешёвый резерв
+  { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // подтверждён на этом OR-ключе
+  { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias резерв
+  { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // резерв
   { id: 'meta-llama/llama-3.3-70b-instruct',            timeout: 12_000 }, // бесплатный резерв
 ];
 

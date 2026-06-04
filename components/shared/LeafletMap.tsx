@@ -114,6 +114,13 @@ export default function LeafletMap({
         clusterRef.current = null;
       }
 
+      // Leaflet throws "Map container is already initialized" if the container
+      // has a _leaflet_id from a previous init that wasn't cleaned up
+      // (e.g., prior render threw before mapRef.current was set).
+      // Clearing the property lets Leaflet re-initialize the container safely.
+      const container = containerRef.current as HTMLElement & { _leaflet_id?: number };
+      delete container._leaflet_id;
+
       const map = L.map(containerRef.current, {
         center: L.latLng(center[0], center[1]),
         zoom,
@@ -127,6 +134,10 @@ export default function LeafletMap({
         ),
         maxBoundsViscosity: 1.0,
       });
+
+      // Store immediately so cleanup always finds and removes this map,
+      // even if later code (markerClusterGroup, GPS setup) throws.
+      mapRef.current = map;
 
       // Глобальный фикс: маркеры ВСЕГДА поверх тайлов (z-index > tilePane=400)
       if (!document.getElementById('kh-marker-zfix')) {
@@ -148,52 +159,62 @@ export default function LeafletMap({
         attribution: attribution !== false ? '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' : '',
       }).addTo(map);
 
-      // Группа кластеров
-      const clusterGroup = (L as any).markerClusterGroup({
-        chunkedLoading: true,
-        chunkInterval: 200,
-        chunkDelay: 50,
-        maxClusterRadius: 60,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false,
-        zoomToBoundsOnClick: true,
-        disableClusteringAtZoom: 11,
-        iconCreateFunction: (cluster: any) => {
-          const count = cluster.getChildCount();
-          let size: 'small' | 'medium' | 'large' = 'small';
-          let bgColor = '#0f172a'; // slate-900
+      // Группа кластеров — may be undefined if leaflet.markercluster side-effect
+      // hasn't extended L yet (dynamic import timing / module cache split).
+      // Fall back to adding markers directly to the map.
+      let clusterGroup: any = null;
+      try {
+        const mcFn = (L as any).markerClusterGroup;
+        if (typeof mcFn === 'function') {
+          clusterGroup = mcFn({
+            chunkedLoading: true,
+            chunkInterval: 200,
+            chunkDelay: 50,
+            maxClusterRadius: 60,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true,
+            disableClusteringAtZoom: 11,
+            iconCreateFunction: (cluster: any) => {
+              const count = cluster.getChildCount();
+              let size: 'small' | 'medium' | 'large' = 'small';
+              let bgColor = '#0f172a';
 
-          if (count >= 100) {
-            size = 'large';
-            bgColor = '#ea580c'; // orange-600
-          } else if (count >= 10) {
-            size = 'medium';
-            bgColor = '#475569'; // slate-600
-          }
+              if (count >= 100) {
+                size = 'large';
+                bgColor = '#ea580c';
+              } else if (count >= 10) {
+                size = 'medium';
+                bgColor = '#475569';
+              }
 
-          const dim = size === 'large' ? 44 : size === 'medium' ? 36 : 30;
-          const fontSize = size === 'large' ? 15 : size === 'medium' ? 13 : 12;
+              const dim = size === 'large' ? 44 : size === 'medium' ? 36 : 30;
+              const fontSize = size === 'large' ? 15 : size === 'medium' ? 13 : 12;
 
-          return L.divIcon({
-            html: `<div style="
-              background:${bgColor};
-              color:#fff;
-              width:${dim}px;
-              height:${dim}px;
-              border-radius:50%;
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              font-weight:700;
-              font-size:${fontSize}px;
-              border:2px solid #fff;
-              box-shadow:0 2px 8px rgba(0,0,0,0.25);
-            ">${count}</div>`,
-            className: 'kh-cluster',
-            iconSize: [dim, dim],
+              return L.divIcon({
+                html: `<div style="
+                  background:${bgColor};
+                  color:#fff;
+                  width:${dim}px;
+                  height:${dim}px;
+                  border-radius:50%;
+                  display:flex;
+                  align-items:center;
+                  justify-content:center;
+                  font-weight:700;
+                  font-size:${fontSize}px;
+                  border:2px solid #fff;
+                  box-shadow:0 2px 8px rgba(0,0,0,0.25);
+                ">${count}</div>`,
+                className: 'kh-cluster',
+                iconSize: [dim, dim],
+              });
+            },
           });
-        },
-      });
+        }
+      } catch {
+        clusterGroup = null;
+      }
 
       const allCoords: [number, number][] = [];
       console.log('[LeafletMap] markers count:', markers.length, 'first:', markers[0]);
@@ -271,13 +292,17 @@ export default function LeafletMap({
           m.on('click', () => onMarkerClick(markerId));
         }
 
-        // Вместо m.addTo(map) — добавляем в кластер
-        clusterGroup.addLayer(m);
+        if (clusterGroup) {
+          clusterGroup.addLayer(m);
+        } else {
+          m.addTo(map);
+        }
       });
 
-      // Добавляем кластер на карту
-      map.addLayer(clusterGroup);
-      clusterRef.current = clusterGroup;
+      if (clusterGroup) {
+        map.addLayer(clusterGroup);
+        clusterRef.current = clusterGroup;
+      }
 
       // Подгоняем вид под все маркеры (через кластер)
       if (allCoords.length > 1) {
@@ -349,7 +374,8 @@ export default function LeafletMap({
         );
       }
 
-      mapRef.current = map;
+    }).catch((err) => {
+      console.error('[LeafletMap] init error:', err);
     });
 
     return () => {

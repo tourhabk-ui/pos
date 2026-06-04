@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
 
 // Страницы где виджет не нужен
-const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator'];
+const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant'];
 
 interface BookingFormData {
   tourId: number;
