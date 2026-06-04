@@ -2,71 +2,121 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Compass, Heart, Sparkles, House } from 'lucide-react';
-import { useTheme } from '@/contexts/ThemeContext';
+import { House, BookOpen, Map, User } from 'lucide-react';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
-const NAV_ITEMS = [
-  { icon: House,    label: undefined,   href: '/'                  },
-  { icon: Compass,  label: 'Туры',      href: '/marketplace' },
-  { icon: Sparkles, label: 'Кузьмич',   href: '/ai-assistant'      },
-  { icon: Heart,    label: undefined,   href: '/profile'           },
+const LEFT = [
+  { icon: House,    label: 'Главная',   href: '/'          },
+  { icon: BookOpen, label: 'Маршруты',  href: '/routes'    },
+];
+const RIGHT = [
+  { icon: Map,  label: 'Карта',   href: '/map'     },
+  { icon: User, label: 'Профиль', href: '/profile' },
 ];
 
 export function HomeBottomNav() {
-  const { isDark } = useTheme();
-
   return (
     <nav
       className="lg:hidden"
       style={{
         position: 'fixed',
-        bottom: '12px',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        bottom: 0,
+        left: 0,
+        right: 0,
         zIndex: 80,
         display: 'flex',
         alignItems: 'center',
-        gap: '4px',
-        padding: '6px',
-        borderRadius: '100px',
+        justifyContent: 'space-around',
+        padding: '8px 12px calc(env(safe-area-inset-bottom, 0px) + 8px)',
         fontFamily: FO,
         background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        boxShadow: '0 -1px 0 var(--border)',
+        borderTop: '1px solid var(--border)',
       }}
     >
-      {NAV_ITEMS.map((item) => {
+      {LEFT.map((item) => {
         const Icon = item.icon;
         return (
           <Link
-            key={item.href + (item.label ?? '')}
+            key={item.href}
             href={item.href}
             style={{
+              flex: 1,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              gap: '5px',
-              padding: item.label ? '7px 16px' : '7px 12px',
-              borderRadius: '100px',
-              background: 'transparent',
+              gap: '3px',
+              padding: '6px 0',
               color: 'var(--text-muted)',
               textDecoration: 'none',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: 500,
-              transition: 'background 0.2s, color 0.2s, transform 0.15s',
             }}
-            onMouseDown={(e) => { (e.currentTarget.style.transform = 'scale(0.92)'); }}
-            onMouseUp={(e) => { (e.currentTarget.style.transform = 'scale(1)'); }}
-            onTouchStart={(e) => { (e.currentTarget.style.transform = 'scale(0.92)'); }}
-            onTouchEnd={(e) => { (e.currentTarget.style.transform = 'scale(1)'); }}
           >
-            <Icon size={20} />
-            {item.label && <span>{item.label}</span>}
+            <Icon size={22} />
+            <span>{item.label}</span>
           </Link>
         );
       })}
 
+      {/* Kuzmich center button */}
+      <Link
+        href="/ai-assistant"
+        style={{
+          flex: '0 0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '3px',
+          padding: '0 16px',
+          textDecoration: 'none',
+          fontFamily: FO,
+          fontSize: '10px',
+          fontWeight: 700,
+          color: 'white',
+          marginTop: '-20px',
+        }}
+      >
+        <div style={{
+          width: '52px',
+          height: '52px',
+          borderRadius: '50%',
+          background: 'var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 4px 16px color-mix(in srgb, var(--accent) 50%, transparent)',
+          border: '3px solid var(--bg-card)',
+        }}>
+          <span style={{ fontSize: '24px', lineHeight: 1 }}>🐻</span>
+        </div>
+        <span style={{ color: 'var(--accent)' }}>Кузьмич</span>
+      </Link>
+
+      {RIGHT.map((item) => {
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '3px',
+              padding: '6px 0',
+              color: 'var(--text-muted)',
+              textDecoration: 'none',
+              fontSize: '10px',
+              fontWeight: 500,
+            }}
+          >
+            <Icon size={22} />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }
