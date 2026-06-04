@@ -581,7 +581,7 @@ function PlanningTab() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
       {/* Kuzmich recommendation banner */}
-      <div className="rounded-2xl overflow-hidden relative"
+      <div className="rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="relative h-40 bg-[var(--bg-hover)]">
           <Image
@@ -591,23 +591,23 @@ function PlanningTab() {
             sizes="(max-width: 640px) 100vw, 600px"
             className="object-cover"
           />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.7))' }} />
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--accent)]"
-              style={{ border: '2px solid white' }}>
-              <div className="w-full h-full flex items-center justify-center text-white text-lg">🐻</div>
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-white/70 mb-0.5">Кузьмич рекомендует:</p>
-              <p className="text-sm font-medium text-white leading-snug">
-                {kuzmichTip ?? 'Планируйте маршрут заранее и проверьте готовность'}
-              </p>
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.75))' }} />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-[var(--accent)] flex items-center justify-center text-base"
+                style={{ border: '2px solid rgba(255,255,255,0.6)' }}>
+                🐻
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-white/60 mb-0.5">Кузьмич рекомендует:</p>
+                <p className="text-sm font-medium text-white leading-snug">
+                  {kuzmichTip ?? 'Планируйте маршрут заранее и проверьте готовность'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        <div className="p-4 pt-3">
+        <div className="p-4">
           <Link href="/ai-assistant"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)' }}>
