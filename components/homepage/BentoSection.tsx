@@ -20,7 +20,7 @@ const ELEMENTS = [
     subtitle: 'Хели-ски и ледники',
     icon: Snowflake,
     href: '/routes?category=snegohod',
-    image: '/images/bento/paratunka.jpg',
+    image: '/images/hero/hero-dark.jpeg',
   },
   {
     number: '03',
@@ -44,7 +44,7 @@ const ELEMENTS = [
     subtitle: 'Медведи, орлы, нерест',
     icon: Bird,
     href: '/routes?category=medvedi',
-    image: '/images/bento/cape.jpg',
+    image: '/images/hero/bears-kurilskoye.jpg',
   },
   {
     number: '06',
