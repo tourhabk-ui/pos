@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Navigation, Download, Phone } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
@@ -168,6 +169,16 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         <div className="w-full px-4 py-2 bg-[var(--bg-hover)] border-b border-[var(--border)] flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <span className="w-1.5 h-1.5 rounded-full bg-[var(--warning)] flex-shrink-0" />
           Данные из кэша — нет подключения к сети
+        </div>
+      )}
+
+      {/* Hazard quick-view */}
+      {(place.safety.hazardTypes.length > 0 || place.safety.registrationRequired) && (
+        <div className="max-w-3xl mx-auto px-4 pt-3 pb-1">
+          <HazardBadgeStrip
+            hazards={place.safety.hazardTypes}
+            mchsRequired={place.safety.registrationRequired}
+          />
         </div>
       )}
 
