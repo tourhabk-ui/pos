@@ -89,8 +89,8 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
-          'X-Title': 'TourHab Kamchatka',
+          'HTTP-Referer': 'https://vedarai.ru',
+          'X-Title': 'Vedarai Kamchatka',
         },
         body: JSON.stringify({
           model: id,
@@ -166,8 +166,8 @@ export async function callOpenRouterModel(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
@@ -228,8 +228,8 @@ export async function callOpenRouterWithTools(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify({
         model: modelId,
@@ -511,8 +511,8 @@ export async function callGemini(messages: ChatMessage[]): Promise<string | null
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-lite',
@@ -699,8 +699,8 @@ export async function callGeminiVision(
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
@@ -751,8 +751,8 @@ export async function callGeminiTranscribe(
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
@@ -794,8 +794,8 @@ export async function callGeminiPDF(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://tourhab.ru',
-        'X-Title': 'TourHab Kamchatka',
+        'HTTP-Referer': 'https://vedarai.ru',
+        'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
@@ -962,8 +962,8 @@ export async function preflightProviders(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
-          'X-Title': 'TourHab Kamchatka',
+          'HTTP-Referer': 'https://vedarai.ru',
+          'X-Title': 'Vedarai Kamchatka',
         },
         body: JSON.stringify({ model: 'openai/gpt-4o-mini', max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
@@ -1134,6 +1134,17 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
   const anthropic = await callAnthropic(messages);
   if (anthropic) return anthropic;
 
+  // All providers failed — log for Timeweb server diagnostics
+  console.error('[AI] All providers failed. Configured keys:', {
+    OR: !!getOpenRouterKey(),
+    DeepSeek: !!process.env.DEEPSEEK_API_KEY,
+    Gemini: !!process.env.GEMINI_API_KEY,
+    MiMo: !!process.env.XIAOMI_API_KEY,
+    Anthropic: !!process.env.ANTHROPIC_API_KEY,
+    Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
+    MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
+    OR_disabled_until: openRouterDisabledUntil > 0 ? new Date(openRouterDisabledUntil).toISOString() : 'none',
+  });
   return 'Извините, сервис временно недоступен. Попробуйте позже.';
 }
 
@@ -1158,8 +1169,8 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
-          'X-Title': 'TourHab Kamchatka',
+          'HTTP-Referer': 'https://vedarai.ru',
+          'X-Title': 'Vedarai Kamchatka',
         },
         body: JSON.stringify({
           model: 'deepseek/deepseek-chat-v3-0324',
@@ -1262,8 +1273,8 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${apiKey}`,
-              'HTTP-Referer': 'https://tourhab.ru',
-              'X-Title': 'TourHab Kamchatka',
+              'HTTP-Referer': 'https://vedarai.ru',
+              'X-Title': 'Vedarai Kamchatka',
             },
             body: JSON.stringify({ model: id, temperature: 0.4, max_tokens: 200, messages: payload }),
             signal: AbortSignal.timeout(timeout),
