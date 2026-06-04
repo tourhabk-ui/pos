@@ -16,9 +16,7 @@ import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 const HomeMapPreview = dynamic(
   () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview }))
 );
-const HomeBottomNav = dynamic(
-  () => import('@/components/homepage/HomeBottomNav').then(m => ({ default: m.HomeBottomNav }))
-);
+const BottomNav = dynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
 
 export const metadata: Metadata = {
@@ -78,10 +76,10 @@ export default async function Page() {
       <div className="lg:block pb-[80px] lg:pb-0">
         <Footer />
       </div>
-      <div className="lg:hidden">
-        <HomeBottomNav />
+      <BottomNav activePath="/" />
+      <div className="hidden md:block">
+        <SOSButton />
       </div>
-      <SOSButton />
     </div>
   );
 }

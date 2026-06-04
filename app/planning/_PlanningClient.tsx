@@ -188,6 +188,15 @@ function OnTrailTab() {
   }, []);
 
   useEffect(() => {
+    // Wake Lock — keep screen on while navigating
+    let wakeLock: WakeLockSentinel | null = null;
+    if ('wakeLock' in navigator) {
+      (navigator.wakeLock as WakeLock).request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
+    }
+    return () => { wakeLock?.release().catch(() => {}); };
+  }, []);
+
+  useEffect(() => {
     // Compass
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null) setHeading(e.alpha);
@@ -330,23 +339,25 @@ function OnTrailTab() {
       {/* Bottom action grid */}
       <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
         <Link href="/map"
-          className="flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#4ade80', border: '1px solid #1a3620' }}>
+          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
+          style={{ background: '#161b22', color: '#4ade80', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </Link>
-        <Link href="/routes"
-          className="flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#60a5fa', border: '1px solid #1e3a5f' }}>
+        <a href={coords ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10` : '/routes'}
+          target={coords ? '_blank' : undefined}
+          rel={coords ? 'noopener noreferrer' : undefined}
+          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
+          style={{ background: '#161b22', color: '#60a5fa', border: '1px solid #1e3a5f', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> ПОГОДА
-        </Link>
+        </a>
         <Link href="/ai-assistant"
-          className="flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#fb923c', border: '1px solid #431a07' }}>
+          className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
+          style={{ background: '#161b22', color: '#fb923c', border: '1px solid #431a07', minHeight: 60 }}>
           <MessageCircle className="w-5 h-5" /> КУЗЬМИЧ
         </Link>
         <a href="tel:112"
-          className="flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-xl transition-colors"
-          style={{ background: '#b91c1c', color: '#ffffff', border: '1px solid #ef4444' }}>
+          className="flex items-center justify-center gap-2 rounded-xl font-bold text-xl transition-colors"
+          style={{ background: '#b91c1c', color: '#ffffff', border: '1px solid #ef4444', minHeight: 60 }}>
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>

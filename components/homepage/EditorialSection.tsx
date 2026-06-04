@@ -68,8 +68,8 @@ export function EditorialSection() {
               />
               <div className="absolute inset-0 ring-1 ring-[var(--border)] ring-inset" />
               <div className="absolute bottom-6 left-6 right-6 p-4 bg-[var(--bg-card)]/80 border border-[var(--border)]">
-                <p className="text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-widest mb-1">Location</p>
-                <p className="text-[var(--text-primary)] font-playfair italic text-lg">Mutnovsky Volcano, South Kamchatka</p>
+                <p className="text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-widest mb-1">Локация</p>
+                <p className="text-[var(--text-primary)] font-playfair italic text-lg">Вулкан Мутновский, Южная Камчатка</p>
               </div>
             </div>
             
