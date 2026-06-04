@@ -6,6 +6,7 @@ import { StoriesRail } from '@/components/homepage/StoriesRail'
 import { TravelerCard } from '@/components/homepage/TravelerCard'
 import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
 import { StatsBand } from '@/components/homepage/StatsBand'
+import { KuzmichBriefing } from '@/components/homepage/KuzmichBriefing'
 import { BentoSection } from '@/components/homepage/BentoSection'
 import { EditorialSection } from '@/components/homepage/EditorialSection'
 import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSection'
@@ -52,6 +53,9 @@ export default async function Page() {
 
         {/* Social proof + style badge */}
         <LiveOnTrails />
+
+        {/* Kuzmich live briefing — weather + alerts + route picks */}
+        <KuzmichBriefing />
 
         {/* Stats marquee */}
         <StatsBand />
