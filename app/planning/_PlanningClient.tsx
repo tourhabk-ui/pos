@@ -7,8 +7,9 @@ import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink,
 } from 'lucide-react';
+import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -169,7 +170,7 @@ function OnTrailTab() {
   const [elapsed, setElapsed] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
   const watchRef = useRef<number | null>(null);
-  const [waypoints] = useState<SavedWaypoint[]>(() => {
+  const [waypoints, setWaypoints] = useState<SavedWaypoint[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
       const raw = localStorage.getItem('active_trail_waypoints');
@@ -177,6 +178,9 @@ function OnTrailTab() {
     } catch { return []; }
   });
   const [currentWpIdx, setCurrentWpIdx] = useState(0);
+  const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
 
   useEffect(() => {
     setIsOffline(!navigator.onLine);
@@ -185,6 +189,30 @@ function OnTrailTab() {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+
+  // Load waypoints from active route
+  useEffect(() => {
+    const routeId = localStorage.getItem('active_trail_route_id');
+    if (!routeId) return;
+    fetch(`/api/routes/${routeId}`)
+      .then(r => r.json())
+      .then((j: unknown) => {
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        const data = (j as Record<string, unknown>).data as Record<string, unknown>;
+        setActiveRouteTitle(data.title as string);
+        const wps = data.waypoints;
+        if (!Array.isArray(wps) || wps.length === 0) return;
+        const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
+          .filter(w => w.lat != null && w.lng != null)
+          .map(w => ({
+            lat: Number(w.lat),
+            lng: Number(w.lng),
+            name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+          }));
+        if (converted.length > 0) setWaypoints(converted);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -259,6 +287,9 @@ function OnTrailTab() {
           <div className="text-center md:text-left">
             {waypoints.length > 0 ? (
               <>
+                {activeRouteTitle && (
+                  <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
+                )}
                 <p className="text-gray-400 text-sm mb-0.5">
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
@@ -271,11 +302,35 @@ function OnTrailTab() {
             ) : (
               <>
                 <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
-                <Link href="/routes"
+                <button
+                  onClick={() => {
+                    setShowRouteModal(true);
+                    if (modalRoutes.length === 0) {
+                      fetch('/api/routes?limit=10&sort=popular')
+                        .then(r => r.json())
+                        .then((d: unknown) => {
+                          if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) return;
+                          const items = ((d as Record<string, unknown>).data as unknown[]).slice(0, 10).map(r => {
+                            if (typeof r !== 'object' || r === null) return null;
+                            const row = r as Record<string, unknown>;
+                            return {
+                              id: row.id as string,
+                              title: row.title as string,
+                              difficulty: (row.difficulty as string | null) ?? null,
+                              durationHours: row.durationHours != null ? Number(row.durationHours) : null,
+                              distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+                              imageUrl: null,
+                            } satisfies RoutePreview;
+                          }).filter(Boolean) as RoutePreview[];
+                          setModalRoutes(items);
+                        })
+                        .catch(() => {});
+                    }
+                  }}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
                   Выбрать маршрут <ChevronRight className="w-3.5 h-3.5" />
-                </Link>
+                </button>
               </>
             )}
           </div>
@@ -361,6 +416,72 @@ function OnTrailTab() {
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>
+
+      {/* Route selection modal */}
+      {showRouteModal && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowRouteModal(false)}>
+          <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
+            style={{ background: '#161b22', border: '1px solid #30363d' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white text-base">Выбрать маршрут</h3>
+              <button onClick={() => setShowRouteModal(false)}
+                className="p-1.5 rounded-lg"
+                style={{ background: '#21262d' }}>
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            {modalRoutes.length === 0 ? (
+              <div className="text-gray-500 text-sm text-center py-6">Загрузка маршрутов…</div>
+            ) : (
+              <div className="space-y-2">
+                {modalRoutes.map(r => (
+                  <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl"
+                    style={{ background: '#0d1117', border: '1px solid #21262d' }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{r.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+                        {r.difficulty ? DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty : '—'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
+                        setShowRouteModal(false);
+                        setActiveRouteTitle(r.title);
+                        setWaypoints([]);
+                        setCurrentWpIdx(0);
+                        fetch(`/api/routes/${r.id}`)
+                          .then(res => res.json())
+                          .then((j: unknown) => {
+                            if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+                            const data = (j as Record<string, unknown>).data as Record<string, unknown>;
+                            const wps = data.waypoints;
+                            if (!Array.isArray(wps) || wps.length === 0) return;
+                            const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
+                              .filter(w => w.lat != null && w.lng != null)
+                              .map(w => ({
+                                lat: Number(w.lat),
+                                lng: Number(w.lng),
+                                name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+                              }));
+                            if (converted.length > 0) setWaypoints(converted);
+                          })
+                          .catch(() => {});
+                      }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
+                      style={{ background: 'rgba(74,222,128,0.15)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}>
+                      Начать
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -371,9 +492,25 @@ function PlanningTab() {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [routes, setRoutes] = useState<RoutePreview[]>([]);
   const [kuzmichTip, setKuzmichTip] = useState<string | null>(null);
+  const emergencyRef = useRef<HTMLDivElement>(null);
+
+  // Reactive checklist state
+  const { status: mapsStatus } = useOfflineRegion('avacha-group');
+  const [hasActiveRoute, setHasActiveRoute] = useState(false);
 
   useEffect(() => {
-    // Load checklist from localStorage
+    setHasActiveRoute(!!localStorage.getItem('active_trail_route_id'));
+  }, []);
+
+  // Override 'done' for auto-computed items
+  const effectiveChecklist = checklist.map(item => {
+    if (item.id === 'maps') return { ...item, done: mapsStatus === 'cached' };
+    if (item.id === 'offline') return { ...item, done: hasActiveRoute };
+    return item;
+  });
+
+  useEffect(() => {
+    // Load checklist from localStorage (only manually-toggled items)
     try {
       const raw = localStorage.getItem('trip_checklist');
       if (raw) setChecklist(JSON.parse(raw) as ChecklistItem[]);
@@ -420,6 +557,18 @@ function PlanningTab() {
   }, []);
 
   function toggleItem(id: string) {
+    // Auto-computed items can't be manually toggled
+    if (id === 'maps' || id === 'offline') return;
+    // mchs opens a form URL
+    if (id === 'mchs') {
+      window.open('https://forms.mchs.gov.ru/registration_tourist_groups/form', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // emergency scrolls to the section
+    if (id === 'emergency') {
+      emergencyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     setChecklist(prev => {
       const next = prev.map(item => item.id === id ? { ...item, done: !item.done } : item);
       try { localStorage.setItem('trip_checklist', JSON.stringify(next)); } catch { /* ignore */ }
@@ -427,7 +576,7 @@ function PlanningTab() {
     });
   }
 
-  const doneCount = checklist.filter(i => i.done).length;
+  const doneCount = effectiveChecklist.filter(i => i.done).length;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
@@ -470,33 +619,39 @@ function PlanningTab() {
       {/* Checklist */}
       <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="flex items-center gap-4 mb-5">
-          <ProgressRing done={doneCount} total={checklist.length} />
+          <ProgressRing done={doneCount} total={effectiveChecklist.length} />
           <div>
             <h2 className="font-bold text-[var(--text-primary)]">Готовность к походу</h2>
             <p className="text-sm text-[var(--text-secondary)]">
-              {doneCount === checklist.length ? 'Всё готово! Удачного похода.' : `Выполнено ${doneCount} из ${checklist.length}`}
+              {doneCount === effectiveChecklist.length ? 'Всё готово! Удачного похода.' : `Выполнено ${doneCount} из ${effectiveChecklist.length}`}
             </p>
           </div>
         </div>
         <div className="space-y-2">
-          {checklist.map(item => (
-            <button
-              key={item.id}
-              onClick={() => toggleItem(item.id)}
-              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
-            >
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                item.done
-                  ? 'bg-[var(--success)]'
-                  : 'border-2 border-[var(--border)]'
-              }`}>
-                {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-              </div>
-              <span className={`text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
-                {item.label}
-              </span>
-            </button>
-          ))}
+          {effectiveChecklist.map(item => {
+            const isAction = item.id === 'mchs' || item.id === 'emergency';
+            return (
+              <button
+                key={item.id}
+                onClick={() => toggleItem(item.id)}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
+              >
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                  item.done
+                    ? 'bg-[var(--success)]'
+                    : 'border-2 border-[var(--border)]'
+                }`}>
+                  {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </div>
+                <span className={`flex-1 text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                  {item.label}
+                </span>
+                {isAction && !item.done && (
+                  <ExternalLink className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -516,7 +671,7 @@ function PlanningTab() {
       )}
 
       {/* Safety alert shortcut */}
-      <div className="flex items-center gap-3 p-4 rounded-xl"
+      <div ref={emergencyRef} className="flex items-center gap-3 p-4 rounded-xl"
         style={{ background: 'color-mix(in srgb, var(--danger) 8%, var(--bg-card))', border: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)' }}>
         <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--danger)' }} />
         <div className="flex-1">
@@ -536,6 +691,13 @@ function PlanningTab() {
 
 export function PlanningClient() {
   const [tab, setTab] = useState<string>('planning');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'trail') setTab('trail');
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
