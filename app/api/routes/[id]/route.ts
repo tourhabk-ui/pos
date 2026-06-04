@@ -127,6 +127,20 @@ export async function GET(
       }));
     }
 
+    // Waypoints
+    const waypointsResult = await query(
+      `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
+         p.ark_id AS place_id, p.name AS place_name, p.location_type,
+         p.lat AS place_lat, p.lng AS place_lng,
+         sp.altitude_m, sp.hazard_types
+       FROM route_waypoints rw
+       JOIN places p ON p.id = rw.place_id
+       LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
+       WHERE rw.route_id = $1
+       ORDER BY rw.position`,
+      [id]
+    ).catch(() => ({ rows: [] }));
+
     return NextResponse.json({
       success: true,
       data: {
@@ -163,6 +177,19 @@ export async function GET(
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
         durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
         createdAt:   r.created_at as string,
+        waypoints: waypointsResult.rows.map(w => ({
+          position:     Number(w.position),
+          isStart:      w.is_start as boolean,
+          isEnd:        w.is_end as boolean,
+          notes:        w.notes as string | null,
+          placeId:      w.place_id as string,
+          placeName:    w.place_name as string,
+          locationType: w.location_type as string | null,
+          lat:          w.place_lat != null ? parseFloat(w.place_lat as string) : null,
+          lng:          w.place_lng != null ? parseFloat(w.place_lng as string) : null,
+          altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
+          hazardTypes:  (w.hazard_types as string[]) ?? [],
+        })),
         offers,
       },
     });
