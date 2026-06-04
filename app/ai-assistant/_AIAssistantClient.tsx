@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Bot, Send, Loader2, User, Sun, Moon, MapPin, ChevronRight } from 'lucide-react';
+import { Bot, Send, Loader2, User, Sun, Moon, MapPin, ChevronRight, Mic, MicOff, AlertTriangle, Star, Navigation } from 'lucide-react';
 import Logo from '@/components/shared/Logo';
 import { useTheme } from '@/contexts/ThemeContext';
 import BottomNav from '@/components/shared/BottomNav';
@@ -20,10 +20,26 @@ interface TourSuggestion {
   operator_name: string;
 }
 
+interface RouteRec {
+  id: string;
+  title: string;
+  difficulty?: string;
+  distance_km?: number;
+  rating?: number;
+  image?: string;
+}
+
+interface WarningInfo {
+  text: string;
+  level: 'warning' | 'danger';
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   tours?: TourSuggestion[];
+  routeRec?: RouteRec;
+  warning?: WarningInfo;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -72,10 +88,64 @@ function TourCard({ tour }: { tour: TourSuggestion }) {
   );
 }
 
+function RouteCard({ route }: { route: RouteRec }) {
+  return (
+    <Link
+      href={`/routes/${route.id}`}
+      className="group flex items-start gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--ocean)]/40 hover:bg-[var(--bg-hover)] transition-all"
+    >
+      <div className="relative w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">
+        {route.image ? (
+          <Image src={route.image} alt={route.title} fill sizes="64px" className="object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Navigation className="w-5 h-5 text-[var(--text-muted)]" />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{route.title}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          {route.difficulty && (
+            <span className="text-xs text-[var(--text-muted)]">{route.difficulty}</span>
+          )}
+          {route.distance_km && (
+            <span className="text-xs text-[var(--text-muted)]">{route.distance_km} км</span>
+          )}
+          {route.rating && (
+            <span className="flex items-center gap-0.5 text-xs text-yellow-500">
+              <Star className="w-3 h-3 fill-current" />{route.rating}
+            </span>
+          )}
+        </div>
+        <p className="text-xs font-medium text-[var(--ocean)] mt-1">Подробнее →</p>
+      </div>
+    </Link>
+  );
+}
+
+function WarningCard({ warning }: { warning: WarningInfo }) {
+  const color = warning.level === 'danger' ? 'var(--danger)' : 'var(--warning)';
+  return (
+    <div
+      className="flex items-start gap-2 p-3 rounded-lg text-sm"
+      style={{
+        background: `color-mix(in srgb, ${color} 10%, var(--bg-card))`,
+        border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
+        color,
+      }}
+    >
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+      <p>{warning.text}</p>
+    </div>
+  );
+}
+
 function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
   const [sessionId] = useState(() => {
     if (typeof window === 'undefined') return '';
     const key = 'th_ai_assistant_session';
@@ -89,6 +159,8 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   const [limitReached, setLimitReached] = useState(false);
   const [remainingFree, setRemainingFree] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const { isDark, toggleTheme } = useTheme();
 
   // Auto-send query from hero search bar (?q=...)
@@ -101,6 +173,38 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function startVoice() {
+    const w = window as unknown as Record<string, unknown>;
+    type RecognitionLike = {
+      lang: string; interimResults: boolean; maxAlternatives: number;
+      onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+      onerror: (() => void) | null; onend: (() => void) | null;
+      start(): void; stop(): void;
+    };
+    const Ctor = (w['SpeechRecognition'] || w['webkitSpeechRecognition']) as (new () => RecognitionLike) | undefined;
+    if (!Ctor) return;
+
+    const rec = new Ctor();
+    rec.lang = 'ru-RU';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setInput(transcript);
+      setListening(false);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    rec.start();
+    recognitionRef.current = rec;
+    setListening(true);
+  }
+
+  function stopVoice() {
+    recognitionRef.current?.stop();
+    setListening(false);
+  }
 
   async function sendMessage(text: string) {
     if (!text.trim() || loading || limitReached) return;
@@ -161,6 +265,14 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     }
   }
 
+  const lastAssistantIdx = messages.reduce((acc, m, i) => m.role === 'assistant' ? i : acc, -1);
+
+  const QUICK_ACTIONS = [
+    { label: 'Заказать трансфер', q: 'Как добраться до маршрута?' },
+    { label: 'Сохранить маршрут', q: 'Как сохранить маршрут офлайн?' },
+    { label: 'Другие варианты', q: 'Покажи другие похожие маршруты' },
+  ];
+
   return (
     <div className="min-h-screen pb-24 md:pb-0">
       {/* Standard header */}
@@ -189,6 +301,12 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
           <p className="text-sm text-[var(--text-secondary)]">Спросите о турах, погоде, безопасности на Камчатке</p>
         </div>
       </div>
+
+      {remainingFree !== null && remainingFree <= 3 && (
+        <div className="mb-3 px-3 py-2 rounded-lg text-xs text-[var(--warning)] bg-[var(--bg-card)] border border-[var(--warning)]/30">
+          Осталось {remainingFree} бесплатных {remainingFree === 1 ? 'сообщение' : 'сообщения'}. <Link href="/auth/register" className="underline">Зарегистрируйтесь</Link> для безлимита.
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto space-y-3 mb-4">
         {messages.length === 0 && (
@@ -222,6 +340,21 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
               {msg.role === 'user' && <User className="w-5 h-5 text-[var(--text-muted)] mt-1 shrink-0" />}
             </div>
 
+            {/* Warning card */}
+            {msg.role === 'assistant' && msg.warning && (
+              <div className="ml-7 w-full max-w-[80%]">
+                <WarningCard warning={msg.warning} />
+              </div>
+            )}
+
+            {/* Route recommendation card */}
+            {msg.role === 'assistant' && msg.routeRec && (
+              <div className="ml-7 w-full max-w-[80%] space-y-2">
+                <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Рекомендованный маршрут</p>
+                <RouteCard route={msg.routeRec} />
+              </div>
+            )}
+
             {/* Tour suggestion cards */}
             {msg.role === 'assistant' && msg.tours && msg.tours.length > 0 && (
               <div className="ml-7 w-full max-w-[80%] space-y-2">
@@ -237,6 +370,21 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                 </Link>
               </div>
             )}
+
+            {/* Quick actions after last assistant message */}
+            {msg.role === 'assistant' && i === lastAssistantIdx && !loading && !limitReached && (
+              <div className="ml-7 flex flex-wrap gap-2">
+                {QUICK_ACTIONS.map(a => (
+                  <button
+                    key={a.label}
+                    onClick={() => void sendMessage(a.q)}
+                    className="px-3 py-1.5 rounded-full text-xs border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {loading && (
@@ -249,10 +397,22 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
 
       <div className="sticky bottom-0 bg-[var(--bg-primary)] border-t border-[var(--border)] -mx-4 px-4 py-3">
         <form onSubmit={e => { e.preventDefault(); void sendMessage(input.trim()); }} className="flex gap-2">
+          <button
+            type="button"
+            onClick={listening ? stopVoice : startVoice}
+            className={`min-h-[44px] min-w-[44px] rounded-xl border flex items-center justify-center transition-colors ${
+              listening
+                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                : 'bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent)]'
+            }`}
+            aria-label={listening ? 'Остановить запись' : 'Голосовой ввод'}
+          >
+            {listening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="Спросите о Камчатке..."
+            placeholder={listening ? 'Говорите...' : 'Спросите о Камчатке...'}
             disabled={loading}
             className="flex-1 min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
           />
