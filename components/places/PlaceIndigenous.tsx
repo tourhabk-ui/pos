@@ -1,4 +1,6 @@
-import { Users, Star, Sprout, BookOpen } from 'lucide-react';
+'use client';
+import { useState } from 'react';
+import { Users, Star, Sprout, BookOpen, ChevronDown } from 'lucide-react';
 import type { PlaceIndigenous as IndigenousData } from './types';
 
 interface Props {
@@ -15,6 +17,7 @@ const PEOPLES_LABELS: Record<string, string> = {
 };
 
 export default function PlaceIndigenous({ indigenous }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const peopleLabels = indigenous.peoples
     .map(p => PEOPLES_LABELS[p] ?? p)
     .join(', ');
@@ -23,12 +26,15 @@ export default function PlaceIndigenous({ indigenous }: Props) {
     <section className="max-w-3xl mx-auto px-4 mt-6">
       <div className="ds-card overflow-hidden border border-[var(--ocean)]/25">
 
-        {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 bg-[var(--ocean)]/6 border-b border-[var(--ocean)]/15">
+        {/* Header — clickable to expand */}
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="w-full flex items-center gap-3 px-5 py-4 bg-[var(--ocean)]/6 border-b border-[var(--ocean)]/15 text-left hover:bg-[var(--ocean)]/10 transition-colors"
+        >
           <div className="p-2 rounded-lg bg-[var(--ocean)]/12 text-[var(--ocean)]">
             <Users className="w-4 h-4" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">
               Коренные народы
             </p>
@@ -37,14 +43,15 @@ export default function PlaceIndigenous({ indigenous }: Props) {
             </p>
           </div>
           {indigenous.sacred && (
-            <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--warning)]/12 text-[var(--warning)] shrink-0">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--warning)]/12 text-[var(--warning)] shrink-0">
               <Star className="w-3 h-3" />
               Священное место
             </span>
           )}
-        </div>
+          <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-200 ml-1 shrink-0 ${expanded ? 'rotate-180' : ''}`} />
+        </button>
 
-        <div className="px-5 py-4 space-y-4">
+        {expanded && <div className="px-5 py-4 space-y-4">
 
           {/* Local name */}
           {indigenous.localName && (
@@ -101,7 +108,7 @@ export default function PlaceIndigenous({ indigenous }: Props) {
             традиционный уклад неотделимы от природы полуострова.
           </p>
 
-        </div>
+        </div>}
       </div>
     </section>
   );
