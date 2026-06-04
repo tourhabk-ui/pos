@@ -175,10 +175,17 @@ function TourCard({ tour }: { tour: TourSuggestion }) {
 }
 
 function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem('th_ai_chat_history');
+      return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const [sessionId] = useState(() => {
     if (typeof window === 'undefined') return '';
     const key = 'th_ai_assistant_session';
@@ -192,6 +199,23 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const { isDark, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    setIsOffline(!navigator.onLine);
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    try {
+      const toSave = messages.slice(-50);
+      localStorage.setItem('th_ai_chat_history', JSON.stringify(toSave));
+    } catch { /* ignore localStorage errors */ }
+  }, [messages]);
 
   useEffect(() => {
     if (!initialQuery) return;
@@ -227,7 +251,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   }
 
   async function sendMessage(text: string) {
-    if (!text.trim() || loading || limitReached) return;
+    if (!text.trim() || loading || limitReached || isOffline) return;
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInput('');
     setLoading(true);
@@ -426,19 +450,26 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
 
         {/* Input bar */}
         <div className="sticky bottom-0 bg-[var(--bg-primary)] border-t border-[var(--border)] -mx-4 px-4 py-3">
+          {isOffline && (
+            <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg text-xs font-medium"
+              style={{ background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-card))', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)' }}>
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Сеть недоступна. AI-консьерж работает в режиме чтения. SOS: 112
+            </div>
+          )}
           <form onSubmit={e => { e.preventDefault(); void sendMessage(input.trim()); }} className="flex gap-2">
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder="Спросите Кузьмича..."
-              disabled={loading || limitReached}
+              disabled={loading || limitReached || isOffline}
               className="flex-1 min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
             />
             {/* Voice button */}
             <button
               type="button"
               onClick={listening ? stopVoice : startVoice}
-              disabled={loading || limitReached}
+              disabled={loading || limitReached || isOffline}
               className={`min-h-[44px] min-w-[44px] rounded-2xl flex items-center justify-center transition-colors ${
                 listening
                   ? 'bg-[var(--danger)] text-white'
@@ -451,7 +482,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
             {/* Send button */}
             <button
               type="submit"
-              disabled={loading || !input.trim() || limitReached}
+              disabled={loading || !input.trim() || limitReached || isOffline}
               className="min-h-[44px] min-w-[44px] px-3 bg-[var(--accent)] text-white rounded-2xl disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity"
             >
               <Send className="w-5 h-5" />
