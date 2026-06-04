@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { House, Map, Heart, User, AlertTriangle } from 'lucide-react';
+import { House, Map, Heart, User, AlertTriangle, Navigation } from 'lucide-react';
 
 const NAV_ITEMS: {
   icon: typeof House;
@@ -9,11 +9,11 @@ const NAV_ITEMS: {
   href: string;
   sos?: boolean;
 }[] = [
-  { icon: House, label: 'Домой', href: '/' },
-  { icon: Map, label: 'Карта', href: '/map' },
-  { icon: Heart, label: 'Избранное', href: '/hub/tourist/wishlist' },
-  { icon: User, label: 'ЛК', href: '/profile' },
-  { icon: AlertTriangle, label: 'СОС', href: '/hub/safety', sos: true },
+  { icon: House,        label: 'Домой',     href: '/' },
+  { icon: Map,          label: 'Карта',     href: '/map' },
+  { icon: Navigation,   label: 'Маршрут',   href: '/planning' },
+  { icon: User,         label: 'ЛК',        href: '/profile' },
+  { icon: AlertTriangle, label: 'СОС',      href: '/hub/safety', sos: true },
 ];
 
 interface BottomNavProps {
