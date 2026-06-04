@@ -21,6 +21,7 @@ import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType } from '@/components/shared/LeafletMap';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
@@ -590,6 +591,15 @@ export default function RouteDetailClient({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {/* ── ОПАСНОСТИ ────────────────────────────────────────────────────────── */}
+      {((route.hazards?.length ?? 0) > 0 || route.mchsRequired) && (
+        <div className="border-b border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="max-w-6xl mx-auto px-4 md:px-8 py-3">
+            <HazardBadgeStrip hazards={route.hazards ?? []} mchsRequired={route.mchsRequired} />
+          </div>
+        </div>
+      )}
 
       {/* ── ОСНОВНОЙ КОНТЕНТ ─────────────────────────────────────────────────── */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 pt-8 pb-24">
