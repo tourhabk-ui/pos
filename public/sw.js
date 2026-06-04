@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v7'; // bumped: /safety/offline precached
+const CACHE_NAME = 'kamchatour-v8'; // bumped: /planning + /ai-assistant precached
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -63,6 +63,8 @@ const PRECACHE_URLS = [
   '/offline/manage',
   '/sos',          // критично: экстренная помощь всегда офлайн
   '/safety/offline', // критично: инструкции выживания всегда офлайн
+  '/planning',
+  '/ai-assistant',
 ];
 
 // Установка: кэшируем базовые страницы (обязательно) + тайлы зум 7-9 (фоновая загрузка)
@@ -83,13 +85,15 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Активация: удаляем старые кэши
+// Активация: удаляем старые кэши кроме тайлового и API кэшей
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          .filter((key) => key !== CACHE_NAME
+            && key !== `${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`
+            && key !== API_CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -264,7 +268,7 @@ async function cacheTilesForRegion(tileUrls, regionId, client) {
 }
 
 // ─── Whitelist: страницы которые умеют работать офлайн (IndexedDB / клиентское состояние) ───
-const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage'];
+const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage', '/planning', '/ai-assistant'];
 
 function isOfflineCapable(pathname) {
   return OFFLINE_CAPABLE_ROUTES.some(route =>
