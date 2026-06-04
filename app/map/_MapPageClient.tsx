@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -12,6 +12,8 @@ import { MarkerType, type MapMarkerGeometry } from '@/components/shared/LeafletM
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
+const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet').then(m => ({ default: m.PlaceMapSheet })), { ssr: false });
+const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').then(m => ({ default: m.MapWeatherChip })), { ssr: false });
 
 // ГДЕ — типы локаций с цветами и иконками на карте
 const LOCATION_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -111,6 +113,7 @@ export default function MapPageClient() {
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMyLocation, setShowMyLocation] = useState(false);
   const [showSos, setShowSos] = useState(false);
@@ -127,7 +130,24 @@ export default function MapPageClient() {
   ] as const;
 
   const selectedRoute = selectedId ? allRoutes.find(r => r.id === selectedId) ?? null : null;
-  const handleMarkerClick = useCallback((id: string) => setSelectedId(id), []);
+  const selectedPlaceData = selectedPlaceId ? allRoutes.find(r => r.id === selectedPlaceId) ?? null : null;
+
+  // Stable ref so handleMarkerClick never changes identity — prevents LeafletMap from
+  // tearing down and recreating the map whenever allRoutes updates (chunked tile loading
+  // would be interrupted, leaving 0 markers visible).
+  const allRoutesRef = useRef(allRoutes);
+  useEffect(() => { allRoutesRef.current = allRoutes; }, [allRoutes]);
+
+  const handleMarkerClick = useCallback((id: string) => {
+    const point = allRoutesRef.current.find(r => r.id === id);
+    if (point && point.locationType && point.locationType !== 'other') {
+      setSelectedPlaceId(id);
+      setSelectedId(null);
+    } else {
+      setSelectedId(id);
+      setSelectedPlaceId(null);
+    }
+  }, []);
 
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {
@@ -473,6 +493,30 @@ export default function MapPageClient() {
           </div>
         )}
 
+        {/* PlaceMapSheet — offline mode */}
+        {selectedPlaceData && (
+          <PlaceMapSheet
+            initialData={{
+              id: selectedPlaceData.id,
+              title: selectedPlaceData.title,
+              locationType: selectedPlaceData.locationType,
+              lat: selectedPlaceData.lat,
+              lng: selectedPlaceData.lng,
+              description: selectedPlaceData.description,
+            }}
+            userPos={userPos}
+            isOffline={true}
+            onClose={() => setSelectedPlaceId(null)}
+            distLabel={userPos
+              ? (() => {
+                  const d = haversineDistance(userPos.lat, userPos.lng, selectedPlaceData.lat, selectedPlaceData.lng);
+                  return d < 1 ? `${Math.round(d * 1000)} м` : `${d.toFixed(1)} км`;
+                })()
+              : null
+            }
+          />
+        )}
+
         {/* Панель выбранного маршрута */}
         {selectedRoute && (
           <div
@@ -610,6 +654,13 @@ export default function MapPageClient() {
             <Navigation size={18} />
           </button>
 
+          {/* Weather overlay — top-left */}
+          {userPos && (
+            <div className="absolute top-3 left-3 z-[500]">
+              <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />
+            </div>
+          )}
+
           {/* Счётчик */}
           <div className="absolute bottom-3 left-3 z-[500] bg-[var(--bg-card)] rounded-lg px-3 py-1.5 border border-[var(--border)] shadow-sm">
             <p className="text-sm text-[var(--text-secondary)]">
@@ -621,6 +672,30 @@ export default function MapPageClient() {
           </div>
         </div>
       </div>
+
+      {/* ── PlaceMapSheet — рicher panel for places ─────────────────────── */}
+      {selectedPlaceData && (
+        <PlaceMapSheet
+          initialData={{
+            id: selectedPlaceData.id,
+            title: selectedPlaceData.title,
+            locationType: selectedPlaceData.locationType,
+            lat: selectedPlaceData.lat,
+            lng: selectedPlaceData.lng,
+            description: selectedPlaceData.description,
+          }}
+          userPos={userPos}
+          isOffline={false}
+          onClose={() => setSelectedPlaceId(null)}
+          distLabel={userPos
+            ? (() => {
+                const d = haversineDistance(userPos.lat, userPos.lng, selectedPlaceData.lat, selectedPlaceData.lng);
+                return d < 1 ? `${Math.round(d * 1000)} м` : `${d.toFixed(1)} км`;
+              })()
+            : null
+          }
+        />
+      )}
 
       {/* ── Панель маршрута ─────────────────────────────────────────────── */}
       {selectedRoute && (

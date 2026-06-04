@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download,
 } from 'lucide-react';
+import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -44,6 +45,29 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный', extreme: 'Экстремальный',
 };
 
+interface GearItem { id: string; label: string; category: string; }
+
+const GEAR_LIST: GearItem[] = [
+  { id: 'map',       label: 'Карта маршрута / GPS',   category: 'Навигация' },
+  { id: 'compass',   label: 'Компас',                 category: 'Навигация' },
+  { id: 'boots',     label: 'Трекинговые ботинки',    category: 'Одежда' },
+  { id: 'rain',      label: 'Дождевик / мембрана',    category: 'Одежда' },
+  { id: 'thermo',    label: 'Термобельё',             category: 'Одежда' },
+  { id: 'fleece',    label: 'Флиска / тёплый слой',  category: 'Одежда' },
+  { id: 'firstaid',  label: 'Аптечка',                category: 'Безопасность' },
+  { id: 'bear',      label: 'Средство от медведей',   category: 'Безопасность' },
+  { id: 'whistle',   label: 'Свисток',                category: 'Безопасность' },
+  { id: 'headlamp',  label: 'Фонарик / налобный',     category: 'Безопасность' },
+  { id: 'poles',     label: 'Трекинговые палки',      category: 'Снаряжение' },
+  { id: 'backpack',  label: 'Рюкзак с накидкой',      category: 'Снаряжение' },
+  { id: 'tent',      label: 'Палатка / бивак',        category: 'Снаряжение' },
+  { id: 'water',     label: 'Запас воды (2л+)',        category: 'Еда и вода' },
+  { id: 'filter',    label: 'Фильтр для воды',         category: 'Еда и вода' },
+  { id: 'food',      label: 'Еда на поход',            category: 'Еда и вода' },
+  { id: 'phone',     label: 'Заряженный телефон',      category: 'Связь' },
+  { id: 'powerbank', label: 'Пауэрбэнк',              category: 'Связь' },
+];
+
 // ─── Progress Ring ─────────────────────────────────────────────────────────────
 
 function ProgressRing({ done, total }: { done: number; total: number }) {
@@ -68,39 +92,50 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 
 // ─── Route card (horizontal scroll) ──────────────────────────────────────────
 
-function RouteCard({ route }: { route: RoutePreview }) {
+function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (routeId: string) => void }) {
   return (
-    <Link
-      href={`/routes/${route.id}`}
-      className="flex-shrink-0 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)]/40 transition-all"
+    <div
+      className="flex-shrink-0 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)]/40 transition-all flex flex-col"
       style={{ width: 160 }}
     >
-      <div className="relative h-24 bg-[var(--bg-hover)]">
-        {route.imageUrl ? (
-          <Image src={route.imageUrl} alt={route.title} fill sizes="160px" className="object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <MapPin className="w-6 h-6 text-[var(--text-muted)]" />
-          </div>
-        )}
-        {route.difficulty && (
-          <span className="absolute top-2 left-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-            style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
-            {DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty}
-          </span>
-        )}
-      </div>
-      <div className="p-2">
-        <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">{route.title}</p>
-        {(route.durationHours || route.distanceKm) && (
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
-            {route.durationHours ? `${route.durationHours} ч` : ''}
-            {route.durationHours && route.distanceKm ? ' · ' : ''}
-            {route.distanceKm ? `${route.distanceKm} км` : ''}
-          </p>
-        )}
-      </div>
-    </Link>
+      <Link href={`/routes/${route.id}`} className="block">
+        <div className="relative h-24 bg-[var(--bg-hover)]">
+          {route.imageUrl ? (
+            <Image src={route.imageUrl} alt={route.title} fill sizes="160px" className="object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <MapPin className="w-6 h-6 text-[var(--text-muted)]" />
+            </div>
+          )}
+          {route.difficulty && (
+            <span className="absolute top-2 left-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
+              {DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pt-2">
+          <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">{route.title}</p>
+          {(route.durationHours || route.distanceKm) && (
+            <p className="text-[10px] text-[var(--text-muted)] mt-1">
+              {route.durationHours ? `${route.durationHours} ч` : ''}
+              {route.durationHours && route.distanceKm ? ' · ' : ''}
+              {route.distanceKm ? `${route.distanceKm} км` : ''}
+            </p>
+          )}
+        </div>
+      </Link>
+      {onNavigate && (
+        <div className="px-2 pb-2 pt-1.5 mt-auto">
+          <button
+            onClick={() => onNavigate(route.id)}
+            className="w-full text-[10px] font-bold py-1.5 rounded-lg transition-colors"
+            style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
+            Начать →
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -165,19 +200,44 @@ interface SavedWaypoint { lat: number; lng: number; name: string; }
 function OnTrailTab() {
   const [heading, setHeading] = useState(0);
   const [coords, setCoords] = useState<{ lat: number; lng: number; alt: number | null } | null>(null);
-  const [startTime] = useState(() => Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
+  const [gpsError, setGpsError] = useState(false);
   const watchRef = useRef<number | null>(null);
-  const [waypoints] = useState<SavedWaypoint[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const raw = localStorage.getItem('active_trail_waypoints');
-      return raw ? (JSON.parse(raw) as SavedWaypoint[]) : [];
-    } catch { return []; }
-  });
+  // Ref so the timer closure always reads the current value without restarting sensors
+  const startTimeRef = useRef(Date.now());
+  const [waypoints, setWaypoints] = useState<SavedWaypoint[]>([]);
   const [currentWpIdx, setCurrentWpIdx] = useState(0);
+  const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
 
+  // Shared route loader — eliminates duplicated fetch/convert logic
+  const fetchRouteWaypoints = useCallback((routeId: string) => {
+    setIsLoadingRoute(true);
+    fetch(`/api/routes/${routeId}`)
+      .then(r => r.json())
+      .then((j: unknown) => {
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        const data = (j as Record<string, unknown>).data as Record<string, unknown>;
+        setActiveRouteTitle(data.title as string);
+        const wps = data.waypoints;
+        if (!Array.isArray(wps) || wps.length === 0) return;
+        const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
+          .filter(w => w.lat != null && w.lng != null)
+          .map(w => ({
+            lat: Number(w.lat),
+            lng: Number(w.lng),
+            name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+          }));
+        if (converted.length > 0) setWaypoints(converted);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingRoute(false));
+  }, []); // state setters are stable refs
+
+  // Network
   useEffect(() => {
     setIsOffline(!navigator.onLine);
     const onOnline = () => setIsOffline(false);
@@ -187,8 +247,14 @@ function OnTrailTab() {
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
   }, []);
 
+  // Load active route on mount
   useEffect(() => {
-    // Wake Lock — keep screen on while navigating
+    const routeId = localStorage.getItem('active_trail_route_id');
+    if (routeId) fetchRouteWaypoints(routeId);
+  }, [fetchRouteWaypoints]);
+
+  // Wake Lock
+  useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
     if ('wakeLock' in navigator) {
       (navigator.wakeLock as WakeLock).request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
@@ -196,30 +262,30 @@ function OnTrailTab() {
     return () => { wakeLock?.release().catch(() => {}); };
   }, []);
 
+  // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
-    // Compass
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null) setHeading(e.alpha);
     };
     window.addEventListener('deviceorientation', handleOrientation);
-    // GPS
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude }),
-        () => {},
+        err => { if (err.code === 1) setGpsError(true); },
         { enableHighAccuracy: true, maximumAge: 5000 }
       );
     }
-    // Timer
-    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
     };
-  }, [startTime]);
+  }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
-  // Auto-advance to next waypoint when within 50m
+  // Auto-advance waypoint when within 50m
   useEffect(() => {
     if (!coords || waypoints.length === 0) return;
     const wp = waypoints[currentWpIdx];
@@ -230,18 +296,76 @@ function OnTrailTab() {
     }
   }, [coords, waypoints, currentWpIdx]);
 
+  // ─── Computed ──────────────────────────────────────────────────────────────
+
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
-  const altitude = coords?.alt !== null && coords?.alt !== undefined ? Math.round(coords.alt) : null;
-
+  const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
   const distToNext = coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
+  const distLabel = distToNext === null ? null
+    : distToNext < 1
+    ? `${Math.round(distToNext * 1000)} м`
+    : `${distToNext.toFixed(1)} км`;
+
+  // SVG track: normalize lat to y-axis — honest representation of waypoint positions
+  const svgPoints = (() => {
+    if (waypoints.length < 2) return null;
+    const lats = waypoints.map(w => w.lat);
+    const minLat = Math.min(...lats);
+    const latRange = (Math.max(...lats) - minLat) || 0.001;
+    return waypoints.map((wp, i) => ({
+      x: (i / (waypoints.length - 1)) * 300 + 10,
+      // Higher lat = higher on screen (invert because SVG y increases downward)
+      y: 110 - ((wp.lat - minLat) / latRange) * 84,
+      i,
+    }));
+  })();
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
+  function selectRoute(r: RoutePreview) {
+    try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
+    setShowRouteModal(false);
+    setWaypoints([]);
+    setCurrentWpIdx(0);
+    // Reset timer via ref — no effect restart, no sensor disruption
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+    fetchRouteWaypoints(r.id);
+  }
+
+  function openRouteModal() {
+    setShowRouteModal(true);
+    if (modalRoutes.length > 0) return;
+    fetch('/api/routes?limit=10&sort=popular')
+      .then(r => r.json())
+      .then((d: unknown) => {
+        if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) return;
+        const items = ((d as Record<string, unknown>).data as unknown[]).slice(0, 10).map(r => {
+          if (typeof r !== 'object' || r === null) return null;
+          const row = r as Record<string, unknown>;
+          return {
+            id: row.id as string,
+            title: row.title as string,
+            difficulty: (row.difficulty as string | null) ?? null,
+            durationHours: row.durationHours != null ? Number(row.durationHours) : null,
+            distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+            imageUrl: null,
+          } satisfies RoutePreview;
+        }).filter(Boolean) as RoutePreview[];
+        setModalRoutes(items);
+      })
+      .catch(() => {});
+  }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: '#0d1117', color: '#f0f6fc' }}>
-      {/* Offline banner */}
+      {/* Network / GPS banners */}
       <div className={`flex items-center gap-2 px-4 py-2 text-xs ${
         isOffline
           ? 'bg-yellow-900/40 border-b border-yellow-700/30 text-yellow-400'
@@ -250,32 +374,48 @@ function OnTrailTab() {
         {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
         {isOffline ? 'Офлайн-режим • Карты доступны' : 'Онлайн • GPS активен'}
       </div>
+      {gpsError && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs bg-orange-900/40 border-b border-orange-700/30 text-orange-400">
+          <AlertCircle className="w-3.5 h-3.5" />
+          Разрешите геолокацию в настройках браузера
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 px-4 py-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
-        {/* Compass + distance */}
+
+        {/* Compass + route info */}
         <div className="flex flex-col md:flex-row items-center gap-6 w-full">
           <CompassDisplay heading={heading} />
           <div className="text-center md:text-left">
-            {waypoints.length > 0 ? (
+            {isLoadingRoute ? (
+              <div className="flex flex-col gap-2.5">
+                <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: '#21262d' }} />
+                <div className="h-10 w-24 rounded-lg animate-pulse" style={{ background: '#21262d' }} />
+                <div className="h-3 w-20 rounded-full animate-pulse" style={{ background: '#21262d' }} />
+              </div>
+            ) : waypoints.length > 0 ? (
               <>
+                {activeRouteTitle && (
+                  <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
+                )}
                 <p className="text-gray-400 text-sm mb-0.5">
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
                 <p className="text-gray-500 text-xs mb-2">до следующей точки</p>
-                <p className="text-5xl font-bold" style={{ color: '#4ade80', letterSpacing: '-1px' }}>
-                  {distToNext !== null ? distToNext.toFixed(1) : '—'} <span className="text-2xl">км</span>
+                <p className="text-5xl font-bold leading-none" style={{ color: '#4ade80', letterSpacing: '-1px' }}>
+                  {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">{nextWp?.name ?? ''}</p>
               </>
             ) : (
               <>
                 <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
-                <Link href="/routes"
+                <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
                   Выбрать маршрут <ChevronRight className="w-3.5 h-3.5" />
-                </Link>
+                </button>
               </>
             )}
           </div>
@@ -286,41 +426,34 @@ function OnTrailTab() {
           <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Высота</p>
             <p className="text-2xl font-bold text-white">
-              {altitude !== null
-                ? `${altitude.toLocaleString('ru')}м`
-                : '— м'}
+              {altitude !== null ? `${altitude.toLocaleString('ru')}м` : '— м'}
               {altitude !== null && <span className="text-green-400 text-base ml-0.5">↑</span>}
             </p>
           </div>
           <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Время в пути</p>
             <p className="text-2xl font-bold text-white">
-              ~{hours}ч{mins.toString().padStart(2, '0')}м
+              {hours}ч {mins.toString().padStart(2, '0')}м
             </p>
-            <p className="text-xs text-gray-600">ходьбы</p>
           </div>
         </div>
 
-        {/* Route track placeholder */}
-        <div className="w-full h-32 rounded-xl overflow-hidden relative"
+        {/* Route track */}
+        <div className="w-full h-32 rounded-xl overflow-hidden"
           style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
-          {waypoints.length > 0 ? (
+          {svgPoints ? (
             <svg className="w-full h-full" viewBox="0 0 320 128" preserveAspectRatio="none">
-              {/* Background topographic lines */}
-              {[20, 40, 60, 80, 100].map(y => (
-                <path key={y} d={`M0,${y} Q80,${y - 5} 160,${y + 3} T320,${y}`}
-                  fill="none" stroke="rgba(74,222,128,0.07)" strokeWidth="1" />
+              {[32, 64, 96].map(y => (
+                <line key={y} x1="0" y1={y} x2="320" y2={y}
+                  stroke="rgba(74,222,128,0.06)" strokeWidth="1" />
               ))}
-              {/* Route line */}
               <polyline
-                points={waypoints.map((wp, i) => `${(i / (waypoints.length - 1)) * 300 + 10},${64 + (Math.sin(i) * 20)}`).join(' ')}
-                fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round"
+                points={svgPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                fill="none" stroke="#4ade80" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"
               />
-              {/* Waypoint dots */}
-              {waypoints.map((_, i) => (
-                <circle key={i}
-                  cx={(i / (waypoints.length - 1)) * 300 + 10}
-                  cy={64 + (Math.sin(i) * 20)}
+              {svgPoints.map(({ x, y, i }) => (
+                <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
                   fill={i < currentWpIdx ? '#4ade80' : i === currentWpIdx ? '#ff6b35' : '#374151'}
                   stroke={i === currentWpIdx ? '#ff6b35' : 'none'}
@@ -330,10 +463,11 @@ function OnTrailTab() {
             </svg>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-700 text-xs">
-              Выберите маршрут для отображения трека
+              {isLoadingRoute ? 'Загрузка трека…' : 'Выберите маршрут для отображения трека'}
             </div>
           )}
         </div>
+
       </div>
 
       {/* Bottom action grid */}
@@ -343,9 +477,10 @@ function OnTrailTab() {
           style={{ background: '#161b22', color: '#4ade80', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </Link>
-        <a href={coords ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10` : '/routes'}
-          target={coords ? '_blank' : undefined}
-          rel={coords ? 'noopener noreferrer' : undefined}
+        <a href={coords
+            ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10`
+            : 'https://openweathermap.org/city/2124044'}
+          target="_blank" rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
           style={{ background: '#161b22', color: '#60a5fa', border: '1px solid #1e3a5f', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> ПОГОДА
@@ -361,19 +496,82 @@ function OnTrailTab() {
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>
+
+      {/* Route selection modal */}
+      {showRouteModal && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowRouteModal(false)}>
+          <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
+            style={{ background: '#161b22', border: '1px solid #30363d' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white text-base">Выбрать маршрут</h3>
+              <button onClick={() => setShowRouteModal(false)}
+                className="p-1.5 rounded-lg" style={{ background: '#21262d' }}>
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            {modalRoutes.length === 0 ? (
+              <div className="text-gray-500 text-sm text-center py-6">Загрузка маршрутов…</div>
+            ) : (
+              <div className="space-y-2">
+                {modalRoutes.map(r => (
+                  <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl"
+                    style={{ background: '#0d1117', border: '1px solid #21262d' }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{r.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+                        {r.difficulty ? DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty : '—'}
+                      </p>
+                    </div>
+                    <button onClick={() => selectRoute(r)}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
+                      style={{ background: 'rgba(74,222,128,0.15)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}>
+                      Начать
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Планирование tab ─────────────────────────────────────────────────────────
 
-function PlanningTab() {
+function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => void }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [routes, setRoutes] = useState<RoutePreview[]>([]);
   const [kuzmichTip, setKuzmichTip] = useState<string | null>(null);
+  const emergencyRef = useRef<HTMLDivElement>(null);
+  const [showGearModal, setShowGearModal] = useState(false);
+  const [gearChecked, setGearChecked] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('gear_checked') ?? '[]') as string[]); }
+    catch { return new Set(); }
+  });
+
+  // Reactive checklist state
+  const { status: mapsStatus, progress: mapsProgress, download: downloadMaps } = useOfflineRegion('avacha-group');
+  const [hasActiveRoute, setHasActiveRoute] = useState(false);
 
   useEffect(() => {
-    // Load checklist from localStorage
+    setHasActiveRoute(!!localStorage.getItem('active_trail_route_id'));
+  }, []);
+
+  // Override 'done' for auto-computed items
+  const effectiveChecklist = checklist.map(item => {
+    if (item.id === 'maps') return { ...item, done: mapsStatus === 'cached' };
+    if (item.id === 'offline') return { ...item, done: hasActiveRoute };
+    if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
+    return item;
+  });
+
+  useEffect(() => {
+    // Load checklist from localStorage (only manually-toggled items)
     try {
       const raw = localStorage.getItem('trip_checklist');
       if (raw) setChecklist(JSON.parse(raw) as ChecklistItem[]);
@@ -420,6 +618,28 @@ function PlanningTab() {
   }, []);
 
   function toggleItem(id: string) {
+    // 'offline' can't be manually toggled — it's auto-computed
+    if (id === 'offline') return;
+    // maps — trigger download if not started yet
+    if (id === 'maps') {
+      if (mapsStatus === 'idle' || mapsStatus === 'error') downloadMaps();
+      return;
+    }
+    // mchs opens a form URL
+    if (id === 'mchs') {
+      window.open('https://forms.mchs.gov.ru/registration_tourist_groups/form', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // emergency scrolls to the section
+    if (id === 'emergency') {
+      emergencyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    // gear opens the checklist modal
+    if (id === 'gear') {
+      setShowGearModal(true);
+      return;
+    }
     setChecklist(prev => {
       const next = prev.map(item => item.id === id ? { ...item, done: !item.done } : item);
       try { localStorage.setItem('trip_checklist', JSON.stringify(next)); } catch { /* ignore */ }
@@ -427,12 +647,21 @@ function PlanningTab() {
     });
   }
 
-  const doneCount = checklist.filter(i => i.done).length;
+  function toggleGearItem(id: string) {
+    setGearChecked(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem('gear_checked', JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  const doneCount = effectiveChecklist.filter(i => i.done).length;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
       {/* Kuzmich recommendation banner */}
-      <div className="rounded-2xl overflow-hidden relative"
+      <div className="rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="relative h-40 bg-[var(--bg-hover)]">
           <Image
@@ -442,23 +671,23 @@ function PlanningTab() {
             sizes="(max-width: 640px) 100vw, 600px"
             className="object-cover"
           />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.7))' }} />
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--accent)]"
-              style={{ border: '2px solid white' }}>
-              <div className="w-full h-full flex items-center justify-center text-white text-lg">🐻</div>
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-white/70 mb-0.5">Кузьмич рекомендует:</p>
-              <p className="text-sm font-medium text-white leading-snug">
-                {kuzmichTip ?? 'Планируйте маршрут заранее и проверьте готовность'}
-              </p>
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.75))' }} />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-[var(--accent)] flex items-center justify-center text-base"
+                style={{ border: '2px solid rgba(255,255,255,0.6)' }}>
+                🐻
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-white/60 mb-0.5">Кузьмич рекомендует:</p>
+                <p className="text-sm font-medium text-white leading-snug">
+                  {kuzmichTip ?? 'Планируйте маршрут заранее и проверьте готовность'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        <div className="p-4 pt-3">
+        <div className="p-4">
           <Link href="/ai-assistant"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)' }}>
@@ -470,33 +699,58 @@ function PlanningTab() {
       {/* Checklist */}
       <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="flex items-center gap-4 mb-5">
-          <ProgressRing done={doneCount} total={checklist.length} />
+          <ProgressRing done={doneCount} total={effectiveChecklist.length} />
           <div>
             <h2 className="font-bold text-[var(--text-primary)]">Готовность к походу</h2>
             <p className="text-sm text-[var(--text-secondary)]">
-              {doneCount === checklist.length ? 'Всё готово! Удачного похода.' : `Выполнено ${doneCount} из ${checklist.length}`}
+              {doneCount === effectiveChecklist.length ? 'Всё готово! Удачного похода.' : `Выполнено ${doneCount} из ${effectiveChecklist.length}`}
             </p>
           </div>
         </div>
-        <div className="space-y-2">
-          {checklist.map(item => (
-            <button
-              key={item.id}
-              onClick={() => toggleItem(item.id)}
-              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
-            >
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                item.done
-                  ? 'bg-[var(--success)]'
-                  : 'border-2 border-[var(--border)]'
-              }`}>
-                {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+        <div className="space-y-1">
+          {effectiveChecklist.map(item => {
+            const isExternal = item.id === 'mchs' || item.id === 'emergency';
+            const isDownloading = item.id === 'maps' && (mapsStatus === 'fetching-routes' || mapsStatus === 'caching-tiles');
+            const showDownloadIcon = item.id === 'maps' && !item.done && mapsStatus !== 'caching-tiles' && mapsStatus !== 'fetching-routes';
+            return (
+              <div key={item.id}>
+                <button
+                  onClick={() => toggleItem(item.id)}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
+                >
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                    item.done
+                      ? 'bg-[var(--success)]'
+                      : 'border-2 border-[var(--border)]'
+                  }`}>
+                    {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </div>
+                  <span className={`flex-1 text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                    {item.label}
+                  </span>
+                  {isExternal && !item.done && (
+                    <ExternalLink className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+                  )}
+                  {showDownloadIcon && (
+                    <Download className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+                  )}
+                  {isDownloading && (
+                    <span className="text-[10px] text-[var(--accent)] font-medium shrink-0">{mapsProgress.percent}%</span>
+                  )}
+                </button>
+                {isDownloading && (
+                  <div className="px-4 pb-2">
+                    <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                      <div className="h-1 rounded-full transition-all" style={{ background: 'var(--accent)', width: `${mapsProgress.percent}%` }} />
+                    </div>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {mapsStatus === 'fetching-routes' ? 'Подготовка…' : `Скачивание ${mapsProgress.done} / ${mapsProgress.total}`}
+                    </p>
+                  </div>
+                )}
               </div>
-              <span className={`text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
-                {item.label}
-              </span>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -510,13 +764,61 @@ function PlanningTab() {
             </Link>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-            {routes.map(route => <RouteCard key={route.id} route={route} />)}
+            {routes.map(route => <RouteCard key={route.id} route={route} onNavigate={onStartTrail} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Gear checklist modal */}
+      {showGearModal && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setShowGearModal(false)}>
+          <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Проверка снаряжения</h3>
+              <button onClick={() => setShowGearModal(false)}
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                <X className="w-4 h-4 text-[var(--text-secondary)]" />
+              </button>
+            </div>
+            {Object.entries(
+              GEAR_LIST.reduce<Record<string, GearItem[]>>((acc, item) => {
+                (acc[item.category] ??= []).push(item);
+                return acc;
+              }, {})
+            ).map(([cat, items]) => (
+              <div key={cat} className="mb-4">
+                <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-muted)' }}>{cat}</p>
+                <div className="space-y-1">
+                  {items.map(gItem => (
+                    <button key={gItem.id} onClick={() => toggleGearItem(gItem.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                        gearChecked.has(gItem.id) ? 'bg-[var(--success)]' : 'border-2 border-[var(--border)]'
+                      }`}>
+                        {gearChecked.has(gItem.id) && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                      </div>
+                      <span className={`text-sm ${gearChecked.has(gItem.id) ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                        {gItem.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button onClick={() => setShowGearModal(false)}
+              className="w-full py-3 rounded-xl font-semibold text-sm mt-2 text-white transition-opacity hover:opacity-90"
+              style={{ background: 'var(--accent)' }}>
+              Готово ({gearChecked.size}/{GEAR_LIST.length})
+            </button>
           </div>
         </div>
       )}
 
       {/* Safety alert shortcut */}
-      <div className="flex items-center gap-3 p-4 rounded-xl"
+      <div ref={emergencyRef} className="flex items-center gap-3 p-4 rounded-xl"
         style={{ background: 'color-mix(in srgb, var(--danger) 8%, var(--bg-card))', border: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)' }}>
         <AlertCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--danger)' }} />
         <div className="flex-1">
@@ -536,6 +838,18 @@ function PlanningTab() {
 
 export function PlanningClient() {
   const [tab, setTab] = useState<string>('planning');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'trail') setTab('trail');
+    }
+  }, []);
+
+  function handleStartTrail(routeId: string) {
+    try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
+    setTab('trail');
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -572,7 +886,7 @@ export function PlanningClient() {
         </div>
       </div>
 
-      {tab === 'planning' && <PlanningTab />}
+      {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
       {tab === 'trail' && <OnTrailTab />}
     </div>
   );
