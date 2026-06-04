@@ -31,10 +31,10 @@ export const AGENT_MODEL_MAP: Record<AgentId, string> = {
   infra:      'google/gemini-2.0-flash-001',              // SRE: быстрый
   vibe_coder: 'anthropic/claude-sonnet-4-6',             // кодер: максимальное качество кода
   // Site-wide agents — ultra-cheap
-  kuzmich:    'google/gemini-2.0-flash-001',              // Telegram persona
-  planner:    'google/gemini-2.0-flash-001',              // trip planning
-  operator:   'google/gemini-2.0-flash-001',              // operator chat
-  router:     'deepseek/deepseek-chat-v3-0324',           // route recommendations
+  kuzmich:    'anthropic/claude-haiku-4-5-20251001',   // Telegram persona — OR Anthropic confirmed working
+  planner:    'anthropic/claude-haiku-4-5-20251001',   // trip planning
+  operator:   'anthropic/claude-haiku-4-5-20251001',   // operator chat
+  router:     'anthropic/claude-haiku-4-5-20251001',   // route recommendations
 };
 
 /** Default model for consensus (Round 3 facilitator) */
