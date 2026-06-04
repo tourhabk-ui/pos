@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -166,35 +166,22 @@ interface SavedWaypoint { lat: number; lng: number; name: string; }
 function OnTrailTab() {
   const [heading, setHeading] = useState(0);
   const [coords, setCoords] = useState<{ lat: number; lng: number; alt: number | null } | null>(null);
-  const [startTime] = useState(() => Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
+  const [gpsError, setGpsError] = useState(false);
   const watchRef = useRef<number | null>(null);
-  const [waypoints, setWaypoints] = useState<SavedWaypoint[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const raw = localStorage.getItem('active_trail_waypoints');
-      return raw ? (JSON.parse(raw) as SavedWaypoint[]) : [];
-    } catch { return []; }
-  });
+  // Ref so the timer closure always reads the current value without restarting sensors
+  const startTimeRef = useRef(Date.now());
+  const [waypoints, setWaypoints] = useState<SavedWaypoint[]>([]);
   const [currentWpIdx, setCurrentWpIdx] = useState(0);
   const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
 
-  useEffect(() => {
-    setIsOffline(!navigator.onLine);
-    const onOnline = () => setIsOffline(false);
-    const onOffline = () => setIsOffline(true);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
-  }, []);
-
-  // Load waypoints from active route
-  useEffect(() => {
-    const routeId = localStorage.getItem('active_trail_route_id');
-    if (!routeId) return;
+  // Shared route loader — eliminates duplicated fetch/convert logic
+  const fetchRouteWaypoints = useCallback((routeId: string) => {
+    setIsLoadingRoute(true);
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
       .then((j: unknown) => {
@@ -212,11 +199,28 @@ function OnTrailTab() {
           }));
         if (converted.length > 0) setWaypoints(converted);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoadingRoute(false));
+  }, []); // state setters are stable refs
+
+  // Network
+  useEffect(() => {
+    setIsOffline(!navigator.onLine);
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
   }, []);
 
+  // Load active route on mount
   useEffect(() => {
-    // Wake Lock — keep screen on while navigating
+    const routeId = localStorage.getItem('active_trail_route_id');
+    if (routeId) fetchRouteWaypoints(routeId);
+  }, [fetchRouteWaypoints]);
+
+  // Wake Lock
+  useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
     if ('wakeLock' in navigator) {
       (navigator.wakeLock as WakeLock).request('screen').then(wl => { wakeLock = wl; }).catch(() => {});
@@ -224,30 +228,30 @@ function OnTrailTab() {
     return () => { wakeLock?.release().catch(() => {}); };
   }, []);
 
+  // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
-    // Compass
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null) setHeading(e.alpha);
     };
     window.addEventListener('deviceorientation', handleOrientation);
-    // GPS
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude }),
-        () => {},
+        err => { if (err.code === 1) setGpsError(true); },
         { enableHighAccuracy: true, maximumAge: 5000 }
       );
     }
-    // Timer
-    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
     };
-  }, [startTime]);
+  }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
-  // Auto-advance to next waypoint when within 50m
+  // Auto-advance waypoint when within 50m
   useEffect(() => {
     if (!coords || waypoints.length === 0) return;
     const wp = waypoints[currentWpIdx];
@@ -258,18 +262,76 @@ function OnTrailTab() {
     }
   }, [coords, waypoints, currentWpIdx]);
 
+  // ─── Computed ──────────────────────────────────────────────────────────────
+
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
-  const altitude = coords?.alt !== null && coords?.alt !== undefined ? Math.round(coords.alt) : null;
-
+  const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
   const distToNext = coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
+  const distLabel = distToNext === null ? null
+    : distToNext < 1
+    ? `${Math.round(distToNext * 1000)} м`
+    : `${distToNext.toFixed(1)} км`;
+
+  // SVG track: normalize lat to y-axis — honest representation of waypoint positions
+  const svgPoints = (() => {
+    if (waypoints.length < 2) return null;
+    const lats = waypoints.map(w => w.lat);
+    const minLat = Math.min(...lats);
+    const latRange = (Math.max(...lats) - minLat) || 0.001;
+    return waypoints.map((wp, i) => ({
+      x: (i / (waypoints.length - 1)) * 300 + 10,
+      // Higher lat = higher on screen (invert because SVG y increases downward)
+      y: 110 - ((wp.lat - minLat) / latRange) * 84,
+      i,
+    }));
+  })();
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
+  function selectRoute(r: RoutePreview) {
+    try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
+    setShowRouteModal(false);
+    setWaypoints([]);
+    setCurrentWpIdx(0);
+    // Reset timer via ref — no effect restart, no sensor disruption
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+    fetchRouteWaypoints(r.id);
+  }
+
+  function openRouteModal() {
+    setShowRouteModal(true);
+    if (modalRoutes.length > 0) return;
+    fetch('/api/routes?limit=10&sort=popular')
+      .then(r => r.json())
+      .then((d: unknown) => {
+        if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) return;
+        const items = ((d as Record<string, unknown>).data as unknown[]).slice(0, 10).map(r => {
+          if (typeof r !== 'object' || r === null) return null;
+          const row = r as Record<string, unknown>;
+          return {
+            id: row.id as string,
+            title: row.title as string,
+            difficulty: (row.difficulty as string | null) ?? null,
+            durationHours: row.durationHours != null ? Number(row.durationHours) : null,
+            distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
+            imageUrl: null,
+          } satisfies RoutePreview;
+        }).filter(Boolean) as RoutePreview[];
+        setModalRoutes(items);
+      })
+      .catch(() => {});
+  }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: '#0d1117', color: '#f0f6fc' }}>
-      {/* Offline banner */}
+      {/* Network / GPS banners */}
       <div className={`flex items-center gap-2 px-4 py-2 text-xs ${
         isOffline
           ? 'bg-yellow-900/40 border-b border-yellow-700/30 text-yellow-400'
@@ -278,14 +340,27 @@ function OnTrailTab() {
         {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
         {isOffline ? 'Офлайн-режим • Карты доступны' : 'Онлайн • GPS активен'}
       </div>
+      {gpsError && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs bg-orange-900/40 border-b border-orange-700/30 text-orange-400">
+          <AlertCircle className="w-3.5 h-3.5" />
+          Разрешите геолокацию в настройках браузера
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 px-4 py-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
-        {/* Compass + distance */}
+
+        {/* Compass + route info */}
         <div className="flex flex-col md:flex-row items-center gap-6 w-full">
           <CompassDisplay heading={heading} />
           <div className="text-center md:text-left">
-            {waypoints.length > 0 ? (
+            {isLoadingRoute ? (
+              <div className="flex flex-col gap-2.5">
+                <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: '#21262d' }} />
+                <div className="h-10 w-24 rounded-lg animate-pulse" style={{ background: '#21262d' }} />
+                <div className="h-3 w-20 rounded-full animate-pulse" style={{ background: '#21262d' }} />
+              </div>
+            ) : waypoints.length > 0 ? (
               <>
                 {activeRouteTitle && (
                   <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
@@ -294,39 +369,15 @@ function OnTrailTab() {
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
                 <p className="text-gray-500 text-xs mb-2">до следующей точки</p>
-                <p className="text-5xl font-bold" style={{ color: '#4ade80', letterSpacing: '-1px' }}>
-                  {distToNext !== null ? distToNext.toFixed(1) : '—'} <span className="text-2xl">км</span>
+                <p className="text-5xl font-bold leading-none" style={{ color: '#4ade80', letterSpacing: '-1px' }}>
+                  {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">{nextWp?.name ?? ''}</p>
               </>
             ) : (
               <>
                 <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
-                <button
-                  onClick={() => {
-                    setShowRouteModal(true);
-                    if (modalRoutes.length === 0) {
-                      fetch('/api/routes?limit=10&sort=popular')
-                        .then(r => r.json())
-                        .then((d: unknown) => {
-                          if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) return;
-                          const items = ((d as Record<string, unknown>).data as unknown[]).slice(0, 10).map(r => {
-                            if (typeof r !== 'object' || r === null) return null;
-                            const row = r as Record<string, unknown>;
-                            return {
-                              id: row.id as string,
-                              title: row.title as string,
-                              difficulty: (row.difficulty as string | null) ?? null,
-                              durationHours: row.durationHours != null ? Number(row.durationHours) : null,
-                              distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
-                              imageUrl: null,
-                            } satisfies RoutePreview;
-                          }).filter(Boolean) as RoutePreview[];
-                          setModalRoutes(items);
-                        })
-                        .catch(() => {});
-                    }
-                  }}
+                <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
                   Выбрать маршрут <ChevronRight className="w-3.5 h-3.5" />
@@ -341,41 +392,34 @@ function OnTrailTab() {
           <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Высота</p>
             <p className="text-2xl font-bold text-white">
-              {altitude !== null
-                ? `${altitude.toLocaleString('ru')}м`
-                : '— м'}
+              {altitude !== null ? `${altitude.toLocaleString('ru')}м` : '— м'}
               {altitude !== null && <span className="text-green-400 text-base ml-0.5">↑</span>}
             </p>
           </div>
           <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Время в пути</p>
             <p className="text-2xl font-bold text-white">
-              ~{hours}ч{mins.toString().padStart(2, '0')}м
+              {hours}ч {mins.toString().padStart(2, '0')}м
             </p>
-            <p className="text-xs text-gray-600">ходьбы</p>
           </div>
         </div>
 
-        {/* Route track placeholder */}
-        <div className="w-full h-32 rounded-xl overflow-hidden relative"
+        {/* Route track */}
+        <div className="w-full h-32 rounded-xl overflow-hidden"
           style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
-          {waypoints.length > 0 ? (
+          {svgPoints ? (
             <svg className="w-full h-full" viewBox="0 0 320 128" preserveAspectRatio="none">
-              {/* Background topographic lines */}
-              {[20, 40, 60, 80, 100].map(y => (
-                <path key={y} d={`M0,${y} Q80,${y - 5} 160,${y + 3} T320,${y}`}
-                  fill="none" stroke="rgba(74,222,128,0.07)" strokeWidth="1" />
+              {[32, 64, 96].map(y => (
+                <line key={y} x1="0" y1={y} x2="320" y2={y}
+                  stroke="rgba(74,222,128,0.06)" strokeWidth="1" />
               ))}
-              {/* Route line */}
               <polyline
-                points={waypoints.map((wp, i) => `${(i / (waypoints.length - 1)) * 300 + 10},${64 + (Math.sin(i) * 20)}`).join(' ')}
-                fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round"
+                points={svgPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                fill="none" stroke="#4ade80" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"
               />
-              {/* Waypoint dots */}
-              {waypoints.map((_, i) => (
-                <circle key={i}
-                  cx={(i / (waypoints.length - 1)) * 300 + 10}
-                  cy={64 + (Math.sin(i) * 20)}
+              {svgPoints.map(({ x, y, i }) => (
+                <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
                   fill={i < currentWpIdx ? '#4ade80' : i === currentWpIdx ? '#ff6b35' : '#374151'}
                   stroke={i === currentWpIdx ? '#ff6b35' : 'none'}
@@ -385,10 +429,11 @@ function OnTrailTab() {
             </svg>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-700 text-xs">
-              Выберите маршрут для отображения трека
+              {isLoadingRoute ? 'Загрузка трека…' : 'Выберите маршрут для отображения трека'}
             </div>
           )}
         </div>
+
       </div>
 
       {/* Bottom action grid */}
@@ -398,9 +443,10 @@ function OnTrailTab() {
           style={{ background: '#161b22', color: '#4ade80', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </Link>
-        <a href={coords ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10` : '/routes'}
-          target={coords ? '_blank' : undefined}
-          rel={coords ? 'noopener noreferrer' : undefined}
+        <a href={coords
+            ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10`
+            : 'https://openweathermap.org/city/2124044'}
+          target="_blank" rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
           style={{ background: '#161b22', color: '#60a5fa', border: '1px solid #1e3a5f', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> ПОГОДА
@@ -427,8 +473,7 @@ function OnTrailTab() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-white text-base">Выбрать маршрут</h3>
               <button onClick={() => setShowRouteModal(false)}
-                className="p-1.5 rounded-lg"
-                style={{ background: '#21262d' }}>
+                className="p-1.5 rounded-lg" style={{ background: '#21262d' }}>
                 <X className="w-4 h-4 text-gray-400" />
               </button>
             </div>
@@ -446,31 +491,7 @@ function OnTrailTab() {
                         {r.difficulty ? DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty : '—'}
                       </p>
                     </div>
-                    <button
-                      onClick={() => {
-                        try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
-                        setShowRouteModal(false);
-                        setActiveRouteTitle(r.title);
-                        setWaypoints([]);
-                        setCurrentWpIdx(0);
-                        fetch(`/api/routes/${r.id}`)
-                          .then(res => res.json())
-                          .then((j: unknown) => {
-                            if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
-                            const data = (j as Record<string, unknown>).data as Record<string, unknown>;
-                            const wps = data.waypoints;
-                            if (!Array.isArray(wps) || wps.length === 0) return;
-                            const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
-                              .filter(w => w.lat != null && w.lng != null)
-                              .map(w => ({
-                                lat: Number(w.lat),
-                                lng: Number(w.lng),
-                                name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
-                              }));
-                            if (converted.length > 0) setWaypoints(converted);
-                          })
-                          .catch(() => {});
-                      }}
+                    <button onClick={() => selectRoute(r)}
                       className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
                       style={{ background: 'rgba(74,222,128,0.15)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}>
                       Начать
