@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff, X, ExternalLink,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 
@@ -45,6 +45,29 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   easy: 'Лёгкий', medium: 'Средний', hard: 'Сложный', extreme: 'Экстремальный',
 };
 
+interface GearItem { id: string; label: string; category: string; }
+
+const GEAR_LIST: GearItem[] = [
+  { id: 'map',       label: 'Карта маршрута / GPS',   category: 'Навигация' },
+  { id: 'compass',   label: 'Компас',                 category: 'Навигация' },
+  { id: 'boots',     label: 'Трекинговые ботинки',    category: 'Одежда' },
+  { id: 'rain',      label: 'Дождевик / мембрана',    category: 'Одежда' },
+  { id: 'thermo',    label: 'Термобельё',             category: 'Одежда' },
+  { id: 'fleece',    label: 'Флиска / тёплый слой',  category: 'Одежда' },
+  { id: 'firstaid',  label: 'Аптечка',                category: 'Безопасность' },
+  { id: 'bear',      label: 'Средство от медведей',   category: 'Безопасность' },
+  { id: 'whistle',   label: 'Свисток',                category: 'Безопасность' },
+  { id: 'headlamp',  label: 'Фонарик / налобный',     category: 'Безопасность' },
+  { id: 'poles',     label: 'Трекинговые палки',      category: 'Снаряжение' },
+  { id: 'backpack',  label: 'Рюкзак с накидкой',      category: 'Снаряжение' },
+  { id: 'tent',      label: 'Палатка / бивак',        category: 'Снаряжение' },
+  { id: 'water',     label: 'Запас воды (2л+)',        category: 'Еда и вода' },
+  { id: 'filter',    label: 'Фильтр для воды',         category: 'Еда и вода' },
+  { id: 'food',      label: 'Еда на поход',            category: 'Еда и вода' },
+  { id: 'phone',     label: 'Заряженный телефон',      category: 'Связь' },
+  { id: 'powerbank', label: 'Пауэрбэнк',              category: 'Связь' },
+];
+
 // ─── Progress Ring ─────────────────────────────────────────────────────────────
 
 function ProgressRing({ done, total }: { done: number; total: number }) {
@@ -69,39 +92,50 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 
 // ─── Route card (horizontal scroll) ──────────────────────────────────────────
 
-function RouteCard({ route }: { route: RoutePreview }) {
+function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (routeId: string) => void }) {
   return (
-    <Link
-      href={`/routes/${route.id}`}
-      className="flex-shrink-0 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)]/40 transition-all"
+    <div
+      className="flex-shrink-0 rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)]/40 transition-all flex flex-col"
       style={{ width: 160 }}
     >
-      <div className="relative h-24 bg-[var(--bg-hover)]">
-        {route.imageUrl ? (
-          <Image src={route.imageUrl} alt={route.title} fill sizes="160px" className="object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <MapPin className="w-6 h-6 text-[var(--text-muted)]" />
-          </div>
-        )}
-        {route.difficulty && (
-          <span className="absolute top-2 left-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-            style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
-            {DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty}
-          </span>
-        )}
-      </div>
-      <div className="p-2">
-        <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">{route.title}</p>
-        {(route.durationHours || route.distanceKm) && (
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
-            {route.durationHours ? `${route.durationHours} ч` : ''}
-            {route.durationHours && route.distanceKm ? ' · ' : ''}
-            {route.distanceKm ? `${route.distanceKm} км` : ''}
-          </p>
-        )}
-      </div>
-    </Link>
+      <Link href={`/routes/${route.id}`} className="block">
+        <div className="relative h-24 bg-[var(--bg-hover)]">
+          {route.imageUrl ? (
+            <Image src={route.imageUrl} alt={route.title} fill sizes="160px" className="object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <MapPin className="w-6 h-6 text-[var(--text-muted)]" />
+            </div>
+          )}
+          {route.difficulty && (
+            <span className="absolute top-2 left-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
+              {DIFFICULTY_LABELS[route.difficulty] ?? route.difficulty}
+            </span>
+          )}
+        </div>
+        <div className="px-2 pt-2">
+          <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">{route.title}</p>
+          {(route.durationHours || route.distanceKm) && (
+            <p className="text-[10px] text-[var(--text-muted)] mt-1">
+              {route.durationHours ? `${route.durationHours} ч` : ''}
+              {route.durationHours && route.distanceKm ? ' · ' : ''}
+              {route.distanceKm ? `${route.distanceKm} км` : ''}
+            </p>
+          )}
+        </div>
+      </Link>
+      {onNavigate && (
+        <div className="px-2 pb-2 pt-1.5 mt-auto">
+          <button
+            onClick={() => onNavigate(route.id)}
+            className="w-full text-[10px] font-bold py-1.5 rounded-lg transition-colors"
+            style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
+            Начать →
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -509,14 +543,19 @@ function OnTrailTab() {
 
 // ─── Планирование tab ─────────────────────────────────────────────────────────
 
-function PlanningTab() {
+function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => void }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [routes, setRoutes] = useState<RoutePreview[]>([]);
   const [kuzmichTip, setKuzmichTip] = useState<string | null>(null);
   const emergencyRef = useRef<HTMLDivElement>(null);
+  const [showGearModal, setShowGearModal] = useState(false);
+  const [gearChecked, setGearChecked] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('gear_checked') ?? '[]') as string[]); }
+    catch { return new Set(); }
+  });
 
   // Reactive checklist state
-  const { status: mapsStatus } = useOfflineRegion('avacha-group');
+  const { status: mapsStatus, progress: mapsProgress, download: downloadMaps } = useOfflineRegion('avacha-group');
   const [hasActiveRoute, setHasActiveRoute] = useState(false);
 
   useEffect(() => {
@@ -527,6 +566,7 @@ function PlanningTab() {
   const effectiveChecklist = checklist.map(item => {
     if (item.id === 'maps') return { ...item, done: mapsStatus === 'cached' };
     if (item.id === 'offline') return { ...item, done: hasActiveRoute };
+    if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
     return item;
   });
 
@@ -578,8 +618,13 @@ function PlanningTab() {
   }, []);
 
   function toggleItem(id: string) {
-    // Auto-computed items can't be manually toggled
-    if (id === 'maps' || id === 'offline') return;
+    // 'offline' can't be manually toggled — it's auto-computed
+    if (id === 'offline') return;
+    // maps — trigger download if not started yet
+    if (id === 'maps') {
+      if (mapsStatus === 'idle' || mapsStatus === 'error') downloadMaps();
+      return;
+    }
     // mchs opens a form URL
     if (id === 'mchs') {
       window.open('https://forms.mchs.gov.ru/registration_tourist_groups/form', '_blank', 'noopener,noreferrer');
@@ -590,9 +635,23 @@ function PlanningTab() {
       emergencyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
+    // gear opens the checklist modal
+    if (id === 'gear') {
+      setShowGearModal(true);
+      return;
+    }
     setChecklist(prev => {
       const next = prev.map(item => item.id === id ? { ...item, done: !item.done } : item);
       try { localStorage.setItem('trip_checklist', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  function toggleGearItem(id: string) {
+    setGearChecked(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem('gear_checked', JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
   }
@@ -648,29 +707,48 @@ function PlanningTab() {
             </p>
           </div>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1">
           {effectiveChecklist.map(item => {
-            const isAction = item.id === 'mchs' || item.id === 'emergency';
+            const isExternal = item.id === 'mchs' || item.id === 'emergency';
+            const isDownloading = item.id === 'maps' && (mapsStatus === 'fetching-routes' || mapsStatus === 'caching-tiles');
+            const showDownloadIcon = item.id === 'maps' && !item.done && mapsStatus !== 'caching-tiles' && mapsStatus !== 'fetching-routes';
             return (
-              <button
-                key={item.id}
-                onClick={() => toggleItem(item.id)}
-                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
-              >
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                  item.done
-                    ? 'bg-[var(--success)]'
-                    : 'border-2 border-[var(--border)]'
-                }`}>
-                  {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-                </div>
-                <span className={`flex-1 text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
-                  {item.label}
-                </span>
-                {isAction && !item.done && (
-                  <ExternalLink className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+              <div key={item.id}>
+                <button
+                  onClick={() => toggleItem(item.id)}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left min-h-[44px]"
+                >
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                    item.done
+                      ? 'bg-[var(--success)]'
+                      : 'border-2 border-[var(--border)]'
+                  }`}>
+                    {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </div>
+                  <span className={`flex-1 text-sm ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                    {item.label}
+                  </span>
+                  {isExternal && !item.done && (
+                    <ExternalLink className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+                  )}
+                  {showDownloadIcon && (
+                    <Download className="w-3.5 h-3.5 text-[var(--ocean)] shrink-0" />
+                  )}
+                  {isDownloading && (
+                    <span className="text-[10px] text-[var(--accent)] font-medium shrink-0">{mapsProgress.percent}%</span>
+                  )}
+                </button>
+                {isDownloading && (
+                  <div className="px-4 pb-2">
+                    <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                      <div className="h-1 rounded-full transition-all" style={{ background: 'var(--accent)', width: `${mapsProgress.percent}%` }} />
+                    </div>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {mapsStatus === 'fetching-routes' ? 'Подготовка…' : `Скачивание ${mapsProgress.done} / ${mapsProgress.total}`}
+                    </p>
+                  </div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -686,7 +764,55 @@ function PlanningTab() {
             </Link>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-            {routes.map(route => <RouteCard key={route.id} route={route} />)}
+            {routes.map(route => <RouteCard key={route.id} route={route} onNavigate={onStartTrail} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Gear checklist modal */}
+      {showGearModal && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setShowGearModal(false)}>
+          <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Проверка снаряжения</h3>
+              <button onClick={() => setShowGearModal(false)}
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                <X className="w-4 h-4 text-[var(--text-secondary)]" />
+              </button>
+            </div>
+            {Object.entries(
+              GEAR_LIST.reduce<Record<string, GearItem[]>>((acc, item) => {
+                (acc[item.category] ??= []).push(item);
+                return acc;
+              }, {})
+            ).map(([cat, items]) => (
+              <div key={cat} className="mb-4">
+                <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-muted)' }}>{cat}</p>
+                <div className="space-y-1">
+                  {items.map(gItem => (
+                    <button key={gItem.id} onClick={() => toggleGearItem(gItem.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors hover:bg-[var(--bg-hover)] text-left">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                        gearChecked.has(gItem.id) ? 'bg-[var(--success)]' : 'border-2 border-[var(--border)]'
+                      }`}>
+                        {gearChecked.has(gItem.id) && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                      </div>
+                      <span className={`text-sm ${gearChecked.has(gItem.id) ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                        {gItem.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button onClick={() => setShowGearModal(false)}
+              className="w-full py-3 rounded-xl font-semibold text-sm mt-2 text-white transition-opacity hover:opacity-90"
+              style={{ background: 'var(--accent)' }}>
+              Готово ({gearChecked.size}/{GEAR_LIST.length})
+            </button>
           </div>
         </div>
       )}
@@ -719,6 +845,11 @@ export function PlanningClient() {
       if (params.get('mode') === 'trail') setTab('trail');
     }
   }, []);
+
+  function handleStartTrail(routeId: string) {
+    try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
+    setTab('trail');
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -755,7 +886,7 @@ export function PlanningClient() {
         </div>
       </div>
 
-      {tab === 'planning' && <PlanningTab />}
+      {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
       {tab === 'trail' && <OnTrailTab />}
     </div>
   );
