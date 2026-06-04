@@ -2,15 +2,17 @@
 
 /**
  * OnSiteBanner — верхняя панель для режима «Я на Камчатке».
- * Показывает: координаты, район, кнопку SOS заметнее.
+ * Показывает: координаты, район, кнопку SOS заметнее + оффлайн-скачивание.
  * Рендерится на главной когда geo mode === 'on-site'.
  */
 
-import { MapPin, Compass, AlertTriangle } from 'lucide-react';
+import { MapPin, Compass, AlertTriangle, Download, CheckCircle } from 'lucide-react';
 import { useGeo } from '@/contexts/GeoContext';
+import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 
 export function OnSiteBanner() {
   const { mode, location, region, disableOnSite } = useGeo();
+  const { status, progress, download } = useOfflineRegion('avacha-group');
 
   if (mode !== 'on-site' || !location) return null;
 
@@ -36,6 +38,27 @@ export function OnSiteBanner() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Offline region download — inline, compact */}
+          {status === 'idle' && (
+            <button
+              onClick={() => void download()}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] text-xs hover:text-[var(--text-primary)] transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Офлайн
+            </button>
+          )}
+          {status === 'caching-tiles' && (
+            <span className="text-xs text-[var(--text-muted)]">
+              {progress.percent}%
+            </span>
+          )}
+          {status === 'cached' && (
+            <span className="flex items-center gap-1 text-xs text-[var(--success)]">
+              <CheckCircle className="w-3.5 h-3.5" />
+              Офлайн
+            </span>
+          )}
           {/* Quick SOS */}
           <a
             href="/hub/safety"

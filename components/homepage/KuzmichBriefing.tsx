@@ -134,9 +134,9 @@ export function KuzmichBriefing() {
                 <p className="text-sm text-[var(--text-secondary)] leading-snug mb-3">{briefText}</p>
 
                 {/* Route pills */}
-                {data!.routes.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {data!.routes.map(r => (
+                <div className="flex flex-wrap gap-2">
+                  {data!.routes.length > 0 ? (
+                    data!.routes.map(r => (
                       <Link
                         key={r.id}
                         href={`/routes/${r.id}`}
@@ -146,9 +146,26 @@ export function KuzmichBriefing() {
                         <MapPin size={10} className="flex-shrink-0" />
                         {r.title}
                       </Link>
-                    ))}
-                  </div>
-                )}
+                    ))
+                  ) : (
+                    <>
+                      {[
+                        { label: 'Авачинский',        href: '/routes?q=авачинский' },
+                        { label: 'Мутновский',        href: '/routes?q=мутновский' },
+                        { label: 'Халактырский пляж', href: '/routes?q=халактырский' },
+                      ].map(r => (
+                        <Link
+                          key={r.href}
+                          href={r.href}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--ocean)] hover:text-[var(--ocean)] transition-colors"
+                        >
+                          <MapPin size={10} className="flex-shrink-0" />
+                          {r.label}
+                        </Link>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
