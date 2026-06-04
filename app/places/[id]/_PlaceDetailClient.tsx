@@ -23,6 +23,7 @@ const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
+const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 
 function Skeleton() {
@@ -162,7 +163,11 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         lng={place.lng}
         photoUrl={place.photoUrl}
         photoCount={place.photoCount}
+        images={place.images as string[]}
       />
+
+      {/* Action bar: navigate, bookmark, share, weather */}
+      <PlaceActionBar lat={place.lat} lng={place.lng} placeId={place.id} name={place.name} />
 
       {/* Offline cache notice */}
       {fromCache && (
