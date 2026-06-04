@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -131,9 +131,15 @@ export default function MapPageClient() {
 
   const selectedRoute = selectedId ? allRoutes.find(r => r.id === selectedId) ?? null : null;
   const selectedPlaceData = selectedPlaceId ? allRoutes.find(r => r.id === selectedPlaceId) ?? null : null;
+
+  // Stable ref so handleMarkerClick never changes identity — prevents LeafletMap from
+  // tearing down and recreating the map whenever allRoutes updates (chunked tile loading
+  // would be interrupted, leaving 0 markers visible).
+  const allRoutesRef = useRef(allRoutes);
+  useEffect(() => { allRoutesRef.current = allRoutes; }, [allRoutes]);
+
   const handleMarkerClick = useCallback((id: string) => {
-    const point = allRoutes.find(r => r.id === id);
-    // Items from kind=place API all have real locationType — show PlaceMapSheet
+    const point = allRoutesRef.current.find(r => r.id === id);
     if (point && point.locationType && point.locationType !== 'other') {
       setSelectedPlaceId(id);
       setSelectedId(null);
@@ -141,7 +147,7 @@ export default function MapPageClient() {
       setSelectedId(id);
       setSelectedPlaceId(null);
     }
-  }, [allRoutes]);
+  }, []);
 
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {

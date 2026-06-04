@@ -111,19 +111,30 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
       try {
         const res = await fetch(`/api/places/${id}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          // HTTP error — show server message, not "offline"
+          const errBody = await res.json().catch(() => null) as Record<string, unknown> | null;
+          if (!cancelled && !cached) {
+            setError((errBody?.error as string | null) ?? `Ошибка сервера (${res.status})`);
+            setLoading(false);
+          } else if (!cancelled) {
+            setLoading(false);
+          }
+          return;
+        }
         const j = await res.json();
         if (!cancelled) {
           if (j?.success && j.data) {
             setPlace(j.data);
             setFromCache(false);
-            lsWrite(id, j.data); // сохраняем для следующего офлайн-визита
+            lsWrite(id, j.data);
           } else if (!cached) {
             setError(j.error ?? 'Место не найдено');
           }
           setLoading(false);
         }
       } catch {
+        // Network error (offline / host unreachable)
         if (!cancelled) {
           if (!cached) setError('Нет подключения. Откройте карточку онлайн заранее.');
           setLoading(false);
