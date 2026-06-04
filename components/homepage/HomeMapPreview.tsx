@@ -201,8 +201,9 @@ export function HomeMapPreview() {
 
       {/* Loading overlay */}
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/80" style={{ zIndex: 9999 }}>
-          <div className="text-sm text-[var(--text-muted)] animate-pulse">Загрузка карты…</div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--bg-hover)] animate-pulse" style={{ zIndex: 9999 }}>
+          <div className="w-8 h-8 rounded-full bg-[var(--border)]" />
+          <div className="h-3 w-32 bg-[var(--border)] rounded-full" />
         </div>
       )}
 
