@@ -49,7 +49,7 @@ export async function GET(
          r.accessibility,
          r.geometry,
          r.created_at
-       FROM kamchatka_routes r
+       FROM v_kamchatka_routes_api r
        WHERE r.id = $1::uuid OR r.ark_id = $1::uuid`,
       [id]
     );
@@ -87,7 +87,7 @@ export async function GET(
 
     const nearbyResult = await query(
       `SELECT kr.id, kr.title, kr.activity_type, kr.zone, kr.difficulty
-       FROM kamchatka_routes kr
+       FROM v_kamchatka_routes_api kr
        WHERE kr.id != $1
          AND kr.zone = $2
          AND kr.ark_id IS NOT NULL

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sun, Moon, UserCircle, ShoppingCart } from 'lucide-react';
+import { Sun, Moon, UserCircle, ShoppingCart, Search } from 'lucide-react';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useCart } from '@/contexts/CartContext';
@@ -11,8 +11,7 @@ import Logo from '@/components/shared/Logo';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
-/* Shared style for 32px round icon buttons */
-const iconBtn: React.CSSProperties = {
+const iconBtnBase: React.CSSProperties = {
   width: '32px',
   height: '32px',
   borderRadius: '50%',
@@ -22,7 +21,6 @@ const iconBtn: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  color: 'var(--text-secondary)',
   textDecoration: 'none',
   transition: 'color 0.2s, background 0.2s',
   flexShrink: 0,
@@ -33,6 +31,11 @@ export function Header() {
   const scrolled = scrollY > 60;
   const { isDark, toggleTheme } = useTheme();
   const { count } = useCart();
+  const iconColor = scrolled ? 'var(--text-secondary)' : 'rgba(255,255,255,0.85)';
+  const iconBtn: React.CSSProperties = {
+    ...iconBtnBase,
+    color: iconColor,
+  };
 
   return (
     <header
@@ -48,7 +51,9 @@ export function Header() {
         padding: 'calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px',
         fontFamily: FO,
         transition: 'background 0.3s, box-shadow 0.3s',
-        background: scrolled ? 'var(--bg-card)' : 'transparent',
+        background: scrolled
+          ? 'var(--bg-card)'
+          : 'linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 100%)',
         boxShadow: scrolled ? '0 1px 0 var(--border)' : 'none',
       }}
     >
@@ -92,7 +97,7 @@ export function Header() {
               fontFamily: FO,
               fontSize: '14px',
               fontWeight: 500,
-              color: 'var(--text-secondary)',
+              color: iconColor,
               textDecoration: 'none',
               transition: 'color 0.2s, background 0.2s',
             }}
@@ -105,6 +110,16 @@ export function Header() {
 
       {/* Right side — icon buttons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+        {/* Search */}
+        <button
+          onClick={() => window.dispatchEvent(new Event('open-search'))}
+          aria-label="Поиск (Ctrl+K)"
+          style={iconBtn}
+          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+        >
+          <Search size={18} />
+        </button>
+
         {/* Я на Камчатке */}
         <GeoToggle />
 

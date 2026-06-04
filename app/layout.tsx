@@ -129,6 +129,7 @@ import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
+import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -150,6 +151,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable}`}>
         <Providers>
           {children}
+          <GlobalSearchModal />
         </Providers>
         <script
           type="application/ld+json"

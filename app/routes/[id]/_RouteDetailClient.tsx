@@ -21,6 +21,7 @@ import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType } from '@/components/shared/LeafletMap';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
+import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
@@ -124,6 +125,20 @@ interface Offer {
   nextDeparture: string | null; nextSlots: number | null;
 }
 
+interface RouteWaypoint {
+  position: number;
+  isStart: boolean;
+  isEnd: boolean;
+  notes: string | null;
+  placeId: string;
+  placeName: string;
+  locationType: string | null;
+  lat: number | null;
+  lng: number | null;
+  altitudeM: number | null;
+  hazardTypes: string[];
+}
+
 interface RouteDetail {
   id: string; category: string; locationType: string | null; activityType: string | null;
   title: string; description: string;
@@ -143,6 +158,7 @@ interface RouteDetail {
   distanceKm: number | null;
   elevationGainM: number | null;
   durationHours: number | null;
+  waypoints?: RouteWaypoint[];
 }
 
 // ── Карточка оффера ───────────────────────────────────────────────────────────
@@ -591,6 +607,15 @@ export default function RouteDetailClient({ id }: { id: string }) {
         </div>
       </div>
 
+      {/* ── ОПАСНОСТИ ────────────────────────────────────────────────────────── */}
+      {((route.hazards?.length ?? 0) > 0 || route.mchsRequired) && (
+        <div className="border-b border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="max-w-6xl mx-auto px-4 md:px-8 py-3">
+            <HazardBadgeStrip hazards={route.hazards ?? []} mchsRequired={route.mchsRequired} />
+          </div>
+        </div>
+      )}
+
       {/* ── ОСНОВНОЙ КОНТЕНТ ─────────────────────────────────────────────────── */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 pt-8 pb-24">
         <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
@@ -617,6 +642,45 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     {descExpanded ? 'Свернуть' : 'Читать полностью'}
                   </button>
                 )}
+              </section>
+            )}
+
+            {/* Точки маршрута (waypoints) */}
+            {(route.waypoints?.length ?? 0) > 0 && (
+              <section>
+                <h2 className="text-base font-bold text-[var(--text-primary)] mb-3 uppercase tracking-wide">
+                  Точки маршрута
+                </h2>
+                <ol className="space-y-3">
+                  {route.waypoints!.map((wp, i) => (
+                    <li key={wp.placeId ?? i} className="flex items-start gap-3">
+                      <span className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                        {i + 1}
+                      </span>
+                      <Link href={`/places/${wp.placeId}`} className="flex-1 min-w-0 group">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            {wp.locationType && (
+                              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
+                                {LOCATION_TYPE_LABELS[wp.locationType] ?? wp.locationType}
+                              </span>
+                            )}
+                            <p className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight truncate">
+                              {wp.placeName}
+                            </p>
+                            {wp.altitudeM && (
+                              <p className="text-xs text-[var(--text-muted)]">{wp.altitudeM.toLocaleString('ru-RU')} м</p>
+                            )}
+                            {wp.notes && (
+                              <p className="text-xs text-[var(--text-secondary)] mt-0.5 line-clamp-2">{wp.notes}</p>
+                            )}
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--ocean)] flex-shrink-0 mt-1 transition-colors" />
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
               </section>
             )}
 
