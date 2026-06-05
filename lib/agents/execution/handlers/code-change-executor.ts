@@ -12,8 +12,8 @@
  *
  * Env vars required:
  *   GITHUB_TOKEN  — Personal Access Token (repo scope)
- *   GITHUB_OWNER  — "pospkam"
- *   GITHUB_REPO   — "PosPkTry"
+ *   GITHUB_OWNER  — "tourhabk-ui"
+ *   GITHUB_REPO   — "pos"
  */
 
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -45,8 +45,8 @@ function ghHeaders(): Record<string, string> {
 }
 
 function ghBase(): string {
-  const owner = process.env.GITHUB_OWNER ?? 'pospkam';
-  const repo  = process.env.GITHUB_REPO  ?? 'PosPkTry';
+  const owner = process.env.GITHUB_OWNER ?? 'tourhabk-ui';
+  const repo  = process.env.GITHUB_REPO  ?? 'pos';
   return `https://api.github.com/repos/${owner}/${repo}`;
 }
 
