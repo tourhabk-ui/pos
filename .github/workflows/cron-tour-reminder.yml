@@ -24,7 +24,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/reminder_resp.json -w "%{http_code}" \
             --max-time 120 \
-            "https://tourhab.ru/api/cron/tour-reminder?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/tour-reminder?secret=$CRON_SECRET")
 
           echo "HTTP: $HTTP"
           cat /tmp/reminder_resp.json 2>/dev/null || true
