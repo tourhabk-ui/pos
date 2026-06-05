@@ -414,6 +414,16 @@ function OnTrailTab() {
                 </p>
                 <p className="text-xs text-gray-500 mt-1">{nextWp?.name ?? ''}</p>
               </>
+            ) : activeRouteTitle ? (
+              <>
+                <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[200px]">{activeRouteTitle}</p>
+                <p className="text-gray-500 text-xs mb-2">GPS-трек недоступен</p>
+                <button onClick={openRouteModal}
+                  className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
+                  style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
+                  Сменить маршрут <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </>
             ) : (
               <>
                 <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
