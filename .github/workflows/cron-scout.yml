@@ -25,7 +25,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/intel_resp.json -w "%{http_code}" \
             --max-time 120 \
-            "https://tourhab.ru/api/cron/intelligence?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/intelligence?secret=$CRON_SECRET")
 
           echo "Intelligence HTTP: $HTTP"
           cat /tmp/intel_resp.json 2>/dev/null || true
@@ -41,7 +41,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/scout_resp.json -w "%{http_code}" \
             --max-time 120 \
-            "https://tourhab.ru/api/cron/scout?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/scout?secret=$CRON_SECRET")
 
           echo "Scout HTTP: $HTTP"
           cat /tmp/scout_resp.json 2>/dev/null || true

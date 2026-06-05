@@ -13,7 +13,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-const PROD_URL = 'https://tourhab.ru';
+const PROD_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
 interface BoardMeetingResult {
