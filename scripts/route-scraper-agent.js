@@ -173,7 +173,7 @@ async function fetchUrl(url, timeoutMs = 10000) {
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0; +https://pospkam-pospktry-c1f3.twc1.net)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0; +https://vedarai.ru)' },
     });
     clearTimeout(timer);
     if (!res.ok) return { error: `HTTP ${res.status}` };

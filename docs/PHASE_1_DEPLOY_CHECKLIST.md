@@ -165,7 +165,7 @@ npm run dev
 
 **Тест:**
 ```bash
-curl https://pospkam-pospktry-c1f3.twc1.net/api/health/lead-processor
+curl https://vedarai.ru/api/health/lead-processor
 # {"status":"ok","ai":"ok","db":"ok","telegram":"ok"}
 ```
 

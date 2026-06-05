@@ -35,14 +35,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "result=$(cd /workspaces/PosPkTry && npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
+            "command": "result=$(npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
             "if": "Bash(git commit*)",
             "timeout": 60,
             "statusMessage": "TypeScript проверка перед коммитом..."
           },
           {
             "type": "command",
-            "command": "bash /workspaces/PosPkTry/.claude/hooks/db-schema-check.sh",
+            "command": "bash .claude/hooks/db-schema-check.sh",
             "if": "Bash(git commit*)",
             "timeout": 10,
             "statusMessage": "DB schema проверка..."
