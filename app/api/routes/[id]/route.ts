@@ -24,7 +24,7 @@ export async function GET(
       `SELECT
          ark.id, ark.route_dedupe_key, ark.route_id, ark.category, ark.location_type, ark.activity_type,
          ark.title, ark.description, ark.lat, ark.lng, ark.source_url, ark.source_name, ark.payload, ark.created_at,
-         ark.kuzmich_review,
+         COALESCE(kr.kuzmich_review, ark.kuzmich_review) AS kuzmich_review,
          (ari.route_id IS NOT NULL) AS has_ai_image,
          kr.mchs_registration_required,
          kr.mchs_phone,
