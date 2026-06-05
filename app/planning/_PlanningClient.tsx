@@ -212,6 +212,7 @@ function OnTrailTab() {
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Shared route loader — eliminates duplicated fetch/convert logic
   const fetchRouteWaypoints = useCallback((routeId: string) => {
@@ -340,10 +341,14 @@ function OnTrailTab() {
   function openRouteModal() {
     setShowRouteModal(true);
     if (modalRoutes.length > 0) return;
-    fetch('/api/routes?limit=10&sort=popular')
+    setModalError(null);
+    fetch('/api/routes?limit=10&sort=recommended&kind=route')
       .then(r => r.json())
       .then((d: unknown) => {
-        if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) return;
+        if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) {
+          setModalError('Не удалось загрузить маршруты');
+          return;
+        }
         const items = ((d as Record<string, unknown>).data as unknown[]).slice(0, 10).map(r => {
           if (typeof r !== 'object' || r === null) return null;
           const row = r as Record<string, unknown>;
@@ -356,9 +361,10 @@ function OnTrailTab() {
             imageUrl: null,
           } satisfies RoutePreview;
         }).filter(Boolean) as RoutePreview[];
-        setModalRoutes(items);
+        if (items.length === 0) setModalError('Маршруты не найдены');
+        else setModalRoutes(items);
       })
-      .catch(() => {});
+      .catch(() => { setModalError('Ошибка сети — проверьте соединение'); });
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -511,7 +517,9 @@ function OnTrailTab() {
                 <X className="w-4 h-4 text-gray-400" />
               </button>
             </div>
-            {modalRoutes.length === 0 ? (
+            {modalError ? (
+              <div className="text-red-400 text-sm text-center py-6">{modalError}</div>
+            ) : modalRoutes.length === 0 ? (
               <div className="text-gray-500 text-sm text-center py-6">Загрузка маршрутов…</div>
             ) : (
               <div className="space-y-2">
@@ -591,7 +599,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
       .catch(() => {});
 
     // Load popular routes
-    fetch('/api/routes?limit=8&sort=popular')
+    fetch('/api/routes?limit=8&sort=recommended&kind=route')
       .then(r => r.json())
       .then((d: unknown) => {
         if (
