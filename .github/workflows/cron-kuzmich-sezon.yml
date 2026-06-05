@@ -9,7 +9,7 @@ jobs:
     steps:
       - name: Trigger Kuzmich seasonal post
         run: |
-          curl -X GET "https://tourhab.ru/api/cron/kuzmich?secret=${{ secrets.CRON_SECRET }}&type=sezon" \
+          curl -X GET "https://vedarai.ru/api/cron/kuzmich?secret=${{ secrets.CRON_SECRET }}&type=sezon" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions" \
             --max-time 120 \

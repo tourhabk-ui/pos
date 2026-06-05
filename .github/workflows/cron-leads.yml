@@ -23,7 +23,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/leads_resp.json -w "%{http_code}" \
             --max-time 120 \
-            "https://tourhab.ru/api/cron/leads-process?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/leads-process?secret=$CRON_SECRET")
 
           echo "HTTP: $HTTP"
           cat /tmp/leads_resp.json 2>/dev/null || true
@@ -43,7 +43,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/followups_resp.json -w "%{http_code}" \
             --max-time 60 \
-            "https://tourhab.ru/api/cron/followups?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/followups?secret=$CRON_SECRET")
 
           echo "Follow-ups HTTP: $HTTP"
           cat /tmp/followups_resp.json 2>/dev/null || true

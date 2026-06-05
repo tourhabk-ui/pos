@@ -218,7 +218,8 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       const prefix = a.type === 'sos_ignored' ? '🚨' : '⚠️';
       lines.push(`${prefix} ${a.details}`);
     }
-    lines.push('', '<a href="https://tourhab.ru/hub/admin">Открыть панель</a>');
+    const adminUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+    lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
     await tgSend(lines.join('\n'));
   }
 

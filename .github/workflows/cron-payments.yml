@@ -26,7 +26,7 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/abandoned_resp.json -w "%{http_code}" \
             --max-time 60 \
-            "https://tourhab.ru/api/cron/abandoned-bookings?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/abandoned-bookings?secret=$CRON_SECRET")
 
           echo "HTTP: $HTTP"
           cat /tmp/abandoned_resp.json 2>/dev/null || true
