@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import Logo from '@/components/shared/Logo';
 import BottomNav from '@/components/shared/BottomNav';
 import { AssistantButton } from '@/components/shared/AssistantButton';
-import { MarkerType, type MapMarkerGeometry } from '@/components/shared/LeafletMap';
+import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
