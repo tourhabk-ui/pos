@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { CATEGORY_SLUGS } from '@/lib/routes/category-meta';
 
-const BASE = 'https://tourhab.ru';
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 // Приоритет страницы по типу локации
 const LOCATION_PRIORITY: Record<string, number> = {
