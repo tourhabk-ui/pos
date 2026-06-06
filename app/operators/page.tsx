@@ -3,15 +3,17 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import OperatorsPageClient from '@/app/marketplace/operators/_OperatorsClient';
 
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
 export const metadata: Metadata = {
   title: 'Операторы Камчатки — туры, рыбалка, треккинг, вертолёты',
   description:
     'Проверенные туристические операторы Камчатки. Рыболовные туры, треккинг к вулканам, вертолётные экскурсии, медвежье сафари — выбирайте лицензированных профессионалов.',
-  alternates: { canonical: 'https://tourhab.ru/operators' },
+  alternates: { canonical: `${SITE}/operators` },
   openGraph: {
     title: 'Операторы Камчатки',
     description: 'Проверенные туроператоры Камчатки — от рыбалки до вулканов.',
-    url: 'https://tourhab.ru/operators',
+    url: `${SITE}/operators`,
     siteName: 'KamchatourHub',
     locale: 'ru_RU',
     type: 'website',
