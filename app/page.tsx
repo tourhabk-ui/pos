@@ -12,10 +12,8 @@ import { EditorialSection } from '@/components/homepage/EditorialSection'
 import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSection'
 import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
+import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 
-const HomeMapPreview = dynamic(
-  () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview }))
-);
 const BottomNav = dynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
 
@@ -69,7 +67,7 @@ export default async function Page() {
 
         {/* Map preview — lazy, full-width */}
         <div className="border-t border-[var(--border)] h-[380px] md:h-[440px]">
-          <HomeMapPreview />
+          <HomeMapPreviewLazy />
         </div>
 
       </main>
