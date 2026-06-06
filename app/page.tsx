@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import dynamic from 'next/dynamic'
+import loadDynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
 import { HeroPersonalized } from '@/components/homepage/HeroPersonalized'
 import { StoriesRail } from '@/components/homepage/StoriesRail'
@@ -14,8 +14,10 @@ import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 
-const BottomNav = dynamic(() => import('@/components/shared/BottomNav'));
-const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
+export const dynamic = 'force-dynamic'
+
+const BottomNav = loadDynamic(() => import('@/components/shared/BottomNav'));
+const SOSButton = loadDynamic(() => import('@/components/shared/SOSButton'));
 
 export const metadata: Metadata = {
   title: 'Ведар — помощник и планировщик путешествия по Камчатке',
