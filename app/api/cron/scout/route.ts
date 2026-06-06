@@ -2,9 +2,10 @@
  * GET /api/cron/scout
  *
  * Scout-Innovator — ежедневный синтез разведданных → конкретные предложения.
- * Запускается через cron-scout.yml в 06:00 UTC (после intelligence monitor).
+ * Запускается через cron-scout.yml в 08:00 UTC (после Scout Digest в 07:00).
+ * Требует env var GITHUB_ISSUES_TOKEN для создания GitHub Issues.
  *
- * URL: https://tourhab.ru/api/cron/scout?secret=<CRON_SECRET>
+ * URL: https://vedarai.ru/api/cron/scout?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
       started_at,
       duration_ms: result.duration_ms,
       items_processed: result.intel_entries,
-      items_created: result.proposals_count,
+      items_created: result.proposals_count + result.issues_created.length,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
