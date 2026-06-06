@@ -123,6 +123,10 @@ export async function POST(request: NextRequest) {
 
       const booking = bookingResult.booking;
 
+      if (!booking) {
+        return NextResponse.json({ success: false, error: 'Бронирование не создано' }, { status: 500 });
+      }
+
       // 2. СОЗДАНИЕ ПЛАТЕЖА
       const paymentRequest = {
         bookingId: booking.id,
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
           phone: requestData.contactInfo.phone,
           name: requestData.contactInfo.name || 'Не указано'
         },
-        description: `Оплата трансфера ${booking.scheduleInfo.fromLocation} → ${booking.scheduleInfo.toLocation}`
+        description: `Оплата трансфера ${booking.scheduleInfo?.fromLocation ?? ''} → ${booking.scheduleInfo?.toLocation ?? ''}`
       };
 
       const paymentResult = await transferPayments.createPayment(paymentRequest);

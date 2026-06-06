@@ -394,7 +394,7 @@ ${trip.feedback ? `  <b>Отзыв:</b> ${trip.feedback}` : ''}
   // Получение информации о боте
   async getBotInfo(): Promise<{
     success: boolean;
-    info?: any;
+    info?: Record<string, unknown>;
     error?: string;
   }> {
     if (!this.botToken) {
