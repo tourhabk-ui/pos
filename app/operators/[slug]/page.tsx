@@ -11,6 +11,8 @@ import type { OperatorProfileRow } from '@/lib/types/db-rows';
 
 export const dynamic = 'force-dynamic';
 
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
 type Params = { slug: string };
 
 function parseScore(value: string | null | undefined): number {
@@ -182,11 +184,11 @@ export async function generateMetadata(
   return {
     title,
     description,
-    alternates: { canonical: `https://tourhab.ru/operators/${profile.slug}` },
+    alternates: { canonical: `${SITE}/operators/${profile.slug}` },
     openGraph: {
       title,
       description,
-      url: `https://tourhab.ru/operators/${profile.slug}`,
+      url: `${SITE}/operators/${profile.slug}`,
       siteName: 'KamchatourHub',
       locale: 'ru_RU',
       type: 'website',
