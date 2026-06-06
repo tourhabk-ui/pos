@@ -9,6 +9,15 @@ import {
 } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import { useState, useCallback } from 'react';
+import { AchievementBadge } from '@/components/loyalty/AchievementBadge';
+import { EcoLevel } from '@/components/loyalty/EcoLevel';
+
+interface EcoData {
+  userId: string;
+  totalPoints: number;
+  level: number;
+  achievements: Array<{ id: string; name: string; description: string; points: number; unlockedAt: string }>;
+}
 
 interface UserLevel {
   name: string;
@@ -82,6 +91,7 @@ export default function LoyaltyClient() {
     { errorMessage: 'Не удалось загрузить данные программы лояльности' },
   );
   const { data: levels } = useApiFetch<UserLevel[]>('/api/loyalty/levels');
+  const { data: eco } = useApiFetch<EcoData>('/api/eco-points/user');
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [refCode, setRefCode] = useState<string | null>(null);
@@ -101,7 +111,7 @@ export default function LoyaltyClient() {
 
   const copyCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -110,7 +120,7 @@ export default function LoyaltyClient() {
 
   const shareCode = useCallback(() => {
     if (!displayRefCode) return;
-    const url = `https://tourhab.ru/?ref=${displayRefCode}`;
+    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     if (navigator.share) {
       navigator.share({ title: 'KamchatourHub', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
     } else {
@@ -332,6 +342,29 @@ export default function LoyaltyClient() {
                         })}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {/* ── Eco-уровень ── */}
+            {eco && (
+              <EcoLevel level={eco.level} totalPoints={eco.totalPoints} />
+            )}
+
+            {/* ── Достижения ── */}
+            {(eco?.achievements?.length ?? 0) > 0 && (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                <h2 className="font-semibold text-[var(--text-primary)] mb-4">Достижения</h2>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {eco!.achievements.map(a => (
+                    <AchievementBadge
+                      key={a.id}
+                      name={a.name}
+                      description={a.description}
+                      points={a.points}
+                      unlockedAt={a.unlockedAt}
+                    />
+                  ))}
                 </div>
               </div>
             )}
