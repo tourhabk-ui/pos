@@ -6,7 +6,7 @@ name: Cron — Scout-Innovator (daily)
 
 on:
   schedule:
-    - cron: '0 6 * * *'    # каждый день в 06:00 UTC: сбор сигналов и синтез
+    - cron: '0 8 * * *'    # каждый день в 08:00 UTC: после Scout Digest (07:00)
   workflow_dispatch:        # ручной запуск из GitHub Actions UI
 
 jobs:
