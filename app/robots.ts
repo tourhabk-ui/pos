@@ -176,7 +176,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/hub/', '/api/'],
       },
     ],
-    sitemap: 'https://tourhab.ru/sitemap.xml',
-    host: 'tourhab.ru',
+    sitemap: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru'}/sitemap.xml`,
+    host: (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru').replace('https://', ''),
   };
 }
