@@ -26,9 +26,32 @@ export interface BookingRequest {
   specialRequests?: string;
 }
 
+export interface CreatedBooking {
+  id: string;
+  schedule_id: string;
+  user_id: string;
+  operator_id: string;
+  passengers_count: number;
+  route_id: string;
+  vehicle_id: string;
+  driver_id: string;
+  booking_date: string;
+  departure_time: string;
+  total_price: string;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'in_progress';
+  special_requests?: string;
+  contact_phone: string;
+  contact_email: string;
+  confirmation_code: string;
+  created_at: string;
+  updated_at: string;
+  scheduleInfo?: { fromLocation: string; toLocation: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 export interface BookingResult {
   success: boolean;
-  booking?: any;
+  booking?: CreatedBooking;
   error?: string;
   errorCode?: string;
 }

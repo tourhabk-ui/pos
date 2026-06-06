@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Weather } from '@/types';
+import type { TransferOption } from '@/types/transfer';
 import { TransferSearchWidget } from '@/components/transfer-operator/TransferSearchWidget';
 import { Star, Search, Map, Bus, User, Calendar, Ticket, BarChart3 } from 'lucide-react';
 
@@ -9,7 +10,7 @@ export default function TransferDashboardClient() {
   const [weather, setWeather] = useState<Weather | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('search');
-  const [transferResults, setTransferResults] = useState<any[]>([]);
+  const [transferResults, setTransferResults] = useState<TransferOption[]>([]);
 
   useEffect(() => {
     fetchWeather();

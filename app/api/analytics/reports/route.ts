@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    const response = await reportService.listReports(type as any, limit, offset)
+    const response = await reportService.listReports(type, limit, offset)
 
     return NextResponse.json({
       success: true,

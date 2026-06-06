@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: roles,
-    } as ApiResponse<any[]>);
+} as ApiResponse<typeof roles>);
 
   } catch (error) {
     return NextResponse.json({

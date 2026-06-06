@@ -12,8 +12,9 @@
  * Лимит: 20 маршрутов за запуск (настраивается)
  */
 
-// jsdom has no @types package — use dynamic require with explicit cast
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+// jsdom has no @types package — dynamic require with explicit constructor type
+type JSDOMConstructor = new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: JSDOMConstructor }).JSDOM;
 import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 

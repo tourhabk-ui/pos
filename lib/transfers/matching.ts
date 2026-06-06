@@ -6,6 +6,32 @@
 import { query } from '@/lib/database';
 import { TransferBookingRequest, TransferOption } from '@/types/transfer';
 
+interface DriverRow {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  rating: number;
+  experience_years: number;
+  languages: string[];
+  working_hours: { start: string; end: string } | null;
+  is_available: boolean;
+  current_location: { x: number; y: number };
+  vehicle_id: string;
+  vehicle_type: string;
+  capacity: number;
+  features: string[];
+  vehicle_active: boolean;
+  schedule_id: string;
+  departure_time: string;
+  price_per_person: string;
+  available_seats: number;
+  from_location: string;
+  to_location: string;
+  from_coordinates: unknown;
+  to_coordinates: unknown;
+}
+
 interface MatchingCriteria {
   vehicleType?: string;
   capacity: number;
@@ -109,7 +135,7 @@ export class TransferMatchingEngine {
   private async getPotentialDrivers(
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
-  ): Promise<any[]> {
+  ): Promise<DriverRow[]> {
     const queryText = `
       SELECT DISTINCT
         d.id,
@@ -164,12 +190,12 @@ export class TransferMatchingEngine {
       criteria.maxDistance
     ]);
 
-    return result.rows;
+    return result.rows as unknown as DriverRow[];
   }
 
   // Расчет баллов для водителей
   private async calculateDriverScores(
-    drivers: any[],
+    drivers: DriverRow[],
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
   ): Promise<DriverScore[]> {
@@ -185,7 +211,7 @@ export class TransferMatchingEngine {
 
   // Расчет балла для одного водителя
   private async calculateDriverScore(
-    driver: any,
+    driver: DriverRow,
     booking: TransferBookingRequest,
     criteria: MatchingCriteria
   ): Promise<DriverScore> {
@@ -253,7 +279,7 @@ export class TransferMatchingEngine {
   }
 
   // Расчет бонусных баллов
-  private calculateBonusScore(driver: any, criteria: MatchingCriteria): number {
+  private calculateBonusScore(driver: DriverRow, criteria: MatchingCriteria): number {
     let bonus = 0;
 
     // Бонус за соответствие функциям
@@ -277,7 +303,7 @@ export class TransferMatchingEngine {
   }
 
   // Расчет штрафных баллов
-  private calculatePenaltyScore(driver: any, criteria: MatchingCriteria): number {
+  private calculatePenaltyScore(driver: DriverRow, criteria: MatchingCriteria): number {
     let penalty = 0;
 
     // Штраф за несоответствие рабочему времени

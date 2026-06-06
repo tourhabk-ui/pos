@@ -3,7 +3,7 @@
 export interface RoleContext {
   role: 'tourist' | 'operator' | 'agent' | 'transfer' | 'admin' | 'guide';
   userName?: string;
-  stats?: any;
+  stats?: Record<string, unknown>;
 }
 
 export const getRoleSystemPrompt = (context: RoleContext): string => {

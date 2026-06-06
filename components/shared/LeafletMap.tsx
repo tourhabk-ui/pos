@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import 'leaflet.markercluster';
 
 export enum MarkerType {
   TOUR = 'tour',
@@ -159,26 +160,23 @@ export default function LeafletMap({
         attribution: attribution !== false ? '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' : '',
       }).addTo(map);
 
-      // Группа кластеров — may be undefined if leaflet.markercluster side-effect
-      // hasn't extended L yet (dynamic import timing / module cache split).
-      // Fall back to adding markers directly to the map.
-      let clusterGroup: any = null;
+      // Группа кластеров — try/catch: leaflet.markercluster может не успеть
+      // расширить L при dynamic import / module cache split.
+      let clusterGroup: InstanceType<typeof L.MarkerClusterGroup> | null = null;
       try {
-        const mcFn = (L as any).markerClusterGroup;
-        if (typeof mcFn === 'function') {
-          clusterGroup = mcFn({
-            chunkedLoading: true,
-            chunkInterval: 200,
-            chunkDelay: 50,
-            maxClusterRadius: 60,
-            spiderfyOnMaxZoom: true,
-            showCoverageOnHover: false,
-            zoomToBoundsOnClick: true,
-            disableClusteringAtZoom: 11,
-            iconCreateFunction: (cluster: any) => {
-              const count = cluster.getChildCount();
-              let size: 'small' | 'medium' | 'large' = 'small';
-              let bgColor = '#0f172a';
+        clusterGroup = L.markerClusterGroup({
+          chunkedLoading: true,
+          chunkInterval: 200,
+          chunkDelay: 50,
+          maxClusterRadius: 60,
+          spiderfyOnMaxZoom: true,
+          showCoverageOnHover: false,
+          zoomToBoundsOnClick: true,
+          disableClusteringAtZoom: 11,
+          iconCreateFunction: (cluster: InstanceType<typeof L.MarkerCluster>) => {
+            const count = cluster.getChildCount();
+            let size: 'small' | 'medium' | 'large' = 'small';
+            let bgColor = '#0f172a';
 
               if (count >= 100) {
                 size = 'large';
@@ -211,7 +209,6 @@ export default function LeafletMap({
               });
             },
           });
-        }
       } catch {
         clusterGroup = null;
       }

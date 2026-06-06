@@ -293,7 +293,7 @@ export const formatPrice = (price: number, currency: string = '₽'): string => 
 /**
  * Дебаунс функция
  */
-export const debounce = <T extends (...args: any[]) => any>(
+export const debounce = <T extends (...args: Parameters<T>) => void>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {
