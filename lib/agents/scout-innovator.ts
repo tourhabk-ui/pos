@@ -3,8 +3,9 @@
  *
  * Scout-Innovator — ежедневный синтез разведданных → конкретные предложения.
  * Читает Brain (agent_knowledge), анализирует платформу, формирует 2-3 действия.
+ * Каждое кодовое предложение автоматически превращается в GitHub Issue с планом.
  *
- * Запускается через /api/cron/scout (06:00 UTC, после intelligence monitor).
+ * Запускается через /api/cron/scout (08:00 UTC, после Scout Digest в 07:00).
  */
 
 import { callAIFast } from '@/lib/ai/providers';
@@ -17,6 +18,94 @@ export interface ScoutInnovatorResult {
   sent_to_tg: boolean;
   intel_entries: number;
   duration_ms: number;
+  issues_created: string[];
+}
+
+interface CodeProposal {
+  title: string;
+  context: string;
+  implementation_plan: string[];
+  acceptance_criteria: string[];
+  complexity: 'small' | 'medium' | 'large';
+}
+
+async function extractCodeProposals(proposalsText: string): Promise<CodeProposal[]> {
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: `Ты технический менеджер туристической платформы на Next.js.
+Из текста предложений извлеки только те, что требуют написания кода: новая страница, новый API endpoint, новая фича, UI-компонент.
+Игнорируй маркетинговые или операционные предложения (написать пост, позвонить оператору, etc.).
+
+Верни ТОЛЬКО JSON-массив (без markdown):
+[{
+  "title": "Краткое название задачи до 70 символов",
+  "context": "Почему это нужно — 1-2 предложения из разведки",
+  "implementation_plan": ["Шаг 1", "Шаг 2", "Шаг 3"],
+  "acceptance_criteria": ["Критерий 1", "Критерий 2"],
+  "complexity": "small|medium|large"
+}]
+
+Если кодовых предложений нет — верни [].`,
+    },
+    {
+      role: 'user',
+      content: proposalsText,
+    },
+  ];
+
+  try {
+    const raw = await callAIFast(messages);
+    const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
+    return JSON.parse(json) as CodeProposal[];
+  } catch {
+    return [];
+  }
+}
+
+async function createGitHubIssue(proposal: CodeProposal, dateKey: string): Promise<string | null> {
+  const token = process.env.GITHUB_ISSUES_TOKEN;
+  const repo = 'tourhabk-ui/pos';
+  if (!token) return null;
+
+  const body = [
+    `## Контекст (Scout-Innovator ${dateKey})`,
+    '',
+    proposal.context,
+    '',
+    '## План реализации',
+    '',
+    proposal.implementation_plan.map((s, i) => `${i + 1}. ${s}`).join('\n'),
+    '',
+    '## Приёмочные критерии',
+    '',
+    proposal.acceptance_criteria.map(c => `- [ ] ${c}`).join('\n'),
+    '',
+    '---',
+    `*Создано автоматически Scout-Innovator · Сложность: ${proposal.complexity}*`,
+  ].join('\n');
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        title: proposal.title,
+        body,
+        labels: ['agent-proposal'],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { html_url?: string };
+    return data.html_url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function tgSend(text: string): Promise<boolean> {
@@ -74,7 +163,7 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
 
   if (allPages.length === 0) {
     console.error('[scout-innovator] No intel data in Brain — skipping');
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: 0, duration_ms: Date.now() - start };
+    return { proposals_count: 0, sent_to_tg: false, intel_entries: 0, duration_ms: Date.now() - start, issues_created: [] };
   }
 
   // 3. AI синтез
@@ -123,11 +212,11 @@ ${intelContext}
     proposals = await callAIFast(messages);
   } catch (err) {
     console.error('[scout-innovator] AI call failed:', err);
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start };
+    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start, issues_created: [] };
   }
 
   if (!proposals.trim()) {
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start };
+    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start, issues_created: [] };
   }
 
   // 4. Сохраняем в Brain
@@ -151,6 +240,19 @@ ${intelContext}
   // 5. Telegram
   const sent = await tgSend(proposals);
 
+  // 6. GitHub Issues — каждое кодовое предложение → задача для агента-кодера
+  const codeProposals = await extractCodeProposals(proposals);
+  const issueUrls: string[] = [];
+
+  for (const p of codeProposals) {
+    const url = await createGitHubIssue(p, dateKey);
+    if (url) {
+      issueUrls.push(url);
+      // Уведомление в Telegram об открытом issue
+      await tgSend(`<b>Создана задача для кодера</b>\n${p.title}\n${url}`);
+    }
+  }
+
   const proposalCount = (proposals.match(/^\d\./gm) ?? []).length || 1;
 
   return {
@@ -158,5 +260,6 @@ ${intelContext}
     sent_to_tg: sent,
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,
+    issues_created: issueUrls,
   };
 }
