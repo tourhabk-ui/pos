@@ -14,8 +14,7 @@ import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 
 const HomeMapPreview = dynamic(
-  () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview })),
-  { ssr: false }
+  () => import('@/components/homepage/HomeMapPreview').then(m => ({ default: m.HomeMapPreview }))
 );
 const BottomNav = dynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = dynamic(() => import('@/components/shared/SOSButton'));
