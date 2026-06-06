@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { Download, Navigation, MapPin, FileDown } from 'lucide-react';
-import { MarkerType } from '@/components/shared/LeafletMap';
+import { MarkerType } from '@/components/shared/leaflet-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
