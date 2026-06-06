@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const rating = searchParams.get('rating')
       ? parseFloat(searchParams.get('rating')!)
       : undefined;
-    const sortBy = searchParams.get('sortBy') as any || 'rating';
+    const sortBy = searchParams.get('sortBy') || 'rating';
 
     // AI-теги фильтры (из ai_tags JSONB колонки)
     const tagLandscape = searchParams.get('landscape');

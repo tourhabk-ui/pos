@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 /**
  * Handle Yandex Kassa webhook
  */
-async function handleYandexKassaWebhook(body: any, signature: string | null): Promise<void> {
+async function handleYandexKassaWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
   // Yandex Kassa sends notifications in XML format
   // Body structure:
   // {
@@ -105,7 +105,7 @@ async function handleYandexKassaWebhook(body: any, signature: string | null): Pr
 /**
  * Handle Stripe webhook
  */
-async function handleStripeWebhook(body: any, signature: string | null): Promise<void> {
+async function handleStripeWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
   // Stripe sends events in this structure:
   // {
   //   "id": "evt_...",
@@ -123,25 +123,28 @@ async function handleStripeWebhook(body: any, signature: string | null): Promise
   // }
 
   const eventType = body.type
-  const charge = body.data?.object
+  const bodyData = body.data as Record<string, unknown> | undefined
+  const charge = bodyData?.object as Record<string, unknown> | undefined
 
   if (!charge) return
+
+  const chargeMetadata = charge.metadata as Record<string, unknown> | undefined
 
   if (eventType === 'charge.succeeded') {
     await ps.handleWebhook('stripe', {
       transaction_id: charge.id,
       status: 'completed',
-      amount: charge.amount / 100, // Convert from cents
-      currency: charge.currency.toUpperCase(),
-      booking_id: charge.metadata?.booking_id,
+      amount: typeof charge.amount === 'number' ? charge.amount / 100 : 0,
+      currency: typeof charge.currency === 'string' ? charge.currency.toUpperCase() : 'RUB',
+      booking_id: chargeMetadata?.booking_id,
     })
   } else if (eventType === 'charge.failed') {
     await ps.handleWebhook('stripe', {
       transaction_id: charge.id,
       status: 'failed',
-      amount: charge.amount / 100,
-      currency: charge.currency.toUpperCase(),
-      booking_id: charge.metadata?.booking_id,
+      amount: typeof charge.amount === 'number' ? charge.amount / 100 : 0,
+      currency: typeof charge.currency === 'string' ? charge.currency.toUpperCase() : 'RUB',
+      booking_id: chargeMetadata?.booking_id,
     })
   }
 }
@@ -149,7 +152,7 @@ async function handleStripeWebhook(body: any, signature: string | null): Promise
 /**
  * Handle Sberbank webhook
  */
-async function handleSberbankWebhook(body: any, signature: string | null): Promise<void> {
+async function handleSberbankWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
   // Sberbank sends notifications like:
   // {
   //   "order": {
@@ -161,26 +164,27 @@ async function handleSberbankWebhook(body: any, signature: string | null): Promi
   //   }
   // }
 
-  const order = body.order || body
+  const order = (body.order ?? body) as Record<string, unknown>
 
   if (!order) return
 
   let status = 'pending'
+  const orderStatus = order.orderStatus as number | undefined
 
-  if (order.orderStatus === 2) {
+  if (orderStatus === 2) {
     status = 'completed'
-  } else if (order.orderStatus === 3 || order.orderStatus === 4) {
+  } else if (orderStatus === 3 || orderStatus === 4) {
     status = 'failed'
-  } else if (order.orderStatus === 5) {
+  } else if (orderStatus === 5) {
     status = 'refunded'
   }
 
   await ps.handleWebhook('sberbank', {
     transaction_id: order.orderNumber,
     status,
-    amount: order.orderAmount / 100, // Convert from kopecks
+    amount: typeof order.orderAmount === 'number' ? order.orderAmount / 100 : 0,
     currency: 'RUB',
-    datetime: new Date(order.orderDate),
+    datetime: new Date(order.orderDate as string | number),
   })
 }
 
