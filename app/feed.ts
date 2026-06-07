@@ -1,5 +1,5 @@
 export default function feed(): Record<string, string> {
-  const baseUrl = 'https://tourhab.ru';
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
   return {
     feed: `${baseUrl}/feed.xml`,

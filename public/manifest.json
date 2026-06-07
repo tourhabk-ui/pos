@@ -16,6 +16,29 @@
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "screenshots": [
+    {
+      "src": "/images/screenshots/map.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Офлайн-карта Камчатки"
+    },
+    {
+      "src": "/images/screenshots/routes.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Маршруты и места"
+    },
+    {
+      "src": "/images/screenshots/sos.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "SOS и безопасность"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Карта Камчатки",

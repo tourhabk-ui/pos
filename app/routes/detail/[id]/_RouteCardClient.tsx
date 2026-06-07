@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { AssistantButton } from '@/components/shared/AssistantButton';
-import { MarkerType } from '@/components/shared/LeafletMap';
+import { MarkerType } from '@/components/shared/leaflet-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 

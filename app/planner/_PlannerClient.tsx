@@ -17,7 +17,7 @@ import {
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy,
 } from 'lucide-react';
-import type { MapMarker } from '@/components/shared/LeafletMap';
+import type { MapMarker } from '@/components/shared/leaflet-types';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
