@@ -15,6 +15,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
+import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -477,11 +478,22 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
     if (!results.length) return '';
 
     // Дедупликация по заголовку (UNION может давать дубли)
-    const seen = new Set<string>();
+    const titleSeen = new Set<string>();
+    const uniqueByTitle = results.filter(r => {
+      if (titleSeen.has(r.title)) return false;
+      titleSeen.add(r.title);
+      return true;
+    });
+
+    // Семантический дедуп: убираем записи с похожими описаниями (одно место из разных источников)
+    const semanticDeduped = deduplicateBySimilarity(
+      uniqueByTitle,
+      r => `${r.title} ${r.description ?? ''}`,
+      0.6,
+    );
+
     const lines: string[] = [];
-    for (const r of results) {
-      if (seen.has(r.title)) continue;
-      seen.add(r.title);
+    for (const r of semanticDeduped) {
       const coords = r.lat && r.lng && parseFloat(r.lat) !== 0
         ? ` | Координаты: ${parseFloat(r.lat).toFixed(6)}, ${parseFloat(r.lng).toFixed(6)}`
         : '';
