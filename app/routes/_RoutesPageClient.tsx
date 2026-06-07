@@ -10,7 +10,7 @@ import {
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
-import { MarkerType } from '@/components/shared/LeafletMap';
+import { MarkerType } from '@/components/shared/leaflet-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
