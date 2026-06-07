@@ -12,6 +12,9 @@ const PLATFORM = [
   { label: 'Стать партнёром', href: '/for-operators' },
   { label: 'Помощь туристам', href: '/help/tourists' },
   { label: 'Помощь операторам', href: '/help/operators' },
+  { label: 'О платформе', href: '/about' },
+  { label: 'Блог', href: '/blog' },
+  { label: 'Инциденты и алерты', href: '/safety/incidents' },
 ];
 
 const LEGAL = [
@@ -49,7 +52,7 @@ export function Footer() {
               Туристическая платформа Камчатки. Туры, трансферы, гиды — всё в одном месте.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-4">
-              support@tourhab.ru
+              info@vedarai.ru
             </p>
 <div className="flex flex-col gap-2 mt-3">
               <a

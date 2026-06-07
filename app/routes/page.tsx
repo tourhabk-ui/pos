@@ -2,6 +2,9 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import RoutesPageClient from './_RoutesPageClient';
 
+export const dynamic = 'force-dynamic';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
 export const metadata: Metadata = {
   title: 'Места Камчатки — вулканы, источники, озёра, бухты',
   description:
@@ -13,11 +16,11 @@ export const metadata: Metadata = {
     'маршруты по Камчатке',
     'что посмотреть на Камчатке',
   ],
-  alternates: { canonical: 'https://tourhab.ru/routes' },
+  alternates: { canonical: `${SITE}/routes` },
   openGraph: {
     title: 'Места Камчатки',
     description: 'Природные места Камчатки: вулканы, гейзеры, источники, озёра, бухты.',
-    url: 'https://tourhab.ru/routes',
+    url: `${SITE}/routes`,
     siteName: 'KamchatourHub',
     locale: 'ru_RU',
     type: 'website',

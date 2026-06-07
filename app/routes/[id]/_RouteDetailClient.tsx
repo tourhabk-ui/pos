@@ -20,7 +20,7 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { AssistantButton } from '@/components/shared/AssistantButton';
-import { MarkerType } from '@/components/shared/LeafletMap';
+import { MarkerType } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
