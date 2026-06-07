@@ -5,6 +5,7 @@ import { verifyAuth } from '@/lib/auth';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
+import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 
 const reviewLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -204,6 +205,9 @@ export async function POST(request: NextRequest) {
     `, [userId, tourId, parsedRating, comment]);
 
     const newReview = result.rows[0];
+
+    // Начислить баллы лояльности за отзыв (fire-and-forget)
+    loyaltySystem.earnActivityPoints(userId, 'review', String(newReview.id)).catch(() => {});
 
     // Emit negative feedback event for low ratings (fire-and-forget)
     if (parsedRating <= 2) {
