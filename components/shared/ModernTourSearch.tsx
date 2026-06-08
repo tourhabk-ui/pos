@@ -206,7 +206,18 @@ export function ModernTourSearch() {
   // Проверка поддержки голосового ввода
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      type SpeechRecognitionCtor = new () => {
+        continuous: boolean;
+        interimResults: boolean;
+        lang: string;
+        onresult: ((event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+        start(): void;
+        stop(): void;
+      };
+      const win = window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+      const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
       if (SpeechRecognition) {
         setVoiceSupported(true);
         const recognition = new SpeechRecognition();
@@ -214,13 +225,13 @@ export function ModernTourSearch() {
         recognition.interimResults = false;
         recognition.lang = 'ru-RU';
 
-        recognition.onresult = (event: any) => {
+        recognition.onresult = (event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => {
           const transcript = event.results[0][0].transcript;
           setFilters(prev => ({ ...prev, query: transcript }));
           setIsListening(false);
         };
 
-        recognition.onerror = (event: any) => {
+        recognition.onerror = () => {
           setIsListening(false);
         };
 
@@ -307,7 +318,7 @@ export function ModernTourSearch() {
         const data = await response.json();
 
         if (data.success && data.data?.availableTransfers) {
-          setResults(data.data.availableTransfers.map((t: any) => ({
+          setResults(data.data.availableTransfers.map((t: TransferResult & { scheduleId: string; route: { name?: string; fromLocation: string; toLocation: string; estimatedDurationMinutes: number }; vehicle: { vehicleType: string }; pricePerPerson: number }) => ({
             id: t.scheduleId,
             title: `${t.route.fromLocation} → ${t.route.toLocation}`,
             description: `Трансфер на ${t.vehicle.vehicleType}`,
@@ -358,7 +369,7 @@ export function ModernTourSearch() {
       const data = await response.json();
 
       if (data.success && data.data) {
-        setResults(data.data.map((tour: any) => ({ ...tour, isEco: tour.ecoFriendly || false })));
+        setResults(data.data.map((tour: TourResult & { ecoFriendly?: boolean }) => ({ ...tour, isEco: tour.ecoFriendly || false })));
       }
       setSearchMode('sql');
     } catch {
@@ -637,7 +648,7 @@ export function ModernTourSearch() {
                   <select 
                     id="filter-difficulty"
                     value={filters.difficulty}
-                    onChange={(e) => setFilters(prev => ({ ...prev, difficulty: e.target.value as any }))}
+                    onChange={(e) => setFilters(prev => ({ ...prev, difficulty: e.target.value as SearchFilters['difficulty'] }))}
                     className="filter-select w-full p-3 border border-[var(--border)] rounded-lg bg-[var(--bg-card)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] text-sm"
                     aria-label="Сложность тура"
                   >

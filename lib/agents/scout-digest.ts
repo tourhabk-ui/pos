@@ -16,6 +16,7 @@
 import { callAIFast } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
+import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface DigestResult {
@@ -121,8 +122,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
     return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start };
   }
 
+  // Дедупликация: одна история из нескольких источников → одна запись
+  const dedupedItems = deduplicateBySimilarity(allItems, i => i.title, 0.5);
+
   // AI synthesis
-  const signalsList = allItems
+  const signalsList = dedupedItems
     .map(i => `[${i.source}] ${i.title}`)
     .join('\n');
 
@@ -180,7 +184,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       type: 'intel',
       title: `Scout Digest ${dateKey}`,
       compiled_truth: digest,
-      metadata: { signals: allItems.length, sources: RSS_SOURCES.map(s => s.label), sent_to_tg: sent },
+      metadata: { signals: dedupedItems.length, raw_signals: allItems.length, sources: RSS_SOURCES.map(s => s.label), sent_to_tg: sent },
       agent_id: 'scout',
     });
     // Also keep short-term memory for agents that scan recent intel
@@ -197,5 +201,5 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // Non-critical
   }
 
-  return { signals_found: allItems.length, digest_sent: sent, duration_ms: Date.now() - start };
+  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start };
 }

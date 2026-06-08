@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BarChart3, Calendar, Users, TrendingUp, Plus } from 'lucide-react';
 import Link from 'next/link';
 
@@ -51,7 +51,7 @@ export default function OperatorDashboard() {
     fetchData();
   }, []);
 
-  const StatCard = ({ icon: Icon, title, value }: any) => (
+  const StatCard = ({ icon: Icon, title, value }: { icon: React.ElementType; title: string; value: string }) => (
     <div className="ds-card p-4 flex items-start gap-3">
       <Icon className="w-5 h-5 text-[var(--accent)] flex-shrink-0 mt-1" />
       <div>

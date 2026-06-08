@@ -38,7 +38,7 @@ export interface CloudPaymentsWebhook {
   IpAddress?: string;
   IpCountry?: string;
   Description?: string;
-  Data?: any;
+  Data?: Record<string, unknown>;
 }
 
 /**
@@ -94,50 +94,44 @@ export function validateCloudPaymentsSignature(
 /**
  * Валидация данных webhook
  */
-export function validateWebhookData(data: any): {
+export function validateWebhookData(data: unknown): {
   valid: boolean;
   errors: string[];
 } {
   const errors: string[] = [];
-  
+
+  if (typeof data !== 'object' || data === null) {
+    return { valid: false, errors: ['Invalid webhook data: expected object'] };
+  }
+
+  const d = data as Record<string, unknown>;
+
   // Обязательные поля
-  const requiredFields = [
-    'TransactionId',
-    'Amount',
-    'Currency',
-    'InvoiceId',
-    'Status'
-  ];
-  
+  const requiredFields = ['TransactionId', 'Amount', 'Currency', 'InvoiceId', 'Status'];
   for (const field of requiredFields) {
-    if (!data[field]) {
+    if (!d[field]) {
       errors.push(`Missing required field: ${field}`);
     }
   }
-  
-  // Валидация типов
-  if (data.TransactionId && typeof data.TransactionId !== 'number') {
+
+  if (d.TransactionId && typeof d.TransactionId !== 'number') {
     errors.push('TransactionId must be a number');
   }
-  
-  if (data.Amount && typeof data.Amount !== 'number') {
+
+  if (d.Amount && typeof d.Amount !== 'number') {
     errors.push('Amount must be a number');
   }
-  
-  if (data.Amount && data.Amount <= 0) {
+
+  if (d.Amount && typeof d.Amount === 'number' && d.Amount <= 0) {
     errors.push('Amount must be positive');
   }
-  
-  // Валидация статуса
+
   const validStatuses = ['Completed', 'Declined', 'Pending', 'Cancelled'];
-  if (data.Status && !validStatuses.includes(data.Status)) {
-    errors.push(`Invalid status: ${data.Status}`);
+  if (d.Status && !validStatuses.includes(d.Status as string)) {
+    errors.push(`Invalid status: ${d.Status}`);
   }
-  
-  return {
-    valid: errors.length === 0,
-    errors
-  };
+
+  return { valid: errors.length === 0, errors };
 }
 
 /**

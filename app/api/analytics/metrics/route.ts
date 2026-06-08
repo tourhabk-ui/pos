@@ -23,8 +23,8 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
 
     const response = await metricsService.getMetrics({
-      type: type as any,
-      period: period as any,
+      type: type ?? undefined,
+      period: period ?? undefined,
       page,
       limit,
     })

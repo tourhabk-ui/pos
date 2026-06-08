@@ -22,6 +22,15 @@ export const maxDuration = 60; // 60 секунд для сложных запр
 const tripPlanLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5/мин — тяжёлый AI запрос
 
 // Типы
+interface UserIntent {
+  interests: string[];
+  difficulty: string;
+  traveler_type: string;
+  priorities: string[];
+  must_see: string[];
+  avoid: string[];
+}
+
 interface TripRequest {
   query: string; // Запрос пользователя
   days: number; // Количество дней
@@ -49,7 +58,7 @@ interface TourCard {
   difficulty: string;
   operator_id: string;
   rating: number;
-  coordinates: any[];
+  coordinates: [number, number][];
 }
 
 interface AccommodationCard {
@@ -186,7 +195,7 @@ export async function POST(request: NextRequest) {
 /**
  * Анализ намерений пользователя через AI
  */
-async function analyzeUserIntent(query: string, request: TripRequest): Promise<any> {
+async function analyzeUserIntent(query: string, request: TripRequest): Promise<UserIntent> {
   const systemPrompt = `Ты - эксперт по туризму на Камчатке. Проанализируй запрос пользователя и извлеки:
 1. Основные интересы (вулканы, медведи, рыбалка, термальные источники, культура, активный отдых)
 2. Уровень физической подготовки (легкий, средний, сложный)
@@ -224,7 +233,7 @@ async function analyzeUserIntent(query: string, request: TripRequest): Promise<a
  * Подбор туров из БД
  */
 async function selectTours(
-  userIntent: any,
+  userIntent: UserIntent,
   days: number,
   budget?: number
 ): Promise<TourCard[]> {
@@ -396,7 +405,7 @@ async function selectTransfers(
  */
 async function generateTripPlan(
   request: TripRequest,
-  userIntent: any,
+  userIntent: UserIntent,
   tours: TourCard[],
   accommodations: AccommodationCard[],
   transfers: TransferCard[]

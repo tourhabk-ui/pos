@@ -78,7 +78,7 @@ Example response:
       JOIN operators o ON rt.operator_id = o.id
       WHERE activity_type = ANY($1)
     `;
-    const params: any[] = [parsedRequest.activities];
+    const params: unknown[] = [parsedRequest.activities];
 
     if (parsedRequest.preferred_zone) {
       sql += ` AND rt.zone = $${params.length + 1}`;
@@ -100,8 +100,8 @@ Example response:
 
     // STEP 3: AI composes itinerary
     const toursList = availableTours
-      .map((t: any) => {
-        return `- ${t.activity_type.toUpperCase()} in ${t.zone} (${t.company_name}): ${t.price_per_person}₽ (${t.duration_hours}h, max ${t.max_participants} people)`;
+      .map((t: Record<string, unknown>) => {
+        return `- ${String(t.activity_type).toUpperCase()} in ${t.zone} (${t.company_name}): ${t.price_per_person}₽ (${t.duration_hours}h, max ${t.max_participants} people)`;
       })
       .join('\n');
 
@@ -159,7 +159,7 @@ OUTPUT ONLY VALID JSON (no other text):
 
     const draftResult = await query(draftSql, [
       0, // Will be set when tourist books
-      availableTours.map((t: any) => t.id),
+      availableTours.map((t: Record<string, unknown>) => t.id),
       JSON.stringify(composedItinerary.itinerary),
       composedItinerary.total_cost_per_person || 0,
     ]);

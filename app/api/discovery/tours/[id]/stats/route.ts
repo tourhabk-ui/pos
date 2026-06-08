@@ -68,7 +68,7 @@ export async function GET(
       const result = await reviewService.search({
         filters: {
           tourId: id,
-          status: status as any,
+          status,
         },
         sortBy: 'newest',
         limit,
