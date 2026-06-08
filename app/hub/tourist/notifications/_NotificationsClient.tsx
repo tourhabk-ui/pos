@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { Bell, Loader2, CheckCheck, Settings } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
+import { PushSubscribeButton } from '@/components/PWA/PushSubscribeButton';
 
 interface Notification {
   id: string;
@@ -91,15 +92,18 @@ export default function NotificationsClient() {
             Уведомления
           </h1>
 
-          {unreadCount > 0 && (
-            <button
-              onClick={handleReadAll}
-              className="ds-btn ds-btn-secondary flex items-center gap-2"
-            >
-              <CheckCheck className="w-4 h-4" />
-              Прочитать все
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <PushSubscribeButton />
+            {unreadCount > 0 && (
+              <button
+                onClick={handleReadAll}
+                className="ds-btn ds-btn-secondary flex items-center gap-2"
+              >
+                <CheckCheck className="w-4 h-4" />
+                Прочитать все
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter tabs */}
