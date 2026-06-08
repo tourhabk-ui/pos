@@ -364,8 +364,8 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                 )}
                 <div className={`max-w-[80%] px-4 py-3 text-sm whitespace-pre-wrap ${
                   msg.role === 'user'
-                    ? 'bg-[var(--accent)] text-white rounded-2xl rounded-br-md'
-                    : 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-2xl rounded-bl-md border border-[var(--border)]'
+                    ? 'bg-[var(--accent)] text-white rounded-lg rounded-br-md'
+                    : 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border border-[var(--border)]'
                 }`}>
                   {msg.content}
                 </div>
@@ -463,14 +463,14 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
               onChange={e => setInput(e.target.value)}
               placeholder="Спросите Кузьмича..."
               disabled={loading || limitReached || isOffline}
-              className="flex-1 min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+              className="flex-1 min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
             />
             {/* Voice button */}
             <button
               type="button"
               onClick={listening ? stopVoice : startVoice}
               disabled={loading || limitReached || isOffline}
-              className={`min-h-[44px] min-w-[44px] rounded-2xl flex items-center justify-center transition-colors ${
+              className={`min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center transition-colors ${
                 listening
                   ? 'bg-[var(--danger)] text-white'
                   : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]'
@@ -483,7 +483,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
             <button
               type="submit"
               disabled={loading || !input.trim() || limitReached || isOffline}
-              className="min-h-[44px] min-w-[44px] px-3 bg-[var(--accent)] text-white rounded-2xl disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity"
+              className="min-h-[44px] min-w-[44px] px-3 bg-[var(--accent)] text-white rounded-lg disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity"
             >
               <Send className="w-5 h-5" />
             </button>
