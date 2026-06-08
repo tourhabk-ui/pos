@@ -18,12 +18,6 @@ export type { ObservationEntry, AgentObservation } from './observation-logger';
 export { classifyIntentByKeywords, INTENT_KEYWORDS } from './intent-classifier';
 
 // Learning layer
-export { FeedbackLoop } from './learning/feedback-loop';
-export type { FeedbackSummary, FeedbackPattern } from './learning/feedback-loop';
-
-export { PatternRecognition } from './learning/pattern-recognition';
-export type { IntentMetrics, SystemPattern, PatternSeverity, PatternType } from './learning/pattern-recognition';
-
 export { ExperimentTracker } from './learning/experiment-tracker';
 
 // Safeguards
