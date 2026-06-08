@@ -14,7 +14,8 @@
 import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 
-const JSDOM = (require('jsdom') as any).JSDOM as new (html: string) => { window: { document: Document } };
+type JSDOMConstructor = new (html: string) => { window: { document: Document } };
+const JSDOM = (require('jsdom') as { JSDOM: JSDOMConstructor }).JSDOM;
 
 const BASE = 'https://kamchatkaland.ru';
 const SOURCE_NAME = 'kamchatkaland.ru';

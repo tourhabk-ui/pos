@@ -49,7 +49,7 @@ export class ExecutionTracker {
 
     try {
       const result = await pool.query(query);
-      return result.rows.map((row: any) => ({
+      return result.rows.map((row) => ({
         initiative_id: row.initiative_id,
         from_agent_id: row.from_agent_id,
         title: row.title,

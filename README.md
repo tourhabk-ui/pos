@@ -1,104 +1,102 @@
-# Ведар — Туристическая платформа Камчатки
+# KamchatourHub
 
-**Ведар** (vedarai.ru) — мобильная операционная система для туриста: офлайн-карта, безопасность маршрутов, AI-ассистент Кузьмич с ительменскими знаниями и реалтайм-алертами КБГС РАН.
+Туристическая платформа Камчатки — от бронирования тура до безопасности в маршруте.
 
-> Также известна как **TourHab** / **Volcano OS**.
+**[tourhab.ru](https://tourhab.ru)** · Next.js 15 · PostgreSQL · TypeScript strict
 
 ---
 
-## Масштаб (июнь 2026)
+## Что это
 
-| | |
-|---|---|
-| Страниц | 94 |
-| API routes | 256 |
-| UI компонентов | 119 |
-| SQL миграций | 172 |
-| Мест (places) | 779 |
-| Маршрутов | 294 |
+Полноценная B2C/B2B платформа: туристы ищут маршруты и бронируют туры, операторы управляют предложениями, гиды ведут группы. В основе — безопасность: каждое место имеет профиль опасности, реалтайм-статус и привязку к МЧС.
 
 ---
 
 ## Стек
 
-```
-Next.js 15 App Router + TypeScript strict
-PostgreSQL — raw SQL, без ORM
-JWT auth + role-based middleware
-AI waterfall: DeepSeek → MiMo → Gemini → OpenRouter → Anthropic
-Telegram Bot API (Кузьмич + операторы + MAX)
-Timeweb Cloud Docker — приложение Fair Polydeuces
-PWA + Service Worker + IndexedDB — offline-first
-```
+| Слой | Технология |
+|------|-----------|
+| Frontend | Next.js 15 App Router, TypeScript strict, Tailwind CSS |
+| База данных | PostgreSQL — прямой SQL, без ORM |
+| Аутентификация | JWT, role-based middleware |
+| AI | Waterfall: DeepSeek → Gemini → MiniMax → Anthropic |
+| Деплой | Timeweb Cloud — автодеплой при пуше в `main` |
+| Боты | Telegram (Kuzmich + операторы) |
 
 ---
 
-## Ключевые модули
+## Масштаб
+
+| | |
+|--|--|
+| Страниц | 94 |
+| API routes | 256+ |
+| UI компонентов | 119 |
+| SQL миграций | 128 |
+| Мест (places) | 778 |
+| Маршрутов | 294 |
+| Туров | 20 |
+| Строк кода | 195k+ |
+
+---
+
+## Структура данных
+
+Три сущности — три таблицы:
 
 ```
-lib/kuzmich/core.ts              — мозг Кузьмича
-lib/kuzmich/guardian-context.ts  — safety-first контекст места
-lib/offline/useOfflineRegion.ts  — скачивание регионов для офлайн
-lib/offline/db.ts                — IndexedDB: маршруты, тайлы, SOS
-lib/agents/tools/taaft-search.ts — каталог внешних AI-инструментов
-public/sw.js                     — Service Worker (кэш, тайлы, офлайн)
-migrations/                      — 172 SQL миграции, авто при деплое
+places (778)          — географический факт: вулкан, озеро, источник
+kamchatka_routes (294) — маршрут между точками, трек, сложность
+operator_tours (20)    — коммерческий продукт: цена, слоты, бронь
 ```
+
+Безопасность каждого места — `location_safety_profile` + `location_real_time_status`. Связь маршрут→точки — `route_waypoints`.
 
 ---
 
 ## AI-агенты
 
-| Агент | Расписание | Роль |
-|---|---|---|
-| **Kuzmich** | realtime | Хранитель Камчатки. Telegram, MAX, Web, Widget |
-| **Watchdog** | каждые 30 мин | Зависшие бронирования, медленные операторы |
-| **Editor** | 02:00 UTC | AI-enrichment описаний маршрутов |
-| **Scout Digest** | 07:00 UTC | RSS → AI-синтез → Telegram |
+| Агент | Расписание | Задача |
+|-------|-----------|--------|
+| **Kuzmich** | realtime | Telegram / Web / Widget — мультиканальный ассистент |
+| **Watchdog** | каждые 30 мин | Зависшие бронирования, операторы без ответа, лиды >2ч |
+| **Editor** | 02:00 UTC | Туры с коротким описанием → AI-рерайт |
+| **Scout Digest** | 07:00 UTC | RSS (Habr, RATA, Kamgov) → AI-синтез → Telegram |
 
-Подробности: `AGENTS.md`
+---
+
+## Разработка
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+```bash
+npm run dev           # dev-сервер
+npx tsc --noEmit      # type check (0 ошибок, 0 any)
+npx vitest run        # тесты
+npm run migrate       # миграции локально
+git push origin main  # → Timeweb автодеплой
+```
+
+### Ключевые соглашения
+
+- `import { pool } from '@/lib/db-pool'` — только named import
+- `FROM operator_bookings` / `FROM operator_tours` — не `bookings`, не `tours`
+- SQL — только параметризованный (`$1, $2`), никогда конкатенация
+- Все API routes — Zod-валидация входных данных
+- Цвета — только CSS custom properties (`var(--accent)`, `var(--ocean)`)
 
 ---
 
 ## Деплой
 
-```bash
-git push origin main
-# → sync-to-tourhabk.yml → tourhabk-ui/pos → Timeweb автодеплой
-# → start.js накатывает миграции → сервер запускается
-```
+Push в `main` → GitHub Actions `sync-to-tourhabk.yml` → `tourhabk-ui/pos` → Timeweb собирает Docker → `start.js` накатывает миграции → сервер.
 
-**Прод-репо:** `tourhabk-ui/pos` (ветка `main`)  
-**Timeweb:** приложение **Fair Polydeuces**  
-**Сайт:** vedarai.ru
-
-### Локальная разработка
-
-```bash
-git clone https://github.com/tourhabk-ui/pos.git
-cd pos
-npm install
-cp .env.example .env.local   # заполнить переменные
-npm run dev
-```
-
-```bash
-npm run migrate       # применить новые миграции
-npx tsc --noEmit      # type check (0 ошибок)
-npx vitest run        # тесты
-```
+Приложение: **Fair Polydeuces** на Timeweb Cloud.
 
 ---
 
-## Дизайн-система
-
-Тёплая, земляная. Без glassmorphism, без cyberpunk.
-
-- **Шрифты**: Playfair Display (заголовки) + Outfit (текст)
-- **Акцент**: `#D44A0C` (вулканический оранжевый)
-- **Иконки**: lucide-react
-- **Правила**: `CLAUDE.md` → раздел 2
-
----
-
-*Построено для Камчатки. Где вулканы встречаются с океаном.*
+*Камчатка. Вулканы. Медведи. Код.*

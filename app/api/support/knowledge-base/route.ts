@@ -22,15 +22,15 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
 
-    const filter = {
+    const filter: Record<string, unknown> = {
       search: searchParams.get('search') || undefined,
       category: searchParams.get('category') || undefined,
       tags: searchParams.get('tags')?.split(',') || undefined,
       page: parseInt(searchParams.get('page') || '1'),
       limit: parseInt(searchParams.get('limit') || '20'),
-      sortBy: (searchParams.get('sortBy') || 'createdAt') as any,
+      sortBy: searchParams.get('sortBy') || 'createdAt',
       sortOrder: searchParams.get('sortOrder') || 'DESC',
-    } as any
+    }
 
     const result = await knowledgeBaseService.searchArticles(filter)
 

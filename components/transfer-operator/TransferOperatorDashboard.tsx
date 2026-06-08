@@ -3,6 +3,15 @@
 import React from 'react';
 import { TransferOperatorMetricsGrid } from './Dashboard/TransferOperatorMetricsGrid';
 
+interface RecentTransferBooking {
+  id: string;
+  customer_name: string;
+  route_name: string;
+  transfer_date: string;
+  status: string;
+  price?: number;
+}
+
 interface TransferOperatorDashboardProps {
   data: {
     metrics: {
@@ -13,7 +22,7 @@ interface TransferOperatorDashboardProps {
       activeRoutes: number;
       completedTransfers: number;
     };
-    recentBookings: any[];
+    recentBookings: RecentTransferBooking[];
   };
 }
 
@@ -41,7 +50,7 @@ export function TransferOperatorDashboard({ data }: TransferOperatorDashboardPro
                 </tr>
               </thead>
               <tbody>
-                {data.recentBookings.map((booking: any) => (
+                {data.recentBookings.map((booking) => (
                   <tr key={booking.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-hover)]">
                     <td className="py-3 px-4">#{booking.id?.substring(0, 8)}</td>
                     <td className="py-3 px-4">{booking.customer_name}</td>
