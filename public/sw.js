@@ -451,3 +451,61 @@ self.addEventListener('notificationclick', function(event) {
     })
   );
 });
+
+// ── Background Sync ───────────────────────────────────────────────────────────
+
+function openPendingDB() {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open('kh-pending-v1', 1);
+    req.onupgradeneeded = function(e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains('pending_sos')) {
+        db.createObjectStore('pending_sos', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = function(e) { resolve(e.target.result); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+async function sendPendingSOS() {
+  var db = await openPendingDB();
+  var items = await new Promise(function(resolve, reject) {
+    var tx = db.transaction('pending_sos', 'readonly');
+    var req = tx.objectStore('pending_sos').getAll();
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { reject(req.error); };
+  });
+
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    try {
+      var res = await fetch('/api/safety/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: item.lat,
+          lng: item.lng,
+          accuracy: item.accuracy,
+          tourist_name: item.tourist_name,
+          tourist_phone: item.tourist_phone,
+        }),
+      });
+      if (res.ok || res.status === 429) {
+        // 429 = rate-limited = already received, delete anyway
+        await new Promise(function(resolve, reject) {
+          var tx2 = db.transaction('pending_sos', 'readwrite');
+          var del = tx2.objectStore('pending_sos').delete(item.id);
+          tx2.oncomplete = resolve;
+          del.onerror = reject;
+        });
+      }
+    } catch { /* network still down, will retry on next sync */ }
+  }
+}
+
+self.addEventListener('sync', function(event) {
+  if (event.tag === 'sos-sync') {
+    event.waitUntil(sendPendingSOS());
+  }
+});

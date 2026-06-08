@@ -679,7 +679,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
       {/* Kuzmich recommendation banner */}
-      <div className="rounded-2xl overflow-hidden"
+      <div className="rounded-lg overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="relative h-40 bg-[var(--bg-hover)]">
           <Image
@@ -715,7 +715,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
       </div>
 
       {/* Checklist */}
-      <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <div className="rounded-lg p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="flex items-center gap-4 mb-5">
           <ProgressRing done={doneCount} total={effectiveChecklist.length} />
           <div>

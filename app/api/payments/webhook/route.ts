@@ -250,7 +250,12 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
       [transactionId, invoiceId, webhook.CardType ?? 'card', invoiceId]
     );
 
-    if (result.rows.length === 0) return;
+    if (result.rows.length === 0) {
+      // Нет записи tour_payments — пробуем прямое обновление operator_bookings
+      // (hub-бронирования через /api/hub/bookings/create не создают tour_payments)
+      await handleHubBookingPayment(invoiceId, transactionId, webhook);
+      return;
+    }
 
     const { booking_id } = result.rows[0];
     await query(
@@ -265,6 +270,55 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
 
     // Авто-запись комиссии платформы (12%) — idempotent по payment_id
     void createCommissionRecord(booking_id, invoiceId, webhook.Amount);
+  } catch {
+    // не прерываем выполнение
+  }
+}
+
+/**
+ * Прямое обновление operator_bookings для hub-бронирований (без tour_payments).
+ * Вызывается когда InvoiceId — это id бронирования из /api/hub/bookings/create.
+ */
+async function handleHubBookingPayment(invoiceId: string, transactionId: string, webhook: CloudPaymentsWebhook) {
+  try {
+    const result = await query<{
+      id: string; tourist_email: string | null;
+      tourist_name: string; final_price: number;
+    }>(
+      `UPDATE operator_bookings
+       SET payment_status = 'paid',
+           payment_id      = $1,
+           paid_at         = NOW(),
+           booking_status  = 'confirmed',
+           updated_at      = NOW()
+       WHERE id::text = $2 AND booking_status NOT IN ('cancelled', 'rejected')
+       RETURNING id, tourist_email, tourist_name, final_price`,
+      [transactionId, invoiceId]
+    );
+
+    if (result.rows.length === 0) return;
+
+    const b = result.rows[0];
+
+    void addBookingContribution('booking_operator', b.id, webhook.Amount, 'hub booking confirmed');
+    void createCommissionRecord(b.id, invoiceId, webhook.Amount);
+
+    if (b.tourist_email) {
+      try {
+        await emailService.sendEmail({
+          to: b.tourist_email,
+          subject: 'Оплата подтверждена — TourHab',
+          html: `
+            <h2>Оплата подтверждена!</h2>
+            <p><strong>Имя:</strong> ${b.tourist_name}</p>
+            <p><strong>Сумма:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
+            <p><strong>ID транзакции:</strong> ${transactionId}</p>
+            <p>Оператор свяжется с вами для уточнения деталей тура.</p>
+            <p>Ваше бронирование: <a href="https://tourhab.ru/hub/tourist/bookings">Мои бронирования</a></p>
+          `,
+        });
+      } catch { /* email не блокирует платёжный flow */ }
+    }
   } catch {
     // не прерываем выполнение
   }
