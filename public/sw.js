@@ -186,7 +186,7 @@ self.addEventListener('message', (event) => {
   // Подгрузка зум 10 при первом посещении /map онлайн
   // ~1600 тайлов (~25 МБ) — детальная карта для пеших маршрутов
   if (event.data.type === 'CACHE_ZOOM10') {
-    const zoom10Urls: string[] = [];
+    const zoom10Urls = [];
     for (let x = 560; x <= 599; x++)
       for (let y = 192; y <= 231; y++)
         zoom10Urls.push(`https://${TILE_HOST}/10/${x}/${y}.png`);
