@@ -53,9 +53,9 @@ export async function GET() {
           p.name AS operator_name,
           ob.created_at::text
         FROM operator_bookings ob
-        JOIN operator_tours ot ON ob.tour_id = ot.id
-        JOIN partners p ON ob.operator_id = p.id
-        WHERE ob.booking_status IN ('confirmed', 'pending')
+        JOIN operator_tours ot ON ob.operator_tour_id = ot.id
+        JOIN partners p ON ot.operator_id = p.id
+        WHERE ob.booking_status IN ('confirmed', 'new')
           AND ob.created_at > NOW() - '48 hours'::interval
         ORDER BY ob.created_at DESC
         LIMIT 10
