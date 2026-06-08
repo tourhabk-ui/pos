@@ -189,7 +189,6 @@ export default function LeafletMap({
       }
 
       const allCoords: [number, number][] = [];
-      console.log('[LeafletMap] markers count:', markers.length, 'first:', markers[0]);
 
       markers.forEach((marker, idx) => {
         const hex = COLOR_MAP[marker.color ?? 'blue'] ?? '#2568B0';
@@ -346,9 +345,7 @@ export default function LeafletMap({
         );
       }
 
-    }).catch((err) => {
-      console.error('[LeafletMap] init error:', err);
-    });
+    }).catch(() => { /* Leaflet init failed — map won't show */ });
 
     return () => {
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
