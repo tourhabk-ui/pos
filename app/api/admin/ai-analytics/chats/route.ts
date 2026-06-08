@@ -42,10 +42,10 @@ export async function GET(req: NextRequest) {
         const raw = rows[0].messages;
         let msgs: Array<{ role: string; content: string; created_at: string }> = [];
         if (Array.isArray(raw)) {
-          msgs = raw.map((m: any) => ({
-            role: m.role ?? 'user',
-            content: m.content ?? '',
-            created_at: m.created_at ?? rows[0].updated_at,
+          msgs = raw.map((m: Record<string, unknown>) => ({
+            role: (m.role as string | undefined) ?? 'user',
+            content: (m.content as string | undefined) ?? '',
+            created_at: (m.created_at as string | undefined) ?? rows[0].updated_at,
           }));
         }
         return NextResponse.json({ messages: msgs });

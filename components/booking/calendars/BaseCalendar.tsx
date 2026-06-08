@@ -16,7 +16,7 @@ import React from 'react';
  * @param {BaseCalendarProps} props
  * @returns {JSX.Element}
  */
-import DatePicker, { registerLocale } from 'react-datepicker';
+import DatePicker, { registerLocale, type DatePickerProps } from 'react-datepicker';
 import { ru } from 'date-fns/locale';
 import styles from './calendar.module.css';
 import clsx from 'clsx';
@@ -134,7 +134,7 @@ export const BaseCalendar: React.FC<BaseCalendarProps> = ({
           locale: 'ru',
           calendarClassName,
           showPopperArrow: false,
-        } as any)}
+        } as unknown as DatePickerProps)}
         aria-label="Выбор даты или диапазона дат"
         calendarStartDay={1} // UX: неделя начинается с понедельника
       />

@@ -21,9 +21,9 @@ import { transaction } from '@/lib/database';
 // Simple error class for business logic errors
 class BusinessError extends Error {
   code: string;
-  details: any;
-  
-  constructor(message: string, code: string, details?: any) {
+  details?: Record<string, unknown>;
+
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'BusinessError';
     this.code = code;

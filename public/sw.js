@@ -420,3 +420,34 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// ── Web Push ──────────────────────────────────────────────────────────────────
+
+self.addEventListener('push', function(event) {
+  if (!event.data) return;
+  var payload;
+  try { payload = event.data.json(); } catch(e) { payload = { title: 'Ведар', body: event.data.text() }; }
+
+  var title = payload.title || 'Ведар';
+  var options = {
+    body:    payload.body  || '',
+    icon:    payload.icon  || '/icons/icon-192.png',
+    badge:   '/icons/icon-192.png',
+    data:    { url: payload.url || '/' },
+    vibrate: [200, 100, 200],
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  var url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
+      var found = list.find(function(c) { return c.url === url; });
+      if (found && 'focus' in found) return found.focus();
+      return clients.openWindow(url);
+    })
+  );
+});

@@ -110,11 +110,12 @@ async function main() {
         for (const stmt of statements) {
           try {
             await pool.query(stmt);
-          } catch (err: any) {
-            if (isAlreadyExistsError(err.message)) {
-              console.log(`  [SKIP-EXISTS] ${err.message.slice(0, 80)}`);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isAlreadyExistsError(msg)) {
+              console.log(`  [SKIP-EXISTS] ${msg.slice(0, 80)}`);
             } else {
-              console.error(`  [ERROR] ${err.message}`);
+              console.error(`  [ERROR] ${msg}`);
               errorCount++;
               // For non-transactional, we can't rollback — log and continue
             }
@@ -128,13 +129,14 @@ async function main() {
           await client.query(sql);
           await client.query('COMMIT');
           console.log(`[APPLY] ${file}`);
-        } catch (err: any) {
+        } catch (err: unknown) {
           await client.query('ROLLBACK');
-          if (isAlreadyExistsError(err.message)) {
-            console.log(`  [SKIP-EXISTS] ${err.message.slice(0, 80)}`);
+          const msg = err instanceof Error ? err.message : String(err);
+          if (isAlreadyExistsError(msg)) {
+            console.log(`  [SKIP-EXISTS] ${msg.slice(0, 80)}`);
             // Still record as applied so we don't retry
           } else {
-            console.error(`  [ERROR] ${file}: ${err.message}`);
+            console.error(`  [ERROR] ${file}: ${msg}`);
             errorCount++;
             process.exit(1);
           }

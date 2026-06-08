@@ -57,7 +57,7 @@ export function SystemSettings() {
       setSaving(true);
 
       // Преобразуем изменения обратно в структуру настроек
-      const settingsUpdate: any = {};
+      const settingsUpdate: Record<string, Record<string, string>> = {};
       Object.entries(changes).forEach(([key, value]) => {
         const [category, settingKey] = key.split('.');
         if (!settingsUpdate[category]) {
