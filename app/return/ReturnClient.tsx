@@ -66,7 +66,7 @@ export default function ReturnClient() {
 
   if (loading) {
     return (
-      <div className="min-h-[100dvh] bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
       </div>
     );
@@ -74,7 +74,7 @@ export default function ReturnClient() {
 
   if (result === 'success') {
     return (
-      <div className="min-h-[100dvh] bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">С возвращением!</h1>
@@ -92,7 +92,7 @@ export default function ReturnClient() {
 
   if (result === 'error') {
     return (
-      <div className="min-h-[100dvh] bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Ошибка</h1>
@@ -110,7 +110,7 @@ export default function ReturnClient() {
 
   if (!route) {
     return (
-      <div className="min-h-[100dvh] bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <XCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Маршрут не найден</h1>
@@ -130,7 +130,7 @@ export default function ReturnClient() {
 
   if (route.completed) {
     return (
-      <div className="min-h-[100dvh] bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Возврат уже отмечен</h1>
@@ -149,7 +149,7 @@ export default function ReturnClient() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#0a0a0a] text-white">
+    <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div className="max-w-lg mx-auto px-4 py-8">
         <button
           onClick={() => router.back()}

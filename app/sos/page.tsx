@@ -357,7 +357,7 @@ export default function SosPage() {
           border: '1px solid rgba(234,179,8,0.2)',
         }}>
           <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', margin: 0, lineHeight: 1.6 }}>
-            ⚠️ Если нет связи: оставайтесь на месте · свисток 3 сигнала · сохраняйте тепло
+            <AlertTriangle size={12} className="inline mr-1" />Если нет связи: оставайтесь на месте · свисток 3 сигнала · сохраняйте тепло
           </p>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
@@ -50,7 +51,17 @@ export async function PATCH(
     if (adminOrResponse instanceof NextResponse) return adminOrResponse;
 
     const { id } = await params;
-    const body = await request.json() as { role?: unknown; name?: unknown; email?: unknown };
+    const PatchSchema = z.object({
+      role: z.enum(['user', 'operator', 'guide', 'admin']).optional(),
+      name: z.string().min(1).max(255).optional(),
+    }).refine(d => d.role !== undefined || d.name !== undefined, {
+      message: 'Нет данных для обновления',
+    });
+
+    const parsed = PatchSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ success: false, error: parsed.error.errors[0].message }, { status: 400 });
+    }
 
     const checkResult = await query<UserCheckRow>('SELECT id, role FROM users WHERE id = $1', [id]);
     if (checkResult.rows.length === 0) {
@@ -61,24 +72,16 @@ export async function PATCH(
     const values: unknown[] = [];
     let paramIndex = 1;
 
-    if (body.role && typeof body.role === 'string') {
-      const validRoles = ['user', 'operator', 'guide', 'admin'];
-      if (!validRoles.includes(body.role)) {
-        return NextResponse.json({ success: false, error: 'Недопустимая роль' }, { status: 400 });
-      }
+    if (parsed.data.role !== undefined) {
       updates.push(`role = $${paramIndex}`);
-      values.push(body.role);
+      values.push(parsed.data.role);
       paramIndex++;
     }
 
-    if (body.name && typeof body.name === 'string') {
+    if (parsed.data.name !== undefined) {
       updates.push(`name = $${paramIndex}`);
-      values.push(body.name);
+      values.push(parsed.data.name);
       paramIndex++;
-    }
-
-    if (updates.length === 0) {
-      return NextResponse.json({ success: false, error: 'Нет данных для обновления' }, { status: 400 });
     }
 
     values.push(id);
