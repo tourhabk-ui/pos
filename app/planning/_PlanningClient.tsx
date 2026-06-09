@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 
@@ -149,7 +149,7 @@ function CompassDisplay({ heading }: { heading: number }) {
   return (
     <div className="relative mx-auto" style={{ width: 160, height: 160 }}>
       <div className="absolute inset-0 rounded-full"
-        style={{ background: '#0a0a0a', border: '2px solid rgba(74,222,128,0.25)' }} />
+        style={{ background: 'var(--bg-primary)', border: '2px solid color-mix(in srgb, var(--success) 25%, transparent)' }} />
       <div className="absolute inset-2 rounded-full"
         style={{ border: '1px solid rgba(74,222,128,0.12)' }} />
       {cardinals.map(({ label, angle }) => {
@@ -161,7 +161,7 @@ function CompassDisplay({ heading }: { heading: number }) {
             style={{
               left: x, top: y,
               transform: 'translate(-50%, -50%)',
-              color: label === 'N' ? '#4ade80' : '#6b7280',
+              color: label === 'N' ? 'var(--success)' : 'var(--text-muted)',
             }}>
             {label}
           </span>
@@ -171,7 +171,7 @@ function CompassDisplay({ heading }: { heading: number }) {
       <div className="absolute inset-0 flex items-center justify-center"
         style={{ transform: `rotate(${-heading}deg)`, transition: 'transform 0.3s ease' }}>
         <svg width="28" height="56" viewBox="0 0 28 56">
-          <polygon points="14,0 8,28 14,24 20,28" fill="#4ade80" />
+          <polygon points="14,0 8,28 14,24 20,28" fill="var(--success)" />
           <polygon points="14,56 8,28 14,32 20,28" fill="#4b5563" />
         </svg>
       </div>
@@ -370,7 +370,7 @@ function OnTrailTab() {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: '#0d1117', color: '#f0f6fc' }}>
+    <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* Network / GPS banners */}
       <div className={`flex items-center gap-2 px-4 py-2 text-xs ${
         isOffline
@@ -396,9 +396,9 @@ function OnTrailTab() {
           <div className="text-center md:text-left">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
-                <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: '#21262d' }} />
-                <div className="h-10 w-24 rounded-lg animate-pulse" style={{ background: '#21262d' }} />
-                <div className="h-3 w-20 rounded-full animate-pulse" style={{ background: '#21262d' }} />
+                <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
+                <div className="h-10 w-24 rounded-lg animate-pulse" style={{ background: 'var(--bg-card)' }} />
+                <div className="h-3 w-20 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
               </div>
             ) : waypoints.length > 0 ? (
               <>
@@ -409,7 +409,7 @@ function OnTrailTab() {
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
                 <p className="text-gray-500 text-xs mb-2">до следующей точки</p>
-                <p className="text-5xl font-bold leading-none" style={{ color: '#4ade80', letterSpacing: '-1px' }}>
+                <p className="text-5xl font-bold leading-none" style={{ color: 'var(--success)', letterSpacing: '-1px' }}>
                   {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">{nextWp?.name ?? ''}</p>
@@ -420,7 +420,7 @@ function OnTrailTab() {
                 <p className="text-gray-500 text-xs mb-2">GPS-трек недоступен</p>
                 <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
-                  style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
+                  style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
                   Сменить маршрут <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </>
@@ -429,7 +429,7 @@ function OnTrailTab() {
                 <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
                 <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
-                  style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
+                  style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
                   Выбрать маршрут <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </>
@@ -439,14 +439,14 @@ function OnTrailTab() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 w-full">
-          <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
+          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Высота</p>
             <p className="text-2xl font-bold text-white">
               {altitude !== null ? `${altitude.toLocaleString('ru')}м` : '— м'}
               {altitude !== null && <span className="text-green-400 text-base ml-0.5">↑</span>}
             </p>
           </div>
-          <div className="rounded-xl p-4" style={{ background: '#161b22', border: '1px solid #30363d' }}>
+          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Время в пути</p>
             <p className="text-2xl font-bold text-white">
               {hours}ч {mins.toString().padStart(2, '0')}м
@@ -465,14 +465,14 @@ function OnTrailTab() {
               ))}
               <polyline
                 points={svgPoints.map(p => `${p.x},${p.y}`).join(' ')}
-                fill="none" stroke="#4ade80" strokeWidth="2"
+                fill="none" stroke="var(--success)" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round"
               />
               {svgPoints.map(({ x, y, i }) => (
                 <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
-                  fill={i < currentWpIdx ? '#4ade80' : i === currentWpIdx ? '#ff6b35' : '#374151'}
-                  stroke={i === currentWpIdx ? '#ff6b35' : 'none'}
+                  fill={i < currentWpIdx ? 'var(--success)' : i === currentWpIdx ? 'var(--accent)' : 'var(--text-muted)'}
+                  stroke={i === currentWpIdx ? 'var(--accent)' : 'none'}
                   strokeWidth="2"
                 />
               ))}
@@ -490,7 +490,7 @@ function OnTrailTab() {
       <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
         <Link href="/map"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#4ade80', border: '1px solid #1a3620', minHeight: 60 }}>
+          style={{ background: 'var(--bg-card)', color: 'var(--success)', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </Link>
         <a href={coords
@@ -498,17 +498,17 @@ function OnTrailTab() {
             : 'https://openweathermap.org/city/2124044'}
           target="_blank" rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#60a5fa', border: '1px solid #1e3a5f', minHeight: 60 }}>
+          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid #1e3a5f', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> ПОГОДА
         </a>
         <Link href="/ai-assistant"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: '#161b22', color: '#fb923c', border: '1px solid #431a07', minHeight: 60 }}>
+          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid #431a07', minHeight: 60 }}>
           <MessageCircle className="w-5 h-5" /> КУЗЬМИЧ
         </Link>
         <a href="tel:112"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-xl transition-colors"
-          style={{ background: '#b91c1c', color: '#ffffff', border: '1px solid #ef4444', minHeight: 60 }}>
+          style={{ background: 'var(--danger)', color: 'var(--text-primary)', border: '1px solid var(--danger)', minHeight: 60 }}>
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>
@@ -518,12 +518,12 @@ function OnTrailTab() {
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
           onClick={() => setShowRouteModal(false)}>
           <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
-            style={{ background: '#161b22', border: '1px solid #30363d' }}
+            style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-white text-base">Выбрать маршрут</h3>
               <button onClick={() => setShowRouteModal(false)}
-                className="p-1.5 rounded-lg" style={{ background: '#21262d' }}>
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-gray-400" />
               </button>
             </div>
@@ -535,7 +535,7 @@ function OnTrailTab() {
               <div className="space-y-2">
                 {modalRoutes.map(r => (
                   <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl"
-                    style={{ background: '#0d1117', border: '1px solid #21262d' }}>
+                    style={{ background: 'var(--bg-primary)', border: '1px solid #21262d' }}>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-white truncate">{r.title}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
@@ -545,7 +545,7 @@ function OnTrailTab() {
                     </div>
                     <button onClick={() => selectRoute(r)}
                       className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
-                      style={{ background: 'rgba(74,222,128,0.15)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}>
+                      style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
                       Начать
                     </button>
                   </div>
@@ -679,7 +679,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
       {/* Kuzmich recommendation banner */}
-      <div className="rounded-2xl overflow-hidden"
+      <div className="rounded-lg overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="relative h-40 bg-[var(--bg-hover)]">
           <Image
@@ -692,9 +692,9 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.75))' }} />
           <div className="absolute bottom-0 left-0 right-0 p-4">
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-[var(--accent)] flex items-center justify-center text-base"
+              <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-[var(--accent)] flex items-center justify-center"
                 style={{ border: '2px solid rgba(255,255,255,0.6)' }}>
-                🐻
+                <Bot size={18} strokeWidth={1.5} className="text-white" />
               </div>
               <div className="flex-1">
                 <p className="text-xs text-white/60 mb-0.5">Кузьмич рекомендует:</p>
@@ -715,7 +715,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
       </div>
 
       {/* Checklist */}
-      <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <div className="rounded-lg p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <div className="flex items-center gap-4 mb-5">
           <ProgressRing done={doneCount} total={effectiveChecklist.length} />
           <div>
@@ -875,7 +875,7 @@ export function PlanningClient() {
 
       {/* Tab bar */}
       <div className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
-        style={{ background: tab === 'trail' ? '#0d1117' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? '#21262d' : 'var(--border)'}` }}>
+        style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
             onClick={() => setTab('planning')}

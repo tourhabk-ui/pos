@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'lucide-react';
+import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
-type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'error';
+type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
 // Захардкоженные номера — работают ВСЕГДА, без зависимостей
 const SOS_CONTACTS = [
@@ -56,25 +57,32 @@ export default function SosPage() {
     }
 
     setSendStatus('sending');
+
+    const sosPayload = {
+      lat: position?.coords.latitude ?? null,
+      lng: position?.coords.longitude ?? null,
+      accuracy: position?.coords.accuracy ?? null,
+      tourist_name: name.trim() || null,
+      tourist_phone: phone.trim() || null,
+    };
+
     try {
       const res = await fetch('/api/safety/sos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lat: position?.coords.latitude ?? null,
-          lng: position?.coords.longitude ?? null,
-          accuracy: position?.coords.accuracy ?? null,
-          tourist_name: name.trim() || undefined,
-          tourist_phone: phone.trim() || undefined,
-        }),
+        body: JSON.stringify(sosPayload),
       });
-      if (res.status === 429) {
-        setSendStatus('error');
-        return;
-      }
+      if (res.status === 429) { setSendStatus('error'); return; }
       setSendStatus('sent');
     } catch {
-      setSendStatus('error');
+      // Офлайн: сохранить в очередь и отправить при появлении сети
+      try {
+        await queueSOS(sosPayload);
+        const synced = await registerSOSSync();
+        setSendStatus(synced ? 'queued' : 'error');
+      } catch {
+        setSendStatus('error');
+      }
     }
   };
 
@@ -206,20 +214,21 @@ export default function SosPage() {
           {/* Кнопка отправки координат */}
           <button
             onClick={handleSendSos}
-            disabled={sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent'}
+            disabled={sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent' || sendStatus === 'queued'}
             style={{
               width: '100%',
               padding: '12px',
               borderRadius: '10px',
               border: 'none',
               background: sendStatus === 'sent' ? '#16a34a'
+                : sendStatus === 'queued' ? '#1d4ed8'
                 : sendStatus === 'error' ? '#ca8a04'
                 : sendStatus === 'sending' || sendStatus === 'locating' ? 'rgba(220,38,38,0.5)'
                 : '#dc2626',
               color: '#fff',
               fontWeight: 700,
               fontSize: '14px',
-              cursor: sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent' ? 'default' : 'pointer',
+              cursor: sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent' || sendStatus === 'queued' ? 'default' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -227,15 +236,16 @@ export default function SosPage() {
               transition: 'all 0.15s',
             }}
           >
-            {sendStatus === 'locating' && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />}
-            {sendStatus === 'sending' && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+            {(sendStatus === 'locating' || sendStatus === 'sending') && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />}
             {sendStatus === 'sent' && <CheckCircle size={16} />}
+            {sendStatus === 'queued' && <WifiOff size={16} />}
             {sendStatus === 'error' && <AlertTriangle size={16} />}
-            {sendStatus === 'idle' && '📍 Отправить координаты в Telegram'}
+            {sendStatus === 'idle' && 'Отправить координаты в Telegram'}
             {sendStatus === 'locating' && 'Определяю координаты...'}
             {sendStatus === 'sending' && 'Отправляю...'}
-            {sendStatus === 'sent' && '✅ Координаты отправлены'}
-            {sendStatus === 'error' && '⚠️ Ошибка — позвоните 112 напрямую'}
+            {sendStatus === 'sent' && 'Координаты отправлены'}
+            {sendStatus === 'queued' && 'Сохранено — отправим при появлении сети'}
+            {sendStatus === 'error' && 'Ошибка — позвоните 112 напрямую'}
           </button>
 
           {/* SMS с координатами (без интернета) */}
@@ -347,7 +357,7 @@ export default function SosPage() {
           border: '1px solid rgba(234,179,8,0.2)',
         }}>
           <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', margin: 0, lineHeight: 1.6 }}>
-            ⚠️ Если нет связи: оставайтесь на месте · свисток 3 сигнала · сохраняйте тепло
+            <AlertTriangle size={12} className="inline mr-1" />Если нет связи: оставайтесь на месте · свисток 3 сигнала · сохраняйте тепло
           </p>
         </div>
       </div>

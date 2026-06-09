@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     // Получить отзывы
     const result = await reviewService.search({
       filters: {
-        status: status as any,
+        status,
         tourId: tourId || undefined,
       },
       sortBy: 'newest',

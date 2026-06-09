@@ -52,7 +52,7 @@ ${leads.map(l => `- ${l.name} (${l.phone}): "${l.comment || ''}"`).join('\n')}
 
     try {
       const parsed = JSON.parse(response);
-      const qualified = (parsed.analysis || []).filter((a: any) => a.score >= 7);
+      const qualified = (parsed.analysis as Array<{ score: number; name: string; intent: string }> || []).filter((a) => a.score >= 7);
 
       // Обновим статусы в БД
       for (const item of qualified) {

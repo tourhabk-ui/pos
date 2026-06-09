@@ -13,6 +13,8 @@ import { MessengerAgentsSection } from '@/components/homepage/MessengerAgentsSec
 import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
+import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
+import { MoodEntry } from '@/components/homepage/MoodEntry'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,10 +55,15 @@ export default async function Page() {
         <LiveOnTrails />
 
         {/* Kuzmich live briefing — weather + alerts + route picks */}
-        <KuzmichBriefing />
+        <SectionErrorBoundary>
+          <KuzmichBriefing />
+        </SectionErrorBoundary>
 
         {/* Stats marquee */}
         <StatsBand />
+
+        {/* Mood/vibe entry — emotional starting point */}
+        <MoodEntry />
 
         {/* Explore by element — 6 categories */}
         <BentoSection />
@@ -68,9 +75,11 @@ export default async function Page() {
         <MessengerAgentsSection />
 
         {/* Map preview — lazy, full-width */}
-        <div className="border-t border-[var(--border)] h-[380px] md:h-[440px]">
-          <HomeMapPreviewLazy />
-        </div>
+        <SectionErrorBoundary>
+          <div className="border-t border-[var(--border)] h-[380px] md:h-[440px]">
+            <HomeMapPreviewLazy />
+          </div>
+        </SectionErrorBoundary>
 
       </main>
       <div className="lg:block pb-[80px] lg:pb-0">

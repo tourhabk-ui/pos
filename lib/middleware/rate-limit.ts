@@ -85,10 +85,16 @@ class MemoryStore implements RateLimitStore {
 /**
  * Redis store (для production)
  */
-class RedisStore implements RateLimitStore {
-  private redis: any; // Redis client
+interface RedisClient {
+  get(key: string): Promise<string | null>;
+  multi(): { incr(key: string): unknown; pexpire(key: string, ms: number): unknown; exec(): Promise<[null | Error, number][]> };
+  del(key: string): Promise<unknown>;
+}
 
-  constructor(redisClient: any) {
+class RedisStore implements RateLimitStore {
+  private redis: RedisClient;
+
+  constructor(redisClient: RedisClient) {
     this.redis = redisClient;
   }
 

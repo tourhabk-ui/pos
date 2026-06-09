@@ -5,6 +5,31 @@
 
 import { query } from '@/lib/database';
 
+interface TransferPaymentRow {
+  id: string;
+  booking_id: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  customer_email: string;
+  customer_phone: string;
+  customer_name: string;
+  description: string;
+  status: 'pending' | 'processing' | 'success' | 'failed' | 'refunded';
+  processed_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+interface TransferBookingRow {
+  id: string;
+  status: string;
+  amount: number;
+  currency: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
 interface PaymentRequest {
   bookingId: string;
   amount: number;
@@ -374,8 +399,8 @@ export class TransferPaymentSystem {
   }
 
   // Получение платежа по ID
-  async getPaymentById(paymentId: string): Promise<any> {
-    const result = await query(
+  async getPaymentById(paymentId: string): Promise<TransferPaymentRow | undefined> {
+    const result = await query<TransferPaymentRow>(
       'SELECT * FROM transfer_payments WHERE id = $1',
       [paymentId]
     );
@@ -383,8 +408,8 @@ export class TransferPaymentSystem {
   }
 
   // Получение бронирования по ID
-  private async getBookingById(bookingId: string): Promise<any> {
-    const result = await query(
+  private async getBookingById(bookingId: string): Promise<TransferBookingRow | undefined> {
+    const result = await query<TransferBookingRow>(
       'SELECT * FROM transfer_bookings WHERE id = $1',
       [bookingId]
     );

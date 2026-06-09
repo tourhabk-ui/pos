@@ -5,7 +5,7 @@ import { Heart, MapPin } from 'lucide-react';
 
 export function TravelerCard() {
   return (
-    <div className="mx-4 mb-2 relative rounded-2xl overflow-hidden h-[220px]">
+    <div className="mx-4 mb-2 relative rounded-lg overflow-hidden h-[220px]">
       <Image
         src="/images/hero/hero-light.jpeg"
         alt="История путешественника"

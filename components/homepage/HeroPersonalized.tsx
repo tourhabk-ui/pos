@@ -28,9 +28,15 @@ const TIPS = [
 
 export function HeroPersonalized() {
   const [weather, setWeather] = useState<WeatherSnip | null>(null);
-  const [tip] = useState(() => TIPS[Math.floor(Math.random() * TIPS.length)]);
+  // Deterministic initial values — set dynamic ones after mount to avoid
+  // hydration mismatch (Math.random and new Date() differ server vs client).
+  const [tip, setTip] = useState(TIPS[0]);
+  const [greeting, setGreeting] = useState('');
 
   useEffect(() => {
+    setTip(TIPS[Math.floor(Math.random() * TIPS.length)]);
+    setGreeting(getGreeting());
+
     fetch('/api/weather?lat=53.0375&lng=158.6556')
       .then(r => r.ok ? r.json() : null)
       .then((d) => {
@@ -46,7 +52,7 @@ export function HeroPersonalized() {
   }, []);
 
   return (
-    <div className="relative mx-4 mt-4 mb-0 rounded-2xl overflow-hidden h-[320px] md:h-[380px]">
+    <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[320px] md:h-[380px]">
       <Image
         src="/images/hero/IMG_20260316_133049.jpg"
         alt="Камчатка"
@@ -75,7 +81,7 @@ export function HeroPersonalized() {
 
         {/* Greeting + tip + CTA */}
         <div>
-          <p className="text-white/70 text-sm font-medium mb-1">{getGreeting()}</p>
+          {greeting && <p className="text-white/70 text-sm font-medium mb-1">{greeting}</p>}
           <h2 className="font-playfair text-3xl md:text-4xl text-white font-bold leading-tight mb-2">
             Камчатка ждёт
           </h2>

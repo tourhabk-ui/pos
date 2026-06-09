@@ -86,6 +86,8 @@ export function Header() {
           { href: '/routes',      label: 'Маршруты' },
           { href: '/collections', label: 'Подборки' },
           { href: '/map',         label: 'Карта' },
+          { href: '/accommodations', label: 'Жильё' },
+          { href: '/ai-tools',    label: 'AI-арсенал' },
           { href: '/operators',   label: 'Операторы' },
         ].map(item => (
           <Link

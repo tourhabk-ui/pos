@@ -917,7 +917,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   <button
                     onClick={handleStartNavigation}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
-                    style={{ background: 'var(--accent)', color: '#fff' }}
+                    style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
                   >
                     <Navigation className="w-4 h-4" /> Начать навигацию
                   </button>
@@ -1030,7 +1030,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
-                    style={{ background: '#2AABEE' }}
+                    style={{ background: 'var(--telegram)' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> Telegram
                   </a>
@@ -1039,7 +1039,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
-                    style={{ background: '#7C3AED' }}
+                    style={{ background: 'var(--purple)' }}
                   >
                     <MessageSquare className="w-3.5 h-3.5" /> MAX
                   </a>
@@ -1056,7 +1056,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <button
                       onClick={handleStartNavigation}
                       className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors"
-                      style={{ background: 'var(--accent)', color: '#fff' }}
+                      style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
                     >
                       <Navigation className="w-3.5 h-3.5" /> Начать навигацию
                     </button>

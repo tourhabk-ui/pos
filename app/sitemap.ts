@@ -43,6 +43,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/legal/offer`,       lastModified: new Date(), changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/commission`,  lastModified: new Date(), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${BASE}/legal/agent-agreement`, lastModified: new Date(), changeFrequency: 'monthly', priority: 0.3 },
+    { url: `${BASE}/guides`,               lastModified: new Date(), changeFrequency: 'weekly',  priority: 0.75 },
   ];
 
   // Категории маршрутов (14 страниц с высоким SEO-приоритетом)
@@ -53,17 +54,40 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.85,
   }));
 
-  // Динамические страницы: все видимые маршруты
+  // Динамические страницы мест (places) — 779 страниц /places/[id]
+  let placesPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{
+      ark_id: string;
+      updated_at: Date;
+      location_type: string | null;
+    }>(`
+      SELECT ark_id, updated_at, location_type
+      FROM places
+      WHERE is_visible = TRUE
+      ORDER BY updated_at DESC
+      LIMIT 2000
+    `);
+    placesPages = rows.map(row => ({
+      url: `${BASE}/places/${row.ark_id}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'weekly' as const,
+      priority: LOCATION_PRIORITY[row.location_type ?? ''] ?? 0.65,
+    }));
+  } catch {
+    // Если БД недоступна при сборке — sitemap без страниц мест
+  }
+
+  // Динамические страницы: все видимые маршруты kamchatka_routes
   let routePages: MetadataRoute.Sitemap = [];
   try {
     const { rows } = await pool.query<{
       id: string;
       updated_at: Date;
-      location_type: string | null;
     }>(`
-      SELECT id, updated_at, location_type
-      FROM agent_route_knowledge
-      WHERE is_visible = TRUE
+      SELECT id, updated_at
+      FROM kamchatka_routes
+      WHERE is_visible = TRUE OR is_visible IS NULL
       ORDER BY updated_at DESC
       LIMIT 2000
     `);
@@ -72,7 +96,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       url: `${BASE}/routes/${row.id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
-      priority: LOCATION_PRIORITY[row.location_type ?? ''] ?? 0.6,
+      priority: 0.7,
     }));
   } catch {
     // Если БД недоступна при сборке — sitemap без динамических страниц
@@ -96,5 +120,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // fallback
   }
 
-  return [...staticPages, ...categoryPages, ...routePages, ...marketplacePages];
+  return [...staticPages, ...categoryPages, ...placesPages, ...routePages, ...marketplacePages];
 }

@@ -16,9 +16,25 @@ interface YandexMapProps {
   height?: string;
 }
 
+interface YMapsBounds {
+  getBounds(): [[number, number], [number, number]];
+}
+
+interface YMapsInstance {
+  geoObjects: { add(obj: unknown): void } & YMapsBounds;
+  setBounds(bounds: [[number, number], [number, number]], options?: Record<string, unknown>): void;
+  destroy(): void;
+}
+
+interface YMaps {
+  ready(fn: () => void): void;
+  Map: new (container: HTMLElement | null, options: Record<string, unknown>) => YMapsInstance;
+  Placemark: new (coords: [number, number], properties: Record<string, unknown>, options: Record<string, unknown>) => unknown;
+}
+
 declare global {
   interface Window {
-    ymaps: any;
+    ymaps: YMaps;
   }
 }
 
@@ -38,7 +54,7 @@ export default function YandexMap({
   height = '500px'
 }: YandexMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [mapInstance, setMapInstance] = useState<any>(null);
+  const [mapInstance, setMapInstance] = useState<YMapsInstance | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
 

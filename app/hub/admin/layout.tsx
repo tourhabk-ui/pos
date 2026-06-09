@@ -41,6 +41,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/channels',     label: 'Каналы продаж',     icon: Share2 },
   { href: '/hub/admin/safety',  label: 'Безопасность', icon: AlertTriangle },
   { href: '/hub/admin/places-photos', label: 'Фото мест', icon: ImageIcon },
+  { href: '/hub/admin/user-photos', label: 'Фото туристов', icon: ImageIcon },
   { href: '/hub/admin/artem',  label: 'Рабочее место МЧС', icon: HardHat },
   { href: '/hub/admin/migrations', label: 'Миграции БД', icon: Database },
   { href: '/hub/admin/settings', label: 'Настройки', icon: Settings },

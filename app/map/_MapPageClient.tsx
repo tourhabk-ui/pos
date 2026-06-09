@@ -1,7 +1,36 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Component, type ReactNode } from 'react';
 import Link from 'next/link';
+
+// Component-level error boundary — catches LeafletMap chunk load failures
+// without propagating to the route-level error.tsx
+class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="flex items-center justify-center h-full min-h-[300px] rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
+          <div className="text-center px-4">
+            <MapPin className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
+            <p className="text-sm font-medium text-[var(--text-secondary)] mb-1">Карта не загрузилась</p>
+            <button
+              onClick={() => { this.setState({ failed: false }); }}
+              className="text-xs text-[var(--accent)] hover:underline"
+            >
+              Попробовать снова
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
@@ -11,7 +40,10 @@ import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 
-const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
+const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
+  ssr: false,
+  loading: () => <div style={{ height: 'calc(100vh - 180px)' }} className="bg-[var(--bg-hover)] animate-pulse rounded-lg" />,
+});
 const PlaceMapSheet = dynamic(() => import('@/components/map/PlaceMapSheet').then(m => ({ default: m.PlaceMapSheet })), { ssr: false });
 const MapWeatherChip = dynamic(() => import('@/components/map/MapWeatherChip').then(m => ({ default: m.MapWeatherChip })), { ssr: false });
 
@@ -305,7 +337,7 @@ export default function MapPageClient() {
       <div className="fixed inset-0 z-50 bg-black">
         {/* Офлайн-баннер сверху */}
         <div className="absolute top-0 left-0 right-0 z-[500] px-3 pt-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-amber-500/40 text-amber-300 text-sm">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60  border border-amber-500/40 text-amber-300 text-sm">
             <WifiOff className="w-4 h-4 shrink-0" />
             <span className="font-medium">Офлайн</span>
             <span className="text-amber-300/60">·</span>
@@ -329,7 +361,7 @@ export default function MapPageClient() {
         <div className="absolute top-16 right-3 z-[500] flex flex-col gap-2">
           <Link
             href="/offline/manage"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/20 text-white text-xs font-medium hover:bg-black/80 transition-all"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60  border border-white/20 text-white text-xs font-medium hover:bg-black/80 transition-all"
           >
             <AlertTriangle className="w-3.5 h-3.5" />
             Скачать
@@ -363,7 +395,7 @@ export default function MapPageClient() {
 
         {/* Фильтры — снизу, поверх карты, крупные для перчаток */}
         <div className="absolute bottom-0 left-0 right-0 z-[500]">
-          <div className="bg-black/60 backdrop-blur-md border-t border-white/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="bg-black/60  border-t border-white/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {OFFLINE_FILTERS.map(f => {
                 const cnt = countFor(f.id);
@@ -393,7 +425,7 @@ export default function MapPageClient() {
 
         {/* GPS-координаты пользователя */}
         {userPos && showMyLocation && (
-          <div className="absolute bottom-20 left-3 z-[500] bg-black/60 backdrop-blur-md border border-white/20 rounded-lg px-3 py-1.5">
+          <div className="absolute bottom-20 left-3 z-[500] bg-black/60  border border-white/20 rounded-lg px-3 py-1.5">
             <p className="text-[10px] text-white/50 uppercase tracking-wider font-mono">Вы здесь</p>
             <p className="text-xs text-white font-mono">{userPos.lat.toFixed(4)}, {userPos.lng.toFixed(4)}</p>
           </div>
@@ -401,7 +433,7 @@ export default function MapPageClient() {
 
         {/* 🔴 SOS-панель — экстренные номера (tel: ссылки работают без интернета!) */}
         {showSos && (
-          <div className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/85 backdrop-blur-xl border border-red-500/40 shadow-2xl shadow-red-900/20">
+          <div className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/85  border border-red-500/40 shadow-2xl shadow-red-900/20">
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-white font-bold text-sm flex items-center gap-2">
@@ -471,10 +503,10 @@ export default function MapPageClient() {
               >
                 {sosSending === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}
                 {sosSending === 'sent' && <CheckCircle className="w-4 h-4" />}
-                {sosSending === 'idle' && '📍 Отправить координаты'}
+                {sosSending === 'idle' && <><MapPin size={14} className="inline mr-1" />Отправить координаты</>}
                 {sosSending === 'sending' && 'Отправляю...'}
-                {sosSending === 'sent' && '✅ Координаты отправлены'}
-                {sosSending === 'error' && '⚠️ Ошибка — позвоните 112'}
+                {sosSending === 'sent' && <><CheckCircle size={14} className="inline mr-1" />Координаты отправлены</>}
+                {sosSending === 'error' && <><AlertTriangle size={14} className="inline mr-1" />Ошибка — позвоните 112</>}
               </button>
 
               {/* SMS с координатами (работает без интернета) */}
@@ -520,7 +552,7 @@ export default function MapPageClient() {
         {/* Панель выбранного маршрута */}
         {selectedRoute && (
           <div
-            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80 backdrop-blur-xl border border-white/20 shadow-2xl"
+            className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80  border border-white/20 shadow-2xl"
             style={{ animation: 'slideUp 0.2s ease-out' }}
           >
             <div className="p-4">
@@ -630,6 +662,7 @@ export default function MapPageClient() {
       {/* Карта */}
       <div className="px-4 pb-4">
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
+          <MapErrorBoundary>
           <LeafletMap
             center={[53.0444, 158.6483]}
             zoom={7}
@@ -640,6 +673,7 @@ export default function MapPageClient() {
             showUserLocation={showMyLocation}
             locationPriority="highAccuracy"
           />
+          </MapErrorBoundary>
 
           {/* Кнопка GPS */}
           <button
@@ -762,7 +796,7 @@ export default function MapPageClient() {
       <Link
         href="/return"
         className="fixed top-20 left-3 z-[500] flex items-center gap-2 px-3 py-2 rounded-lg
-          bg-green-600/90 backdrop-blur-sm text-white text-xs font-semibold shadow-lg
+          bg-green-600/90  text-white text-xs font-semibold shadow-lg
           hover:bg-green-700 transition-colors"
       >
         ✅ Я вернулся

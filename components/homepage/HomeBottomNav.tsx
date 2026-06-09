@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { House, BookOpen, Map, User } from 'lucide-react';
+import { House, BookOpen, Map, User, Bot } from 'lucide-react';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
@@ -88,7 +88,7 @@ export function HomeBottomNav() {
           boxShadow: '0 4px 16px color-mix(in srgb, var(--accent) 50%, transparent)',
           border: '3px solid var(--bg-card)',
         }}>
-          <span style={{ fontSize: '24px', lineHeight: 1 }}>🐻</span>
+          <Bot size={24} strokeWidth={1.5} />
         </div>
         <span style={{ color: 'var(--accent)' }}>Кузьмич</span>
       </Link>
