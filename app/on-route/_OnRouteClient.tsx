@@ -11,14 +11,6 @@ interface Waypoint {
   lng: number;
 }
 
-// Demo route: Мутновский вулкан → Дачные источники
-const DEMO_WAYPOINTS: Waypoint[] = [
-  { name: 'Старт (парковка)',    lat: 52.4521, lng: 158.1864 },
-  { name: 'Фумарольное поле',   lat: 52.4612, lng: 158.1723 },
-  { name: 'Кратер',             lat: 52.4680, lng: 158.1650 },
-  { name: 'Дачные источники',   lat: 52.4812, lng: 158.1520 },
-  { name: 'Финиш',              lat: 52.4900, lng: 158.1400 },
-];
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
@@ -114,16 +106,51 @@ function MiniTrack({ waypoints, currentIdx }: { waypoints: Waypoint[]; currentId
   );
 }
 
+interface RouteApiResponse {
+  success: boolean;
+  data: {
+    title: string;
+    waypoints?: Array<{ lat?: unknown; lng?: unknown; placeName?: unknown; position?: unknown }>;
+  };
+}
+
 export default function OnRouteClient() {
   const router = useRouter();
-  const [waypoints] = useState<Waypoint[]>(DEMO_WAYPOINTS);
-  const [currentIdx, setCurrentIdx] = useState(1); // demo: on waypoint 2
-  const [heading, setHeading] = useState(0); // device compass heading
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+  const [routeTitle, setRouteTitle] = useState<string | null>(null);
+  const [loadingRoute, setLoadingRoute] = useState(true);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [heading, setHeading] = useState(0);
   const [pos, setPos] = useState<{ lat: number; lng: number; alt: number | null } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
   const [elapsedMin, setElapsedMin] = useState(0);
   const startRef = useRef(Date.now());
   const watchRef = useRef<number | null>(null);
+
+  // Load active route from localStorage + API
+  useEffect(() => {
+    const routeId = localStorage.getItem('active_trail_route_id');
+    if (!routeId) { setLoadingRoute(false); return; }
+
+    fetch(`/api/routes/${routeId}`)
+      .then(r => r.json())
+      .then((j: RouteApiResponse) => {
+        if (!j.success) return;
+        setRouteTitle(j.data.title);
+        const wps = j.data.waypoints;
+        if (!Array.isArray(wps) || wps.length === 0) return;
+        const converted: Waypoint[] = wps
+          .filter(w => w.lat != null && w.lng != null)
+          .map(w => ({
+            lat: Number(w.lat),
+            lng: Number(w.lng),
+            name: (w.placeName as string | null) ?? `Точка ${Number(w.position ?? 0) + 1}`,
+          }));
+        if (converted.length > 0) setWaypoints(converted);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRoute(false));
+  }, []);
 
   // Online/offline detection
   useEffect(() => {
@@ -171,6 +198,41 @@ export default function OnRouteClient() {
     };
   }, [handleOrientation]);
 
+  // No-route screen
+  if (loadingRoute) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center" style={{ background: '#000' }}>
+        <p className="text-white/40 text-sm tracking-widest">ЗАГРУЗКА...</p>
+      </div>
+    );
+  }
+
+  if (waypoints.length === 0) {
+    return (
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-8 text-center gap-6" style={{ background: '#000' }}>
+        <div style={{ border: '2px solid #222', borderRadius: 16, padding: '40px 32px' }}>
+          <p className="text-[10px] font-bold tracking-[0.4em] mb-4" style={{ color: '#444' }}>НА МАРШРУТЕ</p>
+          <p className="text-white font-bold text-xl mb-2">Маршрут не выбран</p>
+          <p className="text-sm mb-8" style={{ color: '#666' }}>
+            Откройте маршрут в каталоге и нажмите «Начать»
+          </p>
+          <div className="flex flex-col gap-3">
+            <Link href="/routes"
+              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-black tracking-widest"
+              style={{ border: '2px solid #00e676', color: '#00e676' }}>
+              <Map size={18} /> ВЫБРАТЬ МАРШРУТ
+            </Link>
+            <Link href="/planning"
+              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-black tracking-widest"
+              style={{ border: '2px solid #444', color: '#666' }}>
+              КОМПАС И ПЛАНИРОВАНИЕ
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const next = waypoints[currentIdx] ?? waypoints[waypoints.length - 1];
   const gpsLat = pos?.lat ?? 52.4612;
   const gpsLng = pos?.lng ?? 158.1723;
@@ -190,7 +252,9 @@ export default function OnRouteClient() {
           <button onClick={() => router.back()} className="text-white/60 hover:text-white transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <span className="font-bold text-white tracking-widest text-sm">VEDAR</span>
+          <span className="font-bold text-white tracking-widest text-sm truncate max-w-[140px]">
+            {routeTitle ?? 'VEDAR'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="px-2 py-1 rounded text-[10px] font-bold tracking-wider"
