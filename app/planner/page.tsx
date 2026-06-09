@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/jwt';
 import { Header } from '@/components/layout/Header';
@@ -18,7 +19,9 @@ export default async function PlannerPage() {
   return (
     <>
       <Header />
-      <PlannerClient initialUserId={initialUserId} />
+      <Suspense>
+        <PlannerClient initialUserId={initialUserId} />
+      </Suspense>
     </>
   );
 }

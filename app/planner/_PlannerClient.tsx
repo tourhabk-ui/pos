@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { Reorder, useDragControls } from 'framer-motion';
 import {
@@ -840,10 +841,26 @@ function CompanionWidget({ days, arrival, departure }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const MOOD_PRESETS: Record<string, { activities: string[]; places: string[] }> = {
+  extreme:  { activities: ['trekking'],          places: ['volcano'] },
+  relax:    { activities: [],                    places: ['hot_spring', 'sea'] },
+  family:   { activities: ['bears', 'helicopter'], places: ['geyser'] },
+  photo:    { activities: ['bears'],             places: ['volcano', 'geyser'] },
+  first:    { activities: ['trekking'],          places: ['hot_spring', 'volcano'] },
+};
+
 export function PlannerClient({ initialUserId }: { initialUserId?: string | null }) {
+  const searchParams = useSearchParams();
+
   // Interest + date
-  const [places, setPlaces]         = useState<string[]>([]);
-  const [activities, setActivities] = useState<string[]>([]);
+  const [places, setPlaces]         = useState<string[]>(() => {
+    const mood = searchParams.get('mood');
+    return mood && MOOD_PRESETS[mood] ? MOOD_PRESETS[mood].places : [];
+  });
+  const [activities, setActivities] = useState<string[]>(() => {
+    const mood = searchParams.get('mood');
+    return mood && MOOD_PRESETS[mood] ? MOOD_PRESETS[mood].activities : [];
+  });
   const [arrival, setArrival]       = useState('');
   const [departure, setDeparture]   = useState('');
   const [flightArrival, setFlightArrival]     = useState('');
