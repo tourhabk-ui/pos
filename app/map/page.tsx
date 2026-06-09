@@ -4,7 +4,7 @@ import MapPageClient from './_MapPageClient';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Карта Камчатки | Tourhab',
+  title: 'Карта Камчатки — Ведар',
   description: 'Интерактивная карта Камчатки с достопримечательностями, вулканами, термальными источниками',
 };
 
