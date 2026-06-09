@@ -1,7 +1,36 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Component, type ReactNode } from 'react';
 import Link from 'next/link';
+
+// Component-level error boundary — catches LeafletMap chunk load failures
+// without propagating to the route-level error.tsx
+class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="flex items-center justify-center h-full min-h-[300px] rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
+          <div className="text-center px-4">
+            <MapPin className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
+            <p className="text-sm font-medium text-[var(--text-secondary)] mb-1">Карта не загрузилась</p>
+            <button
+              onClick={() => { this.setState({ failed: false }); }}
+              className="text-xs text-[var(--accent)] hover:underline"
+            >
+              Попробовать снова
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { Sun, Moon, User, X, ArrowRight, MapPin, WifiOff, Navigation, Target, AlertTriangle, Phone, Loader2, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
@@ -633,6 +662,7 @@ export default function MapPageClient() {
       {/* Карта */}
       <div className="px-4 pb-4">
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
+          <MapErrorBoundary>
           <LeafletMap
             center={[53.0444, 158.6483]}
             zoom={7}
@@ -643,6 +673,7 @@ export default function MapPageClient() {
             showUserLocation={showMyLocation}
             locationPriority="highAccuracy"
           />
+          </MapErrorBoundary>
 
           {/* Кнопка GPS */}
           <button
