@@ -9,6 +9,7 @@ import { query } from '@/lib/database';
 import { z } from 'zod';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { emailService } from '@/lib/notifications/email-service';
+import { sendPushToUser } from '@/lib/notifications/web-push';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,21 @@ export async function PATCH(
            ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${input.cancellation_reason}</p>` : ''}
            <p>Свяжитесь с оператором или выберите другой тур на <a href="https://tourhab.ru/marketplace">tourhab.ru</a>.</p>`;
       emailService.sendEmail({ to: row.tourist_email, subject, html }).catch(() => {});
+
+      // Push notification to tourist
+      const touristRes = await query<{ id: string }>(
+        'SELECT id FROM users WHERE email = $1 LIMIT 1',
+        [row.tourist_email],
+      );
+      if (touristRes.rows[0]) {
+        sendPushToUser(touristRes.rows[0].id, {
+          title: isConfirmed ? 'Бронирование подтверждено' : 'Бронирование отменено',
+          body: isConfirmed
+            ? `${row.tour_title ?? 'Тур'} — оператор подтвердил. Проверьте детали.`
+            : `${row.tour_title ?? 'Тур'} — бронирование отменено.`,
+          url: '/hub/tourist/bookings',
+        }).catch(() => {});
+      }
     }
 
     // Earn loyalty points when booking is completed
