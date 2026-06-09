@@ -1,15 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth/middleware';
+import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/safety/alerts
- * Returns active alerts — admin only
+ * Public — returns non-expired active alerts.
+ * Severity: 1=info, 2=warning, 3=critical
  */
-export async function GET(req: NextRequest) {
-  const auth = await requireAdmin(req);
-  if (auth instanceof NextResponse) return auth;
-
+export async function GET() {
   try {
     const alerts = await query(`
       SELECT
@@ -34,16 +33,12 @@ export async function GET(req: NextRequest) {
     const rows = alerts.rows as Array<{severity: number}>;
     const criticalCount = rows.filter((r) => r.severity >= 2).length;
 
-    return Response.json({
-      success: true,
-      data: rows,
-      meta: {
-        total: rows.length,
-        active_critical: criticalCount,
-      },
-    });
+    return NextResponse.json(
+      { success: true, data: rows, meta: { total: rows.length, active_critical: criticalCount } },
+      { headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=120' } },
+    );
   } catch (error) {
-    return Response.json(
+    return NextResponse.json(
       { success: false, error: (error as Error).message },
       { status: 500 }
     );
