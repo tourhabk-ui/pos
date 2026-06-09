@@ -23,6 +23,7 @@ const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
+const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
 
@@ -280,6 +281,11 @@ export default function PlaceDetailClient({ id }: { id: string }) {
       {/* 12. Reviews */}
       <div className="max-w-3xl mx-auto px-4 mt-6">
         <PlaceReviews placeId={place.id} reviews={place.reviews} />
+      </div>
+
+      {/* 12b. Tourist photo upload */}
+      <div className="max-w-3xl mx-auto px-4 mt-6">
+        <PhotoUpload placeId={place.id} placeName={place.name} />
       </div>
 
       {/* 13. Nearby places — horizontal scroll mobile */}

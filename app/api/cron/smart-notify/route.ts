@@ -26,7 +26,7 @@ interface MatchedTour {
 }
 
 interface MatchedUser {
-  user_id: number;
+  user_id: string;
   name: string;
   email: string;
   telegram_id: string | null;
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
         `  - <b>${escHtml(t.title)}</b> — ${t.base_price} rub`,
       ).join('\n');
 
-      const text = `Привет, ${escHtml(user.name)}!\n\nПоявились новые туры по вашим интересам:\n${tourList}\n\nСмотреть: https://tourhab.ru/routes`;
+      const text = `Привет, ${escHtml(user.name)}!\n\nПоявились новые туры по вашим интересам:\n${tourList}\n\nСмотреть: https://vedarai.ru/routes`;
 
       if (user.telegram_id) {
         await tgNotify(user.telegram_id, text);
