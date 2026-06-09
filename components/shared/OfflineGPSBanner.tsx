@@ -25,8 +25,8 @@ export default function OfflineGPSBanner() {
       aria-live="polite"
       className="w-full px-4 py-2.5 flex items-start gap-3"
       style={{
-        background: '#1A1714',
-        color: '#F0F6FC',
+        background: 'var(--bg-card)',
+        color: 'var(--text-primary)',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
       }}
     >
@@ -39,17 +39,17 @@ export default function OfflineGPSBanner() {
 
         {lastPosition ? (
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <MapPin className="w-3 h-3 shrink-0" style={{ color: '#8B949E' }} aria-hidden="true" />
-            <span className="text-xs font-mono" style={{ color: '#F0F6FC' }}>
+            <MapPin className="w-3 h-3 shrink-0" style={{ color: 'var(--text-secondary)' }} aria-hidden="true" />
+            <span className="text-xs font-mono" style={{ color: 'var(--text-primary)' }}>
               {lastPosition.lat.toFixed(5)},&nbsp;{lastPosition.lng.toFixed(5)}
             </span>
             {lastPosition.accuracy <= 500 && (
-              <span className="text-xs" style={{ color: '#8B949E' }}>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 ±{lastPosition.accuracy}м
               </span>
             )}
             {minutesAgo !== null && (
-              <span className="text-xs" style={{ color: '#8B949E' }}>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 · {minutesAgo === 0 ? 'только что' : `${minutesAgo} мин. назад`}
               </span>
             )}
@@ -59,7 +59,7 @@ export default function OfflineGPSBanner() {
               className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors"
               style={{
                 background: 'rgba(255,255,255,0.08)',
-                color: copied ? 'var(--success)' : '#8B949E',
+                color: copied ? 'var(--success)' : 'var(--text-secondary)',
               }}
             >
               {copied
@@ -69,7 +69,7 @@ export default function OfflineGPSBanner() {
             </button>
           </div>
         ) : (
-          <p className="text-xs mt-0.5" style={{ color: '#8B949E' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             Местоположение ещё не определено — включите GPS
           </p>
         )}

@@ -67,7 +67,7 @@ export function LeadCTASection() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-white transition-opacity hover:opacity-90"
-                style={{ background: '#2AABEE' }}
+                style={{ background: 'var(--telegram)' }}
               >
                 <MessageCircle className="w-5 h-5" />
                 Telegram
@@ -79,7 +79,7 @@ export function LeadCTASection() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2.5 py-3 rounded-lg font-semibold text-sm text-white transition-opacity hover:opacity-90"
-                style={{ background: '#7C3AED' }}
+                style={{ background: 'var(--purple)' }}
               >
                 <MessageCircle className="w-5 h-5" />
                 MAX
