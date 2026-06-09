@@ -14,6 +14,7 @@ import { Footer } from '@/components/layout/Footer'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
+import { MoodEntry } from '@/components/homepage/MoodEntry'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +61,9 @@ export default async function Page() {
 
         {/* Stats marquee */}
         <StatsBand />
+
+        {/* Mood/vibe entry — emotional starting point */}
+        <MoodEntry />
 
         {/* Explore by element — 6 categories */}
         <BentoSection />
