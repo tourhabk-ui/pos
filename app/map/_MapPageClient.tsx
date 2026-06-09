@@ -474,10 +474,10 @@ export default function MapPageClient() {
               >
                 {sosSending === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}
                 {sosSending === 'sent' && <CheckCircle className="w-4 h-4" />}
-                {sosSending === 'idle' && '📍 Отправить координаты'}
+                {sosSending === 'idle' && <><MapPin size={14} className="inline mr-1" />Отправить координаты</>}
                 {sosSending === 'sending' && 'Отправляю...'}
-                {sosSending === 'sent' && '✅ Координаты отправлены'}
-                {sosSending === 'error' && '⚠️ Ошибка — позвоните 112'}
+                {sosSending === 'sent' && <><CheckCircle size={14} className="inline mr-1" />Координаты отправлены</>}
+                {sosSending === 'error' && <><AlertTriangle size={14} className="inline mr-1" />Ошибка — позвоните 112</>}
               </button>
 
               {/* SMS с координатами (работает без интернета) */}

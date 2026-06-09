@@ -24,7 +24,7 @@ export default function PlaceSOS() {
         href="tel:112"
         aria-label="Экстренный вызов 112"
         className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition-opacity active:opacity-70 shrink-0"
-        style={{ background: 'var(--danger)', color: '#fff' }}
+        style={{ background: 'var(--danger)', color: 'var(--text-primary)' }}
       >
         <Phone className="w-3.5 h-3.5" aria-hidden="true" />
         112
