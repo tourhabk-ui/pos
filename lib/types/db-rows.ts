@@ -1462,3 +1462,21 @@ export interface UserTripListRow {
   created_at: Date;
   updated_at: Date;
 }
+
+// ──────────────────────────────────────────────────────────
+// User-submitted place photos
+// ──────────────────────────────────────────────────────────
+
+export interface UserPlacePhotoAdminRow {
+  id: string;
+  place_id: string;
+  place_name: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  url: string;
+  caption: string | null;
+  status: string;
+  created_at: Date;
+  reviewed_at: Date | null;
+}
