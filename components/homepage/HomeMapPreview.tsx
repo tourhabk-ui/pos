@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { createPortal } from 'react-dom';
 import { Filter, X } from 'lucide-react';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 
