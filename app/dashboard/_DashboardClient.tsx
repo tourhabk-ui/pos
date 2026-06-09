@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Map, Flame, Wifi, Navigation, AlertTriangle, CheckCircle, ArrowRight, X, Clock, Gauge } from 'lucide-react';
+import { Map, Flame, Wifi, Navigation, AlertTriangle, CheckCircle, ArrowRight, X, Clock, Gauge, Bot } from 'lucide-react';
 
 interface StatusChip { icon: React.ReactNode; label: string; value: string; ok: boolean }
 interface KuzmichWarning { text: string; dismissed: boolean }
@@ -56,24 +56,24 @@ export default function DashboardClient() {
   ];
 
   return (
-    <div className="min-h-[100dvh] flex flex-col pb-6" style={{ background: '#0a0a0a', color: '#eee', fontFamily: 'system-ui, sans-serif' }}>
+    <div className="min-h-[100dvh] flex flex-col pb-6" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: 'system-ui, sans-serif' }}>
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3"
-        style={{ borderBottom: '1px solid #1a1a1a' }}>
+        style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-white/50 hover:text-white">←</Link>
+          <Link href="/" className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">←</Link>
           <div>
-            <span className="font-black text-white tracking-widest text-sm">VEDAR</span>
-            <span className="ml-2 text-[10px] text-white/40">КАМЧАТКА AI</span>
+            <span className="font-bold text-[var(--text-primary)] tracking-widest text-sm">VEDAR</span>
+            <span className="ml-2 text-[10px] text-[var(--text-muted)]">КАМЧАТКА AI</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full" style={{ background: '#00e676' }} />
-          <span className="text-[10px] text-white/50">Связь: 3G</span>
+          <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+          <span className="text-[10px] text-[var(--text-muted)]">Связь: 3G</span>
           <Link href="/safety/sos"
-            className="ml-2 px-3 py-1 rounded text-xs font-black text-white"
-            style={{ background: '#c62828' }}>SOS</Link>
+            className="ml-2 px-3 py-1 rounded text-xs font-bold text-[var(--text-primary)]"
+            style={{ background: 'var(--danger)' }}>SOS</Link>
         </div>
       </div>
 
@@ -81,9 +81,9 @@ export default function DashboardClient() {
       <div className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
         {STATUS.map((s, i) => (
           <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium flex-shrink-0"
-            style={{ background: '#151515', border: '1px solid #252525', color: s.ok ? '#ccc' : '#f44' }}>
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: s.ok ? 'var(--text-secondary)' : 'var(--danger)' }}>
             {s.icon}
-            {s.label && <span className="text-white/40">{s.label}</span>}
+            {s.label && <span className="text-[var(--text-muted)]">{s.label}</span>}
             <span>{s.value}</span>
           </div>
         ))}
@@ -91,12 +91,12 @@ export default function DashboardClient() {
 
       <div className="px-4 space-y-3">
         {/* Today's route card */}
-        <div className="rounded-xl p-4" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
+        <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[9px] font-black tracking-[0.3em] px-2 py-0.5 rounded"
-              style={{ background: '#00e676', color: '#000' }}>ВАШ МАРШРУТ СЕГОДНЯ</span>
+            <span className="text-[9px] font-bold tracking-[0.3em] px-2 py-0.5 rounded"
+              style={{ background: 'var(--success)', color: 'var(--bg-primary)' }}>ВАШ МАРШРУТ СЕГОДНЯ</span>
           </div>
-          <p className="font-bold text-white text-base mb-4 leading-tight">{ROUTE.title}</p>
+          <p className="font-bold text-[var(--text-primary)] text-base mb-4 leading-tight">{ROUTE.title}</p>
 
           {/* Timeline */}
           <div className="flex items-center gap-0 mb-3">
@@ -105,57 +105,57 @@ export default function DashboardClient() {
                 <div className="flex flex-col items-center flex-shrink-0">
                   <div className="w-3 h-3 rounded-full border-2 flex items-center justify-center"
                     style={{
-                      borderColor: i <= ROUTE.currentWaypoint ? '#00e676' : '#333',
-                      background: i < ROUTE.currentWaypoint ? '#00e676' : i === ROUTE.currentWaypoint ? '#ff6d00' : '#1a1a1a',
+                      borderColor: i <= ROUTE.currentWaypoint ? 'var(--success)' : 'var(--border)',
+                      background: i < ROUTE.currentWaypoint ? 'var(--success)' : i === ROUTE.currentWaypoint ? 'var(--accent)' : 'var(--bg-card)',
                     }} />
-                  <span className="text-[9px] mt-1 font-mono" style={{ color: i <= ROUTE.currentWaypoint ? '#aaa' : '#444' }}>
+                  <span className="text-[9px] mt-1 font-mono" style={{ color: i <= ROUTE.currentWaypoint ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
                     {wp.time}
                   </span>
-                  <span className="text-[9px]" style={{ color: i <= ROUTE.currentWaypoint ? '#888' : '#333' }}>
+                  <span className="text-[9px]" style={{ color: i <= ROUTE.currentWaypoint ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
                     {wp.label}
                   </span>
                 </div>
                 {i < ROUTE.waypoints.length - 1 && (
                   <div className="flex-1 h-px mx-1 mb-6"
-                    style={{ background: i < ROUTE.currentWaypoint ? '#00e676' : '#222', borderTop: `1px dashed ${i < ROUTE.currentWaypoint ? '#00e676' : '#252'}` }} />
+                    style={{ background: i < ROUTE.currentWaypoint ? 'var(--success)' : 'var(--border)' }} />
                 )}
               </React.Fragment>
             ))}
           </div>
 
-          <p className="text-[11px] mb-3" style={{ color: '#555' }}>
+          <p className="text-[11px] mb-3 text-[var(--text-muted)]">
             {ROUTE.checkpointsDone}/{ROUTE.checkpointsTotal} чекпоинта · {ROUTE.remainingKm} км осталось
           </p>
 
           <Link href="/on-route"
             className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all hover:opacity-90"
-            style={{ background: '#001a00', border: '1px solid #00e676', color: '#00e676' }}>
+            style={{ background: 'color-mix(in srgb, var(--success) 12%, var(--bg-card))', border: '1px solid var(--success)', color: 'var(--success)' }}>
             Открыть навигацию <ArrowRight size={16} />
           </Link>
         </div>
 
         {/* Kuzmich warning */}
         {!warning.dismissed && (
-          <div className="rounded-xl p-4 relative" style={{ background: '#1a0f00', border: '1px solid #ff6d0040' }}>
+          <div className="rounded-xl p-4 relative" style={{ background: 'var(--bg-card)', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)' }}>
             <button onClick={() => setWarning(w => ({ ...w, dismissed: true }))}
-              className="absolute top-3 right-3 text-white/30 hover:text-white/70">
+              className="absolute top-3 right-3 text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
               <X size={14} />
             </button>
             <div className="flex gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-xl"
-                style={{ background: '#2a1500' }}>🐻</div>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: 'var(--bg-hover)' }}><Bot size={20} strokeWidth={1.5} style={{ color: 'var(--accent)' }} /></div>
               <div>
-                <p className="text-[10px] font-black tracking-[0.2em] mb-1" style={{ color: '#ff6d00' }}>КУЗЬМИЧ AI</p>
-                <p className="text-sm leading-snug" style={{ color: '#ddd' }}>{warning.text}</p>
+                <p className="text-[10px] font-bold tracking-[0.2em] mb-1 text-[var(--accent)]">КУЗЬМИЧ AI</p>
+                <p className="text-sm leading-snug text-[var(--text-secondary)]">{warning.text}</p>
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => setWarning(w => ({ ...w, dismissed: true }))}
                     className="px-4 py-1.5 rounded-lg text-xs font-bold"
-                    style={{ background: '#2a1500', border: '1px solid #ff6d0060', color: '#ff6d00' }}>
+                    style={{ background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))', border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)', color: 'var(--accent)' }}>
                     Понял
                   </button>
                   <Link href="/safety"
                     className="px-4 py-1.5 rounded-lg text-xs font-bold"
-                    style={{ background: '#1a1a1a', border: '1px solid #333', color: '#aaa' }}>
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
                     Подробнее
                   </Link>
                 </div>
@@ -171,15 +171,15 @@ export default function DashboardClient() {
             return (
               <Link key={t.label} href={t.href}
                 className="flex items-center gap-3 p-3 rounded-xl transition-all hover:brightness-110"
-                style={{ background: '#111', border: `1px solid ${t.ok === false ? '#c62828' : '#1e1e1e'}` }}>
+                style={{ background: 'var(--bg-card)', border: `1px solid ${t.ok === false ? 'var(--danger)' : 'var(--border)'}` }}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: t.ok === false ? '#2a0000' : t.ok === true ? '#001a00' : '#1a1a1a' }}>
-                  <Icon size={16} style={{ color: t.ok === false ? '#f44336' : t.ok === true ? '#00e676' : '#666' }} />
+                  style={{ background: t.ok === false ? 'color-mix(in srgb, var(--danger) 12%, var(--bg-card))' : t.ok === true ? 'color-mix(in srgb, var(--success) 12%, var(--bg-card))' : 'var(--bg-hover)' }}>
+                  <Icon size={16} style={{ color: t.ok === false ? 'var(--danger)' : t.ok === true ? 'var(--success)' : 'var(--text-muted)' }} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-bold text-white leading-tight">{t.label}</p>
-                  {t.sub && <p className="text-[10px]" style={{ color: t.ok === false ? '#f44' : '#555' }}>{t.sub}</p>}
-                  {t.ok === true && !t.sub && <CheckCircle size={10} className="text-green-500 mt-0.5" />}
+                  <p className="text-xs font-bold text-[var(--text-primary)] leading-tight">{t.label}</p>
+                  {t.sub && <p className="text-[10px]" style={{ color: t.ok === false ? 'var(--danger)' : 'var(--text-muted)' }}>{t.sub}</p>}
+                  {t.ok === true && !t.sub && <CheckCircle size={10} className="text-[var(--success)] mt-0.5" />}
                 </div>
               </Link>
             );

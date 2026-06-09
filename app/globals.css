@@ -28,6 +28,7 @@
   --accent-hover: #d4623c;
   --accent-muted: rgba(232,115,74,0.1);
   --ocean: #00A8CC;        /* ocean -- ссылки, иконки */
+  --telegram: #2AABEE;     /* Telegram brand color */
   --success: #3FB950;      /* moss -- успех, эко */
   --warning: #D29922;
   --danger: #F85149;       /* ash-red -- SOS, опасность */
@@ -88,6 +89,7 @@
   --accent-hover: #B83E0A;
   --accent-muted: rgba(212,74,12,0.1);
   --ocean: #2568B0;
+  --telegram: #2AABEE;
   --success: #3FB950;
   --warning: #D29922;
   --danger: #DC2626;

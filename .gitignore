@@ -153,3 +153,4 @@ public/images/processed/
 scripts/research/reports/*.json
 scripts/research/reports/*.md
 scripts/research/reports/screenshots/
+.claude/worktrees/
