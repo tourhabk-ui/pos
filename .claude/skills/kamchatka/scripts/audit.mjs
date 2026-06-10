@@ -2,19 +2,49 @@
 /**
  * KamchatourHub — code audit script
  * Checks for CLAUDE.md violations: any types, console.log, SELECT *, FROM bookings/tours, hex colors, design anti-patterns.
- * Run: node .claude/skills/kamchatka/scripts/audit.mjs
- * Flags: --report-only  → always exit 0 (for CI reporting without blocking)
- *        --staged       → only check files staged in git (prevents blocking old debt)
+ *
+ * Usage:
+ *   node audit.mjs                        → scan all app/lib/components (full audit)
+ *   node audit.mjs --staged               → scan only git-staged .ts/.tsx files
+ *   node audit.mjs --files f1.ts f2.tsx   → scan explicit file list
+ *   node audit.mjs --report-only          → always exit 0 (combine with any mode for non-blocking CI)
+ *
+ * Exit codes:
+ *   0  — no critical violations (or --report-only)
+ *   1  — critical violations found
+ *   2  — bad arguments
  */
 
-import { readdir, readFile } from 'node:fs/promises';
-import { join, dirname, relative } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
+import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-const REPORT_ONLY = process.argv.includes('--report-only');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
+// --- Argument parsing ---
+const argv = process.argv.slice(2);
+const REPORT_ONLY = argv.includes('--report-only');
+const STAGED_MODE = argv.includes('--staged');
+const FILES_IDX = argv.indexOf('--files');
+const FILES_MODE = FILES_IDX !== -1;
+
+// Validate: unknown flags
+const knownFlags = new Set(['--report-only', '--staged', '--files']);
+for (const arg of argv) {
+  if (arg.startsWith('--') && !knownFlags.has(arg)) {
+    console.error(`Ошибка: неизвестный флаг "${arg}"`);
+    console.error('Использование: node audit.mjs [--staged] [--files f1 f2 ...] [--report-only]');
+    process.exit(2);
+  }
+}
+if (STAGED_MODE && FILES_MODE) {
+  console.error('Ошибка: --staged и --files нельзя использовать вместе');
+  process.exit(2);
+}
+
+// --- File resolution ---
 async function walkFiles(dir, exts) {
   const results = [];
   async function walk(current) {
@@ -32,6 +62,22 @@ async function walkFiles(dir, exts) {
   return results;
 }
 
+function getStagedFiles() {
+  try {
+    const out = execSync('git diff --cached --name-only --diff-filter=ACMR', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    return out.split('\n')
+      .map(f => f.trim())
+      .filter(f => f && (f.endsWith('.ts') || f.endsWith('.tsx')))
+      .map(f => join(ROOT, f));
+  } catch {
+    return [];
+  }
+}
+
+// --- Checks definition ---
 const checks = [
   {
     name: 'any типы',
@@ -106,18 +152,48 @@ const checks = [
   },
 ];
 
+// --- Build file list for this run ---
+let filesToScan;
+let modeLabel;
+
+if (STAGED_MODE) {
+  filesToScan = getStagedFiles();
+  modeLabel = `staged (${filesToScan.length} файлов)`;
+} else if (FILES_MODE) {
+  const paths = argv.slice(FILES_IDX + 1).filter(a => !a.startsWith('--'));
+  if (paths.length === 0) {
+    console.error('Ошибка: --files требует хотя бы один путь к файлу');
+    process.exit(2);
+  }
+  filesToScan = paths.map(p => resolve(ROOT, p));
+  modeLabel = `files (${filesToScan.length} файлов)`;
+} else {
+  filesToScan = null; // full scan — determined per-check by dirs
+  modeLabel = 'full';
+}
+
+// --- Run checks ---
 const findings = { 'КРИТИЧНО': [], 'ПРЕДУПРЕЖДЕНИЕ': [] };
 let totalChecked = 0;
 
 for (const check of checks) {
-  const files = [];
-  for (const dir of check.dirs) {
-    const found = await walkFiles(dir, check.exts);
-    files.push(...found);
+  let files;
+  if (filesToScan !== null) {
+    // Staged/files mode: filter the given list by the check's exts
+    files = filesToScan.filter(f =>
+      check.exts.some(ext => f.endsWith(ext)) &&
+      !(check.exclude && check.exclude.test(f))
+    );
+  } else {
+    // Full scan
+    files = [];
+    for (const dir of check.dirs) {
+      files.push(...await walkFiles(dir, check.exts));
+    }
+    files = files.filter(f => !(check.exclude && check.exclude.test(f)));
   }
 
   for (const file of files) {
-    if (check.exclude && check.exclude.test(file)) continue;
     let content;
     try { content = await readFile(file, 'utf8'); }
     catch { continue; }
@@ -137,11 +213,12 @@ for (const check of checks) {
   }
 }
 
+// --- Output ---
 const date = new Date().toISOString().slice(0, 10);
-console.log(`\nАУДИТ: KamchatourHub\nДата: ${date}\n`);
+console.log(`\nАУДИТ: KamchatourHub [${modeLabel}]\nДата: ${date}\n`);
 
 if (findings['КРИТИЧНО'].length === 0 && findings['ПРЕДУПРЕЖДЕНИЕ'].length === 0) {
-  console.log('✅ 0 нарушений — всё чисто.\n');
+  console.log(`✅ 0 нарушений — ${modeLabel === 'full' ? 'всё чисто' : 'staged файлы чисты'}.\n`);
   process.exit(0);
 }
 
