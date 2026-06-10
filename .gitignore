@@ -154,3 +154,8 @@ scripts/research/reports/*.json
 scripts/research/reports/*.md
 scripts/research/reports/screenshots/
 .claude/worktrees/
+
+# Binary blobs — store externally, not in git
+*.tar.gz
+*.tar-*.gz
+content/places-update/*.png
