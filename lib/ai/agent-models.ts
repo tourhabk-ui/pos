@@ -30,15 +30,15 @@ export const AGENT_MODEL_MAP: Record<AgentId, string> = {
   finance:    'deepseek/deepseek-chat-v3-0324',           // CFO: аналитика, дешёвый
   infra:      'google/gemini-2.0-flash-001',              // SRE: быстрый
   vibe_coder: 'anthropic/claude-sonnet-4-6',             // кодер: максимальное качество кода
-  // Site-wide agents — ultra-cheap
-  kuzmich:    'anthropic/claude-haiku-4-5-20251001',   // Telegram persona — OR Anthropic confirmed working
-  planner:    'anthropic/claude-haiku-4-5-20251001',   // trip planning
-  operator:   'anthropic/claude-haiku-4-5-20251001',   // operator chat
-  router:     'anthropic/claude-haiku-4-5-20251001',   // route recommendations
+  // Site-wide agents — upgraded to Fable 5 (flagship)
+  kuzmich:    'anthropic/claude-fable-5',   // Telegram persona
+  planner:    'anthropic/claude-fable-5',   // trip planning
+  operator:   'anthropic/claude-fable-5',   // operator chat
+  router:     'anthropic/claude-fable-5',   // route recommendations
 };
 
 /** Default model for consensus (Round 3 facilitator) */
-export const CONSENSUS_MODEL = 'anthropic/claude-sonnet-4-6';
+export const CONSENSUS_MODEL = 'anthropic/claude-fable-5';
 
 /**
  * Cheaper models for background/cron tasks where quality is less critical.
