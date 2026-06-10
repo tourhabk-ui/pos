@@ -72,23 +72,23 @@ const LOCATION_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
 // Основные фильтры для UI (без мусорных типов)
 // id начинающийся с 'activity:' — фильтр по activity_type
 const LOCATION_FILTERS = [
-  { id: 'all',                  label: 'Все' },
-  { id: 'activity:esoteric',    label: 'Места силы' },
-  { id: 'volcano',              label: 'Вулканы' },
-  { id: 'hot_spring',           label: 'Источники' },
-  { id: 'bay',                  label: 'Океан' },
-  { id: 'lake',                 label: 'Озёра' },
-  { id: 'mountain',             label: 'Горы' },
-  { id: 'river',                label: 'Реки' },
-  { id: 'geyser',               label: 'Гейзеры' },
-  { id: 'waterfall',            label: 'Водопады' },
-  { id: 'viewpoint',            label: 'Смотровые' },
-  { id: 'rock',                 label: 'Скалы' },
-  { id: 'island',               label: 'Острова' },
-  { id: 'beach',                label: 'Пляжи' },
-  { id: 'forest',               label: 'Леса и парки' },
-  { id: 'museum',               label: 'Музеи' },
-  { id: 'historical',           label: 'История' },
+  { id: 'all',                  label: 'Все',            icon: Target },
+  { id: 'activity:esoteric',    label: 'Места силы',     icon: MapPin },
+  { id: 'volcano',              label: 'Вулканы',        icon: MapPin },
+  { id: 'hot_spring',           label: 'Источники',      icon: MapPin },
+  { id: 'bay',                  label: 'Океан',          icon: MapPin },
+  { id: 'lake',                 label: 'Озёра',          icon: MapPin },
+  { id: 'mountain',             label: 'Горы',           icon: MapPin },
+  { id: 'river',                label: 'Реки',           icon: MapPin },
+  { id: 'geyser',               label: 'Гейзеры',        icon: MapPin },
+  { id: 'waterfall',            label: 'Водопады',       icon: MapPin },
+  { id: 'viewpoint',            label: 'Смотровые',      icon: MapPin },
+  { id: 'rock',                 label: 'Скалы',          icon: MapPin },
+  { id: 'island',               label: 'Острова',        icon: MapPin },
+  { id: 'beach',                label: 'Пляжи',          icon: MapPin },
+  { id: 'forest',               label: 'Леса и парки',   icon: MapPin },
+  { id: 'museum',               label: 'Музеи',          icon: MapPin },
+  { id: 'historical',           label: 'История',        icon: MapPin },
 ];
 
 // Фильтры для офлайн-режима (только критичные для безопасности)
@@ -397,7 +397,7 @@ export default function MapPageClient() {
         <div className="absolute bottom-0 left-0 right-0 z-[500]">
           <div className="bg-black/60  border-t border-white/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {OFFLINE_FILTERS.map(f => {
+              {filters.map(f => {
                 const cnt = countFor(f.id);
                 if (f.id !== 'all' && cnt === 0) return null;
                 const Icon = f.icon;
