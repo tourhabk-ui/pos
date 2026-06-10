@@ -123,6 +123,7 @@ export default function SafetyHubClient() {
   // Seismic
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
   const [seismicLoading, setSeismicLoading] = useState(false);
+  const [seismicLoaded, setSeismicLoaded] = useState(false);
   const [seismicError, setSeismicError] = useState<string | null>(null);
   const [seismicLastUpdate, setSeismicLastUpdate] = useState<Date | null>(null);
 
@@ -198,7 +199,7 @@ export default function SafetyHubClient() {
         setSeismicLastUpdate(new Date());
       })
       .catch(() => setSeismicError('Не удалось загрузить данные сейсмики'))
-      .finally(() => setSeismicLoading(false));
+      .finally(() => { setSeismicLoading(false); setSeismicLoaded(true); });
   }, []);
 
   useEffect(() => {
@@ -206,8 +207,8 @@ export default function SafetyHubClient() {
   }, [activeTab, weather, weatherLoading, fetchWeather]);
 
   useEffect(() => {
-    if (activeTab === 'seismic' && seismic.length === 0 && !seismicLoading) fetchSeismic();
-  }, [activeTab, seismic.length, seismicLoading, fetchSeismic]);
+    if (activeTab === 'seismic' && !seismicLoaded && !seismicLoading) fetchSeismic();
+  }, [activeTab, seismicLoaded, seismicLoading, fetchSeismic]);
 
   const fetchVolcanic = useCallback(() => {
     setVolcanicLoading(true);
