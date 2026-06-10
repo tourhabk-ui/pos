@@ -168,7 +168,7 @@ export default function OperatorRegister() {
 
         <p className="text-center text-xs text-[var(--text-muted)] mt-6">
           Уже есть аккаунт?{' '}
-          <Link href="/signin" className="text-[var(--ocean)] hover:underline">
+          <Link href="/auth/login" className="text-[var(--ocean)] hover:underline">
             Войти
           </Link>
           {' · '}
