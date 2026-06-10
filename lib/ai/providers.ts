@@ -52,8 +52,9 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 // Пробует несколько моделей по очереди — защита от rate limit одной модели.
 // Порядок: сначала быстрые и надёжные, timeout снижен до 12s
 const OR_MODELS = [
-  { id: 'anthropic/claude-fable-5',                     timeout: 20_000 }, // flagship — top quality
-  { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // fallback
+  { id: 'anthropic/claude-fable-5',                     timeout: 20_000 }, // flagship
+  { id: 'anthropic/claude-opus-4-8',                    timeout: 20_000 }, // flagship fallback (safety blocks)
+  { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // fast fallback
   { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias fallback
   { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // non-anthropic backup
   { id: 'meta-llama/llama-3.3-70b-instruct',            timeout: 12_000 }, // free fallback
@@ -416,6 +417,22 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      // Fable 5 safety classifier blocks (400) — retry with Opus 4.8
+      if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
+        const fb = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
+          signal: AbortSignal.timeout(20_000),
+        }).catch(() => null);
+        if (fb?.ok) {
+          const fd: unknown = await fb.json().catch(() => null);
+          if (fd && typeof fd === 'object' && 'content' in fd) {
+            const fc = (fd as { content: Array<Record<string, unknown>> }).content;
+            return typeof fc[0]?.text === 'string' ? fc[0].text : null;
+          }
+        }
+      }
       return null;
     }
 

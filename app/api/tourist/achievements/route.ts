@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     const result = await query<TouristAchievementRow>(
-      `SELECT * FROM tourist_achievements WHERE tourist_id = $1 ORDER BY earned_at DESC`,
+      `SELECT id, tourist_id, achievement_type, earned_at, metadata FROM tourist_achievements WHERE tourist_id = $1 ORDER BY earned_at DESC`,
       [profile.id]
     );
 
