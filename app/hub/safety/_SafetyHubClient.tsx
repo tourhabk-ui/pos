@@ -129,6 +129,7 @@ export default function SafetyHubClient() {
   // Volcanic
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
   const [volcanicLoading, setVolcanicLoading] = useState(false);
+  const [volcanicLoaded, setVolcanicLoaded] = useState(false);
   const [volcanicError, setVolcanicError] = useState<string | null>(null);
   const [volcanicLastUpdate, setVolcanicLastUpdate] = useState<Date | null>(null);
 
@@ -219,12 +220,12 @@ export default function SafetyHubClient() {
         setVolcanicLastUpdate(new Date());
       })
       .catch(() => setVolcanicError('Не удалось загрузить данные о вулканах'))
-      .finally(() => setVolcanicLoading(false));
+      .finally(() => { setVolcanicLoading(false); setVolcanicLoaded(true); });
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'volcanic' && volcanic.length === 0 && !volcanicLoading) fetchVolcanic();
-  }, [activeTab, volcanic.length, volcanicLoading, fetchVolcanic]);
+    if (activeTab === 'volcanic' && !volcanicLoaded && !volcanicLoading) fetchVolcanic();
+  }, [activeTab, volcanicLoaded, volcanicLoading, fetchVolcanic]);
 
   const handleSOS = useCallback(async () => {
     setSosStatus('locating');
