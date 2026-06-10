@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     const stats = await getTouristTravelStats(userOrResponse.userId);
 
     const achievementsResult = await query(
-      `SELECT * FROM tourist_achievements WHERE tourist_id = $1 ORDER BY earned_at DESC`,
+      `SELECT id, tourist_id, achievement_type, earned_at, metadata FROM tourist_achievements WHERE tourist_id = $1 ORDER BY earned_at DESC`,
       [profile.id]
     );
 
