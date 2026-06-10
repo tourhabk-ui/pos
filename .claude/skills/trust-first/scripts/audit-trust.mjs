@@ -2,11 +2,14 @@
 /**
  * Trust-First audit script — checks for safety anti-patterns.
  * Run: node .claude/skills/trust-first/scripts/audit-trust.mjs
+ * Flags: --report-only  → always exit 0 (for CI reporting without blocking)
  */
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const REPORT_ONLY = process.argv.includes('--report-only');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
@@ -58,11 +61,12 @@ const checks = [
     fileLevel: false,
   },
   {
-    name: 'Hardcoded route status "open"/"closed" (should be dynamic)',
+    // Only flag TS object literals hardcoding route status (colon assignment), not SQL WHERE clauses (equals)
+    name: 'Hardcoded route/place open-closed status (should be dynamic)',
     dirs: ['components', 'app'],
     exts: ['.tsx', '.ts'],
-    pattern: /"open"|"closed"|'open'|'closed'/,
-    message: 'Route open/closed status must come from real-time data, not hardcoded',
+    pattern: /is_open\s*:\s*(true|false)|route_status\s*:\s*["'](open|closed)["']|location_status\s*:\s*["'](open|closed)["']/,
+    message: 'Route/place open status must come from location_real_time_status table, not hardcoded',
     severity: 'ПРЕДУПРЕЖДЕНИЕ',
     fileLevel: false,
   },
@@ -165,4 +169,4 @@ if (findings['ПРЕДУПРЕЖДЕНИЕ'].length > 0) {
 
 const total = findings['КРИТИЧНО'].length + findings['ПРЕДУПРЕЖДЕНИЕ'].length;
 console.log(`ИТОГО: ${total} (критичных: ${findings['КРИТИЧНО'].length})\n`);
-if (findings['КРИТИЧНО'].length > 0) process.exit(1);
+if (findings['КРИТИЧНО'].length > 0 && !REPORT_ONLY) process.exit(1);
