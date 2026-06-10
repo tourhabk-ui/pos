@@ -159,3 +159,4 @@ scripts/research/reports/screenshots/
 *.tar.gz
 *.tar-*.gz
 content/places-update/*.png
+public/dark.jpg
