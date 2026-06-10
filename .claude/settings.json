@@ -46,6 +46,13 @@
             "if": "Bash(git commit*)",
             "timeout": 10,
             "statusMessage": "DB schema проверка..."
+          },
+          {
+            "type": "command",
+            "command": "result=$(node .claude/skills/kamchatka/scripts/audit.mjs --staged 2>&1); code=$?; if [ $code -eq 1 ]; then printf '{\"continue\": false, \"stopReason\": \"Audit --staged: критичные нарушения. %s\"}' \"$(echo \"$result\" | grep '\\[ \\]' | head -5 | tr '\\n' ' ')\"; exit 2; fi",
+            "if": "Bash(git commit*)",
+            "timeout": 30,
+            "statusMessage": "Audit staged файлов..."
           }
         ]
       }
