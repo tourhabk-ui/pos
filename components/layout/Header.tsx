@@ -2,10 +2,9 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sun, Moon, UserCircle, ShoppingCart, Search } from 'lucide-react';
+import { Sun, Moon, UserCircle, Search } from 'lucide-react';
 import { useScrollY } from '@/hooks/useScrollY';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useCart } from '@/contexts/CartContext';
 import { GeoToggle } from '@/components/geo/GeoToggle';
 import Logo from '@/components/shared/Logo';
 
@@ -30,7 +29,6 @@ export function Header() {
   const scrollY = useScrollY();
   const scrolled = scrollY > 60;
   const { isDark, toggleTheme } = useTheme();
-  const { count } = useCart();
   const iconColor = scrolled ? 'var(--text-secondary)' : 'rgba(255,255,255,0.85)';
   const iconBtn: React.CSSProperties = {
     ...iconBtnBase,
@@ -81,7 +79,6 @@ export function Header() {
         transform: 'translateX(-50%)',
       }} className="hidden lg:flex">
         {[
-          { href: '/marketplace', label: 'Туры' },
           { href: '/hub/fishing', label: 'Рыбалка' },
           { href: '/routes',      label: 'Маршруты' },
           { href: '/collections', label: 'Подборки' },
@@ -89,6 +86,7 @@ export function Header() {
           { href: '/accommodations', label: 'Жильё' },
           { href: '/ai-tools',    label: 'AI-арсенал' },
           { href: '/operators',   label: 'Операторы' },
+          { href: '/catalog',     label: 'Туры' },
         ].map(item => (
           <Link
             key={item.href}
@@ -134,37 +132,6 @@ export function Header() {
         >
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
-
-        {/* Cart */}
-        <Link
-          href="/cart"
-          aria-label="Корзина"
-          style={{ ...iconBtn, position: 'relative' }}
-          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-        >
-          <ShoppingCart size={18} />
-          {count > 0 && (
-            <span style={{
-              position: 'absolute',
-              top: '0px',
-              right: '0px',
-              minWidth: '14px',
-              height: '14px',
-              borderRadius: '7px',
-              background: 'var(--accent)',
-              color: '#fff',
-              fontSize: '9px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0 2px',
-              lineHeight: 1,
-            }}>
-              {count}
-            </span>
-          )}
-        </Link>
 
         {/* Profile */}
         <Link
