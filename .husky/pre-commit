@@ -11,7 +11,7 @@ ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true
 
 if [ -n "$ALL_STAGED" ]; then
   secret_hits=$(echo "$ALL_STAGED" | xargs grep -rnE \
-    '[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|sk-ant-api03-[A-Za-z0-9_-]{90,}|sk-or-v1-[A-Za-z0-9_-]{60,}|xai-[A-Za-z0-9]{50,}|AKIA[A-Z0-9]{16}|cp-[a-f0-9]{32}' \
+    '[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|sk-ant-api03-[A-Za-z0-9_-]{30,}|sk-or-v1-[A-Za-z0-9_-]{30,}|xai-[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|cp-[a-f0-9]{32}' \
     2>/dev/null \
     | grep -v "node_modules\|\.next\|// allow-secret:\|example\|placeholder\|your-" \
     || true)
