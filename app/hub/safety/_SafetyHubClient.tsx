@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame } from 'lucide-react';
+import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame, WifiOff } from 'lucide-react';
+import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
 interface RescueMessage {
   role: 'user' | 'assistant';
@@ -55,7 +56,7 @@ interface VolcanicEvent {
   source_url: string | null;
 }
 
-type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'error';
+type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
 const EMERGENCY_CONTACTS = [
   { name: 'Единая служба спасения', number: '112' },
@@ -254,6 +255,15 @@ export default function SafetyHubClient() {
 
     setSosStatus('sending');
 
+    // IndexedDB payload saved BEFORE network — coordinates survive offline
+    const sosPayload = {
+      lat:           latitude   ?? null,
+      lng:           longitude  ?? null,
+      accuracy:      null,
+      tourist_name:  touristName.trim()  || null,
+      tourist_phone: touristPhone.trim() || null,
+    };
+
     try {
       const res = await fetch('/api/safety/sos', {
         method: 'POST',
@@ -274,8 +284,16 @@ export default function SafetyHubClient() {
         setSosStatus('error');
       }
     } catch {
-      setSosError('Нет соединения с сервером');
-      setSosStatus('error');
+      // Офлайн: сохраняем координаты в IndexedDB, Background Sync доставит при связи
+      try {
+        await queueSOS(sosPayload);
+        await registerSOSSync();
+        setSosError(null);
+        setSosStatus('queued');
+      } catch {
+        setSosError('Нет связи. Звоните 112 напрямую.');
+        setSosStatus('error');
+      }
     }
   }, [coords]);
 
@@ -453,7 +471,7 @@ export default function SafetyHubClient() {
                   onChange={e => setTouristName(e.target.value)}
                   placeholder="Иван Иванов"
                   className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent'}
+                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
                 />
               </div>
               <div>
@@ -467,7 +485,7 @@ export default function SafetyHubClient() {
                   onChange={e => setTouristPhone(e.target.value)}
                   placeholder="+7 900 000 00 00"
                   className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent'}
+                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
                 />
               </div>
             </div>
@@ -503,12 +521,23 @@ export default function SafetyHubClient() {
                 </button>
               </div>
             )}
+            {sosStatus === 'queued' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2" style={{ color: 'var(--warning)' }}>
+                  <WifiOff className="w-5 h-5" />
+                  <p className="text-base font-bold">Сохранено — отправится при связи</p>
+                </div>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Координаты записаны офлайн. Звоните <a href="tel:112" className="font-bold underline">112</a>
+                </p>
+              </div>
+            )}
             {sosStatus === 'error' && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold" style={{ color: 'var(--danger)' }}>
                   {sosError}
                 </p>
-                <p className="text-sm text-[var(--text-muted)]">Звоните напрямую: 112</p>
+                <p className="text-sm text-[var(--text-muted)]">Звоните напрямую: <a href="tel:112" className="font-bold underline">112</a></p>
                 <button
                   onClick={() => { setSosStatus('idle'); setSosError(null); }}
                   className="mt-1 px-4 py-1.5 text-sm border border-[var(--border)] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
