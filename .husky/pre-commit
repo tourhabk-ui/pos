@@ -6,6 +6,24 @@ ERRORS=0
 red()  { echo -e "\033[31m$*\033[0m"; }
 warn() { echo -e "\033[33m$*\033[0m"; }
 
+# ── СЕКРЕТЫ: проверяем ВСЕ staged-файлы (не только .ts) ─────────
+ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
+
+if [ -n "$ALL_STAGED" ]; then
+  secret_hits=$(echo "$ALL_STAGED" | xargs grep -rnE \
+    '[0-9]{8,10}:AA[A-Za-z0-9_-]{33}|sk-ant-api03-[A-Za-z0-9_-]{90,}|sk-or-v1-[A-Za-z0-9_-]{60,}|xai-[A-Za-z0-9]{50,}|AKIA[A-Z0-9]{16}|cp-[a-f0-9]{32}' \
+    2>/dev/null \
+    | grep -v "node_modules\|\.next\|// allow-secret:\|example\|placeholder\|your-" \
+    || true)
+  if [ -n "$secret_hits" ]; then
+    red "СЕКРЕТ В КОДЕ: обнаружен ключ API или токен в staged-файлах!"
+    echo "$secret_hits" | sed 's/\(.\{0,6\}\)\(.\{20,\}\)\(.\{6\}\)/\1***REDACTED***\3/' | head -5
+    red "Удали секрет из файла. Если уже скомпрометирован — отзови через провайдера."
+    red "Храни секреты только в .env.local (он в .gitignore)."
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
 # Только изменённые .ts / .tsx файлы
 CHANGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' || true)
 [ -z "$CHANGED" ] && exit 0
