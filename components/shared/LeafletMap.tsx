@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import 'leaflet.markercluster';
 
 export { MarkerType } from '@/components/shared/leaflet-types';
 export type { MapMarkerGeometry, MapMarker } from '@/components/shared/leaflet-types';

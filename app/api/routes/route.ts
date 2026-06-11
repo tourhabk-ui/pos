@@ -82,26 +82,27 @@ function getCategoryFallbackImage(category: string | null): string | null {
 /**
  * Определение опасностей на основе данных точки/маршрута.
  */
-function resolveHazards(row: any): string[] {
+function resolveHazards(row: Record<string, unknown>): string[] {
   const hazards: string[] = [];
-  const payload = row.payload || {};
-  
+  const payload = (typeof row.payload === 'object' && row.payload !== null ? row.payload : {}) as Record<string, unknown>;
+  const desc = typeof row.description === 'string' ? row.description.toLowerCase() : '';
+
   if (row.volcano_status && row.volcano_status !== 'green' && row.volcano_status !== 'normal') {
     hazards.push('volcano_activity');
   }
-  if (payload.has_bears || row.description?.toLowerCase().includes('медвед')) {
+  if (payload.has_bears || desc.includes('медвед')) {
     hazards.push('bears_active');
   }
   if (payload.difficulty === 'hard' || payload.difficulty === 'extreme') {
     hazards.push('high_difficulty');
   }
-  if (payload.requires_permit || row.description?.toLowerCase().includes('разрешен') || row.description?.toLowerCase().includes('пропуск')) {
+  if (payload.requires_permit || desc.includes('разрешен') || desc.includes('пропуск')) {
     hazards.push('permit_required');
   }
-  if (payload.weather_unstable || row.description?.toLowerCase().includes('погода изменчива')) {
+  if (payload.weather_unstable || desc.includes('погода изменчива')) {
     hazards.push('weather_risk');
   }
-  
+
   return hazards;
 }
 

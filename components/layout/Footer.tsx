@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { Send } from 'lucide-react';
 
 const PLATFORM = [
-  { label: 'Туры', href: '/marketplace' },
+  { label: 'Туры', href: '/catalog' },
   { label: 'Камчатская рыбалка', href: '/hub/fishing' },
   { label: 'Маршруты', href: '/routes' },
   { label: 'Карта Камчатки', href: '/map' },
@@ -49,7 +49,7 @@ export function Footer() {
               </span>
             </Link>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed max-w-xs">
-              Туристическая платформа Камчатки. Туры, трансферы, гиды — всё в одном месте.
+              Ведар — полевой инструмент Камчатки. Маршруты, опасности, регистрация, SOS.
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-4">
               info@vedarai.ru
@@ -122,8 +122,8 @@ export function Footer() {
             © {new Date().getFullYear()} ООО «ПОС-СЕРВИС» (ИНН 4101147649). Все права защищены.
           </p>
           <div className="flex items-center gap-4">
-            <Link href="/sos" className="text-xs text-red-500 hover:text-red-400 font-semibold transition-colors flex items-center gap-1">
-              <span>🆘</span> SOS
+            <Link href="/sos" className="text-xs text-red-500 hover:text-red-400 font-semibold transition-colors">
+              SOS
             </Link>
             <p className="text-xs text-[var(--text-muted)]">
               683024, Камчатский край, г. Петропавловск-Камчатский
