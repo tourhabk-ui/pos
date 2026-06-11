@@ -52,10 +52,12 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 // Пробует несколько моделей по очереди — защита от rate limit одной модели.
 // Порядок: сначала быстрые и надёжные, timeout снижен до 12s
 const OR_MODELS = [
-  { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // подтверждён на этом OR-ключе
-  { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias резерв
-  { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // резерв
-  { id: 'meta-llama/llama-3.3-70b-instruct',            timeout: 12_000 }, // бесплатный резерв
+  { id: 'anthropic/claude-fable-5',                     timeout: 20_000 }, // flagship
+  { id: 'anthropic/claude-opus-4-8',                    timeout: 20_000 }, // flagship fallback (safety blocks)
+  { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // fast fallback
+  { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias fallback
+  { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // non-anthropic backup
+  { id: 'meta-llama/llama-3.3-70b-instruct',            timeout: 12_000 }, // free fallback
 ];
 
 // If OpenRouter returns auth errors (401), avoid repeated slow failures.
@@ -404,17 +406,33 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
         'anthropic-beta': 'prompt-caching-2024-07-31',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: process.env.ANTHROPIC_MODEL ?? 'claude-fable-5',
         max_tokens: 800,
         temperature: 0.4,
         ...(systemMsg ? { system: buildSystemBlocks(systemMsg.content) } : {}),
         messages: anthropicMessages,
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      // Fable 5 safety classifier blocks (400) — retry with Opus 4.8
+      if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
+        const fb = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
+          signal: AbortSignal.timeout(20_000),
+        }).catch(() => null);
+        if (fb?.ok) {
+          const fd: unknown = await fb.json().catch(() => null);
+          if (fd && typeof fd === 'object' && 'content' in fd) {
+            const fc = (fd as { content: Array<Record<string, unknown>> }).content;
+            return typeof fc[0]?.text === 'string' ? fc[0].text : null;
+          }
+        }
+      }
       return null;
     }
 
@@ -1442,7 +1460,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, temperature: 0.4, ...(systemMsg ? { system: systemMsg.content } : {}), messages: anthropicMessages }),
+          body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? 'claude-fable-5', max_tokens: 200, temperature: 0.4, ...(systemMsg ? { system: systemMsg.content } : {}), messages: anthropicMessages }),
           signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;

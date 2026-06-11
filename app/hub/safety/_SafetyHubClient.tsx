@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame } from 'lucide-react';
+import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame, WifiOff } from 'lucide-react';
+import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
 interface RescueMessage {
   role: 'user' | 'assistant';
@@ -55,7 +56,7 @@ interface VolcanicEvent {
   source_url: string | null;
 }
 
-type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'error';
+type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
 const EMERGENCY_CONTACTS = [
   { name: 'Единая служба спасения', number: '112' },
@@ -123,12 +124,14 @@ export default function SafetyHubClient() {
   // Seismic
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
   const [seismicLoading, setSeismicLoading] = useState(false);
+  const [seismicLoaded, setSeismicLoaded] = useState(false);
   const [seismicError, setSeismicError] = useState<string | null>(null);
   const [seismicLastUpdate, setSeismicLastUpdate] = useState<Date | null>(null);
 
   // Volcanic
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
   const [volcanicLoading, setVolcanicLoading] = useState(false);
+  const [volcanicLoaded, setVolcanicLoaded] = useState(false);
   const [volcanicError, setVolcanicError] = useState<string | null>(null);
   const [volcanicLastUpdate, setVolcanicLastUpdate] = useState<Date | null>(null);
 
@@ -197,7 +200,7 @@ export default function SafetyHubClient() {
         setSeismicLastUpdate(new Date());
       })
       .catch(() => setSeismicError('Не удалось загрузить данные сейсмики'))
-      .finally(() => setSeismicLoading(false));
+      .finally(() => { setSeismicLoading(false); setSeismicLoaded(true); });
   }, []);
 
   useEffect(() => {
@@ -205,8 +208,8 @@ export default function SafetyHubClient() {
   }, [activeTab, weather, weatherLoading, fetchWeather]);
 
   useEffect(() => {
-    if (activeTab === 'seismic' && seismic.length === 0 && !seismicLoading) fetchSeismic();
-  }, [activeTab, seismic.length, seismicLoading, fetchSeismic]);
+    if (activeTab === 'seismic' && !seismicLoaded && !seismicLoading) fetchSeismic();
+  }, [activeTab, seismicLoaded, seismicLoading, fetchSeismic]);
 
   const fetchVolcanic = useCallback(() => {
     setVolcanicLoading(true);
@@ -219,12 +222,12 @@ export default function SafetyHubClient() {
         setVolcanicLastUpdate(new Date());
       })
       .catch(() => setVolcanicError('Не удалось загрузить данные о вулканах'))
-      .finally(() => setVolcanicLoading(false));
+      .finally(() => { setVolcanicLoading(false); setVolcanicLoaded(true); });
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'volcanic' && volcanic.length === 0 && !volcanicLoading) fetchVolcanic();
-  }, [activeTab, volcanic.length, volcanicLoading, fetchVolcanic]);
+    if (activeTab === 'volcanic' && !volcanicLoaded && !volcanicLoading) fetchVolcanic();
+  }, [activeTab, volcanicLoaded, volcanicLoading, fetchVolcanic]);
 
   const handleSOS = useCallback(async () => {
     setSosStatus('locating');
@@ -252,6 +255,15 @@ export default function SafetyHubClient() {
 
     setSosStatus('sending');
 
+    // IndexedDB payload saved BEFORE network — coordinates survive offline
+    const sosPayload = {
+      lat:           latitude   ?? null,
+      lng:           longitude  ?? null,
+      accuracy:      null,
+      tourist_name:  touristName.trim()  || null,
+      tourist_phone: touristPhone.trim() || null,
+    };
+
     try {
       const res = await fetch('/api/safety/sos', {
         method: 'POST',
@@ -272,8 +284,16 @@ export default function SafetyHubClient() {
         setSosStatus('error');
       }
     } catch {
-      setSosError('Нет соединения с сервером');
-      setSosStatus('error');
+      // Офлайн: сохраняем координаты в IndexedDB, Background Sync доставит при связи
+      try {
+        await queueSOS(sosPayload);
+        await registerSOSSync();
+        setSosError(null);
+        setSosStatus('queued');
+      } catch {
+        setSosError('Нет связи. Звоните 112 напрямую.');
+        setSosStatus('error');
+      }
     }
   }, [coords]);
 
@@ -451,7 +471,7 @@ export default function SafetyHubClient() {
                   onChange={e => setTouristName(e.target.value)}
                   placeholder="Иван Иванов"
                   className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent'}
+                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
                 />
               </div>
               <div>
@@ -465,7 +485,7 @@ export default function SafetyHubClient() {
                   onChange={e => setTouristPhone(e.target.value)}
                   placeholder="+7 900 000 00 00"
                   className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent'}
+                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
                 />
               </div>
             </div>
@@ -501,12 +521,23 @@ export default function SafetyHubClient() {
                 </button>
               </div>
             )}
+            {sosStatus === 'queued' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2" style={{ color: 'var(--warning)' }}>
+                  <WifiOff className="w-5 h-5" />
+                  <p className="text-base font-bold">Сохранено — отправится при связи</p>
+                </div>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Координаты записаны офлайн. Звоните <a href="tel:112" className="font-bold underline">112</a>
+                </p>
+              </div>
+            )}
             {sosStatus === 'error' && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold" style={{ color: 'var(--danger)' }}>
                   {sosError}
                 </p>
-                <p className="text-sm text-[var(--text-muted)]">Звоните напрямую: 112</p>
+                <p className="text-sm text-[var(--text-muted)]">Звоните напрямую: <a href="tel:112" className="font-bold underline">112</a></p>
                 <button
                   onClick={() => { setSosStatus('idle'); setSosError(null); }}
                   className="mt-1 px-4 py-1.5 text-sm border border-[var(--border)] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"

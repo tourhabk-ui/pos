@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+/**
+ * Trust-First audit script — checks for safety anti-patterns.
+ * Run: node .claude/skills/trust-first/scripts/audit-trust.mjs
+ * Flags: --report-only  → always exit 0 (for CI reporting without blocking)
+ */
+
+import { readdir, readFile } from 'node:fs/promises';
+import { join, dirname, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPORT_ONLY = process.argv.includes('--report-only');
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
+async function walkFiles(dir, exts) {
+  const results = [];
+  async function walk(current) {
+    let entries;
+    try { entries = await readdir(current, { withFileTypes: true }); }
+    catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === '.next') continue;
+      const full = join(current, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (exts.some(ext => e.name.endsWith(ext))) results.push(full);
+    }
+  }
+  await walk(join(ROOT, dir));
+  return results;
+}
+
+const checks = [
+  {
+    name: 'SOS fetch() without IndexedDB fallback',
+    dirs: ['components', 'app'],
+    exts: ['.tsx', '.ts'],
+    // Only match fetch to actual SOS/emergency signal endpoints, not any file mentioning "sos" or safety data reads
+    pattern: /fetch\(\s*['"`][^'"`]*\/api\/(?:safety\/sos|sos(?:\/|$)|emergency\/sos)[^'"`]*['"`]/i,
+    // Also recognise projects that abstract IndexedDB behind a helper (queueSOS, pending-queue, etc.)
+    antipattern: /indexedDB|idb|localforage|dexie|queueSOS|pending-queue/i,
+    message: 'SOS must save to IndexedDB BEFORE network call — works offline',
+    severity: 'КРИТИЧНО',
+    fileLevel: true,
+  },
+  {
+    name: 'Emergency phone number as plain text (not tel: link)',
+    dirs: ['components', 'app'],
+    exts: ['.tsx'],
+    // Require trigger words before "112" to avoid statistics ("112 гидов")
+    // МЧС.*телефон intentionally removed — too broad, matches section headings like "По телефону МЧС"
+    pattern: /(?:звоните?|позвоните?|вызовите?|call)\s+112\b/i,
+    // Match all tel: link formats: href="tel:...", href='tel:...', href={`tel:...`}
+    antipattern: /tel:\d|href=\{[^}]*tel:/,
+    message: 'Emergency numbers must be <a href="tel:..."> for mobile tap-to-call',
+    severity: 'КРИТИЧНО',
+    fileLevel: true,
+    // Skip content-only dirs where tel: links can't be added (markdown, AI responses)
+    exclude: /\/(?:blog|ai-assistant)\//,
+  },
+  {
+    name: '"price_from" shown without date/validity',
+    dirs: ['components', 'app'],
+    exts: ['.tsx'],
+    pattern: /price_from|priceFrom|от\s+\d/,
+    message: 'Price display — verify it includes last-updated date or validity period',
+    severity: 'ПРЕДУПРЕЖДЕНИЕ',
+    fileLevel: false,
+  },
+  {
+    // Only flag TS object literals hardcoding route status (colon assignment), not SQL WHERE clauses (equals)
+    name: 'Hardcoded route/place open-closed status (should be dynamic)',
+    dirs: ['components', 'app'],
+    exts: ['.tsx', '.ts'],
+    pattern: /is_open\s*:\s*(true|false)|route_status\s*:\s*["'](open|closed)["']|location_status\s*:\s*["'](open|closed)["']/,
+    message: 'Route/place open status must come from location_real_time_status table, not hardcoded',
+    severity: 'ПРЕДУПРЕЖДЕНИЕ',
+    fileLevel: false,
+  },
+  {
+    name: 'SELECT * on safety-critical tables',
+    dirs: ['app', 'lib'],
+    exts: ['.ts'],
+    pattern: /SELECT\s+\*.*(?:location_safety|sos|mchs|emergency)/i,
+    message: 'SELECT * on safety tables — use explicit columns to prevent data leaks',
+    severity: 'КРИТИЧНО',
+    fileLevel: false,
+  },
+  {
+    name: 'Missing mchs_registration_required check in route display',
+    dirs: ['app/routes', 'app/places'],
+    exts: ['.tsx'],
+    pattern: /mchs_registration_required|MCHSRegistration/,
+    antipattern: /mchs_registration_required/,
+    message: 'Route pages should show MChS registration requirement when applicable',
+    severity: 'ПРЕДУПРЕЖДЕНИЕ',
+    fileLevel: true,
+    invertCheck: true,
+  },
+];
+
+const findings = { 'КРИТИЧНО': [], 'ПРЕДУПРЕЖДЕНИЕ': [] };
+
+for (const check of checks) {
+  if (check.fileLevel && check.antipattern && !check.invertCheck) {
+    // File-level: flag files that match pattern but lack antipattern (safeguard)
+    const files = [];
+    for (const dir of check.dirs) {
+      files.push(...await walkFiles(dir, check.exts));
+    }
+    for (const file of files.filter(f => !(check.exclude && check.exclude.test(f)))) {
+      let content;
+      try { content = await readFile(file, 'utf8'); }
+      catch { continue; }
+      if (check.pattern.test(content) && !check.antipattern.test(content)) {
+        findings[check.severity].push({
+          file: relative(ROOT, file),
+          line: '(file)',
+          check: check.name,
+          message: check.message,
+        });
+      }
+    }
+  } else {
+    // Line-level check
+    const files = [];
+    for (const dir of check.dirs) {
+      try { files.push(...await walkFiles(dir, check.exts)); }
+      catch { continue; }
+    }
+    for (const file of files) {
+      let content;
+      try { content = await readFile(file, 'utf8'); }
+      catch { continue; }
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (check.pattern.test(lines[i])) {
+          findings[check.severity].push({
+            file: relative(ROOT, file),
+            line: i + 1,
+            check: check.name,
+            message: check.message,
+          });
+          break; // one finding per file for line-level checks
+        }
+      }
+    }
+  }
+}
+
+const date = new Date().toISOString().slice(0, 10);
+console.log(`\nTRUST AUDIT: KamchatourHub\nДата: ${date}\n`);
+
+if (findings['КРИТИЧНО'].length === 0 && findings['ПРЕДУПРЕЖДЕНИЕ'].length === 0) {
+  console.log('✅ Нарушений не найдено — платформа соответствует trust-first стандарту.\n');
+  process.exit(0);
+}
+
+if (findings['КРИТИЧНО'].length > 0) {
+  console.log(`КРИТИЧНЫЕ (${findings['КРИТИЧНО'].length}):`);
+  for (const f of findings['КРИТИЧНО']) {
+    console.log(`  [ ] ${f.file}:${f.line}`);
+    console.log(`      ${f.check}`);
+    console.log(`      → ${f.message}`);
+  }
+  console.log('');
+}
+
+if (findings['ПРЕДУПРЕЖДЕНИЕ'].length > 0) {
+  console.log(`ПРЕДУПРЕЖДЕНИЯ (${findings['ПРЕДУПРЕЖДЕНИЕ'].length}):`);
+  for (const f of findings['ПРЕДУПРЕЖДЕНИЕ']) {
+    console.log(`  [ ] ${f.file}:${f.line} — ${f.check}`);
+  }
+  console.log('');
+}
+
+const total = findings['КРИТИЧНО'].length + findings['ПРЕДУПРЕЖДЕНИЕ'].length;
+console.log(`ИТОГО: ${total} (критичных: ${findings['КРИТИЧНО'].length})\n`);
+if (findings['КРИТИЧНО'].length > 0 && !REPORT_ONLY) process.exit(1);
