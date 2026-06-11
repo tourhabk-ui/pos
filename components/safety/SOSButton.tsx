@@ -2,9 +2,10 @@
 
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, Phone, User, MapPin, AlertTriangle, Loader2, CheckCircle } from 'lucide-react';
+import { ShieldCheck, Phone, User, MapPin, AlertTriangle, Loader2, CheckCircle, WifiOff } from 'lucide-react';
+import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
-type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'error';
+type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
 function SOSButton({ className = '' }: { className?: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,7 +16,7 @@ function SOSButton({ className = '' }: { className?: string }) {
   const [touristPhone, setTouristPhone] = useState('');
 
   const handleSendCoords = useCallback(async () => {
-    if (sosStatus === 'sending' || sosStatus === 'sent') return;
+    if (sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued') return;
 
     setSosStatus('locating');
     setErrorMsg(null);
@@ -43,17 +44,19 @@ function SOSButton({ className = '' }: { className?: string }) {
 
     setSosStatus('sending');
 
+    const sosPayload = {
+      lat:           position?.coords.latitude  ?? null,
+      lng:           position?.coords.longitude ?? null,
+      accuracy:      position?.coords.accuracy  ?? null,
+      tourist_name:  touristName.trim() || null,
+      tourist_phone: touristPhone.trim() || null,
+    };
+
     try {
       const res = await fetch('/api/safety/sos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lat:           position?.coords.latitude  ?? null,
-          lng:           position?.coords.longitude ?? null,
-          accuracy:      position?.coords.accuracy  ?? null,
-          tourist_name:  touristName.trim() || undefined,
-          tourist_phone: touristPhone.trim() || undefined,
-        }),
+        body: JSON.stringify(sosPayload),
       });
 
       if (res.status === 429) {
@@ -64,8 +67,16 @@ function SOSButton({ className = '' }: { className?: string }) {
 
       setSosStatus('sent');
     } catch {
-      setErrorMsg('Ошибка отправки. Звоните 112 напрямую.');
-      setSosStatus('error');
+      // Офлайн: сохраняем координаты в IndexedDB и регистрируем Background Sync
+      try {
+        await queueSOS(sosPayload);
+        await registerSOSSync();
+        setErrorMsg(null);
+        setSosStatus('queued');
+      } catch {
+        setErrorMsg('Ошибка. Звоните 112 напрямую.');
+        setSosStatus('error');
+      }
     }
   }, [sosStatus, touristName, touristPhone]);
 
@@ -190,15 +201,17 @@ function SOSButton({ className = '' }: { className?: string }) {
 
                 <motion.button
                   className="w-full flex items-center justify-between p-4 bg-[var(--success)] text-[var(--bg-card)] rounded-lg font-semibold min-h-[44px] disabled:opacity-60"
-                  whileHover={{ scale: sosStatus === 'sent' ? 1 : 1.02 }}
+                  whileHover={{ scale: (sosStatus === 'sent' || sosStatus === 'queued') ? 1 : 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleSendCoords}
-                  disabled={sosStatus === 'sending' || sosStatus === 'locating' || sosStatus === 'sent'}
+                  disabled={sosStatus === 'sending' || sosStatus === 'locating' || sosStatus === 'sent' || sosStatus === 'queued'}
                   aria-label="Отправить координаты"
                 >
                   <div className="flex items-center gap-3">
                     {sosStatus === 'sent' ? (
                       <CheckCircle size={20} aria-hidden="true" />
+                    ) : sosStatus === 'queued' ? (
+                      <WifiOff size={20} aria-hidden="true" />
                     ) : (sosStatus === 'locating' || sosStatus === 'sending') ? (
                       <Loader2 size={20} className="animate-spin" aria-hidden="true" />
                     ) : (
@@ -207,6 +220,7 @@ function SOSButton({ className = '' }: { className?: string }) {
                     {sosStatus === 'locating' && 'Определяю координаты...'}
                     {sosStatus === 'sending' && 'Отправляю...'}
                     {sosStatus === 'sent' && 'Координаты отправлены'}
+                    {sosStatus === 'queued' && 'Сохранено — отправится при связи'}
                     {(sosStatus === 'idle' || sosStatus === 'error') && 'Отправить координаты'}
                   </div>
                   {(sosStatus === 'idle' || sosStatus === 'error') && <span>ОТПРАВИТЬ</span>}
