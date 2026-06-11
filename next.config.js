@@ -62,6 +62,15 @@ const nextConfig = {
 
   async headers() {
     return [
+      // HTML-страницы не должны кэшироваться на CDN/прокси —
+      // «статус дня» и персональные данные не должны отдаваться из edge-кэша
+      {
+        source: '/((?!_next/static|_next/image|icons|images|favicon).*)',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
+          { key: 'Surrogate-Control', value: 'no-store' },
+        ],
+      },
       {
         source: '/widget/:path*',
         headers: [
