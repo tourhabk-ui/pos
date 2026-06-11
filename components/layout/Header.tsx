@@ -58,7 +58,7 @@ export function Header() {
       {/* Logo */}
       <Link
         href="/"
-        aria-label="KamchatourHub"
+        aria-label="Ведар"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -81,6 +81,7 @@ export function Header() {
         {[
           { href: '/hub/fishing', label: 'Рыбалка' },
           { href: '/routes',      label: 'Маршруты' },
+          { href: '/safety',      label: 'Безопасность' },
           { href: '/collections', label: 'Подборки' },
           { href: '/map',         label: 'Карта' },
           { href: '/accommodations', label: 'Жильё' },
