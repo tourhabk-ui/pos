@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
 import loadDynamic from 'next/dynamic'
+import { pool } from '@/lib/db-pool'
 import { Header } from '@/components/layout/Header'
-import { HeroPersonalized } from '@/components/homepage/HeroPersonalized'
+import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
 import { StoriesRail } from '@/components/homepage/StoriesRail'
 import { TravelerCard } from '@/components/homepage/TravelerCard'
 import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
@@ -21,6 +22,48 @@ export const dynamic = 'force-dynamic'
 const BottomNav = loadDynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = loadDynamic(() => import('@/components/shared/SOSButton'));
 
+async function getSafetyStatus(): Promise<SafetyStatusData | null> {
+  try {
+    const [alertsRes, ingestRes] = await Promise.all([
+      pool.query<{
+        max_severity: string;
+        active_count: string;
+        top_title: string | null;
+        top_type: string | null;
+      }>(`
+        SELECT
+          COALESCE(MAX(severity), 0)::text AS max_severity,
+          COUNT(*)::text                   AS active_count,
+          (SELECT title FROM external_alerts
+           WHERE expires_at > NOW()
+           ORDER BY severity DESC, created_at DESC
+           LIMIT 1)                        AS top_title,
+          (SELECT alert_type FROM external_alerts
+           WHERE expires_at > NOW()
+           ORDER BY severity DESC, created_at DESC
+           LIMIT 1)                        AS top_type
+        FROM external_alerts
+        WHERE expires_at > NOW()
+      `),
+      pool.query<{ last_update: string | null }>(`
+        SELECT MAX(updated_at)::text AS last_update FROM location_real_time_status
+      `),
+    ]);
+    const row = alertsRes.rows[0];
+    return {
+      hasAlert: parseInt(row?.active_count ?? '0') > 0,
+      maxSeverity: parseInt(row?.max_severity ?? '0'),
+      activeCount: parseInt(row?.active_count ?? '0'),
+      topTitle: row?.top_title ?? null,
+      topType: row?.top_type ?? null,
+      dataUpdatedAt: ingestRes.rows[0]?.last_update ?? null,
+      source: 'КБГС РАН',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const metadata: Metadata = {
   title: 'Ведар — помощник и планировщик путешествия по Камчатке',
   description: 'Ведар помогает спланировать честное и безопасное путешествие по Камчатке.',
@@ -36,14 +79,17 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
+  const safety = await getSafetyStatus();
+  const fetchedAt = new Date().toISOString();
+
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <OnSiteBanner />
       <main className="flex-1 pt-[56px]">
 
-        {/* Personalized hero — greeting + weather + CTA */}
-        <HeroPersonalized />
+        {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
+        <HeroStatus safety={safety} fetchedAt={fetchedAt} />
 
         {/* Stories rail */}
         <StoriesRail />
