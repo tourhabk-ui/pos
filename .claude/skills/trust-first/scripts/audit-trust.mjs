@@ -32,10 +32,11 @@ async function walkFiles(dir, exts) {
 
 const checks = [
   {
-    name: 'SOS button calls fetch() without IndexedDB fallback',
+    name: 'SOS fetch() without IndexedDB fallback',
     dirs: ['components', 'app'],
     exts: ['.tsx', '.ts'],
-    pattern: /sos.*fetch\(|fetch\(.*sos/i,
+    // Only match fetch to actual SOS/emergency signal endpoints, not any file mentioning "sos" or safety data reads
+    pattern: /fetch\(\s*['"`][^'"`]*\/api\/(?:safety\/sos|sos(?:\/|$)|emergency\/sos)[^'"`]*['"`]/i,
     antipattern: /indexedDB|idb|localforage|dexie/i,
     message: 'SOS must save to IndexedDB BEFORE network call — works offline',
     severity: 'КРИТИЧНО',
@@ -45,11 +46,16 @@ const checks = [
     name: 'Emergency phone number as plain text (not tel: link)',
     dirs: ['components', 'app'],
     exts: ['.tsx'],
-    pattern: /\b112\b|МЧС.*телефон|телефон.*МЧС/,
-    antipattern: /href="tel:/,
+    // Require trigger words before "112" to avoid statistics ("112 гидов")
+    // МЧС.*телефон intentionally removed — too broad, matches section headings like "По телефону МЧС"
+    pattern: /(?:звоните?|позвоните?|вызовите?|call)\s+112\b/i,
+    // Match all tel: link formats: href="tel:...", href='tel:...', href={`tel:...`}
+    antipattern: /tel:\d|href=\{[^}]*tel:/,
     message: 'Emergency numbers must be <a href="tel:..."> for mobile tap-to-call',
     severity: 'КРИТИЧНО',
     fileLevel: true,
+    // Skip content-only dirs where tel: links can't be added (markdown, AI responses)
+    exclude: /\/(?:blog|ai-assistant)\//,
   },
   {
     name: '"price_from" shown without date/validity',
@@ -101,7 +107,7 @@ for (const check of checks) {
     for (const dir of check.dirs) {
       files.push(...await walkFiles(dir, check.exts));
     }
-    for (const file of files) {
+    for (const file of files.filter(f => !(check.exclude && check.exclude.test(f)))) {
       let content;
       try { content = await readFile(file, 'utf8'); }
       catch { continue; }
