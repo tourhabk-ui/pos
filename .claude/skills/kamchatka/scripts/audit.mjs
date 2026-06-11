@@ -174,7 +174,7 @@ if (STAGED_MODE) {
 
 // --- Run checks ---
 const findings = { 'КРИТИЧНО': [], 'ПРЕДУПРЕЖДЕНИЕ': [] };
-let totalChecked = 0;
+const checkedFiles = new Set();
 
 for (const check of checks) {
   let files;
@@ -197,7 +197,7 @@ for (const check of checks) {
     let content;
     try { content = await readFile(file, 'utf8'); }
     catch { continue; }
-    totalChecked++;
+    checkedFiles.add(file);
 
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -241,6 +241,6 @@ if (findings['ПРЕДУПРЕЖДЕНИЕ'].length > 0) {
 
 const total = findings['КРИТИЧНО'].length + findings['ПРЕДУПРЕЖДЕНИЕ'].length;
 console.log(`ИТОГО: ${total} нарушений (критичных: ${findings['КРИТИЧНО'].length}, предупреждений: ${findings['ПРЕДУПРЕЖДЕНИЕ'].length})`);
-console.log(`Проверено файлов: ${totalChecked}\n`);
+console.log(`Проверено файлов: ${checkedFiles.size}\n`);
 
 if (findings['КРИТИЧНО'].length > 0 && !REPORT_ONLY) process.exit(1);
