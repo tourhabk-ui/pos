@@ -37,7 +37,8 @@ const checks = [
     exts: ['.tsx', '.ts'],
     // Only match fetch to actual SOS/emergency signal endpoints, not any file mentioning "sos" or safety data reads
     pattern: /fetch\(\s*['"`][^'"`]*\/api\/(?:safety\/sos|sos(?:\/|$)|emergency\/sos)[^'"`]*['"`]/i,
-    antipattern: /indexedDB|idb|localforage|dexie/i,
+    // Also recognise projects that abstract IndexedDB behind a helper (queueSOS, pending-queue, etc.)
+    antipattern: /indexedDB|idb|localforage|dexie|queueSOS|pending-queue/i,
     message: 'SOS must save to IndexedDB BEFORE network call — works offline',
     severity: 'КРИТИЧНО',
     fileLevel: true,
