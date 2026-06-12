@@ -16,7 +16,9 @@ interface HeroStatusProps {
   fetchedAt: string;
 }
 
-const STALE_MS = 24 * 60 * 60 * 1000;
+// Данные считаются устаревшими если cron не запускался >6 часов.
+// Отсутствие алертов при свежих данных — валидное состояние «спокойный день».
+const STALE_MS = 6 * 60 * 60 * 1000;
 
 function formatTime(iso: string): string {
   try {
@@ -47,7 +49,10 @@ function formatDateTime(iso: string): string {
 
 export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   const updatedAt = safety?.dataUpdatedAt ? new Date(safety.dataUpdatedAt) : null;
-  const isStale = !updatedAt || Date.now() - updatedAt.getTime() > STALE_MS;
+  // null dataUpdatedAt = cron никогда не запускался (таблица пустая).
+  // Ненулевое но старое = cron запускался, но давно.
+  const cronNeverRan = safety !== null && safety.dataUpdatedAt === null;
+  const isStale = cronNeverRan || (!updatedAt ? true : Date.now() - updatedAt.getTime() > STALE_MS);
 
   const severity = !isStale ? (safety?.maxSeverity ?? 0) : 0;
   const hasAlert = !isStale && (safety?.hasAlert ?? false);
@@ -56,11 +61,14 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   let badgeColor: string;
   let BadgeIcon: React.ElementType;
 
-  if (isStale) {
-    const staleFrom = updatedAt
-      ? formatDateTime(updatedAt.toISOString())
-      : formatDateTime(fetchedAt);
-    badgeLabel = `Нет свежих данных с ${staleFrom}`;
+  if (cronNeverRan || safety === null) {
+    // Cron ни разу не запускался — честно показываем спокойный фон, без фейковых данных
+    badgeLabel = 'Нет данных от КБГС РАН';
+    badgeColor = 'var(--text-muted)';
+    BadgeIcon = Info;
+  } else if (isStale) {
+    const staleFrom = updatedAt ? formatDateTime(updatedAt.toISOString()) : null;
+    badgeLabel = staleFrom ? `Данные от ${staleFrom}` : 'Данные устарели';
     badgeColor = 'var(--warning)';
     BadgeIcon = AlertTriangle;
   } else if (severity >= 3) {
@@ -77,15 +85,14 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
     BadgeIcon = ShieldCheck;
   }
 
+  // Заголовок: никогда не говорим «проверьте статус» над пустым блоком
   const headline =
-    isStale
-      ? 'Проверьте статус перед выходом'
-      : hasAlert && safety?.topTitle
+    hasAlert && safety?.topTitle
       ? safety.topTitle
       : 'Камчатка сегодня';
 
   const sourceLabel =
-    !isStale && updatedAt
+    !isStale && !cronNeverRan && updatedAt
       ? `${safety?.source ?? 'КБГС РАН'} · ${formatTime(updatedAt.toISOString())}`
       : null;
 
