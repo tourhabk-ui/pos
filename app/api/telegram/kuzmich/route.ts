@@ -304,7 +304,7 @@ async function processGroupMessage(opts: {
   ];
 
   const answer = await callAIWaterfall(messages);
-  const botUsername = process.env.TELEGRAM_KUZMICH_USERNAME ?? 'tourhab_bot';
+  const botUsername = process.env.TELEGRAM_KUZMICH_USERNAME ?? 'kuzmihai_bot';
   const reply = (answer?.trim() || 'Напишите мне в личку — подберу тур!') +
     `\n\n<a href="https://t.me/${botUsername}">Написать Кузьмичу →</a>`;
 

@@ -49,7 +49,7 @@ const envSchema = z.object({
   AI_DAILY_BUDGET_USD: z.string().optional().default('10.0'),
 
   // ── Telegram ──────────────────────────────────────────────────────
-  // @KuzmichKam_bot — public bot (AI chat, booking buttons, channel posts)
+  // @kuzmihai_bot — public bot (AI chat, booking buttons, channel posts)
   TELEGRAM_BOT_TOKEN:            z.string().optional().default(''),
   TELEGRAM_CHAT_ID:              z.string().optional().default(''), // admin group chat
   TELEGRAM_FISHING_CHAT_ID:      z.string().optional().default(''), // operator auth chat

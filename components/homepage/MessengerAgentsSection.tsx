@@ -44,7 +44,7 @@ function WebIcon({ className }: { className?: string }) {
 }
 
 const CHANNELS = [
-  { title: 'Telegram', href: 'https://t.me/KuzmichKam_bot?start=homepage', Icon: TelegramIcon },
+  { title: 'Telegram', href: 'https://t.me/kuzmihai_bot?start=homepage', Icon: TelegramIcon },
   { title: 'MAX', href: 'https://max.ru/id4101147649_bot', Icon: MaxIcon },
   { title: 'Веб', href: '/ai-assistant', Icon: WebIcon },
 ];

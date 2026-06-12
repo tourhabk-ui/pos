@@ -405,7 +405,7 @@ export default function RouteCardClient({ id }: { id: string }) {
               <p className="text-sm text-[var(--text-secondary)] italic mb-3">
                 Спросите AI-консьержа о подготовке, погоде, снаряжении и безопасности на этом маршруте.
               </p>
-              <a href={`https://t.me/KuzmichKam_bot?start=route_${route.id}`}
+              <a href={`https://t.me/kuzmihai_bot?start=route_${route.id}`}
                 target="_blank" rel="noopener noreferrer"
                 className="ds-btn ds-btn-secondary text-xs inline-flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5" /> Спросить в Telegram

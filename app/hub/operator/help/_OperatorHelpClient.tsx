@@ -248,15 +248,15 @@ export default function OperatorHelpClient() {
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Откройте бот в Telegram или MAX</p>
               <div className="flex flex-wrap gap-2">
                 <a
-                  href="https://t.me/KuzmichKam_bot"
+                  href="https://t.me/kuzmihai_bot"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded bg-[color-mix(in_srgb,var(--ocean)_10%,transparent)] text-[var(--ocean)] hover:bg-[color-mix(in_srgb,var(--ocean)_20%,transparent)] transition-colors"
                 >
-                  <ExternalLink size={11} /> Telegram @KuzmichKam_bot
+                  <ExternalLink size={11} /> Telegram @kuzmihai_bot
                 </a>
               </div>
-              <p className="text-xs text-[var(--text-muted)] mt-1">В MAX мессенджере найдите Кузьмич по нику KuzmichKam_bot</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">В MAX мессенджере найдите Кузьмич по нику kuzmihai_bot</p>
             </div>
           </div>
 

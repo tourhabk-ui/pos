@@ -270,7 +270,7 @@ export default function TouristsHelpClient() {
           <h2 className="ds-h2 mb-4">Поддержка туристов</h2>
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { icon: MessageSquare, title: 'Telegram-бот', value: '@KuzmichKam_bot', desc: 'Куzmич — ваш камчатский помощник. Рекомендации, маршруты, погода' },
+              { icon: MessageSquare, title: 'Telegram-бот', value: '@kuzmihai_bot', desc: 'Куzmич — ваш камчатский помощник. Рекомендации, маршруты, погода' },
               { icon: Mail, title: 'Email', value: 'support@tourhab.ru', desc: 'Ответ в течение 4 часов в рабочее время' },
               { icon: Clock, title: 'Поддержка работает', value: 'Пн–Пт 9:00–18:00', desc: 'Камчатское время (UTC+12)' },
             ].map(({ icon: Icon, title, value, desc }) => (
