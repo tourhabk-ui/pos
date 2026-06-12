@@ -344,7 +344,7 @@ export default function ProfileClient() {
                     </span>
                   </div>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Уведомления о поездках приходят в бот @KuzmichKam_bot
+                    Уведомления о поездках приходят в бот @kuzmihai_bot
                   </span>
                 </div>
               ) : (

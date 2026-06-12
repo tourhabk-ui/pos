@@ -3,7 +3,7 @@
  *
  * Позволяет email-пользователям привязать свой Telegram-аккаунт к платформе.
  * Генерирует подписанный HMAC-токен, используемый в deep link:
- *   https://t.me/KuzmichKam_bot?start=link_{token}
+ *   https://t.me/kuzmihai_bot?start=link_{token}
  *
  * После клика Telegram вызывает /start link_{token} в боте:
  *   - Проверяем подпись
@@ -65,7 +65,7 @@ export function verifyConnectToken(token: string): string | null {
  * Генерирует полный deep link для привязки Telegram.
  */
 export function buildConnectLink(userId: string): string {
-  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'KuzmichKam_bot';
+  const botUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmihai_bot';
   const token = generateConnectToken(userId);
   return `https://t.me/${botUsername}?start=link_${token}`;
 }

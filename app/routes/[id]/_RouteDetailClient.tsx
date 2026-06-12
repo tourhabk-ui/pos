@@ -1028,7 +1028,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 <p className="text-xs text-[var(--text-muted)] text-center">Или напишите AI-консьержу</p>
                 <div className="flex gap-2">
                   <a
-                    href={`https://t.me/KuzmichKam_bot?start=route_${route.id}`}
+                    href={`https://t.me/kuzmihai_bot?start=route_${route.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90"
