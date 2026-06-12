@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
+import { useMesh } from '@/hooks/use-mesh';
+import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -21,6 +23,11 @@ export default function SosPage() {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  const { status: meshStatus, peers: meshPeers, relayedCount, sendSOS: meshSendSOS } = useMesh(
+    !!coords,
+    coords,
+  );
 
   // Геолокация при загрузке
   useEffect(() => {
@@ -57,6 +64,7 @@ export default function SosPage() {
     }
 
     setSendStatus('sending');
+    meshSendSOS();
 
     const sosPayload = {
       lat: position?.coords.latitude ?? null,
@@ -327,6 +335,13 @@ export default function SosPage() {
             </a>
           ))}
         </div>
+
+        {/* Меш-сеть: ретрансляция SOS через группу */}
+        <MeshStatusWidget
+          status={meshStatus}
+          peers={meshPeers}
+          relayedCount={relayedCount}
+        />
 
         {/* Регистрация маршрута */}
         <a

@@ -13,13 +13,14 @@ export default function MeshStatusBadge({ status, peerCount, onClick }: Props) {
   const label: Record<MeshStatus, string> = {
     idle: 'Mesh выкл',
     connecting: 'Подключение...',
+    reconnecting: 'Переподключение...',
     connected: peerCount > 0 ? `${peerCount} рядом` : 'Mesh активен',
     error: 'Ошибка mesh',
     'no-gps': 'Нет GPS',
   };
 
   const Icon =
-    status === 'connecting'
+    status === 'connecting' || status === 'reconnecting'
       ? Loader2
       : status === 'connected' && peerCount > 0
         ? Radio
@@ -32,7 +33,7 @@ export default function MeshStatusBadge({ status, peerCount, onClick }: Props) {
       ? 'bg-[var(--success)]'
       : status === 'connected'
         ? 'bg-[var(--ocean)]'
-        : status === 'connecting'
+        : status === 'connecting' || status === 'reconnecting'
           ? 'bg-[var(--warning)]'
           : 'bg-[var(--text-secondary)]';
 

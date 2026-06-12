@@ -12,6 +12,7 @@ export function useMesh(
   const [status, setStatus] = useState<MeshStatus>('idle');
   const [peers, setPeers] = useState<Map<string, MeshPeer>>(new Map());
   const [sosPeers, setSosPeers] = useState<MeshMessage[]>([]);
+  const [relayedCount, setRelayedCount] = useState(0);
 
   useEffect(() => {
     if (!enabled || !position) return;
@@ -31,6 +32,9 @@ export function useMesh(
     mesh.onMsg((msg) => {
       if (msg.type === 'sos') {
         setSosPeers((prev) => [...prev.slice(-9), msg]);
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          setRelayedCount((c) => c + 1);
+        }
       }
     });
 
@@ -58,6 +62,8 @@ export function useMesh(
     peers,
     sosPeers,
     sendSOS,
+    relayedCount,
+    reconnecting: status === 'reconnecting',
     deviceId: meshRef.current?.deviceId,
   };
 }
