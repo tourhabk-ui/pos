@@ -25,6 +25,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
+import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -360,6 +361,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
   const [filterDurationType, setFilterDurationType] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
+  const [showMchsModal, setShowMchsModal] = useState(false);
   useSourceTracker();
 
   const CACHE_KEY = `route_cache_${id}`;
@@ -1136,13 +1138,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       МЧС: {route.mchsPhone}
                     </a>
                   )}
-                  <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
-                    target="_blank" rel="noopener noreferrer"
+                  <button
+                    onClick={() => setShowMchsModal(true)}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all hover:shadow-sm text-white"
-                    style={{ background: 'var(--danger)' }}>
+                    style={{ background: 'var(--danger)', border: 'none', cursor: 'pointer' }}>
                     <ShieldAlert className="w-4 h-4" />
-                    Зарегистрировать группу онлайн
-                  </a>
+                    Заполнить заявку онлайн
+                  </button>
                   {route.parkApprovalUrl && (
                     <a href={route.parkApprovalUrl} target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all hover:shadow-sm"
@@ -1236,6 +1238,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
         />
       )}
       <AssistantButton pageContext={{ type: 'route', title: route.title, category: locLabel }} />
+      {showMchsModal && (
+        <MchsRegistrationModal
+          route={{ routeName: route.title, mchsPhone: route.mchsPhone ?? null }}
+          onClose={() => setShowMchsModal(false)}
+        />
+      )}
     </>
   );
 }
