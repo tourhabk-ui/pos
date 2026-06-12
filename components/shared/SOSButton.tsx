@@ -7,7 +7,7 @@
 export default function SOSButton() {
   return (
     <a
-      href="/sos"
+      href="/emergency.html"
       aria-label="SOS — экстренная помощь"
       style={{
         position: 'fixed',
