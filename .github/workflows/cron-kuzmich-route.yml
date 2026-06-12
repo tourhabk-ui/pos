@@ -10,7 +10,8 @@ jobs:
     steps:
       - name: Trigger Kuzmich route post
         run: |
-          curl -X GET "https://vedarai.ru/api/cron/kuzmich?secret=${{ secrets.CRON_SECRET }}&type=route" \
+          curl -X GET "https://vedarai.ru/api/cron/kuzmich?type=route" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions" \
             --max-time 120 \

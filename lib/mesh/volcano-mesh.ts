@@ -40,6 +40,11 @@ export class VolcanoMesh {
   private positionInterval: ReturnType<typeof setInterval> | null = null;
   private currentPosition?: PeerPosition;
 
+  private currentLat = 0;
+  private currentLng = 0;
+  private reconnectDelay = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     if (typeof window === 'undefined') throw new Error('VolcanoMesh: client only');
     this.deviceId = localStorage.getItem('mesh-device-id') ?? genDeviceId();
@@ -59,6 +64,8 @@ export class VolcanoMesh {
   }
 
   async start(lat: number, lng: number): Promise<void> {
+    this.currentLat = lat;
+    this.currentLng = lng;
     this.currentPosition = { lat, lng, accuracy: 10, timestamp: Date.now() };
     this.room = geoRoom(lat, lng);
     this.onStatusChange?.('connecting');
@@ -66,8 +73,11 @@ export class VolcanoMesh {
     const url = `/api/mesh/signal?deviceId=${encodeURIComponent(this.deviceId)}&room=${encodeURIComponent(this.room)}`;
     this.sse = new EventSource(url);
 
-    this.sse.onopen = () => this.onStatusChange?.('connected');
-    this.sse.onerror = () => this.onStatusChange?.('error');
+    this.sse.onopen = () => {
+      this.reconnectDelay = 1000;
+      this.onStatusChange?.('connected');
+    };
+    this.sse.onerror = () => this.scheduleReconnect();
 
     this.sse.onmessage = (e: MessageEvent<string>) => {
       let msg: Record<string, unknown>;
@@ -83,14 +93,40 @@ export class VolcanoMesh {
   }
 
   stop(): void {
-    this.sse?.close();
-    this.sse = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectDelay = 1000;
+    if (this.sse) {
+      this.sse.onmessage = null;
+      this.sse.onopen = null;
+      this.sse.onerror = null;
+      this.sse.close();
+      this.sse = null;
+    }
     if (this.positionInterval) clearInterval(this.positionInterval);
     this.pcs.forEach((pc) => pc.close());
     this.pcs.clear();
     this.channels.clear();
     this.peers.clear();
     this.onStatusChange?.('idle');
+  }
+
+  private scheduleReconnect(): void {
+    if (this.sse) {
+      this.sse.onmessage = null;
+      this.sse.onopen = null;
+      this.sse.onerror = null;
+      this.sse.close();
+      this.sse = null;
+    }
+    this.onStatusChange?.('reconnecting');
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.start(this.currentLat, this.currentLng);
+    }, this.reconnectDelay);
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
   }
 
   private async handleSignal(msg: Record<string, unknown>): Promise<void> {
@@ -153,10 +189,11 @@ export class VolcanoMesh {
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
         this.pcs.delete(peerId);
         this.channels.delete(peerId);
         this.peers.delete(peerId);
+        this.onPeersChange?.(peerId, null as unknown as MeshPeer);
       }
     };
 
@@ -248,6 +285,16 @@ export class VolcanoMesh {
         payload: null,
         timestamp: Date.now(),
       });
+    } else if (msg.type === 'sos' && typeof navigator !== 'undefined' && navigator.onLine) {
+      void fetch('/api/safety/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}),
+          relayed_by: this.deviceId,
+          source: 'mesh_relay',
+        }),
+      }).catch(() => {});
     }
 
     this.onMessage?.(msg);

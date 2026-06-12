@@ -13,13 +13,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runGroupScout } from '@/lib/telegram/group-scout';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 300; // 5 минут — поиск + join + harvest
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret')
-    ?? request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

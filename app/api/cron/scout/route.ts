@@ -12,14 +12,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runScoutInnovator } from '@/lib/agents/scout-innovator';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 export async function GET(request: NextRequest) {
-  const secret =
-    request.nextUrl.searchParams.get('secret') ??
-    request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

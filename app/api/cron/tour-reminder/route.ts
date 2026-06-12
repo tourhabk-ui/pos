@@ -16,6 +16,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { Bot } from '@maxhub/max-bot-api';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,8 +113,7 @@ async function sendMaxMessage(chatId: number, text: string): Promise<void> {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret') ?? request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

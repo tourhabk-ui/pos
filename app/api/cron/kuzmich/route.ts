@@ -28,6 +28,7 @@ import {
   postFriendToChannel,
 } from '@/lib/notifications/telegram-channel';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,8 +44,7 @@ function pickTypeByHour(): PostType {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret')
-    ?? request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

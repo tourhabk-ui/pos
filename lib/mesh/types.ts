@@ -15,4 +15,4 @@ export interface MeshMessage {
   timestamp: number;
 }
 
-export type MeshStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'no-gps';
+export type MeshStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'no-gps';

@@ -9,13 +9,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refreshRoutesWithoutCache } from '@/lib/services/route-description-cache';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  const secret = req.nextUrl.searchParams.get('secret');
+  const secret = getCronSecret(req);
   if (!secret || secret !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

@@ -12,13 +12,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret')
-    ?? request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });

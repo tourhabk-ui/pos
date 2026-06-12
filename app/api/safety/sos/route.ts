@@ -10,16 +10,19 @@ const rateLimitMap = new Map<string, number>();
 const RATE_LIMIT_MS = 10 * 60 * 1000;
 
 const SOSSchema = z.object({
-  latitude:      z.number().min(-90).max(90).optional(),
-  longitude:     z.number().min(-180).max(180).optional(),
-  lat:           z.number().min(-90).max(90).optional(),
-  lng:           z.number().min(-180).max(180).optional(),
-  accuracy:      z.number().optional(),
-  message:       z.string().max(500).optional(),
+  latitude:       z.number().min(-90).max(90).optional(),
+  longitude:      z.number().min(-180).max(180).optional(),
+  lat:            z.number().min(-90).max(90).optional(),
+  lng:            z.number().min(-180).max(180).optional(),
+  accuracy:       z.number().optional(),
+  message:        z.string().max(500).optional(),
   emergency_type: z.string().optional(),
-  sessionId:     z.string().optional(),
-  tourist_name:  z.string().max(120).optional(),
-  tourist_phone: z.string().max(30).optional(),
+  sessionId:      z.string().optional(),
+  tourist_name:   z.string().max(120).optional(),
+  tourist_phone:  z.string().max(30).optional(),
+  // Поля mesh-ретрансляции — проставляются узлом-ретранслятором
+  source:         z.enum(['direct', 'mesh_relay']).optional(),
+  relayed_by:     z.string().max(64).optional(),
 });
 
 function isRateLimited(key: string): boolean {
@@ -80,21 +83,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { latitude, longitude, lat, lng, accuracy, message, emergency_type, sessionId, tourist_name, tourist_phone } = validationResult.data;
+  const {
+    latitude, longitude, lat, lng, accuracy,
+    message, emergency_type, sessionId,
+    tourist_name, tourist_phone,
+    source, relayed_by,
+  } = validationResult.data;
 
   // Принимаем оба соглашения: latitude/longitude и lat/lng
   const finalLat = latitude ?? lat;
   const finalLng = longitude ?? lng;
+  const finalSource = source ?? 'direct';
 
-  // Логируем в БД
+  // Логируем в БД (source/relayed_by — добавлены миграцией 678)
   try {
     await query(
       `INSERT INTO sos_events
          (user_id, session_id, lat, lng, accuracy, ip_address, user_agent,
-          message, emergency_type, tourist_name, tourist_phone)
-       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11)`,
+          message, emergency_type, tourist_name, tourist_phone, source, relayed_by)
+       VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9,$10,$11,$12,$13)`,
       [userId, sessionId, finalLat, finalLng, accuracy, ip, userAgent,
-       message ?? null, emergency_type ?? null, tourist_name ?? null, tourist_phone ?? null]
+       message ?? null, emergency_type ?? null,
+       tourist_name ?? null, tourist_phone ?? null,
+       finalSource, relayed_by ?? null]
     );
     setRateLimit(rateLimitKey);
   } catch {
@@ -114,6 +125,7 @@ export async function POST(request: NextRequest) {
       : '';
     const text = [
       '<b>🆘 SOS! ЭКСТРЕННЫЙ СИГНАЛ</b>',
+      finalSource === 'mesh_relay' ? `<i>(ретрансляция через меш, узел: ${relayed_by ?? '?'})</i>` : '',
       '',
       tourist_name  ? `👤 Имя: ${tourist_name}`   : '👤 Имя: не указано',
       tourist_phone ? `📞 Тел: ${tourist_phone}`   : '📞 Тел: не указан',

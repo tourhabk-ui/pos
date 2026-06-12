@@ -39,6 +39,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
+import { useMesh } from '@/hooks/use-mesh';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -150,6 +151,8 @@ export default function MapPageClient() {
   const [showMyLocation, setShowMyLocation] = useState(false);
   const [showSos, setShowSos] = useState(false);
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+
+  const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
 
   // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
@@ -300,6 +303,25 @@ export default function MapPageClient() {
     return allRoutes.filter(r => r.locationType === id).length;
   }, [allRoutes]);
 
+  // Маркеры пиров меш-сети (другие устройства в группе)
+  const peerMarkers = useMemo(() =>
+    Array.from(meshPeers.values())
+      .filter((p) => p.position != null)
+      .map((p) => {
+        const minAgo = Math.floor((Date.now() - p.lastSeen) / 60000);
+        const label = minAgo < 1 ? 'только что' : `${minAgo} мин назад`;
+        return {
+          id: `peer-${p.deviceId}`,
+          coords: [p.position!.lat, p.position!.lng] as [number, number],
+          title: 'Участник группы',
+          description: label,
+          color: 'cyan',
+          type: MarkerType.POI,
+          suppressBalloon: false,
+        };
+      }),
+  [meshPeers]);
+
   // Маркеры с расстояниями (в офлайн-режиме)
   const mapMarkers = useMemo(() => filtered.map(r => {
     const cfg = LOCATION_TYPE_CONFIG[r.locationType ?? 'other'] ?? LOCATION_TYPE_CONFIG.other;
@@ -348,7 +370,7 @@ export default function MapPageClient() {
               className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 showMyLocation
                   ? 'bg-blue-500 text-white'
-                  : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]'
               }`}
             >
               <Navigation className="w-3.5 h-3.5" />
@@ -384,7 +406,7 @@ export default function MapPageClient() {
         <LeafletMap
           center={[53.0444, 158.6483]}
           zoom={8}
-          markers={mapMarkers}
+          markers={[...mapMarkers, ...peerMarkers]}
           height="100dvh"
           attribution={false}
           onMarkerClick={handleMarkerClick}
@@ -408,7 +430,7 @@ export default function MapPageClient() {
                     className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all min-h-[44px] ${
                       activeFilter === f.id
                         ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/30'
-                        : 'bg-white/10 text-white/80 hover:bg-white/20 border border-white/10'
+                        : 'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-[var(--border)]'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -441,7 +463,7 @@ export default function MapPageClient() {
                 </h3>
                 <button
                   onClick={() => setShowSos(false)}
-                  className="p-1 rounded-lg hover:bg-white/10 text-white/50 transition-colors"
+                  className="p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -459,7 +481,7 @@ export default function MapPageClient() {
                   <a
                     key={c.phone}
                     href={`tel:${c.phone.replace(/\s/g, '')}`}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:bg-white/15"
+                    className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-all active:bg-[var(--bg-card)]"
                   >
                     <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
                       <Phone className="w-4 h-4 text-red-400" />
@@ -513,7 +535,7 @@ export default function MapPageClient() {
               {userPos && (
                 <a
                   href={`sms:+79000000000?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — TourHab.ru`}
-                  className="w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-lg bg-white/10 border border-white/20 text-white font-semibold text-sm hover:bg-white/15 active:bg-white/20 transition-all"
+                  className="w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-white font-semibold text-sm hover:bg-[var(--bg-card)] transition-all"
                 >
                   💬 SMS с координатами (без интернета)
                 </a>
@@ -571,7 +593,7 @@ export default function MapPageClient() {
                 </div>
                 <button
                   onClick={() => setSelectedId(null)}
-                  className="flex-shrink-0 p-1 rounded-lg hover:bg-white/10 text-white/50 transition-colors"
+                  className="flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -666,7 +688,7 @@ export default function MapPageClient() {
           <LeafletMap
             center={[53.0444, 158.6483]}
             zoom={7}
-            markers={mapMarkers}
+            markers={[...mapMarkers, ...peerMarkers]}
             height="calc(100vh - 180px)"
             attribution={false}
             onMarkerClick={handleMarkerClick}
