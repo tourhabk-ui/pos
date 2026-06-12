@@ -54,6 +54,7 @@ const nextConfig = {
       { source: '/fishingkam',         destination: '/operators/kamchatskaya-rybalka', permanent: true },
       // Исправление мёртвых ссылок
       { source: '/tours',         destination: '/marketplace',    permanent: true },
+      { source: '/catalog',       destination: '/marketplace',    permanent: false },
       { source: '/terms',         destination: '/legal/terms',    permanent: true },
       { source: '/auth/register', destination: '/operators/join', permanent: false },
     ];

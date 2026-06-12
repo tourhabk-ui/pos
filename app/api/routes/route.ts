@@ -276,7 +276,7 @@ export async function GET(request: NextRequest) {
         pages: Math.ceil(total / limit),
       },
     });
-    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    response.headers.set('Cache-Control', 'private, no-cache');
     return response;
   } catch (error) {
     console.error('[/api/routes] DB error:', error);
