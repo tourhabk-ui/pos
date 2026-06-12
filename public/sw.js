@@ -56,7 +56,7 @@ function makeTransparentPngResponse() {
 
 // Страницы для предварительного кэширования при установке
 const PRECACHE_URLS = [
-  '/emergency.html', // ПЕРВЫЙ: нулевые зависимости, 12 КБ, GPS+звонок+протоколы
+  '/emergency', // ПЕРВЫЙ: нулевые зависимости, 12 КБ, GPS+звонок+протоколы
   '/icons/kamchatka-silhouette.jpg',
   '/',
   '/map',
