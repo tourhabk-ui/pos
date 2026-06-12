@@ -350,6 +350,27 @@ export default function SosPage() {
           touristPhone={phone}
         />
 
+        {/* Хаб безопасности — погода, вулканы, сейсмика, AI спасатель */}
+        <a
+          href="/hub/safety"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(255,255,255,0.7)',
+            textDecoration: 'none',
+            fontWeight: 600,
+            fontSize: '13px',
+          }}
+        >
+          Вулканы · Погода · AI Спасатель
+        </a>
+
         {/* Регистрация маршрута */}
         <a
           href="/register"
