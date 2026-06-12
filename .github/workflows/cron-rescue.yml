@@ -20,7 +20,8 @@ jobs:
 
           HTTP=$(curl -s -o /tmp/rescue_resp.json -w "%{http_code}" \
             --max-time 60 \
-            "https://vedarai.ru/api/cron/rescue?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/rescue" \
+            -H "Authorization: Bearer $CRON_SECRET")
 
           echo "Rescue HTTP: $HTTP"
           cat /tmp/rescue_resp.json 2>/dev/null || true

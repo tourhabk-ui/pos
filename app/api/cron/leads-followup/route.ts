@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,9 +73,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const authHeader = request.headers.get('Authorization');
-  const querySecret = request.nextUrl.searchParams.get('secret');
-  const provided = authHeader?.replace('Bearer ', '').trim() ?? querySecret ?? '';
+  const provided = getCronSecret(request) ?? '';
   if (provided !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

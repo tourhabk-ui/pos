@@ -10,12 +10,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { sendEngagementPushes, getEngagementStats } from '@/lib/kuzmich/engagement';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic   = 'force-dynamic';
 export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret') ?? '';
+  const secret = getCronSecret(request) ?? '';
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

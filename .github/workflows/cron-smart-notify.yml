@@ -26,7 +26,8 @@ jobs:
           HTTP=$(curl -s -o /tmp/notify_resp.json -w "%{http_code}" \
             --max-time 120 \
             -X POST \
-            "https://vedarai.ru/api/cron/smart-notify?secret=$CRON_SECRET")
+            "https://vedarai.ru/api/cron/smart-notify" \
+            -H "Authorization: Bearer $CRON_SECRET")
 
           echo "HTTP: $HTTP"
           cat /tmp/notify_resp.json 2>/dev/null || true

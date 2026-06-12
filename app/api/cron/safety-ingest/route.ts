@@ -1,6 +1,7 @@
 import { ingestAll } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
 
 /**
  * POST /api/cron/safety-ingest
@@ -10,7 +11,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const secret = url.searchParams.get('secret');
+  const secret = getCronSecret(req);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

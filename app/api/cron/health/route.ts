@@ -12,6 +12,7 @@ import { pool } from '@/lib/db-pool';
 import { callAnthropic, callOpenrouter, callMiMo, callDeepSeek } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
 
@@ -157,8 +158,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const secret = request.nextUrl.searchParams.get('secret')
-    ?? request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
 
   if (!timingSafeCompare(secret, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

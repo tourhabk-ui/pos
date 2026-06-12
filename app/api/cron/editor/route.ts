@@ -1,6 +1,7 @@
 import { runEditor } from '@/lib/agents/editor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
+import { getCronSecret } from '@/lib/auth/cron';
 
 /**
  * GET /api/cron/editor
@@ -10,7 +11,7 @@ import { logAgentRun } from '@/lib/agents/run-logger';
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const secret = url.searchParams.get('secret');
+  const secret = getCronSecret(req);
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
