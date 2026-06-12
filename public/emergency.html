@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<title>SOS — Экстренная помощь</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{
+  background:#0a0a0a;color:#fff;
+  font-family:system-ui,-apple-system,sans-serif;
+  min-height:100dvh;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:10px;
+}
+
+/* ГЛАВНОЕ */
+.stop{
+  background:#1a0a0a;border:2px solid #dc2626;border-radius:14px;
+  padding:18px 16px;text-align:center;
+}
+.stop h1{font-size:28px;font-weight:900;color:#ef4444;letter-spacing:.03em;margin-bottom:6px}
+.stop p{font-size:13px;color:#9ca3af;line-height:1.5}
+
+/* КООРДИНАТЫ */
+.coords-box{
+  background:#0f1a2e;border:1px solid #1e3a5f;border-radius:12px;
+  padding:14px 16px;
+}
+.coords-label{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+#coords-value{font-family:monospace;font-size:17px;font-weight:700;color:#60a5fa;word-break:break-all}
+.coords-actions{display:flex;gap:8px;margin-top:10px}
+.coords-actions a,.coords-actions button{
+  flex:1;padding:9px 6px;border-radius:8px;font-size:12px;font-weight:700;
+  border:1px solid #1e3a5f;background:#0a1628;color:#60a5fa;
+  text-decoration:none;text-align:center;cursor:pointer;
+}
+.coords-actions a:active,.coords-actions button:active{opacity:.75}
+
+/* ЗВОНКИ */
+.calls{display:flex;flex-direction:column;gap:8px}
+.call-primary{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#dc2626;border-radius:12px;padding:16px 20px;
+  text-decoration:none;color:#fff;
+}
+.call-primary .num{font-size:32px;font-weight:900;letter-spacing:.03em}
+.call-primary .name{font-size:11px;opacity:.85;margin-top:2px}
+.call-secondary{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#111;border:1px solid #333;border-radius:12px;padding:13px 16px;
+  text-decoration:none;color:#fff;
+}
+.call-secondary .num{font-size:15px;font-weight:700;font-family:monospace}
+.call-secondary .name{font-size:11px;color:#9ca3af}
+.call-secondary:active{opacity:.75}
+
+/* СИТУАЦИИ */
+.situations-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.situations{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.sit-btn{
+  padding:14px 10px;border-radius:12px;border:1px solid #333;
+  background:#111;color:#fff;font-size:13px;font-weight:700;
+  cursor:pointer;text-align:center;
+}
+.sit-btn.active{border-color:#ef4444;background:#1a0808}
+.sit-btn:active{opacity:.75}
+
+/* ПРОТОКОЛ */
+.protocol{
+  display:none;
+  background:#111;border:1px solid #333;border-radius:12px;
+  padding:14px 16px;
+}
+.protocol.open{display:block}
+.protocol h3{font-size:14px;font-weight:800;color:#ef4444;margin-bottom:10px}
+.protocol ol{padding-left:20px;display:flex;flex-direction:column;gap:7px}
+.protocol li{font-size:13px;line-height:1.5;color:#e5e7eb}
+.protocol .urgent{
+  background:#1f0a0a;border-left:3px solid #ef4444;
+  padding:8px 10px;border-radius:0 6px 6px 0;
+  font-size:12px;font-weight:700;color:#fca5a5;margin-bottom:10px;
+}
+
+/* КОПИРОВАНО */
+.copied{color:#22c55e!important}
+
+/* АККУМУЛЯТОР */
+.battery{
+  font-size:11px;color:#6b7280;text-align:center;margin-top:auto;padding-top:4px
+}
+</style>
+</head>
+<body>
+
+<div class="stop">
+  <h1>СТОЙ ГДЕ СТОИШЬ</h1>
+  <p>Двигаясь — ты уходишь от точки последнего сигнала.<br>Тебя ищут. Жди.</p>
+</div>
+
+<div class="coords-box">
+  <div class="coords-label">Твои координаты</div>
+  <div id="coords-value">Определяем GPS…</div>
+  <div class="coords-actions">
+    <button id="copy-btn" onclick="copyCoords()">Скопировать</button>
+    <a id="sms-btn" href="#">SMS спасателям</a>
+    <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
+  </div>
+</div>
+
+<div class="calls">
+  <a href="tel:112" class="call-primary">
+    <div>
+      <div class="name">Единый номер экстренных служб</div>
+      <div class="num">112</div>
+    </div>
+    <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+
+  <a href="tel:+74152235362" class="call-secondary">
+    <div>
+      <div class="name">МЧС Камчатский край</div>
+      <div class="num">+7 (4152) 23-53-62</div>
+    </div>
+    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+
+  <a href="tel:+74152412730" class="call-secondary">
+    <div>
+      <div class="name">ПАСС Камчатки (поиск и спасение)</div>
+      <div class="num">+7 (4152) 41-27-30</div>
+    </div>
+    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+</div>
+
+<div class="situations-label">Что случилось?</div>
+<div class="situations">
+  <button class="sit-btn" id="btn-lost"   onclick="toggle('lost')"   >Потерялся</button>
+  <button class="sit-btn" id="btn-bear"   onclick="toggle('bear')"   >Медведь</button>
+  <button class="sit-btn" id="btn-injury" onclick="toggle('injury')" >Травма</button>
+  <button class="sit-btn" id="btn-cold"   onclick="toggle('cold')"   >Холодно</button>
+</div>
+
+<div class="protocol" id="p-lost">
+  <div class="urgent">Стой где стоишь — тебя найдут быстрее</div>
+  <h3>Потерялся</h3>
+  <ol>
+    <li>Не двигайся. Спасатели ищут по последнему сигналу телефона.</li>
+    <li>Кричи 3 раза каждые 10 минут — пауза, слушай ответ.</li>
+    <li>Переведи телефон в режим полёта между звонками — экономь батарею.</li>
+    <li>Найди открытое место — тебя увидят с воздуха.</li>
+    <li>Если есть огонь — дым видно за километры.</li>
+    <li>Найди укрытие от ветра — тепло важнее поиска дороги.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-bear">
+  <div class="urgent">Никогда не беги — инстинкт преследования сработает мгновенно</div>
+  <h3>Встреча с медведем</h3>
+  <ol>
+    <li>Остановись. Говори спокойным низким голосом.</li>
+    <li>Медленно отступай боком — не поворачивайся спиной.</li>
+    <li>Подними руки — выгляди крупнее.</li>
+    <li>Антизверь — держи наготове, распыляй в нос и глаза при атаке.</li>
+    <li>Медведица с медвежатами: уходи немедленно, не смотри в глаза.</li>
+    <li>Атака хищника: бей, кричи — не притворяйся мёртвым.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-injury">
+  <div class="urgent">Позвони 112 — продиктуй координаты сверху страницы</div>
+  <h3>Травма</h3>
+  <ol>
+    <li>Кровотечение: прямое давление чистой тканью, не убирай.</li>
+    <li>Не останавливается: жгут выше раны, <strong>запиши время</strong> на коже.</li>
+    <li>Перелом: не вправляй, зафиксируй подручным — ветка, рюкзак.</li>
+    <li>Позвоночник или шея: не двигай человека вообще.</li>
+    <li>Потеря сознания: стабильное положение на боку, следи за дыханием.</li>
+    <li>Ожог вулканом: холодная вода 20 мин, не вскрывай пузыри.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-cold">
+  <div class="urgent">Переохлаждение убивает быстрее голода — действуй немедленно</div>
+  <h3>Переохлаждение</h3>
+  <ol>
+    <li>Снять мокрую одежду — мокрое охлаждает в 20 раз быстрее сухого.</li>
+    <li>Укрыться от ветра и влаги. Лечь на что-то (не на землю).</li>
+    <li>Не двигай человека резко — риск остановки сердца.</li>
+    <li>Горячее сладкое питьё — не алкоголь, не кофе.</li>
+    <li>Тело к телу под общим укрытием — лучший источник тепла.</li>
+    <li>Не давай спать при тяжёлом состоянии — разговаривай.</li>
+  </ol>
+</div>
+
+<div class="battery" id="battery-info"></div>
+
+<script>
+var lat=null,lng=null,open_id=null;
+
+// GPS
+if(navigator.geolocation){
+  navigator.geolocation.getCurrentPosition(function(p){
+    lat=p.coords.latitude.toFixed(5);
+    lng=p.coords.longitude.toFixed(5);
+    document.getElementById('coords-value').textContent=lat+', '+lng;
+    document.getElementById('sms-btn').href=
+      'sms:+74152235362?body='+encodeURIComponent('SOS! Я жив. Мои координаты: '+lat+', '+lng+'. Жду помощи.');
+    var maps=document.getElementById('maps-btn');
+    maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
+    maps.style.display='';
+  },function(){
+    document.getElementById('coords-value').textContent='GPS недоступен — позвони 112';
+  },{enableHighAccuracy:true,timeout:15000});
+}
+
+// Копировать координаты
+function copyCoords(){
+  var txt=lat&&lng?lat+', '+lng:'GPS недоступен';
+  var btn=document.getElementById('copy-btn');
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(function(){
+      btn.textContent='Скопировано';btn.classList.add('copied');
+      setTimeout(function(){btn.textContent='Скопировать';btn.classList.remove('copied');},2000);
+    });
+  } else {
+    var t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);
+    t.select();document.execCommand('copy');document.body.removeChild(t);
+    btn.textContent='Скопировано';btn.classList.add('copied');
+    setTimeout(function(){btn.textContent='Скопировать';btn.classList.remove('copied');},2000);
+  }
+}
+
+// Протоколы
+var PROTOCOLS={lost:'p-lost',bear:'p-bear',injury:'p-injury',cold:'p-cold'};
+var BTNS={lost:'btn-lost',bear:'btn-bear',injury:'btn-injury',cold:'btn-cold'};
+function toggle(id){
+  if(open_id){
+    document.getElementById(PROTOCOLS[open_id]).classList.remove('open');
+    document.getElementById(BTNS[open_id]).classList.remove('active');
+    if(open_id===id){open_id=null;return;}
+  }
+  document.getElementById(PROTOCOLS[id]).classList.add('open');
+  document.getElementById(BTNS[id]).classList.add('active');
+  open_id=id;
+  setTimeout(function(){document.getElementById(PROTOCOLS[id]).scrollIntoView({behavior:'smooth',block:'nearest'});},50);
+}
+
+// Батарея
+if(navigator.getBattery){
+  navigator.getBattery().then(function(b){
+    function upd(){
+      var pct=Math.round(b.level*100);
+      var txt='Батарея: '+pct+'%';
+      if(b.charging)txt+=' (заряжается)';
+      else if(pct<20)txt+=' — переведи в режим полёта между звонками';
+      document.getElementById('battery-info').textContent=txt;
+    }
+    upd();b.addEventListener('levelchange',upd);b.addEventListener('chargingchange',upd);
+  });
+}
+</script>
+</body>
+</html>
