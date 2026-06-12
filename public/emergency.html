@@ -105,9 +105,9 @@ body{
   <div id="coords-value">Определяем GPS…</div>
   <div class="coords-actions">
     <button id="copy-btn" onclick="copyCoords()">Скопировать</button>
-    <a id="sms-btn" href="#">SMS спасателям</a>
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
+  <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
 </div>
 
 <div class="calls">
@@ -211,8 +211,7 @@ if(navigator.geolocation){
     lat=p.coords.latitude.toFixed(5);
     lng=p.coords.longitude.toFixed(5);
     document.getElementById('coords-value').textContent=lat+', '+lng;
-    document.getElementById('sms-btn').href=
-      'sms:+74152235362?body='+encodeURIComponent('SOS! Я жив. Мои координаты: '+lat+', '+lng+'. Жду помощи.');
+    document.getElementById('coords-hint').style.display='';
     var maps=document.getElementById('maps-btn');
     maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
     maps.style.display='';
