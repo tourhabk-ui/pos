@@ -5,6 +5,7 @@ import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'luc
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { useMesh } from '@/hooks/use-mesh';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
+import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -341,6 +342,12 @@ export default function SosPage() {
           status={meshStatus}
           peers={meshPeers}
           relayedCount={relayedCount}
+        />
+
+        {/* Карточка диктовки через спутниковый телефон */}
+        <SatelliteDictationCard
+          coords={coords}
+          touristPhone={phone}
         />
 
         {/* Регистрация маршрута */}
