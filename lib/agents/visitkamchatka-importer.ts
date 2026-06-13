@@ -15,7 +15,6 @@
 // jsdom has no @types package — dynamic require with explicit constructor type
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
 const JSDOM = (require('jsdom') as { JSDOM: JSDOMConstructor }).JSDOM;
-import { createHash } from 'crypto';
 import { pool } from '@/lib/db-pool';
 
 const BASE = 'https://visitkamchatka.ru';
@@ -213,41 +212,35 @@ async function getSlugsNeedingUpdate(limit: number): Promise<string[]> {
 async function upsertRoute(p: RoutePassport): Promise<'inserted' | 'updated' | 'skipped'> {
   if (!p.description || p.description.length < 80) return 'skipped';
 
-  const dedupeKey = `vk_${p.slug}`;
-  const payload = JSON.stringify({
+  const dk = `vk_${p.slug}`;
+  const slug = p.slug.replace(/[^a-z0-9-]+/g, '-');
+  const metadata = JSON.stringify({
     distance_km: p.distance_km,
     duration_h: p.duration_h,
     difficulty: p.difficulty,
     season: p.season,
     hazards: p.hazards,
+    source: SOURCE_NAME,
   });
-  const searchText = [p.title, p.description, p.difficulty, p.season, p.activity_type]
-    .filter(Boolean).join(' ').slice(0, 3000);
-  const sourceHash = createHash('md5').update(p.description).digest('hex');
 
   const { rowCount } = await pool.query(
-    `INSERT INTO agent_route_knowledge
-       (id, route_dedupe_key, title, description, category, activity_type,
-        lat, lng, source_url, source_name, search_text, payload, source_hash,
-        is_visible, source_updated_at, last_synced_at, created_at, updated_at)
+    `INSERT INTO kamchatka_routes
+       (id, dedupe_key, slug, title, description, category, activity_type,
+        lat, lng, source_url, source_name, metadata, is_visible, created_at, updated_at)
      VALUES (
-       gen_random_uuid(), $1, $2, $3, $4, $5,
-       $6, $7, $8, $9, $10, $11::jsonb, $12,
-       true, NOW(), NOW(), NOW(), NOW()
+       gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+       $7, $8, $9, $10, $11::jsonb, true, NOW(), NOW()
      )
-     ON CONFLICT (route_dedupe_key) DO UPDATE SET
-       description       = EXCLUDED.description,
-       category          = COALESCE(EXCLUDED.category, agent_route_knowledge.category),
-       activity_type     = COALESCE(EXCLUDED.activity_type, agent_route_knowledge.activity_type),
-       lat               = COALESCE(EXCLUDED.lat, agent_route_knowledge.lat),
-       lng               = COALESCE(EXCLUDED.lng, agent_route_knowledge.lng),
-       search_text       = EXCLUDED.search_text,
-       payload           = EXCLUDED.payload::jsonb,
-       source_hash       = EXCLUDED.source_hash,
-       last_synced_at    = NOW(),
-       updated_at        = NOW()`,
-    [dedupeKey, p.title, p.description, p.category, p.activity_type,
-     p.lat, p.lng, p.url, SOURCE_NAME, searchText, payload, sourceHash],
+     ON CONFLICT (dedupe_key) DO UPDATE SET
+       description   = COALESCE(EXCLUDED.description, kamchatka_routes.description),
+       category      = COALESCE(EXCLUDED.category, kamchatka_routes.category),
+       activity_type = COALESCE(EXCLUDED.activity_type, kamchatka_routes.activity_type),
+       lat           = COALESCE(EXCLUDED.lat, kamchatka_routes.lat),
+       lng           = COALESCE(EXCLUDED.lng, kamchatka_routes.lng),
+       metadata      = EXCLUDED.metadata,
+       updated_at    = NOW()`,
+    [dk, slug, p.title, p.description, p.category, p.activity_type,
+     p.lat, p.lng, p.url, SOURCE_NAME, metadata],
   );
 
   return (rowCount ?? 0) > 0 ? 'inserted' : 'skipped';
