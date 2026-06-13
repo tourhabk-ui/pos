@@ -572,7 +572,7 @@ export async function getBookingById(bookingId: string): Promise<BookingWithDeta
 
   // Подтягиваем логи
   const logsResult = await query(
-    `SELECT * FROM booking_logs WHERE booking_id = $1 ORDER BY created_at ASC`,
+    `SELECT id, booking_id, from_status, to_status, changed_by, comment, created_at FROM booking_logs WHERE booking_id = $1 ORDER BY created_at ASC`,
     [bookingId]
   );
   booking.logs = logsResult.rows.map(normalizeLogRow);
@@ -598,7 +598,7 @@ export async function getBookingForUser(
   const booking = normalizeBookingRow(result.rows[0]);
 
   const logsResult = await query(
-    `SELECT * FROM booking_logs WHERE booking_id = $1 ORDER BY created_at ASC`,
+    `SELECT id, booking_id, from_status, to_status, changed_by, comment, created_at FROM booking_logs WHERE booking_id = $1 ORDER BY created_at ASC`,
     [bookingId]
   );
   booking.logs = logsResult.rows.map(normalizeLogRow);
