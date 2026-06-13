@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<title>SOS — Экстренная помощь</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{
+  background:#0a0a0a;color:#fff;
+  font-family:system-ui,-apple-system,sans-serif;
+  min-height:100dvh;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:10px;
+}
+
+/* ГЛАВНОЕ */
+.stop{
+  background:#1a0a0a;border:2px solid #dc2626;border-radius:14px;
+  padding:18px 16px;text-align:center;
+}
+.stop h1{font-size:28px;font-weight:900;color:#ef4444;letter-spacing:.03em;margin-bottom:6px}
+.stop p{font-size:13px;color:#9ca3af;line-height:1.5}
+
+/* КООРДИНАТЫ */
+.coords-box{
+  background:#0f1a2e;border:1px solid #1e3a5f;border-radius:12px;
+  padding:14px 16px;
+}
+.coords-label{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+#coords-value{font-family:monospace;font-size:17px;font-weight:700;color:#60a5fa;word-break:break-all}
+.coords-actions{display:flex;gap:8px;margin-top:10px}
+.coords-actions a,.coords-actions button{
+  flex:1;padding:9px 6px;border-radius:8px;font-size:12px;font-weight:700;
+  border:1px solid #1e3a5f;background:#0a1628;color:#60a5fa;
+  text-decoration:none;text-align:center;cursor:pointer;
+}
+.coords-actions a:active,.coords-actions button:active{opacity:.75}
+
+/* ЗВОНКИ */
+.calls{display:flex;flex-direction:column;gap:8px}
+.call-primary{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#dc2626;border-radius:12px;padding:16px 20px;
+  text-decoration:none;color:#fff;
+}
+.call-primary .num{font-size:32px;font-weight:900;letter-spacing:.03em}
+.call-primary .name{font-size:11px;opacity:.85;margin-top:2px}
+.call-secondary{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#111;border:1px solid #333;border-radius:12px;padding:13px 16px;
+  text-decoration:none;color:#fff;
+}
+.call-secondary .num{font-size:15px;font-weight:700;font-family:monospace}
+.call-secondary .name{font-size:11px;color:#9ca3af}
+.call-secondary:active{opacity:.75}
+
+/* СИТУАЦИИ */
+.situations-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.situations{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.sit-btn{
+  padding:14px 10px;border-radius:12px;border:1px solid #333;
+  background:#111;color:#fff;font-size:13px;font-weight:700;
+  cursor:pointer;text-align:center;
+}
+.sit-btn.active{border-color:#ef4444;background:#1a0808}
+.sit-btn:active{opacity:.75}
+
+/* ПРОТОКОЛ */
+.protocol{
+  display:none;
+  background:#111;border:1px solid #333;border-radius:12px;
+  padding:14px 16px;
+}
+.protocol.open{display:block}
+.protocol h3{font-size:14px;font-weight:800;color:#ef4444;margin-bottom:10px}
+.protocol ol{padding-left:20px;display:flex;flex-direction:column;gap:7px}
+.protocol li{font-size:13px;line-height:1.5;color:#e5e7eb}
+.protocol .urgent{
+  background:#1f0a0a;border-left:3px solid #ef4444;
+  padding:8px 10px;border-radius:0 6px 6px 0;
+  font-size:12px;font-weight:700;color:#fca5a5;margin-bottom:10px;
+}
+
+/* КОПИРОВАНО */
+.copied{color:#22c55e!important}
+
+/* АККУМУЛЯТОР */
+.battery{
+  font-size:11px;color:#6b7280;text-align:center;margin-top:auto;padding-top:4px
+}
+
+/* LEAFLET MAP */
+#mini-map{width:100%;height:160px;border-radius:8px;background:#0f1a2e}
+.leaflet-container{background:#0f1a2e}
+</style>
+<link rel="stylesheet" href="/leaflet/leaflet.min.css">
+<script src="/leaflet/leaflet.min.js"></script>
+</head>
+<body>
+
+<div class="stop">
+  <h1>СТОЙ ГДЕ СТОИШЬ</h1>
+  <p>Двигаясь — ты уходишь от точки последнего сигнала.<br>Тебя ищут. Жди.</p>
+</div>
+
+<div class="coords-box">
+  <div class="coords-label">Твои координаты</div>
+  <div id="coords-value">Определяем GPS…</div>
+  <div class="coords-actions">
+    <button id="copy-btn" onclick="copyCoords()">Скопировать</button>
+    <button id="retry-btn" onclick="startGPS()" style="display:none">Повторить GPS</button>
+    <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
+  </div>
+  <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
+  <!-- Последний известный сигнал — откуда идти за покрытием -->
+  <div id="last-signal-box" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#051a05;border:1px solid #1a3a1a">
+    <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Последний сигнал сети</div>
+    <div id="last-signal-coords" style="font-family:monospace;font-size:14px;font-weight:700;color:#86efac"></div>
+    <div id="last-signal-meta" style="font-size:11px;color:#6b7280;margin-top:3px"></div>
+  </div>
+  <!-- Интерактивная карта Leaflet — тайлы из SW-кеша, работает офлайн -->
+  <div id="mini-map-box" style="display:none;margin-top:10px">
+    <button id="map-toggle-btn" onclick="toggleMap()"
+      style="width:100%;display:flex;align-items:center;justify-content:space-between;
+             padding:8px 10px;border-radius:8px 8px 0 0;border:1px solid #1e3a5f;
+             border-bottom:none;background:#0a1628;color:#60a5fa;
+             font-size:12px;font-weight:700;cursor:pointer;text-align:left">
+      <span>Карта</span>
+      <span id="map-toggle-icon">▲ скрыть</span>
+    </button>
+    <div id="mini-map-inner">
+      <div id="mini-map"></div>
+      <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenTopoMap (CC-BY-SA)</div>
+    </div>
+  </div>
+  <!-- Ссылки на карты покрытия операторов — только онлайн -->
+  <div id="coverage-links" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#0a1a0a;border:1px solid #1a3a1a">
+    <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px">Карты покрытия сотовой связи</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="https://mts.ru/personal/mobile/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">МТС</a>
+      <a href="https://megafon.ru/help/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Мегафон</a>
+      <a href="https://beeline.ru/customers/mobileinternet/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Билайн</a>
+    </div>
+  </div>
+</div>
+
+<div class="calls">
+  <a href="tel:112" class="call-primary">
+    <div>
+      <div class="name">Единый номер экстренных служб</div>
+      <div class="num">112</div>
+    </div>
+    <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+
+  <a href="tel:+74152235362" class="call-secondary">
+    <div>
+      <div class="name">МЧС Камчатский край</div>
+      <div class="num">+7 (4152) 23-53-62</div>
+    </div>
+    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+
+  <a href="tel:+74152412730" class="call-secondary">
+    <div>
+      <div class="name">ПАСС Камчатки (поиск и спасение)</div>
+      <div class="num">+7 (4152) 41-27-30</div>
+    </div>
+    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+</div>
+
+<div class="situations-label">Что случилось?</div>
+<div class="situations">
+  <button class="sit-btn" id="btn-lost"   onclick="toggle('lost')"   >Потерялся</button>
+  <button class="sit-btn" id="btn-bear"   onclick="toggle('bear')"   >Медведь</button>
+  <button class="sit-btn" id="btn-injury" onclick="toggle('injury')" >Травма</button>
+  <button class="sit-btn" id="btn-cold"   onclick="toggle('cold')"   >Холодно</button>
+</div>
+
+<div class="protocol" id="p-lost">
+  <div class="urgent">Стой где стоишь — тебя найдут быстрее</div>
+  <h3>Потерялся</h3>
+  <ol>
+    <li>Не двигайся. Спасатели ищут по последнему сигналу телефона.</li>
+    <li>Кричи 3 раза каждые 10 минут — пауза, слушай ответ.</li>
+    <li>Переведи телефон в режим полёта между звонками — экономь батарею.</li>
+    <li>Найди открытое место — тебя увидят с воздуха.</li>
+    <li>Если есть огонь — дым видно за километры.</li>
+    <li>Найди укрытие от ветра — тепло важнее поиска дороги.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-bear">
+  <div class="urgent">Никогда не беги — инстинкт преследования сработает мгновенно</div>
+  <h3>Встреча с медведем</h3>
+  <ol>
+    <li>Остановись. Говори спокойным низким голосом.</li>
+    <li>Медленно отступай боком — не поворачивайся спиной.</li>
+    <li>Подними руки — выгляди крупнее.</li>
+    <li>Антизверь — держи наготове, распыляй в нос и глаза при атаке.</li>
+    <li>Медведица с медвежатами: уходи немедленно, не смотри в глаза.</li>
+    <li>Атака хищника: бей, кричи — не притворяйся мёртвым.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-injury">
+  <div class="urgent">Позвони 112 — продиктуй координаты сверху страницы</div>
+  <h3>Травма</h3>
+  <ol>
+    <li>Кровотечение: прямое давление чистой тканью, не убирай.</li>
+    <li>Не останавливается: жгут выше раны, <strong>запиши время</strong> на коже.</li>
+    <li>Перелом: не вправляй, зафиксируй подручным — ветка, рюкзак.</li>
+    <li>Позвоночник или шея: не двигай человека вообще.</li>
+    <li>Потеря сознания: стабильное положение на боку, следи за дыханием.</li>
+    <li>Ожог вулканом: холодная вода 20 мин, не вскрывай пузыри.</li>
+  </ol>
+</div>
+
+<div class="protocol" id="p-cold">
+  <div class="urgent">Переохлаждение убивает быстрее голода — действуй немедленно</div>
+  <h3>Переохлаждение</h3>
+  <ol>
+    <li>Снять мокрую одежду — мокрое охлаждает в 20 раз быстрее сухого.</li>
+    <li>Укрыться от ветра и влаги. Лечь на что-то (не на землю).</li>
+    <li>Не двигай человека резко — риск остановки сердца.</li>
+    <li>Горячее сладкое питьё — не алкоголь, не кофе.</li>
+    <li>Тело к телу под общим укрытием — лучший источник тепла.</li>
+    <li>Не давай спать при тяжёлом состоянии — разговаривай.</li>
+  </ol>
+</div>
+
+<div class="battery" id="battery-info"></div>
+
+<div style="padding-top:8px">
+  <a href="/sos" style="display:block;padding:12px 16px;border-radius:10px;border:1px solid #374151;background:#111827;text-align:center;font-size:13px;font-weight:600;color:#9ca3af;text-decoration:none">
+    Расширенный SOS →<br><span style="font-size:11px;font-weight:400;color:#6b7280">меш · офлайн-очередь · Кузьмич</span>
+  </a>
+</div>
+
+<script>
+var lat=null,lng=null,open_id=null,gpsWatcher=null,gpsTimer=null;
+var LAST_POS_KEY='vedar_last_online_pos';
+
+function haversine(lat1,lng1,lat2,lng2){
+  var R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+
+        Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+        Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function showLastSignal(){
+  try{
+    var raw=localStorage.getItem(LAST_POS_KEY);
+    if(!raw)return;
+    var pos=JSON.parse(raw);
+    if(!pos.lat||!pos.lng||!pos.t)return;
+    var minsAgo=Math.round((Date.now()-pos.t)/60000);
+    if(minsAgo>24*60)return; // старше суток — бесполезно
+    var timeStr=minsAgo<1?'только что':minsAgo<60?minsAgo+' мин назад':Math.round(minsAgo/60)+' ч назад';
+    var distStr='';
+    if(lat&&lng){
+      var d=haversine(parseFloat(lat),parseFloat(lng),pos.lat,pos.lng);
+      distStr=' · ~'+(d<1?Math.round(d*1000)+' м':d.toFixed(1)+' км')+' от тебя';
+    }
+    document.getElementById('last-signal-coords').textContent=pos.lat.toFixed(5)+', '+pos.lng.toFixed(5);
+    document.getElementById('last-signal-meta').textContent=timeStr+distStr+' — иди туда за связью';
+    document.getElementById('last-signal-box').style.display='block';
+  }catch(e){}
+}
+
+function onGPSSuccess(p){
+  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
+  lat=p.coords.latitude.toFixed(5);
+  lng=p.coords.longitude.toFixed(5);
+  var age=p.timestamp?Math.round((Date.now()-p.timestamp)/1000):null;
+  var ageNote=age&&age>60?' ('+Math.round(age/60)+' мин назад)':'';
+  document.getElementById('coords-value').textContent=lat+', '+lng+ageNote;
+  document.getElementById('coords-hint').style.display='';
+  document.getElementById('retry-btn').style.display='none';
+  var maps=document.getElementById('maps-btn');
+  maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
+  maps.style.display='';
+  // Сохраняем как последнюю онлайн-позицию если есть сеть
+  if(navigator.onLine){
+    try{localStorage.setItem(LAST_POS_KEY,JSON.stringify({lat:parseFloat(lat),lng:parseFloat(lng),acc:Math.round(p.coords.accuracy),t:Date.now()}));}catch(e){}
+  }
+  // Обновляем блок "последний сигнал" с расстоянием
+  showLastSignal();
+  // Интерактивная карта Leaflet (тайлы из SW-кеша — работает офлайн)
+  var mapBox=document.getElementById('mini-map-box');
+  if(mapBox){
+    mapBox.style.display='block';
+    initLeafletMap(parseFloat(lat),parseFloat(lng));
+  }
+}
+
+var _leafletMap=null,_gpsMarker=null,_lastMarker=null,_guideLine=null;
+
+var _mapOpen = true;
+function toggleMap() {
+  _mapOpen = !_mapOpen;
+  document.getElementById('mini-map-inner').style.display = _mapOpen ? '' : 'none';
+  document.getElementById('map-toggle-icon').textContent = _mapOpen ? '▲ скрыть' : '▼ показать';
+  if (_mapOpen && _leafletMap) {
+    setTimeout(function(){ _leafletMap.invalidateSize(); }, 50);
+  }
+}
+
+function initLeafletMap(clat,clng){
+  if(!window.L)return;
+  try{
+    var lastPos=null;
+    try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+
+    if(!_leafletMap){
+      _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
+      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMap);
+    } else {
+      _leafletMap.setView([clat,clng],13);
+    }
+
+    // Текущая позиция — синяя
+    if(_gpsMarker)_gpsMarker.remove();
+    _gpsMarker=L.circleMarker([clat,clng],{radius:9,color:'#60a5fa',fillColor:'#3b82f6',fillOpacity:.9,weight:2}).addTo(_leafletMap);
+
+    // Последний сигнал — зелёная + пунктирная линия
+    if(_lastMarker){_lastMarker.remove();_lastMarker=null;}
+    if(_guideLine){_guideLine.remove();_guideLine=null;}
+    if(lastPos&&lastPos.lat&&lastPos.lng){
+      _lastMarker=L.circleMarker([lastPos.lat,lastPos.lng],{radius:7,color:'#86efac',fillColor:'#4ade80',fillOpacity:.8,weight:2}).addTo(_leafletMap);
+      _guideLine=L.polyline([[clat,clng],[lastPos.lat,lastPos.lng]],{color:'#86efac',dashArray:'6 4',weight:2}).addTo(_leafletMap);
+    }
+  }catch(e){}
+}
+
+function onGPSError(err){
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
+  var msg='GPS недоступен — позвони 112';
+  if(err){
+    if(err.code===1)msg='Нет разрешения — разреши геолокацию в настройках браузера';
+    else if(err.code===2)msg='Нет сигнала — выйди на открытое место и нажми «Повторить»';
+    else if(err.code===3)msg='Долго ищет — нажми «Повторить» или выйди на открытое место';
+  }
+  document.getElementById('coords-value').textContent=msg;
+  document.getElementById('retry-btn').style.display='';
+}
+
+function startGPS(){
+  if(!navigator.geolocation){
+    document.getElementById('coords-value').textContent='GPS не поддерживается — позвони 112';
+    return;
+  }
+  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
+  lat=null;
+
+  var el=document.getElementById('coords-value');
+  var secs=0;
+  el.textContent='Определяем GPS…';
+  document.getElementById('retry-btn').style.display='none';
+  document.getElementById('coords-hint').style.display='none';
+  document.getElementById('maps-btn').style.display='none';
+
+  // Показываем прогресс каждую секунду
+  gpsTimer=setInterval(function(){
+    if(lat)return;
+    secs++;
+    if(secs<=10) el.textContent='Определяем GPS… '+secs+' сек';
+    else if(secs<=25) el.textContent='Слабый сигнал — жди или выйди на открытое место ('+secs+' сек)';
+    else el.textContent='Очень долго — нажми «Повторить» и выйди на открытое место';
+  },1000);
+
+  // Сначала пробуем с кешем до 5 мин — если телефон уже знает где ты, ответит мгновенно
+  navigator.geolocation.getCurrentPosition(
+    function(p){onGPSSuccess(p);},
+    function(err){
+      // Не получилось — переключаемся на watchPosition (менее строгий)
+      el.textContent='Слабый сигнал — продолжаем искать…';
+      gpsWatcher=navigator.geolocation.watchPosition(
+        function(p){onGPSSuccess(p);},
+        function(e){onGPSError(e);},
+        {enableHighAccuracy:false,timeout:30000,maximumAge:60000}
+      );
+      setTimeout(function(){if(!lat)onGPSError(err);},30000);
+    },
+    {enableHighAccuracy:true,timeout:10000,maximumAge:300000}
+  );
+}
+
+// Сразу показываем последнюю онлайн-позицию (без расстояния — GPS ещё не готов)
+showLastSignal();
+startGPS();
+
+// Ссылки на карты покрытия — только при наличии сети
+function updateCoverageLinks(){
+  var el=document.getElementById('coverage-links');
+  if(el)el.style.display=navigator.onLine?'block':'none';
+}
+updateCoverageLinks();
+window.addEventListener('online',updateCoverageLinks);
+window.addEventListener('offline',updateCoverageLinks);
+
+// Копировать координаты
+function copyCoords(){
+  var txt=lat&&lng?lat+', '+lng:'GPS недоступен';
+  var btn=document.getElementById('copy-btn');
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(function(){
+      btn.textContent='Скопировано';btn.classList.add('copied');
+      setTimeout(function(){btn.textContent='Скопировать';btn.classList.remove('copied');},2000);
+    });
+  } else {
+    var t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);
+    t.select();document.execCommand('copy');document.body.removeChild(t);
+    btn.textContent='Скопировано';btn.classList.add('copied');
+    setTimeout(function(){btn.textContent='Скопировать';btn.classList.remove('copied');},2000);
+  }
+}
+
+// Протоколы
+var PROTOCOLS={lost:'p-lost',bear:'p-bear',injury:'p-injury',cold:'p-cold'};
+var BTNS={lost:'btn-lost',bear:'btn-bear',injury:'btn-injury',cold:'btn-cold'};
+function toggle(id){
+  if(open_id){
+    document.getElementById(PROTOCOLS[open_id]).classList.remove('open');
+    document.getElementById(BTNS[open_id]).classList.remove('active');
+    if(open_id===id){open_id=null;return;}
+  }
+  document.getElementById(PROTOCOLS[id]).classList.add('open');
+  document.getElementById(BTNS[id]).classList.add('active');
+  open_id=id;
+  setTimeout(function(){document.getElementById(PROTOCOLS[id]).scrollIntoView({behavior:'smooth',block:'nearest'});},50);
+}
+
+// Батарея
+if(navigator.getBattery){
+  navigator.getBattery().then(function(b){
+    function upd(){
+      var pct=Math.round(b.level*100);
+      var txt='Батарея: '+pct+'%';
+      if(b.charging)txt+=' (заряжается)';
+      else if(pct<20)txt+=' — переведи в режим полёта между звонками';
+      document.getElementById('battery-info').textContent=txt;
+    }
+    upd();b.addEventListener('levelchange',upd);b.addEventListener('chargingchange',upd);
+  });
+}
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v9'; // bumped: force fresh JS chunks after map fix
+const CACHE_NAME = 'kamchatour-v10'; // bumped: Leaflet + coverage links in /emergency
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -56,6 +56,9 @@ function makeTransparentPngResponse() {
 
 // Страницы для предварительного кэширования при установке
 const PRECACHE_URLS = [
+  '/emergency', // ПЕРВЫЙ: нулевые зависимости, GPS+звонок+протоколы
+  '/leaflet/leaflet.min.js',  // Leaflet для офлайн-карты на /emergency
+  '/leaflet/leaflet.min.css',
   '/icons/kamchatka-silhouette.jpg',
   '/',
   '/map',
