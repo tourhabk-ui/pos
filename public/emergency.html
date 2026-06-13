@@ -105,6 +105,7 @@ body{
   <div id="coords-value">Определяем GPS…</div>
   <div class="coords-actions">
     <button id="copy-btn" onclick="copyCoords()">Скопировать</button>
+    <button id="retry-btn" onclick="startGPS()" style="display:none">Повторить GPS</button>
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
   <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
@@ -203,22 +204,50 @@ body{
 </div>
 
 <script>
-var lat=null,lng=null,open_id=null;
+var lat=null,lng=null,open_id=null,gpsWatcher=null;
 
-// GPS
-if(navigator.geolocation){
-  navigator.geolocation.getCurrentPosition(function(p){
-    lat=p.coords.latitude.toFixed(5);
-    lng=p.coords.longitude.toFixed(5);
-    document.getElementById('coords-value').textContent=lat+', '+lng;
-    document.getElementById('coords-hint').style.display='';
-    var maps=document.getElementById('maps-btn');
-    maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
-    maps.style.display='';
-  },function(){
-    document.getElementById('coords-value').textContent='GPS недоступен — позвони 112';
-  },{enableHighAccuracy:true,timeout:15000});
+function onGPSSuccess(p){
+  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
+  lat=p.coords.latitude.toFixed(5);
+  lng=p.coords.longitude.toFixed(5);
+  document.getElementById('coords-value').textContent=lat+', '+lng;
+  document.getElementById('coords-hint').style.display='';
+  document.getElementById('retry-btn').style.display='none';
+  var maps=document.getElementById('maps-btn');
+  maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
+  maps.style.display='';
 }
+
+function onGPSError(err){
+  var msg='GPS недоступен — позвони 112';
+  if(err){
+    if(err.code===1)msg='Нет разрешения — разреши геолокацию в настройках браузера';
+    else if(err.code===2)msg='Нет сигнала — выйди на открытое место и нажми «Повторить»';
+    else if(err.code===3)msg='GPS не успел — нажми «Повторить» или выйди на открытое место';
+  }
+  document.getElementById('coords-value').textContent=msg;
+  document.getElementById('retry-btn').style.display='';
+}
+
+function startGPS(){
+  if(!navigator.geolocation){
+    document.getElementById('coords-value').textContent='GPS не поддерживается — позвони 112';
+    return;
+  }
+  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
+  document.getElementById('coords-value').textContent='Определяем GPS…';
+  document.getElementById('retry-btn').style.display='none';
+  // Сначала быстрый запрос, потом watchPosition как fallback
+  navigator.geolocation.getCurrentPosition(onGPSSuccess,function(err){
+    // getCurrentPosition не сработал — пробуем watchPosition (менее строгий)
+    gpsWatcher=navigator.geolocation.watchPosition(onGPSSuccess,onGPSError,
+      {enableHighAccuracy:false,timeout:30000,maximumAge:60000});
+    // Если через 30 сек watchPosition тоже не дал результат — показываем ошибку
+    setTimeout(function(){if(!lat)onGPSError(err);},30000);
+  },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+}
+
+startGPS();
 
 // Копировать координаты
 function copyCoords(){
