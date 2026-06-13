@@ -41,10 +41,10 @@ export async function GET(
         p.id           AS partner_id_val,
         p.name         AS partner_name,
         p.rating       AS partner_rating
-       FROM tours t
+       FROM operator_tours t
        LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
        LEFT JOIN partners p ON t.operator_id = p.id
-       WHERE t.id = $1 AND t.is_active = TRUE`,
+       WHERE t.id = $1 AND t.is_active = TRUE AND t.deleted_at IS NULL`,
       [id]
     );
 
@@ -56,7 +56,8 @@ export async function GET(
         source_url: string | null; source_name: string | null;
         payload: Record<string, unknown> | null;
         created_at: Date; updated_at: Date;
-      }>('SELECT * FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE', [id]);
+      }>(`SELECT id, title, description, category, lat, lng, source_url, source_name, payload, created_at, updated_at
+         FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`, [id]);
 
       if (arkResult.rows.length === 0) {
         return NextResponse.json(

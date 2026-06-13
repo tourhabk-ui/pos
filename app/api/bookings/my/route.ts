@@ -30,30 +30,30 @@ export async function GET(request: NextRequest) {
     const result = await query<BookingMyRow>(
       `SELECT
         b.id,
-        b.date,
+        b.booking_date AS date,
         b.participants,
-        b.total_price,
-        b.status,
+        COALESCE(b.final_price, b.base_total_price) AS total_price,
+        b.booking_status AS status,
         b.payment_status,
         b.special_requests,
         b.created_at,
         b.updated_at,
         t.id as tour_id,
-        t.name as tour_name,
+        t.title as tour_name,
         t.description as tour_description,
         t.difficulty as tour_difficulty,
-        t.duration as tour_duration,
+        t.duration_hours as tour_duration,
         array_agg(DISTINCT a.url) as tour_images,
         p.name as operator_name,
         p.contact as operator_contact
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        LEFT JOIN partners p ON t.operator_id = p.id
        LEFT JOIN tour_assets ta ON t.id = ta.tour_id
        LEFT JOIN assets a ON ta.asset_id = a.id
-       WHERE b.user_id = $1
+       WHERE b.user_id = $1 AND b.deleted_at IS NULL
        GROUP BY b.id, t.id, p.id
-       ORDER BY b.date DESC
+       ORDER BY b.booking_date DESC
        LIMIT 100`,
       [userId]
     );

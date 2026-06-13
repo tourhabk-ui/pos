@@ -251,26 +251,27 @@ async function selectTours(
     const totalHoursAvailable = days * 24 * 0.8;
     
     const sql = `
-      SELECT 
+      SELECT
         id,
-        name,
+        title AS name,
         short_description as description,
-        duration,
-        price,
+        duration_hours AS duration,
+        base_price AS price,
         difficulty,
         operator_id,
         rating,
         coordinates,
         season
-      FROM tours
-      WHERE 
+      FROM operator_tours
+      WHERE
         is_active = true
+        AND deleted_at IS NULL
         AND difficulty = ANY($1)
-        ${budget ? 'AND price <= $2' : ''}
+        ${budget ? 'AND base_price <= $2' : ''}
         AND rating >= 3.5
-      ORDER BY 
+      ORDER BY
         rating DESC,
-        review_count DESC
+        reviews_count DESC
       LIMIT 15
     `;
     

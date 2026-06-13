@@ -53,11 +53,11 @@ export const tourService = {
         ? (params.filters as Record<string, unknown>)
         : {};
 
-      const conditions: string[] = ['t.is_active = TRUE'];
+      const conditions: string[] = ['t.is_active = TRUE', 't.deleted_at IS NULL'];
       const queryParams: unknown[] = [];
 
       if (query) {
-        conditions.push(`(t.name ILIKE $${queryParams.length + 1} OR t.description ILIKE $${queryParams.length + 1})`);
+        conditions.push(`(t.title ILIKE $${queryParams.length + 1} OR t.description ILIKE $${queryParams.length + 1})`);
         queryParams.push(`%${query}%`);
       }
 
@@ -69,19 +69,19 @@ export const tourService = {
 
       const activity = toStringOrNull(filters.activity);
       if (activity) {
-        conditions.push(`t.category = $${queryParams.length + 1}`);
+        conditions.push(`t.activity_type = $${queryParams.length + 1}`);
         queryParams.push(activity);
       }
 
       const minPrice = toNumberOrNull(filters.minPrice);
       if (minPrice !== null) {
-        conditions.push(`t.price >= $${queryParams.length + 1}`);
+        conditions.push(`t.base_price >= $${queryParams.length + 1}`);
         queryParams.push(minPrice);
       }
 
       const maxPrice = toNumberOrNull(filters.maxPrice);
       if (maxPrice !== null) {
-        conditions.push(`t.price <= $${queryParams.length + 1}`);
+        conditions.push(`t.base_price <= $${queryParams.length + 1}`);
         queryParams.push(maxPrice);
       }
 
@@ -95,15 +95,15 @@ export const tourService = {
 
       const allowedSortFields: Record<string, string> = {
         rating: 't.rating',
-        price: 't.price',
+        price: 't.base_price',
         created_at: 't.created_at',
-        duration: 't.duration',
-        name: 't.name',
+        duration: 't.duration_hours',
+        name: 't.title',
       };
       const orderField = allowedSortFields[sortBy] ?? 't.rating';
 
       const count = await pool.query(
-        `SELECT COUNT(*)::int AS total FROM tours t ${whereClause}`,
+        `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause}`,
         queryParams
       );
       const total = Number(count.rows[0]?.total ?? 0);
@@ -112,7 +112,7 @@ export const tourService = {
         `SELECT
            t.*,
            p.name AS operator_name
-         FROM tours t
+         FROM operator_tours t
          LEFT JOIN partners p ON t.operator_id = p.id
          ${whereClause}
          ORDER BY ${orderField} ${sortOrder}
@@ -135,9 +135,9 @@ export const tourService = {
       `SELECT
          t.*,
          p.name AS operator_name
-       FROM tours t
+       FROM operator_tours t
        LEFT JOIN partners p ON t.operator_id = p.id
-       WHERE t.id = $1
+       WHERE t.id = $1 AND t.deleted_at IS NULL
        LIMIT 1`,
       [id]
     );
@@ -297,17 +297,17 @@ export const tourService = {
     const bookingsStatsResult = await pool.query(
       `SELECT
          COUNT(*)::int AS total_bookings,
-         COUNT(*) FILTER (WHERE status = 'confirmed')::int AS confirmed_bookings,
-         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_bookings,
-         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_bookings,
-         COALESCE(SUM(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed') AND payment_status = 'paid'
+         COUNT(*) FILTER (WHERE booking_status = 'confirmed')::int AS confirmed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'completed')::int AS completed_bookings,
+         COUNT(*) FILTER (WHERE booking_status = 'cancelled')::int AS cancelled_bookings,
+         COALESCE(SUM(COALESCE(final_price, base_total_price)) FILTER (
+           WHERE booking_status IN ('confirmed', 'completed') AND payment_status = 'paid'
          ), 0) AS total_revenue,
-         COALESCE(AVG(total_price) FILTER (
-           WHERE status IN ('confirmed', 'completed')
+         COALESCE(AVG(COALESCE(final_price, base_total_price)) FILTER (
+           WHERE booking_status IN ('confirmed', 'completed')
          ), 0) AS average_booking_value
-       FROM bookings
-       WHERE tour_id = $1`,
+       FROM operator_bookings
+       WHERE tour_id = $1 AND deleted_at IS NULL`,
       [id]
     );
 
@@ -345,7 +345,7 @@ export const tourService = {
     };
   },
   async delete(id: string) {
-    const result = await pool.query(`DELETE FROM tours WHERE id = $1 RETURNING id`, [id]);
+    const result = await pool.query(`DELETE FROM operator_tours WHERE id = $1 RETURNING id`, [id]);
     if (!result.rows[0]) {
       throw new TourNotFoundError(id);
     }

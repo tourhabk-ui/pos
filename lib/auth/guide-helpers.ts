@@ -523,11 +523,12 @@ export async function getGuideExpertiseZones(guideId: string): Promise<Record<st
         t.title,
         ST_X(t.location::geometry) as longitude,
         ST_Y(t.location::geometry) as latitude,
-        t.duration,
+        t.duration_hours AS duration,
         t.difficulty_level
-      FROM tours t
+      FROM operator_tours t
       WHERE t.guide_id = $1
         AND t.location IS NOT NULL
+        AND t.deleted_at IS NULL
       ORDER BY t.title`,
       [guideId]
     );

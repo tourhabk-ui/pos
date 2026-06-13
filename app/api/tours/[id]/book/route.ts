@@ -68,16 +68,16 @@ export async function POST(
     const tourCheckResult = await query<TourBookCheckRow>(
       `SELECT
         t.id,
-        t.name,
-        t.price,
-        t.max_group_size,
+        t.title AS name,
+        t.base_price AS price,
+        t.max_participants AS max_group_size,
         t.min_group_size,
         t.is_active,
         p.name as operator_name,
         p.email as operator_email
-      FROM tours t
+      FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
-      WHERE t.id = $1 AND t.is_active = true`,
+      WHERE t.id = $1 AND t.is_active = true AND t.deleted_at IS NULL`,
       [tourId]
     );
 
@@ -114,10 +114,11 @@ export async function POST(
     // Проверяем доступность на выбранную дату
     const availabilityCheck = await query<{ bookings: string }>(
       `SELECT COUNT(*) as bookings
-       FROM bookings
-       WHERE tour_id = $1
-         AND DATE(start_date) = $2
-         AND status NOT IN ('cancelled')`,
+       FROM operator_bookings
+       WHERE operator_tour_id = $1
+         AND DATE(booking_date) = $2
+         AND booking_status NOT IN ('cancelled')
+         AND deleted_at IS NULL`,
       [tourId, date]
     );
 

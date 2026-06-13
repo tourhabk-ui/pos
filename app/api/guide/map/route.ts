@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
         ST_Y(gs.location::geometry) as latitude,
         t.title as tour_title
       FROM guide_schedule gs
-      LEFT JOIN tours t ON gs.tour_id = t.id
+      LEFT JOIN operator_tours t ON gs.tour_id = t.id
       WHERE gs.guide_id = $1 
         AND gs.start_time >= NOW()
         AND gs.start_time < NOW() + INTERVAL '7 days'
@@ -96,10 +96,11 @@ export async function GET(request: NextRequest) {
         ST_Y(t.location::geometry) as latitude,
         COUNT(b.id) as bookings_count,
         t.title as tour_title
-      FROM tours t
-      LEFT JOIN bookings b ON t.id = b.tour_id
-      WHERE t.guide_id = $1 
+      FROM operator_tours t
+      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.deleted_at IS NULL
+      WHERE t.guide_id = $1
         AND t.location IS NOT NULL
+        AND t.deleted_at IS NULL
       GROUP BY t.id, t.location_name, t.location, t.title
       ORDER BY bookings_count DESC
       LIMIT 10`,

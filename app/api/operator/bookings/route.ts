@@ -11,9 +11,8 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set([
   'created_at',
   'updated_at',
-  'start_date',
-  'total_price',
-  'status',
+  'booking_date',
+  'booking_status',
   'payment_status',
 ]);
 
@@ -53,19 +52,19 @@ export async function GET(request: NextRequest) {
     let paramIndex = 2;
 
     if (status && status !== 'all') {
-      whereConditions.push(`b.status = $${paramIndex}`);
+      whereConditions.push(`b.booking_status = $${paramIndex}`);
       queryParams.push(status);
       paramIndex++;
     }
 
     if (tourId) {
-      whereConditions.push(`b.tour_id = $${paramIndex}`);
+      whereConditions.push(`b.operator_tour_id = $${paramIndex}`);
       queryParams.push(tourId);
       paramIndex++;
     }
 
     if (search) {
-      whereConditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR t.name ILIKE $${paramIndex})`);
+      whereConditions.push(`(u.name ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR t.title ILIKE $${paramIndex})`);
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
@@ -75,10 +74,11 @@ export async function GET(request: NextRequest) {
     // Подсчёт
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      FROM operator_bookings b
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       JOIN users u ON b.user_id = u.id
       ${whereClause}
+      AND b.deleted_at IS NULL AND t.deleted_at IS NULL
     `;
 
     const countResult = await query<CountRow>(countQuery, queryParams);
@@ -88,24 +88,25 @@ export async function GET(request: NextRequest) {
     const bookingsQuery = `
       SELECT
         b.id,
-        b.tour_id,
-        t.name as tour_name,
+        b.operator_tour_id AS tour_id,
+        t.title as tour_name,
         b.user_id,
         u.name as user_name,
         u.email as user_email,
         u.phone as user_phone,
-        b.start_date as date,
-        b.guests_count,
-        b.total_price,
-        b.status,
+        b.booking_date AS date,
+        b.participants AS guests_count,
+        COALESCE(b.final_price, b.base_total_price) AS total_price,
+        b.booking_status AS status,
         b.payment_status,
-        b.special_requirements as notes,
+        b.special_requests as notes,
         b.created_at,
         b.updated_at
-      FROM bookings b
-      JOIN tours t ON b.tour_id = t.id
+      FROM operator_bookings b
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       JOIN users u ON b.user_id = u.id
       ${whereClause}
+      AND b.deleted_at IS NULL AND t.deleted_at IS NULL
       ORDER BY b.${sortBy} ${sortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;

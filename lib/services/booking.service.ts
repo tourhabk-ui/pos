@@ -36,12 +36,27 @@ export const bookingService = {
     };
   },
   async getById(id: string) {
-    const result = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [id]);
+    const result = await pool.query(
+      `SELECT id, operator_tour_id AS tour_id, user_id,
+              booking_date AS start_date, booking_date AS date,
+              participants, participants AS guests_count,
+              COALESCE(final_price, base_total_price) AS total_price,
+              booking_status AS status, payment_status, special_requests,
+              created_at, updated_at
+       FROM operator_bookings WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
     return this.normalize(result.rows[0] ?? null);
   },
   async getByIdForUser(id: string, userId: string) {
     const result = await pool.query(
-      `SELECT * FROM bookings WHERE id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id, operator_tour_id AS tour_id, user_id,
+              booking_date AS start_date, booking_date AS date,
+              participants, participants AS guests_count,
+              COALESCE(final_price, base_total_price) AS total_price,
+              booking_status AS status, payment_status, special_requests,
+              created_at, updated_at
+       FROM operator_bookings WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
       [id, userId]
     );
     return this.normalize(result.rows[0] ?? null);
@@ -175,7 +190,13 @@ export const bookingService = {
     const limit = (params.limit as number) || 20;
     const offset = (params.offset as number) || 0;
     const result = await pool.query(
-      `SELECT * FROM bookings ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      `SELECT id, operator_tour_id AS tour_id, user_id,
+              booking_date AS start_date, booking_date AS date,
+              participants, participants AS guests_count,
+              COALESCE(final_price, base_total_price) AS total_price,
+              booking_status AS status, payment_status, special_requests,
+              created_at, updated_at
+       FROM operator_bookings WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
     return { bookings: result.rows.map(row => this.normalize(row)) };

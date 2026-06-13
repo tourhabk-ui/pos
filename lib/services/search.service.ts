@@ -43,9 +43,9 @@ export const searchService = {
   async autocomplete(query: string, limit = 10) {
     if (!query.trim()) return [];
     const result = await pool.query(
-      `SELECT DISTINCT name
-       FROM tours
-       WHERE is_active = TRUE AND name ILIKE $1
+      `SELECT DISTINCT title AS name
+       FROM operator_tours
+       WHERE is_active = TRUE AND deleted_at IS NULL AND title ILIKE $1
        ORDER BY name ASC
        LIMIT $2`,
       [`%${query.trim()}%`, Math.min(Math.max(limit, 1), 50)]
@@ -65,9 +65,12 @@ export const searchService = {
 
     params.push(Math.min(Math.max(limit, 1), 50));
     const result = await pool.query(
-      `SELECT *
-       FROM tours
-       WHERE ${conditions.join(' AND ')}
+      `SELECT id, title, title AS name, description, activity_type AS category, activity_type,
+              difficulty, duration_hours AS duration, base_price AS price, base_price,
+              operator_id, max_participants AS max_group_size, min_participants AS min_group_size,
+              rating, review_count, is_active, tour_image, created_at, updated_at
+       FROM operator_tours
+       WHERE ${conditions.join(' AND ')} AND deleted_at IS NULL
        ORDER BY COALESCE(rating, 0) DESC, created_at DESC
        LIMIT $${params.length}`,
       params
@@ -76,9 +79,12 @@ export const searchService = {
   },
   async getTrending(limit = 10) {
     const result = await pool.query(
-      `SELECT *
-       FROM tours
-       WHERE is_active = TRUE
+      `SELECT id, title, title AS name, description, activity_type AS category, activity_type,
+              difficulty, duration_hours AS duration, base_price AS price, base_price,
+              operator_id, max_participants AS max_group_size, min_participants AS min_group_size,
+              rating, review_count, is_active, tour_image, created_at, updated_at
+       FROM operator_tours
+       WHERE is_active = TRUE AND deleted_at IS NULL
        ORDER BY COALESCE(review_count, 0) DESC, COALESCE(rating, 0) DESC
        LIMIT $1`,
       [Math.min(Math.max(limit, 1), 50)]
@@ -87,10 +93,10 @@ export const searchService = {
   },
   async getPopularTags(limit = 20) {
     const result = await pool.query(
-      `SELECT category, COUNT(*)::int AS cnt
-       FROM tours
-       WHERE is_active = TRUE AND category IS NOT NULL
-       GROUP BY category
+      `SELECT activity_type AS category, COUNT(*)::int AS cnt
+       FROM operator_tours
+       WHERE is_active = TRUE AND deleted_at IS NULL AND activity_type IS NOT NULL
+       GROUP BY activity_type
        ORDER BY cnt DESC
        LIMIT $1`,
       [Math.min(Math.max(limit, 1), 100)]
@@ -102,7 +108,7 @@ export const searchService = {
   },
   async getSimilar(tourId: string, limit = 5) {
     const sourceTour = await pool.query(
-      `SELECT id, category, difficulty FROM tours WHERE id = $1 LIMIT 1`,
+      `SELECT id, activity_type AS category, difficulty FROM operator_tours WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [tourId]
     );
     const base = sourceTour.rows[0];
@@ -111,13 +117,17 @@ export const searchService = {
     }
 
     const result = await pool.query(
-      `SELECT *
-       FROM tours
+      `SELECT id, title, title AS name, description, activity_type AS category, activity_type,
+              difficulty, duration_hours AS duration, base_price AS price, base_price,
+              operator_id, max_participants AS max_group_size, min_participants AS min_group_size,
+              rating, review_count, is_active, tour_image, created_at, updated_at
+       FROM operator_tours
        WHERE
          is_active = TRUE
+         AND deleted_at IS NULL
          AND id <> $1
          AND (
-           (category IS NOT DISTINCT FROM $2)
+           (activity_type IS NOT DISTINCT FROM $2)
            OR (difficulty IS NOT DISTINCT FROM $3)
          )
        ORDER BY COALESCE(rating, 0) DESC, created_at DESC

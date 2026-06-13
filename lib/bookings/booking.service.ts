@@ -110,14 +110,39 @@ function normalizeLogRow(row: Record<string, unknown>): BookingLogEntry {
 // Базовый SELECT для бронирований с JOIN-ами на тур и пользователя
 const BOOKING_SELECT = `
   SELECT
-    b.*,
-    t.name AS tour_name,
-    t.price AS tour_price,
+    b.id,
+    b.operator_tour_id AS tour_id,
+    b.user_id,
+    b.tourist_name,
+    b.tourist_email,
+    b.tourist_phone,
+    b.booking_date AS date,
+    b.booking_date AS start_date,
+    b.participants,
+    b.participants AS guests_count,
+    COALESCE(b.final_price, b.base_total_price) AS total_price,
+    b.final_price,
+    b.base_total_price,
+    b.booking_status AS status,
+    b.booking_status,
+    b.payment_status,
+    b.payment_method,
+    b.payment_id,
+    b.special_requests,
+    b.notes,
+    b.metadata,
+    b.cancelled_at,
+    b.cancellation_reason,
+    b.created_at,
+    b.updated_at,
+    t.title AS tour_name,
+    t.base_price AS tour_price,
     u.name AS user_name,
     u.email AS user_email
-  FROM bookings b
-  LEFT JOIN tours t ON b.tour_id = t.id
+  FROM operator_bookings b
+  LEFT JOIN operator_tours t ON b.operator_tour_id = t.id
   LEFT JOIN users u ON b.user_id = u.id
+  WHERE b.deleted_at IS NULL
 `;
 
 // ========================================
@@ -138,7 +163,7 @@ export async function confirmBooking(
 ): Promise<BookingWithDetails> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -159,17 +184,18 @@ export async function confirmBooking(
     await client.query(
       `UPDATE tour_departures
        SET booked_slots = booked_slots + b.participants
-       FROM bookings b
+       FROM operator_bookings b
        WHERE tour_departures.id = b.departure_id
          AND b.id = $1
-         AND b.departure_id IS NOT NULL`,
+         AND b.departure_id IS NOT NULL
+         AND b.deleted_at IS NULL`,
       [bookingId]
     );
 
     await logStatusChange(client, bookingId, currentStatus, 'confirmed', operatorId, 'Бронирование подтверждено оператором');
 
     const updated = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1`,
+      `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
     const confirmed = normalizeBookingRow(updated.rows[0]);
@@ -206,7 +232,7 @@ export async function cancelBooking(
 ): Promise<{ booking: BookingWithDetails; refund: RefundResult }> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -274,7 +300,7 @@ export async function cancelBooking(
     }
 
     const updated = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1`,
+      `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
     const cancelled = normalizeBookingRow(updated.rows[0]);
@@ -315,10 +341,16 @@ export async function rescheduleBooking(
 
   return transaction(async (client) => {
     const bookingResult = await client.query(
-      `SELECT b.*, t.operator_id AS tour_operator_id, t.max_group_size, t.price AS tour_price, t.name AS tour_name
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+      `SELECT
+         b.operator_tour_id AS tour_id,
+         b.booking_status AS status,
+         b.participants,
+         b.participants AS guests_count,
+         COALESCE(b.final_price, b.base_total_price) AS total_price,
+         b.payment_status
+       FROM operator_bookings b
        WHERE b.id = $1
+         AND b.deleted_at IS NULL
        FOR UPDATE`,
       [bookingId]
     );
@@ -343,7 +375,7 @@ export async function rescheduleBooking(
     // Проверяем владение текущим туром оператором
     if (role === 'operator') {
       const ownsCurrent = await client.query(
-        `SELECT 1 FROM tours t JOIN partners p ON t.operator_id = p.id WHERE t.id = $1 AND p.user_id = $2`,
+        `SELECT 1 FROM operator_tours t JOIN partners p ON t.operator_id = p.id WHERE t.id = $1 AND p.user_id = $2 AND t.deleted_at IS NULL`,
         [bookingRow.tour_id, actorId]
       );
 
@@ -354,7 +386,7 @@ export async function rescheduleBooking(
 
     // Получаем целевой тур
     const targetTourResult = await client.query(
-      `SELECT id, operator_id, max_group_size, price, name, is_active FROM tours WHERE id = $1`,
+      `SELECT id, operator_id, max_participants, base_price, title, is_active FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
       [input.targetTourId]
     );
 
@@ -383,20 +415,21 @@ export async function rescheduleBooking(
     // Проверяем вместимость
     const bookedResult = await client.query(
       `SELECT COALESCE(SUM(participants), 0) AS booked
-       FROM bookings
-       WHERE tour_id = $1
-         AND date = $2
-         AND status IN ('pending','confirmed')
-         AND id <> $3`,
+       FROM operator_bookings
+       WHERE operator_tour_id = $1
+         AND booking_date = $2
+         AND booking_status IN ('pending','confirmed')
+         AND id <> $3
+         AND deleted_at IS NULL`,
       [targetTour.id, input.targetDate, bookingId]
     );
 
     const bookedCount = Number(bookedResult.rows[0].booked);
-    if (bookedCount + participants > Number(targetTour.max_group_size)) {
+    if (bookedCount + participants > Number(targetTour.max_participants)) {
       throw new Error('Недостаточно мест на выбранную дату');
     }
 
-    const newTotalPrice = Number(targetTour.price) * participants;
+    const newTotalPrice = Number(targetTour.base_price) * participants;
     const oldTotalPrice = Number(bookingRow.total_price ?? 0);
     const nextPaymentStatus = newTotalPrice === oldTotalPrice
       ? String(bookingRow.payment_status ?? 'pending')
@@ -419,12 +452,12 @@ export async function rescheduleBooking(
       [targetTour.id, input.targetDate, participants, newTotalPrice, nextPaymentStatus, nextStatus, bookingId]
     );
 
-    const comment = input.comment ?? `Переброс на тур "${targetTour.name}" (${input.targetDate}), участников: ${participants}`;
+    const comment = input.comment ?? `Переброс на тур "${targetTour.title}" (${input.targetDate}), участников: ${participants}`;
 
     await logStatusChange(client, bookingId, currentStatus, nextStatus, actorId, comment);
 
     const updated = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1`,
+      `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
 
@@ -442,7 +475,7 @@ export async function completeBooking(
 ): Promise<BookingWithDetails> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -462,7 +495,7 @@ export async function completeBooking(
     await logStatusChange(client, bookingId, currentStatus, 'completed', operatorId, 'Тур завершён');
 
     const updated = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1`,
+      `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
     return normalizeBookingRow(updated.rows[0]);
@@ -528,7 +561,7 @@ export function calculateRefund(
  */
 export async function getBookingById(bookingId: string): Promise<BookingWithDetails | null> {
   const result = await query(
-    `${BOOKING_SELECT} WHERE b.id = $1`,
+    `${BOOKING_SELECT} AND b.id = $1`,
     [bookingId]
   );
   if (result.rows.length === 0) {
@@ -583,7 +616,7 @@ export async function confirmBookingPayment(
 ): Promise<BookingWithDetails> {
   return transaction(async (client) => {
     const result = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1 FOR UPDATE`,
+      `${BOOKING_SELECT} AND b.id = $1 FOR UPDATE`,
       [bookingId]
     );
     if (result.rows.length === 0) {
@@ -604,10 +637,11 @@ export async function confirmBookingPayment(
     await client.query(
       `UPDATE tour_departures
        SET booked_slots = booked_slots + b.participants
-       FROM bookings b
+       FROM operator_bookings b
        WHERE tour_departures.id = b.departure_id
          AND b.id = $1
-         AND b.departure_id IS NOT NULL`,
+         AND b.departure_id IS NOT NULL
+         AND b.deleted_at IS NULL`,
       [bookingId]
     );
 
@@ -621,7 +655,7 @@ export async function confirmBookingPayment(
     );
 
     const updated = await client.query(
-      `${BOOKING_SELECT} WHERE b.id = $1`,
+      `${BOOKING_SELECT} AND b.id = $1`,
       [bookingId]
     );
     return normalizeBookingRow(updated.rows[0]);
@@ -650,19 +684,18 @@ export async function listBookings(params: {
 
   // Фильтрация по роли
   if (role === 'tourist') {
-    whereClause = `WHERE b.user_id = $${paramIndex++}`;
+    whereClause = `AND b.user_id = $${paramIndex++}`;
     queryParams.push(userId);
   } else if (role === 'operator') {
     // Оператор видит бронирования на туры, где он — партнёр-оператор
-    whereClause = `WHERE t.operator_id IN (SELECT id FROM partners WHERE user_id = $${paramIndex++})`;
+    whereClause = `AND t.operator_id IN (SELECT id FROM partners WHERE user_id = $${paramIndex++})`;
     queryParams.push(userId);
   }
-  // admin — без WHERE по user
+  // admin — без дополнительных условий
 
   // Фильтрация по статусу
   if (status) {
-    const statusConnector = whereClause ? 'AND' : 'WHERE';
-    whereClause += ` ${statusConnector} b.status = $${paramIndex++}`;
+    whereClause += ` AND b.booking_status = $${paramIndex++}`;
     queryParams.push(status);
   }
 
@@ -683,23 +716,23 @@ export async function listBookings(params: {
   let countWhere = '';
 
   if (role === 'tourist') {
-    countWhere = `WHERE b.user_id = $${countParamIndex++}`;
+    countWhere = `AND b.user_id = $${countParamIndex++}`;
     countParams.push(userId);
   } else if (role === 'operator') {
-    countWhere = `WHERE t.operator_id IN (SELECT id FROM partners WHERE user_id = $${countParamIndex++})`;
+    countWhere = `AND t.operator_id IN (SELECT id FROM partners WHERE user_id = $${countParamIndex++})`;
     countParams.push(userId);
   }
 
   if (status) {
-    const statusConnector = countWhere ? 'AND' : 'WHERE';
-    countWhere += ` ${statusConnector} b.status = $${countParamIndex++}`;
+    countWhere += ` AND b.booking_status = $${countParamIndex++}`;
     countParams.push(status);
   }
 
   const countResult = await query(
     `SELECT COUNT(*) AS total
-     FROM bookings b
-     LEFT JOIN tours t ON b.tour_id = t.id
+     FROM operator_bookings b
+     LEFT JOIN operator_tours t ON b.operator_tour_id = t.id
+     WHERE b.deleted_at IS NULL
      ${countWhere}`,
     countParams as string[]
   );

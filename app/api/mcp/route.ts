@@ -170,12 +170,12 @@ async function getTours(args: Record<string, unknown>): Promise<string> {
   const limit = typeof args.limit === 'number' ? Math.min(args.limit, 10) : 5;
 
   let sql = `
-    SELECT t.id, t.title, t.description, t.price, t.duration_days,
+    SELECT t.id, t.title, t.description, t.base_price AS price, t.multi_day_count AS duration_days,
            td.start_date, td.available_slots, td.price_override
-    FROM tours t
+    FROM operator_tours t
     LEFT JOIN tour_departures td ON td.tour_id = t.id AND td.status = 'open'
       AND td.start_date >= CURRENT_DATE
-    WHERE t.status = 'active'
+    WHERE t.is_active = TRUE AND t.deleted_at IS NULL
   `;
   const params: (string | number)[] = [];
   let idx = 1;

@@ -13,8 +13,8 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set([
   'created_at',
   'updated_at',
-  'name',
-  'price',
+  'title',
+  'base_price',
   'rating',
   'review_count',
 ]);
@@ -71,13 +71,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      whereConditions.push(`(t.name ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex})`);
+      whereConditions.push(`(t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex})`);
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
 
     if (category) {
-      whereConditions.push(`t.category = $${paramIndex}`);
+      whereConditions.push(`t.activity_type = $${paramIndex}`);
       queryParams.push(category);
       paramIndex++;
     }
@@ -87,8 +87,9 @@ export async function GET(request: NextRequest) {
     // Подсчёт
     const countQuery = `
       SELECT COUNT(*) as count
-      FROM tours t
+      FROM operator_tours t
       ${whereClause}
+      AND t.deleted_at IS NULL
     `;
 
     const countResult = await query<CountRow>(countQuery, queryParams);
@@ -98,14 +99,14 @@ export async function GET(request: NextRequest) {
     const toursQuery = `
       SELECT
         t.id,
-        t.name,
+        t.title AS name,
         t.description,
-        t.category,
+        t.activity_type AS category,
         t.difficulty,
-        t.duration,
-        t.max_group_size,
-        t.min_group_size,
-        t.price,
+        t.duration_hours AS duration,
+        t.max_participants AS max_group_size,
+        t.min_participants AS min_group_size,
+        t.base_price AS price,
         t.currency,
         t.is_active,
         t.rating,
@@ -121,14 +122,15 @@ export async function GET(request: NextRequest) {
         kr.lat       AS route_lat,
         kr.lng       AS route_lng,
         COALESCE(COUNT(DISTINCT b.id), 0) as bookings_count,
-        COALESCE(SUM(CASE WHEN b.status IN ('confirmed', 'completed') THEN b.total_price ELSE 0 END), 0) as total_revenue,
+        COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as total_revenue,
         ARRAY_AGG(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL) as images
-      FROM tours t
+      FROM operator_tours t
       LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
-      LEFT JOIN bookings b ON t.id = b.tour_id
+      LEFT JOIN operator_bookings b ON t.id = b.operator_tour_id AND b.deleted_at IS NULL
       LEFT JOIN tour_images ti ON t.id = ti.tour_id
       LEFT JOIN assets a ON ti.asset_id = a.id
       ${whereClause}
+      AND t.deleted_at IS NULL
       GROUP BY t.id, kr.id
       ORDER BY t.${sortBy} ${sortOrder}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}

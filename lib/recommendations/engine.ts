@@ -49,25 +49,31 @@ async function getSimilarUsersRecommendations(
   try {
     const result = await query<RecommendedTour>(
       `SELECT DISTINCT
-         t.id, t.title, t.description, t.price, t.difficulty,
-         t.duration, t.category, t.location, t.rating,
+         t.id, t.title, t.description,
+         t.base_price                  AS price,
+         t.difficulty,
+         t.duration_hours              AS duration,
+         t.activity_type               AS category,
+         t.location_name               AS location,
+         t.rating,
          t.images, t.eco_points_reward
-       FROM bookings b1
-       -- Находим похожих пользователей (2+ общих тура)
-       JOIN bookings b2 ON b2.tour_id = b1.tour_id
-                       AND b2.user_id != $1
-                       AND b2.status IN ('confirmed', 'completed')
-       -- Их другие бронирования
-       JOIN bookings b3 ON b3.user_id = b2.user_id
-                       AND b3.status IN ('confirmed', 'completed')
-       -- Детали тура
-       JOIN tours t ON t.id = b3.tour_id
-                   AND t.id != ALL($2::text[])
-                   AND t.is_active = true
+       FROM operator_bookings b1
+       JOIN operator_bookings b2 ON b2.tour_id = b1.tour_id
+                                AND b2.user_id != $1
+                                AND b2.booking_status IN ('confirmed', 'completed')
+                                AND b2.deleted_at IS NULL
+       JOIN operator_bookings b3 ON b3.user_id = b2.user_id
+                                AND b3.booking_status IN ('confirmed', 'completed')
+                                AND b3.deleted_at IS NULL
+       JOIN operator_tours t ON t.id = b3.tour_id
+                            AND t.id != ALL($2::text[])
+                            AND t.is_active = true
+                            AND t.deleted_at IS NULL
        WHERE b1.user_id = $1
-         AND b1.status IN ('confirmed', 'completed')
-       GROUP BY t.id, t.title, t.description, t.price, t.difficulty,
-                t.duration, t.category, t.location, t.rating,
+         AND b1.booking_status IN ('confirmed', 'completed')
+         AND b1.deleted_at IS NULL
+       GROUP BY t.id, t.title, t.description, t.base_price, t.difficulty,
+                t.duration_hours, t.activity_type, t.location_name, t.rating,
                 t.images, t.eco_points_reward
        HAVING COUNT(DISTINCT b2.user_id) >= 1
        ORDER BY COUNT(DISTINCT b2.user_id) DESC, t.rating DESC NULLS LAST
@@ -104,11 +110,12 @@ async function getContentBasedRecommendations(
       top_difficulty: string;
     }>(
       `SELECT
-         AVG(price)                                         AS avg_price,
-         MODE() WITHIN GROUP (ORDER BY category)           AS top_category,
-         MODE() WITHIN GROUP (ORDER BY difficulty)         AS top_difficulty
-       FROM tours
-       WHERE id = ANY($1::text[])`,
+         AVG(base_price)                                          AS avg_price,
+         MODE() WITHIN GROUP (ORDER BY activity_type)            AS top_category,
+         MODE() WITHIN GROUP (ORDER BY difficulty)               AS top_difficulty
+       FROM operator_tours
+       WHERE id = ANY($1::text[])
+         AND deleted_at IS NULL`,
       [bookedTourIds]
     );
 
@@ -120,21 +127,27 @@ async function getContentBasedRecommendations(
 
     const result = await query<RecommendedTour>(
       `SELECT
-         id, title, description, price, difficulty,
-         duration, category, location, rating,
+         id, title, description,
+         base_price      AS price,
+         difficulty,
+         duration_hours  AS duration,
+         activity_type   AS category,
+         location_name   AS location,
+         rating,
          images, eco_points_reward
-       FROM tours
+       FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
+         AND deleted_at IS NULL
          AND (
-           category = $2
+           activity_type = $2
            OR difficulty = $3
-           OR (price BETWEEN $4 AND $5)
+           OR (base_price BETWEEN $4 AND $5)
          )
        ORDER BY
-         (CASE WHEN category = $2 THEN 3 ELSE 0 END +
+         (CASE WHEN activity_type = $2 THEN 3 ELSE 0 END +
           CASE WHEN difficulty = $3 THEN 2 ELSE 0 END +
-          CASE WHEN price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) DESC,
+          CASE WHEN base_price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) DESC,
          rating DESC NULLS LAST
        LIMIT $6`,
       [bookedTourIds, top_category, top_difficulty, minPrice, maxPrice, limit]
@@ -166,24 +179,30 @@ async function getEcoOptimizedRecommendations(
 
     if (bookedTourIds.length > 0) {
       const cats = await query<{ category: string }>(
-        `SELECT DISTINCT category FROM tours WHERE id = ANY($1::text[]) AND category IS NOT NULL LIMIT 3`,
+        `SELECT DISTINCT activity_type AS category FROM operator_tours WHERE id = ANY($1::text[]) AND activity_type IS NOT NULL AND deleted_at IS NULL LIMIT 3`,
         [bookedTourIds]
       );
       if (cats.rows.length > 0) {
         const categories = cats.rows.map((r) => r.category);
-        categoryFilter = `AND category = ANY($3::text[])`;
+        categoryFilter = `AND activity_type = ANY($3::text[])`;
         params.push(categories);
       }
     }
 
     const result = await query<RecommendedTour>(
       `SELECT
-         id, title, description, price, difficulty,
-         duration, category, location, rating,
+         id, title, description,
+         base_price      AS price,
+         difficulty,
+         duration_hours  AS duration,
+         activity_type   AS category,
+         location_name   AS location,
+         rating,
          images, eco_points_reward
-       FROM tours
+       FROM operator_tours
        WHERE id != ALL($1::text[])
          AND is_active = true
+         AND deleted_at IS NULL
          AND eco_points_reward IS NOT NULL
          AND eco_points_reward > 0
          ${categoryFilter}
@@ -209,9 +228,10 @@ export async function getRecommendations(
 ): Promise<RecommendedTour[]> {
   // Получаем последние 5 бронирований пользователя
   const bookingsResult = await query<{ tour_id: string }>(
-    `SELECT tour_id FROM bookings
+    `SELECT tour_id FROM operator_bookings
      WHERE user_id = $1
-       AND status IN ('confirmed', 'completed')
+       AND booking_status IN ('confirmed', 'completed')
+       AND deleted_at IS NULL
      ORDER BY created_at DESC
      LIMIT 5`,
     [userId]
@@ -241,9 +261,14 @@ export async function getRecommendations(
   // Если история пустая — возвращаем топ по рейтингу
   if (merged.length === 0) {
     const fallback = await query<RecommendedTour>(
-      `SELECT id, title, description, price, difficulty, duration,
-              category, location, rating, images, eco_points_reward
-       FROM tours WHERE is_active = true
+      `SELECT id, title, description,
+              base_price     AS price,
+              difficulty,
+              duration_hours AS duration,
+              activity_type  AS category,
+              location_name  AS location,
+              rating, images, eco_points_reward
+       FROM operator_tours WHERE is_active = true AND deleted_at IS NULL
        ORDER BY rating DESC NULLS LAST, created_at DESC
        LIMIT $1`,
       [limit]

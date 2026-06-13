@@ -81,7 +81,7 @@ export async function POST(
     if (role === 'tourist') {
       // Проверяем владение
       const ownerCheck = await query(
-        'SELECT id FROM bookings WHERE id = $1 AND user_id = $2',
+        'SELECT id FROM operator_bookings WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
         [bookingId, auth.userId]
       );
       if (ownerCheck.rows.length === 0) {
@@ -93,10 +93,10 @@ export async function POST(
     } else if (role === 'operator') {
       // Проверяем что тур принадлежит оператору
       const operatorCheck = await query(
-        `SELECT b.id FROM bookings b
-         JOIN tours t ON b.tour_id = t.id
+        `SELECT b.id FROM operator_bookings b
+         JOIN operator_tours t ON b.operator_tour_id = t.id
          JOIN partners p ON t.operator_id = p.id
-         WHERE b.id = $1 AND p.user_id = $2`,
+         WHERE b.id = $1 AND p.user_id = $2 AND b.deleted_at IS NULL AND t.deleted_at IS NULL`,
         [bookingId, auth.userId]
       );
       if (operatorCheck.rows.length === 0) {

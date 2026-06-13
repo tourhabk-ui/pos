@@ -77,10 +77,10 @@ export const reviewService = {
          r.*,
          u.name AS user_name,
          u.email AS user_email,
-         t.name AS tour_name
+         t.title AS tour_name
        FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id
-       LEFT JOIN tours t ON r.tour_id = t.id
+       LEFT JOIN operator_tours t ON r.tour_id = t.id AND t.deleted_at IS NULL
        WHERE r.id = $1
        LIMIT 1`,
       [id]
@@ -136,10 +136,10 @@ export const reviewService = {
          r.*,
          u.name AS user_name,
          u.email AS user_email,
-         t.name AS tour_name
+         t.title AS tour_name
        FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id
-       LEFT JOIN tours t ON r.tour_id = t.id
+       LEFT JOIN operator_tours t ON r.tour_id = t.id AND t.deleted_at IS NULL
        ${whereClause}
        ORDER BY ${orderBy}
        LIMIT $${queryParams.length + 1}
@@ -269,9 +269,9 @@ export const reviewService = {
     if (role !== 'admin') {
       const ownershipResult = await pool.query(
         `SELECT 1
-         FROM tours t
+         FROM operator_tours t
          JOIN partners p ON t.operator_id = p.id
-         WHERE t.id = $1 AND p.user_id = $2
+         WHERE t.id = $1 AND p.user_id = $2 AND t.deleted_at IS NULL
          LIMIT 1`,
         [reviewTourId, operatorUserId]
       );
