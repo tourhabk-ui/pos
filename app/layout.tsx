@@ -127,6 +127,7 @@ import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
+import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -149,6 +150,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           {children}
           <GlobalSearchModal />
+          <LastPositionTracker />
         </Providers>
         <script
           type="application/ld+json"

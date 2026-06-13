@@ -109,6 +109,12 @@ body{
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
   <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
+  <!-- Последний известный сигнал — откуда идти за покрытием -->
+  <div id="last-signal-box" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#051a05;border:1px solid #1a3a1a">
+    <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Последний сигнал сети</div>
+    <div id="last-signal-coords" style="font-family:monospace;font-size:14px;font-weight:700;color:#86efac"></div>
+    <div id="last-signal-meta" style="font-size:11px;color:#6b7280;margin-top:3px"></div>
+  </div>
   <!-- Мини-карта — появляется после GPS-фикса, скрывается офлайн -->
   <div id="mini-map-box" style="display:none;margin-top:10px">
     <img id="mini-map-img" src="" alt=""
@@ -214,6 +220,35 @@ body{
 
 <script>
 var lat=null,lng=null,open_id=null,gpsWatcher=null,gpsTimer=null;
+var LAST_POS_KEY='vedar_last_online_pos';
+
+function haversine(lat1,lng1,lat2,lng2){
+  var R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+
+        Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+        Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function showLastSignal(){
+  try{
+    var raw=localStorage.getItem(LAST_POS_KEY);
+    if(!raw)return;
+    var pos=JSON.parse(raw);
+    if(!pos.lat||!pos.lng||!pos.t)return;
+    var minsAgo=Math.round((Date.now()-pos.t)/60000);
+    if(minsAgo>24*60)return; // старше суток — бесполезно
+    var timeStr=minsAgo<1?'только что':minsAgo<60?minsAgo+' мин назад':Math.round(minsAgo/60)+' ч назад';
+    var distStr='';
+    if(lat&&lng){
+      var d=haversine(parseFloat(lat),parseFloat(lng),pos.lat,pos.lng);
+      distStr=' · ~'+(d<1?Math.round(d*1000)+' м':d.toFixed(1)+' км')+' от тебя';
+    }
+    document.getElementById('last-signal-coords').textContent=pos.lat.toFixed(5)+', '+pos.lng.toFixed(5);
+    document.getElementById('last-signal-meta').textContent=timeStr+distStr+' — иди туда за связью';
+    document.getElementById('last-signal-box').style.display='block';
+  }catch(e){}
+}
 
 function onGPSSuccess(p){
   if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
@@ -228,6 +263,12 @@ function onGPSSuccess(p){
   var maps=document.getElementById('maps-btn');
   maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
   maps.style.display='';
+  // Сохраняем как последнюю онлайн-позицию если есть сеть
+  if(navigator.onLine){
+    try{localStorage.setItem(LAST_POS_KEY,JSON.stringify({lat:parseFloat(lat),lng:parseFloat(lng),acc:Math.round(p.coords.accuracy),t:Date.now()}));}catch(e){}
+  }
+  // Обновляем блок "последний сигнал" с расстоянием
+  showLastSignal();
   // Мини-карта OSM — показывается если онлайн, onerror скрывает блок
   var mapBox=document.getElementById('mini-map-box');
   var mapImg=document.getElementById('mini-map-img');
@@ -291,6 +332,8 @@ function startGPS(){
   );
 }
 
+// Сразу показываем последнюю онлайн-позицию (без расстояния — GPS ещё не готов)
+showLastSignal();
 startGPS();
 
 // Копировать координаты
