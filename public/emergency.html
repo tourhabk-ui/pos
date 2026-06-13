@@ -206,13 +206,16 @@ body{
 </div>
 
 <script>
-var lat=null,lng=null,open_id=null,gpsWatcher=null;
+var lat=null,lng=null,open_id=null,gpsWatcher=null,gpsTimer=null;
 
 function onGPSSuccess(p){
   if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
   lat=p.coords.latitude.toFixed(5);
   lng=p.coords.longitude.toFixed(5);
-  document.getElementById('coords-value').textContent=lat+', '+lng;
+  var age=p.timestamp?Math.round((Date.now()-p.timestamp)/1000):null;
+  var ageNote=age&&age>60?' ('+Math.round(age/60)+' мин назад)':'';
+  document.getElementById('coords-value').textContent=lat+', '+lng+ageNote;
   document.getElementById('coords-hint').style.display='';
   document.getElementById('retry-btn').style.display='none';
   var maps=document.getElementById('maps-btn');
@@ -221,11 +224,12 @@ function onGPSSuccess(p){
 }
 
 function onGPSError(err){
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
   var msg='GPS недоступен — позвони 112';
   if(err){
     if(err.code===1)msg='Нет разрешения — разреши геолокацию в настройках браузера';
     else if(err.code===2)msg='Нет сигнала — выйди на открытое место и нажми «Повторить»';
-    else if(err.code===3)msg='GPS не успел — нажми «Повторить» или выйди на открытое место';
+    else if(err.code===3)msg='Долго ищет — нажми «Повторить» или выйди на открытое место';
   }
   document.getElementById('coords-value').textContent=msg;
   document.getElementById('retry-btn').style.display='';
@@ -237,16 +241,40 @@ function startGPS(){
     return;
   }
   if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
-  document.getElementById('coords-value').textContent='Определяем GPS…';
+  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
+  lat=null;
+
+  var el=document.getElementById('coords-value');
+  var secs=0;
+  el.textContent='Определяем GPS…';
   document.getElementById('retry-btn').style.display='none';
-  // Сначала быстрый запрос, потом watchPosition как fallback
-  navigator.geolocation.getCurrentPosition(onGPSSuccess,function(err){
-    // getCurrentPosition не сработал — пробуем watchPosition (менее строгий)
-    gpsWatcher=navigator.geolocation.watchPosition(onGPSSuccess,onGPSError,
-      {enableHighAccuracy:false,timeout:30000,maximumAge:60000});
-    // Если через 30 сек watchPosition тоже не дал результат — показываем ошибку
-    setTimeout(function(){if(!lat)onGPSError(err);},30000);
-  },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+  document.getElementById('coords-hint').style.display='none';
+  document.getElementById('maps-btn').style.display='none';
+
+  // Показываем прогресс каждую секунду
+  gpsTimer=setInterval(function(){
+    if(lat)return;
+    secs++;
+    if(secs<=10) el.textContent='Определяем GPS… '+secs+' сек';
+    else if(secs<=25) el.textContent='Слабый сигнал — жди или выйди на открытое место ('+secs+' сек)';
+    else el.textContent='Очень долго — нажми «Повторить» и выйди на открытое место';
+  },1000);
+
+  // Сначала пробуем с кешем до 5 мин — если телефон уже знает где ты, ответит мгновенно
+  navigator.geolocation.getCurrentPosition(
+    function(p){onGPSSuccess(p);},
+    function(err){
+      // Не получилось — переключаемся на watchPosition (менее строгий)
+      el.textContent='Слабый сигнал — продолжаем искать…';
+      gpsWatcher=navigator.geolocation.watchPosition(
+        function(p){onGPSSuccess(p);},
+        function(e){onGPSError(e);},
+        {enableHighAccuracy:false,timeout:30000,maximumAge:60000}
+      );
+      setTimeout(function(){if(!lat)onGPSError(err);},30000);
+    },
+    {enableHighAccuracy:true,timeout:10000,maximumAge:300000}
+  );
 }
 
 startGPS();
