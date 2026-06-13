@@ -109,6 +109,13 @@ body{
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
   <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
+  <!-- Мини-карта — появляется после GPS-фикса, скрывается офлайн -->
+  <div id="mini-map-box" style="display:none;margin-top:10px">
+    <img id="mini-map-img" src="" alt=""
+      style="width:100%;height:140px;object-fit:cover;border-radius:8px;display:block;background:#1e3a5f"
+      onerror="document.getElementById('mini-map-box').style.display='none'">
+    <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenStreetMap</div>
+  </div>
 </div>
 
 <div class="calls">
@@ -221,6 +228,13 @@ function onGPSSuccess(p){
   var maps=document.getElementById('maps-btn');
   maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
   maps.style.display='';
+  // Мини-карта OSM — показывается если онлайн, onerror скрывает блок
+  var mapBox=document.getElementById('mini-map-box');
+  var mapImg=document.getElementById('mini-map-img');
+  if(mapBox&&mapImg){
+    mapImg.src='https://staticmap.openstreetmap.de/staticmap.php?center='+lat+','+lng+'&zoom=13&size=400x160&markers='+lat+','+lng+',red-pushpin';
+    mapBox.style.display='block';
+  }
 }
 
 function onGPSError(err){
