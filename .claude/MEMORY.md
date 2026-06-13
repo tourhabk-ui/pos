@@ -33,20 +33,18 @@ document.getElementById('sms-btn').style.display = '';
 
 ---
 
-## Слой 4 безопасности — офлайн-паспорт маршрута
+## Слой 4 безопасности — статус по коду (факт, не план)
 
-**Статус частично сделан (сессия 2026-06-13):**
+Проверено 2026-06-13 по реальному репо:
 
-| Компонент | Статус |
-|-----------|--------|
-| Last known signal (LastPositionTracker + emergency.html) | ✅ сделан |
-| МЧС-регистрация (/register) + route picker | ✅ сделан |
-| Офлайн-паспорт маршрута (bundle: тайлы + waypoints + PDF) | ❌ не начат |
+| Компонент | Статус | Где |
+|-----------|--------|-----|
+| МЧС-регистрация | ✅ работает | `app/api/operator/mchs/register`, `mchs/[id]`, `mchs-registrations` + UI-визард `/register` |
+| Offline PDF паспорта | ✅ работает | `app/api/places/[id]/pdf` |
+| Last known signal (cell coverage) | ✅ сделан сегодня | `components/tracking/LastPositionTracker.tsx` → `localStorage['vedar_last_online_pos']`; читается в `public/emergency.html` |
+| Офлайн-бандл маршрута («Взять с собой») | ❌ не начат | Нужен `GET /api/routes/[id]/offline-bundle` + кнопка на `/routes/[id]` |
 
-**Что осталось — офлайн-пакет «Взять с собой»:**
-- `GET /api/routes/[id]/offline-bundle` → JSON с тайл-списком + данными маршрута
-- Кнопка «Скачать для похода» на `/routes/[id]`
-- Хранение в IndexedDB (инфра через `lib/offline/pending-queue.ts`)
+**«Статус дня» на главной** — пустой блок **удалён** (не реализован). Живого фида вулканов/погоды нет. Это пауза, не закрытая фича.
 
 ---
 
@@ -54,5 +52,12 @@ document.getElementById('sms-btn').style.display = '';
 
 `161_rehide_places_commercials.sql` лексикографически выполняется ДО 651, которая снова восстанавливает скрытые места. Реальный финальный фикс — `679_rehide_commercial_places_post_651.sql`.
 161 не вредит (идемпотентна), но ничего не меняет. Кандидат на пометку «superseded by 679» при следующей чистке миграций.
+
+---
+
+## Telegram-бот Кузьмич
+
+Актуальное имя бота: **@kuzmihai_bot** (был @KuzmichKam_bot, заменён коммитом `2a868c3`).
+Ссылки в коде: `t.me/kuzmihai_bot`, webhook в `app/api/telegram/webhook/route.ts`.
 
 ---
