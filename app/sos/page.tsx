@@ -337,6 +337,44 @@ export default function SosPage() {
           ))}
         </div>
 
+        {/* Инструкции выживания — офлайн, всегда доступны */}
+        <a
+          href="/safety/offline"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '14px 16px',
+            borderRadius: '12px',
+            background: 'rgba(234,179,8,0.08)',
+            border: '1px solid rgba(234,179,8,0.25)',
+            textDecoration: 'none',
+            color: '#fff',
+          }}
+        >
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            background: 'rgba(234,179,8,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <AlertTriangle size={18} color="#eab308" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>
+              Что делать если... (офлайн)
+            </div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+              Медведь · Травма · Потерялся · Переохлаждение · Вулкан
+            </div>
+          </div>
+        </a>
+
+
         {/* Меш-сеть: ретрансляция SOS через группу */}
         <MeshStatusWidget
           status={meshStatus}
@@ -349,6 +387,28 @@ export default function SosPage() {
           coords={coords}
           touristPhone={phone}
         />
+
+        {/* Хаб безопасности — погода, вулканы, сейсмика, AI спасатель */}
+        <a
+          href="/hub/safety"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(255,255,255,0.7)',
+            textDecoration: 'none',
+            fontWeight: 600,
+            fontSize: '13px',
+          }}
+        >
+          Вулканы · Погода · AI Спасатель
+        </a>
+
 
         {/* Регистрация маршрута */}
         <a

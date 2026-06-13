@@ -126,7 +126,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
 
       {/* SOS — right end */}
       <Link
-        href="/hub/safety"
+        href="/emergency"
         aria-label="СОС"
         onClick={onNavClick}
         style={{

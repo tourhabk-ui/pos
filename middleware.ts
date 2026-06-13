@@ -25,6 +25,9 @@ function getJWTSecret(): Uint8Array {
 // Protected routes that require authentication
 const PROTECTED_ROUTES = ['/hub', '/profile'];
 
+// Public sub-paths inside protected prefixes (no auth needed)
+const PUBLIC_HUB_PATHS = ['/hub/safety', '/hub/fishing', '/hub/transfer'];
+
 type PublicApiMethods = 'ALL' | ReadonlyArray<string>;
 type AuthRole = 'tourist' | 'operator' | 'guide' | 'transfer_operator' | 'transfer' | 'agent' | 'admin';
 
@@ -33,7 +36,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/admin': 'ALL',  // All admin endpoints have internal auth/CRON_SECRET checks
   '/api/weather': 'ALL',
   '/api/tours': ['GET'],
-  '/api/routes': ['GET'],          // публичный каталог маршрутов
+  '/api/routes': ['GET'],          // публичный каталог маршрутов + поиск
   '/api/leads': ['POST'],          // форма заявки без регистрации
   '/api/reviews': ['GET'],         // отзывы (LiveFeed на главной)
   '/api/public': 'ALL',            // публичная статистика
@@ -46,6 +49,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/ai/health': ['GET'],
   '/api/agents/health': ['GET'],       // agent system health (lightly protected via HEALTH_SECRET)
   '/api/safety/sos': 'ALL',         // SOS distress signal — must remain public
+  '/api/safety/register': ['POST'], // Route registration before hike — must remain public (safety feature)
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
   '/api/mcp': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
@@ -261,7 +265,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // Check if route requires authentication
-  const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname.startsWith(route));
+  const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname.startsWith(route))
+    && !PUBLIC_HUB_PATHS.some(p => pathname.startsWith(p));
   const isPublicApiRoute = isPublicRoute(pathname, method);
   const isApiRoute = pathname.startsWith('/api');
 
@@ -277,9 +282,11 @@ export async function middleware(request: NextRequest) {
   if (!token) {
     // Redirect to login for protected pages
     if (isProtectedRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/auth/login';
-      url.searchParams.set('from', pathname);
+      // Use x-forwarded-host so redirect goes to the real domain, not internal localhost
+      const proto = request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', '');
+      const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
+      const base = `${proto}://${host}`;
+      const url = new URL(`/auth/login?from=${encodeURIComponent(pathname)}`, base);
       return applySecurityHeaders(NextResponse.redirect(url), pathname);
     }
 
@@ -323,10 +330,10 @@ export async function middleware(request: NextRequest) {
 
       // Clear invalid token
       if (isProtectedRoute) {
-        const url = request.nextUrl.clone();
-        url.pathname = '/auth/login';
-        url.searchParams.set('from', pathname);
-        url.searchParams.set('error', 'session_expired');
+        const proto = request.headers.get('x-forwarded-proto') ?? request.nextUrl.protocol.replace(':', '');
+        const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
+        const base = `${proto}://${host}`;
+        const url = new URL(`/auth/login?from=${encodeURIComponent(pathname)}&error=session_expired`, base);
         const redirect = NextResponse.redirect(url);
         redirect.cookies.delete('auth_token');
         return applySecurityHeaders(redirect, pathname);

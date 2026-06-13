@@ -2,9 +2,18 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2 } from 'lucide-react';
+import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
+
+interface RouteOption {
+  id: string;
+  title: string;
+  distance_km: string | null;
+  difficulty_level: string | null;
+  zone: string | null;
+  waypoint_names: string[] | null;
+}
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -28,6 +37,57 @@ export default function RegisterRoutePage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [region, setRegion] = useState('Камчатский край');
+
+  // Поиск маршрута из БД
+  const [routeQuery, setRouteQuery] = useState('');
+  const [routeOptions, setRouteOptions] = useState<RouteOption[]>([]);
+  const [routeSearching, setRouteSearching] = useState(false);
+  const [routeDropdownOpen, setRouteDropdownOpen] = useState(false);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const searchRoutes = useCallback(async (q: string) => {
+    if (q.length < 2) { setRouteOptions([]); return; }
+    setRouteSearching(true);
+    try {
+      const res = await fetch(`/api/routes/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json() as { routes: RouteOption[] };
+        setRouteOptions(data.routes);
+        setRouteDropdownOpen(data.routes.length > 0);
+      }
+    } finally {
+      setRouteSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => { void searchRoutes(routeQuery); }, 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [routeQuery, searchRoutes]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setRouteDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectRoute = (route: RouteOption) => {
+    setSelectedRouteId(route.id);
+    setRouteName(route.title);
+    const waypoints = route.waypoint_names?.length
+      ? route.waypoint_names.join(' → ')
+      : '';
+    setRouteDescription(waypoints);
+    setRouteQuery(route.title);
+    setRouteDropdownOpen(false);
+  };
 
   // Шаг 2: Группа
   const [groupSize, setGroupSize] = useState(1);
@@ -212,12 +272,59 @@ export default function RegisterRoutePage() {
               Маршрут
             </h2>
 
+            {/* Поиск маршрута из базы */}
+            <div ref={dropdownRef} className="relative">
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Найти маршрут из базы (необязательно)</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
+                {routeSearching && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] animate-spin" />
+                )}
+                <input
+                  type="text"
+                  value={routeQuery}
+                  onChange={e => {
+                    setRouteQuery(e.target.value);
+                    setSelectedRouteId(null);
+                  }}
+                  onFocus={() => { if (routeOptions.length > 0) setRouteDropdownOpen(true); }}
+                  placeholder="Авачинский, Налычево, Мутновский..."
+                  className="w-full pl-9 pr-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-primary)] text-sm
+                    focus:border-[var(--accent)] focus:outline-none transition-colors"
+                />
+              </div>
+              {routeDropdownOpen && routeOptions.length > 0 && (
+                <div className="absolute z-50 left-0 right-0 mt-1 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+                  {routeOptions.map(r => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onMouseDown={() => selectRoute(r)}
+                      className="w-full text-left px-4 py-3 hover:bg-[var(--bg-hover)] border-b border-[var(--border)] last:border-0 transition-colors"
+                    >
+                      <p className="text-sm font-medium text-[var(--text-primary)]">{r.title}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                        {[r.zone, r.distance_km ? `${r.distance_km} км` : null, r.difficulty_level].filter(Boolean).join(' · ')}
+                        {r.waypoint_names?.length ? ` · ${r.waypoint_names.slice(0, 3).join(' → ')}${r.waypoint_names.length > 3 ? '...' : ''}` : ''}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedRouteId && (
+                <p className="text-xs text-[var(--success)] mt-1 flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  Маршрут выбран — название и точки заполнены
+                </p>
+              )}
+            </div>
+
             <div>
               <label className="text-xs text-[var(--text-muted)] mb-1 block">Название маршрута *</label>
               <input
                 type="text"
                 value={routeName}
-                onChange={e => setRouteName(e.target.value)}
+                onChange={e => { setRouteName(e.target.value); setSelectedRouteId(null); }}
                 placeholder="Авачинский перевал"
                 className="w-full px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-primary)] text-sm
                   focus:border-[var(--accent)] focus:outline-none transition-colors"
@@ -225,7 +332,7 @@ export default function RegisterRoutePage() {
             </div>
 
             <div>
-              <label className="text-xs text-[var(--text-muted)] mb-1 block">Описание (необязательно)</label>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Точки маршрута (необязательно)</label>
               <textarea
                 value={routeDescription}
                 onChange={e => setRouteDescription(e.target.value)}
@@ -473,7 +580,7 @@ export default function RegisterRoutePage() {
                 />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Контакт <strong>{emergencyName || '___'}</strong> согласен получать уведомления
-                  от TourHab о статусе маршрута (Telegram / Email).
+                  от Ведар о статусе маршрута (Telegram / Email).
                 </span>
               </label>
             </div>
@@ -522,13 +629,13 @@ export default function RegisterRoutePage() {
                 <div>
                   <p className="text-sm font-semibold text-yellow-400 mb-1">Важно</p>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    TourHub помогает <strong>подготовить заявку</strong> по форме МЧС.
+                    Ведар помогает <strong>подготовить заявку</strong> по форме МЧС.
                     Данная заявка <strong>не является подтверждением</strong> регистрации в МЧС.
                     Для официальной регистрации подайте заявление через портал Госуслуг
                     или лично в Главное управление МЧС России по Камчатскому краю.
                   </p>
                   <p className="text-xs text-[var(--text-muted)] mt-2">
-                    TourHab не гарантирует получение уведомления экстренным контактом
+                    Ведар не гарантирует получение уведомления экстренным контактом
                     и не несёт ответственности за реакцию третьих лиц.
                   </p>
                 </div>
@@ -543,7 +650,7 @@ export default function RegisterRoutePage() {
                 />
                 <span className="text-xs text-[var(--text-secondary)]">
                   Я понимаю что это <strong>не официальная регистрация</strong> и
-                 TourHab <strong>не является службой спасения</strong>.
+                 Ведар <strong>не является службой спасения</strong>.
                   Я самостоятельно подам заявку в МЧС.
                 </span>
               </label>

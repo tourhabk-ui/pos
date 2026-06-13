@@ -61,7 +61,7 @@ export function OnSiteBanner() {
           )}
           {/* Quick SOS */}
           <a
-            href="/hub/safety"
+            href="/emergency"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-xs font-medium hover:bg-[var(--danger)]/20 transition-colors"
           >
             <AlertTriangle className="w-3.5 h-3.5" />

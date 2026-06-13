@@ -24,7 +24,7 @@ const SOSButton = loadDynamic(() => import('@/components/shared/SOSButton'));
 
 async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   try {
-    const [alertsRes, ingestRes] = await Promise.all([
+    const [alertsRes, lastIngestRes] = await Promise.all([
       pool.query<{
         max_severity: string;
         active_count: string;
@@ -45,18 +45,24 @@ async function getSafetyStatus(): Promise<SafetyStatusData | null> {
         FROM external_alerts
         WHERE expires_at > NOW()
       `),
-      pool.query<{ last_update: string | null }>(`
-        SELECT MAX(updated_at)::text AS last_update FROM location_real_time_status
+      // Время последнего прогона cron safety-ingest.
+      // MAX(created_at) по всем записям — включая истёкшие — показывает когда последний раз
+      // данные реально обновлялись. Null = cron ни разу не запускался.
+      pool.query<{ last_ingest: string | null }>(`
+        SELECT MAX(created_at)::text AS last_ingest FROM external_alerts
       `),
     ]);
+
     const row = alertsRes.rows[0];
+    const activeCount = parseInt(row?.active_count ?? '0');
+
     return {
-      hasAlert: parseInt(row?.active_count ?? '0') > 0,
+      hasAlert: activeCount > 0,
       maxSeverity: parseInt(row?.max_severity ?? '0'),
-      activeCount: parseInt(row?.active_count ?? '0'),
+      activeCount,
       topTitle: row?.top_title ?? null,
       topType: row?.top_type ?? null,
-      dataUpdatedAt: ingestRes.rows[0]?.last_update ?? null,
+      dataUpdatedAt: lastIngestRes.rows[0]?.last_ingest ?? null,
       source: 'КБГС РАН',
     };
   } catch {

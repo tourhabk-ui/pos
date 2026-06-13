@@ -51,7 +51,8 @@ const nextConfig = {
 
   async redirects() {
     return [
-      { source: '/fishingkam',         destination: '/operators/kamchatskaya-rybalka', permanent: true },
+      { source: '/emergency.html',      destination: '/emergency',                       permanent: true },
+      { source: '/fishingkam',          destination: '/operators/kamchatskaya-rybalka',  permanent: true },
       { source: '/marketplace/:path*', destination: '/catalog/:path*',                 permanent: true },
       { source: '/marketplace',        destination: '/catalog',                        permanent: true },
       { source: '/tours',              destination: '/catalog',                        permanent: true },

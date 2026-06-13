@@ -16,7 +16,9 @@ interface HeroStatusProps {
   fetchedAt: string;
 }
 
-const STALE_MS = 24 * 60 * 60 * 1000;
+// Данные считаются устаревшими если cron не запускался >6 часов.
+// Отсутствие алертов при свежих данных — валидное состояние «спокойный день».
+const STALE_MS = 6 * 60 * 60 * 1000;
 
 function formatTime(iso: string): string {
   try {
@@ -47,7 +49,10 @@ function formatDateTime(iso: string): string {
 
 export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   const updatedAt = safety?.dataUpdatedAt ? new Date(safety.dataUpdatedAt) : null;
-  const isStale = !updatedAt || Date.now() - updatedAt.getTime() > STALE_MS;
+  // null dataUpdatedAt = cron никогда не запускался (таблица пустая).
+  // Ненулевое но старое = cron запускался, но давно.
+  const cronNeverRan = safety !== null && safety.dataUpdatedAt === null;
+  const isStale = cronNeverRan || (!updatedAt ? true : Date.now() - updatedAt.getTime() > STALE_MS);
 
   const severity = !isStale ? (safety?.maxSeverity ?? 0) : 0;
   const hasAlert = !isStale && (safety?.hasAlert ?? false);
@@ -56,11 +61,13 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   let badgeColor: string;
   let BadgeIcon: React.ElementType;
 
-  if (isStale) {
-    const staleFrom = updatedAt
-      ? formatDateTime(updatedAt.toISOString())
-      : formatDateTime(fetchedAt);
-    badgeLabel = `Нет свежих данных с ${staleFrom}`;
+  if (cronNeverRan || safety === null) {
+    badgeLabel = 'Нет данных от КБГС РАН';
+    badgeColor = 'var(--text-muted)';
+    BadgeIcon = Info;
+  } else if (isStale) {
+    const staleFrom = updatedAt ? formatDateTime(updatedAt.toISOString()) : null;
+    badgeLabel = staleFrom ? `Данные от ${staleFrom}` : 'Данные устарели';
     badgeColor = 'var(--warning)';
     BadgeIcon = AlertTriangle;
   } else if (severity >= 3) {
@@ -78,15 +85,14 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   }
 
   const headline =
-    isStale
-      ? 'Проверьте статус перед выходом'
-      : hasAlert && safety?.topTitle
+    hasAlert && safety?.topTitle
       ? safety.topTitle
       : 'Камчатка сегодня';
 
-  const sourceLabel = updatedAt
-    ? `${safety?.source ?? 'КБГС РАН'} · ${isStale ? formatDateTime(updatedAt.toISOString()) : formatTime(updatedAt.toISOString())}`
-    : (safety?.source ?? 'КБГС РАН');
+  const sourceLabel =
+    !isStale && !cronNeverRan && updatedAt
+      ? `${safety?.source ?? 'КБГС РАН'} · ${formatTime(updatedAt.toISOString())}`
+      : null;
 
   return (
     <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[320px] md:h-[380px]">
@@ -109,12 +115,14 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
             <BadgeIcon size={11} style={{ color: badgeColor, flexShrink: 0 }} />
             <span>{badgeLabel}</span>
           </div>
-          <span
-            className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
-            style={{ background: 'rgba(0,0,0,0.40)', opacity: isStale ? 0.7 : 1 }}
-          >
-            {sourceLabel}
-          </span>
+          {sourceLabel && (
+            <span
+              className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
+              style={{ background: 'rgba(0,0,0,0.40)' }}
+            >
+              {sourceLabel}
+            </span>
+          )}
         </div>
 
         {/* Bottom: label + headline + search */}

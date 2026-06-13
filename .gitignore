@@ -160,3 +160,5 @@ scripts/research/reports/screenshots/
 *.tar-*.gz
 content/places-update/*.png
 public/dark.jpg
+scripts/update-timeweb-envs.ps1
+*.ps1

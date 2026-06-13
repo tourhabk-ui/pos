@@ -26,10 +26,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: 'TourHab — помощник и планировщик путешествия по Камчатке',
-    template: '%s | TourHab Камчатка',
+    default: 'Ведар — помощник и планировщик путешествия по Камчатке',
+    template: '%s | Ведар',
   },
-  description: 'TourHab помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
+  description: 'Ведар помогает честно и безопасно спланировать поездку по Камчатке: маршруты, карта, AI-помощник Кузьмич, поддержка и реальные туры от проверенных операторов.',
   keywords: [
     'туры на Камчатку',
     'рыбалка Камчатка',
@@ -58,9 +58,9 @@ export const metadata: Metadata = {
     'Kamchatka volcano tour',
     'Kamchatka travel',
   ],
-  authors: [{ name: 'Kamchatour' }],
-  creator: 'Kamchatour',
-  publisher: 'Kamchatour',
+  authors: [{ name: 'Ведар' }],
+  creator: 'Ведар',
+  publisher: 'Ведар',
   formatDetection: {
     email: false,
     address: false,
@@ -70,21 +70,21 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'ru_RU',
     url: BASE_URL,
-    siteName: 'Kamchatour',
-    title: 'TourHab — помощник по Камчатке',
+    siteName: 'Ведар',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помощник, планировщик и безопасный проводник к реальным турам по Камчатке.',
     images: [
       {
         url: '/images/hero/hero-light.jpeg',
         width: 1200,
         height: 630,
-        alt: 'Kamchatour — Туры на Камчатку',
+        alt: 'Ведар — Туры на Камчатку',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'TourHab — помощник по Камчатке',
+    title: 'Ведар — помощник по Камчатке',
     description: 'Помогаем спланировать маршрут и выйти на реальный тур без обманов и серых схем.',
     images: ['/images/hero/hero-light.jpeg'],
   },
@@ -101,11 +101,11 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   themeColor: '#0f172a',
-  applicationName: 'KamchatourHub',
+  applicationName: 'Ведар',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'KamchatourHub',
+    title: 'Ведар',
   },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION,
@@ -113,9 +113,6 @@ export const metadata: Metadata = {
     other: {
       'travelpayouts-verification': '2aafzv6xt87m06rb',
     },
-  },
-  alternates: {
-    canonical: BASE_URL,
   },
 }
 
@@ -130,6 +127,7 @@ import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
+import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -152,6 +150,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           {children}
           <GlobalSearchModal />
+          <LastPositionTracker />
         </Providers>
         <script
           type="application/ld+json"
@@ -160,7 +159,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
-                "name": "TourHab — помощник по Камчатке",
+                "name": "Ведар — помощник по Камчатке",
                 "url": BASE_URL,
                 "description": "Сервис планирования путешествий по Камчатке: маршруты, карта, безопасность, AI-помощник и реальные туры от проверенных операторов.",
                 "inLanguage": "ru",
@@ -176,7 +175,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {
                 "@context": "https://schema.org",
                 "@type": "TouristInformationCenter",
-                "name": "TourHab",
+                "name": "Ведар",
                 "description": "Помощник, планировщик и путеводитель по Камчатке с доступом к реальным турам проверенных операторов.",
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/logo-kamchatka.svg`,
@@ -216,7 +215,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 "@context": "https://schema.org",
                 "@type": "LocalBusiness",
                 "@id": `${BASE_URL}/#localbusiness`,
-                "name": "TourHab",
+                "name": "Ведар",
                 "description": "Туристический сервис Камчатки: маршруты, планирование поездки, поддержка и честные предложения реальных туров.",
                 "url": BASE_URL,
                 "logo": `${BASE_URL}/logo-kamchatka.svg`,

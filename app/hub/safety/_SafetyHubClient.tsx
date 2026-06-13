@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, User, Send, Bot, Flame, WifiOff } from 'lucide-react';
-import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
+import { Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
 
 interface RescueMessage {
   role: 'user' | 'assistant';
@@ -56,8 +55,6 @@ interface VolcanicEvent {
   source_url: string | null;
 }
 
-type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
-
 const EMERGENCY_CONTACTS = [
   { name: 'Единая служба спасения', number: '112' },
   { name: 'Полиция', number: '102' },
@@ -108,14 +105,6 @@ function timeAgo(ms: number): string {
 export default function SafetyHubClient() {
   const [activeTab, setActiveTab] = useState('sos');
 
-  // SOS
-  const [sosStatus, setSosStatus] = useState<SosStatus>('idle');
-  const [sosError, setSosError] = useState<string | null>(null);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [coordsLoading, setCoordsLoading] = useState(false);
-  const [touristName, setTouristName] = useState('');
-  const [touristPhone, setTouristPhone] = useState('');
-
   // Weather
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -148,32 +137,6 @@ export default function SafetyHubClient() {
   // Тихий трекинг визита для Rescue агента
   useEffect(() => {
     fetch('/api/safety/visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab: 'sos' }) }).catch(() => {});
-  }, []);
-
-  // Pre-fill имени из профиля если авторизован
-  useEffect(() => {
-    fetch('/api/auth/me')
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { success?: boolean; user?: { name?: string } } | null) => {
-        if (data?.success && data.user?.name) {
-          setTouristName(data.user.name);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Passive geolocation on mount — enableHighAccuracy=true forces GPS over IP-based fallback
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
-    setCoordsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setCoordsLoading(false);
-      },
-      () => setCoordsLoading(false),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    );
   }, []);
 
   const fetchWeather = useCallback(() => {
@@ -229,74 +192,6 @@ export default function SafetyHubClient() {
     if (activeTab === 'volcanic' && !volcanicLoaded && !volcanicLoading) fetchVolcanic();
   }, [activeTab, volcanicLoaded, volcanicLoading, fetchVolcanic]);
 
-  const handleSOS = useCallback(async () => {
-    setSosStatus('locating');
-    setSosError(null);
-
-    let latitude = coords?.lat;
-    let longitude = coords?.lng;
-
-    if (!latitude && typeof navigator !== 'undefined' && navigator.geolocation) {
-      try {
-        const pos = await new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, {
-            enableHighAccuracy: true,
-            timeout: 12000,
-            maximumAge: 0,
-          })
-        );
-        latitude = pos.coords.latitude;
-        longitude = pos.coords.longitude;
-        setCoords({ lat: latitude, lng: longitude });
-      } catch {
-        // proceed without coords
-      }
-    }
-
-    setSosStatus('sending');
-
-    // IndexedDB payload saved BEFORE network — coordinates survive offline
-    const sosPayload = {
-      lat:           latitude   ?? null,
-      lng:           longitude  ?? null,
-      accuracy:      null,
-      tourist_name:  touristName.trim()  || null,
-      tourist_phone: touristPhone.trim() || null,
-    };
-
-    try {
-      const res = await fetch('/api/safety/sos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          latitude,
-          longitude,
-          emergency_type: 'general',
-          tourist_name:  touristName.trim() || undefined,
-          tourist_phone: touristPhone.trim() || undefined,
-        }),
-      });
-      if (res.ok) {
-        setSosStatus('sent');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setSosError((data as { error?: string }).error || 'Ошибка отправки сигнала');
-        setSosStatus('error');
-      }
-    } catch {
-      // Офлайн: сохраняем координаты в IndexedDB, Background Sync доставит при связи
-      try {
-        await queueSOS(sosPayload);
-        await registerSOSSync();
-        setSosError(null);
-        setSosStatus('queued');
-      } catch {
-        setSosError('Нет связи. Звоните 112 напрямую.');
-        setSosStatus('error');
-      }
-    }
-  }, [coords]);
-
   const handleRescueSend = useCallback(async () => {
     const text = rescueInput.trim();
     if (!text || rescueLoading) return;
@@ -329,10 +224,8 @@ export default function SafetyHubClient() {
           message: text,
           history,
           stream: true,
-          tourist_name:  touristName.trim() || undefined,
-          tourist_phone: touristPhone.trim() || undefined,
-          lat: coords?.lat,
-          lng: coords?.lng,
+          lat: undefined,
+          lng: undefined,
         }),
         signal: AbortSignal.timeout(25_000),
       });
@@ -405,7 +298,7 @@ export default function SafetyHubClient() {
         rescueChatRef.current?.scrollTo({ top: rescueChatRef.current.scrollHeight, behavior: 'smooth' });
       }, 100);
     }
-  }, [rescueInput, rescueLoading, rescueMessages, touristName, touristPhone, coords]);
+  }, [rescueInput, rescueLoading, rescueMessages]);
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
@@ -442,183 +335,48 @@ export default function SafetyHubClient() {
 
       {/* ── SOS ── */}
       {activeTab === 'sos' && (
-        <div className="space-y-5">
-          <div
-            className="border rounded-lg p-6 text-center"
+        <div className="space-y-4">
+          {/* Canonical SOS screen redirect */}
+          <a
+            href="/sos"
+            className="block rounded-lg p-6 text-center no-underline transition-opacity hover:opacity-90 active:scale-[0.99]"
             style={{
-              borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)',
+              borderWidth: '2px',
+              borderStyle: 'solid',
+              borderColor: 'color-mix(in srgb, var(--danger) 60%, transparent)',
               background: 'color-mix(in srgb, var(--danger) 10%, transparent)',
             }}
           >
-            <AlertTriangle className="w-14 h-14 mx-auto mb-4" style={{ color: 'var(--danger)' }} />
-            <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--danger)' }}>
-              ЭКСТРЕННЫЙ ВЫЗОВ
-            </h2>
-            <p className="text-sm text-[var(--text-muted)] mb-4">
-              Нажмите кнопку — сигнал будет отправлен с вашими координатами
+            <AlertTriangle className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--danger)' }} />
+            <p className="text-xl font-bold mb-1" style={{ color: 'var(--danger)' }}>
+              ЭКСТРЕННЫЙ ЭКРАН SOS
             </p>
+            <p className="text-sm text-[var(--text-muted)] mb-4">
+              Координаты · Отправка сигнала · Меш-сеть · Офлайн
+            </p>
+            <span
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-bold text-white"
+              style={{ background: 'var(--danger)' }}
+            >
+              Открыть SOS
+            </span>
+          </a>
 
-            {/* Данные туриста — чтобы знать КТО */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5 text-left">
-              <div>
-                <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] mb-1">
-                  <User className="w-3 h-3" />
-                  Ваше имя
-                </label>
-                <input
-                  type="text"
-                  value={touristName}
-                  onChange={e => setTouristName(e.target.value)}
-                  placeholder="Иван Иванов"
-                  className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
-                />
-              </div>
-              <div>
-                <label className="flex items-center gap-1 text-xs text-[var(--text-muted)] mb-1">
-                  <Phone className="w-3 h-3" />
-                  Телефон
-                </label>
-                <input
-                  type="tel"
-                  value={touristPhone}
-                  onChange={e => setTouristPhone(e.target.value)}
-                  placeholder="+7 900 000 00 00"
-                  className="ds-input w-full text-sm"
-                  disabled={sosStatus === 'sending' || sosStatus === 'sent' || sosStatus === 'queued'}
-                />
-              </div>
-            </div>
-
-            {sosStatus === 'idle' && (
-              <button
-                onClick={handleSOS}
-                className="px-8 py-3 rounded-lg text-lg font-bold text-white transition-opacity hover:opacity-90 active:scale-95"
-                style={{ background: 'var(--danger)' }}
-              >
-                ВЫЗВАТЬ SOS
-              </button>
-            )}
-            {(sosStatus === 'locating' || sosStatus === 'sending') && (
-              <div className="flex items-center justify-center gap-2 text-[var(--danger)] font-semibold">
-                <RefreshCw className="w-5 h-5 animate-spin" />
-                <span>{sosStatus === 'locating' ? 'Определение координат...' : 'Отправка сигнала...'}</span>
-              </div>
-            )}
-            {sosStatus === 'sent' && (
-              <div className="space-y-2">
-                <p className="text-base font-bold" style={{ color: 'var(--success)' }}>
-                  Сигнал SOS отправлен
-                </p>
-                <p className="text-sm text-[var(--text-muted)]">
-                  Немедленно позвоните <span className="font-bold">112</span>
-                </p>
-                <button
-                  onClick={() => { setSosStatus('idle'); setSosError(null); }}
-                  className="mt-2 px-4 py-1.5 text-sm border border-[var(--border)] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                >
-                  Сбросить
-                </button>
-              </div>
-            )}
-            {sosStatus === 'queued' && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2" style={{ color: 'var(--warning)' }}>
-                  <WifiOff className="w-5 h-5" />
-                  <p className="text-base font-bold">Сохранено — отправится при связи</p>
+          {/* Inline emergency contacts — always one tap away */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">Экстренные номера</h3>
+            <div className="space-y-2">
+              {EMERGENCY_CONTACTS.map((c) => (
+                <div key={c.name} className="flex justify-between items-center text-sm py-1.5 border-b border-[var(--border)] last:border-0">
+                  <span className="text-[var(--text-secondary)]">{c.name}</span>
+                  <a
+                    href={`tel:${c.number.replace(/\s/g, '')}`}
+                    className="font-mono font-semibold text-[var(--ocean)] hover:underline"
+                  >
+                    {c.number}
+                  </a>
                 </div>
-                <p className="text-sm text-[var(--text-muted)]">
-                  Координаты записаны офлайн. Звоните <a href="tel:112" className="font-bold underline">112</a>
-                </p>
-              </div>
-            )}
-            {sosStatus === 'error' && (
-              <div className="space-y-2">
-                <p className="text-sm font-semibold" style={{ color: 'var(--danger)' }}>
-                  {sosError}
-                </p>
-                <p className="text-sm text-[var(--text-muted)]">Звоните напрямую: <a href="tel:112" className="font-bold underline">112</a></p>
-                <button
-                  onClick={() => { setSosStatus('idle'); setSosError(null); }}
-                  className="mt-1 px-4 py-1.5 text-sm border border-[var(--border)] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                >
-                  Повторить
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">Экстренные номера</h3>
-              <div className="space-y-2">
-                {EMERGENCY_CONTACTS.slice(0, 3).map((c) => (
-                  <div key={c.name} className="flex justify-between text-sm">
-                    <span className="text-[var(--text-secondary)]">{c.name}</span>
-                    <a
-                      href={`tel:${c.number.replace(/\s/g, '')}`}
-                      className="font-mono font-semibold text-[var(--ocean)]"
-                    >
-                      {c.number}
-                    </a>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">Ваша локация</h3>
-              {coordsLoading && (
-                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] py-4">
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Определение координат...</span>
-                </div>
-              )}
-              {!coordsLoading && coords && (() => {
-                // Kamchatka bounding box: 50–62°N, 155–170°E
-                const inKamchatka = coords.lat >= 50 && coords.lat <= 62 && coords.lng >= 155 && coords.lng <= 170;
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <MapPin className="w-4 h-4 text-[var(--ocean)]" />
-                      <span className="font-mono text-[var(--text-primary)]">
-                        {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setCoords(null);
-                          setCoordsLoading(true);
-                          navigator.geolocation.getCurrentPosition(
-                            (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setCoordsLoading(false); },
-                            () => setCoordsLoading(false),
-                            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-                          );
-                        }}
-                        className="ml-auto text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
-                        title="Обновить координаты"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    {!inKamchatka && (
-                      <p className="text-xs text-[var(--warning)] flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                        Координаты не соответствуют Камчатке. Разрешите точную геолокацию в браузере.
-                      </p>
-                    )}
-                    {inKamchatka && (
-                      <p className="text-xs text-[var(--text-muted)]">Координаты будут отправлены вместе с SOS</p>
-                    )}
-                  </div>
-                );
-              })()}
-              {!coordsLoading && !coords && (
-                <div className="text-center text-[var(--text-muted)] py-4">
-                  <MapPin className="w-8 h-8 mx-auto mb-2 text-[var(--text-muted)]" />
-                  <p className="text-sm">Доступ к геолокации не предоставлен</p>
-                  <p className="text-xs mt-1">SOS будет отправлен без координат</p>
-                </div>
-              )}
+              ))}
             </div>
           </div>
         </div>
