@@ -84,10 +84,9 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
       ? safety.topTitle
       : 'Камчатка сегодня';
 
-  const sourceLabel =
-    !isStale && updatedAt
-      ? `${safety?.source ?? 'КБГС РАН'} · ${formatTime(updatedAt.toISOString())}`
-      : null;
+  const sourceLabel = updatedAt
+    ? `${safety?.source ?? 'КБГС РАН'} · ${isStale ? formatDateTime(updatedAt.toISOString()) : formatTime(updatedAt.toISOString())}`
+    : (safety?.source ?? 'КБГС РАН');
 
   return (
     <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[320px] md:h-[380px]">
@@ -110,14 +109,12 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
             <BadgeIcon size={11} style={{ color: badgeColor, flexShrink: 0 }} />
             <span>{badgeLabel}</span>
           </div>
-          {sourceLabel && (
-            <span
-              className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
-              style={{ background: 'rgba(0,0,0,0.40)' }}
-            >
-              {sourceLabel}
-            </span>
-          )}
+          <span
+            className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
+            style={{ background: 'rgba(0,0,0,0.40)', opacity: isStale ? 0.7 : 1 }}
+          >
+            {sourceLabel}
+          </span>
         </div>
 
         {/* Bottom: label + headline + search */}

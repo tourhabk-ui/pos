@@ -323,6 +323,7 @@ function initLeafletMap(clat,clng){
 
     if(!_leafletMap){
       _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
+      L.control.zoom({position:'topright'}).addTo(_leafletMap);
       L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
         {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMap);
     } else {
