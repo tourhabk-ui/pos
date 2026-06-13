@@ -33,7 +33,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/admin': 'ALL',  // All admin endpoints have internal auth/CRON_SECRET checks
   '/api/weather': 'ALL',
   '/api/tours': ['GET'],
-  '/api/routes': ['GET'],          // публичный каталог маршрутов
+  '/api/routes': ['GET'],          // публичный каталог маршрутов + поиск
   '/api/leads': ['POST'],          // форма заявки без регистрации
   '/api/reviews': ['GET'],         // отзывы (LiveFeed на главной)
   '/api/public': 'ALL',            // публичная статистика
@@ -46,6 +46,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/ai/health': ['GET'],
   '/api/agents/health': ['GET'],       // agent system health (lightly protected via HEALTH_SECRET)
   '/api/safety/sos': 'ALL',         // SOS distress signal — must remain public
+  '/api/safety/register': ['POST'], // Route registration before hike — must remain public (safety feature)
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
   '/api/mcp': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
