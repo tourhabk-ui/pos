@@ -91,7 +91,13 @@ body{
 .battery{
   font-size:11px;color:#6b7280;text-align:center;margin-top:auto;padding-top:4px
 }
+
+/* LEAFLET MAP */
+#mini-map{width:100%;height:160px;border-radius:8px;background:#0f1a2e}
+.leaflet-container{background:#0f1a2e}
 </style>
+<link rel="stylesheet" href="/leaflet/leaflet.min.css">
+<script src="/leaflet/leaflet.min.js"></script>
 </head>
 <body>
 
@@ -115,12 +121,22 @@ body{
     <div id="last-signal-coords" style="font-family:monospace;font-size:14px;font-weight:700;color:#86efac"></div>
     <div id="last-signal-meta" style="font-size:11px;color:#6b7280;margin-top:3px"></div>
   </div>
-  <!-- Мини-карта — появляется после GPS-фикса, скрывается офлайн -->
+  <!-- Интерактивная карта Leaflet — тайлы из SW-кеша, работает офлайн -->
   <div id="mini-map-box" style="display:none;margin-top:10px">
-    <img id="mini-map-img" src="" alt=""
-      style="width:100%;height:140px;object-fit:cover;border-radius:8px;display:block;background:#1e3a5f"
-      onerror="document.getElementById('mini-map-box').style.display='none'">
-    <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenStreetMap</div>
+    <div id="mini-map"></div>
+    <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenTopoMap (CC-BY-SA)</div>
+  </div>
+  <!-- Ссылки на карты покрытия операторов — только онлайн -->
+  <div id="coverage-links" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#0a1a0a;border:1px solid #1a3a1a">
+    <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px">Карты покрытия сотовой связи</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="https://mts.ru/personal/mobile/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">МТС</a>
+      <a href="https://megafon.ru/help/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Мегафон</a>
+      <a href="https://beeline.ru/customers/mobileinternet/coverage/" target="_blank" rel="noopener"
+         style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Билайн</a>
+    </div>
   </div>
 </div>
 
@@ -269,13 +285,42 @@ function onGPSSuccess(p){
   }
   // Обновляем блок "последний сигнал" с расстоянием
   showLastSignal();
-  // Мини-карта OSM — показывается если онлайн, onerror скрывает блок
+  // Интерактивная карта Leaflet (тайлы из SW-кеша — работает офлайн)
   var mapBox=document.getElementById('mini-map-box');
-  var mapImg=document.getElementById('mini-map-img');
-  if(mapBox&&mapImg){
-    mapImg.src='https://staticmap.openstreetmap.de/staticmap.php?center='+lat+','+lng+'&zoom=13&size=400x160&markers='+lat+','+lng+',red-pushpin';
+  if(mapBox){
     mapBox.style.display='block';
+    initLeafletMap(parseFloat(lat),parseFloat(lng));
   }
+}
+
+var _leafletMap=null,_gpsMarker=null,_lastMarker=null,_guideLine=null;
+
+function initLeafletMap(clat,clng){
+  if(!window.L)return;
+  try{
+    var lastPos=null;
+    try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+
+    if(!_leafletMap){
+      _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
+      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMap);
+    } else {
+      _leafletMap.setView([clat,clng],13);
+    }
+
+    // Текущая позиция — синяя
+    if(_gpsMarker)_gpsMarker.remove();
+    _gpsMarker=L.circleMarker([clat,clng],{radius:9,color:'#60a5fa',fillColor:'#3b82f6',fillOpacity:.9,weight:2}).addTo(_leafletMap);
+
+    // Последний сигнал — зелёная + пунктирная линия
+    if(_lastMarker){_lastMarker.remove();_lastMarker=null;}
+    if(_guideLine){_guideLine.remove();_guideLine=null;}
+    if(lastPos&&lastPos.lat&&lastPos.lng){
+      _lastMarker=L.circleMarker([lastPos.lat,lastPos.lng],{radius:7,color:'#86efac',fillColor:'#4ade80',fillOpacity:.8,weight:2}).addTo(_leafletMap);
+      _guideLine=L.polyline([[clat,clng],[lastPos.lat,lastPos.lng]],{color:'#86efac',dashArray:'6 4',weight:2}).addTo(_leafletMap);
+    }
+  }catch(e){}
 }
 
 function onGPSError(err){
@@ -335,6 +380,15 @@ function startGPS(){
 // Сразу показываем последнюю онлайн-позицию (без расстояния — GPS ещё не готов)
 showLastSignal();
 startGPS();
+
+// Ссылки на карты покрытия — только при наличии сети
+function updateCoverageLinks(){
+  var el=document.getElementById('coverage-links');
+  if(el)el.style.display=navigator.onLine?'block':'none';
+}
+updateCoverageLinks();
+window.addEventListener('online',updateCoverageLinks);
+window.addEventListener('offline',updateCoverageLinks);
 
 // Копировать координаты
 function copyCoords(){
