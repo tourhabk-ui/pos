@@ -14,9 +14,10 @@ export const dynamic = 'force-dynamic';
 /** Проверяет, что клиент является клиентом этого оператора */
 async function verifyClientAccess(clientId: string, partnerId: string): Promise<boolean> {
   const res = await query(
-    `SELECT 1 FROM bookings b
-     JOIN tours t ON b.tour_id = t.id
+    `SELECT 1 FROM operator_bookings b
+     JOIN operator_tours t ON b.operator_tour_id = t.id
      WHERE b.user_id = $1 AND t.operator_id = $2
+       AND b.deleted_at IS NULL AND t.deleted_at IS NULL
      LIMIT 1`,
     [clientId, partnerId]
   );
@@ -74,12 +75,17 @@ export async function GET(
     }
     const bookingsRes = await query<BookingRow>(
       `SELECT
-         b.id, b.status, b.total_price::numeric, b.guests_count,
-         b.start_date, b.created_at,
-         t.name AS tour_name
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+         b.id,
+         b.booking_status AS status,
+         COALESCE(b.final_price, b.base_total_price)::numeric AS total_price,
+         b.participants AS guests_count,
+         b.booking_date AS start_date,
+         b.created_at,
+         t.title AS tour_name
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        WHERE b.user_id = $1 AND t.operator_id = $2
+         AND b.deleted_at IS NULL AND t.deleted_at IS NULL
        ORDER BY b.created_at DESC
        LIMIT 50`,
       [id, partnerId]
@@ -93,10 +99,10 @@ export async function GET(
     const reviewsRes = await query<ReviewRow>(
       `SELECT
          r.id, r.rating, r.comment, r.is_verified, r.created_at,
-         t.name AS tour_name
+         t.title AS tour_name
        FROM reviews r
-       JOIN tours t ON r.tour_id = t.id
-       WHERE r.user_id = $1 AND t.operator_id = $2
+       JOIN operator_tours t ON r.tour_id = t.id
+       WHERE r.user_id = $1 AND t.operator_id = $2 AND t.deleted_at IS NULL
        ORDER BY r.created_at DESC
        LIMIT 20`,
       [id, partnerId]

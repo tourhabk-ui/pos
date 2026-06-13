@@ -267,23 +267,24 @@ class GroupMonitorService {
 
       const dedupe = `tg_tip_${chatId}_${routeName.toLowerCase().replace(/\s+/g, '_')}_${date}`;
 
+      const slug = dedupe.replace(/[^a-z0-9-]+/g, '-');
       try {
         await pool.query(
-          `INSERT INTO agent_route_knowledge
-             (route_dedupe_key, category, title, description, search_text, payload, source_hash, source_name, source_url)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
-           ON CONFLICT (route_dedupe_key) DO UPDATE SET
-             description  = EXCLUDED.description,
-             search_text  = EXCLUDED.search_text,
-             payload      = EXCLUDED.payload,
-             source_hash  = EXCLUDED.source_hash,
-             updated_at   = NOW()`,
+          `INSERT INTO kamchatka_routes
+             (dedupe_key, slug, title, description, category, source_name, source_url, metadata, is_visible, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, true, NOW(), NOW())
+           ON CONFLICT (dedupe_key) DO UPDATE SET
+             description = EXCLUDED.description,
+             metadata    = EXCLUDED.metadata,
+             updated_at  = NOW()`,
           [
             dedupe,
-            'tourist_tip',
+            slug,
             `${routeName} — советы туристов (${chatTitle})`,
             combined,
-            `${routeName} ${combined}`,
+            'tourist_tip',
+            chatTitle,
+            `tg://group/${chatId}`,
             JSON.stringify({
               source:        'telegram_group',
               group_id:      chatId,
@@ -294,9 +295,6 @@ class GroupMonitorService {
               sample:        messages.slice(-3).map(m => `${m.from}: ${m.text.slice(0, 100)}`),
               collected_at:  new Date().toISOString(),
             }),
-            `tg_${chatId}_${date}`,
-            chatTitle,
-            `tg://group/${chatId}`,
           ]
         );
       } catch { /* конфликт или ошибка схемы — продолжаем */ }

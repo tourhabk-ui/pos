@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     if (tourId) {
       const ownershipCheck = await query<OpTourOwnerRow>(
-        `SELECT id FROM tours WHERE id = $1 AND operator_id = $2`,
+        `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
         [tourId, operatorId]
       );
 
@@ -82,22 +82,22 @@ export async function GET(request: NextRequest) {
     }
 
     let queryText = `
-      SELECT 
+      SELECT
         ts.id,
         ts.tour_id,
-        t.name as tour_name,
+        t.title as tour_name,
         ts.start_date,
         ts.end_date,
         ts.price,
         ts.max_participants as available_spots,
         COALESCE(
-          (SELECT COUNT(*) FROM bookings b WHERE b.schedule_id = ts.id AND b.status = 'confirmed'),
+          (SELECT COUNT(*) FROM operator_bookings b WHERE b.schedule_id = ts.id AND b.booking_status = 'confirmed' AND b.deleted_at IS NULL),
           0
         ) as booked_spots,
         ts.status,
         t.season
       FROM tour_availability ts
-      JOIN tours t ON ts.tour_id = t.id
+      JOIN operator_tours t ON ts.tour_id = t.id AND t.deleted_at IS NULL
       WHERE t.operator_id = $1
     `;
     const values: (string | number | boolean | null)[] = [operatorId];
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
 
     // Проверяем что тур принадлежит оператору
     const tourResult = await query<OpTourForScheduleRow>(
-      `SELECT id, name, operator_id FROM tours WHERE id = $1`,
+      `SELECT id, title AS name, operator_id FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
       [tourId]
     );
 

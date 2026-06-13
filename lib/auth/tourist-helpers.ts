@@ -11,7 +11,7 @@ import { query } from '@/lib/database';
 export async function getTouristProfile(userId: string): Promise<Record<string, unknown> | null> {
   try {
     let result = await query(
-      `SELECT * FROM tourist_profiles WHERE user_id = $1`,
+      `SELECT id, user_id, full_name, total_trips, total_spent, loyalty_points, created_at, updated_at FROM tourist_profiles WHERE user_id = $1`,
       [userId]
     );
 
@@ -51,12 +51,12 @@ export async function updateTouristStats(userId: string): Promise<void> {
            SELECT COUNT(*) FROM tourist_trips WHERE tourist_id = tp.id AND status = 'completed'
          ),
          total_spent = (
-           SELECT COALESCE(SUM(b.total_price), 0)
-           FROM bookings b
+           SELECT COALESCE(SUM(COALESCE(b.final_price, b.base_total_price)), 0)
+           FROM operator_bookings b
            JOIN tourist_trips tt ON tt.id = ANY(
              SELECT trip_id FROM trip_bookings WHERE booking_id = b.id
            )
-           WHERE tt.tourist_id = tp.id AND b.status = 'confirmed'
+           WHERE tt.tourist_id = tp.id AND b.booking_status = 'confirmed' AND b.deleted_at IS NULL
          )
        WHERE tp.user_id = $1`,
       [userId]
@@ -144,7 +144,8 @@ export async function getExpiringDocuments(userId: string, daysBeforeExpiry: num
     if (!profile) return [];
 
     const result = await query(
-      `SELECT *
+      `SELECT id, tourist_id, document_type, document_number, issuing_country, issuing_authority,
+              issue_date, expiry_date, file_url, file_name, file_size, notes, reminder_sent, created_at, updated_at
        FROM tourist_documents
        WHERE tourist_id = $1
          AND expiry_date IS NOT NULL
@@ -187,9 +188,9 @@ export async function getTouristRecommendations(userId: string, limit: number = 
 
     let toursQuery = `
       SELECT t.*, p.name as partner_name
-      FROM tours t
+      FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
-      WHERE t.is_active = TRUE
+      WHERE t.is_active = TRUE AND t.deleted_at IS NULL
     `;
 
     const params: (string | number | string[])[] = [];

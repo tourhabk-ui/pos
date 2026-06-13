@@ -16,7 +16,7 @@ export async function GET(
     const { id, depId } = await context.params;
 
     const tourCheck = await query<{ id: string; price: string }>(
-      'SELECT id, price FROM tours WHERE id = $1',
+      'SELECT id, base_price AS price FROM operator_tours WHERE id = $1 AND deleted_at IS NULL',
       [id]
     );
     if (tourCheck.rows.length === 0) {
@@ -27,7 +27,9 @@ export async function GET(
     }
 
     const result = await query<TourDepartureRow>(
-      'SELECT * FROM tour_departures WHERE id = $1 AND tour_id = $2',
+      `SELECT id, tour_id, start_date, end_date, available_slots, booked_slots,
+              price_override, min_group_size, status, notes, created_at, updated_at
+       FROM tour_departures WHERE id = $1 AND tour_id = $2`,
       [depId, id]
     );
 

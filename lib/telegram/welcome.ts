@@ -28,7 +28,7 @@ async function getUserStats(userId: string, role: string): Promise<UserStats> {
   try {
     if (role === 'tourist') {
       const res = await query<{ cnt: string }>(
-        `SELECT COUNT(*)::text AS cnt FROM bookings WHERE user_id = $1 AND status != 'cancelled'`,
+        `SELECT COUNT(*)::text AS cnt FROM operator_bookings WHERE user_id = $1 AND booking_status != 'cancelled' AND deleted_at IS NULL`,
         [userId]
       );
       return { bookings: parseInt(res.rows[0]?.cnt ?? '0') };

@@ -19,7 +19,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          if [ -z "$CRON_SECRET" ]; then echo "ERROR: CRON_SECRET secret not configured in repo settings"; exit 1; fi
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
             "https://vedarai.ru/api/cron/safety-ingest" \
             -H "Authorization: Bearer $CRON_SECRET")

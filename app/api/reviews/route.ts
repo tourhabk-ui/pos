@@ -68,11 +68,11 @@ export async function GET(request: NextRequest) {
         r.created_at as "createdAt",
         r.updated_at as "updatedAt",
         u.name as "userName",
-        t.name as "tourName",
+        t.title as "tourName",
         COALESCE(ARRAY_AGG(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL), '{}') as images
       FROM reviews r
       LEFT JOIN users u ON r.user_id = u.id
-      LEFT JOIN tours t ON r.tour_id = t.id
+      LEFT JOIN operator_tours t ON r.tour_id = t.id
       LEFT JOIN review_assets ra ON r.id = ra.review_id
       LEFT JOIN assets a ON ra.asset_id = a.id
     `;
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
     }
 
     queryText += `
-      GROUP BY r.id, r.user_id, r.tour_id, r.rating, r.comment, r.is_verified, r.created_at, r.updated_at, u.name, t.name
+      GROUP BY r.id, r.user_id, r.tour_id, r.rating, r.comment, r.is_verified, r.created_at, r.updated_at, u.name, t.title
       ORDER BY r.created_at DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -173,8 +173,8 @@ export async function POST(request: NextRequest) {
     // Проверяем, что пользователь прошел тур (есть завершенная бронь)
     const bookingCheck = await query(`
       SELECT 1
-      FROM bookings
-      WHERE user_id = $1 AND tour_id = $2 AND status = 'completed'
+      FROM operator_bookings
+      WHERE user_id = $1 AND operator_tour_id = $2 AND booking_status = 'completed' AND deleted_at IS NULL
       LIMIT 1
     `, [userId, tourId]);
 

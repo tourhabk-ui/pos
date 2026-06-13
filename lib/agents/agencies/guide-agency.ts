@@ -70,14 +70,15 @@ export class GuideAgency {
            td.start_date::text AS start_date,
            td.end_date::text   AS end_date,
            td.booked_slots,
-           b.status
-         FROM bookings b
-         JOIN tours t        ON t.id = b.tour_id
+           b.booking_status AS status
+         FROM operator_bookings b
+         JOIN operator_tours t        ON t.id = b.tour_id
          JOIN tour_departures td ON td.id = b.departure_id
          WHERE t.guide_id = $1
-           AND b.status = 'confirmed'
+           AND b.booking_status = 'confirmed'
            AND td.start_date >= CURRENT_DATE
            AND b.deleted_at IS NULL
+           AND t.deleted_at IS NULL
          ORDER BY td.start_date
          LIMIT 10`,
         [context.user.userId]
@@ -110,13 +111,14 @@ export class GuideAgency {
         `SELECT
            COUNT(DISTINCT b.id)::text         AS active_groups,
            COALESCE(SUM(td.booked_slots), 0)::text AS total_tourists
-         FROM bookings b
-         JOIN tours t        ON t.id = b.tour_id
+         FROM operator_bookings b
+         JOIN operator_tours t        ON t.id = b.tour_id
          JOIN tour_departures td ON td.id = b.departure_id
          WHERE t.guide_id = $1
-           AND b.status = 'confirmed'
+           AND b.booking_status = 'confirmed'
            AND td.start_date >= CURRENT_DATE
-           AND b.deleted_at IS NULL`,
+           AND b.deleted_at IS NULL
+           AND t.deleted_at IS NULL`,
         [context.user.userId]
       );
 
@@ -139,14 +141,15 @@ export class GuideAgency {
     try {
       const { rows } = await pool.query<EarningsRow>(
         `SELECT
-           COUNT(DISTINCT b.id)::text                                   AS completed_tours,
-           SUM(COALESCE(td.price_override, t.price, 0) * td.booked_slots)::text AS estimated_earnings
-         FROM bookings b
-         JOIN tours t        ON t.id = b.tour_id
+           COUNT(DISTINCT b.id)::text                                              AS completed_tours,
+           SUM(COALESCE(td.price_override, t.base_price, 0) * td.booked_slots)::text AS estimated_earnings
+         FROM operator_bookings b
+         JOIN operator_tours t        ON t.id = b.tour_id
          JOIN tour_departures td ON td.id = b.departure_id
          WHERE t.guide_id = $1
-           AND b.status = 'confirmed'
-           AND b.deleted_at IS NULL`,
+           AND b.booking_status = 'confirmed'
+           AND b.deleted_at IS NULL
+           AND t.deleted_at IS NULL`,
         [context.user.userId]
       );
 

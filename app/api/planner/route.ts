@@ -39,11 +39,12 @@ export async function POST(req: NextRequest) {
         (dp.end_date - dp.start_date) as days,
         COALESCE(dp.price_override, t.price) as price,
         (dp.available_slots - COALESCE(dp.booked_slots, 0)) as free_slots
-      FROM tours t
+      FROM operator_tours t
       JOIN partners p ON t.operator_id = p.id
       JOIN tour_departures dp ON dp.tour_id = t.id
       WHERE
         t.is_active = true
+        AND t.deleted_at IS NULL
         AND dp.status = 'active'
         AND dp.start_date >= $1
         AND dp.end_date <= $2

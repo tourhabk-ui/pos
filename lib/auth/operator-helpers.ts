@@ -200,10 +200,10 @@ export async function ensurePartnerExists(userId: string, userName: string, user
 export async function verifyTourOwnership(userId: string, tourId: string): Promise<boolean> {
   try {
     const result = await query(
-      `SELECT t.id 
-       FROM tours t
+      `SELECT t.id
+       FROM operator_tours t
        JOIN partners p ON t.operator_id = p.id
-       WHERE p.user_id = $1 AND t.id = $2`,
+       WHERE p.user_id = $1 AND t.id = $2 AND t.deleted_at IS NULL`,
       [userId, tourId]
     );
     
@@ -219,11 +219,11 @@ export async function verifyTourOwnership(userId: string, tourId: string): Promi
 export async function verifyBookingOwnership(userId: string, bookingId: string): Promise<boolean> {
   try {
     const result = await query(
-      `SELECT b.id 
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+      `SELECT b.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
-       WHERE p.user_id = $1 AND b.id = $2`,
+       WHERE p.user_id = $1 AND b.id = $2 AND b.deleted_at IS NULL AND t.deleted_at IS NULL`,
       [userId, bookingId]
     );
     
@@ -256,8 +256,10 @@ export async function getOperatorStats(userId: string): Promise<OperatorStats | 
     
     // Check cache first
     const cacheResult = await query<Record<string, unknown>>(
-      `SELECT * FROM operator_stats_cache 
-       WHERE operator_id = $1 
+      `SELECT total_tours, active_tours, total_bookings, total_revenue,
+              avg_rating, total_reviews, completion_rate
+       FROM operator_stats_cache
+       WHERE operator_id = $1
        AND last_calculated > NOW() - INTERVAL '1 hour'`,
       [partnerId]
     );
@@ -281,30 +283,31 @@ export async function getOperatorStats(userId: string): Promise<OperatorStats | 
         SELECT
           COUNT(*) as total_tours,
           COUNT(CASE WHEN is_active THEN 1 END) as active_tours
-        FROM tours WHERE operator_id = $1
+        FROM operator_tours WHERE operator_id = $1 AND deleted_at IS NULL
       ),
       booking_stats AS (
         SELECT
           COUNT(*) as total_bookings,
-          COALESCE(SUM(total_price), 0) as total_revenue,
+          COALESCE(SUM(COALESCE(b.final_price, b.base_total_price)), 0) as total_revenue,
           COALESCE(
-            COUNT(CASE WHEN status = 'completed' THEN 1 END)::DECIMAL / 
+            COUNT(CASE WHEN b.booking_status = 'completed' THEN 1 END)::DECIMAL /
             NULLIF(COUNT(*), 0) * 100,
             0
           ) as completion_rate
-        FROM bookings b
-        JOIN tours t ON b.tour_id = t.id
-        WHERE t.operator_id = $1
+        FROM operator_bookings b
+        JOIN operator_tours t ON b.tour_id = t.id
+        WHERE t.operator_id = $1 AND b.deleted_at IS NULL AND t.deleted_at IS NULL
       ),
       review_stats AS (
         SELECT
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(*) as total_reviews
         FROM reviews r
-        JOIN tours t ON r.tour_id = t.id
-        WHERE t.operator_id = $1
+        JOIN operator_tours t ON r.tour_id = t.id
+        WHERE t.operator_id = $1 AND t.deleted_at IS NULL
       )
-      SELECT * FROM tour_stats, booking_stats, review_stats`,
+      SELECT total_tours, active_tours, total_bookings, total_revenue, completion_rate, avg_rating, total_reviews
+      FROM tour_stats, booking_stats, review_stats`,
       [partnerId]
     );
     

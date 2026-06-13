@@ -53,7 +53,7 @@ export async function PUT(
     let paramIndex = 1;
 
     if (status) {
-      updateFields.push(`status = $${paramIndex++}`);
+      updateFields.push(`booking_status = $${paramIndex++}`);
       updateValues.push(status);
     }
 
@@ -80,12 +80,13 @@ export async function PUT(
     updateValues.push(operatorId);
 
     const result = await query(
-      `UPDATE bookings 
+      `UPDATE operator_bookings
        SET ${updateFields.join(', ')}
-       FROM tours t
-       WHERE bookings.id = $${bookingIdParamIndex}
-         AND bookings.tour_id = t.id
+       FROM operator_tours t
+       WHERE operator_bookings.id = $${bookingIdParamIndex}
+         AND operator_bookings.operator_tour_id = t.id
          AND t.operator_id = $${operatorIdParamIndex}
+         AND t.deleted_at IS NULL
        RETURNING *`,
       updateValues
     );

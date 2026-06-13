@@ -260,10 +260,10 @@ export async function POST(request: NextRequest) {
       status: string;
       tour_name: string | null;
     }>(
-      `SELECT b.id, b.total_price, b.status, t.name as tour_name
-       FROM bookings b
-       JOIN tours t ON t.id = b.tour_id
-       WHERE b.id = $1 AND t.operator_id = $2
+      `SELECT b.id, COALESCE(b.final_price, b.base_total_price) AS total_price, b.booking_status AS status, t.title AS tour_name
+       FROM operator_bookings b
+       JOIN operator_tours t ON t.id = b.operator_tour_id
+       WHERE b.id = $1 AND t.operator_id = $2 AND b.deleted_at IS NULL AND t.deleted_at IS NULL
        LIMIT 1`,
       [payload.bookingId, context.partnerId]
     );
@@ -497,8 +497,8 @@ export async function PATCH(request: NextRequest) {
 
     const targetTourResult = await query<{ id: string }>(
       `SELECT id
-       FROM tours
-       WHERE id = $1 AND operator_id = $2
+       FROM operator_tours
+       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL
        LIMIT 1`,
       [payload.targetTourId, context.partnerId]
     );
@@ -514,7 +514,7 @@ export async function PATCH(request: NextRequest) {
       total_price: string;
       status: string;
     }>(
-      `SELECT total_price, status FROM bookings WHERE id = $1 LIMIT 1`,
+      `SELECT COALESCE(final_price, base_total_price) AS total_price, booking_status AS status FROM operator_bookings WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [transfer.booking_id]
     );
 

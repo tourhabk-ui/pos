@@ -38,9 +38,9 @@ export async function POST(
     const checkResult = await query(
       `SELECT r.id
        FROM reviews r
-       JOIN tours t ON r.tour_id = t.id
+       JOIN operator_tours t ON r.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
-       WHERE r.id = $1 AND p.user_id = $2
+       WHERE r.id = $1 AND p.user_id = $2 AND t.deleted_at IS NULL
        LIMIT 1`,
       [id, userId]
     );
@@ -56,11 +56,12 @@ export async function POST(
     const result = await query(
       `UPDATE reviews r
        SET operator_reply = $1, operator_reply_at = NOW()
-       FROM tours t
+       FROM operator_tours t
        JOIN partners p ON t.operator_id = p.id
        WHERE r.id = $2
          AND r.tour_id = t.id
          AND p.user_id = $3
+         AND t.deleted_at IS NULL
        RETURNING r.*`,
       [reply, id, userId]
     );

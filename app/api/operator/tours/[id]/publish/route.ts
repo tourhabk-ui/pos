@@ -37,8 +37,8 @@ export async function POST(
 
     // Проверяем что тур принадлежит оператору
     const tourResult = await query<OpTourPublishRow>(
-      `SELECT id, name, description, price, is_active, operator_id 
-       FROM tours WHERE id = $1`,
+      `SELECT id, title AS name, description, base_price AS price, is_active, operator_id
+       FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
       [id]
     );
 

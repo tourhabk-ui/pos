@@ -88,10 +88,10 @@ export async function GET(
             'url', a.url,
             'alt', a.alt
           )) FILTER (WHERE a.id IS NOT NULL), '[]') as image_details
-        FROM tours t
+        FROM operator_tours t
         LEFT JOIN tour_assets ta ON t.id = ta.tour_id
         LEFT JOIN assets a ON ta.asset_id = a.id
-        WHERE t.id = $1 AND t.operator_id = $2
+        WHERE t.id = $1 AND t.operator_id = $2 AND t.deleted_at IS NULL
         GROUP BY t.id`,
         [id, operatorId]
       );
@@ -275,7 +275,7 @@ export async function DELETE(
     const { id } = await params;
 
     const tourOwnershipResult = await query<OpTourOwnerRow>(
-      `SELECT id FROM tours WHERE id = $1 AND operator_id = $2`,
+      `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
       [id, operatorId]
     );
 
@@ -288,8 +288,8 @@ export async function DELETE(
 
     // Check for active bookings
     const bookingsCheck = await query<CountRow>(
-      `SELECT COUNT(*) as count FROM bookings 
-       WHERE tour_id = $1 AND status IN ('pending', 'confirmed')`,
+      `SELECT COUNT(*) as count FROM operator_bookings
+       WHERE operator_tour_id = $1 AND booking_status IN ('pending', 'confirmed') AND deleted_at IS NULL`,
       [id]
     );
 
@@ -303,7 +303,7 @@ export async function DELETE(
 
     // Delete tour (CASCADE will delete related records)
     const deleteResult = await query(
-      'DELETE FROM tours WHERE id = $1 AND operator_id = $2 RETURNING id',
+      'DELETE FROM operator_tours WHERE id = $1 AND operator_id = $2 RETURNING id',
       [id, operatorId]
     );
 

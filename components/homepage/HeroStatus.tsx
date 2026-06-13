@@ -62,7 +62,6 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   let BadgeIcon: React.ElementType;
 
   if (cronNeverRan || safety === null) {
-    // Cron ни разу не запускался — честно показываем спокойный фон, без фейковых данных
     badgeLabel = 'Нет данных от КБГС РАН';
     badgeColor = 'var(--text-muted)';
     BadgeIcon = Info;
@@ -85,7 +84,6 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
     BadgeIcon = ShieldCheck;
   }
 
-  // Заголовок: никогда не говорим «проверьте статус» над пустым блоком
   const headline =
     hasAlert && safety?.topTitle
       ? safety.topTitle

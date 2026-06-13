@@ -20,11 +20,11 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   try {
     const result = await query<AlertBookingVolumeRow>(
       `WITH current_week AS (
-        SELECT COUNT(*) as cnt FROM bookings WHERE created_at >= NOW() - INTERVAL '7 days'
+        SELECT COUNT(*) as cnt FROM operator_bookings WHERE created_at >= NOW() - INTERVAL '7 days' AND deleted_at IS NULL
       ),
       previous_week AS (
-        SELECT COUNT(*) as cnt FROM bookings
-        WHERE created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days'
+        SELECT COUNT(*) as cnt FROM operator_bookings
+        WHERE created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days' AND deleted_at IS NULL
       )
       SELECT c.cnt as current_count, p.cnt as previous_count
       FROM current_week c, previous_week p`,
@@ -75,11 +75,12 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   // 3. Активные туры без бронирований 30 дней
   try {
     const result = await query<TotalRow>(
-      `SELECT COUNT(*) as total FROM tours
+      `SELECT COUNT(*) as total FROM operator_tours
        WHERE is_active = true
+         AND deleted_at IS NULL
          AND id NOT IN (
-           SELECT DISTINCT tour_id FROM bookings
-           WHERE created_at >= NOW() - INTERVAL '30 days' AND tour_id IS NOT NULL
+           SELECT DISTINCT tour_id FROM operator_bookings
+           WHERE created_at >= NOW() - INTERVAL '30 days' AND tour_id IS NOT NULL AND deleted_at IS NULL
          )`,
       []
     );
@@ -101,11 +102,12 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   // 4. Всплеск плохих отзывов (≥3 с rating≤2 за 7д на один тур)
   try {
     const result = await query<AlertBadReviewBurstRow>(
-      `SELECT t.name as tour_name, COUNT(*) as bad_reviews
+      `SELECT t.title as tour_name, COUNT(*) as bad_reviews
        FROM reviews r
-       JOIN tours t ON r.tour_id = t.id
+       JOIN operator_tours t ON r.tour_id = t.id
        WHERE r.rating <= 2 AND r.created_at >= NOW() - INTERVAL '7 days'
-       GROUP BY t.id, t.name
+         AND t.deleted_at IS NULL
+       GROUP BY t.id, t.title
        HAVING COUNT(*) >= 3
        LIMIT 5`,
       []
@@ -128,15 +130,17 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
   try {
     const result = await query<AlertCancellationRateRow>(
       `SELECT p.company_name, p.id,
-              COUNT(*) FILTER (WHERE b.status = 'cancelled') as cancelled,
+              COUNT(*) FILTER (WHERE b.booking_status = 'cancelled') as cancelled,
               COUNT(*) as total
-       FROM bookings b
-       JOIN tours t ON b.tour_id = t.id
+       FROM operator_bookings b
+       JOIN operator_tours t ON b.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE b.created_at >= NOW() - INTERVAL '30 days'
+         AND b.deleted_at IS NULL
+         AND t.deleted_at IS NULL
        GROUP BY p.id, p.company_name
        HAVING COUNT(*) >= 5
-         AND COUNT(*) FILTER (WHERE b.status = 'cancelled')::float / COUNT(*)::float > 0.3
+         AND COUNT(*) FILTER (WHERE b.booking_status = 'cancelled')::float / COUNT(*)::float > 0.3
        LIMIT 5`,
       []
     );

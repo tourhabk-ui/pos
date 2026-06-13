@@ -63,9 +63,9 @@ export async function GET(request: NextRequest) {
         id: string; title: string; description: string; price: number;
         category: string; difficulty: string; ai_tags: Record<string, unknown>;
       }>(
-        `SELECT id, title, description, price, category, difficulty, ai_tags
-         FROM tours
-         WHERE ${conditions.join(' AND ')}
+        `SELECT id, title, description, base_price AS price, activity_type AS category, difficulty, ai_tags
+         FROM operator_tours
+         WHERE ${conditions.join(' AND ')} AND deleted_at IS NULL
          ORDER BY rating DESC NULLS LAST
          LIMIT $${pIdx} OFFSET $${pIdx + 1}`,
         sqlParams

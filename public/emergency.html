@@ -123,8 +123,18 @@ body{
   </div>
   <!-- Интерактивная карта Leaflet — тайлы из SW-кеша, работает офлайн -->
   <div id="mini-map-box" style="display:none;margin-top:10px">
-    <div id="mini-map"></div>
-    <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenTopoMap (CC-BY-SA)</div>
+    <button id="map-toggle-btn" onclick="toggleMap()"
+      style="width:100%;display:flex;align-items:center;justify-content:space-between;
+             padding:8px 10px;border-radius:8px 8px 0 0;border:1px solid #1e3a5f;
+             border-bottom:none;background:#0a1628;color:#60a5fa;
+             font-size:12px;font-weight:700;cursor:pointer;text-align:left">
+      <span>Карта</span>
+      <span id="map-toggle-icon">▲ скрыть</span>
+    </button>
+    <div id="mini-map-inner">
+      <div id="mini-map"></div>
+      <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenTopoMap (CC-BY-SA)</div>
+    </div>
   </div>
   <!-- Ссылки на карты покрытия операторов — только онлайн -->
   <div id="coverage-links" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#0a1a0a;border:1px solid #1a3a1a">
@@ -295,6 +305,17 @@ function onGPSSuccess(p){
 
 var _leafletMap=null,_gpsMarker=null,_lastMarker=null,_guideLine=null;
 
+var _mapOpen = true;
+function toggleMap() {
+  _mapOpen = !_mapOpen;
+  document.getElementById('mini-map-inner').style.display = _mapOpen ? '' : 'none';
+  document.getElementById('map-toggle-icon').textContent = _mapOpen ? '▲ скрыть' : '▼ показать';
+  if (_mapOpen && _leafletMap) {
+    setTimeout(function(){ _leafletMap.invalidateSize(); }, 50);
+  }
+}
+
+
 function initLeafletMap(clat,clng){
   if(!window.L)return;
   try{
@@ -303,6 +324,7 @@ function initLeafletMap(clat,clng){
 
     if(!_leafletMap){
       _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
+      L.control.zoom({position:'topright'}).addTo(_leafletMap);
       L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
         {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMap);
     } else {

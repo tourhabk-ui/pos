@@ -374,6 +374,7 @@ export default function SosPage() {
           </div>
         </a>
 
+
         {/* Меш-сеть: ретрансляция SOS через группу */}
         <MeshStatusWidget
           status={meshStatus}
@@ -407,6 +408,7 @@ export default function SosPage() {
         >
           Вулканы · Погода · AI Спасатель
         </a>
+
 
         {/* Регистрация маршрута */}
         <a

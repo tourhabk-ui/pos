@@ -14,7 +14,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callDeepSeek } from '@/lib/ai/providers';
+import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
@@ -163,7 +163,7 @@ async function rewriteDescription(title: string, rawDesc: string): Promise<strin
     },
   ];
   try {
-    const result = await callDeepSeek(messages);
+    const result = await callAIFast(messages);
     return result?.trim() ?? null;
   } catch (e) {
     process.stdout.write(`  rewrite error: ${e instanceof Error ? e.message : String(e)}\n`);

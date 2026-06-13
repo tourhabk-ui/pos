@@ -56,8 +56,8 @@ export async function POST(
       images: string[];
     }>(
       `SELECT id, title, photos, images
-       FROM tours
-       WHERE id = $1 AND operator_id = $2`,
+       FROM operator_tours
+       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
       [tourId, operatorId]
     );
 
@@ -126,8 +126,8 @@ export async function GET(
 
     const result = await query<{ ai_tags: Record<string, unknown> }>(
       `SELECT ai_tags
-       FROM tours
-       WHERE id = $1 AND operator_id = $2`,
+       FROM operator_tours
+       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
       [tourId, operatorId]
     );
 

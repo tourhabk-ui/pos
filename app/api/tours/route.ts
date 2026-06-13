@@ -84,11 +84,11 @@ export async function GET(request: NextRequest) {
       // Ищем и по новому русскому, и по старому английскому слагу
       const reverseAlias = Object.entries(CATEGORY_ALIAS).find(([, v]) => v === resolved)?.[0];
       if (reverseAlias) {
-        whereConditions.push(`(t.category = $${paramIndex} OR t.category = $${paramIndex + 1})`);
+        whereConditions.push(`(t.activity_type = $${paramIndex} OR t.activity_type = $${paramIndex + 1})`);
         queryParams.push(resolved, reverseAlias);
         paramIndex += 2;
       } else {
-        whereConditions.push(`t.category = $${paramIndex}`);
+        whereConditions.push(`t.activity_type = $${paramIndex}`);
         queryParams.push(resolved);
         paramIndex++;
       }
@@ -108,32 +108,32 @@ export async function GET(request: NextRequest) {
     const buildSelect = (newSchema: boolean) => `
       SELECT
         t.id,
-        ${newSchema ? 't.title AS name' : 't.name'},
+        ${newSchema ? 't.title AS name' : 't.title AS name'},
         t.description,
         t.short_description,
-        t.category,
+        ${newSchema ? 't.activity_type AS category' : 't.activity_type AS category'},
         t.difficulty,
-        t.duration,
-        t.price,
+        ${newSchema ? 't.duration_hours AS duration' : 't.duration_hours AS duration'},
+        ${newSchema ? 't.base_price AS price' : 't.base_price AS price'},
         t.currency,
         t.season,
         t.coordinates,
         t.requirements,
         t.included,
         t.not_included,
-        ${newSchema ? 't.max_participants, t.min_participants' : 't.max_group_size AS max_participants, t.min_group_size AS min_participants'},
+        ${newSchema ? 't.max_participants, t.min_participants' : 't.max_participants, t.min_participants'},
         t.rating,
-        ${newSchema ? 't.reviews_count' : 't.review_count AS reviews_count'},
+        ${newSchema ? 't.reviews_count' : 't.reviews_count'},
         t.is_active,
-        ${newSchema ? 't.images,' : '\'[]\' AS images,'}
+        ${newSchema ? 't.images,' : 't.images,'}
         t.created_at,
         t.updated_at,
         p.name as operator_name,
         p.hero_image as partner_hero_image,
         p.gallery as partner_gallery
-      FROM tours t
+      FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
-      ${newSchema ? whereClause : whereClause.replace(/t\.title\s+ILIKE/g, 't.name ILIKE')}
+      ${whereClause} AND t.deleted_at IS NULL
       ORDER BY t.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
@@ -153,8 +153,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Подсчёт (аналогично)
-    const countBase = (newSchema: boolean) =>
-      `SELECT COUNT(*)::int AS total FROM tours t ${newSchema ? whereClause : whereClause.replace(/t\.title\s+ILIKE/g, 't.name ILIKE')}`;
+    const countBase = (_newSchema: boolean) =>
+      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause} AND t.deleted_at IS NULL`;
     let countResult;
     try {
       countResult = await query<TotalRow>(countBase(true), queryParams.slice(0, -2));
