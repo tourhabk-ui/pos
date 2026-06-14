@@ -429,6 +429,17 @@ function closeFullscreenMap(){
 }
 
 
+var _mapOpen = true;
+function toggleMap() {
+  _mapOpen = !_mapOpen;
+  document.getElementById('mini-map-inner').style.display = _mapOpen ? '' : 'none';
+  document.getElementById('map-toggle-icon').textContent = _mapOpen ? '▲ скрыть' : '▼ показать';
+  if (_mapOpen && _leafletMap) {
+    setTimeout(function(){ _leafletMap.invalidateSize(); }, 50);
+  }
+}
+
+
 function initLeafletMap(clat,clng){
   if(!window.L)return;
   _curLat=clat;_curLng=clng;
