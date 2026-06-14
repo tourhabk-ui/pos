@@ -93,8 +93,29 @@ body{
 }
 
 /* LEAFLET MAP */
-#mini-map{width:100%;height:160px;border-radius:8px;background:#0f1a2e}
+#mini-map{width:100%;height:160px;border-radius:0 0 8px 8px;background:#0f1a2e}
 .leaflet-container{background:#0f1a2e}
+/* FULLSCREEN MAP OVERLAY */
+#map-fs-overlay{
+  display:none;position:fixed;inset:0;z-index:9999;background:#0a0a0a;
+  flex-direction:column;
+}
+#map-fs-overlay.open{display:flex}
+#map-fs-bar{
+  background:#0a1628;border-bottom:1px solid #1e3a5f;
+  padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;
+  min-height:54px;
+}
+#map-fs-dir{
+  flex:1;font-size:13px;font-weight:700;color:#86efac;line-height:1.4;
+}
+#map-fs-dir strong{color:#4ade80}
+#map-fs-close{
+  background:#1e3a5f;border:none;color:#60a5fa;font-size:20px;
+  width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0;
+  line-height:1;
+}
+#map-fs{flex:1;width:100%}
 </style>
 <link rel="stylesheet" href="/leaflet/leaflet.min.css">
 <script src="/leaflet/leaflet.min.js"></script>
@@ -123,14 +144,20 @@ body{
   </div>
   <!-- Интерактивная карта Leaflet — тайлы из SW-кеша, работает офлайн -->
   <div id="mini-map-box" style="display:none;margin-top:10px">
-    <button id="map-toggle-btn" onclick="toggleMap()"
-      style="width:100%;display:flex;align-items:center;justify-content:space-between;
-             padding:8px 10px;border-radius:8px 8px 0 0;border:1px solid #1e3a5f;
-             border-bottom:none;background:#0a1628;color:#60a5fa;
-             font-size:12px;font-weight:700;cursor:pointer;text-align:left">
-      <span>Карта</span>
-      <span id="map-toggle-icon">▲ скрыть</span>
-    </button>
+    <div style="display:flex;align-items:center;justify-content:space-between;
+                padding:8px 10px;border-radius:8px 8px 0 0;border:1px solid #1e3a5f;
+                border-bottom:none;background:#0a1628;">
+      <button onclick="toggleMap()"
+        style="background:none;border:none;color:#60a5fa;font-size:12px;font-weight:700;
+               cursor:pointer;display:flex;align-items:center;gap:6px;padding:0">
+        <span>Карта</span>
+        <span id="map-toggle-icon">▲ скрыть</span>
+      </button>
+      <button onclick="openFullscreenMap()"
+        style="background:none;border:1px solid #1e3a5f;color:#60a5fa;font-size:15px;
+               width:28px;height:28px;border-radius:6px;cursor:pointer;line-height:1"
+        title="На весь экран">⛶</button>
+    </div>
     <div id="mini-map-inner">
       <div id="mini-map"></div>
       <div style="font-size:10px;color:#374151;text-align:right;margin-top:3px">© OpenTopoMap (CC-BY-SA)</div>
@@ -304,6 +331,103 @@ function onGPSSuccess(p){
 }
 
 var _leafletMap=null,_gpsMarker=null,_lastMarker=null,_guideLine=null;
+var _curLat=null,_curLng=null;
+
+var _mapOpen = true;
+function toggleMap() {
+  _mapOpen = !_mapOpen;
+  document.getElementById('mini-map-inner').style.display = _mapOpen ? '' : 'none';
+  document.getElementById('map-toggle-icon').textContent = _mapOpen ? '▲ скрыть' : '▼ показать';
+  if (_mapOpen && _leafletMap) {
+    setTimeout(function(){ _leafletMap.invalidateSize(); }, 50);
+  }
+}
+
+// ── Геоматематика ─────────────────────────────────────────────────────────────
+function haversineKm(a,b,c,d){
+  var R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180;
+  a*=Math.PI/180;c*=Math.PI/180;
+  var s=Math.sin(dL/2)*Math.sin(dL/2)+Math.cos(a)*Math.cos(c)*Math.sin(dG/2)*Math.sin(dG/2);
+  return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
+}
+function calcBearing(a,b,c,d){
+  b*=Math.PI/180;d*=Math.PI/180;a*=Math.PI/180;c*=Math.PI/180;
+  var y=Math.sin(d-b)*Math.cos(c);
+  var x=Math.cos(a)*Math.sin(c)-Math.sin(a)*Math.cos(c)*Math.cos(d-b);
+  return((Math.atan2(y,x)*180/Math.PI)+360)%360;
+}
+function degToDir(d){return['С','СВ','В','ЮВ','Ю','ЮЗ','З','СЗ'][Math.round(d/45)%8];}
+
+// ── Полноэкранная карта ───────────────────────────────────────────────────────
+var _leafletMapFS=null,_fsLayers=[];
+
+function openFullscreenMap(){
+  var ov=document.getElementById('map-fs-overlay');
+  ov.classList.add('open');
+  document.body.style.overflow='hidden';
+
+  var lat=_curLat,lng=_curLng;
+  var lastPos=null;
+  try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+
+  // Если GPS ещё не пришёл — центр по последней позиции или дефолт
+  if(lat===null&&lastPos){lat=lastPos.lat;lng=lastPos.lng;}
+  if(lat===null){document.getElementById('map-fs-dir').textContent='Ожидаем GPS…';return;}
+
+  if(!_leafletMapFS){
+    _leafletMapFS=L.map('map-fs',{zoomControl:false,attributionControl:false}).setView([lat,lng],13);
+    L.control.zoom({position:'topright'}).addTo(_leafletMapFS);
+    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      {maxZoom:17,subdomains:['a','b','c']}).addTo(_leafletMapFS);
+  }
+
+  _fsLayers.forEach(function(l){try{l.remove();}catch(e){}});
+  _fsLayers=[];
+
+  var meMarker=L.circleMarker([lat,lng],{
+    radius:11,color:'#60a5fa',fillColor:'#3b82f6',fillOpacity:.9,weight:2.5
+  }).bindTooltip('Вы здесь',{permanent:true,direction:'right',offset:[14,0],
+    className:'fs-tip'}).addTo(_leafletMapFS);
+  _fsLayers.push(meMarker);
+
+  var dirEl=document.getElementById('map-fs-dir');
+
+  if(lastPos&&lastPos.lat&&lastPos.lng){
+    var dist=haversineKm(lat,lng,lastPos.lat,lastPos.lng);
+    var bear=calcBearing(lat,lng,lastPos.lat,lastPos.lng);
+    var dir=degToDir(bear);
+    var distStr=dist<1?(Math.round(dist*1000)+' м'):(dist.toFixed(1)+' км');
+
+    if(dist<0.03){
+      dirEl.textContent='Вы у точки последнего сигнала — связь была здесь';
+    } else {
+      dirEl.innerHTML='Иди на <strong>'+dir+'</strong> — '+distStr+' до зоны связи';
+    }
+
+    var lastMarker=L.circleMarker([lastPos.lat,lastPos.lng],{
+      radius:9,color:'#86efac',fillColor:'#4ade80',fillOpacity:.9,weight:2.5
+    }).bindTooltip('Зона связи',{permanent:true,direction:'right',offset:[12,0],
+      className:'fs-tip'}).addTo(_leafletMapFS);
+    var line=L.polyline([[lat,lng],[lastPos.lat,lastPos.lng]],
+      {color:'#86efac',dashArray:'10 6',weight:3}).addTo(_leafletMapFS);
+    _fsLayers.push(lastMarker,line);
+
+    var pad=Math.max(60,Math.min(dist*8000,120));
+    _leafletMapFS.fitBounds([[lat,lng],[lastPos.lat,lastPos.lng]],
+      {padding:[pad,pad],maxZoom:15});
+  } else {
+    dirEl.textContent='GPS получен — ждите спасателей на месте';
+    _leafletMapFS.setView([lat,lng],14);
+  }
+
+  setTimeout(function(){_leafletMapFS.invalidateSize();},120);
+}
+
+function closeFullscreenMap(){
+  document.getElementById('map-fs-overlay').classList.remove('open');
+  document.body.style.overflow='';
+}
+
 
 var _mapOpen = true;
 function toggleMap() {
@@ -318,6 +442,7 @@ function toggleMap() {
 
 function initLeafletMap(clat,clng){
   if(!window.L)return;
+  _curLat=clat;_curLng=clng;
   try{
     var lastPos=null;
     try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
@@ -458,5 +583,14 @@ if(navigator.getBattery){
   });
 }
 </script>
+
+<!-- Полноэкранная карта — открывается по ⛶ -->
+<div id="map-fs-overlay">
+  <div id="map-fs-bar">
+    <div id="map-fs-dir">Получаем позицию…</div>
+    <button id="map-fs-close" onclick="closeFullscreenMap()">✕</button>
+  </div>
+  <div id="map-fs"></div>
+</div>
 </body>
 </html>
