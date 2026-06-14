@@ -166,7 +166,7 @@ async function rewriteDescription(title: string, rawDesc: string): Promise<strin
     const result = await callAIFast(messages);
     return result?.trim() ?? null;
   } catch (e) {
-    process.stdout.write(`  rewrite error: ${e instanceof Error ? e.message : String(e)}\n`);
+    console.error('rewrite error:', e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -201,12 +201,7 @@ async function loadPlacesNeedingDesc(limit: number): Promise<DBPlace[]> {
 
 async function saveDescription(id: string, description: string): Promise<void> {
   await pool.query(
-    `UPDATE agent_route_knowledge
-     SET description = $1,
-         search_text = COALESCE(search_text, '') || ' ' || $1,
-         source_url  = NULL,
-         updated_at  = NOW()
-     WHERE id = $2`,
+    `UPDATE agent_route_knowledge SET description = $1 WHERE id = $2`,
     [description, id],
   );
 }
@@ -262,7 +257,7 @@ export async function runPlacesEnricher(batchSize = 30): Promise<PlacesEnricherR
     try {
       const rewritten = await rewriteDescription(place.title, bestMatch.description);
       if (!rewritten || rewritten.length < 100) {
-        process.stdout.write(`  rewrite empty for "${place.title}" (len=${rewritten?.length ?? 0})\n`);
+        console.error(`rewrite empty for "${place.title}" (len=${rewritten?.length ?? 0})`);
         skipped++;
         continue;
       }
