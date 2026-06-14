@@ -15,13 +15,44 @@ jobs:
           curl -s --max-time 90 -o /dev/null -w "Warmup HTTP: %{http_code}\n" \
             "https://vedarai.ru/api/health" || echo "Warmup done"
 
-      - name: Safety Ingest — вулканы и сейсмика КБГС РАН
+      # GitHub Actions runner не в России → t.me доступен
+      - name: Fetch КБГС РАН channels
+        run: |
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://t.me/s/kbgsras" > /tmp/kbgsras.html \
+            || echo "" > /tmp/kbgsras.html
+
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://t.me/s/eqkam" > /tmp/eqkam.html \
+            || echo "" > /tmp/eqkam.html
+
+          echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
+          echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
+
+      - name: Safety Ingest — POST HTML to server
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "ERROR: CRON_SECRET secret not configured in repo settings"; exit 1; fi
+
+          # jq --rawfile корректно экранирует произвольный HTML в JSON
+          jq -n \
+            --rawfile kbgsras_html /tmp/kbgsras.html \
+            --rawfile eqkam_html   /tmp/eqkam.html \
+            '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}' \
+            > /tmp/payload.json
+
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
-            "https://vedarai.ru/api/cron/safety-ingest" \
-            -H "Authorization: Bearer $CRON_SECRET")
-          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/payload.json \
+            "https://vedarai.ru/api/cron/safety-ingest")
+
+          echo "HTTP: $HTTP"
+          cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

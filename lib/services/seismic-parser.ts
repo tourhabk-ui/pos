@@ -382,3 +382,39 @@ export async function ingestAll(): Promise<{
     total_inserted: kbgsras.inserted + eqkam.inserted,
   };
 }
+
+// Вариант без внутреннего fetch — HTML передаётся снаружи (GitHub Actions).
+// Используется когда сервер не может достучаться до t.me (российский хостинг).
+export async function ingestFromHtml(
+  kbgsrasHtml: string,
+  eqkamHtml: string,
+): Promise<{ kbgsras: ParseResult; eqkam: ParseResult; total_inserted: number }> {
+  async function processHtml(
+    html: string,
+    classify: (id: string, text: string, datetime: string) => SeismicEvent | null,
+  ): Promise<ParseResult> {
+    const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+    for (const msg of extractMessages(html)) {
+      const event = classify(msg.id, msg.text, msg.datetime);
+      if (!event) continue;
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
+    }
+    return result;
+  }
+
+  const [kbgsras, eqkam] = await Promise.all([
+    processHtml(kbgsrasHtml, classifyMessage),
+    processHtml(eqkamHtml, (id, text, datetime) =>
+      classifyEqkam(id, text, datetime) ?? classifyMessage(id, text, datetime),
+    ),
+  ]);
+
+  return { kbgsras, eqkam, total_inserted: kbgsras.inserted + eqkam.inserted };
+}

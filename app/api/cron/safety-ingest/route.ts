@@ -1,39 +1,28 @@
-import { ingestAll } from '@/lib/services/seismic-parser';
+import { z } from 'zod';
+import { ingestAll, ingestFromHtml } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 
 /**
- * POST /api/cron/safety-ingest
- * Парсит данные КБГС РАН (t.me/s/kbgsras, t.me/s/eqkam)
- * Сохраняет в external_alerts, обновляет location_real_time_status
- * Запускать каждые 15-30 минут
+ * GET  /api/cron/safety-ingest  — сервер сам fetch'ит t.me (работает если не заблокирован)
+ * POST /api/cron/safety-ingest  — GitHub Actions передаёт HTML body, сервер только парсит
+ *
+ * POST body: { kbgsras_html: string, eqkam_html: string }
+ * GitHub Actions нужен когда хостинг не может достучаться до t.me (Timeweb / Roskomnadzor).
  */
-export async function GET(req: Request) {
-  const url = new URL(req.url);
+
+function authError(req: Request): Response | null {
   const secret = getCronSecret(req);
-
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
-  }
-  if (!timingSafeCompare(secret, cronSecret)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!cronSecret) return Response.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
+  if (!timingSafeCompare(secret, cronSecret)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  return null;
+}
 
-  const startedAt = Date.now();
-  const errors: string[] = [];
-  let realTimeUpdated = 0;
-
-  // ── 1. Парсим КБГС РАН + eqkam ───────────────────────────────────────
-  const ingestResult = await ingestAll();
-  errors.push(...ingestResult.kbgsras.errors, ...ingestResult.eqkam.errors);
-
-  // ── 2. Обновляем location_real_time_status (zone-aware) ──────
-  // Алерты привязываются к маршрутам через зоны (affected_zones)
-  // Маршрут получает только алерты из СВОЕЙ зоны, а не глобальные
+async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
-    const updateResult = await query(`
+    const r = await query(`
       UPDATE location_real_time_status lrs
       SET
         active_alerts = (
@@ -82,13 +71,22 @@ export async function GET(req: Request) {
         END,
         updated_at = NOW()
     `);
-    realTimeUpdated = updateResult.rowCount ?? 0;
+    return { updated: r.rowCount ?? 0 };
   } catch (e) {
-    errors.push(`real-time update failed: ${(e as Error).message}`);
+    return { updated: 0, error: `real-time update failed: ${(e as Error).message}` };
   }
+}
 
-  const durationMs = Date.now() - startedAt;
-
+function buildResponse(
+  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
+  rtStatus: { updated: number; error?: string },
+  durationMs: number,
+) {
+  const errors = [
+    ...ingestResult.kbgsras.errors,
+    ...ingestResult.eqkam.errors,
+    ...(rtStatus.error ? [rtStatus.error] : []),
+  ];
   return Response.json({
     success: true,
     duration_ms: durationMs,
@@ -103,7 +101,46 @@ export async function GET(req: Request) {
       skipped: ingestResult.eqkam.skipped,
     },
     total_inserted: ingestResult.total_inserted,
-    real_time_updated: realTimeUpdated,
+    real_time_updated: rtStatus.updated,
     errors: errors.length > 0 ? errors : undefined,
   });
+}
+
+// GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
+export async function GET(req: Request) {
+  const err = authError(req);
+  if (err) return err;
+
+  const t0 = Date.now();
+  const ingestResult = await ingestAll();
+  const rtStatus = await updateRealTimeStatus();
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
+}
+
+const HtmlBodySchema = z.object({
+  kbgsras_html: z.string().min(1),
+  eqkam_html: z.string().min(1),
+});
+
+// POST — GitHub Actions передаёт уже скачанный HTML, сервер только парсит
+export async function POST(req: Request) {
+  const err = authError(req);
+  if (err) return err;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const parsed = HtmlBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: 'Missing kbgsras_html or eqkam_html' }, { status: 400 });
+  }
+
+  const t0 = Date.now();
+  const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
+  const rtStatus = await updateRealTimeStatus();
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
 }
