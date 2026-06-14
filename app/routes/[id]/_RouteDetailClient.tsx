@@ -374,7 +374,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
       const data = await res.json() as { tile_urls: string[]; tile_count: number; route: unknown; waypoints: unknown };
       if (!res.ok || !data.tile_urls) throw new Error('bundle failed');
       try { localStorage.setItem(`offline_route_${id}`, JSON.stringify({ route: data.route, waypoints: data.waypoints, ts: Date.now() })); } catch { /* ignore */ }
-      const sw = navigator.serviceWorker?.controller;
+      if (!navigator.serviceWorker) { setDlState('done'); return; }
+      // Use serviceWorker.ready so the SW is active even if not yet controlling this page
+      const reg = await navigator.serviceWorker.ready;
+      const sw = reg.active;
       if (!sw) { setDlState('done'); return; }
       setDlState('downloading');
       setDlProgress({ done: 0, total: data.tile_count });
