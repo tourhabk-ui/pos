@@ -573,7 +573,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   });
 
   // Reactive checklist state
-  const { status: mapsStatus, progress: mapsProgress, download: downloadMaps } = useOfflineRegion('avacha-group');
+  const { status: mapsStatus, progress: mapsProgress, error: mapsError, download: downloadMaps } = useOfflineRegion('avacha-group');
   const [hasActiveRoute, setHasActiveRoute] = useState(false);
 
   useEffect(() => {
@@ -765,6 +765,11 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
                       {mapsStatus === 'fetching-routes' ? 'Подготовка…' : `Скачивание ${mapsProgress.done} / ${mapsProgress.total}`}
                     </p>
                   </div>
+                )}
+                {item.id === 'maps' && mapsStatus === 'error' && mapsError && (
+                  <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--danger)' }}>
+                    Ошибка: {mapsError} — нажми ещё раз
+                  </p>
                 )}
               </div>
             );
