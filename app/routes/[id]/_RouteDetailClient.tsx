@@ -362,7 +362,31 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const [filterDurationType, setFilterDurationType] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [showMchsModal, setShowMchsModal] = useState(false);
+  const [dlState, setDlState] = useState<'idle'|'loading'|'downloading'|'done'|'error'>('idle');
+  const [dlProgress, setDlProgress] = useState({ done: 0, total: 0 });
   useSourceTracker();
+
+  const downloadOfflineBundle = useCallback(async () => {
+    if (dlState === 'downloading' || dlState === 'loading') return;
+    setDlState('loading');
+    try {
+      const res = await fetch(`/api/routes/${id}/offline-bundle`);
+      const data = await res.json() as { tile_urls: string[]; tile_count: number; route: unknown; waypoints: unknown };
+      if (!res.ok || !data.tile_urls) throw new Error('bundle failed');
+      try { localStorage.setItem(`offline_route_${id}`, JSON.stringify({ route: data.route, waypoints: data.waypoints, ts: Date.now() })); } catch { /* ignore */ }
+      const sw = navigator.serviceWorker?.controller;
+      if (!sw) { setDlState('done'); return; }
+      setDlState('downloading');
+      setDlProgress({ done: 0, total: data.tile_count });
+      const onMsg = (e: MessageEvent) => {
+        if (e.data?.regionId !== id) return;
+        if (e.data.type === 'TILE_PROGRESS') setDlProgress({ done: e.data.done, total: e.data.total });
+        if (e.data.type === 'TILES_DONE') { setDlState('done'); navigator.serviceWorker.removeEventListener('message', onMsg); }
+      };
+      navigator.serviceWorker.addEventListener('message', onMsg);
+      sw.postMessage({ type: 'CACHE_TILES', tiles: data.tile_urls, regionId: id });
+    } catch { setDlState('error'); }
+  }, [id, dlState]);
 
   const CACHE_KEY = `route_cache_${id}`;
   const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
@@ -938,6 +962,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Navigation className="w-3.5 h-3.5 text-green-500" /> Organic Maps
                     </a>
                   </div>
+                  <button
+                    type="button"
+                    onClick={downloadOfflineBundle}
+                    disabled={dlState === 'loading' || dlState === 'downloading'}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-60"
+                    style={{
+                      background: dlState === 'done' ? 'color-mix(in srgb, var(--success) 10%, var(--bg-hover))' : 'var(--bg-hover)',
+                      borderColor: dlState === 'done' ? 'var(--success)' : 'var(--border)',
+                      color: dlState === 'done' ? 'var(--success)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <Download className="w-4 h-4" />
+                    {dlState === 'idle' && 'Скачать для похода'}
+                    {dlState === 'loading' && 'Подготовка…'}
+                    {dlState === 'downloading' && `Тайлы ${dlProgress.done}/${dlProgress.total}`}
+                    {dlState === 'done' && 'Готово к офлайн'}
+                    {dlState === 'error' && 'Ошибка — повторить'}
+                  </button>
                 </div>
               </section>
             )}
@@ -1077,6 +1119,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         <Navigation className="w-3 h-3 text-green-500" /> O.Maps
                       </a>
                     </div>
+                    <button
+                      type="button"
+                      onClick={downloadOfflineBundle}
+                      disabled={dlState === 'loading' || dlState === 'downloading'}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-60"
+                      style={{
+                        background: dlState === 'done' ? 'color-mix(in srgb, var(--success) 10%, var(--bg-hover))' : 'var(--bg-hover)',
+                        borderColor: dlState === 'done' ? 'var(--success)' : 'var(--border)',
+                        color: dlState === 'done' ? 'var(--success)' : 'var(--text-muted)',
+                      }}
+                    >
+                      <Download className="w-3 h-3" />
+                      {dlState === 'idle' && 'Скачать для похода'}
+                      {dlState === 'loading' && 'Подготовка…'}
+                      {dlState === 'downloading' && `${dlProgress.done}/${dlProgress.total} тайлов`}
+                      {dlState === 'done' && 'Готово к офлайн'}
+                      {dlState === 'error' && 'Ошибка — повторить'}
+                    </button>
                   </div>
                 </div>
               )}
