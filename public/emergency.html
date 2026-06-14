@@ -333,16 +333,6 @@ function onGPSSuccess(p){
 var _leafletMap=null,_gpsMarker=null,_lastMarker=null,_guideLine=null;
 var _curLat=null,_curLng=null;
 
-var _mapOpen = true;
-function toggleMap() {
-  _mapOpen = !_mapOpen;
-  document.getElementById('mini-map-inner').style.display = _mapOpen ? '' : 'none';
-  document.getElementById('map-toggle-icon').textContent = _mapOpen ? '▲ скрыть' : '▼ показать';
-  if (_mapOpen && _leafletMap) {
-    setTimeout(function(){ _leafletMap.invalidateSize(); }, 50);
-  }
-}
-
 // ── Геоматематика ─────────────────────────────────────────────────────────────
 function haversineKm(a,b,c,d){
   var R=6371,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180;

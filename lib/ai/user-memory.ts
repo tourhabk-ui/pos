@@ -347,27 +347,19 @@ export interface TripRecord {
 
 export async function loadTripHistory(userId: string): Promise<TripRecord[]> {
   try {
-    // Legacy bookings + operator bookings merged // allow:
-    const legacySQL = `SELECT t.title, b.date::text AS booking_date, b.status, b.participants, NULL::int AS rating FROM bookings b JOIN tours t ON t.id = b.tour_id WHERE b.user_id = $1 ORDER BY b.date DESC LIMIT 10`; // allow:
-    const [legacy, opBookings] = await Promise.all([
-      pool.query<TripRecord>(legacySQL, [userId]),
-      pool.query<TripRecord>(
-        `SELECT ot.title, ob.booking_date::text, ob.booking_status AS status,
-                ob.participants, r.rating
-         FROM operator_bookings ob
-         JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-         JOIN users u ON u.email = ob.tourist_email
-         LEFT JOIN operator_tour_reviews r
-           ON r.tour_id = ob.operator_tour_id AND r.author_name = u.name
-         WHERE u.id = $1
-         ORDER BY ob.booking_date DESC LIMIT 10`,
-        [userId],
-      ),
-    ]);
-
-    const all = [...legacy.rows, ...opBookings.rows];
-    all.sort((a, b) => (b.booking_date > a.booking_date ? 1 : -1));
-    return all.slice(0, 10);
+    const { rows } = await pool.query<TripRecord>(
+      `SELECT ot.title, ob.booking_date::text, ob.booking_status AS status,
+              ob.participants, r.rating
+       FROM operator_bookings ob
+       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+       JOIN users u ON u.email = ob.tourist_email
+       LEFT JOIN operator_tour_reviews r
+         ON r.tour_id = ob.operator_tour_id AND r.author_name = u.name
+       WHERE u.id = $1
+       ORDER BY ob.booking_date DESC LIMIT 10`,
+      [userId],
+    );
+    return rows;
   } catch {
     return [];
   }
