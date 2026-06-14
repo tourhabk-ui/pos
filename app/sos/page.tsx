@@ -6,6 +6,7 @@ import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { useMesh } from '@/hooks/use-mesh';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
+import LottiePlayer from '@/components/ui/LottiePlayer';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -120,20 +121,18 @@ export default function SosPage() {
         alignItems: 'center',
         gap: '12px',
       }}>
-        <div style={{
-          width: '40px',
-          height: '40px',
-          borderRadius: '50%',
-          background: '#dc2626',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '14px',
-          fontWeight: 800,
-          letterSpacing: '0.05em',
-          animation: 'sos-pulse 2s ease-out infinite',
-        }}>
-          SOS
+        <div style={{ position: 'relative', width: '80px', height: '80px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <LottiePlayer src="/animations/sos-pulse.json" width={80} height={80} style={{ position: 'absolute', inset: 0 }} />
+          <div style={{
+            position: 'relative', zIndex: 1,
+            width: '36px', height: '36px',
+            borderRadius: '50%',
+            background: '#dc2626',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', fontWeight: 800, letterSpacing: '0.05em',
+          }}>
+            SOS
+          </div>
         </div>
         <div>
           <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Экстренная помощь</h1>

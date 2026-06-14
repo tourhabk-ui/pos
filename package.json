@@ -94,6 +94,7 @@
     "jose": "^5.2.0",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
+    "lottie-web": "^5.13.0",
     "lucide-react": "^0.555.0",
     "next": "15.5.16",
     "nodemailer": "^7.0.13",
