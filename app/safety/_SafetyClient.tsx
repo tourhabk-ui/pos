@@ -112,6 +112,7 @@ const EMERGENCY_CONTACTS = [
 export default function SafetyClient() {
   const [zones, setZones] = useState<ZoneData[]>([]);
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
+  const [seismicSource, setSeismicSource] = useState<string>('');
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,7 +128,7 @@ export default function SafetyClient() {
   useEffect(() => {
     void Promise.all([
       fetch('/api/public/danger-summary').then(r => r.json()).then((d: { zones?: ZoneData[] }) => setZones(d.zones ?? [])).catch(() => {}),
-      fetch('/api/safety/seismic').then(r => r.json()).then((d: { events?: SeismicEvent[] }) => setSeismic(d.events ?? [])).catch(() => {}),
+      fetch('/api/safety/seismic').then(r => r.json()).then((d: { events?: SeismicEvent[]; source?: string }) => { setSeismic(d.events ?? []); setSeismicSource(d.source ?? ''); }).catch(() => {}),
       fetch('/api/safety/volcanic').then(r => r.json()).then((d: { events?: VolcanicEvent[] }) => setVolcanic(d.events ?? [])).catch(() => {}),
       fetch('/api/safety/weather').then(r => r.json()).then((d: WeatherData) => setWeather(d.tempC ? d : null)).catch(() => {}),
     ]).finally(() => setLoading(false));
@@ -159,10 +160,11 @@ export default function SafetyClient() {
     }
 
     try {
+      const history = chatMessages.map(m => ({ role: m.role, content: m.content }));
       const res = await fetch('/api/safety/rescue-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...chatMessages, userMsg].map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ message: text, history, stream: true }),
       });
       if (!res.ok || !res.body) throw new Error('no stream');
       const reader = res.body.getReader();
@@ -178,8 +180,8 @@ export default function SafetyClient() {
           const data = line.slice(6).trim();
           if (data === '[DONE]') break;
           try {
-            const parsed = JSON.parse(data) as { delta?: string; content?: string };
-            assistantContent += parsed.delta ?? parsed.content ?? '';
+            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+            assistantContent += parsed.choices?.[0]?.delta?.content ?? '';
             setChatMessages(prev => {
               const next = [...prev];
               next[next.length - 1] = { role: 'assistant', content: assistantContent, streaming: true };
@@ -260,7 +262,9 @@ export default function SafetyClient() {
             <Activity size={16} color="var(--ocean)" />
             <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Сейсмика</span>
             {seismic.length > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{seismic.length} событий (USGS)</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                {seismic.length} событий ({seismicSource === 'kbgsras' ? 'КБГС РАН' : 'USGS'})
+              </span>
             )}
           </div>
           {seismicOpen ? <ChevronUp size={15} color="var(--text-secondary)" /> : <ChevronDown size={15} color="var(--text-secondary)" />}
