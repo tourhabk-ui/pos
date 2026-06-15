@@ -159,10 +159,11 @@ export default function SafetyClient() {
     }
 
     try {
+      const history = chatMessages.map(m => ({ role: m.role, content: m.content }));
       const res = await fetch('/api/safety/rescue-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...chatMessages, userMsg].map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ message: text, history, stream: true }),
       });
       if (!res.ok || !res.body) throw new Error('no stream');
       const reader = res.body.getReader();
@@ -178,8 +179,8 @@ export default function SafetyClient() {
           const data = line.slice(6).trim();
           if (data === '[DONE]') break;
           try {
-            const parsed = JSON.parse(data) as { delta?: string; content?: string };
-            assistantContent += parsed.delta ?? parsed.content ?? '';
+            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+            assistantContent += parsed.choices?.[0]?.delta?.content ?? '';
             setChatMessages(prev => {
               const next = [...prev];
               next[next.length - 1] = { role: 'assistant', content: assistantContent, streaming: true };
