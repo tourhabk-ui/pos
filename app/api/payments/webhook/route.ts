@@ -141,8 +141,8 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
         case 'tour':
           const tourBooking = await query(`
             SELECT b.*, t.name as tour_name, p.name as operator_name
-            FROM bookings b
-            JOIN tours t ON b.tour_id = t.id
+            FROM operator_bookings b
+            JOIN operator_tours t ON b.tour_id = t.id
             JOIN partners p ON t.operator_id = p.id
             WHERE b.id = $1
           `, [payment.booking_id]);
