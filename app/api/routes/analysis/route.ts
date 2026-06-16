@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
         (ark.location_type = ot.location_type OR
          (ABS(ark.lat - ot.lat) < 0.5 AND ABS(ark.lng - ot.lng) < 0.5))
       LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = ark.id
-      LEFT JOIN bookings b ON b.tour_id = ot.id AND b.created_at > NOW() - INTERVAL '30 days'
+      LEFT JOIN operator_bookings b ON b.operator_tour_id = ot.id AND b.created_at > NOW() - INTERVAL '30 days'
       GROUP BY ark.id, ark.title, ark.location_type, ark.zone, ark.lat, ark.lng, lsp.capacity_per_day
       ORDER BY total_bookings DESC
     `);

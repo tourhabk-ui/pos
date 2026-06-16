@@ -143,18 +143,18 @@ export async function GET(request: NextRequest) {
          t.created_at,
          b.total_price as booking_total_price,
          b.start_date as booking_start_date,
-         b.status as booking_status,
-         source_tour.name as source_tour_name,
-         target_tour.name as target_tour_name,
+         b.booking_status as booking_status,
+         source_tour.title as source_tour_name,
+         target_tour.title as target_tour_name,
          from_partner.name as from_operator_name,
          to_partner.name as to_operator_name,
          tourist.name as tourist_name,
          tourist.email as tourist_email
        FROM operator_booking_transfers t
-       JOIN bookings b ON b.id = t.booking_id
+       JOIN operator_bookings b ON b.id = t.booking_id
        JOIN users tourist ON tourist.id = b.user_id
-       LEFT JOIN tours source_tour ON source_tour.id = b.tour_id
-       LEFT JOIN tours target_tour ON target_tour.id = t.target_tour_id
+       LEFT JOIN operator_tours source_tour ON source_tour.id = b.operator_tour_id
+       LEFT JOIN operator_tours target_tour ON target_tour.id = t.target_tour_id
        LEFT JOIN partners from_partner ON from_partner.id = t.from_operator_partner_id
        LEFT JOIN partners to_partner ON to_partner.id = t.to_operator_partner_id
        WHERE ${whereParts.join(' AND ')}

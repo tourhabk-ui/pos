@@ -140,9 +140,9 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
       switch (payment.booking_type) {
         case 'tour':
           const tourBooking = await query(`
-            SELECT b.*, t.name as tour_name, p.name as operator_name
+            SELECT b.*, t.title as tour_name, p.name as operator_name
             FROM operator_bookings b
-            JOIN operator_tours t ON b.tour_id = t.id
+            JOIN operator_tours t ON b.operator_tour_id = t.id
             JOIN partners p ON t.operator_id = p.id
             WHERE b.id = $1
           `, [payment.booking_id]);
@@ -391,7 +391,7 @@ async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
       const paymentDetails = await query<PaymentRow>(`
         SELECT p.*, b.booking_type
         FROM payments p
-        LEFT JOIN bookings b ON p.booking_id = b.id AND p.booking_type = 'tour'
+        LEFT JOIN operator_bookings b ON p.booking_id = b.id AND p.booking_type = 'tour'
         LEFT JOIN accommodation_bookings ab ON p.booking_id = ab.id AND p.booking_type = 'accommodation'
         LEFT JOIN transfer_bookings tb ON p.booking_id = tb.id AND p.booking_type = 'transfer'
         WHERE p.id = $1
