@@ -28,7 +28,7 @@ interface RoutePreview {
   id: string;
   title: string;
   difficulty: string | null;
-  durationHours: number | null;
+  durationDays: number | null;
   distanceKm: number | null;
   imageUrl: string | null;
 }
@@ -116,10 +116,10 @@ function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (r
         </div>
         <div className="px-2 pt-2">
           <p className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">{route.title}</p>
-          {(route.durationHours || route.distanceKm) && (
+          {(route.durationDays || route.distanceKm) && (
             <p className="text-[10px] text-[var(--text-muted)] mt-1">
-              {route.durationHours ? `${route.durationHours} ч` : ''}
-              {route.durationHours && route.distanceKm ? ' · ' : ''}
+              {route.durationDays ? `${route.durationDays} дн` : ''}
+              {route.durationDays && route.distanceKm ? ' · ' : ''}
               {route.distanceKm ? `${route.distanceKm} км` : ''}
             </p>
           )}
@@ -266,9 +266,17 @@ function OnTrailTab() {
   // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.alpha !== null) setHeading(e.alpha);
+      // webkitCompassHeading = iOS true-North heading (0–360, clockwise)
+      // deviceorientationabsolute + 360 - alpha = Android true-North equivalent
+      const webkitHeading = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
+      const h = webkitHeading != null
+        ? webkitHeading
+        : (e.alpha !== null ? (360 - e.alpha) % 360 : null);
+      if (h !== null) setHeading(h);
     };
-    window.addEventListener('deviceorientation', handleOrientation);
+    // deviceorientationabsolute gives Earth-frame absolute heading (Android Chrome)
+    window.addEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
+    window.addEventListener('deviceorientation', handleOrientation as EventListener);
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude }),
@@ -280,7 +288,8 @@ function OnTrailTab() {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
     return () => {
-      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
+      window.removeEventListener('deviceorientation', handleOrientation as EventListener);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
     };
@@ -356,7 +365,7 @@ function OnTrailTab() {
             id: row.id as string,
             title: row.title as string,
             difficulty: (row.difficulty as string | null) ?? null,
-            durationHours: row.durationHours != null ? Number(row.durationHours) : null,
+            durationDays: row.durationDays != null ? Number(row.durationDays) : null,
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             imageUrl: null,
           } satisfies RoutePreview;
@@ -528,7 +537,15 @@ function OnTrailTab() {
               </button>
             </div>
             {modalError ? (
-              <div className="text-red-400 text-sm text-center py-6">{modalError}</div>
+              <div className="flex flex-col items-center gap-3 py-6">
+                <p className="text-red-400 text-sm text-center">{modalError}</p>
+                <button
+                  onClick={() => { setModalError(null); openRouteModal(); }}
+                  className="text-xs font-semibold px-4 py-2 rounded-lg"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                  Попробовать снова
+                </button>
+              </div>
             ) : modalRoutes.length === 0 ? (
               <div className="text-gray-500 text-sm text-center py-6">Загрузка маршрутов…</div>
             ) : (
@@ -624,7 +641,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
               id: row.id as string,
               title: row.title as string,
               difficulty: (row.difficulty as string | null) ?? null,
-              durationHours: row.durationHours != null ? Number(row.durationHours) : null,
+              durationDays: row.durationDays != null ? Number(row.durationDays) : null,
               distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
               imageUrl: null,
             } satisfies RoutePreview;
