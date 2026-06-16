@@ -67,7 +67,7 @@ export default function LeadFormPage() {
     }
   }
 
-  const accent = config?.accentColor ?? '#D44A0C';
+  const accent = config?.accentColor ?? 'var(--accent)';
 
   if (success) {
     return (
@@ -79,14 +79,14 @@ export default function LeadFormPage() {
         justifyContent: 'center',
         padding: '32px 24px',
         fontFamily: "'Outfit', system-ui, sans-serif",
-        background: '#F5F0EB',
+        background: 'var(--bg-primary)',
         textAlign: 'center',
       }}>
         <div style={{
           width: 56,
           height: 56,
           borderRadius: '50%',
-          background: '#3FB950',
+          background: 'var(--success)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -95,10 +95,10 @@ export default function LeadFormPage() {
         }}>
           ✓
         </div>
-        <p style={{ fontWeight: 700, fontSize: 18, color: '#1A1714', marginBottom: 8 }}>
+        <p style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)', marginBottom: 8 }}>
           Заявка принята!
         </p>
-        <p style={{ fontSize: 14, color: '#6B6560', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
           Менеджер свяжется с вами в ближайшее время.
         </p>
         <button
@@ -107,7 +107,7 @@ export default function LeadFormPage() {
             marginTop: 24,
             padding: '10px 24px',
             background: accent,
-            color: '#fff',
+            color: 'white',
             border: 'none',
             borderRadius: 24,
             fontSize: 14,
@@ -128,13 +128,13 @@ export default function LeadFormPage() {
       display: 'flex',
       flexDirection: 'column',
       fontFamily: "'Outfit', system-ui, sans-serif",
-      background: '#F5F0EB',
+      background: 'var(--bg-primary)',
     }}>
       {/* Header */}
       <div style={{
         padding: '16px 20px',
-        background: '#FFFFFF',
-        borderBottom: '1px solid rgba(0,0,0,0.07)',
+        background: 'var(--bg-card)',
+        borderBottom: '1px solid var(--border)',
         display: 'flex',
         alignItems: 'center',
         gap: 10,
@@ -147,10 +147,10 @@ export default function LeadFormPage() {
           />
         )}
         <div>
-          <p style={{ fontWeight: 600, fontSize: 14, color: '#1A1714', lineHeight: 1.2 }}>
+          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.2 }}>
             {config?.name ?? 'Заявка на тур'}
           </p>
-          <p style={{ fontSize: 11, color: '#9A9590' }}>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             Powered by TourHub
           </p>
         </div>
@@ -158,11 +158,11 @@ export default function LeadFormPage() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <p style={{ fontSize: 14, color: '#6B6560', marginBottom: 20, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
           {config?.greeting ?? 'Оставьте заявку — менеджер свяжется с вами сегодня.'}
         </p>
 
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#6B6560', marginBottom: 4, display: 'block' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
           Ваше имя *
         </label>
         <input
@@ -176,7 +176,7 @@ export default function LeadFormPage() {
           style={inputStyle}
         />
 
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#6B6560', marginBottom: 4, marginTop: 14, display: 'block' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, marginTop: 14, display: 'block' }}>
           Телефон *
         </label>
         <input
@@ -190,7 +190,7 @@ export default function LeadFormPage() {
           style={inputStyle}
         />
 
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#6B6560', marginBottom: 4, marginTop: 14, display: 'block' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, marginTop: 14, display: 'block' }}>
           Что интересует? (необязательно)
         </label>
         <textarea
@@ -203,7 +203,7 @@ export default function LeadFormPage() {
         />
 
         {error && (
-          <p style={{ fontSize: 12, color: '#DC2626', marginTop: 10 }}>{error}</p>
+          <p style={{ fontSize: 12, color: 'var(--danger)', marginTop: 10 }}>{error}</p>
         )}
 
         <button
@@ -213,8 +213,8 @@ export default function LeadFormPage() {
             marginTop: 'auto',
             paddingTop: 16,
             padding: '12px 20px',
-            background: submitting || !name.trim() || !phone.trim() ? '#E0DBD5' : accent,
-            color: '#fff',
+            background: submitting || !name.trim() || !phone.trim() ? 'var(--bg-hover)' : accent,
+            color: 'white',
             border: 'none',
             borderRadius: 10,
             fontSize: 14,
@@ -233,12 +233,12 @@ export default function LeadFormPage() {
 
 const inputStyle: React.CSSProperties = {
   padding: '10px 14px',
-  border: '1px solid rgba(0,0,0,0.12)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
   fontSize: 14,
   fontFamily: "'Outfit', system-ui, sans-serif",
-  color: '#1A1714',
-  background: '#FFFFFF',
+  color: 'var(--text-primary)',
+  background: 'var(--bg-card)',
   outline: 'none',
   width: '100%',
   boxSizing: 'border-box',

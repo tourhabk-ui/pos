@@ -100,7 +100,7 @@ export default function SosPage() {
     <div style={{
       minHeight: '100dvh',
       background: '#0a0a0a',
-      color: '#fff',
+      color: 'white',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       display: 'flex',
       flexDirection: 'column',
@@ -119,7 +119,7 @@ export default function SosPage() {
             position: 'relative', zIndex: 1,
             width: '36px', height: '36px',
             borderRadius: '50%',
-            background: '#dc2626',
+            background: 'var(--danger)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '11px', fontWeight: 800, letterSpacing: '0.05em',
           }}>
@@ -140,18 +140,18 @@ export default function SosPage() {
         <div style={{
           padding: '12px 16px',
           borderRadius: '12px',
-          background: 'rgba(59,130,246,0.1)',
-          border: '1px solid rgba(59,130,246,0.3)',
+          background: 'color-mix(in srgb, var(--ocean) 10%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)',
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
         }}>
-          <MapPin size={18} style={{ color: '#3b82f6', flexShrink: 0 }} />
+          <MapPin size={18} style={{ color: 'var(--ocean)', flexShrink: 0 }} />
           <div>
             <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Ваши координаты
             </p>
-            <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: '#fff' }}>
+            <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
               {coordsLabel}
             </p>
           </div>
@@ -181,7 +181,7 @@ export default function SosPage() {
                   borderRadius: '8px',
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
+                  color: 'white',
                   fontSize: '14px',
                   outline: 'none',
                 }}
@@ -203,7 +203,7 @@ export default function SosPage() {
                   borderRadius: '8px',
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
+                  color: 'white',
                   fontSize: '14px',
                   outline: 'none',
                 }}
@@ -220,12 +220,12 @@ export default function SosPage() {
               padding: '12px',
               borderRadius: '10px',
               border: 'none',
-              background: sendStatus === 'sent' ? '#16a34a'
-                : sendStatus === 'queued' ? '#1d4ed8'
-                : sendStatus === 'error' ? '#ca8a04'
-                : sendStatus === 'sending' || sendStatus === 'locating' ? 'rgba(220,38,38,0.5)'
-                : '#dc2626',
-              color: '#fff',
+              background: sendStatus === 'sent' ? 'var(--success)'
+                : sendStatus === 'queued' ? 'var(--ocean)'
+                : sendStatus === 'error' ? 'var(--warning)'
+                : sendStatus === 'sending' || sendStatus === 'locating' ? 'color-mix(in srgb, var(--danger) 50%, transparent)'
+                : 'var(--danger)',
+              color: 'white',
               fontWeight: 700,
               fontSize: '14px',
               cursor: sendStatus === 'sending' || sendStatus === 'locating' || sendStatus === 'sent' || sendStatus === 'queued' ? 'default' : 'pointer',
@@ -263,7 +263,7 @@ export default function SosPage() {
                 borderRadius: '10px',
                 border: '1px solid rgba(255,255,255,0.15)',
                 background: 'rgba(255,255,255,0.05)',
-                color: '#fff',
+                color: 'white',
                 fontWeight: 600,
                 fontSize: '13px',
                 textDecoration: 'none',
@@ -289,23 +289,23 @@ export default function SosPage() {
                 gap: '12px',
                 padding: c.primary ? '14px' : '12px',
                 borderRadius: '12px',
-                background: c.primary ? 'rgba(220,38,38,0.12)' : 'rgba(255,255,255,0.04)',
-                border: c.primary ? '1px solid rgba(220,38,38,0.3)' : '1px solid rgba(255,255,255,0.08)',
+                background: c.primary ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : 'rgba(255,255,255,0.04)',
+                border: c.primary ? '1px solid color-mix(in srgb, var(--danger) 30%, transparent)' : '1px solid rgba(255,255,255,0.08)',
                 textDecoration: 'none',
-                color: '#fff',
+                color: 'white',
               }}
             >
               <div style={{
                 width: '36px',
                 height: '36px',
                 borderRadius: '8px',
-                background: c.primary ? 'rgba(220,38,38,0.2)' : 'rgba(255,255,255,0.06)',
+                background: c.primary ? 'color-mix(in srgb, var(--danger) 20%, transparent)' : 'rgba(255,255,255,0.06)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <Phone size={16} color={c.primary ? '#f87171' : 'rgba(255,255,255,0.5)'} />
+                <Phone size={16} color={c.primary ? 'var(--danger)' : 'rgba(255,255,255,0.5)'} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: c.primary ? '14px' : '13px', fontWeight: 600, marginBottom: '1px' }}>
@@ -320,7 +320,7 @@ export default function SosPage() {
                 fontWeight: 700,
                 fontFamily: 'monospace',
                 flexShrink: 0,
-                color: c.primary ? '#f87171' : '#fff',
+                color: c.primary ? 'var(--danger)' : 'white',
               }}>
                 {c.phone}
               </div>
@@ -337,23 +337,23 @@ export default function SosPage() {
             gap: '12px',
             padding: '14px 16px',
             borderRadius: '12px',
-            background: 'rgba(234,179,8,0.08)',
-            border: '1px solid rgba(234,179,8,0.25)',
+            background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
             textDecoration: 'none',
-            color: '#fff',
+            color: 'white',
           }}
         >
           <div style={{
             width: '36px',
             height: '36px',
             borderRadius: '8px',
-            background: 'rgba(234,179,8,0.15)',
+            background: 'color-mix(in srgb, var(--warning) 15%, transparent)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
           }}>
-            <AlertTriangle size={18} color="#eab308" />
+            <AlertTriangle size={18} color="var(--warning)" />
           </div>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '2px' }}>
@@ -404,9 +404,9 @@ export default function SosPage() {
             gap: '8px',
             padding: '12px 16px',
             borderRadius: '12px',
-            background: 'rgba(59,130,246,0.1)',
-            border: '1px solid rgba(59,130,246,0.3)',
-            color: '#fff',
+            background: 'color-mix(in srgb, var(--ocean) 10%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)',
+            color: 'white',
             textDecoration: 'none',
             fontWeight: 600,
             fontSize: '13px',
@@ -419,8 +419,8 @@ export default function SosPage() {
         <div style={{
           padding: '12px 16px',
           borderRadius: '12px',
-          background: 'rgba(234,179,8,0.08)',
-          border: '1px solid rgba(234,179,8,0.2)',
+          background: 'color-mix(in srgb, var(--warning) 8%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--warning) 20%, transparent)',
         }}>
           <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', margin: 0, lineHeight: 1.6 }}>
             <AlertTriangle size={12} className="inline mr-1" />Если нет связи: оставайтесь на месте · свисток 3 сигнала · сохраняйте тепло
@@ -430,9 +430,9 @@ export default function SosPage() {
 
       <style>{`
         @keyframes sos-pulse {
-          0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.6); }
-          70% { box-shadow: 0 0 0 12px rgba(220,38,38,0); }
-          100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+          0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); }
+          70% { box-shadow: 0 0 0 12px transparent; }
+          100% { box-shadow: 0 0 0 0 transparent; }
         }
         @keyframes spin {
           from { transform: rotate(0deg); }
