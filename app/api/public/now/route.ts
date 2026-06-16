@@ -56,9 +56,9 @@ export async function GET() {
   let nextDeparture: { date: string; tourName: string; operatorName: string; slots: number } | null = null;
   try {
     const dRes = await pool.query(
-      `SELECT td.departure_date, t.name AS tour_name, p.name AS operator_name, td.available_slots
+      `SELECT td.departure_date, t.title AS tour_name, p.name AS operator_name, td.available_slots
        FROM tour_departures td
-       JOIN tours t ON t.id = td.tour_id AND t.is_active = TRUE
+       JOIN operator_tours t ON t.id = td.tour_id AND t.is_active = TRUE
        JOIN partners p ON p.id = t.operator_id
        WHERE td.departure_date >= CURRENT_DATE
          AND td.available_slots > 0
