@@ -184,8 +184,8 @@ async function fetchRoutePassport(slug: string): Promise<RoutePassport | null> {
 async function getNewSlugs(slugs: string[]): Promise<string[]> {
   if (slugs.length === 0) return [];
   const { rows } = await pool.query<{ dedupe: string }>(
-    `SELECT route_dedupe_key AS dedupe FROM agent_route_knowledge
-     WHERE source_name = $1 AND route_dedupe_key = ANY($2)`,
+    `SELECT dedupe_key AS dedupe FROM kamchatka_routes
+     WHERE source_name = $1 AND dedupe_key = ANY($2)`,
     [SOURCE_NAME, slugs.map(s => `vk_${s}`)],
   );
   const existing = new Set(rows.map(r => r.dedupe));
@@ -196,10 +196,10 @@ async function getNewSlugs(slugs: string[]): Promise<string[]> {
 
 async function getSlugsNeedingUpdate(limit: number): Promise<string[]> {
   const { rows } = await pool.query<{ route_dedupe_key: string }>(
-    `SELECT route_dedupe_key FROM agent_route_knowledge
+    `SELECT dedupe_key AS route_dedupe_key FROM kamchatka_routes
      WHERE source_name = $1
        AND (description IS NULL OR LENGTH(description) < 300)
-       AND route_dedupe_key LIKE 'vk_%'
+       AND dedupe_key LIKE 'vk_%'
      ORDER BY RANDOM()
      LIMIT $2`,
     [SOURCE_NAME, limit],
