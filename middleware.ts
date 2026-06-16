@@ -51,6 +51,9 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/sos': 'ALL',         // SOS distress signal — must remain public
   '/api/safety/register': ['POST'], // Route registration before hike — must remain public (safety feature)
   '/api/safety/rescue-chat': ['POST'], // AI Спасатель (requires auth inside handler)
+  '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
+  '/api/safety/volcanic':   ['GET'],  // публичные вулканические алерты
+  '/api/safety/weather':    ['GET'],  // публичная погода (wttr.in)
   '/api/mcp': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
   '/api/max': 'ALL',               // MAX bot webhook
