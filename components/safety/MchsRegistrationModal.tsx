@@ -438,7 +438,7 @@ function SuccessView({ registrationId, mchsPhone, onDownload, onClose }: {
           { n: 4, text: 'По возвращении отметьте возврат в приложении (кнопка "Вернуться с маршрута")' },
         ].map(s => (
           <div key={s.n} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--danger)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</div>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--danger)', color: 'white', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</div>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>{s.text}</p>
           </div>
         ))}

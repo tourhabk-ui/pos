@@ -263,7 +263,7 @@ export default function OnRouteClient() {
           </span>
           <Link href="/safety/sos"
             className="px-3 py-1 rounded text-xs font-black tracking-widest text-white"
-            style={{ background: '#d32f2f' }}>
+            style={{ background: 'var(--danger)' }}>
             SOS
           </Link>
         </div>
@@ -272,7 +272,7 @@ export default function OnRouteClient() {
       {/* Offline banner */}
       {!isOnline && (
         <div className="flex items-center justify-center gap-2 py-2 text-xs font-bold"
-          style={{ background: '#ff6f00', color: '#000' }}>
+          style={{ background: 'var(--warning)', color: 'black' }}>
           <WifiOff size={14} />
           Офлайн-режим · Карты доступны
         </div>
@@ -366,7 +366,7 @@ export default function OnRouteClient() {
           </Link>
           <Link href="/safety/sos"
             className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-black tracking-widest transition-all active:scale-95"
-            style={{ background: '#d32f2f', color: '#fff', border: '2px solid #d32f2f' }}>
+            style={{ background: 'var(--danger)', color: 'white', border: '2px solid var(--danger)' }}>
             <Navigation size={20} /> SOS
           </Link>
         </div>
