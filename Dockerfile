@@ -7,6 +7,8 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+# Skip onnxruntime GPU binary download (times out on Timeweb build servers)
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN npm ci
 
 # ── 2. Build ─────────────────────────────────────────────────────
