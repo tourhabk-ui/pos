@@ -8,10 +8,75 @@
  * Запускается через /api/cron/scout (08:00 UTC, после Scout Digest в 07:00).
  */
 
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { callAIWithModel } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import type { ChatMessage } from '@/lib/ai/prompts';
+
+async function readCodebaseRules(): Promise<string> {
+  try {
+    const raw = await readFile(join(process.cwd(), 'CLAUDE.md'), 'utf-8');
+    // Extract sections 4, 4.1, 7 — code rules, schema, protected files
+    const markers = ['## 4. КОД', '## 4.1 СТРУКТУРА ДАННЫХ', '## 7. НЕ ТРОГАТЬ'];
+    const sections: string[] = [];
+    for (const marker of markers) {
+      const start = raw.indexOf(marker);
+      if (start < 0) continue;
+      const nextH2 = raw.indexOf('\n## ', start + marker.length);
+      sections.push(raw.slice(start, nextH2 > 0 ? nextH2 : start + 2000));
+    }
+    return sections.join('\n\n---\n\n').slice(0, 5000);
+  } catch {
+    return '';
+  }
+}
+
+async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
+  const token = process.env.GITHUB_ISSUES_TOKEN;
+  if (!token) return '';
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=agent-proposal&per_page=15`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return '';
+    const issues = await res.json() as Array<{ title: string; created_at: string }>;
+    if (!issues.length) return '';
+    return issues.map(i => `- ${i.title}`).join('\n');
+  } catch {
+    return '';
+  }
+}
+
+async function readPlatformInventory(): Promise<string> {
+  try {
+    const { rows } = await pool.query<{
+      places: string; routes: string; tours: string; partners: string; guides: string;
+    }>(`
+      SELECT
+        (SELECT COUNT(*)::text FROM places WHERE is_visible = true) AS places,
+        (SELECT COUNT(*)::text FROM kamchatka_routes) AS routes,
+        (SELECT COUNT(*)::text FROM operator_tours WHERE is_active = true) AS tours,
+        (SELECT COUNT(*)::text FROM partners WHERE is_active = true) AS partners,
+        (SELECT COUNT(*)::text FROM partners WHERE role = 'guide') AS guides
+    `);
+    const r = rows[0];
+    return r
+      ? `Мест: ${r.places} · маршрутов: ${r.routes} · активных туров: ${r.tours} · партнёров: ${r.partners} · гидов: ${r.guides}`
+      : '';
+  } catch {
+    return '';
+  }
+}
 
 export interface ScoutInnovatorResult {
   proposals_count: number;
@@ -138,10 +203,21 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
   const start = Date.now();
   const dateKey = new Date().toISOString().slice(0, 10);
 
-  // 1. Читаем последние разведданные из Brain (intel + scout digests)
-  const [intelPages, scoutPages] = await Promise.all([
+  // 1. Читаем всё параллельно: разведка, статистика, контекст репо
+  const [
+    intelPages,
+    scoutPages,
+    codebaseRules,
+    openIssues,
+    closedIssues,
+    inventoryStr,
+  ] = await Promise.all([
     knowledgeBase.list({ type: 'intel', limit: 5 }),
     knowledgeBase.search('scout digest дайджест', { limit: 3 }),
+    readCodebaseRules(),
+    readGitHubIssues('open'),
+    readGitHubIssues('closed'),
+    readPlatformInventory(),
   ]);
 
   const allPages = [...intelPages, ...scoutPages].slice(0, 6);
@@ -175,13 +251,27 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
     .map(p => `[${p.slug}]\n${(p.compiled_truth ?? '').slice(0, 300)}`)
     .join('\n\n---\n\n');
 
+  const repoContext = [
+    codebaseRules ? `=== ПРАВИЛА КОДОВОЙ БАЗЫ (CLAUDE.md) ===\n${codebaseRules}` : '',
+    inventoryStr ? `=== ИНВЕНТАРЬ ПЛАТФОРМЫ ===\n${inventoryStr}` : '',
+    openIssues ? `=== УЖЕ ОТКРЫТЫЕ ЗАДАЧИ (agent-proposal issues, не дублировать) ===\n${openIssues}` : '',
+    closedIssues ? `=== УЖЕ РЕАЛИЗОВАННЫЕ ПРЕДЛОЖЕНИЯ (закрытые issues) ===\n${closedIssues}` : '',
+  ].filter(Boolean).join('\n\n');
+
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты Scout-Innovator — стратегический аналитик туристической платформы TourHab (Камчатка).
-На основе собранных разведданных формируй 2-3 конкретных, выполнимых предложения для владельца платформы.
+      content: `Ты Scout-Innovator — стратегический аналитик туристической платформы TourHab/Ведар (Камчатка).
+На основе разведданных формируй 2-3 конкретных, выполнимых предложения.
 
-Каждое предложение — это конкретное действие + ожидаемый результат (не теория).
+КРИТИЧЕСКИ ВАЖНО перед генерацией предложений:
+1. Прочитай правила кодовой базы — не предлагай код нарушающий CLAUDE.md (запрещены: устаревшие таблицы bookings/tours вместо operator_*, дефолтный импорт pool, отладочные логи, эмодзи, хардкод hex-цветов)
+2. Не предлагай то, что уже есть в открытых Issues (дубли)
+3. Не предлагай то, что уже реализовано (закрытые Issues)
+4. Не трогай защищённые файлы: middleware.ts, lib/auth.ts, app/api/payments/, app/api/safety/sos, миграции 001-049
+5. Учитывай инвентарь — не предлагай «добавить X» если X уже есть
+
+Каждое предложение — конкретное действие + ожидаемый результат (не теория).
 Избегай общих фраз типа "улучшить качество" или "развивать платформу".
 
 Формат ответа — HTML для Telegram:
@@ -199,15 +289,16 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
     },
     {
       role: 'user',
-      content: `Разведданные из Brain (последние записи):
+      content: `${repoContext}
 
+=== РАЗВЕДДАННЫЕ ИЗ BRAIN ===
 ${intelContext}
 
-Платформа за 7 дней:
+=== СТАТИСТИКА ПЛАТФОРМЫ ЗА 7 ДНЕЙ ===
 - Бронирований: ${platformStats.bookings_week} всего, ${platformStats.confirmed_week} подтверждено
 - Новых операторов: ${platformStats.new_operators}
 
-Дай 2-3 конкретных предложения.`,
+Дай 2-3 конкретных предложения с учётом контекста репозитория выше.`,
     },
   ];
 
