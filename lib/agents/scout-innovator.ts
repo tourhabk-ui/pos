@@ -8,7 +8,7 @@
  * Запускается через /api/cron/scout (08:00 UTC, после Scout Digest в 07:00).
  */
 
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIWithModel } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -55,7 +55,7 @@ async function extractCodeProposals(proposalsText: string): Promise<CodeProposal
   ];
 
   try {
-    const raw = await callAIFast(messages);
+    const { text: raw } = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', { maxTokens: 800, timeoutMs: 30_000 });
     const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
     return JSON.parse(json) as CodeProposal[];
   } catch {
@@ -209,7 +209,12 @@ ${intelContext}
 
   let proposals: string;
   try {
-    proposals = await callAIFast(messages);
+    const result = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', {
+      maxTokens: 1500,
+      timeoutMs: 45_000,
+      temperature: 0.5,
+    });
+    proposals = result.text;
   } catch (err) {
     console.error('[scout-innovator] AI call failed:', err);
     return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start, issues_created: [] };
