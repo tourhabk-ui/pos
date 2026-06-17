@@ -155,7 +155,7 @@ export default function MapPageClient() {
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
-  const { breach } = useGeofence();
+  const { breach, zonesAgeHours } = useGeofence();
 
   // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
@@ -576,7 +576,7 @@ export default function MapPageClient() {
 
         {/* Панель выбранного маршрута */}
         {/* Геофенс-предупреждение */}
-        {breach && <GeofenceAlert breach={breach} />}
+        {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
 
         {selectedRoute && (
           <div
@@ -821,7 +821,7 @@ export default function MapPageClient() {
       )}
 
       {/* Геофенс-предупреждение */}
-      {breach && <GeofenceAlert breach={breach} />}
+      {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
 
       {/* Кнопка «Я вернулся» — для активных маршрутов */}
       <Link
