@@ -157,6 +157,39 @@ export default function SosPage() {
           </div>
         </div>
 
+        {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
+        <div style={{
+          padding: '14px 16px',
+          borderRadius: '12px',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>
+            Что делать
+          </p>
+          <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[
+              { n: 1, text: 'Нажми кнопку «Отправить координаты» ниже', color: 'var(--danger)' },
+              { n: 2, text: 'Позвони 112 — назови координаты с экрана', color: 'var(--danger)' },
+              { n: 3, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
+              { n: 4, text: 'Стой на месте — поиск идёт по последнему известному месту', color: 'var(--warning)' },
+            ].map(({ n, text, color }) => (
+              <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <span style={{
+                  flexShrink: 0, width: '20px', height: '20px',
+                  borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '10px', fontWeight: 800, background: `color-mix(in srgb, ${color} 20%, transparent)`,
+                  color,
+                }}>{n}</span>
+                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5, paddingTop: '2px' }}>{text}</span>
+              </li>
+            ))}
+          </ol>
+          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', margin: '12px 0 0', lineHeight: 1.5 }}>
+            Приложение не заменяет спутниковый трекер. SMS и SOS уйдут только при наличии сотового сигнала.
+          </p>
+        </div>
+
         {/* Данные + кнопка отправки */}
         <div style={{
           padding: '14px 16px',

@@ -6,6 +6,8 @@ import type { GeofenceBreach } from '@/lib/safety/geofence';
 
 interface Props {
   breach: GeofenceBreach;
+  /** Возраст кеша зон в часах. null = данные только что из сети. */
+  cacheAgeHours?: number | null;
 }
 
 const LEVEL_STYLES = {
@@ -20,12 +22,13 @@ const STATE_SUFFIX: Record<string, string> = {
   uncertain: 'Возможно, вы в опасной зоне (слабый GPS-сигнал).',
 };
 
-export function GeofenceAlert({ breach }: Props) {
+export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
 
   const { zone, state, distanceM } = breach;
+  const staleData = cacheAgeHours != null && cacheAgeHours > 24;
   const style = LEVEL_STYLES[zone.level];
   const Icon  = zone.hazard === 'volcano' ? Flame : ShieldAlert;
   const distKm = (distanceM / 1_000).toFixed(1);
@@ -55,6 +58,11 @@ export function GeofenceAlert({ breach }: Props) {
           <p className="text-[10px] mt-1.5 opacity-60">
             Геофенсинг не гарантирует безопасность вне зон
           </p>
+          {staleData && (
+            <p className="text-[10px] mt-0.5 opacity-60">
+              Данные зон получены {Math.round(cacheAgeHours!)} ч назад — могут быть устаревшими
+            </p>
+          )}
         </div>
 
         <button

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye } from 'lucide-react';
+import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye, Clock, CheckCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 
 export const metadata: Metadata = {
@@ -124,6 +124,127 @@ export default function OfflineSurvivalPage() {
                 В экстренной ситуации действуй по инструкции — не импровизируй.
               </p>
             </div>
+          </div>
+        </section>
+
+        {/* ── Инструкция по приложению ──────────────────────────────────── */}
+        <section className="ds-section border-b border-[var(--border)]">
+          <div className="max-w-2xl space-y-5">
+
+            {/* Перед выходом */}
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+              <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--success)' }} />
+                <h2 className="font-semibold text-[var(--text-primary)]">Перед выходом на маршрут</h2>
+              </div>
+              <ol className="px-5 py-4 space-y-3">
+                {[
+                  'Зарегистрируй маршрут на /register. Укажи название, даты, контрольное время возврата и экстренный контакт. Регистрация даёт спасателям точку отсчёта — не гарантирует спасение, но ускоряет поиск.',
+                  'Скачай карту офлайн на /offline/manage. Камчатка — зона нестабильной связи. Карта и GPS-чип работают без интернета.',
+                  'Убедись что экстренный контакт — реальный человек, который поднимет тревогу если ты не вышел на связь.',
+                ].map((text, i) => (
+                  <li key={i} className="flex gap-3 text-sm">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5"
+                      style={{ background: 'color-mix(in srgb, var(--success) 15%, transparent)', color: 'var(--success)' }}>
+                      {i + 1}
+                    </span>
+                    <span className="text-[var(--text-secondary)] leading-relaxed">{text}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {/* На маршруте */}
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+              <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                <Clock className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--ocean)' }} />
+                <h2 className="font-semibold text-[var(--text-primary)]">На маршруте</h2>
+              </div>
+              <div className="px-5 py-4 space-y-3 text-sm text-[var(--text-secondary)] leading-relaxed">
+                <p>
+                  Приложение автоматически следит за возвратом по контрольному времени.
+                  При просрочке срабатывает лестница эскалации:
+                </p>
+                <div className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr style={{ background: 'var(--bg-hover)' }}>
+                        <th className="text-left px-3 py-2 text-[var(--text-muted)] font-medium">Просрочка</th>
+                        <th className="text-left px-3 py-2 text-[var(--text-muted)] font-medium">Однодневный</th>
+                        <th className="text-left px-3 py-2 text-[var(--text-muted)] font-medium">Многодневный</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ['Напоминание (soft)', '1 ч', '3 ч'],
+                        ['Тревога экстренному контакту', '3 ч', '6 ч'],
+                        ['Передача в МЧС', '8 ч', '18 ч'],
+                      ].map(([label, day, multi]) => (
+                        <tr key={label} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                          <td className="px-3 py-2 text-[var(--text-secondary)]">{label}</td>
+                          <td className="px-3 py-2 font-medium text-[var(--text-primary)]">{day}</td>
+                          <td className="px-3 py-2 font-medium text-[var(--text-primary)]">{multi}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p>
+                  Вернулся раньше — нажми «Я вернулся» на /return или на карте. Это останавливает эскалацию.
+                </p>
+                <p>
+                  Геофенсинг предупредит, если ты приближаешься к зоне вулканической активности,
+                  термальных источников или гейзеров. Работает без интернета (зоны загружены заранее).
+                </p>
+              </div>
+            </div>
+
+            {/* Экстренная ситуация — 4 шага */}
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+              <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--danger)' }} />
+                <h2 className="font-semibold text-[var(--text-primary)]">Экстренная ситуация — 4 шага</h2>
+              </div>
+              <ol className="px-5 py-4 space-y-3">
+                {[
+                  { text: 'Открой /sos и нажми кнопку «Отправить координаты» — координаты уйдут в систему и экстренным контактам.', color: 'var(--danger)' },
+                  { text: 'Позвони 112. Назови координаты — они на экране SOS. Работает без интернета, нужен сотовый сигнал.', color: 'var(--danger)' },
+                  { text: 'Нет голосового сигнала — отправь SMS кнопкой «Без интернета» на экране SOS. SMS проходит там, где голос нет.', color: 'var(--warning)' },
+                  { text: 'Стой на месте. Если зарегистрировал маршрут — спасатели знают твой маршрут. Хаотичное движение усложняет поиск.', color: 'var(--warning)' },
+                ].map(({ text, color }, i) => (
+                  <li key={i} className="flex gap-3 text-sm">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mt-0.5"
+                      style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}>
+                      {i + 1}
+                    </span>
+                    <span className="text-[var(--text-secondary)] leading-relaxed">{text}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {/* Что система НЕ умеет — самая важная секция, визуально выделена */}
+            <div className="rounded-xl border-2 overflow-hidden" style={{ borderColor: 'var(--warning)' }}>
+              <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: 'var(--warning)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--warning)' }} />
+                <h2 className="font-semibold" style={{ color: 'var(--warning)' }}>Честно: что система не умеет</h2>
+              </div>
+              <ul className="px-5 py-4 space-y-3" style={{ background: 'color-mix(in srgb, var(--warning) 4%, transparent)' }}>
+                {[
+                  'Не заменяет спутниковый коммуникатор. Garmin inReach или SPOT работают без сотовой сети — приложение нет.',
+                  'SMS и SOS-сигнал уйдут только при наличии сотового сигнала. В горах покрытие фрагментарное.',
+                  'Геофенсинг — инструмент, не страховка. Радиусы опасных зон — инженерные оценки, не данные KVERT. При активном извержении опасная зона шире.',
+                  'Регистрация маршрута даёт спасателям точку отсчёта, не гарантирует спасение.',
+                  'Офлайн-карта не заменяет бумажную. Телефон разряжается — возьми распечатку для длинных маршрутов.',
+                ].map((text, i) => (
+                  <li key={i} className="flex gap-3 text-sm">
+                    <span className="flex-shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--warning)' }} />
+                    <span className="text-[var(--text-secondary)] leading-relaxed">{text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
           </div>
         </section>
 
