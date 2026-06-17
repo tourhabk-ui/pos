@@ -83,6 +83,10 @@ async function createGitHubIssue(proposal: CodeProposal, dateKey: string): Promi
     '',
     '---',
     `*Создано автоматически Scout-Innovator · Сложность: ${proposal.complexity}*`,
+    '',
+    '---',
+    '',
+    '@claude Реализуй это предложение согласно плану выше. Создай ветку, внеси изменения и открой PR. Следуй правилам CLAUDE.md: TypeScript strict, CSS vars, без emoji в коде, параметризованный SQL.',
   ].join('\n');
 
   try {
