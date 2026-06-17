@@ -176,7 +176,7 @@ function CompassDisplay({ heading }: { heading: number }) {
         </svg>
       </div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full bg-[#4ade80]" />
+        <div className="w-2 h-2 rounded-full bg-[var(--success)]" />
       </div>
     </div>
   );

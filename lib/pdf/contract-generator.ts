@@ -97,7 +97,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
     section(doc, '2. СТОИМОСТЬ И ПОРЯДОК ОПЛАТЫ', ACCENT);
     rows(doc, DARK, MUTED, [
       ['Стоимость',    money(data.totalPrice)],
-      ['Статус',       data.paymentStatus === 'paid' ? 'Оплачено ✓' : 'Ожидает оплаты'],
+      ['Статус',       data.paymentStatus === 'paid' ? 'Оплачено' : 'Ожидает оплаты'],
       ['Дата оплаты',  data.paymentDate ? fmt(data.paymentDate) : '—'],
       ['Способ',       'CloudPayments (банковская карта)'],
     ]);

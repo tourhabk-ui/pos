@@ -110,25 +110,25 @@ export async function GET(req: NextRequest) {
 
       if (alerts?.alert_severity === 'critical') {
         status = 'closed';
-        recs.push(`⛔ КРИТИЧНО: ${alerts.active_alerts.join(', ')}`);
+        recs.push(`КРИТИЧНО: ${alerts.active_alerts.join(', ')}`);
       } else if (utilizationPct > 80) {
         status = 'crowded';
-        recs.push(`⚠️ Перегруз ${utilizationPct}% вместимости — рекомендуем поднять цены или добавить слоты`);
+        recs.push(`Перегруз ${utilizationPct}% вместимости — рекомендуем поднять цены или добавить слоты`);
       } else if (utilizationPct < 30 && row.active_tours > 0) {
         status = 'warning';
-        recs.push(`📉 Низкая занятость ${utilizationPct}% — нужна маркетинг или новые операторы`);
+        recs.push(`Низкая занятость ${utilizationPct}% — нужна маркетинг или новые операторы`);
       }
 
       if (row.active_tours === 0 && row.tours_count > 0) {
-        recs.push(`❌ Нет активных туров — ${row.tours_count} скрыто`);
+        recs.push(`Нет активных туров — ${row.tours_count} скрыто`);
       }
 
       if (row.operators_count === 0 && row.tours_count === 0) {
-        recs.push(`🆕 Отличное место без туров — ищем операторов`);
+        recs.push('Отличное место без туров — ищем операторов');
       }
 
       if (row.avg_price > 50000 && utilizationPct < 50) {
-        recs.push(`💰 Высокая цена + низкая занятость — рассмотреть снижение`);
+        recs.push('Высокая цена + низкая занятость — рассмотреть снижение');
       }
 
       return {

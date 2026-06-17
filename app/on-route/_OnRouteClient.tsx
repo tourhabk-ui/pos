@@ -218,12 +218,12 @@ export default function OnRouteClient() {
           </p>
           <div className="flex flex-col gap-3">
             <Link href="/routes"
-              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-black tracking-widest"
+              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-bold tracking-widest"
               style={{ border: '2px solid #00e676', color: '#00e676' }}>
               <Map size={18} /> ВЫБРАТЬ МАРШРУТ
             </Link>
             <Link href="/planning"
-              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-black tracking-widest"
+              className="flex items-center justify-center gap-2 py-4 rounded-xl text-sm font-bold tracking-widest"
               style={{ border: '2px solid #444', color: '#666' }}>
               КОМПАС И ПЛАНИРОВАНИЕ
             </Link>
@@ -262,7 +262,7 @@ export default function OnRouteClient() {
             НА МАРШРУТЕ
           </span>
           <Link href="/safety/sos"
-            className="px-3 py-1 rounded text-xs font-black tracking-widest text-white"
+            className="px-3 py-1 rounded text-xs font-bold tracking-widest text-white"
             style={{ background: 'var(--danger)' }}>
             SOS
           </Link>
@@ -304,7 +304,7 @@ export default function OnRouteClient() {
           <p className="text-[10px] font-bold tracking-[0.3em] mb-1" style={{ color: '#555' }}>
             ДО СЛЕДУЮЩЕЙ ТОЧКИ
           </p>
-          <p className="font-black leading-none" style={{ fontSize: 'clamp(3rem, 16vw, 5.5rem)', color: '#00e676' }}>
+          <p className="font-bold leading-none" style={{ fontSize: 'clamp(3rem, 16vw, 5.5rem)', color: '#00e676' }}>
             {distKm.toFixed(1)} <span className="text-3xl">КМ</span>
           </p>
         </div>
@@ -313,13 +313,13 @@ export default function OnRouteClient() {
         <div className="grid grid-cols-2 gap-4 w-full max-w-xs">
           <div className="text-center p-3 rounded-lg" style={{ border: '1px solid #1e1e1e' }}>
             <p className="text-[9px] tracking-[0.25em] mb-1" style={{ color: '#555' }}>ВЫСОТА</p>
-            <p className="font-black text-xl text-white">{altM.toLocaleString()}м
+            <p className="font-bold text-xl text-white">{altM.toLocaleString()}м
               <span className="text-[var(--success)] text-sm ml-0.5">↑</span>
             </p>
           </div>
           <div className="text-center p-3 rounded-lg" style={{ border: '1px solid #1e1e1e' }}>
             <p className="text-[9px] tracking-[0.25em] mb-1" style={{ color: '#555' }}>В ПУТИ</p>
-            <p className="font-black text-xl text-white">
+            <p className="font-bold text-xl text-white">
               {elapsedH > 0 ? `${elapsedH}ч` : ''}{elapsedM}м
             </p>
           </div>
@@ -350,22 +350,22 @@ export default function OnRouteClient() {
         {/* 4 big action buttons */}
         <div className="grid grid-cols-2 gap-3 w-full">
           <Link href="/map"
-            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-black tracking-widest transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-bold tracking-widest transition-all active:scale-95"
             style={{ border: '2px solid #00e676', color: '#00e676', background: 'transparent' }}>
             <Map size={20} /> КАРТА
           </Link>
           <Link href="/safety"
-            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-black tracking-widest transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-bold tracking-widest transition-all active:scale-95"
             style={{ border: '2px solid #00bcd4', color: '#00bcd4', background: 'transparent' }}>
             <CloudSun size={20} /> ПОГОДА
           </Link>
           <Link href="/ai-assistant"
-            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-black tracking-widest transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-bold tracking-widest transition-all active:scale-95"
             style={{ border: '2px solid #ff6d00', color: '#ff6d00', background: 'transparent' }}>
             <MessageSquare size={20} /> КУЗЬМИЧ
           </Link>
           <Link href="/safety/sos"
-            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-black tracking-widest transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-bold tracking-widest transition-all active:scale-95"
             style={{ background: 'var(--danger)', color: 'white', border: '2px solid var(--danger)' }}>
             <Navigation size={20} /> SOS
           </Link>

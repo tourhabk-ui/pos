@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowRight, CloudSun, Flame, MapPin } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CloudSun, Flame, MapPin } from 'lucide-react';
 
 interface SafetyStatus {
   hasAlert: boolean;
@@ -105,10 +105,10 @@ export function KuzmichBriefing() {
             {/* Avatar + text */}
             <div className="flex items-start gap-3 flex-1 min-w-0">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-base"
+                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ background: 'var(--accent)' }}
               >
-                🐻
+                <Bot className="w-5 h-5 text-white" />
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--text-muted)] mb-1">

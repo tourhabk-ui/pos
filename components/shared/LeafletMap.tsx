@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import type { Map as LMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -66,8 +67,8 @@ export default function LeafletMap({
   locationPriority = 'highAccuracy',
 }: LeafletMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const clusterRef = useRef<any>(null);
+  const mapRef = useRef<LMap | null>(null);
+  const clusterRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
