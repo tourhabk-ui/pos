@@ -400,7 +400,7 @@ export default function RegisterRoutePage() {
               />
               <p className="text-[11px] text-[var(--text-muted)] mt-1">
                 {isDay
-                  ? 'По нему система поймёт, что ты не вернулся, и поднимет тревогу.'
+                  ? 'Во сколько ожидается возвращение. Сторож предупредит экстренный контакт если не вернётесь вовремя.'
                   : 'Во сколько ожидается возвращение в день окончания. Если не задать — сторож срабатывает с 20:00.'}
               </p>
             </div>
@@ -686,13 +686,6 @@ export default function RegisterRoutePage() {
             {error && (
               <p className="text-sm text-red-400 text-center">{error}</p>
             )}
-
-            <a
-              href="/safety/offline"
-              className="block text-center text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors py-1"
-            >
-              Перед выходом прочитай: что делать в экстренной ситуации →
-            </a>
 
             <div className="flex gap-3">
               <button

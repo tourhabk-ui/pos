@@ -2,16 +2,29 @@
  * lib/agents/scout-innovator.ts
  *
  * Scout-Innovator — ежедневный синтез разведданных → конкретные предложения.
- * Читает Brain (agent_knowledge), анализирует платформу, формирует 2-3 действия.
- * Каждое кодовое предложение автоматически превращается в GitHub Issue с планом.
+ * Двухфазный синтез: Phase 1 — JSON структура (Opus), Phase 2 — форматирование Telegram.
+ * Каждое предложение автоматически превращается в GitHub Issue с планом.
  *
  * Запускается через /api/cron/scout (08:00 UTC, после Scout Digest в 07:00).
  */
 
-import { callAIFast } from '@/lib/ai/providers';
+import { readFile, readdir } from 'fs/promises';
+import { join } from 'path';
+import { callAIWithModel } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
+import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
+
+interface StructuredProposal {
+  title: string;
+  why: string;
+  files_to_change: string[];
+  implementation_steps: string[];
+  acceptance_criteria: string[];
+  complexity: 'small' | 'medium' | 'large';
+  category: 'feature' | 'fix' | 'performance' | 'content' | 'ux';
+}
 
 export interface ScoutInnovatorResult {
   proposals_count: number;
@@ -21,68 +34,213 @@ export interface ScoutInnovatorResult {
   issues_created: string[];
 }
 
-interface CodeProposal {
-  title: string;
-  context: string;
-  implementation_plan: string[];
-  acceptance_criteria: string[];
-  complexity: 'small' | 'medium' | 'large';
+async function readCodebaseRules(): Promise<string> {
+  try {
+    const raw = await readFile(join(process.cwd(), 'CLAUDE.md'), 'utf-8');
+    // Extract sections 4, 4.1, 7 — code rules, schema, protected files
+    const markers = ['## 4. КОД', '## 4.1 СТРУКТУРА ДАННЫХ', '## 7. НЕ ТРОГАТЬ'];
+    const sections: string[] = [];
+    for (const marker of markers) {
+      const start = raw.indexOf(marker);
+      if (start < 0) continue;
+      const nextH2 = raw.indexOf('\n## ', start + marker.length);
+      sections.push(raw.slice(start, nextH2 > 0 ? nextH2 : start + 2000));
+    }
+    return sections.join('\n\n---\n\n').slice(0, 5000);
+  } catch {
+    return '';
+  }
 }
 
-async function extractCodeProposals(proposalsText: string): Promise<CodeProposal[]> {
+async function scanApiRoutes(): Promise<string> {
+  try {
+    const apiDir = join(process.cwd(), 'app', 'api');
+    const routes: string[] = [];
+
+    async function walk(dir: string, prefix = '/api'): Promise<void> {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isDirectory()) {
+          await walk(join(dir, e.name), `${prefix}/${e.name}`);
+        } else if (e.name === 'route.ts') {
+          routes.push(prefix);
+        }
+      }
+    }
+
+    await walk(apiDir);
+    return routes.sort().join('\n');
+  } catch {
+    return '';
+  }
+}
+
+async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
+  const token = process.env.GITHUB_ISSUES_TOKEN;
+  if (!token) return '';
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=agent-proposal&per_page=15`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return '';
+    const issues = await res.json() as Array<{ title: string; created_at: string }>;
+    if (!issues.length) return '';
+    return issues.map(i => `- ${i.title}`).join('\n');
+  } catch {
+    return '';
+  }
+}
+
+async function readPlatformInventory(): Promise<string> {
+  try {
+    const { rows } = await pool.query<{
+      places: string; routes: string; tours: string; partners: string; guides: string;
+    }>(`
+      SELECT
+        (SELECT COUNT(*)::text FROM places WHERE is_visible = true) AS places,
+        (SELECT COUNT(*)::text FROM kamchatka_routes) AS routes,
+        (SELECT COUNT(*)::text FROM operator_tours WHERE is_active = true) AS tours,
+        (SELECT COUNT(*)::text FROM partners WHERE is_active = true) AS partners,
+        (SELECT COUNT(*)::text FROM partners WHERE role = 'guide') AS guides
+    `);
+    const r = rows[0];
+    return r
+      ? `Мест: ${r.places} · маршрутов: ${r.routes} · активных туров: ${r.tours} · партнёров: ${r.partners} · гидов: ${r.guides}`
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+async function generateStructuredProposals(
+  repoContext: string,
+  intelContext: string,
+  platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
+  apiRoutesList: string,
+  gitContext?: { git_log?: string; changed_files?: string },
+): Promise<StructuredProposal[]> {
+  const gitSection = gitContext?.git_log || gitContext?.changed_files
+    ? [
+        '',
+        '=== ПОСЛЕДНИЕ ИЗМЕНЕНИЯ В РЕПОЗИТОРИИ ===',
+        gitContext.git_log ? `Git log (последние 30):\n${gitContext.git_log}` : '',
+        gitContext.changed_files ? `Изменённые файлы (последние 10 коммитов):\n${gitContext.changed_files}` : '',
+      ].filter(Boolean).join('\n')
+    : '';
+
+  const apiRoutesSection = apiRoutesList
+    ? `=== СУЩЕСТВУЮЩИЕ API РОУТЫ (проверяй перед предложением нового) ===\n${apiRoutesList}`
+    : '';
+
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты технический менеджер туристической платформы на Next.js.
-Из текста предложений извлеки только те, что требуют написания кода: новая страница, новый API endpoint, новая фича, UI-компонент.
-Игнорируй маркетинговые или операционные предложения (написать пост, позвонить оператору, etc.).
+      content: `Ты Scout-Innovator — технический аналитик платформы Ведар (Камчатка, Next.js 15 + PostgreSQL).
+Сформируй 2-3 конкретных технических предложения в JSON-массиве.
 
-Верни ТОЛЬКО JSON-массив (без markdown):
-[{
-  "title": "Краткое название задачи до 70 символов",
-  "context": "Почему это нужно — 1-2 предложения из разведки",
-  "implementation_plan": ["Шаг 1", "Шаг 2", "Шаг 3"],
-  "acceptance_criteria": ["Критерий 1", "Критерий 2"],
-  "complexity": "small|medium|large"
-}]
+Правила:
+- Предлагай только то чего ещё НЕТ (проверь инвентарь и открытые Issues)
+- НЕ трогай защищённые файлы: middleware.ts, lib/auth.ts, app/api/payments/, app/api/safety/sos
+- Каждое предложение должно реализоваться за 1-4 файла максимум
+- files_to_change — конкретные пути (проверь по списку существующих API роутов)
+- Сложность small = 1-2ч, medium = 2-8ч, large = 1-2д
+- Не предлагай дубли открытых или закрытых Issues
+- Не используй устаревшие таблицы (bookings → operator_bookings, tours → operator_tours)
 
-Если кодовых предложений нет — верни [].`,
+Ответь ТОЛЬКО JSON-массивом без markdown-обёртки:
+[{"title":"...","why":"...","files_to_change":["app/api/...", "lib/..."],"implementation_steps":["1. ..."],"acceptance_criteria":["..."],"complexity":"small","category":"feature"}]`,
     },
     {
       role: 'user',
-      content: proposalsText,
+      content: `${repoContext}
+
+${apiRoutesSection}
+
+=== РАЗВЕДДАННЫЕ ИЗ BRAIN ===
+${intelContext}
+
+=== СТАТИСТИКА ПЛАТФОРМЫ ЗА 7 ДНЕЙ ===
+- Бронирований: ${platformStats.bookings_week} всего, ${platformStats.confirmed_week} подтверждено
+- Новых операторов: ${platformStats.new_operators}
+${gitSection}
+
+Сформируй 2-3 конкретных технических предложения.`,
     },
   ];
 
   try {
-    const raw = await callAIFast(messages);
-    const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '');
-    return JSON.parse(json) as CodeProposal[];
-  } catch {
+    const { text: raw } = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', {
+      maxTokens: 1500,
+      timeoutMs: 45_000,
+      temperature: 0.4,
+    });
+    const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as StructuredProposal[];
+  } catch (err) {
+    console.error('[scout-innovator] Phase 1 AI call failed:', err);
     return [];
   }
 }
 
-async function createGitHubIssue(proposal: CodeProposal, dateKey: string): Promise<string | null> {
+function formatTelegramMessage(
+  proposals: StructuredProposal[],
+  dateKey: string,
+  platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
+): string {
+  const lines: string[] = [
+    `<b>Scout-Innovator ${dateKey}</b>`,
+    '',
+    '<b>Предложения:</b>',
+  ];
+
+  proposals.forEach((p, i) => {
+    lines.push(`${i + 1}. <b>${p.title}</b> [${p.complexity}]`);
+    lines.push(`   ${p.why}`);
+    if (p.files_to_change.length > 0) {
+      lines.push(`   Файлы: ${p.files_to_change.slice(0, 3).join(', ')}`);
+    }
+    lines.push('');
+  });
+
+  lines.push(`<b>Платформа за 7 дней:</b> ${platformStats.bookings_week} бронирований, ${platformStats.confirmed_week} подтверждено, ${platformStats.new_operators} новых операторов`);
+
+  return lines.join('\n');
+}
+
+async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   const repo = 'tourhabk-ui/pos';
   if (!token) return null;
 
   const body = [
-    `## Контекст (Scout-Innovator ${dateKey})`,
+    `## Зачем (Scout-Innovator ${dateKey})`,
+    p.why,
     '',
-    proposal.context,
+    '## Файлы для изменения',
+    p.files_to_change.map(f => `- \`${f}\``).join('\n'),
     '',
-    '## План реализации',
+    '## Шаги реализации',
+    p.implementation_steps.map((s, i) => `${i + 1}. ${s}`).join('\n'),
     '',
-    proposal.implementation_plan.map((s, i) => `${i + 1}. ${s}`).join('\n'),
-    '',
-    '## Приёмочные критерии',
-    '',
-    proposal.acceptance_criteria.map(c => `- [ ] ${c}`).join('\n'),
+    '## Критерии приёмки',
+    p.acceptance_criteria.map(c => `- [ ] ${c}`).join('\n'),
     '',
     '---',
-    `*Создано автоматически Scout-Innovator · Сложность: ${proposal.complexity}*`,
+    `*Scout-Innovator ${dateKey} · Сложность: ${p.complexity} · Категория: ${p.category}*`,
+    '',
+    '---',
+    '',
+    `@claude Реализуй это предложение. Файлы которые надо изменить: ${p.files_to_change.join(', ')}. Следуй CLAUDE.md: TypeScript strict, CSS vars, параметризованный SQL, без эмодзи в коде.`,
   ].join('\n');
 
   try {
@@ -95,9 +253,9 @@ async function createGitHubIssue(proposal: CodeProposal, dateKey: string): Promi
         'X-GitHub-Api-Version': '2022-11-28',
       },
       body: JSON.stringify({
-        title: proposal.title,
+        title: p.title,
         body,
-        labels: ['agent-proposal'],
+        labels: ['agent-proposal', p.category],
       }),
     });
     if (!res.ok) return null;
@@ -130,14 +288,34 @@ async function tgSend(text: string): Promise<boolean> {
   }
 }
 
-export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
+export async function runScoutInnovator(
+  gitContext?: { git_log?: string; changed_files?: string },
+): Promise<ScoutInnovatorResult> {
   const start = Date.now();
   const dateKey = new Date().toISOString().slice(0, 10);
 
-  // 1. Читаем последние разведданные из Brain (intel + scout digests)
-  const [intelPages, scoutPages] = await Promise.all([
+  // 0. Warm-up: write today's platform briefing FIRST so other agents can read it,
+  //    then read own run history so Opus knows what Scout-Innovator has done before.
+  await writeDailyBriefing(gitContext?.git_log);
+  const selfBriefing = await readAgentBriefing('scout-innovator');
+
+  // 1. Читаем всё параллельно: разведка, статистика, контекст репо
+  const [
+    intelPages,
+    scoutPages,
+    codebaseRules,
+    openIssues,
+    closedIssues,
+    inventoryStr,
+    apiRoutesList,
+  ] = await Promise.all([
     knowledgeBase.list({ type: 'intel', limit: 5 }),
     knowledgeBase.search('scout digest дайджест', { limit: 3 }),
+    readCodebaseRules(),
+    readGitHubIssues('open'),
+    readGitHubIssues('closed'),
+    readPlatformInventory(),
+    scanApiRoutes(),
   ]);
 
   const allPages = [...intelPages, ...scoutPages].slice(0, 6);
@@ -163,73 +341,62 @@ export async function runScoutInnovator(): Promise<ScoutInnovatorResult> {
 
   if (allPages.length === 0) {
     console.error('[scout-innovator] No intel data in Brain — skipping');
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: 0, duration_ms: Date.now() - start, issues_created: [] };
+    return {
+      proposals_count: 0,
+      sent_to_tg: false,
+      intel_entries: 0,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+    };
   }
 
-  // 3. AI синтез
+  // 3. Строим контекст
   const intelContext = allPages
     .map(p => `[${p.slug}]\n${(p.compiled_truth ?? '').slice(0, 300)}`)
     .join('\n\n---\n\n');
 
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `Ты Scout-Innovator — стратегический аналитик туристической платформы TourHab (Камчатка).
-На основе собранных разведданных формируй 2-3 конкретных, выполнимых предложения для владельца платформы.
+  const repoContext = [
+    codebaseRules ? `=== ПРАВИЛА КОДОВОЙ БАЗЫ (CLAUDE.md) ===\n${codebaseRules}` : '',
+    inventoryStr ? `=== ИНВЕНТАРЬ ПЛАТФОРМЫ ===\n${inventoryStr}` : '',
+    selfBriefing.recentRuns ? `=== МОИ ПРЕДЫДУЩИЕ ЗАПУСКИ (не повторять уже созданные предложения) ===\n${selfBriefing.recentRuns}` : '',
+    openIssues ? `=== УЖЕ ОТКРЫТЫЕ ЗАДАЧИ (agent-proposal issues, не дублировать) ===\n${openIssues}` : '',
+    closedIssues ? `=== УЖЕ РЕАЛИЗОВАННЫЕ ПРЕДЛОЖЕНИЯ (закрытые issues) ===\n${closedIssues}` : '',
+  ].filter(Boolean).join('\n\n');
 
-Каждое предложение — это конкретное действие + ожидаемый результат (не теория).
-Избегай общих фраз типа "улучшить качество" или "развивать платформу".
+  // 4. Phase 1 — генерируем структурированные предложения (JSON)
+  const proposals = await generateStructuredProposals(
+    repoContext,
+    intelContext,
+    platformStats,
+    apiRoutesList,
+    gitContext,
+  );
 
-Формат ответа — HTML для Telegram:
-<b>Scout-Innovator ${dateKey}</b>
-
-<b>Предложения:</b>
-1. [конкретное действие] — [ожидаемый результат]
-2. [конкретное действие] — [ожидаемый результат]
-
-<b>Платформа за 7 дней:</b>
-- Бронирований: [N] всего, [M] подтверждено
-
-Если нет конкретных идей — честно напиши "Нет новых сигналов для действий".
-Пиши по-русски. Без воды.`,
-    },
-    {
-      role: 'user',
-      content: `Разведданные из Brain (последние записи):
-
-${intelContext}
-
-Платформа за 7 дней:
-- Бронирований: ${platformStats.bookings_week} всего, ${platformStats.confirmed_week} подтверждено
-- Новых операторов: ${platformStats.new_operators}
-
-Дай 2-3 конкретных предложения.`,
-    },
-  ];
-
-  let proposals: string;
-  try {
-    proposals = await callAIFast(messages);
-  } catch (err) {
-    console.error('[scout-innovator] AI call failed:', err);
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start, issues_created: [] };
+  if (proposals.length === 0) {
+    return {
+      proposals_count: 0,
+      sent_to_tg: false,
+      intel_entries: allPages.length,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+    };
   }
 
-  if (!proposals.trim()) {
-    return { proposals_count: 0, sent_to_tg: false, intel_entries: allPages.length, duration_ms: Date.now() - start, issues_created: [] };
-  }
+  // 5. Phase 2 — форматируем для Telegram
+  const tgMessage = formatTelegramMessage(proposals, dateKey, platformStats);
 
-  // 4. Сохраняем в Brain
+  // 6. Сохраняем в Brain
   try {
     await knowledgeBase.upsert({
       slug: `proposals/${dateKey}`,
       type: 'decision',
       title: `Scout-Innovator предложения ${dateKey}`,
-      compiled_truth: proposals,
+      compiled_truth: tgMessage,
       metadata: {
         intel_entries: allPages.length,
         bookings_week: platformStats.bookings_week,
         generated_at: dateKey,
+        proposals_count: proposals.length,
       },
       agent_id: 'scout-innovator',
     });
@@ -237,26 +404,22 @@ ${intelContext}
     console.error('[scout-innovator] Failed to save to Brain:', err);
   }
 
-  // 5. Telegram
-  const sent = await tgSend(proposals);
+  // 7. Telegram
+  const sent = await tgSend(tgMessage);
 
-  // 6. GitHub Issues — каждое кодовое предложение → задача для агента-кодера
-  const codeProposals = await extractCodeProposals(proposals);
+  // 8. GitHub Issues — каждое предложение → задача для агента-кодера
   const issueUrls: string[] = [];
 
-  for (const p of codeProposals) {
+  for (const p of proposals) {
     const url = await createGitHubIssue(p, dateKey);
     if (url) {
       issueUrls.push(url);
-      // Уведомление в Telegram об открытом issue
       await tgSend(`<b>Создана задача для кодера</b>\n${p.title}\n${url}`);
     }
   }
 
-  const proposalCount = (proposals.match(/^\d\./gm) ?? []).length || 1;
-
   return {
-    proposals_count: proposalCount,
+    proposals_count: proposals.length,
     sent_to_tg: sent,
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,

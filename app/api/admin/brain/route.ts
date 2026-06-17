@@ -83,6 +83,19 @@ export async function GET(request: NextRequest) {
       LIMIT 20
     `).catch(() => ({ rows: [] }));
 
+    // 7. Permanent knowledge pages (agent_knowledge): intel + decisions
+    const { rows: knowledgePages } = await pool.query(`
+      SELECT
+        id, slug, type, title,
+        LEFT(compiled_truth, 800) AS compiled_truth,
+        agent_id, edit_count,
+        created_at::text, updated_at::text
+      FROM agent_knowledge
+      WHERE type IN ('intel', 'decision', 'proposal', 'repo-state')
+      ORDER BY updated_at DESC
+      LIMIT 30
+    `).catch(() => ({ rows: [] }));
+
     return NextResponse.json({
       health,
       memoryStats,
@@ -90,6 +103,7 @@ export async function GET(request: NextRequest) {
       agentRuns,
       memoryTypes,
       recentEdits,
+      knowledgePages,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {

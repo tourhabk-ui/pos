@@ -14,6 +14,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Run Repo Scanner (DB schema + GitHub tree + production health)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET not set — skipping"
+            exit 0
+          fi
+
+          HTTP=$(curl -s -o /tmp/repo_scan_resp.json -w "%{http_code}" \
+            --max-time 60 \
+            "https://vedarai.ru/api/cron/repo-scan" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "Repo Scan HTTP: $HTTP"
+          cat /tmp/repo_scan_resp.json 2>/dev/null || true
+
       - name: Run intelligence monitor (сбор сигналов)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -37,20 +59,23 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then exit 0; fi
 
-          # Даём intelligence-monitor время завершиться
           sleep 10
+
+          GIT_LOG=$(git log --oneline -30 2>/dev/null || echo "")
+          CHANGED_FILES=$(git diff --name-only HEAD~10 HEAD 2>/dev/null | head -50 | tr '\n' ',' || echo "")
+
+          PAYLOAD=$(printf '{"git_log":"%s","changed_files":"%s"}' \
+            "$(echo "$GIT_LOG" | sed 's/"/\\"/g' | tr '\n' '|')" \
+            "$CHANGED_FILES")
 
           HTTP=$(curl -s -o /tmp/scout_resp.json -w "%{http_code}" \
             --max-time 120 \
-            "https://vedarai.ru/api/cron/scout" \
-            -H "Authorization: Bearer $CRON_SECRET")
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://vedarai.ru/api/cron/scout")
 
           echo "Scout HTTP: $HTTP"
           cat /tmp/scout_resp.json 2>/dev/null || true
-
-          if [ "$HTTP" = "200" ]; then
-            echo "Scout-Innovator OK"
-          else
-            echo "Unexpected HTTP $HTTP"
-            exit 1
-          fi
+          [ "$HTTP" = "200" ] || exit 1

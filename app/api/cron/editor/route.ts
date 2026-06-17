@@ -2,6 +2,7 @@ import { runEditor } from '@/lib/agents/editor';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
+import { readAgentBriefing } from '@/lib/agents/warmup';
 
 /**
  * GET /api/cron/editor
@@ -23,7 +24,10 @@ export async function GET(req: Request) {
 
   const started_at = new Date();
   try {
-    const result = await runEditor();
+    // Warm-up: read platform briefing + own run history before editing.
+    // Provides context so the agent knows what was already processed.
+    const briefing = await readAgentBriefing('editor');
+    const result = await runEditor(briefing);
     void logAgentRun({
       agent_id: 'editor',
       status: 'success',

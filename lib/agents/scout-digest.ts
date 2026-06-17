@@ -17,6 +17,7 @@ import { callAIFast } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
+import { readAgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface DigestResult {
@@ -109,6 +110,10 @@ async function tgSend(text: string): Promise<boolean> {
 export async function runScoutDigest(): Promise<DigestResult> {
   const start = Date.now();
 
+  // Warm-up: read platform state and own run history before doing any work.
+  // recentRuns tells the agent what it already processed so it avoids duplicates.
+  const briefing = await readAgentBriefing('scout-digest');
+
   // Collect RSS in parallel
   const allItems: RssItem[] = [];
   const results = await Promise.allSettled(
@@ -129,6 +134,12 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const signalsList = dedupedItems
     .map(i => `[${i.source}] ${i.title}`)
     .join('\n');
+
+  // Build context section from briefing so AI knows current state and prior runs.
+  const contextSection = [
+    briefing.platformSummary ? `=== ТЕКУЩЕЕ СОСТОЯНИЕ ПЛАТФОРМЫ ===\n${briefing.platformSummary}` : '',
+    briefing.recentRuns ? `=== МОИ ПОСЛЕДНИЕ ЗАПУСКИ (не дублировать уже выданные инсайты) ===\n${briefing.recentRuns}` : '',
+  ].filter(Boolean).join('\n\n');
 
   const messages: ChatMessage[] = [
     {
@@ -158,7 +169,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     },
     {
       role: 'user',
-      content: `Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${signalsList}`,
+      content: `${contextSection ? contextSection + '\n\n' : ''}Сигналы за ${new Date().toLocaleDateString('ru-RU')}:\n\n${signalsList}`,
     },
   ];
 
