@@ -121,9 +121,10 @@ export async function GET(req: NextRequest) {
       [userId]
     );
 
+    type AgreementRow = { id: string; document_version: string; document_date: string; agreement_type: string; status: string; accepted_at: string | null; created_at: string };
     // Сгруппировать по типам (только последняя версия каждого типа)
-    const grouped: Record<string, any> = {};
-    rows.forEach((row: { id: string; document_version: string; document_date: string; agreement_type: string }) => {
+    const grouped: Record<string, AgreementRow> = {};
+    (rows as AgreementRow[]).forEach((row) => {
       if (!grouped[row.agreement_type] ||
           grouped[row.agreement_type].document_version < row.document_version) {
         grouped[row.agreement_type] = row;

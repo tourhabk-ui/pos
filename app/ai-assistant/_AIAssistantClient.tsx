@@ -196,8 +196,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   const [limitReached, setLimitReached] = useState(false);
   const [remainingFree, setRemainingFree] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<{ stop(): void } | null>(null);
   const { isDark, toggleTheme } = useTheme();
 
   useEffect(() => {

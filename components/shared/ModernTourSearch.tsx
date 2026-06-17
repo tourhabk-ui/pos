@@ -178,7 +178,7 @@ export function ModernTourSearch() {
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout>();
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<{ stop(): void; start(): void } | null>(null);
 
   // Memoized activities with icons
     // Пример error handling для поиска (можно расширить на другие async действия)

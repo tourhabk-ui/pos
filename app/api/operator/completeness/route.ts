@@ -9,9 +9,21 @@ import { requireOperator } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+interface TourCompletenessRow {
+  id: string; title: string | null; description: string | null; short_description: string | null;
+  base_price: number | null; max_participants: number | null; min_participants: number | null;
+  location_type: string | null; activity_type: string | null; location_name: string | null;
+  latitude: number | null; longitude: number | null; duration_hours: number | null;
+  difficulty: string | null; season_start: string | null; season_end: string | null;
+  duration_type: string | null; included: string[] | null; not_included: string[] | null;
+  what_to_bring: string[] | null; tour_image: string | null; photos: string[] | null;
+  price_old: number | null; price_unit: string | null; transportation: string | null;
+  is_published: boolean;
+}
+
 interface TourCompletion {
   tour_id: string;
-  tour_title: string;
+  tour_title: string | null;
   is_published: boolean;
   required_score: number; // 0-100: title, description, price, activity_type, tour_image
   recommended_score: number; // 0-100: short_desc, season, difficulty, included, etc
@@ -38,7 +50,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const { rows: tours } = await pool.query<any>(
+    const { rows: tours } = await pool.query<TourCompletenessRow>(
       `SELECT
          id, title, description, short_description,
          base_price, max_participants, min_participants,
