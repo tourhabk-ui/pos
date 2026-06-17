@@ -13,6 +13,7 @@ import { join } from 'path';
 import { callAIWithModel } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
+import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 interface StructuredProposal {
@@ -293,6 +294,11 @@ export async function runScoutInnovator(
   const start = Date.now();
   const dateKey = new Date().toISOString().slice(0, 10);
 
+  // 0. Warm-up: write today's platform briefing FIRST so other agents can read it,
+  //    then read own run history so Opus knows what Scout-Innovator has done before.
+  await writeDailyBriefing(gitContext?.git_log);
+  const selfBriefing = await readAgentBriefing('scout-innovator');
+
   // 1. Читаем всё параллельно: разведка, статистика, контекст репо
   const [
     intelPages,
@@ -352,6 +358,7 @@ export async function runScoutInnovator(
   const repoContext = [
     codebaseRules ? `=== ПРАВИЛА КОДОВОЙ БАЗЫ (CLAUDE.md) ===\n${codebaseRules}` : '',
     inventoryStr ? `=== ИНВЕНТАРЬ ПЛАТФОРМЫ ===\n${inventoryStr}` : '',
+    selfBriefing.recentRuns ? `=== МОИ ПРЕДЫДУЩИЕ ЗАПУСКИ (не повторять уже созданные предложения) ===\n${selfBriefing.recentRuns}` : '',
     openIssues ? `=== УЖЕ ОТКРЫТЫЕ ЗАДАЧИ (agent-proposal issues, не дублировать) ===\n${openIssues}` : '',
     closedIssues ? `=== УЖЕ РЕАЛИЗОВАННЫЕ ПРЕДЛОЖЕНИЯ (закрытые issues) ===\n${closedIssues}` : '',
   ].filter(Boolean).join('\n\n');

@@ -12,6 +12,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
+import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface EditorResult {
@@ -103,11 +104,16 @@ ${route.description ? `Имеющееся описание (расширь и у
   }
 }
 
-export async function runEditor(): Promise<EditorResult> {
+export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult> {
   const start = Date.now();
   let processed = 0;
   let improved  = 0;
   let errors    = 0;
+
+  if (briefing?.platformSummary) {
+    // Platform state is available — could be used for future smart prioritisation.
+    // For now, presence of recentRuns lets us detect rapid re-runs (same day).
+  }
 
   const improvedTitles: string[] = [];
 

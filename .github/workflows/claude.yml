@@ -30,7 +30,28 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Read codebase context
+        id: ctx
+        run: |
+          {
+            echo 'RULES<<HEREDOC'
+            grep -A 200 '## 4. КОД' CLAUDE.md | head -80 || true
+            echo ''
+            grep -A 50 '## 7. НЕ ТРОГАТЬ' CLAUDE.md | head -30 || true
+            echo 'HEREDOC'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Run Claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          system_prompt: |
+            Ты работаешь с кодовой базой Ведар (Next.js 15, TypeScript strict, PostgreSQL).
+
+            ОБЯЗАТЕЛЬНО ПЕРЕД ЛЮБЫМИ ИЗМЕНЕНИЯМИ:
+            1. Прочитай CLAUDE.md полностью (он есть в корне репозитория)
+            2. Найди и прочитай 2-3 похожих существующих файла — не угадывай паттерны
+            3. Проверь типы: npx tsc --noEmit после всех изменений
+
+            ЗАПРЕЩЕНО (нарушения блокируют коммит):
+            ${{ steps.ctx.outputs.RULES }}
