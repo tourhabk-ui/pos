@@ -1,0 +1,28 @@
+name: Cron — Check-in Watchdog
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # каждый час
+  workflow_dispatch:
+
+jobs:
+  checkin-watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Warmup — разбудить сервер
+        run: |
+          curl -s --max-time 90 -o /dev/null -w "Warmup HTTP: %{http_code}\n" \
+            "https://vedarai.ru/api/health" || echo "Warmup done"
+
+      - name: Check-in Watchdog — эскалация просроченных регистраций
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
+            "https://vedarai.ru/api/cron/checkin-watchdog" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP"
+          cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

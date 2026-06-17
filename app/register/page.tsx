@@ -37,6 +37,9 @@ export default function RegisterRoutePage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [region, setRegion] = useState('Камчатский край');
+  const [expectedReturnTime, setExpectedReturnTime] = useState('');
+
+  const isDay = startDate && endDate && startDate === endDate;
 
   // Поиск маршрута из БД
   const [routeQuery, setRouteQuery] = useState('');
@@ -107,7 +110,12 @@ export default function RegisterRoutePage() {
   // Шаг 4: Disclaimer
   const [accepted, setAccepted] = useState(false);
 
-  const canNext1 = routeName.trim() && startDate && endDate && new Date(endDate) >= new Date(startDate);
+  const canNext1 =
+    routeName.trim() &&
+    startDate &&
+    endDate &&
+    new Date(endDate) >= new Date(startDate) &&
+    (!isDay || expectedReturnTime.length > 0);
   const canNext2 = groupSize >= 1 && groupSize <= 30;
   const canNext3 = leaderName.trim() && leaderPhone.trim() && emergencyName.trim() && emergencyPhone.trim();
   const canSubmit = canNext1 && canNext2 && canNext3 && accepted && contactConsent;
@@ -139,6 +147,7 @@ export default function RegisterRoutePage() {
         route_description: routeDescription.trim() || undefined,
         start_date: startDate,
         end_date: endDate,
+        expected_return_time: expectedReturnTime || undefined,
         region,
         group_size: groupSize,
         group_members: members.filter(m => m.name.trim()).map(m => ({
@@ -376,6 +385,24 @@ export default function RegisterRoutePage() {
                     focus:border-[var(--accent)] focus:outline-none transition-colors"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">
+                Контрольное время возврата {isDay ? '*' : '(необязательно)'}
+              </label>
+              <input
+                type="time"
+                value={expectedReturnTime}
+                onChange={e => setExpectedReturnTime(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-primary)] text-sm
+                  focus:border-[var(--accent)] focus:outline-none transition-colors"
+              />
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                {isDay
+                  ? 'Во сколько ожидается возвращение. Сторож предупредит экстренный контакт если не вернётесь вовремя.'
+                  : 'Во сколько ожидается возвращение в день окончания. Если не задать — сторож срабатывает с 20:00.'}
+              </p>
             </div>
 
             <button
@@ -616,7 +643,7 @@ export default function RegisterRoutePage() {
             {/* Сводка */}
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] space-y-2 text-sm">
               <p><span className="text-[var(--text-muted)]">Маршрут:</span> {routeName}</p>
-              <p><span className="text-[var(--text-muted)]">Даты:</span> {startDate} — {endDate}</p>
+              <p><span className="text-[var(--text-muted)]">Даты:</span> {startDate} — {endDate}{expectedReturnTime ? `, возврат в ${expectedReturnTime}` : ''}</p>
               <p><span className="text-[var(--text-muted)]">Группа:</span> {groupSize} чел.</p>
               <p><span className="text-[var(--text-muted)]">Руководитель:</span> {leaderName}</p>
               <p><span className="text-[var(--text-muted)]">Экстренный контакт:</span> {emergencyName} ({emergencyPhone})</p>

@@ -11,6 +11,7 @@ const RegistrationSchema = z.object({
   route_description: z.string().max(2000).optional(),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  expected_return_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   region: z.string().max(200).default('Камчатский край'),
   group_size: z.number().int().min(1).max(30),
   group_members: z.array(z.object({
@@ -151,14 +152,21 @@ export async function POST(request: NextRequest) {
   const data = validation.data;
 
   // Сохраняем в БД
+  // Строим expected_return_at из end_date + expected_return_time (если задано)
+  const expectedReturnAt = data.expected_return_time
+    ? new Date(`${data.end_date}T${data.expected_return_time}:00`)
+    : null;
+
+  const tripKind = data.start_date === data.end_date ? 'day' : 'multi';
+
   const result = await query(
     `INSERT INTO route_registrations
        (user_id, route_name, route_description, start_date, end_date, region,
         group_size, group_members, leader_name, leader_phone, leader_email,
         emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
         emergency_contact_telegram_chat_id, emergency_contact_email,
-        emergency_contact_consent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        emergency_contact_consent, expected_return_at, trip_kind)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING id`,
     [
       userId,
@@ -178,6 +186,8 @@ export async function POST(request: NextRequest) {
       data.emergency_contact_telegram_chat_id ? BigInt(data.emergency_contact_telegram_chat_id) : null,
       data.emergency_contact_email || null,
       data.emergency_contact_consent,
+      expectedReturnAt,
+      tripKind,
     ]
   );
 

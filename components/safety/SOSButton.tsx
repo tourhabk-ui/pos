@@ -2,10 +2,27 @@
 
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, Phone, User, MapPin, AlertTriangle, Loader2, CheckCircle, WifiOff } from 'lucide-react';
+import { ShieldCheck, Phone, User, MapPin, AlertTriangle, Loader2, CheckCircle, WifiOff, MessageSquare } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 
 type SosStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
+
+const SOS_SMS_NUMBER = process.env.NEXT_PUBLIC_SOS_SMS_NUMBER ?? '112';
+
+function buildSMSLink(
+  coords: { lat: number; lng: number; accuracy: number } | null,
+  name: string,
+  phone: string,
+): string {
+  const parts: string[] = ['SOS!'];
+  if (coords) {
+    parts.push(`Координаты: ${coords.lat.toFixed(5)}N ${coords.lng.toFixed(5)}E (+-${Math.round(coords.accuracy)}м)`);
+  }
+  if (name.trim()) parts.push(`Имя: ${name.trim()}`);
+  if (phone.trim()) parts.push(`Тел: ${phone.trim()}`);
+  parts.push('Нужна помощь.');
+  return `sms:${SOS_SMS_NUMBER}?body=${encodeURIComponent(parts.join(' '))}`;
+}
 
 function SOSButton({ className = '' }: { className?: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -225,6 +242,20 @@ function SOSButton({ className = '' }: { className?: string }) {
                   </div>
                   {(sosStatus === 'idle' || sosStatus === 'error') && <span>ОТПРАВИТЬ</span>}
                 </motion.button>
+
+                <motion.a
+                  href={buildSMSLink(coords, touristName, touristPhone)}
+                  className="w-full flex items-center justify-between p-4 bg-[var(--ocean)] text-[var(--bg-card)] rounded-lg font-semibold min-h-[44px]"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  aria-label="SMS с координатами (только сотовая сеть)"
+                >
+                  <div className="flex items-center gap-3">
+                    <MessageSquare size={20} aria-hidden="true" />
+                    SMS с координатами
+                  </div>
+                  <span className="text-xs opacity-80">БЕЗ ИНТЕРНЕТА</span>
+                </motion.a>
               </div>
 
               <div className="bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg p-4" aria-live="polite">

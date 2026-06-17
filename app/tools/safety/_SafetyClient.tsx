@@ -2,14 +2,24 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Search, MapPin, ShieldCheck, ChevronLeft, AlertTriangle, AlertCircle, CheckCircle, Navigation } from 'lucide-react';
+import { Search, MapPin, ShieldCheck, ChevronLeft, AlertTriangle, AlertCircle, CheckCircle, Navigation, Route } from 'lucide-react';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
+
+type Mode = 'place' | 'route';
 
 interface PlaceHit {
   id: string;
   name: string;
   locationType: string | null;
   description: string;
+}
+
+interface RouteHit {
+  id: string;
+  title: string;
+  activityType: string | null;
+  difficulty: string | null;
+  distanceKm: number | null;
 }
 
 interface Realtime {
@@ -50,26 +60,56 @@ const LOCATION_LABELS: Record<string, string> = {
   river: 'Река', forest: 'Лес', pass: 'Перевал',
 };
 
+const ACTIVITY_LABELS: Record<string, string> = {
+  trekking: 'Треккинг', fishing: 'Рыбалка', thermal: 'Термальные',
+  winter_hiking: 'Зимний поход', sightseeing: 'Осмотр', ski: 'Лыжи',
+};
+
 export function SafetyClient() {
+  const [mode, setMode] = useState<Mode>('place');
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceHit[]>([]);
+  const [routeSuggestions, setRouteSuggestions] = useState<RouteHit[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<PlaceHit | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<RouteHit | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SafetyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleQueryChange = useCallback((value: string) => {
+  const resetSelection = () => {
+    setSelectedPlace(null);
+    setSelectedRoute(null);
+    setQuery('');
+    setSuggestions([]);
+    setRouteSuggestions([]);
+  };
+
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    resetSelection();
+    setResult(null);
+    setError(null);
+  };
+
+  const handleQueryChange = useCallback((value: string, currentMode: Mode) => {
     setQuery(value);
     setSelectedPlace(null);
+    setSelectedRoute(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!value.trim()) { setSuggestions([]); return; }
+    if (!value.trim()) { setSuggestions([]); setRouteSuggestions([]); return; }
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/places?q=${encodeURIComponent(value)}&limit=6`);
-        const json = await res.json() as { success: boolean; data: PlaceHit[] };
-        if (json.success) setSuggestions(json.data);
+        if (currentMode === 'place') {
+          const res = await fetch(`/api/places?q=${encodeURIComponent(value)}&limit=6`);
+          const json = await res.json() as { success: boolean; data: PlaceHit[] };
+          if (json.success) setSuggestions(json.data);
+        } else {
+          const res = await fetch(`/api/routes?q=${encodeURIComponent(value)}&limit=6`);
+          const json = await res.json() as { success: boolean; data: RouteHit[] };
+          if (json.success) setRouteSuggestions(json.data);
+        }
       } catch { /* silent */ }
     }, 280);
   }, []);
@@ -99,9 +139,14 @@ export function SafetyClient() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPlace) return;
-    void analyze({ placeId: selectedPlace.id });
+    if (mode === 'route' && selectedRoute) {
+      void analyze({ routeId: selectedRoute.id });
+    } else if (mode === 'place' && selectedPlace) {
+      void analyze({ placeId: selectedPlace.id });
+    }
   };
+
+  const canSubmit = mode === 'route' ? !!selectedRoute : !!selectedPlace;
 
   const handleGPS = () => {
     if (!navigator.geolocation) { setError('GPS недоступен на этом устройстве'); return; }
@@ -143,23 +188,52 @@ export function SafetyClient() {
         {/* Form */}
         {!result && (
           <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Mode toggle */}
+            <div className="flex gap-2 p-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl">
+              <button
+                type="button"
+                onClick={() => switchMode('place')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                  mode === 'place'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <MapPin size={15} /> Точка
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode('route')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                  mode === 'route'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Route size={15} /> Маршрут
+              </button>
+            </div>
+
             <div>
               <label className="block text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
-                Место
+                {mode === 'place' ? 'Место' : 'Маршрут'}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
                   <input
                     type="text"
-                    value={selectedPlace ? selectedPlace.name : query}
-                    onChange={e => handleQueryChange(e.target.value)}
-                    onFocus={() => { if (selectedPlace) { setSelectedPlace(null); setQuery(''); } }}
-                    placeholder="Авачинский вулкан, Халактырский пляж..."
+                    value={(mode === 'place' ? selectedPlace?.name : selectedRoute?.title) ?? query}
+                    onChange={e => handleQueryChange(e.target.value, mode)}
+                    onFocus={() => { if (selectedPlace || selectedRoute) resetSelection(); }}
+                    placeholder={mode === 'place' ? 'Авачинский вулкан, Халактырский пляж...' : 'Налычево, Мутновский, Ключевской...'}
                     className="ds-input pl-9 w-full"
                     autoComplete="off"
                   />
-                  {suggestions.length > 0 && !selectedPlace && (
+
+                  {/* Place suggestions */}
+                  {mode === 'place' && suggestions.length > 0 && !selectedPlace && (
                     <div className="absolute z-10 w-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden shadow-lg">
                       {suggestions.map(s => (
                         <button
@@ -178,20 +252,43 @@ export function SafetyClient() {
                       ))}
                     </div>
                   )}
+
+                  {/* Route suggestions */}
+                  {mode === 'route' && routeSuggestions.length > 0 && !selectedRoute && (
+                    <div className="absolute z-10 w-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden shadow-lg">
+                      {routeSuggestions.map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => { setSelectedRoute(r); setQuery(r.title); setRouteSuggestions([]); }}
+                          className="w-full text-left px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors border-b border-[var(--border)] last:border-0"
+                        >
+                          <p className="text-sm font-medium text-[var(--text-primary)] leading-tight">{r.title}</p>
+                          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                            {[ACTIVITY_LABELS[r.activityType ?? ''] ?? r.activityType, r.distanceKm ? `${r.distanceKm} км` : null].filter(Boolean).join(' · ')}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleGPS}
-                  disabled={gpsLoading}
-                  title="Использовать моё местоположение"
-                  className="ds-btn ds-btn-secondary flex-shrink-0 flex items-center gap-1.5 px-4"
-                >
-                  {gpsLoading
-                    ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    : <Navigation size={16} />
-                  }
-                  <span className="hidden sm:inline text-sm">GPS</span>
-                </button>
+
+                {/* GPS — только для точек */}
+                {mode === 'place' && (
+                  <button
+                    type="button"
+                    onClick={handleGPS}
+                    disabled={gpsLoading}
+                    title="Использовать моё местоположение"
+                    className="ds-btn ds-btn-secondary flex-shrink-0 flex items-center gap-1.5 px-4"
+                  >
+                    {gpsLoading
+                      ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      : <Navigation size={16} />
+                    }
+                    <span className="hidden sm:inline text-sm">GPS</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -203,7 +300,7 @@ export function SafetyClient() {
 
             <button
               type="submit"
-              disabled={!selectedPlace || loading}
+              disabled={!canSubmit || loading}
               className="ds-btn ds-btn-primary w-full flex items-center justify-center gap-2 py-3 disabled:opacity-40"
             >
               {loading ? (
