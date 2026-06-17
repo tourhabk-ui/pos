@@ -92,10 +92,16 @@ function fmtDuration(h: number | null): string {
   return `${d} дней`;
 }
 
+type OfflineStatus = 'idle' | 'cached' | 'downloading' | 'error';
+
+const STORAGE_KEY = (routeId: string) => `offline_route_${routeId}`;
+
 export default function RouteCardClient({ id }: { id: string }) {
   const [route, setRoute] = useState<RouteData | null>(null);
   const [loading, setLoading] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>('idle');
+  const [offlineProgress, setOfflineProgress] = useState(0);
 
   useEffect(() => {
     fetch(`/api/routes/detail/${id}`)
@@ -104,6 +110,53 @@ export default function RouteCardClient({ id }: { id: string }) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Проверяем закешированный маршрут при старте
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY(id));
+      if (stored) setOfflineStatus('cached');
+    } catch { /* localStorage недоступен */ }
+  }, [id]);
+
+  const handleOfflineDownload = async () => {
+    if (offlineStatus === 'downloading') return;
+    setOfflineStatus('downloading');
+    setOfflineProgress(10);
+    try {
+      const res = await fetch(`/api/routes/${id}/offline-bundle`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOfflineProgress(50);
+      const bundle = await res.json();
+
+      // Сохраняем данные маршрута локально
+      localStorage.setItem(STORAGE_KEY(id), JSON.stringify({
+        route: bundle.route,
+        waypoints: bundle.waypoints,
+        cachedAt: Date.now(),
+      }));
+      setOfflineProgress(70);
+
+      // Отправляем тайлы в Service Worker (best-effort)
+      if ('serviceWorker' in navigator && bundle.tile_urls?.length) {
+        const sw = await navigator.serviceWorker.ready.catch(() => null);
+        sw?.active?.postMessage({ type: 'CACHE_TILES', tiles: bundle.tile_urls, regionId: `route_${id}` });
+      }
+
+      setOfflineProgress(100);
+      setOfflineStatus('cached');
+    } catch {
+      setOfflineStatus('error');
+      setOfflineProgress(0);
+    }
+  };
+
+  const handleOfflineRemove = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY(id));
+      setOfflineStatus('idle');
+    } catch { /* игнорируем */ }
+  };
 
   if (loading) {
     return (
@@ -487,6 +540,41 @@ export default function RouteCardClient({ id }: { id: string }) {
             </div>
           </section>
         )}
+
+        {/* OFFLINE DOWNLOAD */}
+        <section className="ds-card p-4">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+            <Download className="w-3.5 h-3.5 text-[var(--ocean)]" /> Офлайн-доступ
+          </h2>
+          <p className="text-xs text-[var(--text-secondary)] mb-3">
+            Сохраните маршрут и карту на устройство — будет доступно без интернета на маршруте.
+          </p>
+          {offlineStatus === 'cached' ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-[var(--success)] font-medium flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" /> Маршрут сохранён офлайн
+              </span>
+              <button onClick={handleOfflineRemove}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors">
+                Удалить
+              </button>
+            </div>
+          ) : offlineStatus === 'downloading' ? (
+            <div className="space-y-2">
+              <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+                <div className="h-full bg-[var(--ocean)] rounded-full transition-all duration-300"
+                  style={{ width: `${offlineProgress}%` }} />
+              </div>
+              <p className="text-xs text-[var(--text-muted)]">Скачивание... {offlineProgress}%</p>
+            </div>
+          ) : (
+            <button onClick={handleOfflineDownload}
+              className="ds-btn ds-btn-secondary text-sm flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              {offlineStatus === 'error' ? 'Повторить' : 'Взять с собой'}
+            </button>
+          )}
+        </section>
 
         {/* SOURCE */}
         {route.sourceUrl && (
