@@ -8,6 +8,7 @@ import {
   Star, MessageSquare, Download, Navigation, Clock, Ruler,
   TrendingUp, Calendar, Users, ExternalLink, ChevronRight,
   FileText, Compass, TreePine, Bug,
+  Flame, Droplets, Cloud, Snowflake, Wind, type LucideIcon,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { AssistantButton } from '@/components/shared/AssistantButton';
@@ -30,10 +31,10 @@ const SEASON_LABELS: Record<string, string> = {
   summer: 'Июнь — Сентябрь', winter: 'Декабрь — Март', all: 'Круглый год',
 };
 
-const HAZARD_ICONS: Record<string, string> = {
-  avalanche: '🏔', rockfall: '🪨', thermal: '🌋', altitude: '⛰',
-  wildlife: '🐻', river_crossing: '🌊', fog: '🌫', ice: '🧊',
-  volcanic_gas: '💨', steep: '📐', plants: '🌿',
+const HAZARD_ICONS: Record<string, LucideIcon> = {
+  avalanche: Mountain, rockfall: AlertTriangle, thermal: Flame, altitude: TrendingUp,
+  wildlife: Bug, river_crossing: Droplets, fog: Cloud, ice: Snowflake,
+  volcanic_gas: Wind, steep: TrendingUp, plants: TreePine,
 };
 
 const DIFFICULTY_LABELS = ['', 'Лёгкий', 'Ниже среднего', 'Средний', 'Сложный', 'Экстремальный'];
@@ -279,8 +280,11 @@ export default function RouteCardClient({ id }: { id: string }) {
                         {w.altitudeM && <span>{w.altitudeM} м</span>}
                         {w.notes && <span>{w.notes}</span>}
                         {w.hazardTypes.length > 0 && (
-                          <span className="text-[var(--warning)]">
-                            {w.hazardTypes.map(h => HAZARD_ICONS[h] ?? '⚠').join(' ')}
+                          <span className="flex items-center gap-0.5 text-[var(--warning)]">
+                            {w.hazardTypes.map((h, hi) => {
+                              const Icon = HAZARD_ICONS[h] ?? AlertTriangle;
+                              return <Icon key={hi} className="w-3 h-3" />;
+                            })}
                           </span>
                         )}
                       </div>
@@ -302,7 +306,7 @@ export default function RouteCardClient({ id }: { id: string }) {
             <div className="space-y-2">
               {route.hazards.map((h, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm">
-                  <span className="text-base">{HAZARD_ICONS[h] ?? '⚠'}</span>
+                  {(() => { const Icon = HAZARD_ICONS[h] ?? AlertTriangle; return <Icon className="w-4 h-4 text-[var(--danger)] flex-shrink-0 mt-0.5" />; })()}
                   <span className="text-[var(--text-secondary)]">{h}</span>
                 </div>
               ))}

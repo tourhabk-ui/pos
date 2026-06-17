@@ -800,7 +800,6 @@ export async function notifyAdminNewLead(lead: {
   sourceUrl?: string | null;
   sourceData?: Record<string, unknown> | null;
   score?: number;
-  emoji?: string;
   labelRu?: string;
 }): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -815,13 +814,11 @@ export async function notifyAdminNewLead(lead: {
   const dateTo    = sd?.date_to   ?? sd?.departure;
   const source    = sd?.source ? (LEAD_SOURCE_LABELS[sd.source] ?? sd.source) : null;
 
-  // Заголовок с эмодзи по скорингу
-  const emoji = lead.emoji ?? '';
   const scoreText = lead.score != null ? ` \u00b7 ${lead.score}/100` : '';
   const label = lead.labelRu ? ` (${lead.labelRu})` : '';
   const title = source
-    ? `${emoji} <b>Лид — ${esc(source)}${label}${scoreText}</b>`
-    : `${emoji} <b>Новый лид${label}${scoreText}</b>`;
+    ? `<b>Лид — ${esc(source)}${label}${scoreText}</b>`
+    : `<b>Новый лид${label}${scoreText}</b>`;
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
 

@@ -48,11 +48,10 @@ export interface LeadQuality {
   score: number;
   label: 'hot' | 'warm' | 'cold';
   labelRu: string;
-  emoji: string;
 }
 
 export function classifyLead(score: number): LeadQuality {
-  if (score >= 70) return { score, label: 'hot', labelRu: 'Горячий', emoji: '🔥' };
-  if (score >= 40) return { score, label: 'warm', labelRu: 'Тёплый', emoji: '🟡' };
-  return { score, label: 'cold', labelRu: 'Холодный', emoji: '❄️' };
+  if (score >= 70) return { score, label: 'hot', labelRu: 'Горячий' };
+  if (score >= 40) return { score, label: 'warm', labelRu: 'Тёплый' };
+  return { score, label: 'cold', labelRu: 'Холодный' };
 }

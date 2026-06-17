@@ -168,7 +168,7 @@ export default function ReturnClient() {
 
         <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 mb-6">
           <p className="text-sm text-green-300">
-            ✅ Нажимая кнопку, вы подтверждаете что <strong>вернулись с маршрута</strong> и
+            Нажимая кнопку, вы подтверждаете что <strong>вернулись с маршрута</strong> и
             все участники группы в безопасности.
           </p>
         </div>
@@ -185,7 +185,7 @@ export default function ReturnClient() {
           ) : (
             <CheckCircle className="w-6 h-6" />
           )}
-          {submitting ? 'Отправляю...' : '✅ Я вернулся'}
+          {submitting ? 'Отправляю...' : 'Я вернулся'}
         </button>
 
         <p className="text-xs text-white/30 mt-4 text-center">
