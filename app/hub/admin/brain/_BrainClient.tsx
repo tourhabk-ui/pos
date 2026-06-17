@@ -50,6 +50,18 @@ interface Edit {
   memory_type: string;
 }
 
+interface KnowledgePage {
+  id: number;
+  slug: string;
+  type: string;
+  title: string;
+  compiled_truth: string;
+  agent_id: string | null;
+  edit_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 interface Health {
   places_total: number;
   places_with_desc: number;
@@ -70,6 +82,7 @@ interface BrainData {
   agentRuns: AgentRun[];
   memoryTypes: MemoryType[];
   recentEdits: Edit[];
+  knowledgePages: KnowledgePage[];
   generatedAt: string;
 }
 
@@ -122,7 +135,7 @@ function StatCard({ label, value, sub, color }: { label: string; value: number |
 export function BrainClient() {
   const [data, setData] = useState<BrainData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'feed' | 'agents' | 'types' | 'edits'>('feed');
+  const [tab, setTab] = useState<'feed' | 'agents' | 'types' | 'edits' | 'knowledge'>('knowledge');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -148,7 +161,7 @@ export function BrainClient() {
 
   if (!data) return <div className="p-6 text-[var(--text-muted)] text-sm">Нет данных</div>;
 
-  const { health, memoryStats, recentMemory, agentRuns, memoryTypes, recentEdits } = data;
+  const { health, memoryStats, recentMemory, agentRuns, memoryTypes, recentEdits, knowledgePages = [] } = data;
 
   return (
     <div className="p-5 lg:p-6 space-y-6">
@@ -226,8 +239,9 @@ export function BrainClient() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-[var(--border)]">
+      <div className="flex gap-1 border-b border-[var(--border)] overflow-x-auto">
         {([
+          { id: 'knowledge', label: 'Знания', icon: Brain },
           { id: 'feed', label: 'Память', icon: Database },
           { id: 'agents', label: 'По агентам', icon: Layers },
           { id: 'types', label: 'По типам', icon: TrendingUp },
@@ -377,6 +391,54 @@ export function BrainClient() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* Knowledge tab — agent_knowledge pages (intel + decisions from scout) */}
+      {tab === 'knowledge' && (
+        <div className="space-y-3">
+          {knowledgePages.length === 0 ? (
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-12 text-xs text-[var(--text-muted)] text-center">
+              Нет записей в agent_knowledge. Scout-Innovator ещё не запускался или не получил intel.
+            </div>
+          ) : knowledgePages.map(page => {
+            const isDecision = page.type === 'decision' || page.type === 'proposal';
+            const borderColor = isDecision ? 'var(--accent)' : 'var(--ocean)';
+            return (
+              <div
+                key={page.id}
+                className="bg-[var(--bg-card)] border rounded-lg overflow-hidden"
+                style={{ borderColor }}
+              >
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b"
+                  style={{ borderColor }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0"
+                      style={{ background: `color-mix(in srgb, ${borderColor} 20%, transparent)`, color: borderColor }}
+                    >
+                      {page.type}
+                    </span>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{page.title}</span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] text-[var(--text-muted)] font-mono">{page.slug}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{relative(page.updated_at)}</p>
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <pre className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-relaxed font-sans">
+                    {page.compiled_truth}
+                  </pre>
+                  {page.edit_count > 1 && (
+                    <p className="text-[10px] text-[var(--text-muted)] mt-2">
+                      Обновлено {page.edit_count} раз · {page.agent_id ?? '—'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
