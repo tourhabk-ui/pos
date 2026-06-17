@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
         agent_id, edit_count,
         created_at::text, updated_at::text
       FROM agent_knowledge
-      WHERE type IN ('intel', 'decision', 'proposal')
+      WHERE type IN ('intel', 'decision', 'proposal', 'repo-state')
       ORDER BY updated_at DESC
       LIMIT 30
     `).catch(() => ({ rows: [] }));

@@ -14,6 +14,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
+import { runRepoScan } from '@/lib/agents/repo-scanner';
 
 export interface AgentBriefing {
   /** Counts from DB + agent health summary */
@@ -64,7 +65,7 @@ interface OwnRunRow {
  */
 export async function writeDailyBriefing(gitLog?: string): Promise<void> {
   try {
-    const [invRows, runRows, healthRows] = await Promise.all([
+    const [invRows, runRows, healthRows, repoScan] = await Promise.all([
       pool.query<InvRow>(`
         SELECT
           (SELECT COUNT(*)::text FROM places WHERE is_visible = true) AS places,
@@ -86,6 +87,7 @@ export async function writeDailyBriefing(gitLog?: string): Promise<void> {
           (SELECT COUNT(*)::text FROM agent_run_history WHERE started_at > NOW() - INTERVAL '24h') AS runs_24h,
           (SELECT COUNT(*)::text FROM agent_run_history WHERE status = 'error' AND started_at > NOW() - INTERVAL '24h') AS errors_24h
       `),
+      runRepoScan(gitLog).catch(() => null),
     ]);
 
     const inv = invRows.rows[0];
@@ -113,6 +115,15 @@ export async function writeDailyBriefing(gitLog?: string): Promise<void> {
     if (gitLog) {
       sections.push('', '=== ПОСЛЕДНИЕ КОММИТЫ ===', gitLog.slice(0, 1500));
     }
+    if (repoScan) {
+      sections.push(
+        '',
+        '=== REPO STATE ===',
+        `Production: ${repoScan.healthSummary.split('\n')[0]}`,
+        `DB: ${repoScan.tablesScanned} таблиц`,
+        `Repo: ${repoScan.filesFound} файлов | API routes: см. repo-scan/${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     await knowledgeBase.upsert({
       slug: 'daily-briefing',
@@ -132,7 +143,8 @@ export async function writeDailyBriefing(gitLog?: string): Promise<void> {
  * Returns structured briefing: platform state + this agent's own run history.
  */
 export async function readAgentBriefing(agentId: string): Promise<AgentBriefing> {
-  const [briefingPage, ownRunRows, decisionPages] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+  const [briefingPage, ownRunRows, decisionPages, repoScanPage] = await Promise.all([
     knowledgeBase.get('daily-briefing').catch(() => null),
     pool.query<OwnRunRow>(`
       SELECT status, started_at::text, items_processed, items_created, error_msg
@@ -142,6 +154,7 @@ export async function readAgentBriefing(agentId: string): Promise<AgentBriefing>
       LIMIT 5
     `, [agentId]).catch(() => ({ rows: [] as OwnRunRow[] })),
     knowledgeBase.list({ type: 'decision', limit: 3 }).catch(() => []),
+    knowledgeBase.get(`repo-scan/${today}`).catch(() => null),
   ]);
 
   const ownHistory = ownRunRows.rows.length
@@ -157,8 +170,17 @@ export async function readAgentBriefing(agentId: string): Promise<AgentBriefing>
     ? decisionPages.map(p => `[${p.slug}] ${p.compiled_truth?.slice(0, 200)}`).join('\n\n---\n\n')
     : '';
 
+  const repoStateSnippet = repoScanPage
+    ? repoScanPage.compiled_truth.slice(0, 2000)
+    : '';
+
+  const platformSummary = [
+    briefingPage?.compiled_truth ?? '',
+    repoStateSnippet ? '\n\n=== REPO STATE (сегодня) ===\n' + repoStateSnippet : '',
+  ].join('').trim();
+
   return {
-    platformSummary: briefingPage?.compiled_truth ?? '',
+    platformSummary,
     recentRuns: ownHistory,
     systemRuns: '',  // already embedded in platformSummary
     recentDecisions,
