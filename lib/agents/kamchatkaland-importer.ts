@@ -170,7 +170,7 @@ export async function runKamchatkalandImporter(batchSize = 10): Promise<Kamchatk
 
   // Найти статьи, которых нет или которые устарели
   const existingKeys = await pool.query<{ k: string }>(
-    `SELECT route_dedupe_key AS k FROM agent_route_knowledge WHERE source_name = $1`,
+    `SELECT dedupe_key AS k FROM kamchatka_routes WHERE source_name = $1`,
     [SOURCE_NAME],
   );
   const existing = new Set(existingKeys.rows.map(r => r.k));
