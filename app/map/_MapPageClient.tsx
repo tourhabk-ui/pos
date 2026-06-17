@@ -40,6 +40,8 @@ import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { useMesh } from '@/hooks/use-mesh';
+import { useGeofence } from '@/hooks/useGeofence';
+import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -153,6 +155,7 @@ export default function MapPageClient() {
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
+  const { breach } = useGeofence();
 
   // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
@@ -572,6 +575,9 @@ export default function MapPageClient() {
         )}
 
         {/* Панель выбранного маршрута */}
+        {/* Геофенс-предупреждение */}
+        {breach && <GeofenceAlert breach={breach} />}
+
         {selectedRoute && (
           <div
             className="absolute bottom-24 left-3 right-3 z-[500] rounded-xl bg-black/80  border border-white/20 shadow-2xl"
@@ -814,6 +820,9 @@ export default function MapPageClient() {
         </div>
       )}
 
+      {/* Геофенс-предупреждение */}
+      {breach && <GeofenceAlert breach={breach} />}
+
       {/* Кнопка «Я вернулся» — для активных маршрутов */}
       <Link
         href="/return"
@@ -821,7 +830,7 @@ export default function MapPageClient() {
           bg-green-600/90  text-white text-xs font-semibold shadow-lg
           hover:bg-green-700 transition-colors"
       >
-        ✅ Я вернулся
+        Я вернулся
       </Link>
 
       <BottomNav activePath="/map" />
