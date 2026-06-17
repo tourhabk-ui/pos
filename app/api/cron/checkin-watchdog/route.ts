@@ -44,13 +44,18 @@ async function sendTelegram(chatId: string, text: string): Promise<void> {
   }).catch(() => {});
 }
 
-async function recordNotification(registrationId: string, step: EscalationStep, channel: string, recipient: string): Promise<void> {
+async function recordNotification(
+  registrationId: string,
+  step: EscalationStep,
+  channel: string,
+  recipient: string,
+  status: 'sent' | 'skipped' = 'sent',
+): Promise<void> {
   await query(
     `INSERT INTO route_registration_notifications
        (registration_id, step, channel, recipient, status, sent_at)
-     VALUES ($1, $2, $3, $4, 'sent', now())
-     ON CONFLICT DO NOTHING`,
-    [registrationId, stepToNum(step), channel, recipient],
+     VALUES ($1, $2, $3, $4, $5, now())`,
+    [registrationId, stepToNum(step), channel, recipient, status],
   );
 }
 
@@ -123,7 +128,7 @@ export async function GET(req: Request) {
             WHEN 1 THEN 'soft' WHEN 2 THEN 'hard' ELSE 'mchs'
           END
           FROM route_registration_notifications n
-          WHERE n.registration_id = r.id AND n.status = 'sent'
+          WHERE n.registration_id = r.id AND n.status IN ('sent', 'skipped')
           ORDER BY n.step
         ),
         ARRAY[]::text[]
@@ -156,17 +161,23 @@ export async function GET(req: Request) {
     const { step, hoursOverdue } = decision;
     const msg = buildMessage(reg, step, hoursOverdue);
 
-    // Уведомление в зависимости от шага
+    // Уведомление в зависимости от шага.
+    // Важно: recordNotification вызывается ВСЕГДА — иначе шаг не записывается
+    // и эскалация стоит на месте при отсутствии Telegram.
     if (step === 'soft') {
-      // Спрашиваем самого туриста (если есть Telegram экстренного контакта как прокси)
       if (reg.emergency_contact_telegram_chat_id) {
         await sendTelegram(reg.emergency_contact_telegram_chat_id, msg);
         await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
+      } else {
+        // Нет Telegram — записываем skipped чтобы прогрессировать к hard
+        await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped');
       }
     } else if (step === 'hard') {
       if (reg.emergency_contact_telegram_chat_id) {
         await sendTelegram(reg.emergency_contact_telegram_chat_id, msg);
         await recordNotification(reg.id, step, 'telegram', reg.emergency_contact_phone);
+      } else {
+        await recordNotification(reg.id, step, 'none', reg.emergency_contact_phone, 'skipped');
       }
     } else {
       // mchs — уведомляем admin-чат для ручной передачи в МЧС
@@ -174,6 +185,8 @@ export async function GET(req: Request) {
       if (adminChatId) {
         await sendTelegram(adminChatId, `МЧС-ТРЕВОГА\n\n${msg}`);
         await recordNotification(reg.id, step, 'telegram', 'admin');
+      } else {
+        await recordNotification(reg.id, step, 'none', 'admin', 'skipped');
       }
     }
 
