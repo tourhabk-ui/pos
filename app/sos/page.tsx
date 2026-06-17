@@ -269,7 +269,7 @@ export default function SosPage() {
                 textDecoration: 'none',
               }}
             >
-              💬 SMS с координатами (без интернета)
+              SMS с координатами (без интернета)
             </a>
           )}
         </div>
@@ -412,7 +412,7 @@ export default function SosPage() {
             fontSize: '13px',
           }}
         >
-          📋 Зарегистрировать маршрут перед выходом
+          Зарегистрировать маршрут перед выходом
         </a>
 
         {/* Памятка */}
