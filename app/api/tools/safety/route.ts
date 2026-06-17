@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 
 const BodySchema = z.union([
   z.object({ placeId: z.string() }),
+  z.object({ routeId: z.string().uuid() }),
   z.object({
     lat: z.number().min(50).max(58),
     lng: z.number().min(155).max(165),
@@ -58,6 +59,151 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+
+  // ── Маршрут — агрегируем по всем точкам маршрута ─────────────────────────
+  if ('routeId' in data) {
+    try {
+      const [routeRes, wpRes] = await Promise.all([
+        query(
+          `SELECT id, title, distance_km, elevation_gain_m, duration_hours,
+                  difficulty, hazards, mchs_registration_required, mchs_phone
+           FROM kamchatka_routes WHERE id = $1 LIMIT 1`,
+          [data.routeId],
+        ),
+        query(
+          `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m,
+                  sp.nearest_medical_km, sp.sat_communicator_required,
+                  sp.registration_required,
+                  rs.alert_severity, rs.alert_message
+           FROM route_waypoints rw
+           JOIN places p ON p.id = rw.place_id
+           LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
+           LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
+           WHERE rw.route_id = $1
+           ORDER BY rw.position`,
+          [data.routeId],
+        ),
+      ]);
+
+      if (!routeRes.rows.length) {
+        return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+      }
+
+      const r = routeRes.rows[0];
+      const wps = wpRes.rows;
+
+      // Агрегация опасностей по всем точкам маршрута
+      const allHazards = new Set<string>();
+      (Array.isArray(r.hazards) ? (r.hazards as string[]) : []).forEach(h => allHazards.add(h));
+      wps.forEach(wp => {
+        if (Array.isArray(wp.hazard_types)) (wp.hazard_types as string[]).forEach(h => allHazards.add(h));
+      });
+      const hazards = Array.from(allHazards);
+
+      const maxAlertSeverity = wps.reduce((m: number | null, wp) => {
+        const s = wp.alert_severity != null ? Number(wp.alert_severity) : null;
+        if (s == null) return m;
+        return m == null ? s : Math.max(m, s);
+      }, null);
+
+      const maxDifficulty = wps.reduce((m: number | null, wp) => {
+        const d = wp.difficulty_level != null ? Number(wp.difficulty_level) : null;
+        if (d == null) return m;
+        return m == null ? d : Math.max(m, d);
+      }, r.difficulty != null ? Number(r.difficulty) : null);
+
+      const maxAltitude = wps.reduce((m: number | null, wp) => {
+        const a = wp.altitude_m != null ? Number(wp.altitude_m) : null;
+        if (a == null) return m;
+        return m == null ? a : Math.max(m, a);
+      }, null);
+
+      const minMedical = wps.reduce((m: number | null, wp) => {
+        const v = wp.nearest_medical_km != null ? Number(wp.nearest_medical_km) : null;
+        if (v == null) return m;
+        return m == null ? v : Math.min(m, v);
+      }, null);
+
+      const satRequired = wps.some(wp => wp.sat_communicator_required);
+      const regRequired = Boolean(r.mchs_registration_required) || wps.some(wp => wp.registration_required);
+      const alertWp = wps.find(wp => wp.alert_severity != null && Number(wp.alert_severity) > 0);
+
+      const riskScore = computeRiskScore(hazards, maxAlertSeverity, maxDifficulty);
+
+      const contextParts: string[] = [
+        `МАРШРУТ: ${r.title as string}`,
+      ];
+      if (r.distance_km) contextParts.push(`ДИСТАНЦИЯ: ${r.distance_km} км`);
+      if (r.elevation_gain_m) contextParts.push(`НАБОР ВЫСОТЫ: ${r.elevation_gain_m} м`);
+      if (r.duration_hours) contextParts.push(`ДЛИТЕЛЬНОСТЬ: ${r.duration_hours} ч`);
+      if (maxAltitude) contextParts.push(`МАКСИМАЛЬНАЯ ВЫСОТА: ${maxAltitude} м`);
+      if (hazards.length) contextParts.push(`ОПАСНОСТИ: ${hazards.map(h => HAZARD_LABELS[h] ?? h).join(', ')}`);
+      if (maxDifficulty != null) contextParts.push(`СЛОЖНОСТЬ: ${maxDifficulty}/5`);
+      if (minMedical != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${minMedical} км`);
+      if (satRequired) contextParts.push('Спутниковая связь: рекомендуется');
+      if (regRequired) contextParts.push('Регистрация в МЧС: обязательна');
+      if (r.mchs_phone) contextParts.push(`Телефон МЧС: ${r.mchs_phone}`);
+      if (maxAlertSeverity != null && maxAlertSeverity > 0 && alertWp) {
+        contextParts.push(`ТЕКУЩИЙ АЛЕРТ (уровень ${maxAlertSeverity}/4): ${(alertWp.alert_message as string | null) ?? 'повышенная осторожность'}`);
+      }
+      if (wps.length > 0) contextParts.push(`ТОЧЕК НА МАРШРУТЕ: ${wps.length}`);
+
+      const messages = [
+        {
+          role: 'system' as const,
+          content: 'Ты Кузьмич — опытный гид по Камчатке. Давай честные, конкретные оценки безопасности. Говори прямо о реальных рисках. Отвечай ТОЛЬКО валидным JSON без markdown-блоков.',
+        },
+        {
+          role: 'user' as const,
+          content: contextParts.join('\n') + `
+
+Дай оценку безопасности маршрута строго по схеме JSON:
+{
+  "assessment": "2-3 предложения честной оценки безопасности для туриста",
+  "recommendations": ["конкретная рекомендация", "максимум 5 штук"],
+  "emergencyTip": "что делать при ЧС на этом маршруте (1 предложение)"
+}`,
+        },
+      ];
+
+      const aiText = await callAIFast(messages);
+      let synthesis: { assessment?: string; recommendations?: string[]; emergencyTip?: string } = {};
+      try {
+        const cleaned = aiText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        synthesis = JSON.parse(cleaned) as typeof synthesis;
+      } catch {
+        synthesis = { assessment: aiText.slice(0, 300) };
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          placeId:          r.id as string,
+          placeName:        r.title as string,
+          placeType:        'route',
+          altitudeM:        maxAltitude,
+          difficultyLevel:  maxDifficulty,
+          hazards,
+          nearestMedicalKm: minMedical,
+          satCommunicator:  satRequired,
+          registrationRequired: regRequired,
+          realtime: maxAlertSeverity != null && maxAlertSeverity > 0 ? {
+            isOpen: null,
+            alertSeverity: maxAlertSeverity,
+            alertMessage: (alertWp?.alert_message as string | null) ?? null,
+            currentCrowds: null,
+            activeAlerts: null,
+          } : null,
+          riskScore,
+          kuzmichAssessment: synthesis.assessment ?? null,
+          recommendations:   synthesis.recommendations ?? [],
+          emergencyTip:      synthesis.emergencyTip ?? null,
+        },
+      });
+    } catch {
+      return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
+    }
+  }
 
   try {
     const params: unknown[] = 'placeId' in data ? [data.placeId] : [data.lat, data.lng];
