@@ -4,14 +4,14 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v10'; // bumped: Leaflet + coverage links in /emergency
+const CACHE_NAME = 'kamchatour-v11'; // bumped: tile host .org → .cz (RU access)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
 const TILE_CACHE_PREFIX = 'kh-tiles-';
-const TILE_CACHE_VERSION = 4; // bumped: зум 7-9 (~525 тайлов) при установке, + авто-кэширование при просмотре
-const TILE_HOST = 'tile.opentopomap.org';
+const TILE_CACHE_VERSION = 5; // bumped: .org → .cz, старый кеш kh-tiles-4 будет удалён
+const TILE_HOST = 'tile.opentopomap.cz';
 
 // Базовые тайлы для всей Камчатки — кэшируются при установке SW.
 // Зум 7 (обзор) + 8 (средний) + 9 (детальный) = ~525 тайлов, ~8-10 МБ.

@@ -136,10 +136,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="dns-prefetch" href="//mc.yandex.ru" />
         <link rel="dns-prefetch" href="//www.clarity.ms" />
         <link rel="dns-prefetch" href="//emrldco.com" />
-        <link rel="dns-prefetch" href="//tile.opentopomap.org" />
+        <link rel="dns-prefetch" href="//tile.opentopomap.cz" />
         <link rel="preconnect" href="https://mc.yandex.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://www.clarity.ms" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://tile.opentopomap.org" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://tile.opentopomap.cz" crossOrigin="anonymous" />
         <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />

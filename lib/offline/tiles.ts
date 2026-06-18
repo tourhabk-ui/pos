@@ -7,7 +7,7 @@
 
 import type { RegionBbox } from '@/lib/geo/regions';
 
-export const TILE_HOST = 'tile.opentopomap.org';
+export const TILE_HOST = 'tile.opentopomap.cz';
 export const TILE_ZOOM_MIN = 7;
 export const TILE_ZOOM_MAX = 12;
 export const TILE_ZOOM_LEVELS: number[] = [7, 8, 9, 10, 11, 12];
