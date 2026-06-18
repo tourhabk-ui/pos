@@ -187,13 +187,23 @@ export default function MapPageClient() {
     }
   }, []);
 
+  // Ref for throttling userPos updates — only update state if moved >10m
+  const userPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {
     if (!showMyLocation || typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const prev = userPosRef.current;
+        // Only trigger re-render (and marker recalculation) if moved >10m
+        if (!prev || haversineDistance(prev.lat, prev.lng, lat, lng) > 10) {
+          userPosRef.current = { lat, lng };
+          setUserPos({ lat, lng });
+        }
       },
       () => { /* ошибка — молча */ },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
@@ -356,6 +366,11 @@ export default function MapPageClient() {
     };
   }), [filtered, activeFilter, userPos]);
 
+  // Stable merged marker array — memoized so LeafletMap's useEffect doesn't
+  // fire (and destroy+recreate the map) when _MapPageClient re-renders for
+  // reasons unrelated to marker content (e.g. GPS ticks from useGeofence).
+  const allMarkers = useMemo(() => [...mapMarkers, ...peerMarkers], [mapMarkers, peerMarkers]);
+
   // ── ОФЛАЙН-РЕЖИМ ──────────────────────────────────────────────────
   if (isOffline) {
     return (
@@ -409,7 +424,7 @@ export default function MapPageClient() {
         <LeafletMap
           center={[53.0444, 158.6483]}
           zoom={8}
-          markers={[...mapMarkers, ...peerMarkers]}
+          markers={allMarkers}
           height="100dvh"
           attribution={false}
           onMarkerClick={handleMarkerClick}
@@ -694,7 +709,7 @@ export default function MapPageClient() {
           <LeafletMap
             center={[53.0444, 158.6483]}
             zoom={7}
-            markers={[...mapMarkers, ...peerMarkers]}
+            markers={allMarkers}
             height="calc(100vh - 180px)"
             attribution={false}
             onMarkerClick={handleMarkerClick}
