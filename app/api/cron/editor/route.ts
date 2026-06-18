@@ -3,6 +3,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
 import { readAgentBriefing } from '@/lib/agents/warmup';
+import { smokeTestEditorWrites } from '@/lib/agents/smoke-test';
 
 /**
  * GET /api/cron/editor
@@ -28,14 +29,28 @@ export async function GET(req: Request) {
     // Provides context so the agent knows what was already processed.
     const briefing = await readAgentBriefing('editor');
     const result = await runEditor(briefing);
+
+    // Smoke test: проверяет конкретные строки по ID — не просто updated_at за период.
+    // Telegram fire-and-forget внутри, logAgentRun пишет в DB независимо от Telegram.
+    const smoke = await smokeTestEditorWrites(
+      result.improved ?? 0,
+      result.improved_ids ?? [],
+      result.processed ?? 0,
+      result.errors ?? 0,
+    );
+
+    // DB-запись всегда, независимо от результата Telegram (он уже ушёл выше как void)
     void logAgentRun({
       agent_id: 'editor',
-      status: 'success',
+      status: smoke.passed ? 'success' : 'failed',
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
-      metadata: result as unknown as Record<string, unknown>,
+      items_processed: result.processed,
+      items_created: result.improved,
+      error_msg: smoke.passed ? undefined : smoke.message,
+      metadata: { ...result as unknown as Record<string, unknown>, smoke_kind: smoke.kind } as Record<string, unknown>,
     });
-    return Response.json({ success: true, ...result });
+    return Response.json({ success: true, smoke: smoke.kind, ...result });
   } catch (err) {
     void logAgentRun({
       agent_id: 'editor',

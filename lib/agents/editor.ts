@@ -19,6 +19,7 @@ export interface EditorResult {
   processed: number;
   improved: number;
   improved_titles: string[];
+  improved_ids: string[];  // ark_id / route.id — для smoke test по конкретным строкам
   errors: number;
   duration_ms: number;
 }
@@ -116,12 +117,13 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   }
 
   const improvedTitles: string[] = [];
+  const improvedIds: string[] = [];
 
   let routes: RouteRow[];
   try {
     routes = await findRoutesNeedingDescription();
   } catch {
-    return { processed: 0, improved: 0, improved_titles: [], errors: 1, duration_ms: Date.now() - start };
+    return { processed: 0, improved: 0, improved_titles: [], improved_ids: [], errors: 1, duration_ms: Date.now() - start };
   }
 
   for (const route of routes) {
@@ -138,6 +140,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       );
       improved++;
       improvedTitles.push(route.title);
+      improvedIds.push(route.id);
     } catch {
       errors++;
     }
@@ -161,5 +164,5 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     );
   }
 
-  return { processed, improved, improved_titles: improvedTitles, errors, duration_ms: Date.now() - start };
+  return { processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors, duration_ms: Date.now() - start };
 }

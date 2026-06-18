@@ -201,51 +201,76 @@ export async function scanProductionHealth(): Promise<{ summary: string; endpoin
 export async function runRepoScan(gitLog?: string): Promise<RepoScanResult> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const [dbResult, repoResult, healthResult] = await Promise.all([
-    scanDbSchema(),
-    scanRepoTree(),
-    scanProductionHealth(),
-  ]);
+  try {
+    const [dbResult, repoResult, healthResult] = await Promise.all([
+      scanDbSchema(),
+      scanRepoTree(),
+      scanProductionHealth(),
+    ]);
 
-  const sections = [
-    `Дата скана: ${today}`,
-    '',
-    '=== СХЕМА БД ===',
-    dbResult.summary,
-    '',
-    '=== ДЕРЕВО РЕПО ===',
-    repoResult.summary,
-    '',
-    '=== PRODUCTION HEALTH ===',
-    healthResult.summary,
-  ];
-  if (gitLog) {
-    sections.push('', '=== ПОСЛЕДНИЕ КОММИТЫ ===', gitLog.slice(0, 1000));
+    const sections = [
+      `Дата скана: ${today}`,
+      '',
+      '=== СХЕМА БД ===',
+      dbResult.summary,
+      '',
+      '=== ДЕРЕВО РЕПО ===',
+      repoResult.summary,
+      '',
+      '=== PRODUCTION HEALTH ===',
+      healthResult.summary,
+    ];
+    if (gitLog) {
+      sections.push('', '=== ПОСЛЕДНИЕ КОММИТЫ ===', gitLog.slice(0, 1000));
+    }
+
+    const compiledTruth = sections.join('\n');
+
+    await knowledgeBase.upsert({
+      slug: `repo-scan/${today}`,
+      type: 'repo-state',
+      title: `Состояние репо ${today}`,
+      compiled_truth: compiledTruth,
+      metadata: {
+        tables_scanned: dbResult.tablesScanned,
+        files_found: repoResult.filesFound,
+        endpoints_checked: healthResult.endpointsChecked,
+        generated_at: new Date().toISOString(),
+      },
+      agent_id: 'repo-scanner',
+    });
+
+    return {
+      dbSummary: dbResult.summary,
+      repoSummary: repoResult.summary,
+      healthSummary: healthResult.summary,
+      tablesScanned: dbResult.tablesScanned,
+      filesFound: repoResult.filesFound,
+      endpointsChecked: healthResult.endpointsChecked,
+      generatedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const errorSummary = `[REPO SCAN FAILED ${today}: ${msg}]`;
+
+    // Пишем явную failure-запись — агент должен видеть "упал", а не пустоту
+    await knowledgeBase.upsert({
+      slug: `repo-scan/${today}`,
+      type: 'repo-state',
+      title: `Состояние репо ${today} [ОШИБКА]`,
+      compiled_truth: errorSummary,
+      metadata: { error: true, error_msg: msg, generated_at: new Date().toISOString() },
+      agent_id: 'repo-scanner',
+    }).catch(() => {});
+
+    return {
+      dbSummary: '[DB ЗОНД НЕДОСТУПЕН]',
+      repoSummary: '[GITHUB ЗОНД НЕДОСТУПЕН]',
+      healthSummary: '[HEALTH ЗОНД НЕДОСТУПЕН]',
+      tablesScanned: 0,
+      filesFound: 0,
+      endpointsChecked: 0,
+      generatedAt: new Date().toISOString(),
+    };
   }
-
-  const compiledTruth = sections.join('\n');
-
-  await knowledgeBase.upsert({
-    slug: `repo-scan/${today}`,
-    type: 'repo-state',
-    title: `Состояние репо ${today}`,
-    compiled_truth: compiledTruth,
-    metadata: {
-      tables_scanned: dbResult.tablesScanned,
-      files_found: repoResult.filesFound,
-      endpoints_checked: healthResult.endpointsChecked,
-      generated_at: new Date().toISOString(),
-    },
-    agent_id: 'repo-scanner',
-  });
-
-  return {
-    dbSummary: dbResult.summary,
-    repoSummary: repoResult.summary,
-    healthSummary: healthResult.summary,
-    tablesScanned: dbResult.tablesScanned,
-    filesFound: repoResult.filesFound,
-    endpointsChecked: healthResult.endpointsChecked,
-    generatedAt: new Date().toISOString(),
-  };
 }
