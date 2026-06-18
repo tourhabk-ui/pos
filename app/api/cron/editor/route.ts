@@ -30,9 +30,16 @@ export async function GET(req: Request) {
     const briefing = await readAgentBriefing('editor');
     const result = await runEditor(briefing);
 
-    // Smoke test: verify writes actually happened in DB (не доверяй result.improved)
-    const smoke = await smokeTestEditorWrites(result.improved ?? 0, started_at);
+    // Smoke test: проверяет конкретные строки по ID — не просто updated_at за период.
+    // Telegram fire-and-forget внутри, logAgentRun пишет в DB независимо от Telegram.
+    const smoke = await smokeTestEditorWrites(
+      result.improved ?? 0,
+      result.improved_ids ?? [],
+      result.processed ?? 0,
+      result.errors ?? 0,
+    );
 
+    // DB-запись всегда, независимо от результата Telegram (он уже ушёл выше как void)
     void logAgentRun({
       agent_id: 'editor',
       status: smoke.passed ? 'success' : 'failed',
@@ -41,9 +48,9 @@ export async function GET(req: Request) {
       items_processed: result.processed,
       items_created: result.improved,
       error_msg: smoke.passed ? undefined : smoke.message,
-      metadata: { ...result as unknown as Record<string, unknown>, smoke } as Record<string, unknown>,
+      metadata: { ...result as unknown as Record<string, unknown>, smoke_kind: smoke.kind } as Record<string, unknown>,
     });
-    return Response.json({ success: true, smoke: smoke.passed ? 'ok' : 'FAIL', ...result });
+    return Response.json({ success: true, smoke: smoke.kind, ...result });
   } catch (err) {
     void logAgentRun({
       agent_id: 'editor',
