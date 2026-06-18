@@ -3,9 +3,6 @@
 import { useState, useEffect } from 'react';
 import { Bot, CheckCircle, XCircle, RefreshCw, Save } from 'lucide-react';
 
-const APP_URL = 'https://vedarai.ru';
-const WEBHOOK_PATH = '/api/telegram/kuzmich';
-
 interface BotStatus {
   configured: boolean;
   token_source: string | null;
@@ -25,7 +22,7 @@ export default function TelegramAdminClient() {
     try {
       const r = await fetch('/api/admin/telegram');
       if (r.ok) setStatus(await r.json() as BotStatus);
-    } catch { /* сетевая ошибка */ }
+    } catch { /* ignore */ }
     finally { setLoading(false); }
   }
 
@@ -38,44 +35,22 @@ export default function TelegramAdminClient() {
     setSaving(true);
     setResult(null);
     try {
-      // 1. Проверяем токен прямо из браузера (браузер точно достучится до Telegram)
-      const meRes = await fetch(`https://api.telegram.org/bot${tok}/getMe`);
-      const me = await meRes.json() as { ok: boolean; result?: { username: string; first_name: string }; description?: string };
-      if (!me.ok) {
-        setResult({ ok: false, msg: `Неверный токен: ${me.description ?? 'ошибка Telegram'}` });
-        return;
-      }
-
-      // 2. Регистрируем webhook прямо из браузера
-      const webhookUrl = `${APP_URL}${WEBHOOK_PATH}`;
-      const whRes = await fetch(`https://api.telegram.org/bot${tok}/setWebhook`, {
+      // Сервер сам вызывает Telegram API (браузер может быть заблокирован)
+      const r = await fetch('/api/admin/telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true }),
+        body: JSON.stringify({ token: tok }),
       });
-      const wh = await whRes.json() as { ok: boolean; description?: string };
-      if (!wh.ok) {
-        setResult({ ok: false, msg: `Webhook не зарегистрирован: ${wh.description}` });
-        return;
-      }
-
-      // 3. Сохраняем токен в БД (чтобы сервер мог отвечать)
-      const saveRes = await fetch('/api/admin/telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: tok, skip_telegram: true }),
-      });
-      const saved = await saveRes.json() as { success: boolean; error?: string };
-
-      if (saved.success) {
-        setResult({ ok: true, msg: `Бот @${me.result?.username} подключён. Webhook: ${webhookUrl}` });
+      const data = await r.json() as { success: boolean; bot?: { username: string }; webhook_url?: string; error?: string };
+      if (data.success) {
+        setResult({ ok: true, msg: `Бот @${data.bot?.username} подключён. Webhook: ${data.webhook_url}` });
         setToken('');
         await loadStatus();
       } else {
-        setResult({ ok: false, msg: `Webhook OK, но токен не сохранён в БД: ${saved.error}. Добавь TELEGRAM_KUZMICH_BOT_TOKEN в Timeweb.` });
+        setResult({ ok: false, msg: data.error ?? 'Неизвестная ошибка сервера' });
       }
     } catch (err) {
-      setResult({ ok: false, msg: `Ошибка: ${err instanceof Error ? err.message : String(err)}` });
+      setResult({ ok: false, msg: `Сетевая ошибка: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setSaving(false);
     }
@@ -85,29 +60,14 @@ export default function TelegramAdminClient() {
     setSaving(true);
     setResult(null);
     try {
-      // Берём токен из env через сервер — просим сервер вернуть его (tail) и перерегистрировать через браузер
-      // Сначала получим актуальный токен из статуса — но у нас только tail. Нужно спросить сервер.
       const r = await fetch('/api/admin/telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reregister: true }),
       });
-      const data = await r.json() as { success: boolean; webhook_url?: string; error?: string; token?: string };
-
-      if (data.token) {
-        // Сервер вернул токен — регистрируем из браузера
-        const webhookUrl = `${APP_URL}${WEBHOOK_PATH}`;
-        const whRes = await fetch(`https://api.telegram.org/bot${data.token}/setWebhook`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'callback_query'], drop_pending_updates: true }),
-        });
-        const wh = await whRes.json() as { ok: boolean; description?: string };
-        setResult({ ok: wh.ok, msg: wh.ok ? `Webhook зарегистрирован: ${webhookUrl}` : `Ошибка: ${wh.description}` });
-        if (wh.ok) await loadStatus();
-      } else {
-        setResult({ ok: data.success, msg: data.error ?? data.webhook_url ?? 'Готово' });
-      }
+      const data = await r.json() as { success: boolean; webhook_url?: string; bot?: { username: string }; error?: string };
+      setResult({ ok: data.success, msg: data.success ? `Webhook зарегистрирован: ${data.webhook_url}` : (data.error ?? 'Ошибка') });
+      if (data.success) await loadStatus();
     } catch (err) {
       setResult({ ok: false, msg: `Ошибка: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
@@ -124,7 +84,6 @@ export default function TelegramAdminClient() {
         <h1 className="ds-h1">Telegram бот</h1>
       </div>
 
-      {/* Статус */}
       <div className="ds-card p-5 space-y-3">
         <div className="flex items-center justify-between">
           <span className="ds-label">Статус</span>
@@ -161,10 +120,9 @@ export default function TelegramAdminClient() {
         )}
       </div>
 
-      {/* Форма */}
       <div className="ds-card p-5 space-y-4">
         <p className="text-sm text-[var(--text-secondary)]">
-          Вставь токен из @BotFather → нажми «Подключить». Webhook регистрируется прямо из браузера.
+          Вставь новый токен из @BotFather → нажми «Подключить». Сервер сам зарегистрирует webhook.
         </p>
         <div className="space-y-2">
           <label className="ds-label">Токен бота</label>
@@ -199,7 +157,7 @@ export default function TelegramAdminClient() {
             onClick={handleReregister}
             disabled={saving}
           >
-            Перерегистрировать webhook (токен из env)
+            Перерегистрировать webhook (текущий токен)
           </button>
         )}
       </div>
