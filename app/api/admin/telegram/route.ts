@@ -12,7 +12,6 @@ const WEBHOOK_PATH = '/api/telegram/kuzmich';
 
 async function resolveToken(): Promise<string> {
   return (
-    process.env.TELEGRAM_KUZMICH_BOT_TOKEN ??
     process.env.TELEGRAM_BOT_TOKEN ??
     (await getSetting('telegram_bot_token')) ??
     ''

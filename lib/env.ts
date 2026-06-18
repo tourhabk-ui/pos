@@ -49,18 +49,19 @@ const envSchema = z.object({
   AI_DAILY_BUDGET_USD: z.string().optional().default('10.0'),
 
   // ── Telegram ──────────────────────────────────────────────────────
-  // @kuzmihai_bot — public bot (AI chat, booking buttons, channel posts)
-  TELEGRAM_BOT_TOKEN:            z.string().optional().default(''),
-  TELEGRAM_CHAT_ID:              z.string().optional().default(''), // admin group chat
-  TELEGRAM_FISHING_CHAT_ID:      z.string().optional().default(''), // operator auth chat
-  TELEGRAM_WEBHOOK_SECRET:       z.string().optional().default(''),
-  TELEGRAM_CHANNEL_ID:           z.string().optional().default(''), // public channel
-  TELEGRAM_LEADS_CHAT_ID:        z.string().optional().default(''), // diagnostic only
-  // @tourhab_bot — owner-only admin bot (digest, SOS, board initiatives)
-  TELEGRAM_ADMIN_BOT_TOKEN:      z.string().optional().default(''),
-  TELEGRAM_OWNER_ID:             z.string().optional().default(''), // numeric Telegram user ID
-  TELEGRAM_ADMIN_CHAT_ID:        z.string().optional().default(''), // SOS alerts
-  // Login Widget — set bot @username only after /setdomain tourhab.ru in BotFather
+  // Единственный бот: @kuzmichai_bot
+  TELEGRAM_BOT_TOKEN:            z.string().optional().default(''), // токен бота
+  TELEGRAM_OWNER_ID:             z.string().optional().default(''), // numeric Telegram ID владельца
+  TELEGRAM_CHAT_ID:              z.string().optional().default(''), // основная admin-группа
+  TELEGRAM_ADMIN_CHAT_ID:        z.string().optional().default(''), // чат SOS-алертов (может совпадать с CHAT_ID)
+  TELEGRAM_FISHING_CHAT_ID:      z.string().optional().default(''), // группа операторов/рыбаков
+  TELEGRAM_LEADS_CHAT_ID:        z.string().optional().default(''), // чат новых лидов
+  TELEGRAM_CHANNEL_ID:           z.string().optional().default(''), // публичный канал
+  TELEGRAM_CHANNEL_LINK:         z.string().optional().default(''), // ссылка на публичный канал
+  TELEGRAM_AI_CHANNEL_ID:        z.string().optional().default(''), // AI-канал
+  TELEGRAM_AI_CHANNEL_LINK:      z.string().optional().default(''), // ссылка на AI-канал
+  TELEGRAM_WEBHOOK_SECRET:       z.string().optional().default(''), // секрет webhook (опционально)
+  // Login Widget
   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: z.string().optional().default(''),
 
   // ── Email (SMTP) ──────────────────────────────────────────────────

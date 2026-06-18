@@ -36,7 +36,6 @@ setInterval(() => processedUpdates.clear(), 10 * 60 * 1000);
 
 let _cachedToken: string | null = null;
 async function botToken(): Promise<string> {
-  if (process.env.TELEGRAM_KUZMICH_BOT_TOKEN) return process.env.TELEGRAM_KUZMICH_BOT_TOKEN;
   if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
   if (!_cachedToken) _cachedToken = await getSetting('telegram_bot_token');
   return _cachedToken ?? '';

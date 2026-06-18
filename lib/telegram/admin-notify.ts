@@ -1,7 +1,6 @@
 /**
- * Уведомления в admin-бот (@tourhab_bot) о событиях поддержки.
- *
- * Использует TELEGRAM_ADMIN_BOT_TOKEN + TELEGRAM_OWNER_ID.
+ * Уведомления о событиях поддержки в личку владельцу.
+ * Использует TELEGRAM_BOT_TOKEN + TELEGRAM_OWNER_ID.
  * Fire-and-forget, ошибки подавляются.
  */
 
@@ -19,7 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 async function sendAdminMessage(text: string): Promise<void> {
-  const token   = process.env.TELEGRAM_ADMIN_BOT_TOKEN;
+  const token   = process.env.TELEGRAM_BOT_TOKEN;
   const ownerId = process.env.TELEGRAM_OWNER_ID ?? '833478813';
   if (!token) return;
 

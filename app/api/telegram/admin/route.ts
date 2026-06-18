@@ -16,8 +16,8 @@
  *         -d secret_token=SECRET
  *
  * Env vars (Timeweb):
- *   TELEGRAM_ADMIN_BOT_TOKEN — токен @tourhab_bot
- *   TELEGRAM_OWNER_ID        — Telegram user ID владельца (833478813)
+ *   TELEGRAM_BOT_TOKEN — токен @kuzmichai_bot
+ *   TELEGRAM_OWNER_ID  — Telegram user ID владельца (833478813)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -66,7 +66,7 @@ export const dynamic = 'force-dynamic';
 // ── Telegram helper ───────────────────────────────────────────────────────────
 
 async function reply(chatId: number, text: string): Promise<void> {
-  const token = process.env.TELEGRAM_ADMIN_BOT_TOKEN;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
