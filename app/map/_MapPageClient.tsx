@@ -106,6 +106,11 @@ const OFFLINE_FILTERS = [
   { id: 'forest',     label: 'Лес',          icon: MapPin },
 ];
 
+// Module-level constants — stable references across renders, never trigger LeafletMap useEffect
+const MAP_CENTER: [number, number] = [53.0444, 158.6483];
+const MAP_ZOOM_ONLINE = 8;
+const MAP_ZOOM_OFFLINE = 7;
+
 interface RoutePoint {
   id: string;
   title: string;
@@ -422,8 +427,8 @@ export default function MapPageClient() {
 
         {/* Карта на весь экран */}
         <LeafletMap
-          center={[53.0444, 158.6483]}
-          zoom={8}
+          center={MAP_CENTER}
+          zoom={MAP_ZOOM_ONLINE}
           markers={allMarkers}
           height="100dvh"
           attribution={false}
@@ -707,8 +712,8 @@ export default function MapPageClient() {
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
           <MapErrorBoundary>
           <LeafletMap
-            center={[53.0444, 158.6483]}
-            zoom={7}
+            center={MAP_CENTER}
+            zoom={MAP_ZOOM_OFFLINE}
             markers={allMarkers}
             height="calc(100vh - 180px)"
             attribution={false}
