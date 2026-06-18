@@ -115,13 +115,22 @@ export async function writeDailyBriefing(gitLog?: string): Promise<void> {
     if (gitLog) {
       sections.push('', '=== ПОСЛЕДНИЕ КОММИТЫ ===', gitLog.slice(0, 1500));
     }
-    if (repoScan) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (repoScan && repoScan.tablesScanned > 0) {
       sections.push(
         '',
         '=== REPO STATE ===',
         `Production: ${repoScan.healthSummary.split('\n')[0]}`,
         `DB: ${repoScan.tablesScanned} таблиц`,
-        `Repo: ${repoScan.filesFound} файлов | API routes: см. repo-scan/${new Date().toISOString().slice(0, 10)}`,
+        `Repo: ${repoScan.filesFound} файлов | API routes: см. repo-scan/${today}`,
+      );
+    } else {
+      sections.push(
+        '',
+        '=== REPO STATE ===',
+        repoScan
+          ? `[ЧАСТИЧНЫЙ ОТКАЗ зондов: ${repoScan.dbSummary}]`
+          : '[REPO SCAN: ЗОНДЫ НЕДОСТУПНЫ — данные за сегодня не получены]',
       );
     }
 
@@ -172,7 +181,7 @@ export async function readAgentBriefing(agentId: string): Promise<AgentBriefing>
 
   const repoStateSnippet = repoScanPage
     ? repoScanPage.compiled_truth.slice(0, 2000)
-    : '';
+    : `[REPO SCAN: не запускался сегодня (${today}) — данные отсутствуют, проверь /api/cron/repo-scan]`;
 
   const platformSummary = [
     briefingPage?.compiled_truth ?? '',
