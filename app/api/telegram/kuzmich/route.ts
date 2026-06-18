@@ -19,6 +19,7 @@ import { findOperatorByChatId, processOperatorMessage, registerOperatorChatId } 
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
+import { getSetting } from '@/lib/platform-settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,8 +34,12 @@ setInterval(() => processedUpdates.clear(), 10 * 60 * 1000);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function botToken() {
-  return process.env.TELEGRAM_KUZMICH_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN ?? '';
+let _cachedToken: string | null = null;
+async function botToken(): Promise<string> {
+  if (process.env.TELEGRAM_KUZMICH_BOT_TOKEN) return process.env.TELEGRAM_KUZMICH_BOT_TOKEN;
+  if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
+  if (!_cachedToken) _cachedToken = await getSetting('telegram_bot_token');
+  return _cachedToken ?? '';
 }
 
 /** Strip emoji codepoints (emoticons, symbols, flags, etc.) */
@@ -60,7 +65,7 @@ function sanitizeForTelegram(raw: string): string {
 }
 
 async function tgReply(chatId: number, text: string, extra?: Record<string, unknown>): Promise<void> {
-  const token = botToken();
+  const token = await botToken();
   if (!token) return;
   const clean = sanitizeForTelegram(text);
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -93,7 +98,7 @@ async function tgReply(chatId: number, text: string, extra?: Record<string, unkn
 }
 
 async function tgAnswerCallback(callbackQueryId: string, text?: string): Promise<void> {
-  const token = botToken();
+  const token = await botToken();
   if (!token) return;
   await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
     method: 'POST',
@@ -141,7 +146,7 @@ function hasTourRecommendation(answer: string): boolean {
 }
 
 async function sendBookingInlineButton(chatId: number): Promise<void> {
-  const token = botToken();
+  const token = await botToken();
   if (!token) return;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -167,7 +172,7 @@ async function afterAiReply(chatId: number, answer?: string): Promise<void> {
 // ── Скачать файл из Telegram → base64 ────────────────────────────────────────
 
 async function downloadTgFile(fileId: string): Promise<{ base64: string; mimeType: string; ext: string } | null> {
-  const token = botToken();
+  const token = await botToken();
   if (!token) return null;
   try {
     const fileRes = await fetch(
