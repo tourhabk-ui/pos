@@ -1,0 +1,44 @@
+name: Telegram Webhook Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      bot_token:
+        description: 'Telegram bot token'
+        required: true
+        type: string
+      webhook_url:
+        description: 'Webhook URL to register'
+        required: true
+        default: 'https://vedarai.ru/api/telegram/kuzmich'
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: getMe
+        run: |
+          echo "=== getMe ==="
+          curl -s "https://api.telegram.org/bot${{ inputs.bot_token }}/getMe" | python3 -m json.tool
+
+      - name: getWebhookInfo (before)
+        run: |
+          echo "=== getWebhookInfo BEFORE ==="
+          curl -s "https://api.telegram.org/bot${{ inputs.bot_token }}/getWebhookInfo" | python3 -m json.tool
+
+      - name: setWebhook
+        run: |
+          echo "=== setWebhook ==="
+          curl -s -X POST "https://api.telegram.org/bot${{ inputs.bot_token }}/setWebhook" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "url": "${{ inputs.webhook_url }}",
+              "allowed_updates": ["message","callback_query"],
+              "drop_pending_updates": true
+            }' | python3 -m json.tool
+
+      - name: getWebhookInfo (after)
+        run: |
+          echo "=== getWebhookInfo AFTER ==="
+          curl -s "https://api.telegram.org/bot${{ inputs.bot_token }}/getWebhookInfo" | python3 -m json.tool
