@@ -107,6 +107,9 @@ async function tgSend(text: string): Promise<boolean> {
   }
 }
 
+interface SeenEntry { u: string; t: number }
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function runScoutDigest(): Promise<DigestResult> {
   const start = Date.now();
 
@@ -127,8 +130,27 @@ export async function runScoutDigest(): Promise<DigestResult> {
     return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start };
   }
 
+  // Cross-run dedup: filter URLs already seen in the last 30 days
+  const now = Date.now();
+  const seenRaw = await agentMemory.recall('scout-digest', 'seen_urls', 1);
+  const storedEntries: SeenEntry[] = (seenRaw[0]?.value as { urls?: SeenEntry[] } | undefined)?.urls ?? [];
+  const activeEntries = storedEntries.filter(e => now - e.t < THIRTY_DAYS_MS);
+  const seenSet = new Set(activeEntries.map(e => e.u));
+
+  const freshItems = allItems.filter(item => {
+    const key = item.url || item.title;
+    return key && !seenSet.has(key);
+  });
+
+  if (freshItems.length === 0) {
+    const sent = await tgSend(
+      `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
+    );
+    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start };
+  }
+
   // Дедупликация: одна история из нескольких источников → одна запись
-  const dedupedItems = deduplicateBySimilarity(allItems, i => i.title, 0.5);
+  const dedupedItems = deduplicateBySimilarity(freshItems, i => i.title, 0.5);
 
   // AI synthesis
   const signalsList = dedupedItems
@@ -181,8 +203,22 @@ export async function runScoutDigest(): Promise<DigestResult> {
   }
 
   if (!digest) {
-    return { signals_found: allItems.length, digest_sent: false, duration_ms: Date.now() - start };
+    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start };
   }
+
+  // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
+  const updatedEntries = [
+    ...activeEntries,
+    ...freshItems.map(i => ({ u: i.url || i.title, t: now })),
+  ].slice(-1000);
+  await agentMemory.remember({
+    agent_id: 'scout-digest',
+    memory_type: 'seen_urls',
+    key: 'url_set',
+    value: { urls: updatedEntries } as unknown as Record<string, unknown>,
+    source: 'scout_digest_cron',
+    expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
+  });
 
   const sent = await tgSend(digest);
 
@@ -195,7 +231,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       type: 'intel',
       title: `Scout Digest ${dateKey}`,
       compiled_truth: digest,
-      metadata: { signals: dedupedItems.length, raw_signals: allItems.length, sources: RSS_SOURCES.map(s => s.label), sent_to_tg: sent },
+      metadata: { signals: dedupedItems.length, raw_signals: allItems.length, fresh_signals: freshItems.length, sources: RSS_SOURCES.map(s => s.label), sent_to_tg: sent },
       agent_id: 'scout',
     });
     // Also keep short-term memory for agents that scan recent intel
@@ -203,7 +239,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       agent_id: 'evo',
       memory_type: 'intelligence',
       key: `scout_digest_${dateKey}`,
-      value: { slug, signals: allItems.length, sources: RSS_SOURCES.map(s => s.label) },
+      value: { slug, signals: freshItems.length, sources: RSS_SOURCES.map(s => s.label) },
       confidence: 0.8,
       source: 'scout_digest_cron',
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days

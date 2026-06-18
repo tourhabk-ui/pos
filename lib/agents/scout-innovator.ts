@@ -14,6 +14,7 @@ import { callAIWithModel } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
+import { jaccardSimilarity } from '@/lib/utils/text-similarity';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 interface StructuredProposal {
@@ -28,6 +29,7 @@ interface StructuredProposal {
 
 export interface ScoutInnovatorResult {
   proposals_count: number;
+  skipped_duplicates: number;
   sent_to_tg: boolean;
   intel_entries: number;
   duration_ms: number;
@@ -343,6 +345,7 @@ export async function runScoutInnovator(
     console.error('[scout-innovator] No intel data in Brain — skipping');
     return {
       proposals_count: 0,
+      skipped_duplicates: 0,
       sent_to_tg: false,
       intel_entries: 0,
       duration_ms: Date.now() - start,
@@ -364,7 +367,7 @@ export async function runScoutInnovator(
   ].filter(Boolean).join('\n\n');
 
   // 4. Phase 1 — генерируем структурированные предложения (JSON)
-  const proposals = await generateStructuredProposals(
+  const rawProposals = await generateStructuredProposals(
     repoContext,
     intelContext,
     platformStats,
@@ -372,9 +375,34 @@ export async function runScoutInnovator(
     gitContext,
   );
 
+  if (rawProposals.length === 0) {
+    return {
+      proposals_count: 0,
+      skipped_duplicates: 0,
+      sent_to_tg: false,
+      intel_entries: allPages.length,
+      duration_ms: Date.now() - start,
+      issues_created: [],
+    };
+  }
+
+  // Code-level dedup: filter proposals similar to existing open GitHub Issues.
+  // Prompt says "don't repeat" but LLM isn't reliable — code decides.
+  const openTitles = openIssues
+    .split('\n')
+    .filter((l) => l.startsWith('- '))
+    .map((l) => l.slice(2).trim())
+    .filter(Boolean);
+
+  const proposals = rawProposals.filter(
+    (p) => !openTitles.some((t) => jaccardSimilarity(p.title, t) >= 0.5),
+  );
+  const skipped_duplicates = rawProposals.length - proposals.length;
+
   if (proposals.length === 0) {
     return {
       proposals_count: 0,
+      skipped_duplicates,
       sent_to_tg: false,
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
@@ -397,6 +425,7 @@ export async function runScoutInnovator(
         bookings_week: platformStats.bookings_week,
         generated_at: dateKey,
         proposals_count: proposals.length,
+        skipped_duplicates,
       },
       agent_id: 'scout-innovator',
     });
@@ -420,6 +449,7 @@ export async function runScoutInnovator(
 
   return {
     proposals_count: proposals.length,
+    skipped_duplicates,
     sent_to_tg: sent,
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,
