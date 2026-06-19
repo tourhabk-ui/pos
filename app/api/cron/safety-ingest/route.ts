@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
+import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { sendPushBroadcast } from '@/lib/notifications/web-push';
 
 /**
  * GET  /api/cron/safety-ingest  — сервер сам fetch'ит t.me (работает если не заблокирован)
@@ -77,15 +79,65 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
   }
 }
 
+async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: number; error?: string }> {
+  try {
+    const { rows } = await pool.query<{
+      id: number;
+      alert_type: string;
+      magnitude: string | null;
+      title: string;
+      description: string | null;
+    }>(`
+      SELECT id, alert_type, magnitude, title, description
+      FROM external_alerts
+      WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
+        AND push_sent_at IS NULL
+        AND created_at > NOW() - INTERVAL '2 hours'
+      ORDER BY severity DESC, created_at DESC
+    `);
+
+    let dispatched = 0;
+    for (const alert of rows) {
+      const isTsunami = alert.alert_type === 'tsunami_warning';
+      const pushTitle = isTsunami
+        ? 'УГРОЗА ЦУНАМИ — Камчатка'
+        : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
+      const pushBody = isTsunami
+        ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
+        : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+
+      const result = await sendPushBroadcast({
+        title: pushTitle,
+        body: pushBody,
+        url: '/safety',
+        tag: `alert-${alert.id}`,
+      });
+
+      // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
+      // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.
+      if (result.total > 0 && result.sent === 0) continue;
+
+      await pool.query('UPDATE external_alerts SET push_sent_at = NOW() WHERE id = $1', [alert.id]);
+      dispatched++;
+    }
+
+    return { dispatched, skipped: rows.length - dispatched };
+  } catch (e) {
+    return { dispatched: 0, skipped: 0, error: `push dispatch failed: ${(e as Error).message}` };
+  }
+}
+
 function buildResponse(
   ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
+  pushResult?: { dispatched: number; skipped: number; error?: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
     ...ingestResult.eqkam.errors,
     ...(rtStatus.error ? [rtStatus.error] : []),
+    ...(pushResult?.error ? [pushResult.error] : []),
   ];
   return Response.json({
     success: true,
@@ -102,6 +154,7 @@ function buildResponse(
     },
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
+    push_alerts_dispatched: pushResult?.dispatched ?? 0,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -113,8 +166,8 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const ingestResult = await ingestAll();
-  const rtStatus = await updateRealTimeStatus();
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
+  const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushResult);
 }
 
 const HtmlBodySchema = z.object({
@@ -141,6 +194,6 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
-  const rtStatus = await updateRealTimeStatus();
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
+  const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushResult);
 }

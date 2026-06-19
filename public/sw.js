@@ -433,11 +433,13 @@ self.addEventListener('push', function(event) {
 
   var title = payload.title || 'Ведар';
   var options = {
-    body:    payload.body  || '',
-    icon:    payload.icon  || '/icons/icon-192.png',
-    badge:   '/icons/icon-192.png',
-    data:    { url: payload.url || '/' },
-    vibrate: [200, 100, 200],
+    body:     payload.body  || '',
+    icon:     payload.icon  || '/icons/icon-192.png',
+    badge:    '/icons/icon-192.png',
+    data:     { url: payload.url || '/' },
+    vibrate:  [200, 100, 200],
+    tag:      payload.tag || undefined,
+    renotify: !!payload.tag,
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

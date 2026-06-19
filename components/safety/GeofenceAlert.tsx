@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AlertTriangle, X, ShieldAlert, Flame } from 'lucide-react';
+import { AlertTriangle, X, ShieldAlert, Flame, Waves } from 'lucide-react';
 import type { GeofenceBreach } from '@/lib/safety/geofence';
 
 interface Props {
@@ -28,10 +28,54 @@ export function GeofenceAlert({ breach, cacheAgeHours }: Props) {
   if (dismissed) return null;
 
   const { zone, state, distanceM } = breach;
+  const isTsunami = zone.hazard === 'tsunami';
   const staleData = cacheAgeHours != null && cacheAgeHours > 24;
   const style = LEVEL_STYLES[zone.level];
-  const Icon  = zone.hazard === 'volcano' ? Flame : ShieldAlert;
+  const Icon  = zone.hazard === 'volcano' ? Flame : isTsunami ? Waves : ShieldAlert;
   const distKm = (distanceM / 1_000).toFixed(1);
+
+  if (isTsunami) {
+    return (
+      <div
+        role="alert"
+        aria-live="assertive"
+        className="fixed bottom-20 left-3 right-3 z-[500] rounded-lg shadow-xl border-2"
+        style={{ background: 'var(--danger)', color: 'var(--bg-card)', borderColor: 'var(--bg-card)' }}
+      >
+        <div className="flex items-start gap-3 p-4">
+          <Waves size={26} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-base leading-tight uppercase tracking-wide">
+              ЦУНАМИ-ЗОНА
+            </p>
+            <p className="text-sm font-bold mt-1 leading-snug">
+              При землетрясении — немедленно вверх ≥30 м от воды
+            </p>
+            <p className="text-xs mt-1.5 opacity-90 leading-snug">
+              {zone.name}. {STATE_SUFFIX[state]}
+            </p>
+            {staleData && (
+              <p className="text-[10px] mt-1 opacity-70">
+                Данные зон получены {Math.round(cacheAgeHours!)} ч назад
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => setDismissed(true)}
+            aria-label="Закрыть предупреждение"
+            className="flex-shrink-0 opacity-80 hover:opacity-100 p-1 -mr-1 -mt-1"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-4 pb-3 flex items-center gap-3">
+          <AlertTriangle size={13} className="flex-shrink-0 opacity-70" aria-hidden="true" />
+          <p className="text-[11px] opacity-80">Угроза цунами — звоните 112</p>
+          <a href="tel:112" className="ml-auto text-sm font-bold underline underline-offset-2">112</a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

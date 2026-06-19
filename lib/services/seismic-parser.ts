@@ -16,7 +16,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -175,6 +175,28 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
         expires_hours: severity >= 2 ? 48 : 24,
       };
     }
+  }
+
+  // ── Официальное предупреждение о цунами ──────────────────────────────
+  // КБГС публикует "Угроза цунами объявлена" / "Отбой цунами-угрозы"
+  // Проверяется ДО парсинга магнитуды — официальный статус важнее порога M6+.
+  // Реальный случай: M5.8 + M5.3 → официальное предупреждение МЧС/112 → цунами-угроза.
+
+  if (/угроза\s+цунами|предупреждение\s+о\s+цунами|tsunami\s+warning|цунами\s+объявлен/i.test(t)) {
+    const isAllClear = /отбой|снята\s+угроза|all\s+clear/i.test(t);
+    return {
+      source_id: id,
+      source_url: `https://${id}`,
+      published_at: publishedAt,
+      alert_type: isAllClear ? 'info' : 'tsunami_warning',
+      severity: isAllClear ? 0 : 3,
+      title: isAllClear
+        ? 'Отбой угрозы цунами — Камчатка'
+        : 'УГРОЗА ЦУНАМИ — официальное предупреждение КБГС',
+      description: text.slice(0, 600),
+      affected_zones: ['avachinsky', 'eastern', 'western', 'northern'],
+      expires_hours: isAllClear ? 1 : 48,
+    };
   }
 
   // ── Землетрясение ─────────────────────────────────────────────────────

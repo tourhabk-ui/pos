@@ -2,7 +2,7 @@ name: Cron — Safety Ingest
 
 on:
   schedule:
-    - cron: '*/20 * * * *'  # каждые 20 минут
+    - cron: '*/5 * * * *'   # каждые 5 минут (цунами от 185 км ≈ 15 мин)
   workflow_dispatch:
 
 jobs:
