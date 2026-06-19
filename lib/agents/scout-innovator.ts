@@ -77,6 +77,27 @@ async function scanApiRoutes(): Promise<string> {
   }
 }
 
+async function scanLibFiles(): Promise<string> {
+  try {
+    const libDir = join(process.cwd(), 'lib');
+    const lines: string[] = [];
+    async function walk(dir: string): Promise<void> {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) { await walk(full); }
+        else if (e.name.endsWith('.ts') || e.name.endsWith('.tsx')) {
+          lines.push(full.replace(process.cwd() + '/', ''));
+        }
+      }
+    }
+    await walk(libDir);
+    return lines.sort().join('\n');
+  } catch {
+    return '';
+  }
+}
+
 async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   if (!token) return '';
@@ -103,20 +124,23 @@ async function readGitHubIssues(state: 'open' | 'closed'): Promise<string> {
 
 async function readPlatformInventory(): Promise<string> {
   try {
-    const { rows } = await pool.query<{
-      places: string; routes: string; tours: string; partners: string; guides: string;
-    }>(`
-      SELECT
-        (SELECT COUNT(*)::text FROM places WHERE is_visible = true) AS places,
-        (SELECT COUNT(*)::text FROM kamchatka_routes) AS routes,
-        (SELECT COUNT(*)::text FROM operator_tours WHERE is_active = true) AS tours,
-        (SELECT COUNT(*)::text FROM partners WHERE is_active = true) AS partners,
-        (SELECT COUNT(*)::text FROM partners WHERE role = 'guide') AS guides
-    `);
-    const r = rows[0];
-    return r
-      ? `Мест: ${r.places} · маршрутов: ${r.routes} · активных туров: ${r.tours} · партнёров: ${r.partners} · гидов: ${r.guides}`
-      : '';
+    const [inv, mig] = await Promise.all([
+      pool.query<{ places: string; routes: string; tours: string; partners: string; guides: string }>(`
+        SELECT
+          (SELECT COUNT(*)::text FROM places WHERE is_visible = true) AS places,
+          (SELECT COUNT(*)::text FROM kamchatka_routes) AS routes,
+          (SELECT COUNT(*)::text FROM operator_tours WHERE is_active = true) AS tours,
+          (SELECT COUNT(*)::text FROM partners WHERE is_active = true) AS partners,
+          (SELECT COUNT(*)::text FROM partners WHERE role = 'guide') AS guides
+      `),
+      pool.query<{ name: string }>(`SELECT name FROM _migrations ORDER BY applied_at DESC LIMIT 1`),
+    ]);
+    const r = inv.rows[0];
+    if (!r) return '';
+    const lastMigName = mig.rows[0]?.name ?? '';
+    const lastMigNum = parseInt(lastMigName.match(/^(\d+)/)?.[1] ?? '0', 10);
+    const nextMig = lastMigNum > 0 ? `${lastMigNum + 1}` : '?';
+    return `Мест: ${r.places} · маршрутов: ${r.routes} · активных туров: ${r.tours} · партнёров: ${r.partners} · гидов: ${r.guides}\nПоследняя миграция: ${lastMigName} → следующая: migrations/${nextMig}_*.sql`;
   } catch {
     return '';
   }
@@ -310,6 +334,7 @@ export async function runScoutInnovator(
     closedIssues,
     inventoryStr,
     apiRoutesList,
+    libFilesList,
   ] = await Promise.all([
     knowledgeBase.list({ type: 'intel', limit: 5 }),
     knowledgeBase.search('scout digest дайджест', { limit: 3 }),
@@ -318,6 +343,7 @@ export async function runScoutInnovator(
     readGitHubIssues('closed'),
     readPlatformInventory(),
     scanApiRoutes(),
+    scanLibFiles(),
   ]);
 
   const allPages = [...intelPages, ...scoutPages].slice(0, 6);
@@ -361,6 +387,7 @@ export async function runScoutInnovator(
   const repoContext = [
     codebaseRules ? `=== ПРАВИЛА КОДОВОЙ БАЗЫ (CLAUDE.md) ===\n${codebaseRules}` : '',
     inventoryStr ? `=== ИНВЕНТАРЬ ПЛАТФОРМЫ ===\n${inventoryStr}` : '',
+    libFilesList ? `=== СУЩЕСТВУЮЩИЕ ФАЙЛЫ В lib/ (проверяй перед предложением новой утилиты) ===\n${libFilesList.slice(0, 3000)}\nПравило: если предлагаешь новую утилиту — сначала проверь список выше. Если похожий файл уже есть — предлагай РАСШИРИТЬ его, не создавать новый.` : '',
     selfBriefing.recentRuns ? `=== МОИ ПРЕДЫДУЩИЕ ЗАПУСКИ (не повторять уже созданные предложения) ===\n${selfBriefing.recentRuns}` : '',
     openIssues ? `=== УЖЕ ОТКРЫТЫЕ ЗАДАЧИ (agent-proposal issues, не дублировать) ===\n${openIssues}` : '',
     closedIssues ? `=== УЖЕ РЕАЛИЗОВАННЫЕ ПРЕДЛОЖЕНИЯ (закрытые issues) ===\n${closedIssues}` : '',
