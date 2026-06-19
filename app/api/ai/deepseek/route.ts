@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { pool } from '@/lib/db-pool';
 
-export const runtime = 'edge';
+// DeepSeek-chat pricing ($/1M tokens, June 2026)
+const PRICE_INPUT_PER_M  = 0.14;
+const PRICE_OUTPUT_PER_M = 0.28;
 
 const deepseekLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
@@ -108,8 +111,18 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    
+
     const aiMessage = data.choices[0]?.message?.content || 'Извините, не смог обработать запрос.';
+
+    const usage = data.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
+    if (usage) {
+      const cost = (usage.prompt_tokens * PRICE_INPUT_PER_M + usage.completion_tokens * PRICE_OUTPUT_PER_M) / 1_000_000;
+      pool.query(
+        `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd)
+         VALUES ($1, $2, $3, $4, $5)`,
+        ['/api/ai/deepseek', usage.prompt_tokens, usage.completion_tokens, usage.total_tokens, cost],
+      ).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,
