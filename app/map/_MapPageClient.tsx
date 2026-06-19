@@ -42,6 +42,8 @@ import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { useMesh } from '@/hooks/use-mesh';
 import { useGeofence } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
+import { usePlaceProximity } from '@/hooks/usePlaceProximity';
+import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -161,6 +163,14 @@ export default function MapPageClient() {
 
   const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
   const { breach, zonesAgeHours } = useGeofence();
+  const proximityPlaces = useMemo(
+    () => allRoutes.filter(r => r.locationType && r.locationType !== 'other'),
+    [allRoutes],
+  );
+  const { nearbyPlace, dismiss: dismissProximity } = usePlaceProximity(
+    showMyLocation ? userPos : null,
+    proximityPlaces,
+  );
 
   // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
@@ -597,6 +607,10 @@ export default function MapPageClient() {
         {/* Панель выбранного маршрута */}
         {/* Геофенс-предупреждение */}
         {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
+        {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
+        {!breach && nearbyPlace && (
+          <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
+        )}
 
         {selectedRoute && (
           <div
@@ -842,6 +856,10 @@ export default function MapPageClient() {
 
       {/* Геофенс-предупреждение */}
       {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
+      {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
+      {!breach && nearbyPlace && (
+        <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
+      )}
 
       {/* Кнопка «Я вернулся» — для активных маршрутов */}
       <Link

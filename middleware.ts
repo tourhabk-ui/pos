@@ -80,6 +80,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/hub/marketplace/tours': ['GET'], // публичный каталог туров маршрутплейса
   '/api/hub/bookings': ['GET'],           // booking-success страница (без персональных данных, ФЗ-152 ок)
   '/api/places': ['GET'],                 // карточка точки/локации (публичная)
+  '/api/places/*/safety-report': ['GET', 'POST'], // UGC safety report (анонимный POST)
   '/api/trips/share': ['GET'],            // публичный просмотр маршрута по share_token
   '/api/collections': ['GET'],            // публичные подборки мест и маршрутов
   '/api/trending': ['GET'],               // популярные места и маршруты
