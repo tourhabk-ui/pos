@@ -16,6 +16,7 @@ import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
+import { searchRoutes } from '@/lib/ai/route-knowledge';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -1587,19 +1588,20 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, routeCtx] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
     searchPlaceKnowledge(text),
+    searchRoutes(text),
   ]);
 
   // Строим системный промпт с маркером для prompt caching:
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
-  // — ниже маркера: динамика (placeCtx меняется по запросу, memCtx по юзеру) — без кеша
+  // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', memCtx || ''].filter(Boolean).join('\n\n');
+  const dynamic = [placeCtx || '', routeCtx || '', memCtx || ''].filter(Boolean).join('\n\n');
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
