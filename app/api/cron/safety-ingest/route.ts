@@ -175,15 +175,26 @@ function buildResponse(
   });
 }
 
+function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
+  pool.query(
+    `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
+     VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
+    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched })],
+  ).catch(() => {});
+}
+
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
 export async function GET(req: Request) {
   const err = authError(req);
   if (err) return err;
 
   const t0 = Date.now();
+  const startedAt = new Date(t0);
   const ingestResult = await ingestAll();
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushResult);
+  const durationMs = Date.now() - t0;
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
 
 const HtmlBodySchema = z.object({
@@ -209,7 +220,10 @@ export async function POST(req: Request) {
   }
 
   const t0 = Date.now();
+  const startedAt = new Date(t0);
   const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushResult);
+  const durationMs = Date.now() - t0;
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }

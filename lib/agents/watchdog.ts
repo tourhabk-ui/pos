@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead';
   count: number;
   details: string;
 }
@@ -200,22 +200,54 @@ async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
   }
 }
 
+async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
+  // safety-ingest cron — самый критичный. Молчание >15 мин = система слепа к землетрясениям.
+  try {
+    const { rows } = await pool.query<{ last_seen: string | null }>(`
+      SELECT MAX(ended_at)::text AS last_seen
+      FROM agent_run_history
+      WHERE agent_id = 'safety-ingest'
+        AND ended_at > NOW() - INTERVAL '2 hours'
+    `);
+    const lastSeen = rows[0]?.last_seen;
+    if (!lastSeen) {
+      return {
+        type: 'seismic_cron_dead',
+        count: 1,
+        details: 'КРИТИЧНО: Сейсмо-мониторинг не запускался >2ч. Система слепа к землетрясениям и цунами.',
+      };
+    }
+    const silenceMin = Math.round((Date.now() - new Date(lastSeen).getTime()) / 60000);
+    if (silenceMin > 15) {
+      return {
+        type: 'seismic_cron_dead',
+        count: silenceMin,
+        details: `КРИТИЧНО: Сейсмо-мониторинг молчит ${silenceMin} мин (норма ≤5 мин). GitHub Actions billing?`,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, operators, leads, sos] = await Promise.all([
+  const [bookings, operators, leads, sos, seismic] = await Promise.all([
     checkUnconfirmedBookings(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
+    checkSeismicCronDead(),
   ]);
 
-  const alerts = [bookings, operators, leads, sos].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, operators, leads, sos, seismic].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
-      const prefix = a.type === 'sos_ignored' ? '🚨' : '⚠️';
+      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
