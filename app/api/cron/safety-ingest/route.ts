@@ -115,7 +115,23 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
 
       // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
       // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.
-      if (result.total > 0 && result.sent === 0) continue;
+      if (result.total > 0 && result.sent === 0) {
+        // Молчаливый провал — оповестить администратора через Telegram
+        const token  = process.env.TELEGRAM_BOT_TOKEN;
+        const chatId = process.env.TELEGRAM_CHAT_ID;
+        if (token && chatId) {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id:    chatId,
+              text:       `КРИТИЧНО: Push-алерт не доставлен\n${alert.title}\nПодписок: ${result.total}, доставлено: 0, ошибок: ${result.failed}\nTуристы без предупреждения. Проверь VAPID и push_subscriptions.`,
+              parse_mode: 'HTML',
+            }),
+          }).catch(() => {});
+        }
+        continue;
+      }
 
       await pool.query('UPDATE external_alerts SET push_sent_at = NOW() WHERE id = $1', [alert.id]);
       dispatched++;
