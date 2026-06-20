@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
+import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { sendPushBroadcast } from '@/lib/notifications/web-push';
 
 /**
  * GET  /api/cron/safety-ingest  — сервер сам fetch'ит t.me (работает если не заблокирован)
@@ -77,10 +79,39 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
   }
 }
 
+async function dispatchPushAlerts(): Promise<number> {
+  try {
+    const { rows } = await pool.query<{ id: number; title: string; magnitude: string | null }>(
+      `SELECT id, title, magnitude FROM external_alerts
+       WHERE push_sent_at IS NULL
+         AND magnitude >= 5.5
+         AND created_at > NOW() - INTERVAL '3 hours'
+         AND alert_type IN ('earthquake', 'tsunami_warning', 'volcanic_eruption')
+       ORDER BY magnitude DESC NULLS LAST
+       LIMIT 10`,
+    );
+    let sent = 0;
+    for (const alert of rows) {
+      const mag = alert.magnitude ? Number(alert.magnitude).toFixed(1) : '5.5+';
+      await sendPushBroadcast({
+        title: `⚠️ Землетрясение M${mag}`,
+        body: `${alert.title}. Если вы на берегу — немедленно уходите вверх ≥30 м.`,
+        url: '/safety',
+      });
+      await pool.query('UPDATE external_alerts SET push_sent_at = NOW() WHERE id = $1', [alert.id]);
+      sent++;
+    }
+    return sent;
+  } catch {
+    return 0;
+  }
+}
+
 function buildResponse(
-  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
+  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; usgs?: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
+  pushed = 0,
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -100,8 +131,14 @@ function buildResponse(
       inserted: ingestResult.eqkam.inserted,
       skipped: ingestResult.eqkam.skipped,
     },
+    usgs: ingestResult.usgs ? {
+      events_found: ingestResult.usgs.events.length,
+      inserted: ingestResult.usgs.inserted,
+      skipped: ingestResult.usgs.skipped,
+    } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
+    pushed_alerts: pushed,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -113,8 +150,8 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const ingestResult = await ingestAll();
-  const rtStatus = await updateRealTimeStatus();
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
+  const [rtStatus, pushed] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushed);
 }
 
 const HtmlBodySchema = z.object({
@@ -141,6 +178,6 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
-  const rtStatus = await updateRealTimeStatus();
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0);
+  const [rtStatus, pushed] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushed);
 }

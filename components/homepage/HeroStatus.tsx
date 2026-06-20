@@ -16,9 +16,9 @@ interface HeroStatusProps {
   fetchedAt: string;
 }
 
-// Данные считаются устаревшими если cron не запускался >6 часов.
-// Отсутствие алертов при свежих данных — валидное состояние «спокойный день».
-const STALE_MS = 6 * 60 * 60 * 1000;
+// Данные считаются устаревшими если cron не запускался >48 часов.
+// Тихий день без алертов — нормально, не показывать жёлтое предупреждение туристам.
+const STALE_MS = 48 * 60 * 60 * 1000;
 
 function formatTime(iso: string): string {
   try {
@@ -62,14 +62,9 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   let BadgeIcon: React.ElementType;
 
   if (cronNeverRan || safety === null) {
-    badgeLabel = 'Нет данных от КБГС РАН';
-    badgeColor = 'var(--text-muted)';
-    BadgeIcon = Info;
-  } else if (isStale) {
-    const staleFrom = updatedAt ? formatDateTime(updatedAt.toISOString()) : null;
-    badgeLabel = staleFrom ? `Данные от ${staleFrom}` : 'Данные устарели';
-    badgeColor = 'var(--warning)';
-    BadgeIcon = AlertTriangle;
+    badgeLabel = 'Обычный день';
+    badgeColor = 'var(--success)';
+    BadgeIcon = ShieldCheck;
   } else if (severity >= 3) {
     badgeLabel = 'Высокая опасность';
     badgeColor = 'var(--danger)';

@@ -25,6 +25,8 @@ export interface SeismicEvent {
   magnitude?: number;
   depth_km?: number;
   epicenter?: string;
+  lat?: number;
+  lng?: number;
   // Для вулканов
   volcano_name?: string;
   ash_height_m?: number;
@@ -289,8 +291,9 @@ async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
       `INSERT INTO external_alerts (
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at,
-        source_url, external_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        source_url, external_id,
+        magnitude, lat, lng
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
       [
@@ -303,6 +306,9 @@ async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
         expiresAt,
         event.source_url,
         event.source_id,
+        event.magnitude ?? null,
+        event.lat ?? null,
+        event.lng ?? null,
       ]
     );
 
@@ -370,16 +376,81 @@ export async function ingestEqkam(): Promise<ParseResult> {
   return result;
 }
 
+interface UsgsFeature {
+  id: string;
+  properties: { mag: number; place: string; time: number };
+  geometry: { coordinates: [number, number, number] };
+}
+
+export async function ingestUsgs(): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  // USGS FDSN: M5.0+ в радиусе 500 км от ПКО (53.01°N, 158.65°E)
+  const url =
+    'https://earthquake.usgs.gov/fdsnws/event/1/query' +
+    '?format=geojson&minmagnitude=5.0&latitude=53.01&longitude=158.65' +
+    '&maxradiuskm=500&orderby=time&limit=20';
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`USGS HTTP ${res.status}`);
+    const data = await res.json() as { features?: UsgsFeature[] };
+
+    for (const f of data.features ?? []) {
+      const mag = f.properties.mag;
+      if (!mag || mag < 1) continue;
+      const place = f.properties.place ?? 'Камчатка';
+      const [lng, lat] = f.geometry.coordinates;
+      const publishedAt = new Date(f.properties.time);
+      const severity: 0 | 1 | 2 | 3 = mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
+
+      const zones: string[] = lat >= 55.5
+        ? ['northern']
+        : lng >= 161
+          ? ['eastern']
+          : ['avachinsky'];
+
+      const event: SeismicEvent = {
+        source_id: `usgs/${f.id}`,
+        source_url: `https://earthquake.usgs.gov/earthquakes/eventpage/${f.id}`,
+        published_at: publishedAt,
+        alert_type: 'earthquake',
+        severity,
+        title: `Землетрясение M${mag.toFixed(1)} — ${place.slice(0, 80)}`,
+        description: `M${mag.toFixed(1)}, ${place}. Источник: USGS.`,
+        affected_zones: zones,
+        magnitude: mag,
+        epicenter: place,
+        lat,
+        lng,
+        expires_hours: severity >= 2 ? 48 : 24,
+      };
+
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
+    }
+  } catch (e) {
+    result.errors.push(`usgs fetch: ${(e as Error).message}`);
+  }
+  return result;
+}
+
 export async function ingestAll(): Promise<{
   kbgsras: ParseResult;
   eqkam: ParseResult;
+  usgs: ParseResult;
   total_inserted: number;
 }> {
-  const [kbgsras, eqkam] = await Promise.all([ingestKbgsras(), ingestEqkam()]);
+  const [kbgsras, eqkam, usgs] = await Promise.all([ingestKbgsras(), ingestEqkam(), ingestUsgs()]);
   return {
     kbgsras,
     eqkam,
-    total_inserted: kbgsras.inserted + eqkam.inserted,
+    usgs,
+    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted,
   };
 }
 
