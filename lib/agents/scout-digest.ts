@@ -85,10 +85,9 @@ async function fetchRss(url: string, label: string): Promise<RssItem[]> {
   }
 }
 
-async function tgSend(text: string): Promise<boolean> {
+async function tgSendTo(chatId: string, text: string): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_AI_CHANNEL_ID ?? process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return false;
+  if (!token) return false;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
@@ -105,6 +104,12 @@ async function tgSend(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function tgSend(text: string): Promise<boolean> {
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!chatId) return false;
+  return tgSendTo(chatId, text);
 }
 
 interface SeenEntry { u: string; t: number }
@@ -221,6 +226,42 @@ export async function runScoutDigest(): Promise<DigestResult> {
   });
 
   const sent = await tgSend(digest);
+
+  // Post AI & Tech section only to the AI channel (@ai_hub_money — vibe-coding, 40K subs)
+  const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
+  if (aiChannelId) {
+    const aiItems = dedupedItems.filter(i => i.source === 'Habr AI' || i.source === 'Habr ML');
+    if (aiItems.length > 0) {
+      const aiSignals = aiItems.map(i => `[${i.source}] ${i.title}`).join('\n');
+      const aiMessages: ChatMessage[] = [
+        {
+          role: 'system',
+          content: `Ты редактор Telegram-канала о вайб-кодинге и AI-разработке (40К подписчиков).
+Читатели — разработчики, следящие за Claude, Cursor, Grok, Copilot, Windsurf и AI-инструментами.
+
+Из RSS-сигналов Habr выдели 2-3 самых важных инсайта для AI-разработчика.
+Фокус: новые модели, обновления инструментов, промпт-хаки, практика вайб-кодинга.
+
+Формат — только HTML для Telegram, без markdown:
+<b>AI сегодня</b>
+
+• [инсайт — что это даёт разработчику]
+• [инсайт]
+• [инсайт если есть]
+
+Пиши по-русски. Кратко. Без воды. Без числа в заголовке.`,
+        },
+        {
+          role: 'user',
+          content: `Сигналы:\n${aiSignals}`,
+        },
+      ];
+      const aiDigest = await callAIFast(aiMessages).catch(() => null);
+      if (aiDigest) {
+        await tgSendTo(aiChannelId, aiDigest);
+      }
+    }
+  }
 
   // Store permanently in knowledge brain
   try {
