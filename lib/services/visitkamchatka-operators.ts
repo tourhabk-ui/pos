@@ -239,16 +239,18 @@ async function upsertOperator(op: OperatorRecord): Promise<'inserted' | 'updated
          company_name       = COALESCE(NULLIF($2,''), company_name),
          external_source    = 'visitkamchatka',
          external_source_url= $3,
-         telegram_group_url = COALESCE($4, telegram_group_url),
-         license_number     = COALESCE($5, license_number),
-         services           = COALESCE($6, services),
-         external_rating    = COALESCE($7, external_rating),
+         website            = COALESCE($4, website),
+         telegram_group_url = COALESCE($5, telegram_group_url),
+         license_number     = COALESCE($6, license_number),
+         services           = COALESCE($7, services),
+         external_rating    = COALESCE($8, external_rating),
          updated_at         = NOW()
        WHERE id = $1`,
       [
         existing[0].id,
         op.name,
         op.external_source_url,
+        op.website ?? null,
         op.telegram_group_url ?? null,
         op.license_number ?? null,
         op.services ? JSON.stringify(op.services) : null,
@@ -262,12 +264,13 @@ async function upsertOperator(op: OperatorRecord): Promise<'inserted' | 'updated
     `INSERT INTO partners (
        slug, company_name, name,
        external_source, external_source_url, external_id,
-       telegram_group_url, license_number, services, external_rating,
+       website, telegram_group_url, license_number, services, external_rating,
        is_verified, is_public, commission_current
-     ) VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,false,false,0)
+     ) VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,false,0)
      ON CONFLICT (slug) DO UPDATE SET
        external_source     = EXCLUDED.external_source,
        external_source_url = EXCLUDED.external_source_url,
+       website             = COALESCE(EXCLUDED.website, partners.website),
        telegram_group_url  = COALESCE(EXCLUDED.telegram_group_url, partners.telegram_group_url),
        updated_at          = NOW()`,
     [
@@ -276,6 +279,7 @@ async function upsertOperator(op: OperatorRecord): Promise<'inserted' | 'updated
       'visitkamchatka',
       op.external_source_url,
       op.external_id ?? null,
+      op.website ?? null,
       op.telegram_group_url ?? null,
       op.license_number ?? null,
       op.services ? `{${op.services.join(',')}}` : null,
