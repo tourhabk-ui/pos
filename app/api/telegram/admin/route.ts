@@ -17,7 +17,7 @@
  *
  * Env vars (Timeweb):
  *   TELEGRAM_BOT_TOKEN — токен @kuzmichai_bot
- *   TELEGRAM_OWNER_ID  — Telegram user ID владельца (833478813)
+ *   TELEGRAM_OWNER_ID  — Telegram user ID владельца (171286547)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -314,7 +314,7 @@ function agentLabel(intent: string): string {
 // ── Free text → PlatformAgent + conversation history ─────────────────────────
 
 async function handleFreeText(text: string, chatId: number): Promise<void> {
-  const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '833478813', 10);
+  const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '171286547', 10);
 
   await saveAdminMessage(chatId, 'user', text);
 
@@ -363,7 +363,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const command = searchParams.get('command')?.toLowerCase() ?? '';
-    const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '833478813', 10);
+    const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '171286547', 10);
 
     if (!command) {
       return NextResponse.json({
@@ -398,7 +398,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const chatId = msg.chat.id;
     const fromId = msg.from?.id;
-    const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '833478813', 10);
+    const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '171286547', 10);
 
     if (fromId !== ownerId) {
       await reply(chatId, 'Доступ закрыт.');

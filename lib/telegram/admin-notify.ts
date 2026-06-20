@@ -19,7 +19,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 async function sendAdminMessage(text: string): Promise<void> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
-  const ownerId = process.env.TELEGRAM_OWNER_ID ?? '833478813';
+  const ownerId = process.env.TELEGRAM_OWNER_ID ?? '171286547';
   if (!token) return;
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
