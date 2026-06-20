@@ -100,7 +100,34 @@ async function tgSendTo(chatId: string, text: string): Promise<boolean> {
       }),
     });
     const data = await res.json();
-    return data.ok === true;
+    return (data as { ok: boolean }).ok === true;
+  } catch {
+    return false;
+  }
+}
+
+async function tgSendRich(
+  chatId: string,
+  text: string,
+  buttons?: Array<Array<{ text: string; url: string }>>,
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text: text.substring(0, 4096),
+      parse_mode: 'HTML',
+      disable_web_page_preview: false,
+    };
+    if (buttons?.length) body.reply_markup = { inline_keyboard: buttons };
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return (data as { ok: boolean }).ok === true;
   } catch {
     return false;
   }
@@ -232,33 +259,56 @@ export async function runScoutDigest(): Promise<DigestResult> {
   if (aiChannelId) {
     const aiItems = dedupedItems.filter(i => i.source === 'Habr AI' || i.source === 'Habr ML');
     if (aiItems.length > 0) {
-      const aiSignals = aiItems.map(i => `[${i.source}] ${i.title}`).join('\n');
+      const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+      const aiSignals = aiItems
+        .map(i => `[${i.source}] ${i.title}${i.url ? `\nURL: ${i.url}` : ''}`)
+        .join('\n\n');
       const aiMessages: ChatMessage[] = [
         {
           role: 'system',
           content: `Ты редактор Telegram-канала о вайб-кодинге и AI-разработке (40К подписчиков).
-Читатели — разработчики, следящие за Claude, Cursor, Grok, Copilot, Windsurf и AI-инструментами.
+Читатели — разработчики, следящие за Claude, Cursor, Grok, Copilot, Windsurf.
 
-Из RSS-сигналов Habr выдели 2-3 самых важных инсайта для AI-разработчика.
-Фокус: новые модели, обновления инструментов, промпт-хаки, практика вайб-кодинга.
+Из RSS-сигналов Habr выдели 2-3 главных инсайта для AI-разработчика.
+Фокус: новые модели, обновления инструментов, промпт-хаки, вайб-кодинг, агенты.
 
-Формат — только HTML для Telegram, без markdown:
-<b>AI сегодня</b>
+ОБЯЗАТЕЛЬНЫЙ ФОРМАТ — только Telegram HTML, строго эта структура:
 
-• [инсайт — что это даёт разработчику]
-• [инсайт]
-• [инсайт если есть]
+<b>AI-дайджест · ${today}</b>
 
-Пиши по-русски. Кратко. Без воды. Без числа в заголовке.`,
+<b>[Заголовок первого инсайта — 5-8 слов]</b>
+[2-3 предложения: суть + что это даёт разработчику. Конкретно: версии, цифры, инструменты.]
+<a href="[URL статьи если есть]">Читать на Habr →</a>
+
+<blockquote expandable>[Дополнительный контекст или нюанс — 1-2 предложения. Что это меняет в практике.]</blockquote>
+
+<b>[Заголовок второго инсайта]</b>
+[2-3 предложения]
+<a href="[URL если есть]">Читать →</a>
+
+<b>[Заголовок третьего инсайта если есть]</b>
+[2-3 предложения]
+
+<i>Источник: Habr AI/ML</i>
+
+ПРАВИЛА:
+- Включай <a href="URL"> только если URL реально был в сигнале
+- Без буллитов (•) и нумерации
+- Без слов "инсайт", "важно", "интересно" — только суть
+- Пиши по-русски, профессионально, без воды`,
         },
         {
           role: 'user',
-          content: `Сигналы:\n${aiSignals}`,
+          content: `Сигналы:\n\n${aiSignals}`,
         },
       ];
       const aiDigest = await callAIFast(aiMessages).catch(() => null);
       if (aiDigest) {
-        await tgSendTo(aiChannelId, aiDigest);
+        const buttons = aiItems
+          .filter(i => i.url)
+          .slice(0, 3)
+          .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
+        await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined);
       }
     }
   }
