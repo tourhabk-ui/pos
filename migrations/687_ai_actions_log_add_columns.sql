@@ -1,0 +1,3 @@
+ALTER TABLE ai_actions_log ADD COLUMN IF NOT EXISTS tokens_in INTEGER;
+ALTER TABLE ai_actions_log ADD COLUMN IF NOT EXISTS tokens_out INTEGER;
+ALTER TABLE ai_actions_log ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(10,6);
