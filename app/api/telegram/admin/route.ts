@@ -203,6 +203,51 @@ async function runDigest(): Promise<string> {
   return answer ?? 'AI временно недоступен';
 }
 
+// ── Channel diagnostics ───────────────────────────────────────────────────────
+
+async function checkChannels(ownerChatId: number): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
+
+  async function tgGetChat(chatId: string): Promise<{ ok: boolean; result?: { title: string; type: string }; description?: string }> {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      return await res.json() as { ok: boolean; result?: { title: string; type: string }; description?: string };
+    } catch (e) {
+      return { ok: false, description: e instanceof Error ? e.message : 'fetch error' };
+    }
+  }
+
+  const lines: string[] = ['<b>Проверка каналов:</b>', ''];
+
+  const kamId = process.env.TELEGRAM_CHANNEL_ID?.trim();
+  if (kamId) {
+    const r = await tgGetChat(kamId);
+    lines.push(`TELEGRAM_CHANNEL_ID: <code>${kamId}</code>`);
+    lines.push(r.ok ? `✅ ${r.result?.title} (${r.result?.type})` : `❌ ${r.description}`);
+  } else {
+    lines.push('TELEGRAM_CHANNEL_ID: ❌ не задан');
+  }
+
+  lines.push('');
+
+  const aiId = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
+  if (aiId) {
+    const r = await tgGetChat(aiId);
+    lines.push(`TELEGRAM_AI_CHANNEL_ID: <code>${aiId}</code>`);
+    lines.push(r.ok ? `✅ ${r.result?.title} (${r.result?.type})` : `❌ ${r.description}`);
+  } else {
+    lines.push('TELEGRAM_AI_CHANNEL_ID: ❌ не задан');
+  }
+
+  lines.push('', '<i>Если ❌ — добавь @kuzmihai_bot как admin в канал с правом "Публиковать сообщения"</i>');
+  await reply(ownerChatId, lines.join('\n'));
+}
+
 // ── Channel test posts ────────────────────────────────────────────────────────
 
 async function sendChannelTests(ownerChatId: number): Promise<void> {
@@ -236,7 +281,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   const results: string[] = [];
 
   // @kamchatka_real — туристический канал
-  const kamChannel = process.env.TELEGRAM_CHANNEL_ID;
+  const kamChannel = process.env.TELEGRAM_CHANNEL_ID?.trim();
   if (kamChannel) {
     const text = [
       '<b>Авачинский вулкан — открытие сезона</b>',
@@ -260,7 +305,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   }
 
   // @ai_hub_money — AI/вайб-кодинг канал
-  const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID;
+  const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
   if (aiChannel) {
     const text = [
       '<b>Claude Code — три фичи, которые меняют workflow</b>',
@@ -301,6 +346,7 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         '/agents — команда AI',
         '/kuzmich — пост маршрута',
         '/tip — совет Кузьмича',
+        '/checkchannels — проверить доступность каналов (без постинга)',
         '/testchannels — тест-посты в оба канала',
         '',
         'Любой текст — уходит в Команду AI и возвращается с ответом нужного агента',
@@ -361,6 +407,11 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         const r = await postKuzmichTip();
         await reply(chatId, r.ok ? 'Совет опубликован' : `Ошибка: ${r.error ?? 'unknown'}`);
       }
+      break;
+
+    case '/checkchannels':
+      await reply(chatId, 'Проверяю...');
+      await checkChannels(chatId);
       break;
 
     case '/testchannels':
