@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const OPERATORS_URL = 'https://visitkamchatka.ru/tour-operators/';
 const USER_AGENT = 'TourHab/1.0 (KamchatourHub operator importer)';
@@ -298,15 +298,13 @@ export async function scrapeOperatorDirectory(): Promise<OperatorImportResult> {
 
   let rawRecords: OperatorRecord[] = [];
 
-  // Попытка 1: Firecrawl (markdown)
-  if (firecrawlAvailable()) {
-    const page = await firecrawlScrape(OPERATORS_URL);
-    if (page?.markdown) {
-      rawRecords = parseMarkdownOperators(page.markdown);
-    }
+  // Попытка 1: Bright Data (обходит антибот, рендерит JS)
+  const bdHtml = await fetchViaBrightData(OPERATORS_URL, { country: 'ru', timeoutMs: 30_000 });
+  if (bdHtml) {
+    rawRecords = parseHtmlOperators(bdHtml);
   }
 
-  // Попытка 2: raw HTML fallback
+  // Попытка 2: прямой fetch fallback
   if (rawRecords.length === 0) {
     const html = await fetchHtml(OPERATORS_URL);
     if (html) {
