@@ -28,7 +28,7 @@ export async function fetchViaBrightData(
   if (!token) return null;
 
   const {
-    zone = 'web_unlocker1',
+    zone = 'mcp_unlocker',
     country = 'ru',
     timeoutMs = 30_000,
   } = options;

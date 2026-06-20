@@ -5,7 +5,7 @@ import { Protected } from '@/components/auth/Protected';
 import {
   Building2, Search, Loader2, CheckCircle2, XCircle,
   Clock, Phone, Mail, Calendar, ChevronDown, ChevronUp,
-  Send, Pencil, Check, Globe, Copy,
+  Send, Pencil, Check, Globe, Copy, Database, RefreshCw, Play,
 } from 'lucide-react';
 
 type ProfileStatus = 'pending' | 'approved' | 'rejected';
@@ -385,6 +385,175 @@ function OperatorCard({
   );
 }
 
+type ScrapeAction = 'scrape_operators' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all';
+
+interface ScrapeResult {
+  ok: boolean;
+  duration_ms?: number;
+  operators_processed?: number;
+  tours_found?: number;
+  tours_saved?: number;
+  operators_found?: number;
+  operators_saved?: number;
+  errors?: number;
+  log?: string[];
+  error?: string;
+}
+
+function ScraperPanel() {
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState<ScrapeAction | null>(null);
+  const [result, setResult] = useState<ScrapeResult | null>(null);
+  const [showLog, setShowLog] = useState(false);
+
+  async function runAction(action: ScrapeAction) {
+    setRunning(action);
+    setResult(null);
+    setShowLog(false);
+    try {
+      let body: Record<string, unknown>;
+      if (action === 'scrape_operators') {
+        body = { action: 'scrape_operators' };
+      } else if (action === 'scrape_tours_per_operator_taras') {
+        body = {
+          action: 'scrape_tours_per_operator',
+          categories: ['volcano', 'sea', 'rafting', 'thermal'],
+          max_operators: 20,
+        };
+      } else {
+        body = {
+          action: 'scrape_tours_per_operator',
+          max_operators: 20,
+        };
+      }
+      const res = await fetch('/api/admin/import/operators', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j: unknown = await res.json();
+      setResult(j as ScrapeResult);
+    } catch (e) {
+      setResult({ ok: false, error: (e as Error).message });
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  const durationSec = result?.duration_ms ? (result.duration_ms / 1000).toFixed(1) : null;
+
+  return (
+    <div className="mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors"
+      >
+        <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
+          <Database className="w-4 h-4 text-[var(--ocean)]" />
+          Сбор данных туров
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 border-t border-[var(--border)]">
+          <p className="text-xs text-[var(--text-muted)] mt-3 mb-3">
+            Парсинг сайтов туроператоров через Bright Data + AI-извлечение. Занимает 2-5 минут.
+          </p>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => runAction('scrape_operators')}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--ocean)]/10 text-[var(--ocean)] border border-[var(--ocean)]/20 rounded-lg hover:bg-[var(--ocean)]/20 transition-colors disabled:opacity-50"
+            >
+              {running === 'scrape_operators'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <RefreshCw className="w-3.5 h-3.5" />
+              }
+              Импорт операторов (visitkamchatka.ru)
+            </button>
+
+            <button
+              onClick={() => runAction('scrape_tours_per_operator_taras')}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 rounded-lg hover:bg-[var(--accent)]/20 transition-colors disabled:opacity-50"
+            >
+              {running === 'scrape_tours_per_operator_taras'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Play className="w-3.5 h-3.5" />
+              }
+              Найти туры: Тарас (вулкан / море / сплав / термы)
+            </button>
+
+            <button
+              onClick={() => runAction('scrape_tours_per_operator_all')}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+            >
+              {running === 'scrape_tours_per_operator_all'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Database className="w-3.5 h-3.5" />
+              }
+              Все туры всех операторов
+            </button>
+          </div>
+
+          {running && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Парсинг запущен... это займёт несколько минут
+            </div>
+          )}
+
+          {result && (
+            <div className={`mt-3 p-3 rounded-lg text-xs ${result.ok ? 'bg-[var(--success)]/8 border border-[var(--success)]/20' : 'bg-[var(--danger)]/8 border border-[var(--danger)]/20'}`}>
+              {result.ok ? (
+                <div className="space-y-0.5">
+                  <p className="font-medium text-[var(--success)] flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Готово за {durationSec}с
+                  </p>
+                  {result.operators_found !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Операторов: {result.operators_found} найдено</p>
+                  )}
+                  {result.operators_processed !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Операторов обработано: {result.operators_processed}</p>
+                  )}
+                  {result.tours_found !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Туров найдено: {result.tours_found}</p>
+                  )}
+                  {result.tours_saved !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Туров сохранено: {result.tours_saved}</p>
+                  )}
+                  {result.errors !== undefined && result.errors > 0 && (
+                    <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
+                  )}
+                  {result.log && result.log.length > 0 && (
+                    <button
+                      onClick={() => setShowLog(s => !s)}
+                      className="mt-1 text-[var(--ocean)] underline underline-offset-2"
+                    >
+                      {showLog ? 'Скрыть лог' : `Показать лог (${result.log.length} строк)`}
+                    </button>
+                  )}
+                  {showLog && result.log && (
+                    <pre className="mt-2 max-h-48 overflow-y-auto text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg-primary)] rounded p-2">
+                      {result.log.join('\n')}
+                    </pre>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[var(--danger)]">{result.error ?? 'Ошибка выполнения'}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OperatorsClient() {
   const [tab, setTab]             = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [operators, setOperators] = useState<OperatorRow[]>([]);
@@ -495,6 +664,9 @@ export default function OperatorsClient() {
             </span>
           )}
         </div>
+
+        {/* Scraper panel */}
+        <ScraperPanel />
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-[var(--bg-primary)] rounded-lg p-1 w-fit">
