@@ -203,6 +203,88 @@ async function runDigest(): Promise<string> {
   return answer ?? 'AI временно недоступен';
 }
 
+// ── Channel test posts ────────────────────────────────────────────────────────
+
+async function sendChannelTests(ownerChatId: number): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
+
+  async function tgChannel(
+    chatId: string,
+    text: string,
+    buttons?: Array<Array<{ text: string; url: string }>>,
+  ): Promise<{ ok: boolean; description?: string }> {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text: text.slice(0, 4096),
+      parse_mode: 'HTML',
+      disable_web_page_preview: false,
+    };
+    if (buttons) body.reply_markup = { inline_keyboard: buttons };
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return await res.json() as { ok: boolean; description?: string };
+    } catch (e) {
+      return { ok: false, description: e instanceof Error ? e.message : 'fetch error' };
+    }
+  }
+
+  const results: string[] = [];
+
+  // @kamchatka_real — туристический канал
+  const kamChannel = process.env.TELEGRAM_CHANNEL_ID;
+  if (kamChannel) {
+    const text = [
+      '<b>Авачинский вулкан — открытие сезона</b>',
+      '',
+      'Снег на гребне сошёл. Маршрут на кратер открыт.',
+      '',
+      '<b>Параметры маршрута:</b>',
+      '↗ Набор: 1 700 м  |  📍 8 км  |  ⏱ 6–8 часов',
+      '',
+      '<blockquote>Регистрация в МЧС обязательна.\nТелефон: 8-4152-41-84-85\nБез неё на маршрут не выпустим.</blockquote>',
+      '',
+      '<i>Есть вопросы — пишите Кузьмичу.</i>',
+    ].join('\n');
+    const r = await tgChannel(kamChannel, text, [
+      [{ text: 'Маршруты на карте →', url: 'https://tourhab.ru/routes' }],
+      [{ text: 'Спросить Кузьмича', url: 'https://t.me/KuzmichKam_bot' }],
+    ]);
+    results.push(`@kamchatka_real: ${r.ok ? 'OK' : (r.description ?? 'err')}`);
+  } else {
+    results.push('@kamchatka_real: TELEGRAM_CHANNEL_ID не задан');
+  }
+
+  // @ai_hub_money — AI/вайб-кодинг канал
+  const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID;
+  if (aiChannel) {
+    const text = [
+      '<b>Claude Code — три фичи, которые меняют workflow</b>',
+      '',
+      '• <b>CLAUDE.md как конституция</b> — агент читает его перед каждой задачей. Описываешь архитектуру раз → не объясняешь каждый раз.',
+      '',
+      '• <b>Параллельные агенты</b> — один пишет API, другой UI. Оба коммитят в один PR через <code>worktree</code>-изоляцию.',
+      '',
+      '• <b>Issues как бэклог</b> — агент создаёт <code>agent-proposal</code> issues, следующий их читает и реализует. Цикл без PM.',
+      '',
+      '<blockquote expandable>Наш стек: Next.js 15 + Claude Code Action + GitHub Actions cron.\n\nScout-Innovator каждое утро анализирует кодовую базу и предлагает улучшения в GitHub Issues. Scout-Digest собирает RSS и постит сюда AI-инсайты. Всё работает без ручного запуска.</blockquote>',
+    ].join('\n');
+    const r = await tgChannel(aiChannel, text, [
+      [{ text: 'CLAUDE.md пример →', url: 'https://github.com/tourhabk-ui/pos/blob/main/CLAUDE.md' }],
+      [{ text: 'Туристическая платформа на Claude', url: 'https://t.me/kamchatka_real' }],
+    ]);
+    results.push(`@ai_hub_money: ${r.ok ? 'OK' : (r.description ?? 'err')}`);
+  } else {
+    results.push('@ai_hub_money: TELEGRAM_AI_CHANNEL_ID не задан');
+  }
+
+  await reply(ownerChatId, results.join('\n'));
+}
+
 // ── Command handlers ──────────────────────────────────────────────────────────
 
 async function handleCommand(cmd: string, chatId: number): Promise<void> {
@@ -219,6 +301,7 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         '/agents — команда AI',
         '/kuzmich — пост маршрута',
         '/tip — совет Кузьмича',
+        '/testchannels — тест-посты в оба канала',
         '',
         'Любой текст — уходит в Команду AI и возвращается с ответом нужного агента',
       ].join('\n'));
@@ -278,6 +361,11 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         const r = await postKuzmichTip();
         await reply(chatId, r.ok ? 'Совет опубликован' : `Ошибка: ${r.error ?? 'unknown'}`);
       }
+      break;
+
+    case '/testchannels':
+      await reply(chatId, 'Отправляю тесты...');
+      await sendChannelTests(chatId);
       break;
 
     default:
@@ -368,7 +456,7 @@ export async function GET(request: NextRequest) {
     if (!command) {
       return NextResponse.json({
         error: 'Missing command parameter',
-        available_commands: ['/health', '/stats', '/leads', '/digest', '/tip'],
+        available_commands: ['/health', '/stats', '/leads', '/digest', '/tip', '/testchannels'],
         example: '/api/telegram/admin?command=health'
       }, { status: 400 });
     }
