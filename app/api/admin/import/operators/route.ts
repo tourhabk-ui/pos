@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators';
 import { scrapeTourMarketplace } from '@/lib/services/tours-visitkamchatka';
+import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
 import { z } from 'zod';
 
@@ -22,12 +23,16 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_tours', 'scan_tg', 'scan_tg_group']),
+  action: z.enum(['scrape_operators', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
   group_username: z.string().optional(),
   hours_back: z.number().int().min(1).max(168).optional(),
+  categories: z.array(z.string()).optional(),
+  operator_slug: z.string().optional(),
+  dry_run: z.boolean().optional(),
+  max_operators: z.number().int().min(1).max(50).optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -46,12 +51,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { action, date_from, date_to, activity, group_username, hours_back } = parsed.data;
+  const { action, date_from, date_to, activity, group_username, hours_back,
+          categories, operator_slug, dry_run, max_operators } = parsed.data;
   const t0 = Date.now();
 
   try {
     if (action === 'scrape_operators') {
       const result = await scrapeOperatorDirectory();
+      return NextResponse.json({
+        ok: true,
+        action,
+        duration_ms: Date.now() - t0,
+        ...result,
+      });
+    }
+
+    if (action === 'scrape_tours_per_operator') {
+      const result = await scrapeOperatorTours({
+        categories,
+        operatorSlug: operator_slug,
+        dryRun: dry_run,
+        maxOperators: max_operators,
+      });
       return NextResponse.json({
         ok: true,
         action,
