@@ -203,6 +203,112 @@ async function runDigest(): Promise<string> {
   return answer ?? 'AI временно недоступен';
 }
 
+// ── Push test (end-to-end: VAPID → push_subscriptions → телефон) ─────────────
+
+async function testPush(ownerChatId: number): Promise<void> {
+  const lines: string[] = ['<b>Push-стек диагностика:</b>', ''];
+
+  // 1. VAPID ключи
+  const pubKey  = process.env.NEXT_PUBLIC_VAPID_KEY?.trim();
+  const privKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  lines.push(`VAPID публичный: ${pubKey ? `✅ ${pubKey.slice(0, 12)}…` : '❌ не задан'}`);
+  lines.push(`VAPID приватный: ${privKey ? '✅ задан' : '❌ не задан'}`);
+  lines.push('');
+
+  if (!pubKey || !privKey) {
+    lines.push('❌ Остановка: без VAPID ключей push физически невозможен.');
+    lines.push('Добавь NEXT_PUBLIC_VAPID_KEY и VAPID_PRIVATE_KEY в Timeweb.');
+    await reply(ownerChatId, lines.join('\n'));
+    return;
+  }
+
+  // 2. Подписки в БД
+  const { rows: subs } = await pool.query<{ id: string; created_at: string }>(
+    `SELECT id, created_at FROM push_subscriptions ORDER BY created_at DESC LIMIT 5`
+  );
+  lines.push(`push_subscriptions: ${subs.length === 0 ? '❌ пусто (никто не подписан)' : `✅ ${subs.length} активных (последние 5)`}`);
+  subs.forEach(s => lines.push(`  • ${s.id.slice(0, 8)}… создана ${new Date(s.created_at).toLocaleDateString('ru')}`));
+  lines.push('');
+
+  if (subs.length === 0) {
+    lines.push('❌ Остановка: нет подписчиков. Открой vedarai.ru в браузере → разреши уведомления.');
+    await reply(ownerChatId, lines.join('\n'));
+    return;
+  }
+
+  // 3. Отправить реальный тест-push
+  lines.push('Отправляю тест-push…');
+  await reply(ownerChatId, lines.join('\n'));
+
+  const { sendPushBroadcast } = await import('@/lib/notifications/web-push');
+  const result = await sendPushBroadcast({
+    title: 'Тест push-уведомления',
+    body: 'Если видишь это — push работает.',
+    url: '/safety',
+    tag: `test-${Date.now()}`,
+  });
+
+  const summary = [
+    '',
+    '<b>Результат:</b>',
+    `Подписок: ${result.total}`,
+    `Доставлено: ${result.sent} ${result.sent > 0 ? '✅' : '❌'}`,
+    `Ошибки: ${result.failed}`,
+    `Удалено истёкших: ${result.removed}`,
+    '',
+    result.sent > 0
+      ? '✅ Push работает. Посмотри на телефон — уведомление должно быть.'
+      : `❌ Push не доставлен (sent=0, total=${result.total}). Проверь VAPID ключи и endpoint'ы.`,
+  ].join('\n');
+
+  await reply(ownerChatId, summary);
+}
+
+// ── Channel diagnostics ───────────────────────────────────────────────────────
+
+async function checkChannels(ownerChatId: number): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
+
+  async function tgGetChat(chatId: string): Promise<{ ok: boolean; result?: { title: string; type: string }; description?: string }> {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId }),
+      });
+      return await res.json() as { ok: boolean; result?: { title: string; type: string }; description?: string };
+    } catch (e) {
+      return { ok: false, description: e instanceof Error ? e.message : 'fetch error' };
+    }
+  }
+
+  const lines: string[] = ['<b>Проверка каналов:</b>', ''];
+
+  const kamId = process.env.TELEGRAM_CHANNEL_ID?.trim();
+  if (kamId) {
+    const r = await tgGetChat(kamId);
+    lines.push(`TELEGRAM_CHANNEL_ID: <code>${kamId}</code>`);
+    lines.push(r.ok ? `✅ ${r.result?.title} (${r.result?.type})` : `❌ ${r.description}`);
+  } else {
+    lines.push('TELEGRAM_CHANNEL_ID: ❌ не задан');
+  }
+
+  lines.push('');
+
+  const aiId = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
+  if (aiId) {
+    const r = await tgGetChat(aiId);
+    lines.push(`TELEGRAM_AI_CHANNEL_ID: <code>${aiId}</code>`);
+    lines.push(r.ok ? `✅ ${r.result?.title} (${r.result?.type})` : `❌ ${r.description}`);
+  } else {
+    lines.push('TELEGRAM_AI_CHANNEL_ID: ❌ не задан');
+  }
+
+  lines.push('', '<i>Если ❌ — добавь @kuzmihai_bot как admin в канал с правом "Публиковать сообщения"</i>');
+  await reply(ownerChatId, lines.join('\n'));
+}
+
 // ── Channel test posts ────────────────────────────────────────────────────────
 
 async function sendChannelTests(ownerChatId: number): Promise<void> {
@@ -236,7 +342,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   const results: string[] = [];
 
   // @kamchatka_real — туристический канал
-  const kamChannel = process.env.TELEGRAM_CHANNEL_ID;
+  const kamChannel = process.env.TELEGRAM_CHANNEL_ID?.trim();
   if (kamChannel) {
     const text = [
       '<b>Авачинский вулкан — открытие сезона</b>',
@@ -260,7 +366,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   }
 
   // @ai_hub_money — AI/вайб-кодинг канал
-  const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID;
+  const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
   if (aiChannel) {
     const text = [
       '<b>Claude Code — три фичи, которые меняют workflow</b>',
@@ -301,6 +407,8 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         '/agents — команда AI',
         '/kuzmich — пост маршрута',
         '/tip — совет Кузьмича',
+        '/testpush — реальный push на телефон + диагностика VAPID/подписок',
+        '/checkchannels — проверить доступность каналов (без постинга)',
         '/testchannels — тест-посты в оба канала',
         '',
         'Любой текст — уходит в Команду AI и возвращается с ответом нужного агента',
@@ -361,6 +469,15 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         const r = await postKuzmichTip();
         await reply(chatId, r.ok ? 'Совет опубликован' : `Ошибка: ${r.error ?? 'unknown'}`);
       }
+      break;
+
+    case '/testpush':
+      await testPush(chatId);
+      break;
+
+    case '/checkchannels':
+      await reply(chatId, 'Проверяю...');
+      await checkChannels(chatId);
       break;
 
     case '/testchannels':

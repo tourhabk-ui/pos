@@ -80,6 +80,11 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
 }
 
 async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: number; error?: string }> {
+  // Если VAPID не настроен — не трогаем push_sent_at, следующий cron повторит после настройки
+  if (!process.env.NEXT_PUBLIC_VAPID_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    return { dispatched: 0, skipped: 0, error: 'VAPID keys not configured — push skipped' };
+  }
+
   try {
     const { rows } = await pool.query<{
       id: number;
