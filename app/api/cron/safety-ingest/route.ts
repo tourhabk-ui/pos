@@ -144,7 +144,7 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
 }
 
 function buildResponse(
-  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
+  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; usgs?: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
@@ -168,6 +168,11 @@ function buildResponse(
       inserted: ingestResult.eqkam.inserted,
       skipped: ingestResult.eqkam.skipped,
     },
+    usgs: ingestResult.usgs ? {
+      events_found: ingestResult.usgs.events.length,
+      inserted: ingestResult.usgs.inserted,
+      skipped: ingestResult.usgs.skipped,
+    } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,

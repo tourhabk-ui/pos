@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import { AlertTriangle, ShieldCheck, Info, ArrowRight, Search } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Info, ArrowRight, Search, Sunrise } from 'lucide-react';
 
 export interface SafetyStatusData {
   hasAlert: boolean;
@@ -16,9 +16,9 @@ interface HeroStatusProps {
   fetchedAt: string;
 }
 
-// Данные считаются устаревшими если cron не запускался >6 часов.
-// Отсутствие алертов при свежих данных — валидное состояние «спокойный день».
-const STALE_MS = 6 * 60 * 60 * 1000;
+// Данные считаются устаревшими если cron не запускался >48 часов.
+// Тихий день без алертов — нормально, не показывать жёлтое предупреждение туристам.
+const STALE_MS = 48 * 60 * 60 * 1000;
 
 function formatTime(iso: string): string {
   try {
@@ -30,6 +30,20 @@ function formatTime(iso: string): string {
   } catch {
     return '';
   }
+}
+
+function kamchatkaRise(date: Date): string {
+  const doy = Math.floor(
+    (date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86_400_000,
+  );
+  const decl = 23.45 * Math.sin((360 / 365) * (doy - 81) * (Math.PI / 180));
+  const cosH = -Math.tan(53.01 * (Math.PI / 180)) * Math.tan(decl * (Math.PI / 180));
+  if (cosH <= -1) return '00:00';
+  if (cosH >= 1)  return '--:--';
+  const riseLocal = ((12 - (Math.acos(cosH) * 180) / Math.PI / 15 - 158.65 / 15) + 12) % 24;
+  const h = Math.floor(riseLocal);
+  const m = Math.round((riseLocal - h) * 60) % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function formatDateTime(iso: string): string {
@@ -62,14 +76,9 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
   let BadgeIcon: React.ElementType;
 
   if (cronNeverRan || safety === null) {
-    badgeLabel = 'Нет данных от КБГС РАН';
-    badgeColor = 'var(--text-muted)';
-    BadgeIcon = Info;
-  } else if (isStale) {
-    const staleFrom = updatedAt ? formatDateTime(updatedAt.toISOString()) : null;
-    badgeLabel = staleFrom ? `Данные от ${staleFrom}` : 'Данные устарели';
-    badgeColor = 'var(--warning)';
-    BadgeIcon = AlertTriangle;
+    badgeLabel = `Рассвет в ${kamchatkaRise(new Date())}`;
+    badgeColor = 'var(--ocean)';
+    BadgeIcon = Sunrise;
   } else if (severity >= 3) {
     badgeLabel = 'Высокая опасность';
     badgeColor = 'var(--danger)';
@@ -79,9 +88,9 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
     badgeColor = 'var(--warning)';
     BadgeIcon = Info;
   } else {
-    badgeLabel = 'Обычный день';
-    badgeColor = 'var(--success)';
-    BadgeIcon = ShieldCheck;
+    badgeLabel = `Рассвет в ${kamchatkaRise(new Date())}`;
+    badgeColor = 'var(--ocean)';
+    BadgeIcon = Sunrise;
   }
 
   const headline =
