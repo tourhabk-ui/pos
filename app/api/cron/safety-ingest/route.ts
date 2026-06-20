@@ -79,31 +79,67 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
   }
 }
 
-async function dispatchPushAlerts(): Promise<number> {
+async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: number; error?: string }> {
   try {
-    const { rows } = await pool.query<{ id: number; title: string; magnitude: string | null }>(
-      `SELECT id, title, magnitude FROM external_alerts
-       WHERE push_sent_at IS NULL
-         AND magnitude >= 5.5
-         AND created_at > NOW() - INTERVAL '3 hours'
-         AND alert_type IN ('earthquake', 'tsunami_warning', 'volcanic_eruption')
-       ORDER BY magnitude DESC NULLS LAST
-       LIMIT 10`,
-    );
-    let sent = 0;
+    const { rows } = await pool.query<{
+      id: number;
+      alert_type: string;
+      magnitude: string | null;
+      title: string;
+      description: string | null;
+    }>(`
+      SELECT id, alert_type, magnitude, title, description
+      FROM external_alerts
+      WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
+        AND push_sent_at IS NULL
+        AND created_at > NOW() - INTERVAL '2 hours'
+      ORDER BY severity DESC, created_at DESC
+    `);
+
+    let dispatched = 0;
     for (const alert of rows) {
-      const mag = alert.magnitude ? Number(alert.magnitude).toFixed(1) : '5.5+';
-      await sendPushBroadcast({
-        title: `⚠️ Землетрясение M${mag}`,
-        body: `${alert.title}. Если вы на берегу — немедленно уходите вверх ≥30 м.`,
+      const isTsunami = alert.alert_type === 'tsunami_warning';
+      const pushTitle = isTsunami
+        ? 'УГРОЗА ЦУНАМИ — Камчатка'
+        : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
+      const pushBody = isTsunami
+        ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
+        : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+
+      const result = await sendPushBroadcast({
+        title: pushTitle,
+        body: pushBody,
         url: '/safety',
+        tag: `alert-${alert.id}`,
       });
+
+      // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
+      // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.
+      if (result.total > 0 && result.sent === 0) {
+        // Молчаливый провал — оповестить администратора через Telegram
+        const token  = process.env.TELEGRAM_BOT_TOKEN;
+        const chatId = process.env.TELEGRAM_CHAT_ID;
+        if (token && chatId) {
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id:    chatId,
+              text:       `КРИТИЧНО: Push-алерт не доставлен\n${alert.title}\nПодписок: ${result.total}, доставлено: 0, ошибок: ${result.failed}\nTуристы без предупреждения. Проверь VAPID и push_subscriptions.`,
+              parse_mode: 'HTML',
+            }),
+          }).catch(() => {});
+        }
+        continue;
+      }
+
       await pool.query('UPDATE external_alerts SET push_sent_at = NOW() WHERE id = $1', [alert.id]);
-      sent++;
+      dispatched++;
     }
-    return sent;
-  } catch {
-    return 0;
+
+    return { dispatched, skipped: rows.length - dispatched };
+  } catch (e) {
+    return { dispatched: 0, skipped: 0, error: `push dispatch failed: ${(e as Error).message}` };
   }
 }
 
@@ -111,12 +147,13 @@ function buildResponse(
   ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; usgs?: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
-  pushed = 0,
+  pushResult?: { dispatched: number; skipped: number; error?: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
     ...ingestResult.eqkam.errors,
     ...(rtStatus.error ? [rtStatus.error] : []),
+    ...(pushResult?.error ? [pushResult.error] : []),
   ];
   return Response.json({
     success: true,
@@ -138,9 +175,17 @@ function buildResponse(
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
-    pushed_alerts: pushed,
+    push_alerts_dispatched: pushResult?.dispatched ?? 0,
     errors: errors.length > 0 ? errors : undefined,
   });
+}
+
+function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
+  pool.query(
+    `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
+     VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
+    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched })],
+  ).catch(() => {});
 }
 
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
@@ -149,9 +194,12 @@ export async function GET(req: Request) {
   if (err) return err;
 
   const t0 = Date.now();
+  const startedAt = new Date(t0);
   const ingestResult = await ingestAll();
-  const [rtStatus, pushed] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushed);
+  const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  const durationMs = Date.now() - t0;
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
 
 const HtmlBodySchema = z.object({
@@ -177,7 +225,10 @@ export async function POST(req: Request) {
   }
 
   const t0 = Date.now();
+  const startedAt = new Date(t0);
   const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
-  const [rtStatus, pushed] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
-  return buildResponse(ingestResult, rtStatus, Date.now() - t0, pushed);
+  const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
+  const durationMs = Date.now() - t0;
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }

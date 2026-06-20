@@ -90,8 +90,13 @@ operator_tours (20)    — коммерческий продукт: цена, с
 |-------|-----------|--------|
 | **Kuzmich** | realtime | Telegram / MAX / Web / Widget — мультиканальный ассистент |
 | **Watchdog** | каждые 30 мин | Зависшие бронирования, операторы без ответа, лиды >2ч |
-| **Editor** | 02:00 UTC | Туры с коротким описанием → AI-рерайт |
-| **Scout Digest** | 07:00 UTC | RSS (Habr, RATA, Kamgov) → AI-синтез → Telegram |
+| **Editor** | 02:00 UTC | Туры с коротким описанием → AI-рерайт + smoke-test записей в БД |
+| **Kuzmich Place Enricher** | 04:00 UTC | Генерирует `kuzmich_review` для мест без него (20 за запуск) |
+| **Scout Digest** | 07:00 UTC | RSS (Habr, RATA, Kamgov) → дедупликация по URL между запусками → AI-синтез → Telegram |
+| **Scout Innovator** | 08:00 UTC | Анализ трендов → уникальные GitHub Issues с `agent-proposal`, дедупликация против открытых |
+| **Danger Analyst** | каждые 30 мин | Анализ опасностей по зонам маршрутов |
+
+**Общая память агентов:** каждый агент на старте читает `readAgentBriefing()` — состояние платформы, историю своих запусков, last repo-scan, must-have контекст туризма на Камчатке.
 
 Полный реестр: [`AGENTS.md`](./AGENTS.md)
 
@@ -148,6 +153,16 @@ Push в `main` → Timeweb видит пуш → собирает Docker → `st
 Приложение: **Fair Polydeuces** на Timeweb Cloud. Репо: `tourhabk-ui/pos`.
 
 **Docker:** standalone bundle ≤ 50 МБ, `images.unoptimized: true` (убирает sharp ~33 МБ).
+
+---
+
+## Последние изменения (июнь 2026)
+
+- **Карта** — исправлена перезагрузка каждую секунду на Android (мемоизация маркеров, GPS-троттлинг >10м)
+- **Smoke test** — Editor проверяет что описания реально записались в БД, при тихом отказе → Telegram алерт
+- **Repo Scanner** — ежедневное сканирование: 12 таблиц БД, дерево репо, 10 production-эндпоинтов → в брифинг агентов
+- **Дедупликация агентов** — Scout Digest помнит виденные URL 30 дней, Scout Innovator не создаёт issue если такое уже открыто
+- **Геофенс** — алерт при входе в зону активного вулкана, кеш зон офлайн
 
 ---
 

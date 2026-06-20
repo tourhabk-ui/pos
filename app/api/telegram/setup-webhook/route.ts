@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
   const botType = body.bot ?? 'main';
   const botTokenMap: Record<string, string | undefined> = {
     main:    process.env.TELEGRAM_BOT_TOKEN,
-    admin:   process.env.TELEGRAM_ADMIN_BOT_TOKEN,
-    kuzmich: process.env.TELEGRAM_KUZMICH_BOT_TOKEN,
+    admin:   process.env.TELEGRAM_BOT_TOKEN,
+    kuzmich: process.env.TELEGRAM_BOT_TOKEN,
   };
   const webhookPathMap: Record<string, string> = {
     main:    '/api/telegram/webhook',

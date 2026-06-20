@@ -1,22 +1,35 @@
 # KamchatourHub — AI Agents
 
 > Реестр рабочих AI-агентов платформы.
-> Обновлено: апрель 2026
+> Обновлено: июнь 2026
 
 ---
 
 ## РАБОЧИЕ АГЕНТЫ
 
-### 4 Cron-агента (автономные)
+### Cron-агенты (автономные)
 
 | Агент | Файл | Cron | Что делает |
 |-------|------|------|------------|
 | **Watchdog** | `lib/agents/watchdog.ts` | каждые 30 мин | Бронирования без подтверждения >24ч, операторы без ответа >48ч, лиды >2ч, SOS >30 мин. Алерты в Telegram. |
-| **Editor** | `lib/agents/editor.ts` | 02:00 UTC ежедневно | Находит туры с описанием <300 символов, переписывает AI, сохраняет в `route_description_cache`. |
-| **Scout Digest** | `lib/agents/scout-digest.ts` | 07:00 UTC ежедневно | Собирает RSS (Habr AI/ML, RATA, Tourprom, Kamgov), AI-синтез, дайджест в Telegram. |
-| **Kuzmich Place Enricher** | `lib/agents/kuzmich-place-enricher.ts` | 04:00 UTC ежедневно | Генерирует `kuzmich_review` для мест без него. 20 мест за запуск. Опционально скрейпит 2GIS через Bright Data. |
+| **Editor** | `lib/agents/editor.ts` | 02:00 UTC | Туры с описанием <300 символов → AI-рерайт → `route_description_cache`. Smoke-test: проверяет что записи реально попали в БД, при тихом отказе → Telegram алерт. |
+| **Kuzmich Place Enricher** | `lib/agents/kuzmich-place-enricher.ts` | 04:00 UTC | Генерирует `kuzmich_review` для мест без него. 20 мест за запуск. |
+| **Scout Digest** | `lib/agents/scout-digest.ts` | 07:00 UTC | RSS (Habr AI/ML, RATA, Tourprom, Kamgov) → дедупликация URL между запусками (TTL 30д) → AI-синтез → Telegram. |
+| **Scout Innovator** | `lib/agents/scout-innovator.ts` | 08:00 UTC | Анализ трендов + платформы → структурированные proposals → GitHub Issues (`agent-proposal`). Фильтрует дубли по открытым issues (Jaccard ≥ 0.5). |
+| **Danger Analyst** | `lib/agents/agencies/danger-analyst-agency.ts` | каждые 30 мин | Анализ опасностей по зонам маршрутов, данные в `v_current_danger`. |
 
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-kuzmich-places.yml`
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-scout.yml`, `cron-kuzmich-places.yml`
+
+### Ежедневный брифинг (общая память агентов)
+
+Каждый cron-агент на старте вызывает `readAgentBriefing(agentId)` из `lib/agents/warmup.ts`.
+Возвращает: состояние платформы (counts из БД) + статусы агентов + Repo State (12 таблиц, дерево файлов, 10 production-эндпоинтов) + **must-have туристический контекст** (сезонность, логистика, безопасность, инструменты платформы, ценовые ориентиры).
+
+**Repo Scanner** (`lib/agents/repo-scanner.ts`): ежедневное сканирование вызывается из `writeDailyBriefing()`.
+- `scanDbSchema()` — drift-детектор, читает `information_schema.columns`
+- `scanRepoTree()` — дерево файлов через GitHub API
+- `scanProductionHealth()` — 10 публичных GET эндпоинтов, таймаут 5с
+- Результат пишется в `agent_knowledge` slug=`repo-scan/YYYY-MM-DD`
 
 ### Kuzmich (AI-ассистент туристов)
 

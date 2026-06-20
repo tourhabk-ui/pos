@@ -21,6 +21,13 @@ interface PlaceRow {
   location_type: string;
 }
 
+interface TsunamiRow {
+  id: string;
+  name: string;
+  lat: string | number;
+  lng: string | number;
+}
+
 interface RouteRow {
   id: string;
   title: string;
@@ -60,7 +67,7 @@ export async function GET() {
   let fallback = false;
 
   try {
-    const [placesRes, routesRes] = await Promise.all([
+    const [placesRes, routesRes, tsunamiRes] = await Promise.all([
       pool.query<PlaceRow>(`
         SELECT id::text, name, lat, lng, location_type
         FROM places
@@ -74,6 +81,14 @@ export async function GET() {
         FROM kamchatka_routes
         WHERE category = 'vulkani'
           AND lat IS NOT NULL AND lng IS NOT NULL
+        LIMIT 100
+      `),
+      pool.query<TsunamiRow>(`
+        SELECT p.id::text, p.name, p.lat, p.lng
+        FROM places p
+        JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
+        WHERE lsp.tsunami_risk = TRUE
+          AND p.lat IS NOT NULL AND p.lng IS NOT NULL
         LIMIT 100
       `),
     ]);
@@ -109,6 +124,18 @@ export async function GET() {
         hazard:  'volcano',
         level:   'danger',
         message: `Вы в зоне вулканической опасности (${row.title}). Следите за оповещениями KVERT.`,
+      });
+    }
+    for (const row of tsunamiRes.rows) {
+      zones.push({
+        id:      `tsunami_${row.id}`,
+        name:    row.name,
+        lat:     Number(row.lat),
+        lng:     Number(row.lng),
+        radiusM: 300,
+        hazard:  'tsunami',
+        level:   'critical',
+        message: `ЦУНАМИ-ЗОНА (${row.name}). При землетрясении — немедленно уходите вверх ≥30 м от уровня моря.`,
       });
     }
   } catch {

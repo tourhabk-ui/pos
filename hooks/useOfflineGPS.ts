@@ -67,9 +67,13 @@ export function useOfflineGPS(): OfflineGPSState {
     window.addEventListener('offline', onOffline);
 
     // GPS watchPosition — обновляем кэш при каждом фиксе
+    // Порог 300м: GPS-чип даёт 3-30м, вышки сотовой — 300-5000м.
+    // Позиции хуже 300м игнорируем — иначе геофенс срабатывает на случайный объект.
+    const MAX_ACCURACY_M = 300;
     if ('geolocation' in navigator) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
+          if (pos.coords.accuracy > MAX_ACCURACY_M) return; // вышка сотовой — игнорировать
           writeCache(pos);
           const updated = readCache();
           if (updated) {

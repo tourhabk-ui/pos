@@ -7,7 +7,7 @@
  * возвращаем 'uncertain' — не говорим «снаружи», когда не уверены.
  */
 
-export type ZoneHazard = 'volcano' | 'thermal' | 'geyser' | 'avalanche' | 'wildlife';
+export type ZoneHazard = 'volcano' | 'thermal' | 'geyser' | 'avalanche' | 'wildlife' | 'tsunami';
 export type ZoneLevel  = 'warning' | 'danger' | 'critical';
 export type BreachState = 'inside' | 'near' | 'uncertain';
 

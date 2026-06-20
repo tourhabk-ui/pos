@@ -75,6 +75,8 @@ export default function LeafletMap({
 
     // Watch ID для GPS — вынесен наверх, чтобы доступный в cleanup()
     let userLocationWatchId: number | null = null;
+    // Tile error overlay — вынесен наверх чтобы cleanup мог его удалить
+    let errorOverlay: HTMLDivElement | null = null;
 
     // Dynamic import — leaflet + markercluster
     Promise.all([
@@ -129,11 +131,29 @@ export default function LeafletMap({
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
 
-      // OpenTopoMap тайлы — topo relief (z-index 400)
-      L.tileLayer('https://tile.opentopomap.org/{z}/{x}/{y}.png', {
+      // OpenTopoMap тайлы через .cz-зеркало (доступно из РФ)
+      let tileErrors = 0;
+      const tileLayer = L.tileLayer('https://tile.opentopomap.cz/{z}/{x}/{y}.png', {
         maxZoom: 17,
         attribution: attribution !== false ? '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' : '',
       }).addTo(map);
+      tileLayer.on('tileerror', () => {
+        tileErrors++;
+        if (tileErrors >= 5 && !errorOverlay && containerRef.current) {
+          errorOverlay = document.createElement('div');
+          errorOverlay.style.cssText =
+            'position:absolute;top:0;left:0;right:0;bottom:0;' +
+            'display:flex;align-items:center;justify-content:center;' +
+            'background:rgba(13,17,23,0.82);z-index:1000;border-radius:inherit;pointer-events:none;';
+          errorOverlay.innerHTML =
+            '<div style="text-align:center;padding:20px;color:#8b949e">' +
+            '<div style="font-size:13px;font-weight:700;color:#f0f6fc;margin-bottom:6px">Карта недоступна</div>' +
+            '<div style="font-size:12px;line-height:1.5">GPS работает — координаты активны.<br>Тайлы карты не загружаются.</div>' +
+            '</div>';
+          containerRef.current.style.position = 'relative';
+          containerRef.current.appendChild(errorOverlay);
+        }
+      });
 
       // Группа кластеров — try/catch: leaflet.markercluster может не успеть
       // расширить L при dynamic import / module cache split.
@@ -351,6 +371,10 @@ export default function LeafletMap({
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
       if (userLocationWatchId !== null && typeof navigator !== 'undefined') {
         navigator.geolocation.clearWatch(userLocationWatchId);
+      }
+      if (errorOverlay) {
+        errorOverlay.remove();
+        errorOverlay = null;
       }
       if (mapRef.current) {
         mapRef.current.remove();

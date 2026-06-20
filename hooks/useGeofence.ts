@@ -77,8 +77,9 @@ export function useGeofence(): GeofenceState {
   }, []);
 
   // Проверка бреча при каждом обновлении позиции
+  // Не проверяем если точность GPS хуже 300м — ложные срабатывания на вышки сотовой
   useEffect(() => {
-    if (!lastPosition || !zones.length) {
+    if (!lastPosition || !zones.length || lastPosition.accuracy > 300) {
       setBreach(null);
       return;
     }

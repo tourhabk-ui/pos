@@ -4,7 +4,7 @@ import { lonToTile, latToTile } from '@/lib/offline/tiles';
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
 
-const TILE_HOST = 'tile.opentopomap.org';
+const TILE_HOST = 'tile.opentopomap.cz';
 const ZOOMS = [10, 11, 12]; // 7-9 уже pre-cached глобально по всей Камчатке
 const MAX_TILES = 2000;      // защита от огромных bbox
 const PAD_LAT = 0.135;       // ~15 км отступ

@@ -23,6 +23,7 @@ const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
 const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
+const PlaceFieldReports     = dynamic(() => import('@/components/places/PlaceFieldReports'),     { ssr: false });
 const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
@@ -223,6 +224,9 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
       {/* 5. Safety block */}
       <PlaceSafety safety={place.safety} placeId={place.id} />
+
+      {/* 5b. Field reports from tourists */}
+      <PlaceFieldReports placeId={place.id} />
 
       {/* 6. Eco */}
       {place.eco && (

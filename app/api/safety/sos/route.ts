@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
   // Telegram-уведомление (fire-and-forget) — приоритет: ADMIN, фоллбэк на основной бот-чатид админа.
   // Если админ-токен не задан, шлём через основной бот.
-  const botToken = process.env.TELEGRAM_ADMIN_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
   if (botToken && chatId) {
     const loc = finalLat && finalLng

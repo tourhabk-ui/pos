@@ -42,6 +42,8 @@ import { getAllOfflineRoutes } from '@/lib/offline/db';
 import { useMesh } from '@/hooks/use-mesh';
 import { useGeofence } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
+import { usePlaceProximity } from '@/hooks/usePlaceProximity';
+import { SafetyReportPrompt } from '@/components/safety/SafetyReportPrompt';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -106,6 +108,11 @@ const OFFLINE_FILTERS = [
   { id: 'forest',     label: 'Лес',          icon: MapPin },
 ];
 
+// Module-level constants — stable references across renders, never trigger LeafletMap useEffect
+const MAP_CENTER: [number, number] = [53.0444, 158.6483];
+const MAP_ZOOM_ONLINE = 8;
+const MAP_ZOOM_OFFLINE = 7;
+
 interface RoutePoint {
   id: string;
   title: string;
@@ -156,6 +163,14 @@ export default function MapPageClient() {
 
   const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
   const { breach, zonesAgeHours } = useGeofence();
+  const proximityPlaces = useMemo(
+    () => allRoutes.filter(r => r.locationType && r.locationType !== 'other'),
+    [allRoutes],
+  );
+  const { nearbyPlace, dismiss: dismissProximity } = usePlaceProximity(
+    showMyLocation ? userPos : null,
+    proximityPlaces,
+  );
 
   // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
@@ -187,13 +202,23 @@ export default function MapPageClient() {
     }
   }, []);
 
+  // Ref for throttling userPos updates — only update state if moved >10m
+  const userPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // GPS-трекинг — работает БЕЗ интернета!
   useEffect(() => {
     if (!showMyLocation || typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const prev = userPosRef.current;
+        // Only trigger re-render (and marker recalculation) if moved >10m
+        if (!prev || haversineDistance(prev.lat, prev.lng, lat, lng) > 10) {
+          userPosRef.current = { lat, lng };
+          setUserPos({ lat, lng });
+        }
       },
       () => { /* ошибка — молча */ },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
@@ -356,6 +381,11 @@ export default function MapPageClient() {
     };
   }), [filtered, activeFilter, userPos]);
 
+  // Stable merged marker array — memoized so LeafletMap's useEffect doesn't
+  // fire (and destroy+recreate the map) when _MapPageClient re-renders for
+  // reasons unrelated to marker content (e.g. GPS ticks from useGeofence).
+  const allMarkers = useMemo(() => [...mapMarkers, ...peerMarkers], [mapMarkers, peerMarkers]);
+
   // ── ОФЛАЙН-РЕЖИМ ──────────────────────────────────────────────────
   if (isOffline) {
     return (
@@ -407,9 +437,9 @@ export default function MapPageClient() {
 
         {/* Карта на весь экран */}
         <LeafletMap
-          center={[53.0444, 158.6483]}
-          zoom={8}
-          markers={[...mapMarkers, ...peerMarkers]}
+          center={MAP_CENTER}
+          zoom={MAP_ZOOM_ONLINE}
+          markers={allMarkers}
           height="100dvh"
           attribution={false}
           onMarkerClick={handleMarkerClick}
@@ -577,6 +607,10 @@ export default function MapPageClient() {
         {/* Панель выбранного маршрута */}
         {/* Геофенс-предупреждение */}
         {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
+        {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
+        {!breach && nearbyPlace && (
+          <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
+        )}
 
         {selectedRoute && (
           <div
@@ -692,9 +726,9 @@ export default function MapPageClient() {
         <div className="relative rounded-lg overflow-hidden border border-[var(--border)]">
           <MapErrorBoundary>
           <LeafletMap
-            center={[53.0444, 158.6483]}
-            zoom={7}
-            markers={[...mapMarkers, ...peerMarkers]}
+            center={MAP_CENTER}
+            zoom={MAP_ZOOM_OFFLINE}
+            markers={allMarkers}
             height="calc(100vh - 180px)"
             attribution={false}
             onMarkerClick={handleMarkerClick}
@@ -822,6 +856,10 @@ export default function MapPageClient() {
 
       {/* Геофенс-предупреждение */}
       {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
+      {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
+      {!breach && nearbyPlace && (
+        <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
+      )}
 
       {/* Кнопка «Я вернулся» — для активных маршрутов */}
       <Link

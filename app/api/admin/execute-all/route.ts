@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 минут — может быть много инициатив
 
 async function notifyOwner(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_ADMIN_BOT_TOKEN;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_OWNER_ID;
   if (!token || !chatId) return;
   try {
