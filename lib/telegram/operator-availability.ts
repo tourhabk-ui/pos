@@ -14,6 +14,24 @@ import { callAIFast } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
+// ── Уведомление владельцу ────────────────────────────────────────────────────
+
+async function notifyOwner(text: string): Promise<void> {
+  const token   = process.env.TELEGRAM_BOT_TOKEN;
+  const ownerId = process.env.TELEGRAM_OWNER_ID ?? '171286547';
+  if (!token) return;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id:    ownerId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    }),
+  }).catch(() => {});
+}
+
 export interface AvailabilitySignal {
   tour_type: string;
   date?: string;
@@ -213,6 +231,28 @@ export async function scanAllOperatorGroups(hoursBack = 72): Promise<{
     if (r.error) summary.errors.push(`${row.company_name}: ${r.error}`);
     // Пауза между запросами чтобы не получить rate-limit
     await new Promise(res => setTimeout(res, 1500));
+  }
+
+  // Уведомление владельцу если нашли что-то интересное
+  if (summary.total_signals > 0) {
+    const lines = summary.results
+      .filter(r => r.signals_found > 0)
+      .map(r => {
+        const top = r.signals.slice(0, 3).map(s => {
+          const parts = [`• <b>${s.tour_type}</b>`];
+          if (s.date) parts.push(s.date);
+          if (s.price) parts.push(`${s.price.toLocaleString('ru-RU')} ₽`);
+          if (s.slots_available) parts.push(`${s.slots_available} мест`);
+          if (s.contact) parts.push(`→ ${s.contact}`);
+          return parts.join(' | ');
+        });
+        return `<b>${r.group}</b>\n${top.join('\n')}`;
+      });
+
+    await notifyOwner(
+      `<b>Наличие мест у операторов</b>\n\n${lines.join('\n\n')}\n\n` +
+      `Всего сигналов: ${summary.total_signals} в ${summary.groups_scanned} группах`,
+    );
   }
 
   return summary;
