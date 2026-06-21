@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site';
+type ScrapeAction = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site';
 
 interface ScrapeResult {
   ok: boolean;
@@ -395,6 +395,9 @@ interface ScrapeResult {
   tours_saved?: number;
   operators_found?: number;
   operators_saved?: number;
+  // scrape_guides fields
+  updated?: number;
+  guides?: { name: string; status: string; cert?: string }[];
   errors?: number | string[];
   log?: string[];
   error?: string;
@@ -483,6 +486,8 @@ function ScraperPanel() {
         body = { action: 'scrape_tours' };
       } else if (action === 'scrape_operators') {
         body = { action: 'scrape_operators' };
+      } else if (action === 'scrape_guides') {
+        body = { action: 'scrape_guides' };
       } else if (action === 'scrape_tours_per_operator_taras') {
         body = {
           action: 'scrape_tours_per_operator',
@@ -608,7 +613,24 @@ function ScraperPanel() {
               </button>
             </div>
 
-            {/* Шаг 1б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
+            {/* Шаг 1А: гиды с visitkamchatka.ru/guides/ */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1А</span>
+              <button
+                onClick={() => runAction('scrape_guides')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--ocean)]/10 text-[var(--ocean)] border border-[var(--ocean)]/20 rounded-lg hover:bg-[var(--ocean)]/20 transition-colors disabled:opacity-50"
+                title="Парсит visitkamchatka.ru/guides/ — аттестованные гиды Камчатки → partners (guide) + guide_certifications"
+              >
+                {running === 'scrape_guides'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                Импорт гидов (visitkamchatka.ru/guides/)
+              </button>
+            </div>
+
+            {/* Шаг 1Б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1Б</span>
               <button
@@ -682,6 +704,9 @@ function ScraperPanel() {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Готово за {durationSec}с
                   </p>
+                  {result.total !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Найдено: {result.total} | Добавлено: {result.inserted ?? 0} | Обновлено: {result.updated ?? 0}</p>
+                  )}
                   {result.operators_found !== undefined && (
                     <p className="text-[var(--text-secondary)]">Операторов: {result.operators_found} найдено</p>
                   )}
