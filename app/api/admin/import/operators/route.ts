@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators';
+import { scrapeGuideDirectory } from '@/lib/services/visitkamchatka-guides';
 import { auditVisitKamchatka } from '@/lib/services/visitkamchatka-audit';
 import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
@@ -25,7 +26,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site']),
+  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
@@ -75,6 +76,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         dryRun: dry_run,
         maxOperators: max_operators,
       });
+      return NextResponse.json({
+        ok: true,
+        action,
+        duration_ms: Date.now() - t0,
+        ...result,
+      });
+    }
+
+    if (action === 'scrape_guides') {
+      const result = await scrapeGuideDirectory();
       return NextResponse.json({
         ok: true,
         action,
