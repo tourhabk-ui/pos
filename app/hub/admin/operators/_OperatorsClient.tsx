@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch';
+type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch';
 
 interface ScrapeResult {
   ok: boolean;
@@ -439,6 +439,8 @@ function ScraperPanel() {
       let body: Record<string, unknown>;
       if (action === 'debug_fetch') {
         body = { action: 'debug_fetch' };
+      } else if (action === 'scrape_tours') {
+        body = { action: 'scrape_tours' };
       } else if (action === 'scrape_operators') {
         body = { action: 'scrape_operators' };
       } else if (action === 'scrape_tours_per_operator_taras') {
@@ -546,6 +548,22 @@ function ScraperPanel() {
                   : <Database className="w-3.5 h-3.5" />
                 }
                 Debug HTML
+              </button>
+            </div>
+
+            {/* Шаг 1б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1Б</span>
+              <button
+                onClick={() => runAction('scrape_tours')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20 rounded-lg hover:bg-[var(--success)]/20 transition-colors disabled:opacity-50"
+              >
+                {running === 'scrape_tours'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Play className="w-3.5 h-3.5" />
+                }
+                Туры с биржи (tours.visitkamchatka.ru)
               </button>
             </div>
 

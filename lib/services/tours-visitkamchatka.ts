@@ -10,6 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const TOURS_BASE = 'https://tours.visitkamchatka.ru';
 const TOURS_URL  = `${TOURS_BASE}/tours`;
@@ -198,7 +199,24 @@ async function findOperatorId(operatorName: string): Promise<string | null> {
 // ── Upsert тур + слот ─────────────────────────────────────────────────────────
 
 async function upsertTourSlot(slot: TourSlot): Promise<'inserted' | 'skip'> {
-  const operatorId = slot.operator_name ? await findOperatorId(slot.operator_name) : null;
+  let operatorId = slot.operator_name ? await findOperatorId(slot.operator_name) : null;
+
+  // Если оператор не найден — создаём запись в partners
+  if (!operatorId && slot.operator_name) {
+    const name = slot.operator_name.slice(0, 200).trim();
+    const slug = 'vk-tours-' + name.toLowerCase()
+      .replace(/[^a-zа-яё0-9]+/gi, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 70);
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO partners (slug, company_name, name, external_source, external_source_url, is_verified, is_public, commission_current)
+       VALUES ($1, $2, $2, 'visitkamchatka_tours', $3, false, false, 0)
+       ON CONFLICT (slug) DO UPDATE SET company_name = EXCLUDED.company_name
+       RETURNING id`,
+      [slug, name, slot.source_url],
+    );
+    operatorId = rows[0]?.id ?? null;
+  }
 
   if (!operatorId) return 'skip';
 
@@ -264,19 +282,46 @@ export async function scrapeTourMarketplace(filter?: {
   if (filter?.dateTo) url += `${url.includes('?') ? '&' : '?'}date_to=${filter.dateTo}`;
 
   let slots: TourSlot[] = [];
+  let fetchedHtml: string | null = null;
 
+  // Приоритет 1: Firecrawl (если настроен) — возвращает markdown, легче парсить
   if (firecrawlAvailable()) {
     const page = await firecrawlScrape(url);
     if (page?.markdown) slots = parseMarkdownTours(page.markdown);
+    if (page?.html && slots.length === 0) {
+      fetchedHtml = page.html;
+      slots = parseHtmlTours(page.html);
+    }
   }
 
-  if (slots.length === 0) {
+  // Приоритет 2: Bright Data Web Unlocker
+  if (slots.length === 0 && !fetchedHtml) {
+    const bdHtml = await fetchViaBrightData(url, { country: 'ru', timeoutMs: 30_000 });
+    if (bdHtml) {
+      fetchedHtml = bdHtml;
+      slots = parseHtmlTours(bdHtml);
+    }
+  }
+
+  // Приоритет 3: прямой fetch (часто 403, но попробуем)
+  if (slots.length === 0 && !fetchedHtml) {
     const html = await fetchPage(url);
-    if (html) slots = parseHtmlTours(html);
+    if (html) {
+      fetchedHtml = html;
+      slots = parseHtmlTours(html);
+    }
+  }
+
+  if (!fetchedHtml) {
+    result.errors.push(`Не удалось получить HTML с ${TOURS_URL} (403 или нет доступа)`);
+    return result;
   }
 
   if (slots.length === 0) {
-    result.errors.push(`Не удалось получить туры с ${TOURS_URL}`);
+    result.errors.push(
+      `HTML получен (${fetchedHtml.length} байт), но парсер не нашёл туров. ` +
+      `Первые 500 символов: ${fetchedHtml.slice(0, 500).replace(/\s+/g, ' ')}`,
+    );
     return result;
   }
 
