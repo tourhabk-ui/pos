@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site';
+type ScrapeAction = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site' | 'diagnose_brightdata';
 
 interface ScrapeResult {
   ok: boolean;
@@ -422,6 +422,10 @@ interface ScrapeResult {
     total_items_found: number;
     discovered_paths: string[];
   };
+  // diagnose_brightdata fields
+  token_set?: boolean;
+  reachable?: boolean;
+  status?: number;
   // debug_fetch (operators) fields
   html_fetched?: boolean;
   html_length?: number;
@@ -476,7 +480,9 @@ function ScraperPanel() {
     setShowLog(false);
     try {
       let body: Record<string, unknown>;
-      if (action === 'debug_fetch') {
+      if (action === 'diagnose_brightdata') {
+        body = { action: 'diagnose_brightdata' };
+      } else if (action === 'debug_fetch') {
         body = { action: 'debug_fetch' };
       } else if (action === 'debug_fetch_tours') {
         body = { action: 'debug_fetch_tours' };
@@ -568,9 +574,22 @@ function ScraperPanel() {
           </p>
 
           <div className="space-y-2">
-            {/* Аудит сайта */}
+            {/* Диагностика Bright Data */}
             <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-[var(--border)]">
-              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">АУДИТ</span>
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ТЕСТ</span>
+              <button
+                onClick={() => runAction('diagnose_brightdata')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20 rounded-lg hover:bg-[var(--warning)]/20 transition-colors disabled:opacity-50"
+                title="Проверяет BRIGHTDATA_API_TOKEN и доступность прокси. Запускай если аудит возвращает 403."
+              >
+                {running === 'diagnose_brightdata'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Database className="w-3.5 h-3.5" />
+                }
+                Тест Bright Data
+              </button>
+              {/* Аудит сайта */}
               <button
                 onClick={() => runAction('audit_site')}
                 disabled={running !== null}
@@ -728,6 +747,19 @@ function ScraperPanel() {
                   )}
                   {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
+                  )}
+                  {/* diagnose_brightdata результат */}
+                  {result.token_set !== undefined && (
+                    <div className="mt-1 space-y-0.5">
+                      <p className={result.token_set ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                        Токен BRIGHTDATA_API_TOKEN: {result.token_set ? 'задан' : 'НЕ ЗАДАН — добавь в Timeweb'}
+                      </p>
+                      {result.token_set && (
+                        <p className={result.reachable ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                          Прокси доступен: {result.reachable ? `да (HTTP ${result.status})` : `нет (${result.error ?? `HTTP ${result.status}`})`}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {/* audit_site результат */}
                   {result.summary && (

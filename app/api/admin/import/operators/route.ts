@@ -19,14 +19,14 @@ import { auditVisitKamchatka } from '@/lib/services/visitkamchatka-audit';
 import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
-import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { fetchViaBrightData, diagnoseBrightData } from '@/lib/scraping/brightdata';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site']),
+  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site', 'diagnose_brightdata']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
@@ -132,6 +132,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         html_length: html?.length ?? 0,
         html_preview: html?.slice(0, 3000) ?? null,
         top_classes: classes.slice(0, 30),
+      });
+    }
+
+    if (action === 'diagnose_brightdata') {
+      const diag = await diagnoseBrightData();
+      return NextResponse.json({
+        ok: diag.reachable,
+        action,
+        duration_ms: Date.now() - t0,
+        ...diag,
       });
     }
 
