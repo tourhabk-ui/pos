@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all';
+type ScrapeAction = 'scrape_operators' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch';
 
 interface ScrapeResult {
   ok: boolean;
@@ -395,9 +395,14 @@ interface ScrapeResult {
   tours_saved?: number;
   operators_found?: number;
   operators_saved?: number;
-  errors?: number;
+  errors?: number | string[];  // число (tours) или массив строк (operators import)
   log?: string[];
   error?: string;
+  // debug_fetch fields
+  html_fetched?: boolean;
+  html_length?: number;
+  html_preview?: string;
+  top_classes?: string[];
 }
 
 interface DbStatus {
@@ -432,7 +437,9 @@ function ScraperPanel() {
     setShowLog(false);
     try {
       let body: Record<string, unknown>;
-      if (action === 'scrape_operators') {
+      if (action === 'debug_fetch') {
+        body = { action: 'debug_fetch' };
+      } else if (action === 'scrape_operators') {
         body = { action: 'scrape_operators' };
       } else if (action === 'scrape_tours_per_operator_taras') {
         body = {
@@ -515,7 +522,7 @@ function ScraperPanel() {
 
           <div className="space-y-2">
             {/* Шаг 1 */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1</span>
               <button
                 onClick={() => runAction('scrape_operators')}
@@ -527,6 +534,18 @@ function ScraperPanel() {
                   : <RefreshCw className="w-3.5 h-3.5" />
                 }
                 Импорт операторов (visitkamchatka.ru)
+              </button>
+              <button
+                onClick={() => runAction('debug_fetch')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-muted)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+                title="Показать что возвращает Bright Data с visitkamchatka.ru"
+              >
+                {running === 'debug_fetch'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Database className="w-3.5 h-3.5" />
+                }
+                Debug HTML
               </button>
             </div>
 
@@ -588,8 +607,29 @@ function ScraperPanel() {
                   {result.tours_saved !== undefined && (
                     <p className="text-[var(--text-secondary)]">Туров сохранено: {result.tours_saved}</p>
                   )}
-                  {result.errors !== undefined && result.errors > 0 && (
+                  {Array.isArray(result.errors) && result.errors.length > 0 && (
+                    <div className="mt-1">
+                      {result.errors.map((e, i) => (
+                        <p key={i} className="text-[var(--danger)] break-words">{e}</p>
+                      ))}
+                    </div>
+                  )}
+                  {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
+                  )}
+                  {/* Debug HTML результаты */}
+                  {result.html_length !== undefined && (
+                    <p className="text-[var(--text-secondary)]">
+                      HTML: {result.html_fetched ? `${result.html_length} байт` : 'не получен (403 или нет BD токена)'}
+                    </p>
+                  )}
+                  {result.top_classes && result.top_classes.length > 0 && (
+                    <p className="text-[var(--text-muted)] break-words">Классы: {result.top_classes.join(', ')}</p>
+                  )}
+                  {result.html_preview && (
+                    <pre className="mt-2 max-h-48 overflow-y-auto text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg-primary)] rounded p-2">
+                      {result.html_preview}
+                    </pre>
                   )}
                   {/* Подсказка если нет операторов с сайтом */}
                   {lastAction !== 'scrape_operators' && result.operators_processed === 0 && (

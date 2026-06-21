@@ -161,50 +161,82 @@ function parseMarkdownOperators(markdown: string): OperatorRecord[] {
   return records;
 }
 
-// ── Парсинг raw HTML (fallback) ───────────────────────────────────────────────
+// ── Диагностика CSS-классов ───────────────────────────────────────────────────
+
+function extractTopCssClasses(html: string): string[] {
+  const freq: Record<string, number> = {};
+  const re = /class="([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    for (const cls of m[1].split(/\s+/)) {
+      if (cls.length > 2) freq[cls] = (freq[cls] ?? 0) + 1;
+    }
+  }
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cls]) => cls)
+    .slice(0, 30);
+}
+
+// ── Парсинг raw HTML ──────────────────────────────────────────────────────────
 
 function parseHtmlOperators(html: string): OperatorRecord[] {
   const records: OperatorRecord[] = [];
-
-  // Ищем блоки карточек (div с классом типа company, operator, card)
-  const cardRe = /<(?:div|article|section)[^>]*class="[^"]*(?:company|operator|partner|card|item)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|article|section)>/gi;
   let m: RegExpExecArray | null;
 
+  // Стратегия 1: карточки по частым классам туристических CMS
+  // (WordPress post, catalog-item, company, operator, partner, card, item, member, org)
+  const cardRe = /<(?:div|article|section|li)[^>]*class="[^"]*(?:company|operator|partner|card|item|member|org|post|entry|catalog|lc-item|wp-post|tour-op)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|article|section|li)>/gi;
   while ((m = cardRe.exec(html)) !== null) {
     const block = m[1];
-
-    // Название из h2/h3/h4 или сильного тега
-    const nameMatch = block.match(/<(?:h[2-4]|strong)[^>]*>([^<]{3,100})<\/(?:h[2-4]|strong)>/i);
+    const nameMatch = block.match(/<(?:h[1-4]|strong|b)[^>]*>([^<]{3,100})<\/(?:h[1-4]|strong|b)>/i);
     if (!nameMatch) continue;
     const name = nameMatch[1].replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim();
     if (name.length < 3) continue;
-
     const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     const tgLinks = extractTgLinks(block);
     const siteMatch = block.match(/href="(https?:\/\/(?!visitkamchatka)[^"]+)"/i);
-
-    records.push({
-      name,
-      slug: toSlug(name),
-      phone: extractPhone(text),
-      email: extractEmail(text),
-      website: siteMatch?.[1],
-      telegram_group_url: tgLinks[0],
-      external_source_url: OPERATORS_URL,
-    });
+    if (!records.find(r => r.name === name)) {
+      records.push({
+        name, slug: toSlug(name),
+        phone: extractPhone(text), email: extractEmail(text),
+        website: siteMatch?.[1], telegram_group_url: tgLinks[0],
+        external_source_url: OPERATORS_URL,
+      });
+    }
   }
 
-  // Если карточки не найдены, пробуем извлечь ссылки с названиями
+  // Стратегия 2: любой блок содержащий российский телефон + заголовок
   if (records.length === 0) {
-    const linkRe = /<a[^>]+href="([^"]*\/tour-operators\/[^"]+)"[^>]*>([^<]{5,100})<\/a>/gi;
+    const phoneBlockRe = /<(?:div|article|li|tr)[^>]*>([\s\S]{20,2000}?(?:\+7|8[\s\-]?\(?\d{3}\)?[\s\-]?\d{3})[\s\S]{0,500}?)<\/(?:div|article|li|tr)>/gi;
+    while ((m = phoneBlockRe.exec(html)) !== null) {
+      const block = m[1];
+      const nameMatch = block.match(/<(?:h[1-4]|strong|b|a)[^>]*>([А-ЯЁа-яёA-Za-z][^<]{2,80})<\/(?:h[1-4]|strong|b|a)>/i);
+      if (!nameMatch) continue;
+      const name = nameMatch[1].replace(/&[^;]+;/g, '').trim();
+      if (name.length < 3 || records.find(r => r.name === name)) continue;
+      const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      const phone = extractPhone(text);
+      if (!phone) continue;
+      const tgLinks = extractTgLinks(block);
+      const siteMatch = block.match(/href="(https?:\/\/(?!visitkamchatka)[^"]+)"/i);
+      records.push({
+        name, slug: toSlug(name),
+        phone, email: extractEmail(text),
+        website: siteMatch?.[1], telegram_group_url: tgLinks[0],
+        external_source_url: OPERATORS_URL,
+      });
+    }
+  }
+
+  // Стратегия 3: ссылки на подстраницы /tour-operators/...
+  if (records.length === 0) {
+    const linkRe = /<a[^>]+href="([^"]*\/tour-operators\/[^"#?]{3,})"[^>]*>([^<]{5,100})<\/a>/gi;
     while ((m = linkRe.exec(html)) !== null) {
-      const name = m[2].trim();
+      const href = m[1].startsWith('http') ? m[1] : `https://visitkamchatka.ru${m[1]}`;
+      const name = m[2].trim().replace(/&[^;]+;/g, '');
       if (name.length > 3 && !records.find(r => r.name === name)) {
-        records.push({
-          name,
-          slug: toSlug(name),
-          external_source_url: `https://visitkamchatka.ru${m[1]}`,
-        });
+        records.push({ name, slug: toSlug(name), external_source_url: href });
       }
     }
   }
@@ -301,23 +333,37 @@ export async function scrapeOperatorDirectory(): Promise<OperatorImportResult> {
   };
 
   let rawRecords: OperatorRecord[] = [];
+  let fetchedHtml: string | null = null;
+  let usedBrightData = false;
 
   // Попытка 1: Bright Data (обходит антибот, рендерит JS)
   const bdHtml = await fetchViaBrightData(OPERATORS_URL, { country: 'ru', timeoutMs: 30_000 });
   if (bdHtml) {
+    fetchedHtml = bdHtml;
+    usedBrightData = true;
     rawRecords = parseHtmlOperators(bdHtml);
   }
 
   // Попытка 2: прямой fetch fallback
-  if (rawRecords.length === 0) {
+  if (!fetchedHtml) {
     const html = await fetchHtml(OPERATORS_URL);
     if (html) {
+      fetchedHtml = html;
       rawRecords = parseHtmlOperators(html);
     }
   }
 
+  if (!fetchedHtml) {
+    result.errors.push('Не удалось получить HTML с visitkamchatka.ru (403 или нет Bright Data)');
+    return result;
+  }
+
   if (rawRecords.length === 0) {
-    result.errors.push('Не удалось получить список операторов с visitkamchatka.ru');
+    // HTML получен, но парсер не нашёл операторов — диагностика
+    result.errors.push(
+      `HTML получен (${fetchedHtml.length} байт, BD=${usedBrightData}), но парсер не нашёл операторов. ` +
+      `Классы на странице: ${extractTopCssClasses(fetchedHtml).slice(0, 10).join(', ')}`,
+    );
     return result;
   }
 
