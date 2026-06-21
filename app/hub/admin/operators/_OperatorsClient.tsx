@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all';
+type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch';
 
 interface ScrapeResult {
   ok: boolean;
@@ -395,24 +395,53 @@ interface ScrapeResult {
   tours_saved?: number;
   operators_found?: number;
   operators_saved?: number;
-  errors?: number;
+  errors?: number | string[];  // число (tours) или массив строк (operators import)
   log?: string[];
   error?: string;
+  // debug_fetch fields
+  html_fetched?: boolean;
+  html_length?: number;
+  html_preview?: string;
+  top_classes?: string[];
+}
+
+interface DbStatus {
+  total: number;
+  with_website: number;
 }
 
 function ScraperPanel() {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState<ScrapeAction | null>(null);
   const [result, setResult] = useState<ScrapeResult | null>(null);
+  const [lastAction, setLastAction] = useState<ScrapeAction | null>(null);
   const [showLog, setShowLog] = useState(false);
+  const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/admin/operators/db-status')
+      .then(r => r.ok ? r.json() : null)
+      .then((j: unknown) => {
+        if (j && typeof j === 'object' && 'total' in j) {
+          setDbStatus(j as DbStatus);
+        }
+      })
+      .catch(() => {});
+  }, [open]);
 
   async function runAction(action: ScrapeAction) {
     setRunning(action);
+    setLastAction(action);
     setResult(null);
     setShowLog(false);
     try {
       let body: Record<string, unknown>;
-      if (action === 'scrape_operators') {
+      if (action === 'debug_fetch') {
+        body = { action: 'debug_fetch' };
+      } else if (action === 'scrape_tours') {
+        body = { action: 'scrape_tours' };
+      } else if (action === 'scrape_operators') {
         body = { action: 'scrape_operators' };
       } else if (action === 'scrape_tours_per_operator_taras') {
         body = {
@@ -432,7 +461,20 @@ function ScraperPanel() {
         body: JSON.stringify(body),
       });
       const j: unknown = await res.json();
-      setResult(j as ScrapeResult);
+      const parsed = j as ScrapeResult;
+      setResult(parsed);
+      // Автоматически открыть лог если 0 операторов обработано
+      const isTours = action !== 'scrape_operators';
+      if (isTours && (parsed.operators_processed === 0 || parsed.tours_found === 0)) {
+        setShowLog(true);
+      }
+      // Обновить статус БД после импорта операторов
+      if (action === 'scrape_operators') {
+        fetch('/api/admin/operators/db-status')
+          .then(r => r.ok ? r.json() : null)
+          .then((s: unknown) => { if (s && typeof s === 'object' && 'total' in s) setDbStatus(s as DbStatus); })
+          .catch(() => {});
+      }
     } catch (e) {
       setResult({ ok: false, error: (e as Error).message });
     } finally {
@@ -441,6 +483,7 @@ function ScraperPanel() {
   }
 
   const durationSec = result?.duration_ms ? (result.duration_ms / 1000).toFixed(1) : null;
+  const noWebsites = dbStatus !== null && dbStatus.with_website === 0;
 
   return (
     <div className="mb-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
@@ -457,46 +500,102 @@ function ScraperPanel() {
 
       {open && (
         <div className="px-4 pb-4 border-t border-[var(--border)]">
-          <p className="text-xs text-[var(--text-muted)] mt-3 mb-3">
+          {/* Статус БД */}
+          {dbStatus && (
+            <div className="mt-3 text-xs text-[var(--text-muted)] flex items-center gap-2">
+              <span>БД: {dbStatus.total} операторов</span>
+              <span>·</span>
+              <span className={dbStatus.with_website > 0 ? 'text-[var(--success)]' : 'text-[var(--warning)]'}>
+                {dbStatus.with_website} с сайтом
+              </span>
+            </div>
+          )}
+
+          {/* Предупреждение если нет операторов с сайтами */}
+          {noWebsites && (
+            <div className="mt-2 p-2 bg-[var(--warning)]/10 border border-[var(--warning)]/25 rounded text-xs text-[var(--warning)]">
+              ⚠ Сначала запустите «Шаг 1» — без сайтов операторов поиск туров невозможен
+            </div>
+          )}
+
+          <p className="text-xs text-[var(--text-muted)] mt-3 mb-2">
             Парсинг сайтов туроператоров через Bright Data + AI-извлечение. Занимает 2-5 минут.
           </p>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => runAction('scrape_operators')}
-              disabled={running !== null}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--ocean)]/10 text-[var(--ocean)] border border-[var(--ocean)]/20 rounded-lg hover:bg-[var(--ocean)]/20 transition-colors disabled:opacity-50"
-            >
-              {running === 'scrape_operators'
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <RefreshCw className="w-3.5 h-3.5" />
-              }
-              Импорт операторов (visitkamchatka.ru)
-            </button>
+          <div className="space-y-2">
+            {/* Шаг 1 */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1</span>
+              <button
+                onClick={() => runAction('scrape_operators')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--ocean)]/10 text-[var(--ocean)] border border-[var(--ocean)]/20 rounded-lg hover:bg-[var(--ocean)]/20 transition-colors disabled:opacity-50"
+              >
+                {running === 'scrape_operators'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                Импорт операторов (visitkamchatka.ru)
+              </button>
+              <button
+                onClick={() => runAction('debug_fetch')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-muted)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+                title="Показать что возвращает Bright Data с visitkamchatka.ru"
+              >
+                {running === 'debug_fetch'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Database className="w-3.5 h-3.5" />
+                }
+                Debug HTML
+              </button>
+            </div>
 
-            <button
-              onClick={() => runAction('scrape_tours_per_operator_taras')}
-              disabled={running !== null}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 rounded-lg hover:bg-[var(--accent)]/20 transition-colors disabled:opacity-50"
-            >
-              {running === 'scrape_tours_per_operator_taras'
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Play className="w-3.5 h-3.5" />
-              }
-              Найти туры: Тарас (вулкан / море / сплав / термы)
-            </button>
+            {/* Шаг 1б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1Б</span>
+              <button
+                onClick={() => runAction('scrape_tours')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20 rounded-lg hover:bg-[var(--success)]/20 transition-colors disabled:opacity-50"
+              >
+                {running === 'scrape_tours'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Play className="w-3.5 h-3.5" />
+                }
+                Туры с биржи (tours.visitkamchatka.ru)
+              </button>
+            </div>
 
-            <button
-              onClick={() => runAction('scrape_tours_per_operator_all')}
-              disabled={running !== null}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
-            >
-              {running === 'scrape_tours_per_operator_all'
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Database className="w-3.5 h-3.5" />
-              }
-              Все туры всех операторов
-            </button>
+            {/* Шаг 2 */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 2</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => runAction('scrape_tours_per_operator_taras')}
+                  disabled={running !== null || noWebsites}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20 rounded-lg hover:bg-[var(--accent)]/20 transition-colors disabled:opacity-40"
+                >
+                  {running === 'scrape_tours_per_operator_taras'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Play className="w-3.5 h-3.5" />
+                  }
+                  Найти туры: Тарас (вулкан / море / сплав / термы)
+                </button>
+
+                <button
+                  onClick={() => runAction('scrape_tours_per_operator_all')}
+                  disabled={running !== null || noWebsites}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40"
+                >
+                  {running === 'scrape_tours_per_operator_all'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Database className="w-3.5 h-3.5" />
+                  }
+                  Все туры всех операторов
+                </button>
+              </div>
+            </div>
           </div>
 
           {running && (
@@ -526,8 +625,35 @@ function ScraperPanel() {
                   {result.tours_saved !== undefined && (
                     <p className="text-[var(--text-secondary)]">Туров сохранено: {result.tours_saved}</p>
                   )}
-                  {result.errors !== undefined && result.errors > 0 && (
+                  {Array.isArray(result.errors) && result.errors.length > 0 && (
+                    <div className="mt-1">
+                      {result.errors.map((e, i) => (
+                        <p key={i} className="text-[var(--danger)] break-words">{e}</p>
+                      ))}
+                    </div>
+                  )}
+                  {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
+                  )}
+                  {/* Debug HTML результаты */}
+                  {result.html_length !== undefined && (
+                    <p className="text-[var(--text-secondary)]">
+                      HTML: {result.html_fetched ? `${result.html_length} байт` : 'не получен (403 или нет BD токена)'}
+                    </p>
+                  )}
+                  {result.top_classes && result.top_classes.length > 0 && (
+                    <p className="text-[var(--text-muted)] break-words">Классы: {result.top_classes.join(', ')}</p>
+                  )}
+                  {result.html_preview && (
+                    <pre className="mt-2 max-h-48 overflow-y-auto text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg-primary)] rounded p-2">
+                      {result.html_preview}
+                    </pre>
+                  )}
+                  {/* Подсказка если нет операторов с сайтом */}
+                  {lastAction !== 'scrape_operators' && result.operators_processed === 0 && (
+                    <p className="text-[var(--warning)] mt-1">
+                      ⚠ 0 операторов с сайтом — сначала запустите «ШАГ 1: Импорт операторов»
+                    </p>
                   )}
                   {result.log && result.log.length > 0 && (
                     <button

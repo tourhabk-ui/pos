@@ -17,13 +17,14 @@ import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators
 import { scrapeTourMarketplace } from '@/lib/services/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group']),
+  action: z.enum(['scrape_operators', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
@@ -102,6 +103,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         action,
         duration_ms: Date.now() - t0,
         ...result,
+      });
+    }
+
+    if (action === 'debug_fetch') {
+      const url = 'https://visitkamchatka.ru/tour-operators/';
+      const html = await fetchViaBrightData(url, { country: 'ru', timeoutMs: 30_000 });
+      const classes = html
+        ? [...new Set(Array.from(html.matchAll(/class="([^"]+)"/g)).flatMap(m => m[1].split(/\s+/)).filter(c => c.length > 2))]
+        : [];
+      return NextResponse.json({
+        ok: true,
+        action,
+        duration_ms: Date.now() - t0,
+        html_fetched: !!html,
+        html_length: html?.length ?? 0,
+        html_preview: html?.slice(0, 3000) ?? null,
+        top_classes: classes.slice(0, 30),
       });
     }
 
