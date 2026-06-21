@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
+import { getRouteSearchCache, setRouteSearchCache } from '@/lib/ai/route-knowledge';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,11 @@ export async function GET(req: NextRequest) {
 
   // Семантический поиск для запросов ≥ 3 символов
   if (rawQ.length >= 3) {
+    const cached = getRouteSearchCache(rawQ) as { routes: RouteRow[]; semantic: boolean } | null;
+    if (cached) {
+      return NextResponse.json({ ...cached, cache_hit: true });
+    }
+
     try {
       const semanticResults = await semanticSearch(rawQ, 15);
 
@@ -56,6 +62,7 @@ export async function GET(req: NextRequest) {
           .filter(r => byId[r.id])
           .map(r => ({ ...byId[r.id], similarity: r.similarity }));
 
+        setRouteSearchCache(rawQ, { routes: ordered, semantic: true });
         return NextResponse.json({ routes: ordered, semantic: true });
       }
     } catch {

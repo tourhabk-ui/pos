@@ -334,3 +334,100 @@ export async function searchOperatorAvailability(query: string): Promise<string>
     return '';
   }
 }
+
+// ── Watchdog: проверка и восстановление Telegram-вебхука ─────────────────────
+
+export interface WebhookCheckResult {
+  status: 'ok' | 'restored' | 'failed';
+  current_url: string | null;
+  expected_url: string;
+  pending_update_count: number;
+  action?: string;
+  error?: string;
+}
+
+const PENDING_UPDATES_THRESHOLD = 100;
+
+export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    return { status: 'failed', current_url: null, expected_url: '', pending_update_count: 0, error: 'TELEGRAM_BOT_TOKEN не задан' };
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const expectedUrl = `${appUrl}/api/telegram/webhook`;
+
+  let webhookInfo: { url: string; pending_update_count: number };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+    const data = await res.json() as { ok: boolean; result: { url: string; pending_update_count: number } };
+    if (!data.ok) {
+      return { status: 'failed', current_url: null, expected_url: expectedUrl, pending_update_count: 0, error: 'getWebhookInfo вернул ok=false' };
+    }
+    webhookInfo = data.result;
+  } catch (e) {
+    return { status: 'failed', current_url: null, expected_url: expectedUrl, pending_update_count: 0, error: `getWebhookInfo: ${(e as Error).message}` };
+  }
+
+  const needsRestore =
+    webhookInfo.url !== expectedUrl ||
+    webhookInfo.pending_update_count > PENDING_UPDATES_THRESHOLD;
+
+  if (!needsRestore) {
+    return {
+      status: 'ok',
+      current_url: webhookInfo.url,
+      expected_url: expectedUrl,
+      pending_update_count: webhookInfo.pending_update_count,
+    };
+  }
+
+  // Попытка восстановить
+  try {
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
+    const setRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: expectedUrl,
+        secret_token: secret,
+        allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: webhookInfo.pending_update_count > PENDING_UPDATES_THRESHOLD,
+      }),
+    });
+    const setData = await setRes.json() as { ok: boolean; description?: string };
+
+    if (setData.ok) {
+      return {
+        status: 'restored',
+        current_url: webhookInfo.url,
+        expected_url: expectedUrl,
+        pending_update_count: webhookInfo.pending_update_count,
+        action: `Вебхук переустановлен: ${webhookInfo.url} → ${expectedUrl}`,
+      };
+    }
+
+    // setWebhook не удался — алерт владельцу
+    await notifyOwner(
+      `<b>Вебхук Telegram не восстановлен</b>\n\nТекущий: ${webhookInfo.url || 'пусто'}\nОжидаемый: ${expectedUrl}\nОшибка: ${setData.description ?? 'неизвестно'}`
+    );
+    return {
+      status: 'failed',
+      current_url: webhookInfo.url,
+      expected_url: expectedUrl,
+      pending_update_count: webhookInfo.pending_update_count,
+      error: setData.description ?? 'setWebhook вернул ok=false',
+    };
+  } catch (e) {
+    await notifyOwner(
+      `<b>Вебхук Telegram: исключение при восстановлении</b>\n\n${(e as Error).message}`
+    );
+    return {
+      status: 'failed',
+      current_url: webhookInfo.url,
+      expected_url: expectedUrl,
+      pending_update_count: webhookInfo.pending_update_count,
+      error: (e as Error).message,
+    };
+  }
+}
