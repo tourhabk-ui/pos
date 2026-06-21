@@ -407,8 +407,8 @@ async function upsertTourSlot(slot: TourSlot): Promise<'inserted' | 'skip'> {
       .replace(/^-|-$/g, '')
       .slice(0, 70);
     const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO partners (slug, company_name, name, category, external_source, external_source_url, is_verified, is_public, commission_current)
-       VALUES ($1, $2, $2, 'operator', 'visitkamchatka_tours', $3, false, false, 0)
+      `INSERT INTO partners (slug, company_name, name, category, contact, external_source, external_source_url, is_verified, is_public, commission_current)
+       VALUES ($1, $2, $2, 'operator', '{}'::jsonb, 'visitkamchatka_tours', $3, false, false, 0)
        ON CONFLICT (slug) DO UPDATE SET company_name = EXCLUDED.company_name
        RETURNING id`,
       [slug, name, slot.source_url],
