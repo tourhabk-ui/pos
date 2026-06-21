@@ -294,11 +294,11 @@ async function upsertOperator(op: OperatorRecord): Promise<'inserted' | 'updated
 
   await pool.query(
     `INSERT INTO partners (
-       slug, company_name, name,
+       slug, company_name, name, category,
        external_source, external_source_url, external_id,
        website, telegram_group_url, license_number, services, external_rating,
        is_verified, is_public, commission_current
-     ) VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,false,0)
+     ) VALUES ($1,$2,$2,'operator',$3,$4,$5,$6,$7,$8,$9,$10,false,false,0)
      ON CONFLICT (slug) DO UPDATE SET
        external_source     = EXCLUDED.external_source,
        external_source_url = EXCLUDED.external_source_url,
