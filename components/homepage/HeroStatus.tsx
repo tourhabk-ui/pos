@@ -1,3 +1,6 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, ShieldCheck, Info, ArrowRight, Search, Sunrise } from 'lucide-react';
 
@@ -16,9 +19,8 @@ interface HeroStatusProps {
   fetchedAt: string;
 }
 
-// Данные считаются устаревшими если cron не запускался >48 часов.
-// Тихий день без алертов — нормально, не показывать жёлтое предупреждение туристам.
 const STALE_MS = 48 * 60 * 60 * 1000;
+const POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 минуты
 
 function formatTime(iso: string): string {
   try {
@@ -46,25 +48,29 @@ function kamchatkaRise(date: Date): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Kamchatka',
-    });
-  } catch {
-    return iso;
-  }
-}
+export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
+  const [safety, setSafety] = useState<SafetyStatusData | null>(initialSafety);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
+  useEffect(() => {
+    async function poll() {
+      try {
+        const res = await fetch('/api/public/safety-status', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json() as { success: boolean; data: SafetyStatusData };
+        if (json.success && json.data) setSafety(json.data);
+      } catch {
+        // не обновляем при ошибке — оставляем последние данные
+      }
+    }
+
+    timerRef.current = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
   const updatedAt = safety?.dataUpdatedAt ? new Date(safety.dataUpdatedAt) : null;
-  // null dataUpdatedAt = cron никогда не запускался (таблица пустая).
-  // Ненулевое но старое = cron запускался, но давно.
   const cronNeverRan = safety !== null && safety.dataUpdatedAt === null;
   const isStale = cronNeverRan || (!updatedAt ? true : Date.now() - updatedAt.getTime() > STALE_MS);
 
@@ -143,7 +149,6 @@ export function HeroStatus({ safety, fetchedAt }: HeroStatusProps) {
             {headline}
           </h2>
 
-          {/* Plain HTML form — works without JS, SSR-safe */}
           <form action="/routes" method="get" className="flex items-center gap-2">
             <div
               className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-full"
