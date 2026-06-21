@@ -45,6 +45,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          show_full_output: true
           prompt: |
             Ты работаешь с кодовой базой Ведар (Next.js 15, TypeScript strict, PostgreSQL).
 
