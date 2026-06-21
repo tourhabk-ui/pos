@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch';
+type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours';
 
 interface ScrapeResult {
   ok: boolean;
@@ -395,14 +395,29 @@ interface ScrapeResult {
   tours_saved?: number;
   operators_found?: number;
   operators_saved?: number;
-  errors?: number | string[];  // число (tours) или массив строк (operators import)
+  // scrapeTourMarketplace fields
+  total?: number;
+  inserted?: number;
+  matched_operators?: number;
+  errors?: number | string[];
+  tours?: { title: string; date?: string; price?: number; status: string }[];
+  debug?: {
+    strategy: string;
+    html_length?: number;
+    next_data_found?: boolean;
+    api_tried?: string[];
+  };
   log?: string[];
   error?: string;
-  // debug_fetch fields
+  // debug_fetch (operators) fields
   html_fetched?: boolean;
   html_length?: number;
   html_preview?: string;
   top_classes?: string[];
+  // debug_fetch_tours fields
+  next_data_found?: boolean;
+  next_data_keys?: string[];
+  api_probes?: { url: string; status: string }[];
 }
 
 interface DbStatus {
@@ -439,6 +454,8 @@ function ScraperPanel() {
       let body: Record<string, unknown>;
       if (action === 'debug_fetch') {
         body = { action: 'debug_fetch' };
+      } else if (action === 'debug_fetch_tours') {
+        body = { action: 'debug_fetch_tours' };
       } else if (action === 'scrape_tours') {
         body = { action: 'scrape_tours' };
       } else if (action === 'scrape_operators') {
@@ -565,6 +582,18 @@ function ScraperPanel() {
                 }
                 Туры с биржи (tours.visitkamchatka.ru)
               </button>
+              <button
+                onClick={() => runAction('debug_fetch_tours')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--bg-primary)] text-[var(--text-muted)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+                title="Диагностика: __NEXT_DATA__, API-пробы, HTML структура"
+              >
+                {running === 'debug_fetch_tours'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Database className="w-3.5 h-3.5" />
+                }
+                Debug Tours
+              </button>
             </div>
 
             {/* Шаг 2 */}
@@ -635,22 +664,54 @@ function ScraperPanel() {
                   {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
                   )}
-                  {/* Debug HTML результаты */}
-                  {result.html_length !== undefined && (
+                  {/* scrape_tours результат */}
+                  {result.total !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Туров найдено: {result.total}, сохранено: {result.inserted ?? 0}, операторов: {result.matched_operators ?? 0}</p>
+                  )}
+                  {result.debug && (
+                    <p className="text-[var(--text-muted)] text-[10px]">Стратегия: <b>{result.debug.strategy}</b> · HTML: {result.debug.html_length ?? '—'} байт · __NEXT_DATA__: {result.debug.next_data_found ? '✓ найден' : '✗ нет'}</p>
+                  )}
+                  {result.tours && result.tours.length > 0 && (
+                    <div className="mt-1 max-h-40 overflow-y-auto">
+                      {result.tours.slice(0, 20).map((t, i) => (
+                        <p key={i} className="text-[var(--text-muted)] text-[10px]">{t.title.slice(0, 60)} · {t.date ?? '—'} · {t.price ? `${t.price}₽` : '—'} · {t.status}</p>
+                      ))}
+                    </div>
+                  )}
+                  {/* Debug HTML результаты (operators) */}
+                  {result.html_length !== undefined && result.total === undefined && (
                     <p className="text-[var(--text-secondary)]">
                       HTML: {result.html_fetched ? `${result.html_length} байт` : 'не получен (403 или нет BD токена)'}
                     </p>
                   )}
                   {result.top_classes && result.top_classes.length > 0 && (
-                    <p className="text-[var(--text-muted)] break-words">Классы: {result.top_classes.join(', ')}</p>
+                    <p className="text-[var(--text-muted)] break-words text-[10px]">CSS классы: {result.top_classes.join(', ')}</p>
                   )}
                   {result.html_preview && (
                     <pre className="mt-2 max-h-48 overflow-y-auto text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap bg-[var(--bg-primary)] rounded p-2">
                       {result.html_preview}
                     </pre>
                   )}
+                  {/* Debug Tours результаты */}
+                  {result.next_data_found !== undefined && (
+                    <div className="mt-1 space-y-0.5">
+                      <p className={`font-medium ${result.next_data_found ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
+                        __NEXT_DATA__: {result.next_data_found ? `✓ найден — ключи: ${result.next_data_keys?.join(', ') || '?'}` : '✗ не найден (возможно JS-рендеринг или 403)'}
+                      </p>
+                      {result.api_probes && (
+                        <div>
+                          <p className="text-[var(--text-muted)]">API-пробы:</p>
+                          {result.api_probes.map((p, i) => (
+                            <p key={i} className={`text-[10px] ${p.status === 'json' ? 'text-[var(--success)]' : 'text-[var(--text-muted)]'}`}>
+                              {p.url} → {p.status}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* Подсказка если нет операторов с сайтом */}
-                  {lastAction !== 'scrape_operators' && result.operators_processed === 0 && (
+                  {lastAction !== 'scrape_operators' && result.operators_processed === 0 && result.total === undefined && (
                     <p className="text-[var(--warning)] mt-1">
                       ⚠ 0 операторов с сайтом — сначала запустите «ШАГ 1: Импорт операторов»
                     </p>
