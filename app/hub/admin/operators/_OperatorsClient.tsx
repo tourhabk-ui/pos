@@ -385,7 +385,7 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours';
+type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site';
 
 interface ScrapeResult {
   ok: boolean;
@@ -398,6 +398,27 @@ interface ScrapeResult {
   errors?: number | string[];
   log?: string[];
   error?: string;
+  // audit_site fields
+  audited_at?: string;
+  sections?: {
+    key: string;
+    label: string;
+    url: string;
+    status: string;
+    html_length: number;
+    title: string | null;
+    item_count: number;
+    top_classes: string[];
+    nav_links: string[];
+    internal_links: { url: string; text: string }[];
+    html_preview: string;
+    pagination: { found: boolean; total_pages?: number; total_items?: number };
+  }[];
+  summary?: {
+    accessible_sections: number;
+    total_items_found: number;
+    discovered_paths: string[];
+  };
   // debug_fetch (operators) fields
   html_fetched?: boolean;
   html_length?: number;
@@ -456,6 +477,8 @@ function ScraperPanel() {
         body = { action: 'debug_fetch' };
       } else if (action === 'debug_fetch_tours') {
         body = { action: 'debug_fetch_tours' };
+      } else if (action === 'audit_site') {
+        body = { action: 'audit_site' };
       } else if (action === 'scrape_tours') {
         body = { action: 'scrape_tours' };
       } else if (action === 'scrape_operators') {
@@ -540,6 +563,23 @@ function ScraperPanel() {
           </p>
 
           <div className="space-y-2">
+            {/* Аудит сайта */}
+            <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-[var(--border)]">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">АУДИТ</span>
+              <button
+                onClick={() => runAction('audit_site')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--accent)]/8 text-[var(--accent)] border border-[var(--accent)]/20 rounded-lg hover:bg-[var(--accent)]/15 transition-colors disabled:opacity-50"
+                title="Обходит все разделы visitkamchatka.ru через Bright Data: маршруты, места, операторы, туры. Занимает ~3 мин."
+              >
+                {running === 'audit_site'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                Аудит visitkamchatka.ru
+              </button>
+            </div>
+
             {/* Шаг 1 */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1</span>
@@ -663,6 +703,34 @@ function ScraperPanel() {
                   )}
                   {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
+                  )}
+                  {/* audit_site результат */}
+                  {result.summary && (
+                    <div className="mt-1 space-y-1">
+                      <p className="text-[var(--text-secondary)]">
+                        Доступно разделов: <b>{result.summary.accessible_sections}</b> · Найдено элементов: <b>{result.summary.total_items_found}</b>
+                      </p>
+                      {result.sections && result.sections.map(s => (
+                        <div key={s.key} className={`flex items-start gap-2 text-[10px] ${s.status === 'ok' ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}>
+                          <span className={`shrink-0 font-medium ${s.status === 'ok' ? 'text-[var(--success)]' : s.status === '403' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`}>
+                            {s.status === 'ok' ? '✓' : s.status === '403' ? '✗' : '?'}
+                          </span>
+                          <span className="shrink-0 w-36">{s.label}</span>
+                          <span className={`shrink-0 ${s.item_count > 0 ? 'text-[var(--success)]' : ''}`}>
+                            {s.status === 'ok' ? `${s.item_count} эл. · ${s.html_length} байт` : s.status}
+                          </span>
+                          {s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
+                        </div>
+                      ))}
+                      {result.summary.discovered_paths.length > 0 && (
+                        <div className="mt-1">
+                          <p className="text-[var(--text-muted)] mb-0.5">Найденные разделы:</p>
+                          <p className="text-[10px] text-[var(--text-muted)] break-words">
+                            {result.summary.discovered_paths.slice(0, 30).join(' · ')}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {/* scrape_tours результат */}
                   {result.total !== undefined && (
