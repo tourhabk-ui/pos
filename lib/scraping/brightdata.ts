@@ -37,9 +37,13 @@ export async function fetchViaBrightData(
 
   const {
     zone = getZone(),
-    country = 'ru',
+    country,
     timeoutMs = 30_000,
   } = options;
+
+  // Build request body — omit country to let Bright Data pick the best IP
+  const reqBody: Record<string, unknown> = { zone, url, format: 'raw' };
+  if (country) reqBody['country'] = country;
 
   try {
     const res = await fetch(BRIGHTDATA_API, {
@@ -48,12 +52,14 @@ export async function fetchViaBrightData(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ zone, url, country, format: 'raw' }),
+      body: JSON.stringify(reqBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) return null;
-    return await res.text();
+    const html = await res.text();
+    // Empty body = Bright Data couldn't bypass the site
+    return html || null;
   } catch {
     return null;
   }
@@ -109,18 +115,24 @@ export async function diagnoseBrightData(): Promise<{
   }
 
   try {
+    // Use Bright Data's own test endpoint to verify zone works (avoids site-specific blocking)
     const res = await fetch(BRIGHTDATA_API, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ zone, url: 'https://visitkamchatka.ru/', country: 'ru', format: 'raw' }),
+      body: JSON.stringify({ zone, url: 'https://geo.brdtest.com/welcome.txt', format: 'raw' }),
       signal: AbortSignal.timeout(15_000),
     });
 
     if (res.ok) {
-      return { token_set: true, reachable: true, zone, status: res.status };
+      const body = await res.text().catch(() => '');
+      if (body) {
+        return { token_set: true, reachable: true, zone, status: res.status };
+      }
+      // 200 but empty body — zone exists but not delivering content
+      return { token_set: true, reachable: false, zone, status: res.status, error: 'Зона ответила 200 но вернула пустое тело' };
     }
 
     const body = await res.text().catch(() => '');
