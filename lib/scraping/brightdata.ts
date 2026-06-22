@@ -10,7 +10,8 @@
  */
 
 const BRIGHTDATA_API = 'https://api.brightdata.com/request';
-const ZONES_API = 'https://api.brightdata.com/zone/get_active_zones';
+// Bright Data REST zone management API (different base domain from proxy API)
+const ZONES_API = 'https://brightdata.com/api/zone';
 
 /** Имя зоны Web Unlocker. Переопределяется через env. */
 function getZone(): string {
@@ -70,12 +71,18 @@ async function fetchActiveZones(token: string): Promise<string[] | null> {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;
-    const data = await res.json() as Array<{ name?: string; zone?: string }> | { zones?: Array<{ name?: string }> };
+    // Bright Data returns array of zone objects: [{zone: "name", plan: {...}}, ...]
+    const data = await res.json() as unknown;
     if (Array.isArray(data)) {
-      return data.map(z => z.name ?? z.zone ?? '').filter(Boolean);
+      return (data as Array<Record<string, unknown>>)
+        .map(z => (z['zone'] ?? z['name'] ?? '') as string)
+        .filter(Boolean);
     }
-    if (data && Array.isArray(data.zones)) {
-      return data.zones.map(z => z.name ?? '').filter(Boolean);
+    // Some API versions wrap in {zones: [...]}
+    if (data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>)['zones'])) {
+      return ((data as Record<string, unknown>)['zones'] as Array<Record<string, unknown>>)
+        .map(z => (z['zone'] ?? z['name'] ?? '') as string)
+        .filter(Boolean);
     }
     return null;
   } catch {
