@@ -200,7 +200,7 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ zone, url: section.url, format: 'raw' }),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(8_000),
       });
       bdStatus = r.status;
       if (r.ok) {
@@ -257,8 +257,22 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
 // ── Main audit function ───────────────────────────────────────────────────────
 
 export async function auditVisitKamchatka(): Promise<SiteAuditResult> {
+  // Hard deadline: always resolve within 25s so the HTTP response never gets cut off
+  const deadline = new Promise<SectionAudit[]>(resolve =>
+    setTimeout(() => resolve(SECTIONS.map(s => ({
+      key: s.key, label: s.label, url: s.url,
+      status: 'timeout' as const, html_length: 0, title: null, item_count: 0,
+      top_classes: [], nav_links: [], internal_links: [],
+      html_preview: 'Global timeout — секция не успела ответить за 25с',
+      pagination: { found: false },
+    }))), 25_000)
+  );
+
   // Run all sections in parallel — going through Bright Data so site rate-limiting is not a concern
-  const results = await Promise.all(SECTIONS.map(auditSection));
+  const results = await Promise.race([
+    Promise.all(SECTIONS.map(auditSection)),
+    deadline,
+  ]);
 
   const accessibleSections = results.filter(r => r.status === 'ok').length;
   const totalItems = results.reduce((sum, r) => sum + r.item_count, 0);
