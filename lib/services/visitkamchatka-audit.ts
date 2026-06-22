@@ -200,7 +200,7 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ zone, url: section.url, format: 'raw' }),
-        signal: AbortSignal.timeout(8_000),
+        signal: AbortSignal.timeout(18_000),
       });
       bdStatus = r.status;
       if (r.ok) {
