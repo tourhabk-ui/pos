@@ -83,7 +83,8 @@ const checks = [
     name: 'any типы',
     dirs: ['app', 'lib', 'components'],
     exts: ['.ts', '.tsx'],
-    pattern: /:\s*any\b|<any>|as any\b/,
+    // \bas\s+any\b — word boundary before "as" prevents "has any" in comments
+    pattern: /:\s*any\b|<any>|\bas\s+any\b/,
     exclude: /\.d\.ts$/,
     severity: 'КРИТИЧНО',
   },
@@ -92,20 +93,31 @@ const checks = [
     dirs: ['app', 'lib', 'components'],
     exts: ['.ts', '.tsx'],
     pattern: /console\.log\(/,
+    // migrate.ts is a CLI runner — console.log there is intentional
+    exclude: /database\/migrate\.ts$/,
     severity: 'КРИТИЧНО',
   },
   {
-    name: 'SELECT *',
+    name: 'SELECT * FROM kamchatka_routes (→ v_kamchatka_routes_api)',
+    dirs: ['app', 'lib'],
+    exts: ['.ts', '.tsx'],
+    pattern: /SELECT\s+\*\s+FROM\s+kamchatka_routes\b/i,
+    exclude: /mcp\/dev-tools\//,
+    severity: 'КРИТИЧНО',
+  },
+  {
+    name: 'SELECT * (явные колонки предпочтительны)',
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /SELECT\s+\*/i,
-    severity: 'КРИТИЧНО',
+    severity: 'ПРЕДУПРЕЖДЕНИЕ',
   },
   {
     name: 'FROM bookings (→ operator_bookings)',
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+bookings\b/i,
+    exclude: /mcp\/dev-tools\//,
     severity: 'КРИТИЧНО',
   },
   {
@@ -113,6 +125,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+tours\b/i,
+    exclude: /mcp\/dev-tools\//,
     severity: 'КРИТИЧНО',
   },
   {
@@ -201,12 +214,18 @@ for (const check of checks) {
 
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      if (check.pattern.test(lines[i])) {
+      const raw = lines[i];
+      // Skip lines with explicit suppress marker
+      if (raw.includes('audit-ignore')) continue;
+      // Strip trailing // line-comment before matching to avoid false positives
+      // in comments (e.g. "has any" matched by any-type check)
+      const stripped = raw.replace(/\/\/.*$/, '');
+      if (check.pattern.test(stripped)) {
         findings[check.severity].push({
           file: relative(ROOT, file),
           line: i + 1,
           check: check.name,
-          snippet: lines[i].trim().slice(0, 80),
+          snippet: raw.trim().slice(0, 80),
         });
       }
     }

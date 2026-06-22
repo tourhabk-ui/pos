@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const itemType = searchParams.get('type');
 
-    let queryText = `SELECT * FROM tourist_wishlist WHERE tourist_id = $1`;
+    let queryText = `SELECT id, item_type, item_id, priority, notes,
+       notify_on_discount, notify_on_availability, created_at, updated_at
+       FROM tourist_wishlist WHERE tourist_id = $1`;
     const params: unknown[] = [profile.id];
 
     if (itemType) {

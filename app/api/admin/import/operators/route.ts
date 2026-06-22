@@ -36,6 +36,7 @@ const BodySchema = z.object({
   operator_slug: z.string().optional(),
   dry_run: z.boolean().optional(),
   max_operators: z.number().int().min(1).max(50).optional(),
+  section_key: z.string().optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const { action, date_from, date_to, activity, group_username, hours_back,
-          categories, operator_slug, dry_run, max_operators } = parsed.data;
+          categories, operator_slug, dry_run, max_operators, section_key } = parsed.data;
   const t0 = Date.now();
 
   try {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (action === 'audit_site') {
-      const audit = await auditVisitKamchatka();
+      const audit = await auditVisitKamchatka(section_key ? [section_key] : undefined);
       return NextResponse.json({
         ok: true,
         action,

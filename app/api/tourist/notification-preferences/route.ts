@@ -67,7 +67,14 @@ export async function GET(request: NextRequest) {
     const profileId = profileResult.rows[0].id;
 
     const result = await query<NotifPrefRow>(
-      `SELECT * FROM tourist_notification_preferences WHERE tourist_id = $1`,
+      `SELECT id, tourist_id,
+              email_booking_confirmation, email_booking_reminder, email_booking_changes,
+              email_payment_receipts, email_promotions, email_newsletters,
+              email_recommendations, email_reviews_requests,
+              sms_booking_confirmation, sms_booking_reminder, sms_emergency_alerts,
+              push_booking_updates, push_messages, push_promotions, push_recommendations,
+              language, timezone
+       FROM tourist_notification_preferences WHERE tourist_id = $1`,
       [profileId]
     );
 

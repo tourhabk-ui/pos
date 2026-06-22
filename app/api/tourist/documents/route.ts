@@ -41,7 +41,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const documentType = searchParams.get('type');
 
-    let queryText = `SELECT * FROM tourist_documents WHERE tourist_id = $1`;
+    let queryText = `SELECT id, document_type, document_number, issuing_country, issuing_authority,
+       issue_date, expiry_date, file_url, file_name, file_size, notes,
+       created_at, updated_at
+       FROM tourist_documents WHERE tourist_id = $1`;
     const params: unknown[] = [profile.id];
 
     if (documentType) {
@@ -123,7 +126,9 @@ export async function POST(request: NextRequest) {
         tourist_id, document_type, document_number, issuing_country, issuing_authority,
         issue_date, expiry_date, file_url, file_name, file_size, notes
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING *`,
+      RETURNING id, document_type, document_number, issuing_country, issuing_authority,
+        issue_date, expiry_date, file_url, file_name, file_size, notes,
+        created_at, updated_at`,
       [
         profile.id, documentType, documentNumber || null, issuingCountry || null, issuingAuthority || null,
         issueDate || null, expiryDate || null, fileUrl || null, fileName || null, fileSize || null, notes || null

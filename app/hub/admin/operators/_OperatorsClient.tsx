@@ -462,6 +462,7 @@ function ScraperPanel() {
   const [lastAction, setLastAction] = useState<ScrapeAction | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
+  const [retryingSection, setRetryingSection] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -474,6 +475,26 @@ function ScraperPanel() {
       })
       .catch(() => {});
   }, [open]);
+
+  async function retrySection(key: string) {
+    setRetryingSection(key);
+    try {
+      const res = await fetch('/api/admin/import/operators', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'audit_site', section_key: key }),
+      });
+      const j = await res.json() as ScrapeResult;
+      if (j.sections && result?.sections) {
+        const updated = result.sections.map(s =>
+          j.sections!.find(r => r.key === s.key) ?? s
+        );
+        setResult({ ...result, sections: updated });
+      }
+    } catch { /* keep existing result */ } finally {
+      setRetryingSection(null);
+    }
+  }
 
   async function runAction(action: ScrapeAction) {
     setRunning(action);
@@ -817,8 +838,19 @@ function ScraperPanel() {
                             </span>
                             {s.status === 'ok' && s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
                           </div>
-                          {s.status !== 'ok' && s.html_preview && (
-                            <p className="mt-0.5 ml-4 text-[var(--danger)] break-all leading-relaxed">{s.html_preview}</p>
+                          {s.status !== 'ok' && (
+                            <div className="ml-4 flex items-start gap-2">
+                              {s.html_preview && (
+                                <p className="text-[var(--danger)] break-all leading-relaxed flex-1">{s.html_preview}</p>
+                              )}
+                              <button
+                                onClick={() => retrySection(s.key)}
+                                disabled={retryingSection === s.key}
+                                className="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors disabled:opacity-50"
+                              >
+                                {retryingSection === s.key ? '...' : 'Повторить'}
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}

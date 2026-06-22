@@ -171,7 +171,11 @@ function countItems(html: string, pattern: RegExp): number {
 
 // ── Audit a single section ────────────────────────────────────────────────────
 
-async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> {
+function auditSectionWithTimeout(section: typeof SECTIONS[0], timeoutMs: number): Promise<SectionAudit> {
+  return auditSection(section, timeoutMs);
+}
+
+async function auditSection(section: typeof SECTIONS[0], timeoutMs = 22_000): Promise<SectionAudit> {
   const base: SectionAudit = {
     key: section.key,
     label: section.label,
@@ -200,7 +204,7 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ zone, url: section.url, format: 'raw' }),
-        signal: AbortSignal.timeout(22_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       bdStatus = r.status;
       if (r.ok) {
@@ -256,21 +260,30 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
 
 // ── Main audit function ───────────────────────────────────────────────────────
 
-export async function auditVisitKamchatka(): Promise<SiteAuditResult> {
-  // Hard deadline: always resolve within 25s so the HTTP response never gets cut off
+export async function auditVisitKamchatka(sectionKeys?: string[]): Promise<SiteAuditResult> {
+  const sections = sectionKeys
+    ? SECTIONS.filter(s => sectionKeys.includes(s.key))
+    : SECTIONS;
+
+  // Longer timeout per section when auditing just a few (30s), tighter for full batch (22s)
+  const perSectionMs = sections.length <= 3 ? 30_000 : 22_000;
+  // Global deadline: 5s buffer on top of per-section timeout
+  const globalMs = perSectionMs + 5_000;
+
   const deadline = new Promise<SectionAudit[]>(resolve =>
-    setTimeout(() => resolve(SECTIONS.map(s => ({
+    setTimeout(() => resolve(sections.map(s => ({
       key: s.key, label: s.label, url: s.url,
       status: 'timeout' as const, html_length: 0, title: null, item_count: 0,
       top_classes: [], nav_links: [], internal_links: [],
-      html_preview: 'Global timeout — секция не успела ответить за 25с',
+      html_preview: `Global timeout — секция не успела ответить за ${globalMs / 1000}с`,
       pagination: { found: false },
-    }))), 25_000)
+    }))), globalMs)
   );
 
-  // Run all sections in parallel — going through Bright Data so site rate-limiting is not a concern
+  // Run sections in parallel — going through Bright Data so site rate-limiting is not a concern
+  const auditWithTimeout = (s: typeof SECTIONS[0]) => auditSectionWithTimeout(s, perSectionMs);
   const results = await Promise.race([
-    Promise.all(SECTIONS.map(auditSection)),
+    Promise.all(sections.map(auditWithTimeout)),
     deadline,
   ]);
 
