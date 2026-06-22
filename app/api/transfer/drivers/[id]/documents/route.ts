@@ -111,7 +111,9 @@ export async function POST(
         driver_id, type, name, file_url, document_number,
         issue_date, expiry_date, issuing_authority, notes
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
+      RETURNING id, type, name, file_url, document_number,
+        issue_date, expiry_date, issuing_authority, status, notes,
+        uploaded_at, updated_at`,
       [
         id,
         type,

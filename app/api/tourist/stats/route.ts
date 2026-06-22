@@ -57,7 +57,10 @@ export async function GET(request: NextRequest) {
     );
 
     const upcomingTrips = await query(
-      `SELECT * FROM tourist_trips WHERE tourist_id = $1 AND status IN ('planning', 'upcoming') ORDER BY start_date ASC LIMIT 5`,
+      `SELECT id, trip_name, destination, start_date, end_date,
+              trip_type, budget, participants, notes, is_public, status, created_at
+       FROM tourist_trips WHERE tourist_id = $1 AND status IN ('planning', 'upcoming')
+       ORDER BY start_date ASC LIMIT 5`,
       [profile.id]
     );
 
