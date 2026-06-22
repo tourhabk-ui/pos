@@ -351,7 +351,7 @@ export async function runDangerAnalysis(): Promise<{
 
 export async function getZoneAssessment(zone: Zone): Promise<ZoneAssessment | null> {
   const result = await query<ZoneAssessment>(
-    `SELECT * FROM v_current_danger WHERE zone = $1 LIMIT 1`,
+    `SELECT zone, risk_score, risk_level, threat_types, tourists_at_risk, active_tours_count, confidence, similar_event FROM v_current_danger WHERE zone = $1 LIMIT 1`,
     [zone]
   );
   return result.rows[0] ?? null;

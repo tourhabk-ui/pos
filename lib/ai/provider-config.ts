@@ -63,6 +63,14 @@ export function getNvidiaKey(): string | null {
   return process.env.NVIDIA_API_KEY || null;
 }
 
+// Sakana AI Fugu Ultra — multilingual frontier model (Japanese/Asian focus).
+// Docs: https://sakana.ai/fugu/
+// Endpoint: https://api.sakana.ai/v1/chat/completions (OpenAI-compatible)
+// Env: FUGU_API_KEY
+export function getFuguKey(): string | null {
+  return process.env.FUGU_API_KEY || null;
+}
+
 export function getMolmoWebConfig(): {
   baseUrl: string;
   apiKey: string | null;

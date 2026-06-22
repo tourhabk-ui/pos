@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
     const userId = operatorOrResponse.userId;
 
     const result = await query<OpSettingsRow>(
-      'SELECT * FROM operator_settings WHERE user_id = $1',
+      `SELECT id, user_id, auto_confirm_bookings, booking_lead_time, cancellation_policy,
+              refund_policy, min_group_size, max_advance_booking_days, timezone, currency,
+              commission_rate, settings, created_at, updated_at
+       FROM operator_settings WHERE user_id = $1`,
       [userId]
     );
 

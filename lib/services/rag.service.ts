@@ -54,7 +54,7 @@ export const knowledgeBaseService = {
   async getById(id: string) {
     try {
       const res = await pool.query(
-        `SELECT * FROM knowledge_base_articles WHERE id = $1`,
+        `SELECT id, title, slug, content, category, author, tags, views, helpful, created_at, updated_at FROM knowledge_base_articles WHERE id = $1`,
         [id]
       );
       return res.rows[0] ?? null;

@@ -426,8 +426,8 @@ export default function MapPageClient() {
             onClick={() => setShowSos(!showSos)}
             className={`flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
               showSos
-                ? 'bg-white text-red-600'
-                : 'bg-red-600 text-white hover:bg-red-700'
+                ? 'bg-[var(--bg-primary)] text-[var(--danger)]'
+                : 'bg-[var(--danger)] text-[var(--text-primary)] hover:bg-[var(--danger)]/90'
             }`}
             style={!showSos ? { animation: 'kh-sos-pulse 2s ease-out infinite' } : {}}
           >

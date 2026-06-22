@@ -93,7 +93,7 @@ export class LoyaltySystem {
       amount: string; description: string; booking_id: string | null;
       created_at: Date; expires_at: Date | null;
     }>(
-      `SELECT * FROM loyalty_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      `SELECT id, user_id, type, source, amount, description, booking_id, created_at, expires_at FROM loyalty_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
       [userId]
     );
 
@@ -332,7 +332,7 @@ export class LoyaltySystem {
         id: string; discount_type: string; discount_value: string;
         max_uses: number; current_uses: number;
       }>(
-        `SELECT * FROM promo_codes WHERE code = $1 AND is_active = true AND (expires_at IS NULL OR expires_at > NOW())`,
+        `SELECT id, discount_type, discount_value, max_uses, current_uses FROM promo_codes WHERE code = $1 AND is_active = true AND (expires_at IS NULL OR expires_at > NOW())`,
         [code]
       );
 

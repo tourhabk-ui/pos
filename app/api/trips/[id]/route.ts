@@ -42,7 +42,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 async function getTripOwned(tripId: string, userId: string): Promise<UserTripRow | null> {
   const { rows } = await pool.query<UserTripRow>(
-    'SELECT * FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
+    `SELECT id, user_id, title, arrival_date, departure_date, places, activities, days,
+            transport_by_day, flight_arrival, flight_departure, flight_arrival_time,
+            flight_departure_time, needs_airport_transfer, created_at, updated_at, deleted_at
+     FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
     [tripId, userId]
   );
   return rows[0] ?? null;
