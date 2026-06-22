@@ -426,6 +426,8 @@ interface ScrapeResult {
   token_set?: boolean;
   reachable?: boolean;
   status?: number;
+  zone?: string;
+  available_zones?: string[];
   // debug_fetch (operators) fields
   html_fetched?: boolean;
   html_length?: number;
@@ -754,10 +756,28 @@ function ScraperPanel() {
                       <p className={result.token_set ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
                         Токен BRIGHTDATA_API_TOKEN: {result.token_set ? 'задан' : 'НЕ ЗАДАН — добавь в Timeweb'}
                       </p>
+                      {result.zone && (
+                        <p className="text-[var(--text-secondary)]">
+                          Зона (BRIGHTDATA_ZONE): <b>{result.zone}</b>
+                        </p>
+                      )}
                       {result.token_set && (
                         <p className={result.reachable ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
                           Прокси доступен: {result.reachable ? `да (HTTP ${result.status})` : `нет (${result.error ?? `HTTP ${result.status}`})`}
                         </p>
+                      )}
+                      {result.available_zones && result.available_zones.length > 0 && (
+                        <div className="mt-1 p-2 rounded bg-[var(--warning)]/10 border border-[var(--warning)]/20">
+                          <p className="text-[var(--warning)] font-medium mb-0.5">
+                            Зона «{result.zone}» не найдена. Доступные зоны аккаунта:
+                          </p>
+                          <p className="text-[var(--text-primary)] break-words">
+                            {result.available_zones.join(' · ')}
+                          </p>
+                          <p className="text-[var(--text-muted)] mt-1">
+                            Поставь одну из них в переменную BRIGHTDATA_ZONE на Timeweb.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}
