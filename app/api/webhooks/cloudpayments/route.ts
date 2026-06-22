@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       
       // 1. Проверяем что бронирование существует
       const bookingCheck = await client.query(
-        `SELECT * FROM transfer_bookings WHERE id = $1`,
+        `SELECT id, status, amount, currency, created_at, updated_at FROM transfer_bookings WHERE id = $1`,
         [bookingId]
       );
       

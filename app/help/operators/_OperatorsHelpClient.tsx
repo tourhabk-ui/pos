@@ -278,7 +278,7 @@ export default function OperatorsHelpClient() {
           <p className="mb-5 opacity-90">Регистрация занимает 2 минуты. Первый тур — ещё 5.</p>
           <Link
             href="/auth/register-operator"
-            className="inline-flex items-center gap-2 bg-white text-[var(--accent)] px-6 py-3 rounded-lg font-semibold hover:bg-opacity-90 transition-colors"
+            className="inline-flex items-center gap-2 bg-[var(--bg-primary)] text-[var(--accent)] px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-colors"
           >
             Зарегистрироваться как оператор <ArrowRight size={18} />
           </Link>

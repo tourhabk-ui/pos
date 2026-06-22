@@ -48,7 +48,10 @@ export async function GET(req: NextRequest) {
 
     // Получить согласия
     const { rows } = await pool.query(
-      `SELECT * FROM content_consents WHERE partner_id = $1`,
+      `SELECT id, partner_id, allow_parsing_website, allow_parsing_images, allow_parsing_reviews,
+              allow_publication_tourhab, allow_publication_partners, allow_publication_social_media,
+              content_usage_limit, created_at, updated_at
+       FROM content_consents WHERE partner_id = $1`,
       [partnerId]
     );
 

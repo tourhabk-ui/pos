@@ -30,8 +30,9 @@ export async function GET(
     }
 
     const result = await query(
-      `SELECT * FROM vehicle_documents 
-       WHERE vehicle_id = $1 
+      `SELECT id, vehicle_id, document_type, document_number, issued_at, expiry_date, file_url, created_at
+       FROM vehicle_documents
+       WHERE vehicle_id = $1
        ORDER BY expiry_date ASC NULLS LAST`,
       [id]
     );

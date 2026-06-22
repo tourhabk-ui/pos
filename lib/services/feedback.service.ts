@@ -35,7 +35,7 @@ export const feedbackService = {
       const [countRes, dataRes] = await Promise.all([
         pool.query(`SELECT COUNT(*)::int AS total FROM feedback`),
         pool.query(
-          `SELECT * FROM feedback ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          `SELECT id, customer_id, ticket_id, rating, comment, created_at FROM feedback ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
           [limit, offset]
         ),
       ]);

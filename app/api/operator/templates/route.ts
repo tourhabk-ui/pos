@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const userId = operatorOrResponse.userId;
 
     const result = await query(
-      `SELECT *
+      `SELECT id, user_id, name, subject, content, template_type, variables, usage_count, created_at, updated_at
        FROM message_templates
        WHERE user_id = $1 AND is_active = true
        ORDER BY usage_count DESC, name ASC`,

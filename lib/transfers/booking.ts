@@ -442,7 +442,11 @@ export async function cancelBooking(
     return await transaction(async (client: PoolClient) => {
       // Получаем информацию о бронировании
       const bookingQuery = `
-        SELECT * FROM transfer_bookings
+        SELECT id, schedule_id, user_id, operator_id, passengers_count, route_id,
+               vehicle_id, driver_id, booking_date, departure_time, status,
+               special_requests, contact_phone, contact_email, confirmation_code,
+               created_at, updated_at
+        FROM transfer_bookings
         WHERE id = $1 AND status IN ('pending', 'confirmed')
         FOR UPDATE
       `;

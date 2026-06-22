@@ -47,7 +47,9 @@ export async function GET(request: NextRequest) {
     const popular = searchParams.get('popular');
 
     let queryStr = `
-      SELECT * FROM transfer_routes 
+      SELECT id, operator_id, name, from_location, to_location, distance_km,
+             duration_minutes, base_price, currency, is_active, popular, created_at, updated_at
+      FROM transfer_routes
       WHERE operator_id = $1
     `;
 

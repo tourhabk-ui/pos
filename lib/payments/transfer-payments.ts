@@ -401,7 +401,7 @@ export class TransferPaymentSystem {
   // Получение платежа по ID
   async getPaymentById(paymentId: string): Promise<TransferPaymentRow | undefined> {
     const result = await query<TransferPaymentRow>(
-      'SELECT * FROM transfer_payments WHERE id = $1',
+      'SELECT id, booking_id, amount, currency, payment_method, customer_email, customer_phone, customer_name, description, status, processed_at, created_at, updated_at FROM transfer_payments WHERE id = $1',
       [paymentId]
     );
     return result.rows[0];
@@ -410,7 +410,7 @@ export class TransferPaymentSystem {
   // Получение бронирования по ID
   private async getBookingById(bookingId: string): Promise<TransferBookingRow | undefined> {
     const result = await query<TransferBookingRow>(
-      'SELECT * FROM transfer_bookings WHERE id = $1',
+      'SELECT id, status, amount, currency, created_at, updated_at FROM transfer_bookings WHERE id = $1',
       [bookingId]
     );
     return result.rows[0];

@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type');
 
     let queryStr = `
-      SELECT *
+      SELECT id, user_id, type, payload, read_at, created_at, updated_at
       FROM notifications
       WHERE user_id = $1
     `;
