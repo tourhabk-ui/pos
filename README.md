@@ -1,8 +1,9 @@
-# Ведар
+# TourHab / KamchatourHub
 
-Туристическая платформа Камчатки — от поиска маршрута до экстренной помощи в поле.
+Туристическая платформа Камчатки — от поиска маршрута до экстренной помощи в поле.  
+Также известна как **Volcano OS**.
 
-**[vedarai.ru](https://vedarai.ru)** · Next.js 15 · PostgreSQL · TypeScript strict · PWA · Offline-first · AI
+**[tourhab.ru](https://tourhab.ru)** · Next.js 15 · PostgreSQL · TypeScript strict · PWA · Offline-first · AI
 
 ---
 
@@ -21,7 +22,7 @@
 | Frontend | Next.js 15 App Router, TypeScript strict, Tailwind CSS |
 | База данных | PostgreSQL — прямой SQL, без ORM |
 | Аутентификация | JWT, role-based middleware |
-| AI | Waterfall: DeepSeek → Gemini → MiniMax → Anthropic |
+| AI | Waterfall: 11 провайдеров — OpenRouter · DeepSeek · Gemini · MiMo · GLM · NVIDIA · xAI · YandexGPT · MiniMax · MuseSpark · Anthropic |
 | PWA | Service Worker, Web Push (VAPID), Background Sync, IndexedDB |
 | Меш | WebRTC P2P (VolcanoMesh) — SOS-ретрансляция между устройствами группы |
 | Деплой | Timeweb Cloud — автодеплой при пуше в `main` |
@@ -86,19 +87,19 @@ operator_tours (20)    — коммерческий продукт: цена, с
 
 ## AI-агенты
 
-| Агент | Расписание | Задача |
-|-------|-----------|--------|
-| **Kuzmich** | realtime | Telegram / MAX / Web / Widget — мультиканальный ассистент |
-| **Watchdog** | каждые 30 мин | Зависшие бронирования, операторы без ответа, лиды >2ч |
-| **Editor** | 02:00 UTC | Туры с коротким описанием → AI-рерайт + smoke-test записей в БД |
-| **Kuzmich Place Enricher** | 04:00 UTC | Генерирует `kuzmich_review` для мест без него (20 за запуск) |
-| **Scout Digest** | 07:00 UTC | RSS (Habr, RATA, Kamgov) → дедупликация по URL между запусками → AI-синтез → Telegram |
-| **Scout Innovator** | 08:00 UTC | Анализ трендов → уникальные GitHub Issues с `agent-proposal`, дедупликация против открытых |
-| **Danger Analyst** | каждые 30 мин | Анализ опасностей по зонам маршрутов |
+| Группа | Примеры | Расписание |
+|--------|---------|-----------|
+| **Безопасность** | Safety Ingest, Watchdog, Rescue, SOS Bridge | каждые 5–30 мин |
+| **Контент** | Editor, Import Routes, Enrich Routes, Places Enricher | 22:00–23:00 UTC |
+| **Разведка** | Scout Digest, Scout Innovator, Intelligence, KB Gap | 07:00–08:00 UTC |
+| **Бизнес** | Abandoned Bookings, Payouts, Tour Reminder, Leads | почасово / 06:00 UTC |
+| **Эволюция** | Evo System (Growth Agent + Evolution Loop) | каждые 6ч |
+| **Боты** | Kuzmich (Telegram, MAX, Web, Widget) | realtime |
 
 **Общая память агентов:** каждый агент на старте читает `readAgentBriefing()` — состояние платформы, историю своих запусков, last repo-scan, must-have контекст туризма на Камчатке.
 
-Полный реестр: [`AGENTS.md`](./AGENTS.md)
+Полный реестр с настройкой и шагами активации: [`docs/AGENTS_BOOK.md`](./docs/AGENTS_BOOK.md)  
+Краткий реестр: [`AGENTS.md`](./AGENTS.md)
 
 ---
 
@@ -142,7 +143,7 @@ git push origin main  # → Timeweb автодеплой
 - Все API routes — Zod-валидация входных данных
 - Цвета — только CSS custom properties (`var(--accent)`, `var(--ocean)`)
 - AI — только через `callAIWaterfall()` / `callAIFast()`
-- `SELECT *` — запрещён, только `v_kamchatka_routes_api` для публичных маршрутов
+- `SELECT * FROM kamchatka_routes` — только через `v_kamchatka_routes_api`; везде — explicit columns
 
 ---
 
@@ -158,11 +159,13 @@ Push в `main` → Timeweb видит пуш → собирает Docker → `st
 
 ## Последние изменения (июнь 2026)
 
+- **Evo UI** — просмотр и одобрение фиксов агента эволюции в `/hub/admin/agents` (закрытая петля обратной связи)
+- **Agents Book** — полная документация всех 37+ агентов в `docs/AGENTS_BOOK.md` (расписание, env vars, шаги активации, мониторинг)
+- **Schema-drift защита** — явные колонки вместо `SELECT *` / `RETURNING *` в tourist API routes
+- **audit.mjs** — калибровка гейта: 0 ложных срабатываний, generic `SELECT *` downgraded to warning, новый critical-check на `SELECT * FROM kamchatka_routes`
+- **Channel Sync** — инфраструктура Tripster/Avito готова (`lib/channels/`), ожидает API-ключи операторов
 - **Карта** — исправлена перезагрузка каждую секунду на Android (мемоизация маркеров, GPS-троттлинг >10м)
-- **Smoke test** — Editor проверяет что описания реально записались в БД, при тихом отказе → Telegram алерт
 - **Repo Scanner** — ежедневное сканирование: 12 таблиц БД, дерево репо, 10 production-эндпоинтов → в брифинг агентов
-- **Дедупликация агентов** — Scout Digest помнит виденные URL 30 дней, Scout Innovator не создаёт issue если такое уже открыто
-- **Геофенс** — алерт при входе в зону активного вулкана, кеш зон офлайн
 
 ---
 
