@@ -187,10 +187,40 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
     pagination: { found: false },
   };
 
-  const html = await fetchViaBrightData(section.url, { country: 'ru', timeoutMs: 30_000 });
+  // Call Bright Data directly so we can capture non-2xx error body for diagnosis
+  const token = process.env.BRIGHTDATA_API_TOKEN;
+  let html: string | null = null;
+  let bdErrorBody: string | null = null;
+  let bdStatus: number | null = null;
+
+  if (token) {
+    try {
+      const zone = process.env.BRIGHTDATA_ZONE || 'web_unlocker1';
+      const r = await fetch('https://api.brightdata.com/request', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zone, url: section.url, country: 'ru', format: 'raw' }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      bdStatus = r.status;
+      if (r.ok) {
+        html = await r.text();
+      } else {
+        bdErrorBody = (await r.text().catch(() => '')).slice(0, 300);
+      }
+    } catch (e) {
+      bdErrorBody = (e as Error).message;
+    }
+  } else {
+    html = await fetchViaBrightData(section.url, { country: 'ru', timeoutMs: 30_000 });
+  }
 
   if (!html) {
-    base.status = '403';
+    base.status = bdStatus === 403 ? '403' : bdStatus === 404 ? '404' : 'error';
+    // Store error info in html_preview so we can see it in the UI
+    base.html_preview = bdErrorBody
+      ? `Bright Data error (HTTP ${bdStatus}): ${bdErrorBody}`
+      : `Bright Data returned null (HTTP ${bdStatus ?? 'no response'})`;
     return base;
   }
 
