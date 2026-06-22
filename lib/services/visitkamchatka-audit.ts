@@ -199,12 +199,14 @@ async function auditSection(section: typeof SECTIONS[0]): Promise<SectionAudit> 
       const r = await fetch('https://api.brightdata.com/request', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zone, url: section.url, country: 'ru', format: 'raw' }),
+        body: JSON.stringify({ zone, url: section.url, format: 'raw' }),
         signal: AbortSignal.timeout(30_000),
       });
       bdStatus = r.status;
       if (r.ok) {
-        html = await r.text();
+        const text = await r.text();
+        html = text || null;
+        if (!text) bdErrorBody = 'Bright Data вернул HTTP 200 с пустым телом — сайт блокирует запросы';
       } else {
         bdErrorBody = (await r.text().catch(() => '')).slice(0, 300);
       }
