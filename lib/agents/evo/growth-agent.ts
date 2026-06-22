@@ -254,11 +254,9 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     );
   }
 
-  // Update agent state
-  const cycleCount = await getState('cycle_count');
+  // Atomic increment — safe under parallel execution with evolution-loop
   await pool.query(
-    `UPDATE evo_agent_state SET value = $1, updated_at = NOW() WHERE key = 'cycle_count'`,
-    [`${cycleCount + 1}`],
+    `UPDATE evo_agent_state SET value = (value::int + 1)::text, updated_at = NOW() WHERE key = 'cycle_count'`,
   );
   await pool.query(
     `UPDATE evo_agent_state SET value = $1, updated_at = NOW() WHERE key = 'last_scan_at'`,
@@ -268,10 +266,3 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   return { issues, scan_id: scanId, duration_ms: Date.now() - start };
 }
 
-async function getState(key: string): Promise<number> {
-  const { rows } = await pool.query<{ value: string }>(
-    `SELECT value FROM evo_agent_state WHERE key = $1`,
-    [key],
-  );
-  return rows[0] ? parseInt(rows[0].value) : 0;
-}

@@ -387,6 +387,27 @@ function OperatorCard({
 
 type ScrapeAction = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site' | 'diagnose_brightdata';
 
+type SectionAudit = {
+  key: string; label: string; url: string; status: string;
+  html_length: number; title: string | null; item_count: number;
+  pagination: { found: boolean; total_pages?: number; total_items?: number };
+  html_preview: string;
+};
+
+type SectionImporter = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'import_routes';
+
+const SECTION_CONFIGS: { key: string; label: string; importer: SectionImporter | null }[] = [
+  { key: 'operators',  label: 'Туроператоры',           importer: 'scrape_operators' },
+  { key: 'guides',     label: 'Гиды',                   importer: 'scrape_guides' },
+  { key: 'routes',     label: 'Маршруты',               importer: 'import_routes' },
+  { key: 'tours',      label: 'Туры',                   importer: 'scrape_tours' },
+  { key: 'excursions', label: 'Экскурсии',              importer: null },
+  { key: 'events',     label: 'События',                importer: null },
+  { key: 'news',       label: 'Новости',                importer: null },
+  { key: 'places',     label: 'Достопримечательности',  importer: null },
+  { key: 'main',       label: 'Главная страница',       importer: null },
+];
+
 interface ScrapeResult {
   ok: boolean;
   duration_ms?: number;
@@ -462,7 +483,10 @@ function ScraperPanel() {
   const [lastAction, setLastAction] = useState<ScrapeAction | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
-  const [retryingSection, setRetryingSection] = useState<string | null>(null);
+  const [sectionAudits, setSectionAudits] = useState<Record<string, SectionAudit>>({});
+  const [sectionAuditingKey, setSectionAuditingKey] = useState<string | null>(null);
+  const [sectionLoadingKey, setSectionLoadingKey] = useState<string | null>(null);
+  const [sectionLoadResult, setSectionLoadResult] = useState<{ key: string; msg: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -476,8 +500,8 @@ function ScraperPanel() {
       .catch(() => {});
   }, [open]);
 
-  async function retrySection(key: string) {
-    setRetryingSection(key);
+  async function auditSection(key: string) {
+    setSectionAuditingKey(key);
     try {
       const res = await fetch('/api/admin/import/operators', {
         method: 'POST',
@@ -485,14 +509,45 @@ function ScraperPanel() {
         body: JSON.stringify({ action: 'audit_site', section_key: key }),
       });
       const j = await res.json() as ScrapeResult;
-      if (j.sections && result?.sections) {
-        const updated = result.sections.map(s =>
-          j.sections!.find(r => r.key === s.key) ?? s
-        );
-        setResult({ ...result, sections: updated });
+      if (j.sections) {
+        setSectionAudits(prev => {
+          const next = { ...prev };
+          for (const s of j.sections!) next[s.key] = s as SectionAudit;
+          return next;
+        });
       }
-    } catch { /* keep existing result */ } finally {
-      setRetryingSection(null);
+    } catch { /* keep existing */ } finally {
+      setSectionAuditingKey(null);
+    }
+  }
+
+  async function loadSection(key: string, importer: SectionImporter) {
+    setSectionLoadingKey(key);
+    setSectionLoadResult(null);
+    try {
+      let res: Response;
+      if (importer === 'import_routes') {
+        res = await fetch('/api/admin/import/visitkamchatka', { method: 'POST' });
+      } else {
+        res = await fetch('/api/admin/import/operators', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: importer }),
+        });
+      }
+      const j = await res.json() as Record<string, unknown>;
+      const saved = j.inserted ?? j.operators_saved ?? j.updated ?? '?';
+      setSectionLoadResult({ key, msg: `Загружено: ${saved}` });
+      if (key === 'operators') {
+        fetch('/api/admin/operators/db-status')
+          .then(r => r.ok ? r.json() : null)
+          .then((s: unknown) => { if (s && typeof s === 'object' && 'total' in s) setDbStatus(s as DbStatus); })
+          .catch(() => {});
+      }
+    } catch (e) {
+      setSectionLoadResult({ key, msg: `Ошибка: ${(e as Error).message}` });
+    } finally {
+      setSectionLoadingKey(null);
     }
   }
 
@@ -537,6 +592,13 @@ function ScraperPanel() {
       const j: unknown = await res.json();
       const parsed = j as ScrapeResult;
       setResult(parsed);
+      if (parsed.sections) {
+        setSectionAudits(prev => {
+          const next = { ...prev };
+          for (const s of parsed.sections!) next[s.key] = s as SectionAudit;
+          return next;
+        });
+      }
       // Автоматически открыть лог если 0 операторов обработано
       const isTours = action !== 'scrape_operators';
       if (isTours && (parsed.operators_processed === 0 || parsed.tours_found === 0)) {
@@ -820,50 +882,7 @@ function ScraperPanel() {
                       )}
                     </div>
                   )}
-                  {/* audit_site результат */}
-                  {result.summary && (
-                    <div className="mt-1 space-y-1">
-                      <p className="text-[var(--text-secondary)]">
-                        Доступно разделов: <b>{result.summary.accessible_sections}</b> · Найдено элементов: <b>{result.summary.total_items_found}</b>
-                      </p>
-                      {result.sections && result.sections.map(s => (
-                        <div key={s.key} className={`text-[10px] ${s.status === 'ok' ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}>
-                          <div className="flex items-start gap-2">
-                            <span className={`shrink-0 font-medium ${s.status === 'ok' ? 'text-[var(--success)]' : s.status === '403' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`}>
-                              {s.status === 'ok' ? '✓' : s.status === '403' ? '✗' : '?'}
-                            </span>
-                            <span className="shrink-0 w-36">{s.label}</span>
-                            <span className={`shrink-0 ${s.item_count > 0 ? 'text-[var(--success)]' : ''}`}>
-                              {s.status === 'ok' ? `${s.item_count} эл. · ${s.html_length} байт` : s.status}
-                            </span>
-                            {s.status === 'ok' && s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
-                          </div>
-                          {s.status !== 'ok' && (
-                            <div className="ml-4 flex items-start gap-2">
-                              {s.html_preview && (
-                                <p className="text-[var(--danger)] break-all leading-relaxed flex-1">{s.html_preview}</p>
-                              )}
-                              <button
-                                onClick={() => retrySection(s.key)}
-                                disabled={retryingSection === s.key}
-                                className="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors disabled:opacity-50"
-                              >
-                                {retryingSection === s.key ? '...' : 'Повторить'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {result.summary.discovered_paths.length > 0 && (
-                        <div className="mt-1">
-                          <p className="text-[var(--text-muted)] mb-0.5">Найденные разделы:</p>
-                          <p className="text-[10px] text-[var(--text-muted)] break-words">
-                            {result.summary.discovered_paths.slice(0, 30).join(' · ')}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Per-section audit + load table moved below result block */}
                   {/* scrape_tours результат */}
                   {result.total !== undefined && (
                     <p className="text-[var(--text-secondary)]">Туров найдено: {result.total}, сохранено: {result.inserted ?? 0}, операторов: {result.matched_operators ?? 0}</p>
@@ -935,6 +954,81 @@ function ScraperPanel() {
               )}
             </div>
           )}
+
+          {/* Per-section audit + load table — always visible */}
+          <div className="mt-3">
+            {result?.summary && (
+              <p className="text-[10px] text-[var(--text-muted)] mb-2">
+                Доступно: <b className="text-[var(--text-secondary)]">{result.summary.accessible_sections}</b> · Элементов: <b className="text-[var(--text-secondary)]">{result.summary.total_items_found}</b>
+              </p>
+            )}
+            <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+              <div className="grid grid-cols-[1.25rem_1fr_4.5rem_4.5rem_4rem_4.5rem] gap-x-2 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-muted)] bg-[var(--bg-primary)] border-b border-[var(--border)]">
+                <span></span>
+                <span>Раздел</span>
+                <span className="text-right">Элем.</span>
+                <span className="text-right">Размер</span>
+                <span className="text-center">Аудит</span>
+                <span className="text-center">Загрузить</span>
+              </div>
+              {SECTION_CONFIGS.map((sec, idx) => {
+                const s = sectionAudits[sec.key];
+                const isAuditing = sectionAuditingKey === sec.key;
+                const isLoading = sectionLoadingKey === sec.key;
+                const loadRes = sectionLoadResult?.key === sec.key ? sectionLoadResult.msg : null;
+                return (
+                  <div
+                    key={sec.key}
+                    className={`grid grid-cols-[1.25rem_1fr_4.5rem_4.5rem_4rem_4.5rem] gap-x-2 px-3 py-2 items-center text-[10px] ${idx % 2 !== 0 ? 'bg-[var(--bg-primary)]/40' : ''} ${idx < SECTION_CONFIGS.length - 1 ? 'border-b border-[var(--border)]' : ''}`}
+                  >
+                    <span className={`font-bold ${!s ? 'text-[var(--text-muted)]' : s.status === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+                      {!s ? '·' : s.status === 'ok' ? '✓' : '✗'}
+                    </span>
+                    <span className={`truncate ${s?.status === 'ok' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                      {sec.label}
+                      {s?.pagination?.found && (
+                        <span className="ml-1 text-[var(--ocean)] text-[9px]">
+                          ↓{s.pagination.total_pages ? `${s.pagination.total_pages}стр` : '?стр'}
+                        </span>
+                      )}
+                    </span>
+                    <span className={`text-right tabular-nums ${s && s.item_count > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
+                      {s ? s.item_count : '—'}
+                    </span>
+                    <span className="text-right text-[var(--text-muted)] tabular-nums">
+                      {s?.html_length ? `${(s.html_length / 1024).toFixed(0)}кб` : '—'}
+                    </span>
+                    <button
+                      onClick={() => auditSection(sec.key)}
+                      disabled={isAuditing || !!sectionAuditingKey || !!sectionLoadingKey || running !== null}
+                      className="text-center px-1.5 py-1 rounded border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 transition-colors disabled:opacity-40 text-[9px]"
+                    >
+                      {isAuditing ? '...' : 'Аудит'}
+                    </button>
+                    {sec.importer ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button
+                          onClick={() => loadSection(sec.key, sec.importer!)}
+                          disabled={isLoading || !!sectionAuditingKey || !!sectionLoadingKey || running !== null}
+                          className="w-full text-center px-1.5 py-1 rounded border border-[var(--ocean)]/30 text-[var(--ocean)] hover:bg-[var(--ocean)]/10 transition-colors disabled:opacity-40 text-[9px]"
+                        >
+                          {isLoading ? '...' : 'Загрузить'}
+                        </button>
+                        {loadRes && <span className="text-[8px] text-[var(--success)] text-center leading-tight">{loadRes}</span>}
+                      </div>
+                    ) : (
+                      <span className="text-center text-[9px] text-[var(--text-muted)] opacity-40">—</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {result?.summary?.discovered_paths && result.summary.discovered_paths.length > 0 && (
+              <p className="mt-1.5 text-[9px] text-[var(--text-muted)] break-words leading-relaxed">
+                Найденные пути: {result.summary.discovered_paths.slice(0, 30).join(' · ')}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
