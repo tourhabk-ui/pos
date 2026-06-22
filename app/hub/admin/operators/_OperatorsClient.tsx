@@ -814,7 +814,10 @@ function ScraperPanel() {
                           <span className={`shrink-0 ${s.item_count > 0 ? 'text-[var(--success)]' : ''}`}>
                             {s.status === 'ok' ? `${s.item_count} эл. · ${s.html_length} байт` : s.status}
                           </span>
-                          {s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
+                          {s.status === 'ok' && s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
+                          {s.status !== 'ok' && s.html_preview && (
+                            <span className="text-[var(--danger)] truncate" title={s.html_preview}>{s.html_preview.slice(0, 80)}</span>
+                          )}
                         </div>
                       ))}
                       {result.summary.discovered_paths.length > 0 && (
