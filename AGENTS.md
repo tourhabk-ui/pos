@@ -114,6 +114,7 @@ Tier 3 (последовательно): Anthropic
 | Gemini 2.0 Flash | `GEMINI_API_KEY` | Tier 1 |
 | Xiaomi MiMo | `XIAOMI_API_KEY` | Tier 1 |
 | GLM Z1 | `OR_API_KEY` (via OR) | Tier 1 |
+| Fugu Ultra | `FUGU_API_KEY` | Tier 1 |
 | YandexGPT | `YANDEX_API_KEY` + `YANDEX_FOLDER_ID` | Tier 2 |
 | MiniMax | `MINIMAX_API_KEY` | Tier 2 |
 | Anthropic | `ANTHROPIC_API_KEY` | Tier 3 |

@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callMiMo, callDeepSeek } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callMiMo, callDeepSeek, callFugu } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -168,21 +168,23 @@ export async function GET(request: NextRequest) {
   const issues: HealthIssue[] = [];
 
   // AI-провайдеры (параллельно)
-  const [mimoOk, openrouterOk, anthropicOk, deepseekOk] = await Promise.all([
+  const [mimoOk, openrouterOk, anthropicOk, deepseekOk, fuguOk] = await Promise.all([
     probeAI(callMiMo),
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
+    probeAI(callFugu),
   ]);
 
-  const anyOk = mimoOk || openrouterOk || anthropicOk || deepseekOk;
+  const anyOk = mimoOk || openrouterOk || anthropicOk || deepseekOk || fuguOk;
   if (!anyOk) {
-    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (MiMo + OpenRouter + Anthropic + DeepSeek)' });
+    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (MiMo + OpenRouter + Anthropic + DeepSeek + Fugu)' });
   } else {
     if (!deepseekOk) issues.push({ level: 'warn', text: 'DeepSeek недоступен' });
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
     if (!mimoOk) issues.push({ level: 'warn', text: 'MiMo недоступен (нет XIAOMI_API_KEY или ошибка)' });
     if (!anthropicOk) issues.push({ level: 'warn', text: 'Anthropic недоступен' });
+    if (!fuguOk) issues.push({ level: 'warn', text: 'Fugu Ultra недоступен (нет FUGU_API_KEY или ошибка)' });
   }
 
   // БД
@@ -211,7 +213,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: issues.filter(i => i.level === 'crit').length === 0,
     ms: Date.now() - started,
-    ai: { mimo: mimoOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk },
+    ai: { mimo: mimoOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     issues,
   });
