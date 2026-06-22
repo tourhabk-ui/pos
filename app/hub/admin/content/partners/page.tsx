@@ -6,7 +6,6 @@ import { Partner } from '@/types';
 import {
   DataTable,
   Pagination,
-  SearchBar,
   StatusBadge,
   LoadingSpinner,
   EmptyState,
@@ -53,10 +52,12 @@ export default function PartnersManagement() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [verifiedFilter, setVerifiedFilter] = useState('all');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   /* Edit state */
   const [editId, setEditId] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export default function PartnersManagement() {
   const fetchPartners = useCallback(async () => {
     try {
       setLoading(true);
+      setFetchError(null);
       const params = new URLSearchParams({ page: currentPage.toString(), limit: '20' });
       if (search) params.append('search', search);
       if (categoryFilter) params.append('category', categoryFilter);
@@ -81,9 +83,12 @@ export default function PartnersManagement() {
       if (result.success) {
         setPartners(result.data.data);
         setTotalPages(result.data.pagination.totalPages);
+        setTotalCount(result.data.pagination.total);
+      } else {
+        setFetchError(result.error ?? 'Ошибка загрузки партнёров');
       }
     } catch {
-      // ignore
+      setFetchError('Ошибка сети');
     } finally {
       setLoading(false);
     }
@@ -319,9 +324,14 @@ export default function PartnersManagement() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="flex-1">
-          <SearchBar placeholder="Поиск по названию..." onSearch={(q) => { setSearch(q); setCurrentPage(1); }} />
+      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            placeholder="Поиск по названию..."
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            className="w-full px-3 py-1.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+          />
         </div>
         <select
           value={categoryFilter}
@@ -349,10 +359,18 @@ export default function PartnersManagement() {
         <div className="flex items-center justify-center py-20">
           <LoadingSpinner size="lg" message="Загрузка партнёров..." />
         </div>
+      ) : fetchError ? (
+        <div className="flex items-center gap-2 px-3 py-3 text-xs font-medium rounded-lg border bg-[var(--danger)]/8 border-[var(--danger)]/15 text-[var(--danger)]">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {fetchError}
+        </div>
       ) : partners.length === 0 ? (
         <EmptyState title="Партнёры не найдены" description="Попробуйте изменить фильтры" />
       ) : (
         <div className="space-y-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-[var(--text-muted)] font-mono">{totalCount} партнёров всего</span>
+          </div>
           <DataTable columns={columns} data={partners} />
           <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
