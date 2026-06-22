@@ -57,8 +57,8 @@ const DEAD_MODULES = [
   'lib/agents/context-hub.ts',
   'lib/agents/observation-logger.ts',
   'lib/agents/validation/director-standards.ts',
-  'lib/events/subscribers.ts',
-  'lib/analytics/lead-tracking.ts',
+  // lib/events/subscribers.ts — активно используется (шина событий)
+  // lib/analytics/lead-tracking.ts — активно используется (StickyLeadButton, YandexTravelBlock, RouteAffiliateBlock)
   'lib/legal/ai-legal-review.ts',
 ];
 
