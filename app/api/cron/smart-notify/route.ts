@@ -51,12 +51,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. New/updated published tours in last 6 hours
+    // 1. New/updated published tours in last 24 hours (matches rate-limit window)
     const { rows: newTours } = await pool.query<MatchedTour>(
       `SELECT id, title, base_price, activity_type, location_name
        FROM operator_tours
        WHERE is_published = true AND is_active = true AND deleted_at IS NULL
-         AND updated_at >= NOW() - INTERVAL '6 hours'
+         AND updated_at >= NOW() - INTERVAL '24 hours'
        LIMIT 20`,
     );
 

@@ -1,12 +1,12 @@
 name: Cron — Smart Notify (tour-preference matching)
 
-# Runs every 6 hours:
-# Matches new/updated tours with users' preferred activities in user_ai_memory.
-# Sends Telegram/Email notification if match found.
+# Runs once a day at 09:00 UTC.
+# Matches new/updated tours (last 24h) with users' preferred activities in user_ai_memory.
+# Sends Telegram notification if match found.
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # каждые 6 часов
+    - cron: '0 9 * * *'  # раз в сутки, 09:00 UTC
   workflow_dispatch:        # manual trigger
 
 jobs:
