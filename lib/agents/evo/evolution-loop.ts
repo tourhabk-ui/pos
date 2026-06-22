@@ -105,14 +105,13 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
           autoFixes++;
         }
       } else {
-        // Только предложение — ждёт фидбека человека
+        // Только предложение — ждёт фидбека человека.
+        // Меняем статус на 'suggested', чтобы следующий цикл не обрабатывал повторно.
         const suggestion = await generateSuggestion(issue, learningSummary);
-        if (suggestion) {
-          await pool.query(
-            `UPDATE evo_growth_issues SET suggestion = $1 WHERE id = $2`,
-            [suggestion, issue.id],
-          );
-        }
+        await pool.query(
+          `UPDATE evo_growth_issues SET status = 'suggested', suggestion = $1 WHERE id = $2`,
+          [suggestion ?? issue.suggestion, issue.id],
+        );
         suggestions++;
       }
     } catch (err) {

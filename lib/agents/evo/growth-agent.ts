@@ -231,10 +231,11 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
 
   // Save individual issues — deduplicate by file_path+title
   for (const issue of issues) {
-    // Check if this exact issue already exists as 'open'
+    // Check if this exact issue already exists (any active status — not just 'open').
+    // Without this, issues re-appear every scan after Evolution Loop moves them to 'accepted'.
     const { rows: existing } = await pool.query<{ id: string }>(
       `SELECT id FROM evo_growth_issues
-       WHERE status = 'open'
+       WHERE status NOT IN ('rejected', 'ignored')
          AND file_path = $1
          AND title = $2
        LIMIT 1`,
