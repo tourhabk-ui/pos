@@ -98,7 +98,8 @@ export async function POST(request: NextRequest) {
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (tourist_id, item_type, item_id) DO UPDATE
        SET priority = EXCLUDED.priority, notes = EXCLUDED.notes, notify_on_discount = EXCLUDED.notify_on_discount, notify_on_availability = EXCLUDED.notify_on_availability
-       RETURNING *`,
+       RETURNING id, tourist_id, item_type, item_id, priority, notes,
+         notify_on_discount, notify_on_availability, created_at, updated_at`,
       [profile.id, itemType, itemId, priority || 'medium', notes || null, notifyOnDiscount || false, notifyOnAvailability || false]
     );
 
