@@ -806,17 +806,19 @@ function ScraperPanel() {
                         Доступно разделов: <b>{result.summary.accessible_sections}</b> · Найдено элементов: <b>{result.summary.total_items_found}</b>
                       </p>
                       {result.sections && result.sections.map(s => (
-                        <div key={s.key} className={`flex items-start gap-2 text-[10px] ${s.status === 'ok' ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}>
-                          <span className={`shrink-0 font-medium ${s.status === 'ok' ? 'text-[var(--success)]' : s.status === '403' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`}>
-                            {s.status === 'ok' ? '✓' : s.status === '403' ? '✗' : '?'}
-                          </span>
-                          <span className="shrink-0 w-36">{s.label}</span>
-                          <span className={`shrink-0 ${s.item_count > 0 ? 'text-[var(--success)]' : ''}`}>
-                            {s.status === 'ok' ? `${s.item_count} эл. · ${s.html_length} байт` : s.status}
-                          </span>
-                          {s.status === 'ok' && s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
+                        <div key={s.key} className={`text-[10px] ${s.status === 'ok' ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}>
+                          <div className="flex items-start gap-2">
+                            <span className={`shrink-0 font-medium ${s.status === 'ok' ? 'text-[var(--success)]' : s.status === '403' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`}>
+                              {s.status === 'ok' ? '✓' : s.status === '403' ? '✗' : '?'}
+                            </span>
+                            <span className="shrink-0 w-36">{s.label}</span>
+                            <span className={`shrink-0 ${s.item_count > 0 ? 'text-[var(--success)]' : ''}`}>
+                              {s.status === 'ok' ? `${s.item_count} эл. · ${s.html_length} байт` : s.status}
+                            </span>
+                            {s.status === 'ok' && s.title && <span className="text-[var(--text-muted)] truncate">{s.title}</span>}
+                          </div>
                           {s.status !== 'ok' && s.html_preview && (
-                            <span className="text-[var(--danger)] truncate" title={s.html_preview}>{s.html_preview.slice(0, 80)}</span>
+                            <p className="mt-0.5 ml-4 text-[var(--danger)] break-all leading-relaxed">{s.html_preview}</p>
                           )}
                         </div>
                       ))}
