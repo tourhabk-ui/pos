@@ -766,16 +766,34 @@ function ScraperPanel() {
                           Прокси доступен: {result.reachable ? `да (HTTP ${result.status})` : `нет (${result.error ?? `HTTP ${result.status}`})`}
                         </p>
                       )}
-                      {result.available_zones && result.available_zones.length > 0 && (
+                      {result.token_set && !result.reachable && (
                         <div className="mt-1 p-2 rounded bg-[var(--warning)]/10 border border-[var(--warning)]/20">
-                          <p className="text-[var(--warning)] font-medium mb-0.5">
-                            Зона «{result.zone}» не найдена. Доступные зоны аккаунта:
-                          </p>
-                          <p className="text-[var(--text-primary)] break-words">
-                            {result.available_zones.join(' · ')}
-                          </p>
-                          <p className="text-[var(--text-muted)] mt-1">
-                            Поставь одну из них в переменную BRIGHTDATA_ZONE на Timeweb.
+                          {result.available_zones && result.available_zones.length > 0 ? (
+                            <>
+                              <p className="text-[var(--warning)] font-medium mb-0.5">
+                                Зона «{result.zone}» не найдена. Доступные зоны аккаунта:
+                              </p>
+                              <p className="text-[var(--text-primary)] break-words font-mono text-[10px]">
+                                {result.available_zones.join(' · ')}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-[var(--warning)] font-medium">
+                              Зона «{result.zone}» не найдена в аккаунте Bright Data.
+                            </p>
+                          )}
+                          <p className="text-[var(--text-muted)] mt-1 text-[10px]">
+                            Зайди в{' '}
+                            <a
+                              href="https://brightdata.com/cp/zones"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline text-[var(--ocean)]"
+                            >
+                              brightdata.com/cp/zones
+                            </a>
+                            {' '}→ найди свою Web Unlocker зону → скопируй имя →
+                            добавь BRIGHTDATA_ZONE=<i>имя_зоны</i> в Timeweb → перезапусти.
                           </p>
                         </div>
                       )}
