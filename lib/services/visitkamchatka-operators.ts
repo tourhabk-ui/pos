@@ -73,6 +73,23 @@ function extractTgLinks(text: string): string[] {
   return [...new Set(links)];
 }
 
+// ── Валидация имени оператора ─────────────────────────────────────────────────
+
+function isValidOperatorName(name: string): boolean {
+  if (name.length < 3 || name.length > 150) return false;
+  if (/^https?:\/\//i.test(name)) return false;
+  if (/@/.test(name)) return false;
+  if (/^РТО\s*\d/i.test(name)) return false;
+  // Domain without protocol (в-комфорте.рф, photoexpedition.pro)
+  if (/^[^\s]{3,60}\.[a-zа-я]{2,6}$/i.test(name)) return false;
+  // Obvious UI/navigation text
+  if (/^(туристу|туроператорам?|каталог|все\s|контакты|поиск|главная|навигация|меню|подробнее|читать|назад)/i.test(name)) return false;
+  // Phone-like strings
+  if (/^[\d\s+\-()]{7,}$/.test(name)) return false;
+  if (!/[а-яёА-ЯЁa-zA-Z]/.test(name)) return false;
+  return true;
+}
+
 // ── Нормализация телефона ─────────────────────────────────────────────────────
 
 function extractPhone(text: string): string | undefined {
@@ -184,15 +201,15 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
   const records: OperatorRecord[] = [];
   let m: RegExpExecArray | null;
 
-  // Стратегия 1: карточки по частым классам туристических CMS
-  // (WordPress post, catalog-item, company, operator, partner, card, item, member, org)
-  const cardRe = /<(?:div|article|section|li)[^>]*class="[^"]*(?:company|operator|partner|card|item|member|org|post|entry|catalog|lc-item|wp-post|tour-op)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|article|section|li)>/gi;
+  // Стратегия 1: карточки по специфичным классам туристических CMS
+  // Намеренно исключены generic-классы (card, item, post, entry) — слишком широкий захват
+  const cardRe = /<(?:div|article|section|li)[^>]*class="[^"]*(?:company|operator|partner|member|org|lc-item|tour-op)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|article|section|li)>/gi;
   while ((m = cardRe.exec(html)) !== null) {
     const block = m[1];
     const nameMatch = block.match(/<(?:h[1-4]|strong|b)[^>]*>([^<]{3,100})<\/(?:h[1-4]|strong|b)>/i);
     if (!nameMatch) continue;
     const name = nameMatch[1].replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim();
-    if (name.length < 3) continue;
+    if (!isValidOperatorName(name)) continue;
     const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     const tgLinks = extractTgLinks(block);
     const siteMatch = block.match(/href="(https?:\/\/(?!visitkamchatka)[^"]+)"/i);
@@ -211,10 +228,10 @@ function parseHtmlOperators(html: string): OperatorRecord[] {
     const phoneBlockRe = /<(?:div|article|li|tr)[^>]*>([\s\S]{20,2000}?(?:\+7|8[\s\-]?\(?\d{3}\)?[\s\-]?\d{3})[\s\S]{0,500}?)<\/(?:div|article|li|tr)>/gi;
     while ((m = phoneBlockRe.exec(html)) !== null) {
       const block = m[1];
-      const nameMatch = block.match(/<(?:h[1-4]|strong|b|a)[^>]*>([А-ЯЁа-яёA-Za-z][^<]{2,80})<\/(?:h[1-4]|strong|b|a)>/i);
+      const nameMatch = block.match(/<(?:h[1-4]|strong|b)[^>]*>([А-ЯЁа-яёA-Za-z][^<]{2,80})<\/(?:h[1-4]|strong|b)>/i);
       if (!nameMatch) continue;
       const name = nameMatch[1].replace(/&[^;]+;/g, '').trim();
-      if (name.length < 3 || records.find(r => r.name === name)) continue;
+      if (!isValidOperatorName(name) || records.find(r => r.name === name)) continue;
       const text = block.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
       const phone = extractPhone(text);
       if (!phone) continue;
