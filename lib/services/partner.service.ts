@@ -15,16 +15,22 @@ export const partnerService = {
     if (!row) return null;
     return {
       id: row.id,
-      userId: row.user_id ?? row.userId ?? null,
-      type: toStringOrNull(row.type),
-      companyName: toStringOrNull(row.company_name ?? row.companyName),
-      verified: toBooleanOrNull(row.verified) ?? false,
-      createdAt: row.created_at ?? row.createdAt ?? null,
-      updatedAt: row.updated_at ?? row.updatedAt ?? null,
+      userId: row.user_id ?? null,
+      type: toStringOrNull(row.category),
+      companyName: toStringOrNull(row.name),
+      verified: toBooleanOrNull(row.is_verified) ?? false,
+      createdAt: row.created_at ?? null,
+      updatedAt: row.updated_at ?? null,
     };
   },
   async getById(id: string) {
-    const result = await pool.query(`SELECT * FROM partners WHERE id = $1`, [id]);
+    const result = await pool.query(
+      `SELECT id, user_id, name, category, description, contact, rating, review_count,
+              is_verified, logo_asset_id, slug, short_description, hero_image, logo_image,
+              location, is_public, created_at, updated_at
+       FROM partners WHERE id = $1`,
+      [id]
+    );
     return this.normalize(result.rows[0] ?? null);
   },
   async getPartner(id: string) {
@@ -63,7 +69,10 @@ export const partnerService = {
     const total = Number(countResult.rows[0]?.total ?? 0);
 
     const result = await pool.query(
-      `SELECT * FROM partners ${whereClause} ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      `SELECT id, user_id, name, category, description, contact, rating, review_count,
+              is_verified, logo_asset_id, slug, short_description, hero_image, logo_image,
+              location, is_public, created_at, updated_at
+       FROM partners ${whereClause} ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, limit, offset]
     );
     return {
@@ -89,19 +98,19 @@ export const partnerService = {
   },
   async create(data: Record<string, unknown>) {
     const userId = toStringOrNull(data.userId) ?? toStringOrNull(data.user_id);
-    const type = toStringOrNull(data.type) ?? 'operator';
-    const companyName = toStringOrNull(data.companyName) ?? toStringOrNull(data.company_name) ?? 'Partner';
-    const verified = toBooleanOrNull(data.verified) ?? false;
+    const category = toStringOrNull(data.type) ?? toStringOrNull(data.category) ?? 'operator';
+    const name = toStringOrNull(data.companyName) ?? toStringOrNull(data.company_name) ?? toStringOrNull(data.name) ?? 'Partner';
+    const isVerified = toBooleanOrNull(data.verified) ?? toBooleanOrNull(data.is_verified) ?? false;
 
     if (!userId) {
       throw new Error('userId is required');
     }
 
     const result = await pool.query(
-      `INSERT INTO partners (user_id, type, company_name, verified, created_at, updated_at)
+      `INSERT INTO partners (user_id, category, name, is_verified, created_at, updated_at)
        VALUES ($1, $2, $3, $4, NOW(), NOW())
-       RETURNING *`,
-      [userId, type, companyName, verified]
+       RETURNING id, user_id, name, category, is_verified, created_at, updated_at`,
+      [userId, category, name, isVerified]
     );
 
     return this.normalize(result.rows[0] ?? null);
@@ -113,22 +122,22 @@ export const partnerService = {
     const updates: string[] = [];
     const values: unknown[] = [];
 
-    const companyName = toStringOrNull(data.companyName) ?? toStringOrNull(data.company_name);
-    if (companyName) {
-      updates.push(`company_name = $${values.length + 1}`);
-      values.push(companyName);
+    const name = toStringOrNull(data.companyName) ?? toStringOrNull(data.company_name) ?? toStringOrNull(data.name);
+    if (name) {
+      updates.push(`name = $${values.length + 1}`);
+      values.push(name);
     }
 
-    const type = toStringOrNull(data.type);
-    if (type) {
-      updates.push(`type = $${values.length + 1}`);
-      values.push(type);
+    const category = toStringOrNull(data.type) ?? toStringOrNull(data.category);
+    if (category) {
+      updates.push(`category = $${values.length + 1}`);
+      values.push(category);
     }
 
-    const verified = toBooleanOrNull(data.verified);
-    if (verified !== null) {
-      updates.push(`verified = $${values.length + 1}`);
-      values.push(verified);
+    const isVerified = toBooleanOrNull(data.verified) ?? toBooleanOrNull(data.is_verified);
+    if (isVerified !== null) {
+      updates.push(`is_verified = $${values.length + 1}`);
+      values.push(isVerified);
     }
 
     if (updates.length === 0) {
@@ -140,7 +149,7 @@ export const partnerService = {
       `UPDATE partners
        SET ${updates.join(', ')}, updated_at = NOW()
        WHERE id = $${values.length}
-       RETURNING *`,
+       RETURNING id, user_id, name, category, is_verified, created_at, updated_at`,
       values
     );
 

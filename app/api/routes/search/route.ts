@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
+import { getRouteSearchCache, setRouteSearchCache } from '@/lib/ai/route-knowledge';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,8 +44,16 @@ export async function GET(req: NextRequest) {
 
   // Семантический поиск для запросов ≥ 3 символов
   if (rawQ.length >= 3) {
+    const cached = getRouteSearchCache(rawQ) as { routes: RouteRow[]; semantic: boolean } | null;
+    if (cached) {
+      return NextResponse.json({ ...cached, cache_hit: true });
+    }
+
     try {
+      const t0 = Date.now();
       const semanticResults = await semanticSearch(rawQ, 15);
+      const latency_ms = Date.now() - t0;
+      console.info('[search] semantic', { query_length: rawQ.length, result_count: semanticResults.length, latency_ms });
 
       if (semanticResults.length > 0) {
         const ids = semanticResults.map(r => r.id);
@@ -56,9 +65,11 @@ export async function GET(req: NextRequest) {
           .filter(r => byId[r.id])
           .map(r => ({ ...byId[r.id], similarity: r.similarity }));
 
+        setRouteSearchCache(rawQ, { routes: ordered, semantic: true });
         return NextResponse.json({ routes: ordered, semantic: true });
       }
-    } catch {
+    } catch (err) {
+      console.error('[search] semantic error', { query_length: rawQ.length, error: err instanceof Error ? err.message : String(err) });
       // Семантический поиск упал → ILIKE фоллбэк ниже
     }
   }

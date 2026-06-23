@@ -5,10 +5,18 @@
  * Используется для скрейпинга страниц, которые блокируют обычные запросы.
  *
  * Требует переменную BRIGHTDATA_API_TOKEN в окружении.
+ * Имя зоны берётся из BRIGHTDATA_ZONE (по умолчанию web_unlocker1).
  * Если токен не задан — возвращает null (graceful fallback).
  */
 
 const BRIGHTDATA_API = 'https://api.brightdata.com/request';
+// Bright Data REST zone management API (different base domain from proxy API)
+const ZONES_API = 'https://brightdata.com/api/zone';
+
+/** Имя зоны Web Unlocker. Переопределяется через env. */
+function getZone(): string {
+  return process.env.BRIGHTDATA_ZONE || 'web_unlocker1';
+}
 
 export interface BrightDataOptions {
   zone?: string;
@@ -28,10 +36,14 @@ export async function fetchViaBrightData(
   if (!token) return null;
 
   const {
-    zone = 'mcp_unlocker',
-    country = 'ru',
+    zone = getZone(),
+    country,
     timeoutMs = 30_000,
   } = options;
+
+  // Build request body — omit country to let Bright Data pick the best IP
+  const reqBody: Record<string, unknown> = { zone, url, format: 'raw' };
+  if (country) reqBody['country'] = country;
 
   try {
     const res = await fetch(BRIGHTDATA_API, {
@@ -40,13 +52,101 @@ export async function fetchViaBrightData(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ zone, url, country, format: 'raw' }),
+      body: JSON.stringify(reqBody),
       signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) return null;
-    return await res.text();
+    const html = await res.text();
+    // Empty body = Bright Data couldn't bypass the site
+    return html || null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Получает список активных зон аккаунта Bright Data.
+ * Возвращает массив имён зон или null при ошибке.
+ */
+async function fetchActiveZones(token: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(ZONES_API, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    // Bright Data returns array of zone objects: [{zone: "name", plan: {...}}, ...]
+    const data = await res.json() as unknown;
+    if (Array.isArray(data)) {
+      return (data as Array<Record<string, unknown>>)
+        .map(z => (z['zone'] ?? z['name'] ?? '') as string)
+        .filter(Boolean);
+    }
+    // Some API versions wrap in {zones: [...]}
+    if (data && typeof data === 'object' && Array.isArray((data as Record<string, unknown>)['zones'])) {
+      return ((data as Record<string, unknown>)['zones'] as Array<Record<string, unknown>>)
+        .map(z => (z['zone'] ?? z['name'] ?? '') as string)
+        .filter(Boolean);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Проверяет, настроен ли Bright Data и работает ли токен.
+ * При ошибке зоны возвращает список доступных зон аккаунта.
+ */
+export async function diagnoseBrightData(): Promise<{
+  token_set: boolean;
+  reachable: boolean;
+  zone: string;
+  status?: number;
+  error?: string;
+  available_zones?: string[];
+}> {
+  const token = process.env.BRIGHTDATA_API_TOKEN;
+  const zone = getZone();
+  if (!token) {
+    return { token_set: false, reachable: false, zone, error: 'BRIGHTDATA_API_TOKEN не задан в переменных окружения' };
+  }
+
+  try {
+    // Use Bright Data's own test endpoint to verify zone works (avoids site-specific blocking)
+    const res = await fetch(BRIGHTDATA_API, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ zone, url: 'https://geo.brdtest.com/welcome.txt', format: 'raw' }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (res.ok) {
+      const body = await res.text().catch(() => '');
+      if (body) {
+        return { token_set: true, reachable: true, zone, status: res.status };
+      }
+      // 200 but empty body — zone exists but not delivering content
+      return { token_set: true, reachable: false, zone, status: res.status, error: 'Зона ответила 200 но вернула пустое тело' };
+    }
+
+    const body = await res.text().catch(() => '');
+    // Зона не найдена — подтянем список реальных зон, чтобы подсказать правильное имя
+    const zones = await fetchActiveZones(token);
+    return {
+      token_set: true,
+      reachable: false,
+      zone,
+      status: res.status,
+      error: body.slice(0, 200),
+      ...(zones ? { available_zones: zones } : {}),
+    };
+  } catch (e) {
+    return { token_set: true, reachable: false, zone, error: (e as Error).message };
   }
 }

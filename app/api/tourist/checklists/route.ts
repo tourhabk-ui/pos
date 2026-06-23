@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const tripId = searchParams.get('tripId');
 
-    let queryText = `SELECT * FROM tourist_checklists WHERE tourist_id = $1`;
+    let queryText = `SELECT id, name, items, trip_id, template_id, created_at, updated_at
+       FROM tourist_checklists WHERE tourist_id = $1`;
     const params: unknown[] = [profile.id];
 
     if (tripId) {
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     const result = await query(
       `INSERT INTO tourist_checklists (tourist_id, trip_id, template_id, name, items)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
+       RETURNING id, tourist_id, trip_id, template_id, name, items, created_at, updated_at`,
       [profile.id, tripId || null, templateId || null, name, JSON.stringify(items || [])]
     );
 
@@ -168,7 +169,7 @@ export async function PUT(request: NextRequest) {
     const result = await query(
       `UPDATE tourist_checklists SET ${updates.join(', ')}, updated_at = NOW()
        WHERE id = $${paramIndex} AND tourist_id = $${paramIndex + 1}
-       RETURNING *`,
+       RETURNING id, tourist_id, trip_id, template_id, name, items, created_at, updated_at`,
       values
     );
 

@@ -74,7 +74,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const t0 = Date.now();
     const results = await semanticSearch(queryText, limit);
+    const latency_ms = Date.now() - t0;
+    console.info('[discovery/semantic-search]', { query_length: queryText.length, result_count: results.length, latency_ms });
 
     if (results.length > 0) {
       return NextResponse.json({
@@ -91,7 +94,8 @@ export async function GET(request: NextRequest) {
       data: fallbackResults,
       meta: { mode: 'fulltext_fallback', query: queryText, count: fallbackResults.length },
     });
-  } catch {
+  } catch (err) {
+    console.error('[discovery/semantic-search] error', { query_length: queryText.length, error: err instanceof Error ? err.message : String(err) });
     // If model fails to load — graceful fallback to tsvector
     try {
       const fallbackResults = await tsvectorFallback(queryText, limit);

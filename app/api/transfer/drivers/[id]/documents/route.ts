@@ -30,8 +30,9 @@ export async function GET(
     }
 
     const result = await query(
-      `SELECT * FROM driver_documents 
-       WHERE driver_id = $1 
+      `SELECT id, driver_id, document_type, document_number, issued_at, expiry_date, file_url, created_at
+       FROM driver_documents
+       WHERE driver_id = $1
        ORDER BY expiry_date ASC NULLS LAST`,
       [id]
     );
@@ -111,7 +112,9 @@ export async function POST(
         driver_id, type, name, file_url, document_number,
         issue_date, expiry_date, issuing_authority, notes
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
+      RETURNING id, type, name, file_url, document_number,
+        issue_date, expiry_date, issuing_authority, status, notes,
+        uploaded_at, updated_at`,
       [
         id,
         type,

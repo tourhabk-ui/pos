@@ -269,10 +269,8 @@ function detectActivity(text: string): string {
 
 function parseDate(str: string): string | undefined {
   if (!str || str === 'undefined' || str === 'null') return undefined;
-  // ISO
   const iso = str.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return iso[0];
-  // DD.MM.YYYY or DD/MM/YYYY
   const dmy = str.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
   // Unix timestamp
@@ -344,7 +342,6 @@ function parseMarkdownTours(markdown: string): TourSlot[] {
 function parseHtmlTours(html: string): TourSlot[] {
   const tours: TourSlot[] = [];
 
-  // Strip scripts/styles but keep HTML structure
   const cleaned = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
@@ -410,8 +407,8 @@ async function upsertTourSlot(slot: TourSlot): Promise<'inserted' | 'skip'> {
       .replace(/^-|-$/g, '')
       .slice(0, 70);
     const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO partners (slug, company_name, name, external_source, external_source_url, is_verified, is_public, commission_current)
-       VALUES ($1, $2, $2, 'visitkamchatka_tours', $3, false, false, 0)
+      `INSERT INTO partners (slug, company_name, name, category, contact, external_source, external_source_url, is_verified, is_public, commission_current)
+       VALUES ($1, $2, $2, 'operator', '{}'::jsonb, 'visitkamchatka_tours', $3, false, false, 0)
        ON CONFLICT (slug) DO UPDATE SET company_name = EXCLUDED.company_name
        RETURNING id`,
       [slug, name, slot.source_url],
@@ -495,7 +492,6 @@ export async function scrapeTourMarketplace(filter?: {
     }
     if (page?.html && slots.length === 0) {
       fetchedHtml = page.html;
-      // Try __NEXT_DATA__ extraction first
       const nextData = extractNextData(page.html);
       if (nextData && nextData.length > 0) {
         slots = nextData;
@@ -525,7 +521,6 @@ export async function scrapeTourMarketplace(filter?: {
       fetchedHtml = bdHtml;
       result.debug!.html_length = bdHtml.length;
 
-      // Сначала __NEXT_DATA__
       const nextData = extractNextData(bdHtml);
       if (nextData && nextData.length > 0) {
         slots = nextData;
@@ -575,7 +570,6 @@ export async function scrapeTourMarketplace(filter?: {
     return result;
   }
 
-  // Фильтрация по параметрам
   if (filter?.activity) {
     slots = slots.filter(s => s.activity_type === filter.activity);
   }

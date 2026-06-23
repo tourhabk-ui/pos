@@ -50,7 +50,11 @@ export async function GET(request: NextRequest) {
     const isActive = searchParams.get('active');
 
     let queryStr = `
-      SELECT * FROM gear_items 
+      SELECT id, partner_id, name, description, category, subcategory, brand, model,
+             price_per_day, price_per_week, price_per_month, quantity, deposit_amount,
+             insurance_cost_per_day, images, specifications, features, condition, tags,
+             is_active, created_at, updated_at
+      FROM gear_items
       WHERE partner_id = $1
     `;
     const params: unknown[] = [partnerId];

@@ -1,122 +1,115 @@
-/**
- * POST /api/ai/judge-rag
- *
- * LLM-судья для оценки качества RAG-ответов.
- * Принимает вопрос + ответ бота + контекст из RAG.
- * Возвращает score (0.0–1.0) и причину.
- * Сохраняет результат в ai_actions_log для мониторинга деградации.
- *
- * Auth: requireAuth — вызывается из Kuzmich/chat pipeline
- */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIWaterfall } from '@/lib/ai/providers';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
 
-const BodySchema = z.object({
-  question: z.string().min(1).max(2000),
+const PostSchema = z.object({
+  query:  z.string().min(1).max(500),
   answer: z.string().min(1).max(5000),
-  context: z.string().max(4000).optional(),
 });
 
-const JUDGE_PROMPT = `Ты — судья качества RAG-ответов туристической платформы Камчатки.
-Оцени ответ бота на вопрос пользователя по трём критериям:
-1. Релевантность (ответ по теме вопроса)
-2. Точность (ответ опирается на предоставленный контекст, а не выдуман)
-3. Полнота (вопрос раскрыт достаточно)
+const JUDGE_SYSTEM = `Ты LLM-судья качества ответов. Оцени ответ по двум критериям от 1 до 5.
+Верни JSON строго в формате: {"relevance_score": N, "completeness_score": N, "verdict": "текст"}
+Без markdown, без лишних пояснений — только JSON.
 
-Верни ТОЛЬКО валидный JSON без markdown-обёрток:
-{"score": 0.85, "reason": "краткое пояснение 1-2 предложения"}
+Критерии:
+- relevance_score 1-5: насколько ответ соответствует вопросу (1=не по теме, 5=точно по теме)
+- completeness_score 1-5: насколько ответ полон (1=очень краткий, 5=исчерпывающий)
+- verdict: одно предложение с итоговой оценкой`;
 
-score: от 0.0 (полностью нерелевантный/ошибочный) до 1.0 (отличный ответ).
-Не добавляй ничего кроме JSON.`;
-
-interface JudgeResult {
-  score: number;
-  reason: string;
-}
-
-function parseJudgeResponse(raw: string): JudgeResult | null {
-  try {
-    const cleaned = raw.trim().replace(/^```(?:json)?|```$/g, '').trim();
-    const parsed = JSON.parse(cleaned) as unknown;
-    if (!parsed || typeof parsed !== 'object') return null;
-    const obj = parsed as Record<string, unknown>;
-    const score = typeof obj.score === 'number' ? obj.score : parseFloat(String(obj.score ?? ''));
-    const reason = typeof obj.reason === 'string' ? obj.reason.slice(0, 500) : '';
-    if (isNaN(score) || score < 0 || score > 1) return null;
-    return { score: Math.round(score * 100) / 100, reason };
-  } catch {
-    return null;
-  }
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  const auth = await requireAuth(req);
+/**
+ * POST /api/ai/judge-rag
+ * Оценивает качество RAG-ответа через LLM-судью.
+ */
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
   if (auth instanceof NextResponse) return auth;
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  const parsed = BodySchema.safeParse(body);
+  const body = await req.json().catch(() => null);
+  const parsed = PostSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+      { status: 400 },
+    );
   }
 
-  const { question, answer, context } = parsed.data;
+  const { query, answer } = parsed.data;
 
-  const userMessage = [
-    `Вопрос пользователя: ${question}`,
-    context ? `Контекст RAG:\n${context}` : 'Контекст RAG: не предоставлен',
-    `Ответ бота: ${answer}`,
-  ].join('\n\n');
+  const judgePrompt = `Вопрос: ${query}\n\nОтвет: ${answer}`;
 
-  const t0 = Date.now();
-  let judgeResult: JudgeResult | null = null;
+  let judgeRaw: string;
+  try {
+    judgeRaw = await callAIWaterfall([
+      { role: 'system', content: JUDGE_SYSTEM },
+      { role: 'user',   content: judgePrompt },
+    ]);
+  } catch {
+    return NextResponse.json({ error: 'AI-судья недоступен' }, { status: 503 });
+  }
+
+  let relevance_score: number | null = null;
+  let completeness_score: number | null = null;
+  let verdict: string | null = null;
 
   try {
-    const raw = await callAIFast([
-      { role: 'system', content: JUDGE_PROMPT },
-      { role: 'user', content: userMessage },
-    ]);
-    judgeResult = parseJudgeResponse(raw);
+    const clean = judgeRaw.replace(/```json|```/g, '').trim();
+    const j = JSON.parse(clean) as Record<string, unknown>;
+    relevance_score    = typeof j.relevance_score === 'number'    ? Math.min(5, Math.max(1, Math.round(j.relevance_score)))    : null;
+    completeness_score = typeof j.completeness_score === 'number' ? Math.min(5, Math.max(1, Math.round(j.completeness_score))) : null;
+    verdict            = typeof j.verdict === 'string' ? j.verdict.slice(0, 500) : null;
   } catch {
-    // Не блокируем pipeline при сбое судьи
+    // не смогли распарсить — пишем null-оценки, чтобы не терять запись
   }
 
-  if (!judgeResult) {
-    return NextResponse.json({ error: 'Judge failed to produce a valid score' }, { status: 502 });
-  }
-
-  // Сохраняем в ai_actions_log для агрегации в /api/health/llm-cost
-  pool.query(
-    `INSERT INTO ai_actions_log (action_type, metadata)
-     VALUES ($1, $2)`,
-    [
-      'rag_judge',
-      JSON.stringify({
-        score: judgeResult.score,
-        reason: judgeResult.reason,
-        question_length: question.length,
-        answer_length: answer.length,
-        has_context: !!context,
-        duration_ms: Date.now() - t0,
-      }),
-    ],
-  ).catch(() => {});
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO rag_quality_log
+       (query, answer, relevance_score, completeness_score, verdict, model)
+     VALUES ($1, $2, $3, $4, $5, 'waterfall')
+     RETURNING id`,
+    [query, answer, relevance_score, completeness_score, verdict],
+  );
 
   return NextResponse.json({
-    score: judgeResult.score,
-    reason: judgeResult.reason,
-    duration_ms: Date.now() - t0,
+    id:                rows[0]?.id,
+    relevance_score,
+    completeness_score,
+    verdict,
+  });
+}
+
+/**
+ * GET /api/ai/judge-rag
+ * Возвращает средние баллы качества RAG за последние 7 дней.
+ */
+export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const { rows } = await pool.query<{
+    total_evaluations: string;
+    avg_relevance: string | null;
+    avg_completeness: string | null;
+  }>(
+    `SELECT
+       COUNT(*)::int                           AS total_evaluations,
+       ROUND(AVG(relevance_score)::numeric, 2) AS avg_relevance,
+       ROUND(AVG(completeness_score)::numeric, 2) AS avg_completeness
+     FROM rag_quality_log
+     WHERE created_at >= NOW() - INTERVAL '7 days'`,
+    [],
+  );
+
+  const row = rows[0];
+
+  return NextResponse.json({
+    period_days: 7,
+    total_evaluations: Number(row?.total_evaluations ?? 0),
+    avg_relevance_score:    row?.avg_relevance    != null ? Number(row.avg_relevance)    : null,
+    avg_completeness_score: row?.avg_completeness != null ? Number(row.avg_completeness) : null,
+    as_of: new Date().toISOString(),
   });
 }

@@ -64,6 +64,25 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
 }
 
 /**
+ * Бюджет LLM превышен — алерт владельцу.
+ */
+export function notifyBudgetAlert(spentUsd: number, limitUsd: number): void {
+  void (async () => {
+    try {
+      await sendAdminMessage([
+        '<b>Превышен дневной бюджет LLM</b>',
+        '',
+        `<b>Потрачено:</b> $${spentUsd.toFixed(4)}`,
+        `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
+        `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
+        '',
+        'Проверь <a href="https://tourhab.ru/hub/admin">панель</a> → Статистика LLM.',
+      ].join('\n'));
+    } catch { /* silent */ }
+  })();
+}
+
+/**
  * Тикет эскалирован — срочное уведомление в @tourhab_bot.
  */
 export function notifyAdminEscalated(ticket: SupportTicket, reason: string): void {

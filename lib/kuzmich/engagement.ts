@@ -61,7 +61,8 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
   let skipped = 0;
 
   try {
-    // Выбираем сигналы 23-72 часа назад без push, без подтверждённого бронирования
+    // FOR UPDATE SKIP LOCKED — каждый параллельный cron-запуск берёт свои строки,
+    // исключая уже заблокированные другим процессом. Предотвращает двойную отправку.
     const { rows } = await pool.query<EngagementRow>(`
       SELECT
         s.id            AS signal_id,
@@ -79,7 +80,6 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         AND s.created_at < NOW() - INTERVAL '23 hours'
         AND s.created_at > NOW() - INTERVAL '72 hours'
         AND u.telegram_id IS NOT NULL
-        -- Не отправляем если уже есть активное бронирование на этот тур
         AND NOT EXISTS (
           SELECT 1 FROM operator_bookings ob
           WHERE ob.user_id = s.user_id
@@ -89,6 +89,7 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         )
       ORDER BY s.created_at DESC
       LIMIT 50
+      FOR UPDATE OF s SKIP LOCKED
     `);
 
     for (const row of rows) {

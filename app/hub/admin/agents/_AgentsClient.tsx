@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, CheckCircle, AlertTriangle, Clock, Play, Bot, Zap, Send, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertTriangle, Clock, Play, Bot, Zap, Send, AlertCircle, CheckCircle2, GitBranch, X, Copy, Check } from 'lucide-react';
 
 interface AgentDef {
   id: string;
@@ -328,12 +328,284 @@ export default function AgentsClient() {
         )}
       </div>
 
+      {/* Evo Issues */}
+      <EvoIssuesSection />
+
       {/* Channel posts */}
       <ChannelPostsSection />
 
       {/* Route import */}
       <ImportRoutesSection />
 
+    </div>
+  );
+}
+
+// ── Evo Issues Section ────────────────────────────────────────────────────
+
+interface EvoIssue {
+  id: string;
+  category: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  file_path: string | null;
+  title: string;
+  description: string | null;
+  suggestion: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface EvoLogEntry {
+  id: string;
+  issue_id: string | null;
+  action: string;
+  status: string;
+  diff_summary: string | null;
+  created_at: string;
+  issue_title: string | null;
+  issue_file: string | null;
+}
+
+const SEVERITY_STYLES: Record<string, string> = {
+  critical: 'text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]',
+  high: 'text-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)]',
+  medium: 'text-[var(--ocean)] bg-[color-mix(in_srgb,var(--ocean)_12%,transparent)]',
+  low: 'text-[var(--text-muted)] bg-[var(--bg-hover)]',
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  dead_code: 'мёртвый код',
+  security: 'безопасность',
+  performance: 'производит.',
+  bug: 'баг',
+  tech_debt: 'tech debt',
+  ux: 'UX',
+};
+
+function EvoIssuesSection() {
+  const [tab, setTab] = useState<'issues' | 'log'>('issues');
+  const [issues, setIssues] = useState<EvoIssue[]>([]);
+  const [log, setLog] = useState<EvoLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedDiff, setExpandedDiff] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/evo/issues');
+      if (!res.ok) return;
+      const data = await res.json() as { issues: EvoIssue[]; log: EvoLogEntry[] };
+      setIssues(data.issues);
+      setLog(data.log);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function patchIssue(id: string, status: string) {
+    setUpdating(id);
+    try {
+      await fetch('/api/admin/evo/issues', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'issue', id, status }),
+      });
+      setIssues(prev => prev.filter(i => i.id !== id));
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  async function patchLog(id: string, status: string) {
+    setUpdating(id);
+    try {
+      await fetch('/api/admin/evo/issues', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'log', id, status }),
+      });
+      setLog(prev => prev.filter(l => l.id !== id));
+    } finally {
+      setUpdating(null);
+    }
+  }
+
+  async function copyDiff(id: string, text: string) {
+    await navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  const pendingCount = issues.length;
+  const logCount = log.length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] flex items-center gap-2">
+          <GitBranch className="w-3.5 h-3.5" />
+          Evo — Очередь проблем
+        </h2>
+        <button
+          onClick={() => { setLoading(true); void load(); }}
+          className="text-xs text-[var(--text-muted)] flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Обновить
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setTab('issues')}
+          className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+            tab === 'issues'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-secondary)] bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          Проблемы {pendingCount > 0 && <span className="ml-1 opacity-80">({pendingCount})</span>}
+        </button>
+        <button
+          onClick={() => setTab('log')}
+          className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+            tab === 'log'
+              ? 'bg-[var(--accent)] text-white'
+              : 'text-[var(--text-secondary)] bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+          }`}
+        >
+          Фиксы {logCount > 0 && <span className="ml-1 opacity-80">({logCount})</span>}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">Загрузка...</div>
+      ) : tab === 'issues' ? (
+        issues.length === 0 ? (
+          <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">
+            Нет открытых проблем — всё чисто.
+          </div>
+        ) : (
+          <div className="ds-card overflow-hidden">
+            {issues.map((issue, idx) => (
+              <div
+                key={issue.id}
+                className={`p-4 ${idx < issues.length - 1 ? 'border-b border-[var(--border)]' : ''}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col gap-1 flex-shrink-0 pt-0.5">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${SEVERITY_STYLES[issue.severity] ?? SEVERITY_STYLES.low}`}>
+                      {issue.severity}
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded text-center">
+                      {CATEGORY_LABELS[issue.category] ?? issue.category}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-[var(--text-primary)] leading-snug">{issue.title}</p>
+                    {issue.file_path && (
+                      <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5 truncate">{issue.file_path}</p>
+                    )}
+                    {issue.suggestion && (
+                      <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed">{issue.suggestion}</p>
+                    )}
+                    {issue.status === 'suggested' && (
+                      <span className="text-xs text-[var(--ocean)] mt-1 inline-block">evo предложил фикс</span>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => void patchIssue(issue.id, 'ignored')}
+                      disabled={updating === issue.id}
+                      className="text-xs px-2.5 py-1 rounded bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                    >
+                      Игнор
+                    </button>
+                    <button
+                      onClick={() => void patchIssue(issue.id, 'rejected')}
+                      disabled={updating === issue.id}
+                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" />
+                      Отклонить
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        log.length === 0 ? (
+          <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">
+            Нет ожидающих фиксов — Evolution Loop ещё не сгенерировал дифы.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {log.map(entry => (
+              <div key={entry.id} className="ds-card p-4 space-y-2">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-[var(--text-primary)]">
+                      {entry.issue_title ?? entry.action}
+                    </p>
+                    {entry.issue_file && (
+                      <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5 truncate">{entry.issue_file}</p>
+                    )}
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">действие: {entry.action}</p>
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    {entry.diff_summary && (
+                      <button
+                        onClick={() => setExpandedDiff(expandedDiff === entry.id ? null : entry.id)}
+                        className="text-xs px-2.5 py-1 rounded bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                      >
+                        {expandedDiff === entry.id ? 'Скрыть' : 'Диф'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void patchLog(entry.id, 'merged')}
+                      disabled={updating === entry.id}
+                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)] hover:bg-[color-mix(in_srgb,var(--success)_22%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Применён
+                    </button>
+                    <button
+                      onClick={() => void patchLog(entry.id, 'rejected')}
+                      disabled={updating === entry.id}
+                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" />
+                      Отклонить
+                    </button>
+                  </div>
+                </div>
+                {expandedDiff === entry.id && entry.diff_summary && (
+                  <div className="relative">
+                    <pre className="text-xs font-mono bg-[var(--bg-hover)] rounded p-3 overflow-x-auto whitespace-pre-wrap text-[var(--text-secondary)] max-h-64 overflow-y-auto leading-relaxed">
+                      {entry.diff_summary}
+                    </pre>
+                    <button
+                      onClick={() => void copyDiff(entry.id, entry.diff_summary!)}
+                      className="absolute top-2 right-2 p-1.5 rounded bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                      title="Скопировать диф"
+                    >
+                      {copied === entry.id ? <Check className="w-3 h-3 text-[var(--success)]" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }

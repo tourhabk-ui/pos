@@ -167,7 +167,7 @@ export async function escalateTicket(ticketId: string, reason: string): Promise<
  */
 export async function getUserOpenTickets(userId: string): Promise<SupportTicket[]> {
   const res = await query<TicketRow>(
-    `SELECT * FROM support_tickets
+    `SELECT id, user_id, user_name, user_email, channel, category, subject, status, assigned_agent, messages, resolution, escalated_at, resolved_at, created_at, updated_at FROM support_tickets
      WHERE user_id = $1 AND status NOT IN ('resolved', 'closed')
      ORDER BY created_at DESC LIMIT 5`,
     [userId]
@@ -180,7 +180,7 @@ export async function getUserOpenTickets(userId: string): Promise<SupportTicket[
  */
 export async function getOverdueTickets(): Promise<SupportTicket[]> {
   const res = await query<TicketRow>(
-    `SELECT * FROM support_tickets
+    `SELECT id, user_id, user_name, user_email, channel, category, subject, status, assigned_agent, messages, resolution, escalated_at, resolved_at, created_at, updated_at FROM support_tickets
      WHERE status IN ('open', 'assigned')
        AND updated_at < NOW() - INTERVAL '24 hours'
      ORDER BY created_at ASC LIMIT 20`

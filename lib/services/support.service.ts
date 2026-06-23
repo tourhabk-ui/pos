@@ -4,7 +4,7 @@ import { toStringOrNull, toNumberOrNull } from './_helpers';
 export const agentService = {
   async getById(id: string) {
     try {
-      const result = await pool.query(`SELECT * FROM agents WHERE id = $1`, [id]);
+      const result = await pool.query(`SELECT id, name, category, description, status, created_at, updated_at FROM agents WHERE id = $1`, [id]);
       return result.rows[0] || null;
     } catch {
       return null;
@@ -12,7 +12,7 @@ export const agentService = {
   },
   async list(params: Record<string, unknown>) {
     try {
-      const result = await pool.query(`SELECT * FROM agents ORDER BY created_at DESC LIMIT 50`);
+      const result = await pool.query(`SELECT id, name, category, description, status, created_at, updated_at FROM agents ORDER BY created_at DESC LIMIT 50`);
       return { agents: result.rows, total: result.rows.length };
     } catch {
       return { agents: [], total: 0 };
@@ -70,7 +70,7 @@ export const feedbackService = {
       const [countRes, dataRes] = await Promise.all([
         pool.query(`SELECT COUNT(*)::int AS total FROM feedback`),
         pool.query(
-          `SELECT * FROM feedback ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          `SELECT id, customer_id, ticket_id, rating, comment, created_at FROM feedback ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
           [limit, offset]
         ),
       ]);
@@ -209,7 +209,7 @@ export const ticketMessageService = {
       const [countRes, dataRes] = await Promise.all([
         pool.query(`SELECT COUNT(*)::int AS total FROM ticket_messages WHERE ticket_id = $1`, [ticketId]),
         pool.query(
-          `SELECT * FROM ticket_messages WHERE ticket_id = $1
+          `SELECT id, ticket_id, sender_id, sender_name, sender_type, message, is_internal, created_at FROM ticket_messages WHERE ticket_id = $1
            ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
           [ticketId, limit, offset]
         ),

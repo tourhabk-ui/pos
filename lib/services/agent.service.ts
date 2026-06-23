@@ -8,7 +8,7 @@ import { pool, toStringOrNull } from './_helpers';
 export const agentService = {
   async getById(id: string) {
     try {
-      const result = await pool.query(`SELECT * FROM agents WHERE id = $1`, [id]);
+      const result = await pool.query(`SELECT id, name, category, description, status, created_at, updated_at FROM agents WHERE id = $1`, [id]);
       return result.rows[0] || null;
     } catch {
       return null;
@@ -16,7 +16,7 @@ export const agentService = {
   },
   async list(params: Record<string, unknown>) {
     try {
-      const result = await pool.query(`SELECT * FROM agents ORDER BY created_at DESC LIMIT 50`);
+      const result = await pool.query(`SELECT id, name, category, description, status, created_at, updated_at FROM agents ORDER BY created_at DESC LIMIT 50`);
       return { agents: result.rows, total: result.rows.length };
     } catch {
       return { agents: [], total: 0 };

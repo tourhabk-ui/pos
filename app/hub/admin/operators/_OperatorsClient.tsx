@@ -385,7 +385,28 @@ function OperatorCard({
   );
 }
 
-type ScrapeAction = 'scrape_operators' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours';
+type ScrapeAction = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'scrape_tours_per_operator_taras' | 'scrape_tours_per_operator_all' | 'debug_fetch' | 'debug_fetch_tours' | 'audit_site' | 'diagnose_brightdata';
+
+type SectionAudit = {
+  key: string; label: string; url: string; status: string;
+  html_length: number; title: string | null; item_count: number;
+  pagination: { found: boolean; total_pages?: number; total_items?: number };
+  html_preview: string;
+};
+
+type SectionImporter = 'scrape_operators' | 'scrape_guides' | 'scrape_tours' | 'import_routes';
+
+const SECTION_CONFIGS: { key: string; label: string; importer: SectionImporter | null }[] = [
+  { key: 'operators',  label: 'Туроператоры',           importer: 'scrape_operators' },
+  { key: 'guides',     label: 'Гиды',                   importer: 'scrape_guides' },
+  { key: 'routes',     label: 'Маршруты',               importer: 'import_routes' },
+  { key: 'tours',      label: 'Туры',                   importer: 'scrape_tours' },
+  { key: 'excursions', label: 'Экскурсии',              importer: null },
+  { key: 'events',     label: 'События',                importer: null },
+  { key: 'news',       label: 'Новости',                importer: null },
+  { key: 'places',     label: 'Достопримечательности',  importer: null },
+  { key: 'main',       label: 'Главная страница',       importer: null },
+];
 
 interface ScrapeResult {
   ok: boolean;
@@ -395,11 +416,48 @@ interface ScrapeResult {
   tours_saved?: number;
   operators_found?: number;
   operators_saved?: number;
-  // scrapeTourMarketplace fields
+  // scrape_guides fields
+  updated?: number;
+  guides?: { name: string; status: string; cert?: string }[];
+  errors?: number | string[];
+  log?: string[];
+  error?: string;
+  // audit_site fields
+  audited_at?: string;
+  sections?: {
+    key: string;
+    label: string;
+    url: string;
+    status: string;
+    html_length: number;
+    title: string | null;
+    item_count: number;
+    top_classes: string[];
+    nav_links: string[];
+    internal_links: { url: string; text: string }[];
+    html_preview: string;
+    pagination: { found: boolean; total_pages?: number; total_items?: number };
+  }[];
+  summary?: {
+    accessible_sections: number;
+    total_items_found: number;
+    discovered_paths: string[];
+  };
+  // diagnose_brightdata fields
+  token_set?: boolean;
+  reachable?: boolean;
+  status?: number;
+  zone?: string;
+  available_zones?: string[];
+  // debug_fetch (operators) fields
+  html_fetched?: boolean;
+  html_length?: number;
+  html_preview?: string;
+  top_classes?: string[];
+  // scrape_tours fields
   total?: number;
   inserted?: number;
   matched_operators?: number;
-  errors?: number | string[];
   tours?: { title: string; date?: string; price?: number; status: string }[];
   debug?: {
     strategy: string;
@@ -407,13 +465,6 @@ interface ScrapeResult {
     next_data_found?: boolean;
     api_tried?: string[];
   };
-  log?: string[];
-  error?: string;
-  // debug_fetch (operators) fields
-  html_fetched?: boolean;
-  html_length?: number;
-  html_preview?: string;
-  top_classes?: string[];
   // debug_fetch_tours fields
   next_data_found?: boolean;
   next_data_keys?: string[];
@@ -432,6 +483,10 @@ function ScraperPanel() {
   const [lastAction, setLastAction] = useState<ScrapeAction | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
+  const [sectionAudits, setSectionAudits] = useState<Record<string, SectionAudit>>({});
+  const [sectionAuditingKey, setSectionAuditingKey] = useState<string | null>(null);
+  const [sectionLoadingKey, setSectionLoadingKey] = useState<string | null>(null);
+  const [sectionLoadResult, setSectionLoadResult] = useState<{ key: string; msg: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -445,6 +500,57 @@ function ScraperPanel() {
       .catch(() => {});
   }, [open]);
 
+  async function auditSection(key: string) {
+    setSectionAuditingKey(key);
+    try {
+      const res = await fetch('/api/admin/import/operators', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'audit_site', section_key: key }),
+      });
+      const j = await res.json() as ScrapeResult;
+      if (j.sections) {
+        setSectionAudits(prev => {
+          const next = { ...prev };
+          for (const s of j.sections!) next[s.key] = s as SectionAudit;
+          return next;
+        });
+      }
+    } catch { /* keep existing */ } finally {
+      setSectionAuditingKey(null);
+    }
+  }
+
+  async function loadSection(key: string, importer: SectionImporter) {
+    setSectionLoadingKey(key);
+    setSectionLoadResult(null);
+    try {
+      let res: Response;
+      if (importer === 'import_routes') {
+        res = await fetch('/api/admin/import/visitkamchatka', { method: 'POST' });
+      } else {
+        res = await fetch('/api/admin/import/operators', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: importer }),
+        });
+      }
+      const j = await res.json() as Record<string, unknown>;
+      const saved = j.inserted ?? j.operators_saved ?? j.updated ?? '?';
+      setSectionLoadResult({ key, msg: `Загружено: ${saved}` });
+      if (key === 'operators') {
+        fetch('/api/admin/operators/db-status')
+          .then(r => r.ok ? r.json() : null)
+          .then((s: unknown) => { if (s && typeof s === 'object' && 'total' in s) setDbStatus(s as DbStatus); })
+          .catch(() => {});
+      }
+    } catch (e) {
+      setSectionLoadResult({ key, msg: `Ошибка: ${(e as Error).message}` });
+    } finally {
+      setSectionLoadingKey(null);
+    }
+  }
+
   async function runAction(action: ScrapeAction) {
     setRunning(action);
     setLastAction(action);
@@ -452,14 +558,20 @@ function ScraperPanel() {
     setShowLog(false);
     try {
       let body: Record<string, unknown>;
-      if (action === 'debug_fetch') {
+      if (action === 'diagnose_brightdata') {
+        body = { action: 'diagnose_brightdata' };
+      } else if (action === 'debug_fetch') {
         body = { action: 'debug_fetch' };
       } else if (action === 'debug_fetch_tours') {
         body = { action: 'debug_fetch_tours' };
+      } else if (action === 'audit_site') {
+        body = { action: 'audit_site' };
       } else if (action === 'scrape_tours') {
         body = { action: 'scrape_tours' };
       } else if (action === 'scrape_operators') {
         body = { action: 'scrape_operators' };
+      } else if (action === 'scrape_guides') {
+        body = { action: 'scrape_guides' };
       } else if (action === 'scrape_tours_per_operator_taras') {
         body = {
           action: 'scrape_tours_per_operator',
@@ -480,6 +592,13 @@ function ScraperPanel() {
       const j: unknown = await res.json();
       const parsed = j as ScrapeResult;
       setResult(parsed);
+      if (parsed.sections) {
+        setSectionAudits(prev => {
+          const next = { ...prev };
+          for (const s of parsed.sections!) next[s.key] = s as SectionAudit;
+          return next;
+        });
+      }
       // Автоматически открыть лог если 0 операторов обработано
       const isTours = action !== 'scrape_operators';
       if (isTours && (parsed.operators_processed === 0 || parsed.tours_found === 0)) {
@@ -540,6 +659,36 @@ function ScraperPanel() {
           </p>
 
           <div className="space-y-2">
+            {/* Диагностика Bright Data */}
+            <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-[var(--border)]">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ТЕСТ</span>
+              <button
+                onClick={() => runAction('diagnose_brightdata')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20 rounded-lg hover:bg-[var(--warning)]/20 transition-colors disabled:opacity-50"
+                title="Проверяет BRIGHTDATA_API_TOKEN и доступность прокси. Запускай если аудит возвращает 403."
+              >
+                {running === 'diagnose_brightdata'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Database className="w-3.5 h-3.5" />
+                }
+                Тест Bright Data
+              </button>
+              {/* Аудит сайта */}
+              <button
+                onClick={() => runAction('audit_site')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--accent)]/8 text-[var(--accent)] border border-[var(--accent)]/20 rounded-lg hover:bg-[var(--accent)]/15 transition-colors disabled:opacity-50"
+                title="Обходит все разделы visitkamchatka.ru через Bright Data: маршруты, места, операторы, туры. Занимает ~3 мин."
+              >
+                {running === 'audit_site'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                Аудит visitkamchatka.ru
+              </button>
+            </div>
+
             {/* Шаг 1 */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1</span>
@@ -568,7 +717,24 @@ function ScraperPanel() {
               </button>
             </div>
 
-            {/* Шаг 1б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
+            {/* Шаг 1А: гиды с visitkamchatka.ru/guides/ */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1А</span>
+              <button
+                onClick={() => runAction('scrape_guides')}
+                disabled={running !== null}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-[var(--ocean)]/10 text-[var(--ocean)] border border-[var(--ocean)]/20 rounded-lg hover:bg-[var(--ocean)]/20 transition-colors disabled:opacity-50"
+                title="Парсит visitkamchatka.ru/guides/ — аттестованные гиды Камчатки → partners (guide) + guide_certifications"
+              >
+                {running === 'scrape_guides'
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                Импорт гидов (visitkamchatka.ru/guides/)
+              </button>
+            </div>
+
+            {/* Шаг 1Б: туры с биржи tours.visitkamchatka.ru — работает независимо */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[var(--text-muted)] w-10 shrink-0">ШАГ 1Б</span>
               <button
@@ -642,6 +808,9 @@ function ScraperPanel() {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Готово за {durationSec}с
                   </p>
+                  {result.total !== undefined && (
+                    <p className="text-[var(--text-secondary)]">Найдено: {result.total} | Добавлено: {result.inserted ?? 0} | Обновлено: {result.updated ?? 0}</p>
+                  )}
                   {result.operators_found !== undefined && (
                     <p className="text-[var(--text-secondary)]">Операторов: {result.operators_found} найдено</p>
                   )}
@@ -664,6 +833,56 @@ function ScraperPanel() {
                   {typeof result.errors === 'number' && result.errors > 0 && (
                     <p className="text-[var(--warning)]">Ошибок: {result.errors}</p>
                   )}
+                  {/* diagnose_brightdata результат */}
+                  {result.token_set !== undefined && (
+                    <div className="mt-1 space-y-0.5">
+                      <p className={result.token_set ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                        Токен BRIGHTDATA_API_TOKEN: {result.token_set ? 'задан' : 'НЕ ЗАДАН — добавь в Timeweb'}
+                      </p>
+                      {result.zone && (
+                        <p className="text-[var(--text-secondary)]">
+                          Зона (BRIGHTDATA_ZONE): <b>{result.zone}</b>
+                        </p>
+                      )}
+                      {result.token_set && (
+                        <p className={result.reachable ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                          Прокси доступен: {result.reachable ? `да (HTTP ${result.status})` : `нет (${result.error ?? `HTTP ${result.status}`})`}
+                        </p>
+                      )}
+                      {result.token_set && !result.reachable && (
+                        <div className="mt-1 p-2 rounded bg-[var(--warning)]/10 border border-[var(--warning)]/20">
+                          {result.available_zones && result.available_zones.length > 0 ? (
+                            <>
+                              <p className="text-[var(--warning)] font-medium mb-0.5">
+                                Зона «{result.zone}» не найдена. Доступные зоны аккаунта:
+                              </p>
+                              <p className="text-[var(--text-primary)] break-words font-mono text-[10px]">
+                                {result.available_zones.join(' · ')}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-[var(--warning)] font-medium">
+                              Зона «{result.zone}» не найдена в аккаунте Bright Data.
+                            </p>
+                          )}
+                          <p className="text-[var(--text-muted)] mt-1 text-[10px]">
+                            Зайди в{' '}
+                            <a
+                              href="https://brightdata.com/cp/zones"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline text-[var(--ocean)]"
+                            >
+                              brightdata.com/cp/zones
+                            </a>
+                            {' '}→ найди свою Web Unlocker зону → скопируй имя →
+                            добавь BRIGHTDATA_ZONE=<i>имя_зоны</i> в Timeweb → перезапусти.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Per-section audit + load table moved below result block */}
                   {/* scrape_tours результат */}
                   {result.total !== undefined && (
                     <p className="text-[var(--text-secondary)]">Туров найдено: {result.total}, сохранено: {result.inserted ?? 0}, операторов: {result.matched_operators ?? 0}</p>
@@ -679,7 +898,7 @@ function ScraperPanel() {
                     </div>
                   )}
                   {/* Debug HTML результаты (operators) */}
-                  {result.html_length !== undefined && result.total === undefined && (
+                  {result.html_length !== undefined && result.total === undefined && result.next_data_found === undefined && (
                     <p className="text-[var(--text-secondary)]">
                       HTML: {result.html_fetched ? `${result.html_length} байт` : 'не получен (403 или нет BD токена)'}
                     </p>
@@ -735,6 +954,81 @@ function ScraperPanel() {
               )}
             </div>
           )}
+
+          {/* Per-section audit + load table — always visible */}
+          <div className="mt-3">
+            {result?.summary && (
+              <p className="text-[10px] text-[var(--text-muted)] mb-2">
+                Доступно: <b className="text-[var(--text-secondary)]">{result.summary.accessible_sections}</b> · Элементов: <b className="text-[var(--text-secondary)]">{result.summary.total_items_found}</b>
+              </p>
+            )}
+            <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+              <div className="grid grid-cols-[1.25rem_1fr_4.5rem_4.5rem_4rem_4.5rem] gap-x-2 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-muted)] bg-[var(--bg-primary)] border-b border-[var(--border)]">
+                <span></span>
+                <span>Раздел</span>
+                <span className="text-right">Элем.</span>
+                <span className="text-right">Размер</span>
+                <span className="text-center">Аудит</span>
+                <span className="text-center">Загрузить</span>
+              </div>
+              {SECTION_CONFIGS.map((sec, idx) => {
+                const s = sectionAudits[sec.key];
+                const isAuditing = sectionAuditingKey === sec.key;
+                const isLoading = sectionLoadingKey === sec.key;
+                const loadRes = sectionLoadResult?.key === sec.key ? sectionLoadResult.msg : null;
+                return (
+                  <div
+                    key={sec.key}
+                    className={`grid grid-cols-[1.25rem_1fr_4.5rem_4.5rem_4rem_4.5rem] gap-x-2 px-3 py-2 items-center text-[10px] ${idx % 2 !== 0 ? 'bg-[var(--bg-primary)]/40' : ''} ${idx < SECTION_CONFIGS.length - 1 ? 'border-b border-[var(--border)]' : ''}`}
+                  >
+                    <span className={`font-bold ${!s ? 'text-[var(--text-muted)]' : s.status === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+                      {!s ? '·' : s.status === 'ok' ? '✓' : '✗'}
+                    </span>
+                    <span className={`truncate ${s?.status === 'ok' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                      {sec.label}
+                      {s?.pagination?.found && (
+                        <span className="ml-1 text-[var(--ocean)] text-[9px]">
+                          ↓{s.pagination.total_pages ? `${s.pagination.total_pages}стр` : '?стр'}
+                        </span>
+                      )}
+                    </span>
+                    <span className={`text-right tabular-nums ${s && s.item_count > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
+                      {s ? s.item_count : '—'}
+                    </span>
+                    <span className="text-right text-[var(--text-muted)] tabular-nums">
+                      {s?.html_length ? `${(s.html_length / 1024).toFixed(0)}кб` : '—'}
+                    </span>
+                    <button
+                      onClick={() => auditSection(sec.key)}
+                      disabled={isAuditing || !!sectionAuditingKey || !!sectionLoadingKey || running !== null}
+                      className="text-center px-1.5 py-1 rounded border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]/50 transition-colors disabled:opacity-40 text-[9px]"
+                    >
+                      {isAuditing ? '...' : 'Аудит'}
+                    </button>
+                    {sec.importer ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button
+                          onClick={() => loadSection(sec.key, sec.importer!)}
+                          disabled={isLoading || !!sectionAuditingKey || !!sectionLoadingKey || running !== null}
+                          className="w-full text-center px-1.5 py-1 rounded border border-[var(--ocean)]/30 text-[var(--ocean)] hover:bg-[var(--ocean)]/10 transition-colors disabled:opacity-40 text-[9px]"
+                        >
+                          {isLoading ? '...' : 'Загрузить'}
+                        </button>
+                        {loadRes && <span className="text-[8px] text-[var(--success)] text-center leading-tight">{loadRes}</span>}
+                      </div>
+                    ) : (
+                      <span className="text-center text-[9px] text-[var(--text-muted)] opacity-40">—</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {result?.summary?.discovered_paths && result.summary.discovered_paths.length > 0 && (
+              <p className="mt-1.5 text-[9px] text-[var(--text-muted)] break-words leading-relaxed">
+                Найденные пути: {result.summary.discovered_paths.slice(0, 30).join(' · ')}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

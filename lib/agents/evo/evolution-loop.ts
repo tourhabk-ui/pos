@@ -105,14 +105,13 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
           autoFixes++;
         }
       } else {
-        // Только предложение — ждёт фидбека человека
+        // Только предложение — ждёт фидбека человека.
+        // Меняем статус на 'suggested', чтобы следующий цикл не обрабатывал повторно.
         const suggestion = await generateSuggestion(issue, learningSummary);
-        if (suggestion) {
-          await pool.query(
-            `UPDATE evo_growth_issues SET suggestion = $1 WHERE id = $2`,
-            [suggestion, issue.id],
-          );
-        }
+        await pool.query(
+          `UPDATE evo_growth_issues SET status = 'suggested', suggestion = $1 WHERE id = $2`,
+          [suggestion ?? issue.suggestion, issue.id],
+        );
         suggestions++;
       }
     } catch (err) {
@@ -121,10 +120,9 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
     }
   }
 
-  // Обновляем cycle count
+  // Atomic increment — growth-agent может делать то же самое параллельно
   await pool.query(
-    `UPDATE evo_agent_state SET value = $1, updated_at = NOW() WHERE key = 'cycle_count'`,
-    [`${(await getCycleCount()) + 1}`],
+    `UPDATE evo_agent_state SET value = (value::int + 1)::text, updated_at = NOW() WHERE key = 'cycle_count'`,
   );
 
   return { processed, auto_fixes: autoFixes, suggestions, errors, duration_ms: Date.now() - start };
@@ -206,9 +204,3 @@ ${learningSummary ? `\nУроки из прошлых циклов: ${learningSu
   }
 }
 
-async function getCycleCount(): Promise<number> {
-  const { rows } = await pool.query<{ value: string }>(
-    `SELECT value FROM evo_agent_state WHERE key = 'cycle_count'`,
-  );
-  return rows[0] ? parseInt(rows[0].value) : 0;
-}

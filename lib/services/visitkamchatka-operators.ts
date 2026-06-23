@@ -292,22 +292,31 @@ async function upsertOperator(op: OperatorRecord): Promise<'inserted' | 'updated
     return 'updated';
   }
 
+  const contactJson = JSON.stringify({
+    phone: op.phone ?? null,
+    email: op.email ?? null,
+    website: op.website ?? null,
+  });
+
   await pool.query(
     `INSERT INTO partners (
-       slug, company_name, name,
+       slug, company_name, name, category,
+       contact,
        external_source, external_source_url, external_id,
        website, telegram_group_url, license_number, services, external_rating,
        is_verified, is_public, commission_current
-     ) VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,false,0)
+     ) VALUES ($1,$2,$2,'operator',$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,false,false,0)
      ON CONFLICT (slug) DO UPDATE SET
        external_source     = EXCLUDED.external_source,
        external_source_url = EXCLUDED.external_source_url,
+       contact             = EXCLUDED.contact,
        website             = COALESCE(EXCLUDED.website, partners.website),
        telegram_group_url  = COALESCE(EXCLUDED.telegram_group_url, partners.telegram_group_url),
        updated_at          = NOW()`,
     [
       op.slug,
       op.name,
+      contactJson,
       'visitkamchatka',
       op.external_source_url,
       op.external_id ?? null,

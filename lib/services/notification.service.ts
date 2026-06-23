@@ -103,7 +103,7 @@ export const notificationService = {
     const total = Number(countResult.rows[0]?.total ?? 0);
 
     const rowsResult = await pool.query(
-      `SELECT * FROM notifications
+      `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications
        ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${values.length + 1}
@@ -119,7 +119,7 @@ export const notificationService = {
   async getById(id: string) {
     try {
       const result = await pool.query(
-        `SELECT * FROM notifications WHERE id = $1 LIMIT 1`,
+        `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications WHERE id = $1 LIMIT 1`,
         [id]
       );
       return this.normalize(result.rows[0] ?? null);
@@ -130,7 +130,7 @@ export const notificationService = {
   async getByIdForUser(id: string, userId: string) {
     try {
       const result = await pool.query(
-        `SELECT * FROM notifications WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications WHERE id = $1 AND user_id = $2 LIMIT 1`,
         [id, userId]
       );
       return this.normalize(result.rows[0] ?? null);

@@ -13,7 +13,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey } from '@/lib/ai/provider-config';
 
 // ── Xiaomi MiMo-V2-Pro ────────────────────────────────────────
 export async function callMiMo(messages: ChatMessage[]): Promise<string | null> {
@@ -91,8 +91,8 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'Vedarai Kamchatka',
+          'HTTP-Referer': 'https://tourhab.ru',
+          'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({
           model: id,
@@ -980,8 +980,8 @@ export async function preflightProviders(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'Vedarai Kamchatka',
+          'HTTP-Referer': 'https://tourhab.ru',
+          'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({ model: 'openai/gpt-4o-mini', max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
@@ -1124,8 +1124,41 @@ export async function callMuseSpark(messages: ChatMessage[]): Promise<string | n
   }
 }
 
+// ── Sakana AI Fugu Ultra ────────────────────────────────────
+// Multilingual frontier model, особенно силён в японском/азиатских языках.
+// OpenAI-compatible API. Endpoint: https://api.sakana.ai/v1/chat/completions
+// Env: FUGU_API_KEY
+export async function callFugu(messages: ChatMessage[]): Promise<string | null> {
+  const apiKey = getFuguKey();
+  if (!apiKey) return null;
+
+  try {
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetch('https://api.sakana.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'fugu-ultra',
+        temperature: 0.4,
+        max_tokens: 800,
+        messages: payload,
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.choices?.[0]?.message?.content as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Waterfall: race tiers for speed ─────────────────────────
-// Tier 1: OpenRouter + DeepSeek + Gemini + MiMo + MuseSpark — race (кто быстрее)
+// Tier 1: OpenRouter + DeepSeek + Gemini + MiMo + Fugu + MuseSpark — race (кто быстрее)
 // Tier 2: Yandex + MiniMax — fallback
 // Tier 3: Anthropic — sequential fallback
 export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> {
@@ -1137,6 +1170,7 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     callMiMo(messages),
     callGLM(messages),
     callNvidia(messages),    // NVIDIA NIM: Llama 3.3-70B бесплатно (NVIDIA_API_KEY)
+    callFugu(messages),      // Sakana AI Fugu Ultra (FUGU_API_KEY)
     callMuseSpark(messages), // активируется когда Meta откроет API (MUSE_SPARK_API_KEY)
   ]);
   if (tier1) return tier1;
@@ -1158,6 +1192,7 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     DeepSeek: !!process.env.DEEPSEEK_API_KEY,
     Gemini: !!process.env.GEMINI_API_KEY,
     MiMo: !!process.env.XIAOMI_API_KEY,
+    Fugu: !!process.env.FUGU_API_KEY,
     Anthropic: !!process.env.ANTHROPIC_API_KEY,
     Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
     MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
@@ -1187,8 +1222,8 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://vedarai.ru',
-          'X-Title': 'Vedarai Kamchatka',
+          'HTTP-Referer': 'https://tourhab.ru',
+          'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({
           model: 'deepseek/deepseek-chat-v3-0324',

@@ -14,17 +14,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators';
+import { scrapeGuideDirectory } from '@/lib/services/visitkamchatka-guides';
+import { auditVisitKamchatka } from '@/lib/services/visitkamchatka-audit';
 import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
-import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { fetchViaBrightData, diagnoseBrightData } from '@/lib/scraping/brightdata';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const BodySchema = z.object({
-  action: z.enum(['scrape_operators', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours']),
+  action: z.enum(['scrape_operators', 'scrape_guides', 'scrape_tours', 'scrape_tours_per_operator', 'scan_tg', 'scan_tg_group', 'debug_fetch', 'debug_fetch_tours', 'audit_site', 'diagnose_brightdata']),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
   activity: z.string().optional(),
@@ -34,6 +36,7 @@ const BodySchema = z.object({
   operator_slug: z.string().optional(),
   dry_run: z.boolean().optional(),
   max_operators: z.number().int().min(1).max(50).optional(),
+  section_key: z.string().optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const { action, date_from, date_to, activity, group_username, hours_back,
-          categories, operator_slug, dry_run, max_operators } = parsed.data;
+          categories, operator_slug, dry_run, max_operators, section_key } = parsed.data;
   const t0 = Date.now();
 
   try {
@@ -74,6 +77,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         dryRun: dry_run,
         maxOperators: max_operators,
       });
+      return NextResponse.json({
+        ok: true,
+        action,
+        duration_ms: Date.now() - t0,
+        ...result,
+      });
+    }
+
+    if (action === 'scrape_guides') {
+      const result = await scrapeGuideDirectory();
       return NextResponse.json({
         ok: true,
         action,
@@ -120,6 +133,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         html_length: html?.length ?? 0,
         html_preview: html?.slice(0, 3000) ?? null,
         top_classes: classes.slice(0, 30),
+      });
+    }
+
+    if (action === 'diagnose_brightdata') {
+      const diag = await diagnoseBrightData();
+      return NextResponse.json({
+        ok: diag.reachable,
+        action,
+        duration_ms: Date.now() - t0,
+        ...diag,
+      });
+    }
+
+    if (action === 'audit_site') {
+      const audit = await auditVisitKamchatka(section_key ? [section_key] : undefined);
+      return NextResponse.json({
+        ok: true,
+        action,
+        duration_ms: Date.now() - t0,
+        ...audit,
       });
     }
 
