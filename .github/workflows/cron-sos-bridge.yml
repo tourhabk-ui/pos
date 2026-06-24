@@ -1,22 +1,22 @@
-name: Cron — Engagement
+name: Cron — SOS Events Bridge (критично)
 
 on:
   schedule:
-    - cron: '0 10 * * *'   # каждый день в 10:00 UTC: реэнгейджмент туристов
+    - cron: '10,40 * * * *'  # каждые 30 минут — мост SOS событий в event bus
   workflow_dispatch:
 
 jobs:
-  engagement:
+  sos-bridge:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Kuzmich — реэнгейджмент туристов
+      - name: Poll SOS events and emit to agent bus
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 60 \
-            "https://vedarai.ru/api/cron/engagement" \
-            -H "Authorization: Bearer $CRON_SECRET")
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/sos-events-bridge")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

@@ -1,7 +1,9 @@
 name: Cron Kuzmich Sezon
 
 on:
-  workflow_dispatch:  # ОТКЛЮЧЕНО
+  schedule:
+    - cron: '0 16 * * 2,6'  # 16:00 UTC вт/сб — сезонный пост Кузьмича
+  workflow_dispatch:
 
 jobs:
   trigger:

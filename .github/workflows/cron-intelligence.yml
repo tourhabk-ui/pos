@@ -1,22 +1,22 @@
-name: Cron — Kuzmich Place Reviews
+name: Cron — Intelligence (мониторинг AI/Travel трендов)
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # 03:00 UTC ежедневно — рецензии Кузьмича (20 мест/запуск)
+    - cron: '0 3,9,15,21 * * *'  # каждые 6 часов (смещение 3ч от evo)
   workflow_dispatch:
 
 jobs:
-  enrich:
+  intelligence:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Generate kuzmich_review for places (20 per run)
+      - name: Scan AI/Travel/Competitor signals
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
-          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 600 \
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 300 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/kuzmich-places")
+            "https://vedarai.ru/api/cron/intelligence")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

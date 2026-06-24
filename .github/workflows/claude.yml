@@ -45,6 +45,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
           show_full_output: true
           prompt: |
             Ты работаешь с кодовой базой Ведар (Next.js 15, TypeScript strict, PostgreSQL).
@@ -56,3 +57,10 @@ jobs:
 
             ЗАПРЕЩЕНО (нарушения блокируют коммит):
             ${{ steps.ctx.outputs.RULES }}
+
+            ПРАВИЛА GIT (СТРОГО):
+            - НИКОГДА не делай git push origin main — это сломает прод
+            - Всегда создавай ветку: git checkout -b claude/issue-${{ github.event.issue.number }}
+            - После реализации: git push origin claude/issue-${{ github.event.issue.number }}
+            - Открой PR в main через gh pr create с описанием что сделано
+            - PR создаётся как draft: gh pr create --draft
