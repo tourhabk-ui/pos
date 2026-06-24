@@ -1,7 +1,9 @@
 name: Cron — Kuzmich Place Reviews
 
 on:
-  workflow_dispatch:  # ОТКЛЮЧЕНО
+  schedule:
+    - cron: '0 3 * * *'  # 03:00 UTC ежедневно — рецензии Кузьмича (20 мест/запуск)
+  workflow_dispatch:
 
 jobs:
   enrich:
