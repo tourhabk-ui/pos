@@ -20,7 +20,7 @@ export function StatsBand() {
             className="inline-flex items-baseline gap-3 px-10 md:px-16 border-r border-[var(--border)] last:border-r-0 flex-shrink-0"
           >
             <span
-              className="font-playfair font-bold text-[var(--text-primary)]"
+              className="font-playfair font-bold text-[var(--text-primary)] tabular-nums"
               style={{ fontSize: 'clamp(1.5rem, 2.5vw, 2.2rem)' }}
             >
               {s.num}
