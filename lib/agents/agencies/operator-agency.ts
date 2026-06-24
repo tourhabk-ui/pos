@@ -296,3 +296,44 @@ export class OperatorAgency {
     };
   }
 }
+
+// ── Standalone utility (used by health cron) ──────────────────────────────────
+
+export interface RegistrationSpikeResult {
+  today: number;
+  baseline_median: number;
+  is_spike: boolean;
+}
+
+export async function detectRegistrationSpike(): Promise<RegistrationSpikeResult> {
+  const { rows } = await pool.query<{ day: string; cnt: string }>(
+    `SELECT
+       DATE_TRUNC('day', created_at)::date::text AS day,
+       COUNT(*)::int                              AS cnt
+     FROM partners
+     WHERE category = 'operator'
+       AND created_at >= NOW() - INTERVAL '14 days'
+     GROUP BY DATE_TRUNC('day', created_at)
+     ORDER BY day DESC`,
+  );
+
+  if (rows.length === 0) return { today: 0, baseline_median: 0, is_spike: false };
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const today    = Number(rows.find(r => r.day === todayStr)?.cnt ?? 0);
+
+  const history  = rows
+    .filter(r => r.day !== todayStr)
+    .map(r => Number(r.cnt))
+    .sort((a, b) => a - b);
+
+  let baseline_median = 0;
+  if (history.length > 0) {
+    const mid = Math.floor(history.length / 2);
+    baseline_median = history.length % 2 === 0
+      ? (history[mid - 1] + history[mid]) / 2
+      : history[mid];
+  }
+
+  return { today, baseline_median, is_spike: baseline_median > 0 && today > baseline_median * 3 };
+}
