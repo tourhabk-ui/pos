@@ -41,13 +41,13 @@ export function HeroCompact() {
             </span>
           </div>
 
-          <h1 className="mb-4 font-playfair text-4xl font-bold leading-tight text-[var(--text-primary)] md:text-6xl">
+          <h1 className="mb-4 font-playfair text-4xl font-bold leading-tight text-[var(--text-primary)] md:text-6xl text-balance">
             Панель путешествия
             <br />
             по Камчатке
           </h1>
 
-          <p className="mb-7 max-w-2xl text-sm leading-relaxed text-[var(--text-secondary)] md:text-base">
+          <p className="mb-7 max-w-2xl text-sm leading-relaxed text-[var(--text-secondary)] md:text-base text-pretty">
             Планирование, безопасность, подбор туров и проверенные операторы
             в одном интерфейсе без лишнего шума.
           </p>

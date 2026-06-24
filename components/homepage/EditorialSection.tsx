@@ -24,7 +24,7 @@ export function EditorialSection() {
           {/* Text Content */}
           <div className="lg:col-span-7 order-2 lg:order-1">
             <div className="w-12 h-1 bg-[var(--accent)] mb-10" />
-            <h2 className="font-playfair text-5xl md:text-7xl font-bold mb-10 leading-[1.1] text-[var(--text-primary)]">
+            <h2 className="font-playfair text-5xl md:text-7xl font-bold mb-10 leading-[1.1] text-[var(--text-primary)] text-balance">
               Штурман, а не <br /> 
               <span className="italic text-[var(--accent)]">тур-агент</span>
             </h2>
