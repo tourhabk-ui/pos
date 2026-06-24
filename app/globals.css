@@ -39,6 +39,8 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --shadow-border: 0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-border-hover: 0 0 0 1px rgba(255,255,255,0.13);
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
@@ -70,6 +72,8 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --shadow-border: 0px 0px 0px 1px rgba(0,0,0,0.06), 0px 1px 2px -1px rgba(0,0,0,0.06), 0px 2px 4px 0px rgba(0,0,0,0.04);
+  --shadow-border-hover: 0px 0px 0px 1px rgba(0,0,0,0.08), 0px 1px 2px -1px rgba(0,0,0,0.08), 0px 2px 4px 0px rgba(0,0,0,0.06);
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
@@ -99,6 +103,8 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --shadow-border: 0px 0px 0px 1px rgba(0,0,0,0.06), 0px 1px 2px -1px rgba(0,0,0,0.06), 0px 2px 4px 0px rgba(0,0,0,0.04);
+  --shadow-border-hover: 0px 0px 0px 1px rgba(0,0,0,0.08), 0px 1px 2px -1px rgba(0,0,0,0.08), 0px 2px 4px 0px rgba(0,0,0,0.06);
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
@@ -365,7 +371,7 @@ a:focus-visible {
   font-size: 0.75rem;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
 }
 .voice-input-btn svg,
 .ai-assistant-btn svg,
@@ -407,7 +413,7 @@ a:focus-visible {
   font-size: 0.75rem;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
 }
 .activity-chip:hover {
   border-color: var(--accent, #D44A0C);
@@ -480,7 +486,7 @@ a:focus-visible {
   border-radius: var(--radius-lg, 20px);
   overflow: hidden;
   text-decoration: none;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 .tour-result-card:hover {
   border-color: var(--border-strong, rgba(255,255,255,0.16));
@@ -682,7 +688,7 @@ a:focus-visible {
   color: var(--text-secondary, #8B949E);
   font-size: 0.75rem;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
 }
 .ai-example-chips button:hover {
   border-color: var(--accent, #D44A0C);
@@ -767,7 +773,7 @@ a:focus-visible {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
-    transition: all 0.2s;
+    transition: box-shadow 0.2s, border-color 0.2s;
   }
   .ds-card:hover {
     box-shadow: var(--shadow-md);
@@ -804,9 +810,10 @@ a:focus-visible {
     border-radius: var(--radius-md);
     font-weight: 600;
     font-size: 0.875rem;
-    transition: all 0.2s;
+    transition: opacity 0.2s, transform 0.15s;
     cursor: pointer;
   }
+  .ds-btn:active { transform: scale(0.96); }
   .ds-btn-primary {
     background: var(--accent);
     color: #0D1117;
@@ -856,6 +863,7 @@ a:focus-visible {
     color: var(--text-primary);
     line-height: 1.15;
     letter-spacing: -0.02em;
+    text-wrap: balance;
   }
   .ds-h2 {
     font-family: var(--font-playfair), 'Playfair Display', Georgia, serif;
@@ -864,6 +872,7 @@ a:focus-visible {
     color: var(--text-primary);
     line-height: 1.25;
     letter-spacing: -0.01em;
+    text-wrap: balance;
   }
   .ds-label {
     font-size: 0.75rem;
