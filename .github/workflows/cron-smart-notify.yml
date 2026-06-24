@@ -6,7 +6,7 @@ name: Cron — Smart Notify (tour-preference matching)
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # раз в сутки, 09:00 UTC
+    - cron: '0 11 * * *'  # раз в сутки, 11:00 UTC
   workflow_dispatch:        # manual trigger
 
 jobs:

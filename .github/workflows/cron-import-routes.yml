@@ -2,8 +2,8 @@ name: Import Route Passports
 
 on:
   schedule:
-    # 22:00 UTC — paired with cron-editor (off-peak DeepSeek window)
-    - cron: '0 22 * * *'
+    # 00:00 UTC — после editor (22:00) и enrich-routes (23:00)
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       batch:
