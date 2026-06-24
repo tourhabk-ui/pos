@@ -39,10 +39,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Авто-архивация SOS старше 24ч со статусом 'sent' (без ответа)
+    // Авто-закрытие SOS старше 24ч со статусом 'sent' (без ответа МЧС)
     const { rowCount: archived } = await pool.query(
       `UPDATE sos_events
-       SET status = 'archived', notes = COALESCE(notes || ' | ', '') || 'Авто-архивирован: нет ответа 24ч'
+       SET status = 'resolved', notes = COALESCE(notes || ' | ', '') || 'Авто-закрыт: нет ответа 24ч'
        WHERE status = 'sent'
          AND created_at < NOW() - INTERVAL '24 hours'`
     );
