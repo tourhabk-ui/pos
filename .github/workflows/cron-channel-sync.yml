@@ -1,0 +1,22 @@
+name: Cron — Channel Sync (маркетплейсы Tripster/Авито/Sputnik8)
+
+on:
+  schedule:
+    - cron: '15,45 * * * *'  # каждые 30 минут (смещение 15 мин от watchdog)
+  workflow_dispatch:
+
+jobs:
+  channel-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sync orders from external marketplaces
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/channel-sync")
+          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
