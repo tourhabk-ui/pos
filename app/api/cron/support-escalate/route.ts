@@ -25,18 +25,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const overdue = await getOverdueTickets();
-  if (overdue.length === 0) {
-    return NextResponse.json({ ok: true, escalated: 0 });
+  try {
+    const overdue = await getOverdueTickets();
+    if (overdue.length === 0) {
+      return NextResponse.json({ ok: true, escalated: 0 });
+    }
+
+    let escalated = 0;
+
+    for (const ticket of overdue) {
+      await escalateTicket(ticket.id, 'Автоэскалация: нет ответа более 24 часов');
+      notifyAdminEscalated(ticket, `Нет ответа ${Math.floor((Date.now() - new Date(ticket.updatedAt).getTime()) / 3600_000)}ч`);
+      escalated++;
+    }
+
+    return NextResponse.json({ ok: true, escalated });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  let escalated = 0;
-
-  for (const ticket of overdue) {
-    await escalateTicket(ticket.id, 'Автоэскалация: нет ответа более 24 часов');
-    notifyAdminEscalated(ticket, `Нет ответа ${Math.floor((Date.now() - new Date(ticket.updatedAt).getTime()) / 3600_000)}ч`);
-    escalated++;
-  }
-
-  return NextResponse.json({ ok: true, escalated });
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { sendEmail } from '@/lib/email';
+import { getCronSecret } from '@/lib/auth/cron';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +17,8 @@ export const dynamic = 'force-dynamic';
  * Шаг 4: День возврата +2, ~10:00 — Экстренный контакт + рекомендация МЧС
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('x-cron-secret');
-  if (authHeader !== process.env.CRON_SECRET) {
+  const secret = getCronSecret(request);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
