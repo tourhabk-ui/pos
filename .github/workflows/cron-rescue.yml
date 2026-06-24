@@ -2,7 +2,9 @@ name: Cron — Rescue Agent (every 30 min)
 
 # Runs every 30 minutes: checks SOS, weather threats, unconfirmed bookings
 on:
-  workflow_dispatch:        # manual trigger only (schedule disabled)
+  schedule:
+    - cron: '15,45 * * * *'  # каждые 30 мин в :15 и :45 (смещён от Watchdog :00/:30)
+  workflow_dispatch:        # manual trigger
 
 jobs:
   rescue:

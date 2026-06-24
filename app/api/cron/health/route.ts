@@ -146,6 +146,50 @@ async function checkDB(): Promise<HealthIssue[]> {
   return issues;
 }
 
+// ── Operator registration spike detection ─────────────────────────────────────
+
+interface RegistrationSpikeResult {
+  today: number;
+  baseline_median: number;
+  is_spike: boolean;
+}
+
+async function checkOperatorRegistrationSpike(): Promise<RegistrationSpikeResult> {
+  const result = await pool.query<{ day: string; cnt: string }>(
+    `SELECT
+       DATE_TRUNC('day', created_at)::date::text AS day,
+       COUNT(*)::int                              AS cnt
+     FROM partners
+     WHERE category = 'operator'
+       AND created_at >= NOW() - INTERVAL '14 days'
+     GROUP BY DATE_TRUNC('day', created_at)
+     ORDER BY day DESC`,
+  );
+
+  const rows = result.rows;
+  if (rows.length === 0) return { today: 0, baseline_median: 0, is_spike: false };
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayRow = rows.find(r => r.day === todayStr);
+  const today    = Number(todayRow?.cnt ?? 0);
+
+  const historyCounts = rows
+    .filter(r => r.day !== todayStr)
+    .map(r => Number(r.cnt))
+    .sort((a, b) => a - b);
+
+  let baseline_median = 0;
+  if (historyCounts.length > 0) {
+    const mid = Math.floor(historyCounts.length / 2);
+    baseline_median = historyCounts.length % 2 === 0
+      ? (historyCounts[mid - 1] + historyCounts[mid]) / 2
+      : historyCounts[mid];
+  }
+
+  const is_spike = baseline_median > 0 && today > baseline_median * 3;
+  return { today, baseline_median, is_spike };
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
@@ -167,13 +211,14 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const issues: HealthIssue[] = [];
 
-  // AI-провайдеры (параллельно)
-  const [mimoOk, openrouterOk, anthropicOk, deepseekOk, fuguOk] = await Promise.all([
+  // AI-провайдеры + registration spike (параллельно)
+  const [mimoOk, openrouterOk, anthropicOk, deepseekOk, fuguOk, regSpike] = await Promise.all([
     probeAI(callMiMo),
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
     probeAI(callFugu),
+    checkOperatorRegistrationSpike().catch(() => ({ today: 0, baseline_median: 0, is_spike: false })),
   ]);
 
   const anyOk = mimoOk || openrouterOk || anthropicOk || deepseekOk || fuguOk;
@@ -185,6 +230,14 @@ export async function GET(request: NextRequest) {
     if (!mimoOk) issues.push({ level: 'warn', text: 'MiMo недоступен (нет XIAOMI_API_KEY или ошибка)' });
     if (!anthropicOk) issues.push({ level: 'warn', text: 'Anthropic недоступен' });
     if (!fuguOk) issues.push({ level: 'warn', text: 'Fugu Ultra недоступен (нет FUGU_API_KEY или ошибка)' });
+  }
+
+  // Всплеск регистраций операторов
+  if (regSpike.is_spike) {
+    issues.push({
+      level: 'warn',
+      text: `Всплеск регистраций операторов: сегодня ${regSpike.today} (медиана 14д: ${regSpike.baseline_median}) — возможен спам/бот-импорт`,
+    });
   }
 
   // БД
@@ -215,6 +268,7 @@ export async function GET(request: NextRequest) {
     ms: Date.now() - started,
     ai: { mimo: mimoOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
+    operator_registration: regSpike,
     issues,
   });
 }
