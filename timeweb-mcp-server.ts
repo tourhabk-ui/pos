@@ -127,9 +127,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
+interface ToolArgs {
+  type?: string;
+  limit?: number;
+  envs?: Record<string, string>;
+}
+
+interface LogEntry {
+  timestamp: string;
+  message: string;
+}
+
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  const { name, arguments: rawArgs } = request.params;
+  const args = (rawArgs ?? {}) as ToolArgs;
 
   try {
     switch (name) {
@@ -146,13 +158,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_logs': {
-        const logType = (args as any).type || 'runtime';
-        const limit = (args as any).limit || 50;
+        const logType = args.type ?? 'runtime';
+        const limit = args.limit ?? 50;
         const logs = await timewebFetch(`/apps/${APP_ID}/logs?type=${logType}&limit=${limit}`);
-        
-        const formattedLogs = logs.logs
-          ?.map((log: any) => `[${log.timestamp}] ${log.message}`)
-          .join('\n') || 'No logs found';
+
+        const formattedLogs = (logs.logs as LogEntry[] | undefined)
+          ?.map((log) => `[${log.timestamp}] ${log.message}`)
+          .join('\n') ?? 'No logs found';
 
         return {
           content: [
@@ -172,14 +184,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [
             {
               type: 'text',
-              text: `✅ Deployment triggered successfully!\n${JSON.stringify(result, null, 2)}`,
+              text: `Deployment triggered successfully!\n${JSON.stringify(result, null, 2)}`,
             },
           ],
         };
       }
 
       case 'update_env_vars': {
-        const envs = (args as any).envs || {};
+        const envs = args.envs ?? {};
         const result = await timewebFetch(`/apps/${APP_ID}`, {
           method: 'PATCH',
           body: JSON.stringify({ envs }),
@@ -188,14 +200,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [
             {
               type: 'text',
-              text: `✅ Environment variables updated!\n${JSON.stringify(result, null, 2)}`,
+              text: `Environment variables updated!\n${JSON.stringify(result, null, 2)}`,
             },
           ],
         };
       }
 
       case 'get_deployments': {
-        const limit = (args as any).limit || 10;
+        const limit = args.limit ?? 10;
         const deployments = await timewebFetch(`/apps/${APP_ID}/deployments?limit=${limit}`);
         return {
           content: [

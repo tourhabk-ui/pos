@@ -33,7 +33,9 @@ export const ticketMessageService = {
       const [countRes, dataRes] = await Promise.all([
         pool.query(`SELECT COUNT(*)::int AS total FROM ticket_messages WHERE ticket_id = $1`, [ticketId]),
         pool.query(
-          `SELECT * FROM ticket_messages WHERE ticket_id = $1
+          `SELECT id, ticket_id, sender_id, sender_name, sender_type, message,
+                  attachments, is_internal, rating, rating_comment, created_at, updated_at
+           FROM ticket_messages WHERE ticket_id = $1
            ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
           [ticketId, limit, offset]
         ),
