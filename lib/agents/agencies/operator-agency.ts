@@ -16,6 +16,50 @@ import { pool } from '@/lib/db-pool';
 import { approvalRequired } from '../safeguards/approval-required';
 import type { AgentContext } from '../context-hub';
 
+export interface KbFreshnessStats {
+  rdc_total:        number;
+  rdc_stale:        number;
+  rdc_last_updated: string | null;
+  tours_total:      number;
+  tours_stale:      number;
+  tours_last_updated: string | null;
+}
+
+interface RdcFreshnessRow {
+  total: string;
+  stale: string;
+  last_updated: string | null;
+}
+
+export async function getKbFreshnessStats(): Promise<KbFreshnessStats> {
+  const [rdc, tours] = await Promise.all([
+    pool.query<RdcFreshnessRow>(
+      `SELECT
+         COUNT(*)::text                                                          AS total,
+         COUNT(*) FILTER (WHERE generated_at < NOW() - INTERVAL '30 days')::text AS stale,
+         MAX(generated_at)::text                                                AS last_updated
+       FROM route_description_cache`,
+    ),
+    pool.query<RdcFreshnessRow>(
+      `SELECT
+         COUNT(*)::text                                                          AS total,
+         COUNT(*) FILTER (WHERE updated_at < NOW() - INTERVAL '30 days')::text  AS stale,
+         MAX(updated_at)::text                                                   AS last_updated
+       FROM operator_tours
+       WHERE deleted_at IS NULL`,
+    ),
+  ]);
+
+  return {
+    rdc_total:          Number(rdc.rows[0]?.total   ?? 0),
+    rdc_stale:          Number(rdc.rows[0]?.stale   ?? 0),
+    rdc_last_updated:   rdc.rows[0]?.last_updated   ?? null,
+    tours_total:        Number(tours.rows[0]?.total  ?? 0),
+    tours_stale:        Number(tours.rows[0]?.stale  ?? 0),
+    tours_last_updated: tours.rows[0]?.last_updated  ?? null,
+  };
+}
+
 export interface AgencyResult {
   response: string;
   data?: Record<string, unknown>;
