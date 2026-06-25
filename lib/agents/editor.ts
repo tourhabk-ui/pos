@@ -207,5 +207,27 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     );
   }
 
+  // Уведомить когда эксперимент наберёт достаточно данных
+  if (experimentId) {
+    try {
+      const expResults = await tracker.calculateResults(experimentId);
+      if (expResults.winner !== null) {
+        const winnerLabel = expResults.winner === 'tie'
+          ? 'Ничья'
+          : expResults.winner === 'a'
+            ? 'Waterfall (A) победил'
+            : 'Gemma 4 (B) победил';
+        await tgSend(
+          `<b>A/B эксперимент Editor завершён</b>\n\n` +
+          `${winnerLabel}\n\n` +
+          `Waterfall: ${expResults.variant_a.success}/${expResults.variant_a.success + expResults.variant_a.fail} (${Math.round(expResults.variant_a.rate * 100)}%)\n` +
+          `Gemma 4:   ${expResults.variant_b.success}/${expResults.variant_b.success + expResults.variant_b.fail} (${Math.round(expResults.variant_b.rate * 100)}%)\n\n` +
+          `Всего замеров: ${expResults.total}`,
+        );
+        await tracker.updateStatus(experimentId, 'completed', expResults.winner === 'tie' ? undefined : expResults.winner);
+      }
+    } catch { /* трекинг не критичен */ }
+  }
+
   return { processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors, duration_ms: Date.now() - start };
 }
