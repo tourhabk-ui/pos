@@ -11,9 +11,13 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFast, callAIWithModel } from '@/lib/ai/providers';
+import { ExperimentTracker } from '@/lib/agents/learning/experiment-tracker';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
+
+const GEMMA4_MODEL = 'google/gemma-4-27b-it';
+const EXP_NAME    = 'editor-gemma4-vs-waterfall';
 
 export interface EditorResult {
   processed: number;
@@ -77,7 +81,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   ozera:                'озёра',
 };
 
-async function generateRouteDescription(route: RouteRow): Promise<string | null> {
+async function generateRouteDescription(
+  route: RouteRow,
+  experimentId?: string,
+  tracker?: ExperimentTracker,
+): Promise<string | null> {
   const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
   const messages: ChatMessage[] = [
     {
@@ -96,6 +104,26 @@ ${route.description ? `Имеющееся описание (расширь и у
 Описание должно помочь туристу понять: что это за место, чем оно уникально, когда лучше посещать, что стоит знать перед поездкой.`,
     },
   ];
+
+  if (experimentId && tracker) {
+    const variant = tracker.pickVariant(experimentId);
+    const t0 = Date.now();
+    try {
+      let text: string | null;
+      if (variant === 'b') {
+        const res = await callAIWithModel(messages, GEMMA4_MODEL);
+        text = res.text?.trim() ?? null;
+      } else {
+        text = (await callAIFast(messages))?.trim() ?? null;
+      }
+      const ok = !!text && text.length >= 100;
+      await tracker.recordResult(experimentId, variant, ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
+      return text;
+    } catch {
+      await tracker.recordResult(experimentId, variant, 'fail', Date.now() - t0).catch(() => {});
+      return null;
+    }
+  }
 
   try {
     const result = await callAIFast(messages);
@@ -119,6 +147,21 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
 
+  // A/B experiment: current waterfall (A) vs Gemma 4 (B)
+  const tracker = new ExperimentTracker();
+  let experimentId: string | undefined;
+  try {
+    const exp = await tracker.findOrCreate({
+      name: EXP_NAME,
+      description: 'Gemma 4 (OpenRouter) vs callAIFast waterfall для генерации описаний маршрутов Камчатки',
+      intent: 'route_description_generation',
+      variant_a: { model: 'waterfall', label: 'callAIFast (текущий)' },
+      variant_b: { model: GEMMA4_MODEL, label: 'Gemma 4 via OpenRouter' },
+      metric: 'success_rate',
+    });
+    experimentId = exp.id;
+  } catch { /* experiment tracking не критично — продолжаем без него */ }
+
   let routes: RouteRow[];
   try {
     routes = await findRoutesNeedingDescription();
@@ -128,7 +171,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
 
   for (const route of routes) {
     processed++;
-    const newDescription = await generateRouteDescription(route);
+    const newDescription = await generateRouteDescription(route, experimentId, tracker);
     if (!newDescription || newDescription.length < 100) {
       errors++;
       continue;
@@ -162,6 +205,28 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       `(обработано: ${processed}, ошибок: ${errors}, осталось кратких: ${remaining >= 0 ? remaining : '?'})\n\n` +
       `<b>Улучшенные маршруты и локации:</b>\n${titlesList}`,
     );
+  }
+
+  // Уведомить когда эксперимент наберёт достаточно данных
+  if (experimentId) {
+    try {
+      const expResults = await tracker.calculateResults(experimentId);
+      if (expResults.winner !== null) {
+        const winnerLabel = expResults.winner === 'tie'
+          ? 'Ничья'
+          : expResults.winner === 'a'
+            ? 'Waterfall (A) победил'
+            : 'Gemma 4 (B) победил';
+        await tgSend(
+          `<b>A/B эксперимент Editor завершён</b>\n\n` +
+          `${winnerLabel}\n\n` +
+          `Waterfall: ${expResults.variant_a.success}/${expResults.variant_a.success + expResults.variant_a.fail} (${Math.round(expResults.variant_a.rate * 100)}%)\n` +
+          `Gemma 4:   ${expResults.variant_b.success}/${expResults.variant_b.success + expResults.variant_b.fail} (${Math.round(expResults.variant_b.rate * 100)}%)\n\n` +
+          `Всего замеров: ${expResults.total}`,
+        );
+        await tracker.updateStatus(experimentId, 'completed', expResults.winner === 'tie' ? undefined : expResults.winner);
+      }
+    } catch { /* трекинг не критичен */ }
   }
 
   return { processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors, duration_ms: Date.now() - start };

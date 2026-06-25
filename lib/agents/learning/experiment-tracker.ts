@@ -116,6 +116,17 @@ export class ExperimentTracker {
     `, [JSON.stringify({ experiment_id: experimentId, variant, outcome, duration_ms: durationMs })]);
   }
 
+  async findOrCreate(params: CreateExperimentParams): Promise<Experiment> {
+    const { rows } = await pool.query<Experiment>(
+      `SELECT id, name, description, intent, variant_a, variant_b, metric, status,
+              winner, results, created_at, updated_at
+       FROM agent_experiments WHERE name = $1 AND status = 'running' LIMIT 1`,
+      [params.name]
+    );
+    if (rows[0]) return rows[0];
+    return this.create(params);
+  }
+
   async calculateResults(experimentId: string): Promise<ExperimentResults> {
     const { rows } = await pool.query<ResultRow>(`
       SELECT

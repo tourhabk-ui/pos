@@ -16,7 +16,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -461,18 +461,127 @@ export async function ingestUsgs(): Promise<ParseResult> {
   return result;
 }
 
+// ── МЧС Камчатка ─────────────────────────────────────────────────────────────
+
+const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
+  [/елизов/i,       ['avachinsky']],
+  [/петропавловск/i,['avachinsky']],
+  [/быстринск/i,    ['western']],
+  [/тигильск/i,     ['western']],
+  [/усть-камчатск/i,['northern']],
+  [/алеутск/i,      ['northern']],
+  [/карагинск/i,    ['eastern']],
+  [/пенжинск/i,     ['northern']],
+  [/олюторск/i,     ['eastern']],
+];
+
+function mchs_zones(text: string): string[] {
+  for (const [re, zones] of MCHS_DISTRICT_ZONES) {
+    if (re.test(text)) return zones;
+  }
+  return ['avachinsky'];
+}
+
+function classifyMchsItem(
+  id: string,
+  title: string,
+  description: string,
+  pubDate: string,
+  link: string,
+): SeismicEvent | null {
+  const text = `${title} ${description}`.toLowerCase();
+
+  let alert_type: SeismicEvent['alert_type'] = 'info';
+  let severity: 0 | 1 | 2 | 3 = 0;
+  let expires_hours = 24;
+
+  if (/цунами/.test(text)) {
+    alert_type = 'tsunami_warning'; severity = 3; expires_hours = 12;
+  } else if (/ураган|смерч|шторм.{0,20}(балл|ветер)|сильный ветер/i.test(text)) {
+    alert_type = 'info'; severity = 2; expires_hours = 24;
+  } else if (/паводок|половодье|подтопление|уровень воды|реках.*ожидается/i.test(text)) {
+    alert_type = 'flood'; severity = 1; expires_hours = 120;
+  } else if (/пожар|противопожарный режим|особый.*режим/i.test(text)) {
+    alert_type = 'fire_danger'; severity = 1; expires_hours = 168;
+  } else {
+    return null; // не интересно
+  }
+
+  const publishedAt = new Date(pubDate);
+  if (isNaN(publishedAt.getTime())) return null;
+
+  return {
+    source_id:     `mchs/${id}`,
+    source_url:    link || 'https://41.mchs.gov.ru',
+    published_at:  publishedAt,
+    alert_type,
+    severity,
+    title:         title.slice(0, 200),
+    description:   description.slice(0, 800),
+    affected_zones: mchs_zones(`${title} ${description}`),
+    expires_hours,
+  };
+}
+
+export async function ingestMchsAlerts(): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  try {
+    const res = await fetch('https://41.mchs.gov.ru/rss', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const xml = await res.text();
+
+    // Простой regex-парсер RSS 2.0 (без xml2js)
+    const itemRe = /<item>([\s\S]*?)<\/item>/g;
+    const tagRe  = (t: string) => new RegExp(`<${t}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${t}>|<${t}[^>]*>([^<]*)<\\/${t}>`, 'i');
+    let m: RegExpExecArray | null;
+    let idx = 0;
+
+    while ((m = itemRe.exec(xml)) !== null) {
+      const chunk = m[1];
+      const get = (tag: string) => {
+        const r = tagRe(tag).exec(chunk);
+        return (r?.[1] ?? r?.[2] ?? '').trim();
+      };
+      const title   = get('title');
+      const link    = get('link');
+      const pubDate = get('pubDate');
+      const desc    = get('description');
+      const guid    = get('guid') || `${pubDate}-${idx++}`;
+
+      const event = classifyMchsItem(guid, title, desc, pubDate, link);
+      if (!event) continue;
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) { result.errors.push((e as Error).message); }
+    }
+  } catch (e) {
+    result.errors.push(`mchs fetch failed: ${(e as Error).message}`);
+  }
+  return result;
+}
+
 export async function ingestAll(): Promise<{
   kbgsras: ParseResult;
   eqkam: ParseResult;
   usgs: ParseResult;
+  mchs: ParseResult;
   total_inserted: number;
 }> {
-  const [kbgsras, eqkam, usgs] = await Promise.all([ingestKbgsras(), ingestEqkam(), ingestUsgs()]);
+  const [kbgsras, eqkam, usgs, mchs] = await Promise.all([
+    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(),
+  ]);
   return {
     kbgsras,
     eqkam,
     usgs,
-    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted,
+    mchs,
+    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted + mchs.inserted,
   };
 }
 

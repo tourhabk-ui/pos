@@ -42,7 +42,7 @@ export async function syncUserDemandToAgentMemory(): Promise<{
      WHERE last_updated > NOW() - INTERVAL '30 days'
        AND array_length(preferred_activities, 1) > 0
      GROUP BY activity
-     ORDER BY user_count::int DESC
+     ORDER BY COUNT(DISTINCT user_id) DESC
      LIMIT 20`
   );
 
@@ -53,7 +53,7 @@ export async function syncUserDemandToAgentMemory(): Promise<{
      WHERE last_updated > NOW() - INTERVAL '30 days'
        AND array_length(preferred_locations, 1) > 0
      GROUP BY location
-     ORDER BY user_count::int DESC
+     ORDER BY COUNT(DISTINCT user_id) DESC
      LIMIT 20`
   );
 
@@ -64,7 +64,7 @@ export async function syncUserDemandToAgentMemory(): Promise<{
      WHERE last_updated > NOW() - INTERVAL '30 days'
        AND travel_style IS NOT NULL
      GROUP BY travel_style
-     ORDER BY user_count::int DESC`
+     ORDER BY COUNT(*) DESC`
   );
 
   const { rows: userStats } = await pool.query<UserStatsRow>(
