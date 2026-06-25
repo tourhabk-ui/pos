@@ -41,6 +41,7 @@ const RSS_SOURCES = [
   { url: 'https://tourprom.ru/rss', label: 'Tourprom' },
   // Kamchatka
   { url: 'https://www.kamgov.ru/rss', label: 'Kamgov' },
+  { url: 'https://41.mchs.gov.ru/rss', label: 'МЧС Камчатка' },
 ];
 
 async function fetchRssWithRetry(url: string, options: RequestInit, maxAttempts = 3): Promise<Response> {

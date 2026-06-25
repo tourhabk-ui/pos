@@ -148,8 +148,21 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
   }
 }
 
+interface ParseResultSummary {
+  events: unknown[];
+  inserted: number;
+  skipped: number;
+  errors: string[];
+}
+
 function buildResponse(
-  ingestResult: { kbgsras: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; eqkam: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; usgs?: { events: unknown[]; inserted: number; skipped: number; errors: string[] }; total_inserted: number },
+  ingestResult: {
+    kbgsras: ParseResultSummary;
+    eqkam: ParseResultSummary;
+    usgs?: ParseResultSummary;
+    mchs?: ParseResultSummary;
+    total_inserted: number;
+  },
   rtStatus: { updated: number; error?: string },
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
@@ -157,6 +170,7 @@ function buildResponse(
   const errors = [
     ...ingestResult.kbgsras.errors,
     ...ingestResult.eqkam.errors,
+    ...(ingestResult.mchs?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -177,6 +191,11 @@ function buildResponse(
       events_found: ingestResult.usgs.events.length,
       inserted: ingestResult.usgs.inserted,
       skipped: ingestResult.usgs.skipped,
+    } : undefined,
+    mchs: ingestResult.mchs ? {
+      events_found: ingestResult.mchs.events.length,
+      inserted: ingestResult.mchs.inserted,
+      skipped: ingestResult.mchs.skipped,
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
