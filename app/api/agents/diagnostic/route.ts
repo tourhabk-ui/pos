@@ -77,7 +77,10 @@ export async function GET(req: NextRequest) {
 
         if (tableExists) {
           try {
-            const countResult = await pool.query(`SELECT COUNT(*)::int as cnt FROM ${table} LIMIT 1`);
+            const countResult = await pool.query<{ cnt: number }>(
+              `SELECT n_live_tup::int AS cnt FROM pg_stat_user_tables WHERE relname = $1`,
+              [table]
+            );
             check.row_count = countResult.rows[0]?.cnt ?? 0;
             test_query_succeeded = true;
           } catch (e) {

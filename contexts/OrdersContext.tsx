@@ -57,7 +57,7 @@ export const OrdersProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
-          const parsedOrders = JSON.parse(raw).map((order: any) => ({
+          const parsedOrders = (JSON.parse(raw) as Array<Omit<Order, 'createdAt' | 'updatedAt'> & { createdAt: string; updatedAt: string }>).map((order) => ({
             ...order,
             createdAt: new Date(order.createdAt),
             updatedAt: new Date(order.updatedAt),
