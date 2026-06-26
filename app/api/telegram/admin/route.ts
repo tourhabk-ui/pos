@@ -333,6 +333,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000),
       });
       return await res.json() as { ok: boolean; description?: string };
     } catch (e) {
@@ -365,6 +366,9 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
   } else {
     results.push('@kamchatka_real: TELEGRAM_CHANNEL_ID не задан');
   }
+
+  // пауза между запросами (Timeweb иногда режет быстрые sequential fetch)
+  await new Promise(r => setTimeout(r, 800));
 
   // @ai_hub_money — AI/вайб-кодинг канал
   const aiChannel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
