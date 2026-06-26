@@ -1,0 +1,70 @@
+name: Import — Route Passport PDFs (Gemini extraction)
+
+on:
+  workflow_dispatch:
+    inputs:
+      total_batches:
+        description: 'Number of batches to run (5 routes each)'
+        required: false
+        default: '20'
+      batch_size:
+        description: 'Routes per batch'
+        required: false
+        default: '5'
+
+jobs:
+  import-passports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Run PDF extraction batches
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TOTAL_BATCHES: ${{ github.event.inputs.total_batches || '20' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '5' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          BASE="https://vedarai.ru/api/cron/import-route-passports"
+          OFFSET=0
+          ENRICHED_TOTAL=0
+          FAILED_TOTAL=0
+
+          for i in $(seq 1 $TOTAL_BATCHES); do
+            echo "=== Batch $i / $TOTAL_BATCHES (offset=$OFFSET) ==="
+
+            HTTP=$(curl -s -o /tmp/batch.json -w "%{http_code}" --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "${BASE}?batch=${BATCH_SIZE}&offset=${OFFSET}")
+
+            echo "HTTP: $HTTP"
+            cat /tmp/batch.json 2>/dev/null || true
+
+            if [ "$HTTP" != "200" ]; then
+              echo "FAIL on batch $i (HTTP $HTTP)"
+              exit 1
+            fi
+
+            ENRICHED=$(python3 -c "import json,sys; d=json.load(open('/tmp/batch.json')); print(d.get('enriched',0))" 2>/dev/null || echo 0)
+            FAILED=$(python3 -c "import json,sys; d=json.load(open('/tmp/batch.json')); print(d.get('failed',0))" 2>/dev/null || echo 0)
+            REMAINING=$(python3 -c "import json,sys; d=json.load(open('/tmp/batch.json')); print(d.get('remaining',0))" 2>/dev/null || echo -1)
+            MSG=$(python3 -c "import json,sys; d=json.load(open('/tmp/batch.json')); print(d.get('message',''))" 2>/dev/null || echo "")
+
+            ENRICHED_TOTAL=$((ENRICHED_TOTAL + ENRICHED))
+            FAILED_TOTAL=$((FAILED_TOTAL + FAILED))
+
+            echo "Batch enriched: $ENRICHED | failed: $FAILED | remaining: $REMAINING"
+
+            if [ "$MSG" = "All routes already enriched" ] || [ "$REMAINING" = "0" ]; then
+              echo "All routes enriched — stopping early."
+              break
+            fi
+
+            OFFSET=$((OFFSET + BATCH_SIZE))
+            sleep 5
+          done
+
+          echo ""
+          echo "=== FINAL SUMMARY ==="
+          echo "Total enriched: $ENRICHED_TOTAL"
+          echo "Total failed:   $FAILED_TOTAL"
