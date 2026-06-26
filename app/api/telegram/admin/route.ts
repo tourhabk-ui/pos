@@ -271,17 +271,25 @@ async function checkChannels(ownerChatId: number): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
 
+  // Таймаут 8s + 2 попытки: без таймаута зависший getChat убивает всю функцию
+  // до отправки результата (видно как "Проверяю..." без ответа).
   async function tgGetChat(chatId: string): Promise<{ ok: boolean; result?: { title: string; type: string }; description?: string }> {
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId }),
-      });
-      return await res.json() as { ok: boolean; result?: { title: string; type: string }; description?: string };
-    } catch (e) {
-      return { ok: false, description: e instanceof Error ? e.message : 'fetch error' };
+    let lastErr = 'fetch error';
+    for (let i = 0; i < 2; i++) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId }),
+          signal: AbortSignal.timeout(8000),
+        });
+        return await res.json() as { ok: boolean; result?: { title: string; type: string }; description?: string };
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : 'fetch error';
+        if (i === 0) await new Promise(r => setTimeout(r, 1000));
+      }
     }
+    return { ok: false, description: `${lastErr} (egress до Telegram недоступен)` };
   }
 
   const lines: string[] = ['<b>Проверка каналов:</b>', ''];
@@ -306,7 +314,7 @@ async function checkChannels(ownerChatId: number): Promise<void> {
     lines.push('TELEGRAM_AI_CHANNEL_ID: ❌ не задан');
   }
 
-  lines.push('', '<i>Если ❌ — добавь @kuzmihai_bot как admin в канал с правом "Публиковать сообщения"</i>');
+  lines.push('', '<i>Если ❌ — добавь @kuzmichai_bot как admin в канал с правом "Публиковать сообщения"</i>');
   await reply(ownerChatId, lines.join('\n'));
 }
 
