@@ -54,6 +54,7 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
   '/api/safety/volcanic':   ['GET'],  // публичные вулканические алерты
   '/api/safety/weather':    ['GET'],  // публичная погода (wttr.in)
+  '/api/p':                 'ALL',   // публичные подборки туров + трекинг
   '/api/mcp': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
   '/api/max': 'ALL',               // MAX bot webhook
