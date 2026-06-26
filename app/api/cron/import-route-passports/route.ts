@@ -6,7 +6,6 @@ import { callGeminiPDF } from '@/lib/ai/providers';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
 
 const EXTRACT_PROMPT = `Ты извлекаешь данные из паспорта маршрута на Камчатке (PDF на русском языке).
 Верни JSON строго в этом формате (без markdown, только JSON):
@@ -102,7 +101,6 @@ export async function GET(request: NextRequest) {
     [batch, offset],
   );
 
-  // Count total remaining
   const { rows: countRows } = await pool.query<{ remaining: string }>(
     `SELECT COUNT(*)::text AS remaining
      FROM kamchatka_routes
