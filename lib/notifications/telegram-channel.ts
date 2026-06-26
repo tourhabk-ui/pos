@@ -16,44 +16,65 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * fetch к api.telegram.org с retry + экспоненциальным backoff.
+ * Timeweb (РФ) периодически режет egress до Telegram → "fetch failed".
+ * Повторяем сетевые сбои (fetch throw) до 3 раз: 1s, 2s, 4s.
+ * HTTP-ответ Telegram (даже с ошибкой типа "chat not found") НЕ повторяем —
+ * это не сетевая проблема, ретрай не поможет.
+ */
+async function tgFetchWithRetry(
+  url: string,
+  body: Record<string, unknown>,
+  maxAttempts = 3,
+): Promise<{ ok: boolean; description?: string }> {
+  let lastErr = 'fetch error';
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(12000),
+      });
+      // Получили HTTP-ответ — возвращаем как есть, не ретраим логические ошибки
+      return await res.json() as { ok: boolean; description?: string };
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : 'fetch error';
+      if (i < maxAttempts - 1) {
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+      }
+    }
+  }
+  return { ok: false, description: `${lastErr} (после ${maxAttempts} попыток)` };
+}
+
 async function tgPost(chatId: string, text: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return { ok: false, error: 'not configured' };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: false }),
-    });
-    const data = await res.json() as { ok: boolean; description?: string };
-    return { ok: data.ok, error: data.description };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'fetch error' };
-  }
+  const data = await tgFetchWithRetry(
+    `https://api.telegram.org/bot${token}/sendMessage`,
+    { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: false },
+  );
+  return { ok: data.ok, error: data.description };
 }
 
 // sendPhoto — caption до 1024 символов
 async function tgPostPhoto(chatId: string, photoUrl: string, caption: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return { ok: false, error: 'not configured' };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: photoUrl,
-        caption: caption.slice(0, 1024),
-        parse_mode: 'HTML',
-      }),
-    });
-    const data = await res.json() as { ok: boolean; description?: string };
-    // Если фото по URL недоступно — fallback на текстовый пост
-    if (!data.ok) return tgPost(chatId, caption, token);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'fetch error' };
-  }
+  const data = await tgFetchWithRetry(
+    `https://api.telegram.org/bot${token}/sendPhoto`,
+    {
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: caption.slice(0, 1024),
+      parse_mode: 'HTML',
+    },
+  );
+  // Если фото по URL недоступно — fallback на текстовый пост
+  if (!data.ok) return tgPost(chatId, caption, token);
+  return { ok: true };
 }
 
 /** Отправка в MAX канал через MAX Platform API */
@@ -860,57 +881,34 @@ export async function notifyAdminNewLead(lead: {
     ],
   };
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+  const tgData = await tgFetchWithRetry(
+    `https://api.telegram.org/bot${token}/sendMessage`,
+    {
+      chat_id: chatId,
+      text: lines.join('\n'),
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    },
+  );
+
+  // Логируем попытку в ai_actions_log
+  void query(
+    `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+    [
+      'telegram_lead_notification',
+      JSON.stringify({
+        lead_id: lead.id,
         chat_id: chatId,
-        text: lines.join('\n'),
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
+        success: tgData.ok,
+        error_description: (tgData.description ?? '').slice(0, 200),
+        score: lead.score ?? null,
+        source: source ?? 'unknown',
       }),
-    });
+    ],
+  ).catch(() => {});
 
-    const tgData = await res.json() as { ok: boolean; error_code?: number; description?: string };
-
-    // Логируем попытку в ai_actions_log
-    void query(
-      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-      [
-        'telegram_lead_notification',
-        JSON.stringify({
-          lead_id: lead.id,
-          chat_id: chatId,
-          success: tgData.ok,
-          error_code: tgData.error_code ?? null,
-          error_description: (tgData.description ?? '').slice(0, 200),
-          score: lead.score ?? null,
-          source: source ?? 'unknown',
-        }),
-      ],
-    ).catch(() => {});
-
-    if (!tgData.ok) {
-      console.error(`[notifyAdminNewLead] Telegram error ${tgData.error_code}: ${tgData.description}`);
-    }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e);
-    console.error('[notifyAdminNewLead] fetch error:', errMsg);
-
-    // Логируем ошибку
-    void query(
-      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-      [
-        'telegram_lead_notification',
-        JSON.stringify({
-          lead_id: lead.id,
-          chat_id: chatId,
-          success: false,
-          error: errMsg.slice(0, 200),
-        }),
-      ],
-    ).catch(() => {});
+  if (!tgData.ok) {
+    console.error(`[notifyAdminNewLead] Telegram error: ${tgData.description}`);
   }
 }
 
