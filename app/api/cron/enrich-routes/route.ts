@@ -11,8 +11,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://tourhab.ru';
-
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '');
   const cronSecret = process.env.CRON_SECRET;
@@ -23,6 +21,10 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Self-call по тому же origin, на который пришёл запрос (vedarai.ru/tourhab.ru —
+  // что бы ни было). Хардкод домена ломался, если приложение жило на другом домене.
+  const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
 
   try {
     // Call the enrichment API internally
