@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { emailService } from '@/lib/notifications/email-service';
+import { createUonRequest } from '@/lib/integrations/uon';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,14 +138,39 @@ export async function POST(req: NextRequest) {
       return { bookingId, total_price, tour };
     });
 
-    // Уведомление оператору — fire-and-forget, не блокирует ответ
+    // Уведомление оператору + U-ON sync — fire-and-forget, не блокирует ответ
     void (async () => {
       try {
-        const opRow = await pool.query<{ name: string; telegram_chat_id: string | null; max_chat_id: number | null }>(
-          `SELECT name, telegram_chat_id, max_chat_id FROM partners WHERE id = $1 LIMIT 1`,
+        const opRow = await pool.query<{ name: string; telegram_chat_id: string | null; max_chat_id: number | null; uon_api_key: string | null }>(
+          `SELECT name, telegram_chat_id, max_chat_id, uon_api_key FROM partners WHERE id = $1 LIMIT 1`,
           [result.tour.operator_id],
         );
         const op = opRow.rows[0];
+
+        // U-ON sync: if operator has API key, create request in their CRM
+        if (op?.uon_api_key) {
+          try {
+            const uonId = await createUonRequest(op.uon_api_key, {
+              tour_title:       result.tour.title,
+              booking_date:     data.booking_date,
+              participants:     data.participants_count,
+              total_price:      result.total_price,
+              tourist_name:     data.tourist_name,
+              tourist_phone:    data.tourist_phone,
+              tourist_email:    data.tourist_email,
+              special_requests: data.special_requests,
+            });
+            if (uonId != null) {
+              await pool.query(
+                `UPDATE operator_bookings SET uon_request_id = $1, uon_synced_at = NOW() WHERE id = $2`,
+                [uonId, result.bookingId],
+              );
+            }
+          } catch {
+            // U-ON sync failure is non-fatal — booking already created
+          }
+        }
+
         await notifyNewBooking({
           booking_id:                String(result.bookingId),
           tour_title:                result.tour.title,
