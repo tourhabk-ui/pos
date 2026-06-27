@@ -11,13 +11,15 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast, callAIWithModel } from '@/lib/ai/providers';
+import { callAIFast, callFugu } from '@/lib/ai/providers';
 import { ExperimentTracker } from '@/lib/agents/learning/experiment-tracker';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-const GEMMA4_MODEL = 'google/gemma-4-27b-it';
-const EXP_NAME    = 'editor-gemma4-vs-waterfall';
+// A/B: вариант B — Sakana Fugu Ultra напрямую (НЕ через OpenRouter — он недоступен).
+// Новое имя эксперимента, чтобы старые мусорные данные (Gemma-через-OpenRouter,
+// тихо падавшая на waterfall) не смешивались с чистыми замерами Fugu.
+const EXP_NAME = 'editor-fugu-vs-waterfall';
 
 export interface EditorResult {
   processed: number;
@@ -109,17 +111,26 @@ ${route.description ? `Имеющееся описание (расширь и у
     const variant = tracker.pickVariant(experimentId);
     const t0 = Date.now();
     try {
-      let text: string | null;
       if (variant === 'b') {
-        const res = await callAIWithModel(messages, GEMMA4_MODEL);
-        text = res.text?.trim() ?? null;
-      } else {
-        text = (await callAIFast(messages))?.trim() ?? null;
+        // Вариант B — Fugu напрямую. Если Fugu недоступен (нет ключа / ошибка),
+        // НЕ засчитываем замер в B (иначе waterfall маскируется под Fugu),
+        // а для прода падаем на waterfall, чтобы маршрут всё равно получил описание.
+        const fugu = (await callFugu(messages))?.trim() ?? null;
+        if (fugu === null) {
+          // Замер пропущен — провайдер B не ответил. Чистота статистики важнее.
+          const fallback = (await callAIFast(messages))?.trim() ?? null;
+          return fallback;
+        }
+        const ok = fugu.length >= 100;
+        await tracker.recordResult(experimentId, 'b', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
+        return fugu;
       }
+      const text = (await callAIFast(messages))?.trim() ?? null;
       const ok = !!text && text.length >= 100;
-      await tracker.recordResult(experimentId, variant, ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
+      await tracker.recordResult(experimentId, 'a', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
       return text;
     } catch {
+      // Реальная ошибка варианта (а не отсутствие провайдера) — это валидный fail
       await tracker.recordResult(experimentId, variant, 'fail', Date.now() - t0).catch(() => {});
       return null;
     }
@@ -147,16 +158,16 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
 
-  // A/B experiment: current waterfall (A) vs Gemma 4 (B)
+  // A/B experiment: current waterfall (A) vs Sakana Fugu Ultra (B)
   const tracker = new ExperimentTracker();
   let experimentId: string | undefined;
   try {
     const exp = await tracker.findOrCreate({
       name: EXP_NAME,
-      description: 'Gemma 4 (OpenRouter) vs callAIFast waterfall для генерации описаний маршрутов Камчатки',
+      description: 'Sakana Fugu Ultra (прямой API) vs callAIFast waterfall для генерации описаний маршрутов Камчатки',
       intent: 'route_description_generation',
       variant_a: { model: 'waterfall', label: 'callAIFast (текущий)' },
-      variant_b: { model: GEMMA4_MODEL, label: 'Gemma 4 via OpenRouter' },
+      variant_b: { model: 'fugu-ultra', label: 'Sakana Fugu Ultra (direct)' },
       metric: 'success_rate',
     });
     experimentId = exp.id;
