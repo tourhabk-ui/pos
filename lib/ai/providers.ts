@@ -803,9 +803,37 @@ export async function callGeminiPDF(
   pdfBase64: string,
   prompt: string,
 ): Promise<string | null> {
+  // Приоритет 1: нативный Google Gemini API (стабилен с сервера, нативно читает PDF).
+  const geminiKey = getGeminiKey();
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+                { text: prompt },
+              ],
+            }],
+          }),
+          signal: AbortSignal.timeout(45_000),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text?.trim()) return text.trim();
+      }
+    } catch { /* fall through to OpenRouter */ }
+  }
+
+  // Приоритет 2 (fallback): тот же Gemini через OpenRouter.
   const apiKey = getOpenRouterKey();
   if (!apiKey) return null;
-
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -823,8 +851,8 @@ export async function callGeminiPDF(
             role: 'user',
             content: [
               {
-                type: 'image_url',
-                image_url: { url: `data:application/pdf;base64,${pdfBase64}` },
+                type: 'file',
+                file: { filename: 'passport.pdf', file_data: `data:application/pdf;base64,${pdfBase64}` },
               },
               { type: 'text', text: prompt },
             ],
