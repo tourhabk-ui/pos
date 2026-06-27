@@ -488,7 +488,7 @@ async function analyzeSignals(
     {
       role: 'system',
       content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы TourHab (Камчатка, Россия).
-Платформа: Next.js 15, 13 AI-агентов, 260+ маршрутов, Kuzmich AI-бот, маркетплейс операторов.
+Платформа: Next.js 15, рабочие AI-агенты (Watchdog, Editor, Scout Digest, Kuzmich-бот), ~294 маршрута и ~778 точек Камчатки, маркетплейс операторов. Главный приоритет — безопасность туристов.
 Стек: Next.js + PostgreSQL + Claude/GPT/Gemini API. Деплой на Timeweb.
 
 Твоя задача: найти новые фичи/паттерны которые можно реализовать у себя.
@@ -723,7 +723,7 @@ export async function injectManualIntel(
     {
       role: 'system',
       content: `Ты аналитик travel-tech индустрии. Работаешь на владельца AI-платформы TourHab (Камчатка, Россия).
-Платформа: Next.js 15, 13 AI-агентов, 260+ маршрутов, Kuzmich AI-бот, маркетплейс операторов.
+Платформа: Next.js 15, рабочие AI-агенты (Watchdog, Editor, Scout Digest, Kuzmich-бот), ~294 маршрута и ~778 точек Камчатки, маркетплейс операторов. Главный приоритет — безопасность туристов.
 Стек: Next.js + PostgreSQL + Claude/GPT/Gemini API. Деплой на Timeweb.
 
 Из входящего текста найди фичи/паттерны которые можно реализовать у себя.

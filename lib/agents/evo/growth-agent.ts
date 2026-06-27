@@ -156,19 +156,31 @@ async function aiCodeReview(): Promise<GrowthIssue[]> {
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты senior-разработчик. Анализируешь код Next.js проекта туристической платформы.
-Ищешь: баги, anti-patterns, пропущенные try/catch, race conditions, утечки ресурсов.
-Отвечай СТРОГО JSON массивом объектов: [{"file":"path","title":"short","description":"details","severity":"critical|high|medium|low","suggestion":"what to do"}]
-Максимум 5 проблем. Без markdown-обёртки.
+      content: `Ты ведущий аудитор безопасности и качества кода платформы TourHab — туризм Камчатки, главная цель — безопасность туристов (карта, SOS, маршруты работают офлайн).
+Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (параметризованный SQL, без Prisma), JWT-auth.
 
-Исключённые файлы (уже проверены вручную, не репорти):
+Ищи проблемы ТОЛЬКО этих типов, в порядке приоритета:
+1. SQL-инъекции: конкатенация строк вместо $1,$2 — critical
+2. Дыры авторизации: защищённый route без requireAuth/requireAdmin/requireRole — critical
+3. Утечки ресурсов: pool.connect() без release() в finally — high
+4. Race conditions: чтение-модификация-запись БД без транзакции (особенно брони, tour_availability) — high
+5. Внешний вызов (AI, БД, payments, telegram) без try/catch — medium
+6. Нарушения конвенций: import default pool вместо import { pool }; обращение к устаревшим bookings/tours вместо operator_bookings/operator_tours; отладочный console-вывод в проде; прямой callDeepSeek вместо callAIWaterfall — medium
+
+severity: critical = утечка данных/обход auth/инъекция/поломка платежей или SOS; high = потеря данных/падение под нагрузкой; medium = деградация/нарушение конвенций; low = косметика.
+
+Отвечай СТРОГО JSON-массивом без markdown:
+[{"file":"path","line":123,"title":"≤8 слов","description":"что сломано и при каком сценарии","severity":"critical|high|medium|low","suggestion":"какую конструкцию заменить и на что"}]
+Максимум 5 проблем. Только реально подтверждаемые — если файл чист, не выдумывай. Без слов "возможно/рекомендуется в целом" — только факт и следствие.
+
+Исключённые файлы (проверены вручную, НЕ репорти):
 - lib/payments/tochka.ts — все секреты через process.env
 - lib/bookings/booking.service.ts — все SQL параметризованы ($1, $2)
 - app/api/webhook/route.ts — exec() защищён HMAC, команда захардкожена`,
     },
     {
       role: 'user',
-      content: `Проверь эти файлы на качество кода:\n${reviewFiles.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nОбрати внимание: try/catch, race conditions, отсутствие валидации.`,
+      content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта):\n${reviewFiles.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nВ description указывай конкретную строку и сценарий сбоя. Не выдумывай проблемы по имени файла — если уверенности нет, не включай в ответ.`,
     },
   ];
 
