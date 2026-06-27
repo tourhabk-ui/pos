@@ -83,10 +83,12 @@ async function checkDB(): Promise<HealthIssue[]> {
   } catch { /* skip */ }
 
   try {
-    // Последний пост Кузьмича — должен быть не старше 26 часов
+    // Последний пост Кузьмича — должен быть не старше 26 часов.
+    // ВАЖНО: action_type должен совпадать с тем, что реально пишет telegram-channel.ts:
+    // kuzmich_post (маршрут), kuzmich_tip (совет), kuzmich_safety_post (безопасность).
     const lastPost = await pool.query<{ created_at: Date }>(
       `SELECT created_at FROM ai_actions_log
-       WHERE action_type IN ('kuzmich_route','kuzmich_tip','kuzmich_sezon')
+       WHERE action_type IN ('kuzmich_post','kuzmich_tip','kuzmich_safety_post')
        ORDER BY created_at DESC LIMIT 1`
     );
     if (lastPost.rows.length > 0) {
