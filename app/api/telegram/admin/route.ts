@@ -320,63 +320,6 @@ async function checkChannels(ownerChatId: number): Promise<void> {
 
 // ── Channel test posts ────────────────────────────────────────────────────────
 
-// Пост про агентную оркестрацию в @ai_hub_money (фото-диаграмма + caption + кнопки)
-async function sendAgentsPost(ownerChatId: number): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
-  const channel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
-  if (!channel) { await reply(ownerChatId, 'TELEGRAM_AI_CHANNEL_ID не задан'); return; }
-
-  // Публичный домен (не внутренний twc1.net) для URL картинки
-  const base = (process.env.NEXT_PUBLIC_SITE_URL
-    || (process.env.NEXT_PUBLIC_APP_URL && !/twc1\.net/i.test(process.env.NEXT_PUBLIC_APP_URL) ? process.env.NEXT_PUBLIC_APP_URL : null)
-    || 'https://vedarai.ru').replace(/\/$/, '');
-  const photoUrl = `${base}/images/social/agent-orchestration.png`;
-
-  // caption ≤1024 символов (лимит Telegram sendPhoto)
-  const caption = [
-    '<b>20+ AI-агентов в одном проде: спорят, учатся, оркеструются</b>',
-    '',
-    'Большинство пишет один вызов LLM и зовёт это «агентом». У нас агенты работают командой. Четыре паттерна.',
-    '',
-    '<b>Состязательность:</b> лид разбирают трое — Bull (сигналы покупки), Bear (риски), Arbiter (взвешивает, даёт вероятность). Спор бьёт один промпт.',
-    '',
-    '<b>Общий мозг:</b> агенты пишут в общую память, утренний брифинг раздаёт всем. Scout находит пробел → issue → другой агент реализует.',
-    '',
-    '<b>Само-эволюция:</b> growth находит баг → evolution чинит → feedback выводит правило на будущее.',
-    '',
-    '<b>Оркестрация:</b> детерминированные пайплайны, guardrails: tsc+тесты, human-in-the-loop.',
-    '',
-    'Главный риск — не тупость, а уверенная выдумка. Деризкинг с нуля: факты безопасности только из БД, иначе честное «не знаю».',
-  ].join('\n');
-
-  const buttons = [
-    [{ text: 'CLAUDE.md — конституция агентов', url: 'https://github.com/tourhabk-ui/pos/blob/main/CLAUDE.md' }],
-    [{ text: 'Платформа на агентах', url: 'https://t.me/kamchatka_real' }],
-  ];
-
-  try {
-    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: channel,
-        photo: photoUrl,
-        caption: caption.slice(0, 1024),
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: buttons },
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const data = await res.json() as { ok: boolean; description?: string };
-    await reply(ownerChatId, data.ok
-      ? `Пост опубликован в @ai_hub_money\nКартинка: ${photoUrl}`
-      : `Ошибка постинга: ${data.description ?? 'unknown'}\nURL картинки: ${photoUrl}`);
-  } catch (e) {
-    await reply(ownerChatId, `Сбой отправки: ${e instanceof Error ? e.message : 'fetch error'}`);
-  }
-}
-
 async function sendChannelTests(ownerChatId: number): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) { await reply(ownerChatId, 'TELEGRAM_BOT_TOKEN не задан'); return; }
@@ -515,7 +458,6 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
         '/testpush — реальный push на телефон + диагностика VAPID/подписок',
         '/checkchannels — проверить доступность каналов (без постинга)',
         '/testchannels — тест-посты в оба канала',
-        '/postagents — пост про агентную оркестрацию в @ai_hub_money (с картинкой)',
         '/scanops — сканировать TG-группы операторов → прислать сигналы о местах',
         '',
         'Любой текст — уходит в Команду AI и возвращается с ответом нужного агента',
@@ -595,11 +537,6 @@ async function handleCommand(cmd: string, chatId: number): Promise<void> {
     case '/testchannels':
       await reply(chatId, 'Отправляю тесты...');
       await sendChannelTests(chatId);
-      break;
-
-    case '/postagents':
-      await reply(chatId, 'Публикую пост про агентов в @ai_hub_money...');
-      await sendAgentsPost(chatId);
       break;
 
     default:

@@ -1079,6 +1079,59 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
+      // /post agents — диаграмма + пост про агентную оркестрацию в @ai_hub_money
+      if (kind === 'agents') {
+        await sendHTML(chatId, 'Публикую пост про агентов в AI-канал…');
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        const channel = process.env.TELEGRAM_AI_CHANNEL_ID?.trim();
+        if (!token || !channel) {
+          await sendHTML(chatId, 'TELEGRAM_BOT_TOKEN или TELEGRAM_AI_CHANNEL_ID не задан');
+          return NextResponse.json({ ok: true });
+        }
+        const base = (process.env.NEXT_PUBLIC_SITE_URL
+          || (process.env.NEXT_PUBLIC_APP_URL && !/twc1\.net/i.test(process.env.NEXT_PUBLIC_APP_URL) ? process.env.NEXT_PUBLIC_APP_URL : null)
+          || 'https://vedarai.ru').replace(/\/$/, '');
+        const photoUrl = `${base}/images/social/agent-orchestration.png`;
+        const caption = [
+          '<b>20+ AI-агентов в одном проде: спорят, учатся, оркеструются</b>',
+          '',
+          'Большинство пишет один вызов LLM и зовёт это «агентом». У нас агенты работают командой. Четыре паттерна.',
+          '',
+          '<b>Состязательность:</b> лид разбирают трое — Bull (сигналы покупки), Bear (риски), Arbiter (взвешивает, даёт вероятность). Спор бьёт один промпт.',
+          '',
+          '<b>Общий мозг:</b> агенты пишут в общую память, утренний брифинг раздаёт всем. Scout находит пробел → issue → другой агент реализует.',
+          '',
+          '<b>Само-эволюция:</b> growth находит баг → evolution чинит → feedback выводит правило на будущее.',
+          '',
+          '<b>Оркестрация:</b> детерминированные пайплайны, guardrails: tsc+тесты, human-in-the-loop.',
+          '',
+          'Главный риск — не тупость, а уверенная выдумка. Деризкинг с нуля: факты безопасности только из БД, иначе честное «не знаю».',
+        ].join('\n');
+        const buttons = [
+          [{ text: 'CLAUDE.md — конституция агентов', url: 'https://github.com/tourhabk-ui/pos/blob/main/CLAUDE.md' }],
+          [{ text: 'Платформа на агентах', url: 'https://t.me/kamchatka_real' }],
+        ];
+        try {
+          const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: channel,
+              photo: photoUrl,
+              caption: caption.slice(0, 1024),
+              parse_mode: 'HTML',
+              reply_markup: { inline_keyboard: buttons },
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          const data = await res.json() as { ok: boolean; description?: string };
+          await sendHTML(chatId, data.ok ? 'Пост опубликован в AI-канал.' : `Ошибка: ${data.description ?? 'unknown'}\nURL: ${photoUrl}`);
+        } catch (e) {
+          await sendHTML(chatId, `Сбой: ${e instanceof Error ? e.message : 'fetch error'}`);
+        }
+        return NextResponse.json({ ok: true });
+      }
+
       if (!kind || !arg) {
         await sendHTML(chatId, [
           '<b>/post — публикация в канал</b>',
@@ -1087,6 +1140,7 @@ export async function POST(request: NextRequest) {
           '<code>/post route &lt;uuid&gt;</code>',
           '<code>/post sezon</code>  — AI сезонный пост',
           '<code>/post friend soulful</code>  — пост про друзей',
+          '<code>/post agents</code>  — пост про агентную оркестрацию (AI-канал)',
         ].join('\n'));
         return NextResponse.json({ ok: true });
       }
