@@ -355,14 +355,31 @@ export interface WebhookCheckResult {
 
 const PENDING_UPDATES_THRESHOLD = 100;
 
+/**
+ * Публичный базовый URL для вебхука Telegram.
+ * NEXT_PUBLIC_APP_URL на Timeweb = внутренний хостнейм (*.twc1.net), который
+ * Telegram не может разрезолвить ("Failed to resolve host"). Поэтому для вебхука
+ * берём публичный домен: явный TELEGRAM_WEBHOOK_URL → NEXT_PUBLIC_SITE_URL →
+ * NEXT_PUBLIC_APP_URL (если он не внутренний) → дефолт. Внутренние *.twc1.net отбрасываем.
+ */
+export function publicWebhookBase(): string {
+  const isInternal = (u?: string | null): boolean => !!u && /twc1\.net/i.test(u);
+  const candidates = [
+    process.env.TELEGRAM_WEBHOOK_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    isInternal(process.env.NEXT_PUBLIC_APP_URL) ? null : process.env.NEXT_PUBLIC_APP_URL,
+  ];
+  const picked = candidates.find(u => u && !isInternal(u));
+  return (picked ?? 'https://vedarai.ru').replace(/\/$/, '');
+}
+
 export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     return { status: 'failed', current_url: null, expected_url: '', pending_update_count: 0, error: 'TELEGRAM_BOT_TOKEN не задан' };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
-  const expectedUrl = `${appUrl}/api/telegram/webhook`;
+  const expectedUrl = `${publicWebhookBase()}/api/telegram/webhook`;
 
   let webhookInfo: { url: string; pending_update_count: number };
   try {
