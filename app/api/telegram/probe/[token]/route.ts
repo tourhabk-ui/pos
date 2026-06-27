@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-const APP_URL      = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+const APP_URL      = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
 const WEBHOOK_PATH = '/api/telegram/kuzmich';
 
 export async function GET(

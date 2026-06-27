@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       payerName: booking.tourist.name || 'Customer',
       payerEmail: booking.tourist.email || '',
       payerPhone: undefined,
-      returnUrl: returnUrl || `${process.env.NEXT_PUBLIC_APP_URL}/bookings/${bookingId}`,
+      returnUrl: returnUrl || `${(process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL)}/bookings/${bookingId}`,
       notificationUrl: notificationUrl || `${process.env.NEXT_PUBLIC_API_URL}/webhooks/payments`,
       description: `Оплата бронирования ${booking.tour.title}`,
       metadata: {

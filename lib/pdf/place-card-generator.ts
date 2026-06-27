@@ -73,7 +73,7 @@ async function buildQRCodeBuffer(url: string): Promise<Buffer> {
 }
 
 export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
   const pageUrl = `${appUrl}/places/${place.id}`;
   const qrBuffer = await buildQRCodeBuffer(pageUrl);
 

@@ -80,7 +80,7 @@ async function notifyOperatorDirectly(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
   const text = [
     `<b>Привет, ${partnerName}!</b>`,
     '',
@@ -250,7 +250,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
-    const adminUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+    const adminUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
     lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
     await tgSend(lines.join('\n'));
   }

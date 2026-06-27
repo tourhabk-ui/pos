@@ -88,7 +88,7 @@ export async function POST(
     return NextResponse.json({ error: 'Данные предложения не найдены.' }, { status: 404 });
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const baseUrl = process.env.NEXTAUTH_URL ?? (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
   const pdfUrl  = `${baseUrl}/api/leads/${id}/proposal/pdf`;
 
   const sent: string[] = [];

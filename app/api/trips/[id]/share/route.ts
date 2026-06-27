@@ -25,7 +25,7 @@ export async function POST(
     }
 
     const shareToken = rows[0].share_token;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://tourhab.ru';
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || 'https://tourhab.ru';
     return NextResponse.json({
       success: true,
       shareToken,
