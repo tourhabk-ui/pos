@@ -11,7 +11,7 @@ async function notifyAdminTelegram(companyName: string, contactName: string, pho
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!chatId || !token) return;
   const text = `Новая заявка оператора\n\nКомпания: ${companyName}\nКонтакт: ${contactName}\nТел: ${phone}\nEmail: ${email}\n\nhttps://tourhab.ru/hub/admin/operators`;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),

@@ -86,7 +86,7 @@ async function tgNotify(result: { scan: unknown; evolution: unknown; rescue: unk
     `Время: ${Math.round((s?.duration_ms ?? 0) / 1000)}с`;
 
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),

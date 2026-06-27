@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   // Тест: getMe
   let botInfo: unknown = null;
   try {
-    const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const meRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getMe`);
     botInfo = await meRes.json();
   } catch (e) {
     return NextResponse.json({ ok: false, config, error: `Не удалось достучаться до Telegram API: ${String(e)}` });
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
   const testText = `✅ <b>TourHab — тест уведомлений</b>\n\nЕсли видишь это — Telegram-уведомления о лидах работают.\n\n<code>${new Date().toISOString()}</code>`;
   let sendResult: unknown = null;
   try {
-    const sendRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const sendRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: testText, parse_mode: 'HTML' }),

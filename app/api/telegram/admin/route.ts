@@ -11,7 +11,7 @@
  *
  * POST: Webhook для получения команд из Telegram
  *       Требует регистрации webhook:
- *       curl -X POST https://api.telegram.org/botTOKEN/setWebhook \
+ *       curl -X POST ${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/botTOKEN/setWebhook \
  *         -d url=https://tourhab.ru/api/telegram/admin \
  *         -d secret_token=SECRET
  *
@@ -69,7 +69,7 @@ export const dynamic = 'force-dynamic';
 async function reply(chatId: number, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
@@ -277,7 +277,7 @@ async function checkChannels(ownerChatId: number): Promise<void> {
     let lastErr = 'fetch error';
     for (let i = 0; i < 2; i++) {
       try {
-        const res = await fetch(`https://api.telegram.org/bot${token}/getChat`, {
+        const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getChat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId }),
@@ -337,7 +337,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
     };
     if (buttons) body.reply_markup = { inline_keyboard: buttons };
     try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

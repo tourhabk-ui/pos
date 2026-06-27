@@ -22,7 +22,7 @@ async function sendAdminMessage(text: string): Promise<void> {
   const ownerId = process.env.TELEGRAM_OWNER_ID ?? '171286547';
   if (!token) return;
 
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

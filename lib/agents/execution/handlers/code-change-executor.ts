@@ -272,7 +272,7 @@ export async function executeCodeChange(task: ExecutionTask): Promise<ExecutionR
     const tgChatId = process.env.TELEGRAM_CHAT_ID;
 
     if (tgToken && tgChatId) {
-      await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${tgToken}/sendMessage`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -465,7 +465,7 @@ export async function executeNewPageCreate(task: ExecutionTask): Promise<Executi
     const tgChatId = process.env.TELEGRAM_CHAT_ID;
 
     if (tgToken && tgChatId) {
-      await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${tgToken}/sendMessage`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({

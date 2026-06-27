@@ -136,7 +136,7 @@ async function executeArchiveSOS(task: ExecutionTask): Promise<ExecutionResult> 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,7 +180,7 @@ async function executeSendNotification(task: ExecutionTask): Promise<ExecutionRe
       ? task.context.message
       : `Агент ${task.executor_agent_id}: ${task.description}`;
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
@@ -518,7 +518,7 @@ async function executeBulkNotify(task: ExecutionTask): Promise<ExecutionResult> 
       'Источник: Execution Pack / bulk_notify',
     ].join('\n');
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
@@ -581,7 +581,7 @@ async function executeScheduleSuggest(task: ExecutionTask): Promise<ExecutionRes
       'Источник: Execution Pack / schedule_suggest',
     ].join('\n');
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
@@ -725,7 +725,7 @@ async function executeTourSuspend(task: ExecutionTask): Promise<ExecutionResult>
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -785,7 +785,7 @@ async function executeOperatorWarning(task: ExecutionTask): Promise<ExecutionRes
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -889,7 +889,7 @@ async function executeSecurityBlock(task: ExecutionTask): Promise<ExecutionResul
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -951,7 +951,7 @@ async function executeZoneCapacity(task: ExecutionTask): Promise<ExecutionResult
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1023,7 +1023,7 @@ async function executeFlagPayment(task: ExecutionTask): Promise<ExecutionResult>
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -20,7 +20,7 @@ async function notifyArtemWish(message: string, category: string, priority: stri
     `<a href="https://tourhab.ru/hub/admin/safety">Открыть дашборд</a>`,
   ].join('\n');
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),

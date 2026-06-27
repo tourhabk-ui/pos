@@ -187,7 +187,7 @@ export async function executeABScaleWinner(task: ExecutionTask): Promise<Executi
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId   = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId) {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

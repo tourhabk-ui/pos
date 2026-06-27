@@ -40,7 +40,7 @@ const BodySchema = z.object({
 // ── Telegram API helpers ──────────────────────────────────────────────────────
 
 function token(): string { return process.env.REPOSTER_TG_BOT_TOKEN ?? ''; }
-function tgUrl(method: string) { return `https://api.telegram.org/bot${token()}/${method}`; }
+function tgUrl(method: string) { return `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token()}/${method}`; }
 
 interface TgPhotoSize { file_id: string; width: number; height: number }
 interface TgMessage {
@@ -89,7 +89,7 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
     const res = await fetch(`${tgUrl('getFile')}?file_id=${fileId}`);
     const data = (await res.json()) as { ok: boolean; result?: { file_path: string } };
     if (!data.ok || !data.result?.file_path) return null;
-    return `https://api.telegram.org/file/bot${token()}/${data.result.file_path}`;
+    return `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/file/bot${token()}/${data.result.file_path}`;
   } catch {
     return null;
   }

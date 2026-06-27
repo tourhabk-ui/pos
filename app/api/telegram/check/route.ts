@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Проверка getMe
-    const meResponse = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meResponse = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/getMe`);
     const meData = await meResponse.json();
 
     if (!meData.ok) {
@@ -34,11 +34,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Проверка webhook
-    const webhookResponse = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+    const webhookResponse = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/getWebhookInfo`);
     const webhookData = await webhookResponse.json();
 
     // Проверка updates
-    const updatesResponse = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
+    const updatesResponse = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/getUpdates?limit=1`);
     const updatesData = await updatesResponse.json();
 
     return NextResponse.json({

@@ -26,7 +26,7 @@ function sendTgAlertAsync(text: string): void {
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   // fire-and-forget — не блокирует запись в agent_run_history
-  void fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  void fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),

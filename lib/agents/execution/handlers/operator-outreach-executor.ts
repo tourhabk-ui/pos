@@ -137,7 +137,7 @@ async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Pr
     `<code>${inviteText}</code>`,
   ].filter(l => l !== '').join('\n');
 
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+  const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
@@ -225,7 +225,7 @@ export async function executeOperatorOutreach(task: ExecutionTask): Promise<Exec
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId   = process.env.TELEGRAM_CHAT_ID;
   if (botToken && chatId && (foundCount > 0 || errors.length > 0)) {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

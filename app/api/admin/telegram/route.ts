@@ -21,7 +21,7 @@ async function resolveToken(): Promise<string> {
 type TgResponse<T> = { ok: boolean; result?: T; description?: string };
 
 async function tgCall<T>(token: string, method: string, body?: unknown): Promise<TgResponse<T>> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/${method}`, {
     method: body ? 'POST' : 'GET',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
