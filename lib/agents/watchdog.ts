@@ -219,10 +219,15 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
     }
     const silenceMin = Math.round((Date.now() - new Date(lastSeen).getTime()) / 60000);
     if (silenceMin > 15) {
+      // Запуски успешны, но GitHub Actions задерживает scheduled-cron (*/5) до 60-95 мин под нагрузкой —
+      // это не биллинг. Durable-фикс: внешний планировщик cron-job.org дёргает endpoint точно по расписанию.
+      const cause = silenceMin > 120
+        ? 'cron не запускался >2ч — проверь GitHub Actions/CRON_SECRET'
+        : 'GitHub Actions задерживает scheduled-cron; durable-фикс — cron-job.org каждые 5 мин на /api/cron/safety-ingest';
       return {
         type: 'seismic_cron_dead',
         count: silenceMin,
-        details: `КРИТИЧНО: Сейсмо-мониторинг молчит ${silenceMin} мин (норма ≤5 мин). GitHub Actions billing?`,
+        details: `КРИТИЧНО: Сейсмо-мониторинг молчит ${silenceMin} мин (норма ≤5 мин). ${cause}.`,
       };
     }
     return null;
