@@ -32,17 +32,24 @@ interface RssItem {
   source: string;
 }
 
-const RSS_SOURCES = [
-  // AI & Tech
-  { url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI' },
-  { url: 'https://habr.com/ru/rss/hub/machine_learning/all/?fl=ru', label: 'Habr ML' },
+const RSS_SOURCES: Array<{ url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }> = [
+  // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
+  { url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
+  { url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
+  { url: 'https://www.marktechpost.com/feed/',         label: 'MarkTechPost',   category: 'ai' },
+  { url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
+  // AI & Tech — русский слой
+  { url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
   // Travel
-  { url: 'https://www.rata-news.ru/rss', label: 'RATA' },
-  { url: 'https://tourprom.ru/rss', label: 'Tourprom' },
+  { url: 'https://www.rata-news.ru/rss', label: 'RATA',     category: 'travel' },
+  { url: 'https://tourprom.ru/rss',      label: 'Tourprom', category: 'travel' },
   // Kamchatka
-  { url: 'https://www.kamgov.ru/rss', label: 'Kamgov' },
-  { url: 'https://41.mchs.gov.ru/rss', label: 'МЧС Камчатка' },
+  { url: 'https://www.kamgov.ru/rss',    label: 'Kamgov',        category: 'kamchatka' },
+  { url: 'https://41.mchs.gov.ru/rss',   label: 'МЧС Камчатка',  category: 'kamchatka' },
 ];
+
+// Метки AI-источников — для отдельного поста в @ai_hub_money
+const AI_LABELS = new Set(RSS_SOURCES.filter(s => s.category === 'ai').map(s => s.label));
 
 async function fetchRssWithRetry(url: string, options: RequestInit, maxAttempts = 3): Promise<Response> {
   let lastErr: unknown;
@@ -70,12 +77,22 @@ async function fetchRss(url: string, label: string): Promise<RssItem[]> {
     });
     const xml = await res.text();
     const items: RssItem[] = [];
-    const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
+    // RSS использует <item>, Atom (напр. Simon Willison) — <entry>. Поддерживаем оба.
+    const blockRegex = /<(item|entry)[^>]*>([\s\S]*?)<\/\1>/gi;
     let match;
-    while ((match = itemRegex.exec(xml)) !== null && items.length < 5) {
-      const block = match[1];
-      const title = (/<title[^>]*><!\[CDATA\[(.*?)\]\]><\/title>|<title[^>]*>(.*?)<\/title>/i.exec(block)?.[1] ?? '').trim();
-      const link = (/<link[^>]*>(.*?)<\/link>|<guid[^>]*>(https?[^<]+)<\/guid>/i.exec(block)?.[1] ?? '').trim();
+    while ((match = blockRegex.exec(xml)) !== null && items.length < 5) {
+      const block = match[2];
+      const title = (
+        /<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title[^>]*>([\s\S]*?)<\/title>/i.exec(block)
+          ?.slice(1).find(Boolean) ?? ''
+      ).trim();
+      // RSS: <link>URL</link> | Atom: <link href="URL"/> | fallback: <guid>
+      const link = (
+        /<link[^>]*href=["']([^"']+)["']/i.exec(block)?.[1]      // Atom
+        ?? /<link[^>]*>(https?[^<]+)<\/link>/i.exec(block)?.[1]   // RSS
+        ?? /<guid[^>]*>(https?[^<]+)<\/guid>/i.exec(block)?.[1]   // fallback
+        ?? ''
+      ).trim();
       if (title && title.length > 5) {
         items.push({ title, url: link, source: label });
       }
@@ -265,7 +282,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // Post AI & Tech section only to the AI channel (@ai_hub_money — vibe-coding, 40K subs)
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (aiChannelId) {
-    const aiItems = dedupedItems.filter(i => i.source === 'Habr AI' || i.source === 'Habr ML');
+    const aiItems = dedupedItems.filter(i => AI_LABELS.has(i.source));
     if (aiItems.length > 0) {
       const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
       const aiSignals = aiItems
@@ -274,36 +291,36 @@ export async function runScoutDigest(): Promise<DigestResult> {
       const aiMessages: ChatMessage[] = [
         {
           role: 'system',
-          content: `Ты редактор Telegram-канала о вайб-кодинге и AI-разработке (40К подписчиков).
-Читатели — разработчики, следящие за Claude, Cursor, Grok, Copilot, Windsurf.
+          content: `Ты практикующий AI-инженер и редактор Telegram-канала о вайб-кодинге (40К подписчиков).
+Читатели САМИ строят с LLM и агентами: Claude Code, Cursor, LangGraph, MCP, локальные модели. Им не нужен пересказ — нужен сигнал «что попробовать сегодня» и почему это меняет их работу.
 
-Из RSS-сигналов Habr выдели 2-3 главных инсайта для AI-разработчика.
-Фокус: новые модели, обновления инструментов, промпт-хаки, вайб-кодинг, агенты.
+Из сигналов выбери 2-3 САМЫХ СИЛЬНЫХ материала (новая модель/фича, рабочий приём, агентная архитектура, локальный деплой). Слабое и вторичное («что такое нейросеть», вводные туториалы) — выбрасывай, лучше 2 сильных, чем 3 с водой.
 
-ОБЯЗАТЕЛЬНЫЙ ФОРМАТ — только Telegram HTML, строго эта структура:
+Для каждого дай ЭКСПЕРТНОЕ саммари, не журналистское:
+- что конкретно сделали (версии, цифры, железо, инструмент)
+- <b>Почему важно:</b> практический takeaway — что это даёт тому, кто строит агентов прямо сейчас
+
+ОБЯЗАТЕЛЬНЫЙ ФОРМАТ — только Telegram HTML:
 
 <b>AI-дайджест · ${today}</b>
 
-<b>[Заголовок первого инсайта — 5-8 слов]</b>
-[2-3 предложения: суть + что это даёт разработчику. Конкретно: версии, цифры, инструменты.]
-<a href="[URL статьи если есть]">Читать на Habr →</a>
+<b>[Цепляющий заголовок — суть в 5-8 слов]</b>
+[2 предложения: что сделали, конкретика — версии/цифры/инструмент]
+<b>Почему важно:</b> [1-2 предложения: практический вывод для строителя агентов]
+<a href="URL">Читать →</a>
 
-<blockquote expandable>[Дополнительный контекст или нюанс — 1-2 предложения. Что это меняет в практике.]</blockquote>
+<b>[Второй заголовок]</b>
+[2 предложения конкретики]
+<b>Почему важно:</b> [практический вывод]
+<a href="URL">Читать →</a>
 
-<b>[Заголовок второго инсайта]</b>
-[2-3 предложения]
-<a href="[URL если есть]">Читать →</a>
-
-<b>[Заголовок третьего инсайта если есть]</b>
-[2-3 предложения]
-
-<i>Источник: Habr AI/ML</i>
+<blockquote expandable>[Необязательный третий материал или глубокий нюанс — что меняется в практике]</blockquote>
 
 ПРАВИЛА:
-- Включай <a href="URL"> только если URL реально был в сигнале
-- Без буллитов (•) и нумерации
-- Без слов "инсайт", "важно", "интересно" — только суть
-- Пиши по-русски, профессионально, без воды`,
+- <a href="URL"> только если URL реально был в сигнале
+- Без буллитов (•) и нумерации, без «интересно/важно отметить»
+- Технический, уверенный тон. Как пишет инженер инженерам, а не SMM
+- Пиши по-русски (даже если источник английский — синтезируй русский инсайт)`,
         },
         {
           role: 'user',
