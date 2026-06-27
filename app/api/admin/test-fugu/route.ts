@@ -38,6 +38,30 @@ export async function GET(request: NextRequest) {
     },
   ];
 
+  // ── Сырая диагностика Sakana: реальный HTTP-статус и тело ответа ──
+  const fuguKey = process.env.FUGU_API_KEY || null;
+  const raw: { key_present: boolean; key_len: number; status: number | null; body: string | null; error: string | null } = {
+    key_present: !!fuguKey,
+    key_len: fuguKey?.length ?? 0,
+    status: null,
+    body: null,
+    error: null,
+  };
+  if (fuguKey) {
+    try {
+      const res = await fetch('https://api.sakana.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${fuguKey}` },
+        body: JSON.stringify({ model: 'fugu-ultra', temperature: 0.4, max_tokens: 50, messages: [{ role: 'user', content: 'Скажи: ок' }] }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      raw.status = res.status;
+      raw.body = (await res.text()).slice(0, 800);
+    } catch (e) {
+      raw.error = e instanceof Error ? `${e.name}: ${e.message}` : 'fetch error';
+    }
+  }
+
   const fuguT0 = Date.now();
   let fuguText: string | null = null;
   let fuguError: string | null = null;
@@ -62,6 +86,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     title,
+    raw_diagnostic: raw,
     fugu: {
       available: fuguText !== null,
       error: fuguError,
