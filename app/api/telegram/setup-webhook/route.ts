@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { publicWebhookBase } from '@/lib/telegram/operator-availability';
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get('x-cron-secret');
@@ -43,9 +44,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Токен для бота «${botType}» не задан` }, { status: 500 });
   }
 
-  const appUrl = body.appUrl
-    || process.env.NEXT_PUBLIC_APP_URL
-    || 'https://tourhab.ru';
+  // Публичный домен (не внутренний *.twc1.net, который Telegram не резолвит)
+  const appUrl = body.appUrl || publicWebhookBase();
 
   const webhookPath = webhookPathMap[botType] ?? '/api/telegram/webhook';
   const webhookUrl = `${appUrl}${webhookPath}`;
