@@ -159,6 +159,8 @@ export async function POST(req: NextRequest) {
               tourist_phone:    data.tourist_phone,
               tourist_email:    data.tourist_email,
               special_requests: data.special_requests,
+              operator_id:      result.tour.operator_id,
+              booking_id:       String(result.bookingId),
             });
             if (uonId != null) {
               await pool.query(
