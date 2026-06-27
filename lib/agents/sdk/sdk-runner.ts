@@ -244,12 +244,18 @@ async function logSession(s: SessionLog): Promise<void> {
 export function makeQueryTool(agentId: string): SDKTool {
   return {
     name:        'query_db',
-    description: 'Выполнить READ-ONLY SQL запрос к базе данных платформы. Только SELECT. Лимит 100 строк.',
+    description: 'READ-ONLY SQL к базе платформы (PostgreSQL). Разрешены только SELECT/WITH, максимум 100 строк. ' +
+      'Канонические таблицы: operator_tours (туры: title, base_price, activity_type, duration_hours, is_active), ' +
+      'operator_bookings (бронирования, статус в колонке booking_status), ' +
+      'places (точки/локации: name, lat, lng, location_type), ' +
+      'kamchatka_routes (маршруты: title, distance_km, difficulty), ' +
+      'partners (операторы и гиды), leads (заявки). ' +
+      'Перечисляй нужные колонки явно. Значения передавай только через параметры $1..$N, не вставляй их в текст запроса.',
     parameters: {
       type: 'object',
       properties: {
-        sql:    { type: 'string', description: 'SQL SELECT запрос с параметрами $1..$N' },
-        params: { type: 'string', description: 'JSON-массив параметров, например [30, "active"]' },
+        sql:    { type: 'string', description: 'SELECT/WITH запрос. Значения только через плейсхолдеры $1..$N, конкатенация значений в строку запрещена. Перечисляй колонки явно.' },
+        params: { type: 'string', description: 'JSON-массив значений для $1..$N по порядку, например [30, "active"]. Пустой [] если параметров нет.' },
       },
       required: ['sql'],
     },
