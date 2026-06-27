@@ -17,7 +17,7 @@ const GITHUB_REPO = 'tourhabk-ui/pos';
 const GITHUB_API  = 'https://api.github.com';
 
 // Публичные эндпоинты для health probe — только GET, без auth, без нагрузки
-const PROD_BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+const PROD_BASE = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
 const PUBLIC_ENDPOINTS = [
   '/api/public/safety-status',
   '/api/safety/geofence-zones',

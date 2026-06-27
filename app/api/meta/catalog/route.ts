@@ -20,7 +20,7 @@ import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://vedarai.ru';
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
 const FALLBACK_IMAGE = `${APP_URL}/images/hero/hero-dark.jpeg`;
 
 interface TourRow {

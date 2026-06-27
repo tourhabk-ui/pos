@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   // Self-call по тому же origin, на который пришёл запрос (vedarai.ru/tourhab.ru —
   // что бы ни было). Хардкод домена ломался, если приложение жило на другом домене.
-  const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+  const BASE_URL = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || request.nextUrl.origin;
 
   try {
     // Call the enrichment API internally

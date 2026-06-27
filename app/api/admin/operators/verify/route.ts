@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
               <p>Здравствуйте, <strong>${operator.name}</strong>!</p>
               <p>Компания <strong>${operator.company_name}</strong> успешно верифицирована на платформе KamchatourHub.</p>
               <p>Теперь вы можете войти в личный кабинет и начать размещать туры.</p>
-              <p><a href="${process.env.NEXT_PUBLIC_APP_URL || ''}/auth/login" style="color:#00D4FF">Войти в кабинет</a></p>
+              <p><a href="${(process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || ''}/auth/login" style="color:#00D4FF">Войти в кабинет</a></p>
             `,
           });
         } catch {

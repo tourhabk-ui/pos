@@ -36,7 +36,7 @@ async function tgSend(chatId: string, text: string): Promise<void> {
  */
 export async function notifyOperatorProposal(proposal: LeadProposalData): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID ?? '';
-  const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const baseUrl = process.env.NEXTAUTH_URL ?? (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
 
   const scoreTag = proposal.ai_score >= 80 ? ' [HOT]' : proposal.ai_score >= 50 ? ' [OK]' : '';
   const toursText = proposal.primary_tour
@@ -72,7 +72,7 @@ export async function notifyOperatorNewLead(params: {
   routeTitle?: string;
 }): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID ?? '';
-  const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const baseUrl = process.env.NEXTAUTH_URL ?? (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
 
   const text = [
     '<b>Новая заявка</b>',

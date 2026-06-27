@@ -58,7 +58,7 @@ async function checkRouteExists(routeId: string): Promise<{ exists: boolean; rou
  * Защита от расхождений между БД и билдом.
  */
 async function checkPageAccessible(routeId: string): Promise<boolean> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru';
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -80,7 +80,7 @@ async function checkPageAccessible(routeId: string): Promise<boolean> {
  * Проверяет все ссылки вида tourhab.ru/... в тексте поста.
  */
 function extractInternalLinks(text: string): string[] {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://tourhab.ru').replace(/\/$/, '');
+  const appUrl = ((process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru').replace(/\/$/, '');
   const regex = new RegExp(`${appUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/[\\w\\d/\\-]+)`, 'g');
   const links: string[] = [];
   let match;
