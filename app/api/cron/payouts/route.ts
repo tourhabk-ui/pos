@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       const formatted = new Intl.NumberFormat('ru-RU', {
         style: 'currency', currency: 'RUB', minimumFractionDigits: 0,
       }).format(totalNet);
-      fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

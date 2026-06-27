@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
 
   const res = await fetch(
-    `https://api.telegram.org/bot${botToken}/setWebhook`,
+    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/setWebhook`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   // Регистрируем команды
   if (botType === 'kuzmich') {
-    await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/setMyCommands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (botType === 'main') {
-    await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/setMyCommands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

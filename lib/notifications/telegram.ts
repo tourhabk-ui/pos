@@ -28,7 +28,7 @@ export class TelegramNotificationService {
   }
 
   private get baseUrl(): string {
-    return `https://api.telegram.org/bot${this.botToken}`;
+    return `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${this.botToken}`;
   }
 
   // Отправка сообщения в Telegram

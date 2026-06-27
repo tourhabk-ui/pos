@@ -39,7 +39,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
     if (secret) body.secret_token = secret;
 
-    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getWebhookInfo`);
     const data = await res.json();
     return NextResponse.json({ success: true, info: data.result });
   } catch (e) {

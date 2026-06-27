@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 async function registerWebhook(token: string, appUrl: string) {
   const webhookUrl = `${appUrl}/api/telegram/kuzmich`;
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+  const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: webhookUrl, drop_pending_updates: true, allowed_updates: ['message'] }),
@@ -19,7 +19,7 @@ async function registerWebhook(token: string, appUrl: string) {
   const data = await res.json() as { ok: boolean; description?: string };
 
   if (data.ok) {
-    await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setMyCommands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commands: [

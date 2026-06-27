@@ -20,7 +20,7 @@ async function notifyOwner(text: string): Promise<void> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
   const ownerId = process.env.TELEGRAM_OWNER_ID ?? '171286547';
   if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -359,7 +359,7 @@ export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
 
   let webhookInfo: { url: string; pending_update_count: number };
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getWebhookInfo`);
     const data = await res.json() as { ok: boolean; result: { url: string; pending_update_count: number } };
     if (!data.ok) {
       return { status: 'failed', current_url: null, expected_url: expectedUrl, pending_update_count: 0, error: 'getWebhookInfo вернул ok=false' };
@@ -385,7 +385,7 @@ export async function checkAndRestoreWebhook(): Promise<WebhookCheckResult> {
   // Попытка восстановить
   try {
     const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
-    const setRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    const setRes = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -53,7 +53,7 @@ async function tgPost(chatId: string, text: string, botToken?: string): Promise<
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return { ok: false, error: 'not configured' };
   const data = await tgFetchWithRetry(
-    `https://api.telegram.org/bot${token}/sendMessage`,
+    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`,
     { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: false },
   );
   return { ok: data.ok, error: data.description };
@@ -64,7 +64,7 @@ async function tgPostPhoto(chatId: string, photoUrl: string, caption: string, bo
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return { ok: false, error: 'not configured' };
   const data = await tgFetchWithRetry(
-    `https://api.telegram.org/bot${token}/sendPhoto`,
+    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`,
     {
       chat_id: chatId,
       photo: photoUrl,
@@ -882,7 +882,7 @@ export async function notifyAdminNewLead(lead: {
   };
 
   const tgData = await tgFetchWithRetry(
-    `https://api.telegram.org/bot${token}/sendMessage`,
+    `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`,
     {
       chat_id: chatId,
       text: lines.join('\n'),

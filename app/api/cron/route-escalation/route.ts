@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
 
             const botToken = process.env.TELEGRAM_BOT_TOKEN;
             if (botToken) {
-              fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
         if (route.emergency_contact_telegram_chat_id && route.emergency_contact_consent) {
           const botToken = process.env.TELEGRAM_BOT_TOKEN;
           if (botToken) {
-            const tgResult = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            const tgResult = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -234,7 +234,7 @@ export async function GET(request: NextRequest) {
         if (route.emergency_contact_telegram_chat_id) {
           const botToken = process.env.TELEGRAM_BOT_TOKEN;
           if (botToken) {
-            const tgResult = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            const tgResult = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -261,7 +261,7 @@ export async function GET(request: NextRequest) {
         const adminChatId = process.env.TELEGRAM_CHAT_ID;
         const botToken = process.env.TELEGRAM_BOT_TOKEN;
         if (botToken && adminChatId) {
-          fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   }
 
   const tg = async (method: string, body?: unknown) => {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/${method}`, {
       method: body ? 'POST' : 'GET',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,

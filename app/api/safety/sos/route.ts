@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       `🌐 IP: ${ip}`,
     ].filter(Boolean).join('\n');
 
-    fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

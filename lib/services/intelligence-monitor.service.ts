@@ -583,7 +583,7 @@ async function sendTelegramAlert(findings: IntelligenceFinding[]): Promise<void>
     lines.push('');
   }
 
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

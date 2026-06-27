@@ -62,7 +62,7 @@ async function sendToKiloClaw(opts: {
   ].filter(Boolean).join('\n');
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -65,10 +65,10 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
   const token = getBotToken();
   if (!token) return null;
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getFile?file_id=${fileId}`);
     const data = (await res.json()) as { ok: boolean; result?: { file_path: string } };
     if (!data.ok || !data.result?.file_path) return null;
-    return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
+    return `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/file/bot${token}/${data.result.file_path}`;
   } catch {
     return null;
   }

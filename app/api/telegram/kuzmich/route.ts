@@ -67,7 +67,7 @@ async function tgReply(chatId: number, text: string, extra?: Record<string, unkn
   const token = await botToken();
   if (!token) return;
   const clean = sanitizeForTelegram(text);
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const url = `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`;
   const base = { chat_id: chatId, disable_web_page_preview: true, ...extra };
 
   // Attempt 1: HTML
@@ -99,7 +99,7 @@ async function tgReply(chatId: number, text: string, extra?: Record<string, unkn
 async function tgAnswerCallback(callbackQueryId: string, text?: string): Promise<void> {
   const token = await botToken();
   if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/answerCallbackQuery`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
@@ -147,7 +147,7 @@ function hasTourRecommendation(answer: string): boolean {
 async function sendBookingInlineButton(chatId: number): Promise<void> {
   const token = await botToken();
   if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -175,7 +175,7 @@ async function downloadTgFile(fileId: string): Promise<{ base64: string; mimeTyp
   if (!token) return null;
   try {
     const fileRes = await fetch(
-      `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`,
+      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/getFile?file_id=${fileId}`,
       { signal: AbortSignal.timeout(8_000) },
     );
     const fileJson = await fileRes.json() as { ok: boolean; result?: { file_path?: string } };
@@ -183,7 +183,7 @@ async function downloadTgFile(fileId: string): Promise<{ base64: string; mimeTyp
     if (!filePath) return null;
 
     const imgRes = await fetch(
-      `https://api.telegram.org/file/bot${token}/${filePath}`,
+      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/file/bot${token}/${filePath}`,
       { signal: AbortSignal.timeout(15_000) },
     );
     if (!imgRes.ok) return null;
