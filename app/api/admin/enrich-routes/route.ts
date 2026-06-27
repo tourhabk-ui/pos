@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
 
 // ── Mode: description ─────────────────────────────────────────────────────────
 
-async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {
+export async function enrichDescriptions(batchSize: number, force: boolean, dryRun: boolean) {
   const condition = force
     ? `(description IS NULL OR LENGTH(description) < 300)`
     : `(description IS NULL OR description = '' OR LENGTH(description) < 300)`;

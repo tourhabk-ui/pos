@@ -9,10 +9,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { enrichDescriptions } from '@/app/api/admin/enrich-routes/route';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const secret = request.headers.get('authorization')?.replace('Bearer ', '');
+  const secret = getCronSecret(request);
   const cronSecret = process.env.CRON_SECRET;
 
   if (!cronSecret) {
@@ -22,23 +27,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Self-call по тому же origin, на который пришёл запрос (vedarai.ru/tourhab.ru —
-  // что бы ни было). Хардкод домена ломался, если приложение жило на другом домене.
-  const BASE_URL = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || request.nextUrl.origin;
-
   try {
-    // Call the enrichment API internally
-    const res = await fetch(`${BASE_URL}/api/admin/enrich-routes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-key': cronSecret,
-      },
-      body: JSON.stringify({ mode: 'description', batch: 20, dryRun: false }),
-    });
-
-    const data = await res.json();
-    return NextResponse.json(data);
+    // Прямой вызов логики обогащения — без HTTP self-call (он падал с "fetch failed":
+    // сервер не всегда может дёрнуть собственный публичный домен / hairpin NAT).
+    return await enrichDescriptions(20, false, false);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal error' },

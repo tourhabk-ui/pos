@@ -2,7 +2,7 @@ name: Cron Kuzmich Sezon
 
 on:
   schedule:
-    - cron: '0 16 * * 2,6'  # 16:00 UTC вт/сб — сезонный пост Кузьмича
+    - cron: '23 16 * * 2,6'  # 16:23 UTC вт/сб — сезонный пост Кузьмича (нечётная минута: GitHub дропает запуски ровно в :00)
   workflow_dispatch:
 
 jobs:
