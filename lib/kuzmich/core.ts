@@ -261,6 +261,47 @@ export function buildBotMemoryContext(mem: BotMemory): string {
   return `\n\n[ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ]\n${parts.join(' ')}\nАдаптируй рекомендации. Не упоминай явно что "помнишь".`;
 }
 
+/**
+ * SuperContext: текущая ситуация туриста — активные заявки и брони.
+ * Чтобы первый же ответ Кузьмича был в контексте его реальных планов.
+ * Только факты из БД (никакой выдумки). Любой сбой — пустая строка, не блокирует.
+ */
+async function loadUserSituation(chatId: number): Promise<string> {
+  const parts: string[] = [];
+  // Заявки — прямая связь по telegram_chat_id
+  try {
+    const { rows } = await pool.query<{ route_title: string | null; status: string }>(
+      `SELECT route_title, status
+       FROM leads
+       WHERE telegram_chat_id = $1 AND created_at > NOW() - INTERVAL '60 days'
+       ORDER BY created_at DESC LIMIT 3`,
+      [String(chatId)],
+    );
+    if (rows.length) {
+      parts.push('Заявки: ' + rows.map(r => `${r.route_title ?? 'тур'} (${r.status})`).join(', '));
+    }
+  } catch { /* skip */ }
+  // Брони — через users.telegram_id → operator_bookings → operator_tours
+  try {
+    const { rows } = await pool.query<{ title: string; booking_status: string }>(
+      `SELECT t.title, b.booking_status
+       FROM operator_bookings b
+       JOIN users u ON u.id = b.user_id
+       JOIN operator_tours t ON t.id = b.operator_tour_id
+       WHERE u.telegram_id = $1
+         AND b.booking_status IN ('new','confirmed')
+         AND b.deleted_at IS NULL
+       ORDER BY b.created_at DESC LIMIT 3`,
+      [chatId],
+    );
+    if (rows.length) {
+      parts.push('Брони: ' + rows.map(r => `${r.title} — ${r.booking_status}`).join('; '));
+    }
+  } catch { /* skip */ }
+  if (!parts.length) return '';
+  return `=== СИТУАЦИЯ ТУРИСТА (учитывай в ответе, не выдумывай сверх этого) ===\n${parts.join('\n')}`;
+}
+
 function extractBotMemoryPatch(text: string): Partial<BotMemory> {
   const lower = text.toLowerCase();
   const ACTIVITY_KW: Record<string, string> = {
@@ -1629,7 +1670,7 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
@@ -1637,6 +1678,7 @@ export async function aiChat(opts: {
     searchRoutes(text),
     searchOperatorAvailability(text),
     getZoneWeatherForText(text),
+    loadUserSituation(chatId),
   ]);
 
   // Строим системный промпт с маркером для prompt caching:
@@ -1644,7 +1686,7 @@ export async function aiChat(opts: {
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || ''].filter(Boolean).join('\n\n');
+  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || ''].filter(Boolean).join('\n\n');
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
