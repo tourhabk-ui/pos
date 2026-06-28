@@ -1,9 +1,18 @@
 /**
- * Imports places from idilesom.com/kam/places?district=0 into the `places` table.
- * Deduplicates by name similarity against existing places.
- * If GPS track found — also inserts into `kamchatka_routes`.
+ * Imports geographic places from idilesom.com/kam/places?district=0.
  *
- * ~480 places across 24 AJAX pages; uses parallel fetching (20 concurrent).
+ * idilesom "places" = geographic destinations (volcano, lake, spring…)
+ * with an optional GPS hiking track to reach them.
+ *
+ * Mapping:
+ *   places          ← geographic point (name, coords, type, description)
+ *   kamchatka_routes ← GPS track of the hike, if present (≥3 waypoints)
+ *   operator_tours  ← NEVER (idilesom has no prices or booking)
+ *
+ * Three-layer deduplication:
+ *   1. source_url exact match  — already imported this idilesom id
+ *   2. coordinate proximity    — within 500 m of existing place of any type
+ *   3. name similarity         — geo-prefix-stripped word overlap ≥ 2
  */
 
 import { pool } from '@/lib/db-pool';
@@ -17,41 +26,86 @@ const HEADERS = {
 const CONCURRENCY = 20;
 const PAGE_DELAY_MS = 300;
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+// ── Geo type detection ────────────────────────────────────────────────────────
 
-// ── Detect location type from title + description ─────────────────────────────
+const GEO_TYPE_RULES: Array<{ re: RegExp; type: string }> = [
+  { re: /вулкан|сопк|кратер/,              type: 'volcano'   },
+  { re: /источник|термал|гейзер|нарзан/,   type: 'hot_spring'},
+  { re: /озеро|лагун/,                     type: 'lake'      },
+  { re: /водопад/,                          type: 'waterfall' },
+  { re: /пляж/,                             type: 'beach'     },
+  { re: /бухт/,                             type: 'bay'       },
+  { re: /\bмыс\b/,                          type: 'cape'      },
+  { re: /\bрека\b|\bручей\b/,              type: 'river'     },
+  { re: /пещер/,                            type: 'cave'      },
+  { re: /перевал|хребет|горн|гора|массив|бат|скал/, type: 'mountain' },
+  { re: /смотров/,                          type: 'viewpoint' },
+  { re: /остров/,                           type: 'island'    },
+  { re: /долин|лес|парк|заповед|поле/,     type: 'forest'    },
+  { re: /мыс|коса/,                         type: 'cape'      },
+  { re: /каньон|ущель/,                     type: 'mountain'  },
+];
 
-function detectLocationType(text: string): string {
+function detectLocationType(text: string): string | null {
   const t = text.toLowerCase();
-  if (t.match(/вулкан|сопка|кратер/))            return 'volcano';
-  if (t.match(/источник|термаль|гейзер|нарзан/)) return 'hot_spring';
-  if (t.match(/озеро|лагуна/))                   return 'lake';
-  if (t.match(/водопад/))                        return 'waterfall';
-  if (t.match(/пляж/))                           return 'beach';
-  if (t.match(/бухта/))                          return 'bay';
-  if (t.match(/\bмыс\b/))                        return 'cape';
-  if (t.match(/река|ручей/))                     return 'river';
-  if (t.match(/пещер/))                          return 'cave';
-  if (t.match(/перевал|хребет|горн|гора|массив/)) return 'mountain';
-  if (t.match(/смотров/))                        return 'viewpoint';
-  if (t.match(/остров/))                         return 'island';
-  if (t.match(/лес|парк|заповед/))               return 'forest';
-  return 'other';
+  for (const { re, type } of GEO_TYPE_RULES) {
+    if (re.test(t)) return type;
+  }
+  return null;
+}
+
+// ── Article / non-geographic filter ──────────────────────────────────────────
+// idilesom mixes geographic places with travel articles in the same list.
+// Articles have no geographic type and read like sentences/phrases.
+
+const ARTICLE_STARTS = /^(пока |когда |как |где |что |зачем |почему |лучш|топ |топ-|интересн|секрет|совет|история|всё что|для тех кто|маршрут на|поход на|подъём|путеводит)/i;
+
+function isArticleOrCommercial(title: string, locationType: string | null): boolean {
+  if (locationType !== null) return false;     // has a recognized geo type → keep
+  if (ARTICLE_STARTS.test(title)) return true; // looks like an article headline
+  // Generic multi-word title with no geo type and no recognizable proper noun pattern
+  const words = title.split(/\s+/);
+  // Proper geographic name: usually 1-4 words, each word starts with capital
+  const allCapitalized = words.every(w => /^[А-ЯA-Z]/.test(w));
+  return !allCapitalized;                       // lower-case words → article
+}
+
+// ── Haversine distance (km) ───────────────────────────────────────────────────
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── Name normalization & similarity ──────────────────────────────────────────
+// Remove geographic prefixes before comparing so:
+//   "Вулкан Авача" == "Авачинский вулкан" gets higher word overlap.
 
-function normalize(s: string): string {
-  return s.toLowerCase()
+const GEO_PREFIXES = /^(вулкан|гора|озеро|река|мыс|бухта|хребет|перевал|остров|долина|источник|водопад|пляж|ручей|пещера|ущелье)\s+/gi;
+
+function normalizeName(s: string): string {
+  return s
+    .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/[^а-яa-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(GEO_PREFIXES, '')
+    .replace(/[^а-яa-z0-9\s-]/g, ' ')
+    .replace(/[-\s]+/g, ' ')
     .trim();
 }
 
-function isSimilar(a: string, b: string): boolean {
-  const na = normalize(a), nb = normalize(b);
+function nameSimilarity(a: string, b: string): boolean {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
   if (na === nb) return true;
+  // Short exact containment: "Авача" inside "Авачинский" or vice-versa
+  if (na.length >= 5 && nb.startsWith(na.slice(0, 5))) return true;
+  if (nb.length >= 5 && na.startsWith(nb.slice(0, 5))) return true;
+  // Word overlap: ≥2 meaningful words in common
   const wordsA = na.split(' ').filter(w => w.length >= 4);
   const wordsB = new Set(nb.split(' ').filter(w => w.length >= 4));
   const overlap = wordsA.filter(w => wordsB.has(w)).length;
@@ -63,7 +117,7 @@ function isSimilar(a: string, b: string): boolean {
 async function fetchAllIds(maxPages = 50): Promise<string[]> {
   const all = new Set<string>();
 
-  // First page (plain HTML, no AJAX)
+  // First page (plain HTML)
   try {
     const res = await fetch('https://idilesom.com/kam/places?district=0', {
       headers: HEADERS,
@@ -71,13 +125,13 @@ async function fetchAllIds(maxPages = 50): Promise<string[]> {
     });
     if (res.ok) {
       const html = await res.text();
-      (html.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
+      for (const m of html.matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
     }
   } catch { /* network hiccup */ }
 
   // AJAX pages 2…N
   for (let page = 2; page <= maxPages; page++) {
-    await sleep(PAGE_DELAY_MS);
+    await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
     try {
       const res = await fetch(`https://idilesom.com/kam/places?district=0&page=${page}`, {
         headers: { ...HEADERS, 'X-Requested-With': 'XMLHttpRequest' },
@@ -86,7 +140,7 @@ async function fetchAllIds(maxPages = 50): Promise<string[]> {
       if (!res.ok) continue;
       const data = await res.json() as { empty?: boolean; list?: string };
       if (data.empty) break;
-      (data.list?.match(/\/kam\/places\/(\d+)/g) ?? []).forEach(m => all.add(m.split('/').pop()!));
+      for (const m of (data.list ?? '').matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
     } catch { continue; }
   }
 
@@ -101,9 +155,9 @@ interface ScrapedPlace {
   description: string;
   lat: number;
   lng: number;
-  locationType: string;
+  locationType: string;       // geo type (volcano, lake…) or 'other'
   sourceUrl: string;
-  coordinates: number[][];
+  coordinates: number[][];    // GPS track waypoints [lng, lat, ele?]
 }
 
 async function scrapePage(id: string): Promise<ScrapedPlace | null> {
@@ -119,16 +173,21 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
     const ogTitle = html.match(/property="og:title"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
     const titleFallback = html.match(/<title>([^<]+)/)?.[1]?.split(' Камчатский')[0]?.trim() ?? '';
     const title = ogTitle || titleFallback;
-    if (!title) return null;
+    if (!title || title.length < 3) return null;
 
-    // Description (og:description or first long <p>)
+    // Description
     const ogDesc = html.match(/property="og:description"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
-    const descBlocks = [...html.matchAll(/<p[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/p>/gi)]
+    const descMatch = [...html.matchAll(/<p[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/p>/gi)]
       .map(m => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
-      .filter(t => t.length > 30);
-    const description = descBlocks[0] || ogDesc || '';
+      .find(t => t.length > 30);
+    const description = descMatch || ogDesc || '';
 
-    // Coordinates from JSON-LD / meta
+    // Check: is this an article/non-geographic entry?
+    const locationType = detectLocationType(title + ' ' + description) ?? 'other';
+    const geoType = locationType !== 'other' ? locationType : null;
+    if (isArticleOrCommercial(title, geoType)) return null;
+
+    // Coordinates (explicit JSON-LD)
     const latM = html.match(/"latitude"\s*:\s*([\d.]+)/);
     const lngM = html.match(/"longitude"\s*:\s*([\d.]+)/);
     let lat = latM ? parseFloat(latM[1]) : null;
@@ -142,8 +201,8 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
         const parsed = JSON.parse(block) as unknown;
         if (!Array.isArray(parsed) || parsed.length < 3) continue;
         const first = parsed[0];
-        if (!Array.isArray(first)) continue;
-        // Determine if [lng, lat] (GeoJSON: |val| > 90 means likely lng) or [lat, lng]
+        if (!Array.isArray(first) || first.length < 2) continue;
+        // GeoJSON = [lng, lat, ele?] — lng is usually > 90 at Kamchatka (155-167)
         const isGeoJSON = Math.abs(first[0] as number) > 90;
         const coords: number[][] = isGeoJSON
           ? (parsed as number[][]).map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
@@ -152,14 +211,15 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
       } catch { /* skip */ }
     }
 
-    // Derive center from track if no explicit coords
+    // Derive center from track midpoint if no explicit JSON-LD coords
     if ((!lat || !lng) && coordinates.length > 0) {
       const mid = coordinates[Math.floor(coordinates.length / 2)];
       lng = mid[0]; lat = mid[1];
     }
 
     if (!lat || !lng) return null;
-    // Sanity check: Kamchatka bounding box
+
+    // Kamchatka bounding box: 50–64°N, 155–167°E
     if (lat < 50 || lat > 64 || lng < 155 || lng > 167) return null;
 
     return {
@@ -168,7 +228,7 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
       description,
       lat,
       lng,
-      locationType: detectLocationType(title + ' ' + description),
+      locationType,
       sourceUrl: `https://idilesom.com/kam/places/${id}`,
       coordinates,
     };
@@ -184,8 +244,7 @@ async function runChunked<T, R>(
 ): Promise<Array<PromiseSettledResult<R>>> {
   const results: Array<PromiseSettledResult<R>> = [];
   for (let i = 0; i < items.length; i += size) {
-    const batch = items.slice(i, i + size);
-    const settled = await Promise.allSettled(batch.map(fn));
+    const settled = await Promise.allSettled(items.slice(i, i + size).map(fn));
     results.push(...settled);
   }
   return results;
@@ -195,9 +254,10 @@ async function runChunked<T, R>(
 
 export interface IdilesomPlaceResult {
   title: string;
-  status: 'imported' | 'skipped' | 'error' | 'no_coords';
+  status: 'imported' | 'skipped' | 'filtered' | 'error' | 'no_coords';
   type?: string;
   has_track?: boolean;
+  skip_reason?: string;
   error?: string;
 }
 
@@ -205,6 +265,7 @@ export interface IdilesomImportResult {
   total: number;
   imported: number;
   skipped: number;
+  filtered: number;
   no_coords: number;
   errors: number;
   duration_ms: number;
@@ -220,10 +281,29 @@ export async function importIdilesomPlaces(opts: {
   const t0 = Date.now();
   const { limit, dry_run = false } = opts;
 
-  // Load existing place names for dedup
-  const { rows: existing } = await pool.query<{ name: string }>(
-    `SELECT name FROM places WHERE is_visible = true`,
+  // Load existing places for dedup (names + coordinates + source URLs)
+  const { rows: existing } = await pool.query<{
+    name: string;
+    lat: number | null;
+    lng: number | null;
+    source_url: string | null;
+  }>(
+    `SELECT name, lat, lng, source_url FROM places WHERE is_visible = true`,
   );
+
+  // Also load idilesom source URLs already in DB (layer 1 dedup)
+  const importedUrls = new Set(
+    existing
+      .filter(r => r.source_url?.includes('idilesom'))
+      .map(r => r.source_url!),
+  );
+
+  // Places with coordinates for proximity dedup (layer 2)
+  const existingWithCoords = existing.filter(r => r.lat && r.lng) as Array<{
+    name: string; lat: number; lng: number;
+  }>;
+
+  // Names for name-similarity dedup (layer 3)
   const existingNames = existing.map(r => r.name);
 
   // Fetch all IDs from idilesom
@@ -233,7 +313,7 @@ export async function importIdilesomPlaces(opts: {
   // Scrape all pages in parallel chunks
   const settled = await runChunked(ids, scrapePage, CONCURRENCY);
 
-  let imported = 0, skipped = 0, no_coords = 0, errors = 0;
+  let imported = 0, skipped = 0, filtered = 0, no_coords = 0, errors = 0;
   const places: IdilesomPlaceResult[] = [];
 
   for (let i = 0; i < ids.length; i++) {
@@ -246,21 +326,59 @@ export async function importIdilesomPlaces(opts: {
       continue;
     }
 
-    const place = result.value;
-    if (!place) {
+    // scrapePage returned null = no coords or filtered as article
+    if (!result.value) {
       no_coords++;
       places.push({ title: `id=${id}`, status: 'no_coords' });
       continue;
     }
 
-    // Dedup check
-    const dup = existingNames.find(n => isSimilar(n, place.title));
-    if (dup) {
-      skipped++;
-      places.push({ title: place.title, status: 'skipped' });
+    const place = result.value;
+
+    // Layer 0: article/commercial already filtered in scrapePage (returns null)
+    // But note it for reporting
+    const geoType = place.locationType !== 'other' ? place.locationType : null;
+    if (isArticleOrCommercial(place.title, geoType)) {
+      filtered++;
+      places.push({ title: place.title, status: 'filtered', skip_reason: 'article_or_commercial' });
       continue;
     }
 
+    // Layer 1: source URL exact match
+    if (importedUrls.has(place.sourceUrl)) {
+      skipped++;
+      places.push({ title: place.title, status: 'skipped', skip_reason: 'url_exists' });
+      continue;
+    }
+
+    // Layer 2: coordinate proximity (≤500m from an existing place)
+    const PROXIMITY_KM = 0.5;
+    const nearDuplicate = existingWithCoords.find(
+      ex => haversineKm(ex.lat, ex.lng, place.lat, place.lng) <= PROXIMITY_KM,
+    );
+    if (nearDuplicate) {
+      skipped++;
+      places.push({
+        title: place.title,
+        status: 'skipped',
+        skip_reason: `coord_proximity: "${nearDuplicate.name}"`,
+      });
+      continue;
+    }
+
+    // Layer 3: name similarity
+    const nameDup = existingNames.find(n => nameSimilarity(n, place.title));
+    if (nameDup) {
+      skipped++;
+      places.push({
+        title: place.title,
+        status: 'skipped',
+        skip_reason: `name_match: "${nameDup.slice(0, 50)}"`,
+      });
+      continue;
+    }
+
+    // All dedup layers passed → insert
     if (!dry_run) {
       try {
         const arkId = createHash('md5')
@@ -268,6 +386,7 @@ export async function importIdilesomPlaces(opts: {
           .digest('hex')
           .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
 
+        // Insert into places (geographic point)
         await pool.query(
           `INSERT INTO places (
              ark_id, name, description, lat, lng,
@@ -278,9 +397,13 @@ export async function importIdilesomPlaces(opts: {
            place.lat, place.lng, place.locationType, place.sourceUrl],
         );
 
-        // If has GPS track — also create kamchatka_routes entry
+        // Insert GPS track into kamchatka_routes (the hiking route to this place)
         if (place.coordinates.length >= 3) {
-          const geojson = { type: 'LineString', coordinates: place.coordinates, source: 'idilesom' };
+          const geojson = JSON.stringify({
+            type: 'LineString',
+            coordinates: place.coordinates,
+            source: 'idilesom',
+          });
           await pool.query(
             `INSERT INTO kamchatka_routes (
                title, description, lat, lng, geometry,
@@ -288,14 +411,20 @@ export async function importIdilesomPlaces(opts: {
              ) VALUES ($1,$2,$3,$4,$5,$6,'idilesom.com',true,$7)
              ON CONFLICT (dedupe_key) DO NOTHING`,
             [place.title, place.description || null, place.lat, place.lng,
-             JSON.stringify(geojson), place.sourceUrl, `idilesom:${place.id}`],
+             geojson, place.sourceUrl, `idilesom:${place.id}`],
           );
         }
 
+        importedUrls.add(place.sourceUrl);
         existingNames.push(place.title);
+        existingWithCoords.push({ name: place.title, lat: place.lat, lng: place.lng });
       } catch (err) {
         errors++;
-        places.push({ title: place.title, status: 'error', error: (err instanceof Error ? err.message : String(err)).slice(0, 100) });
+        places.push({
+          title: place.title,
+          status: 'error',
+          error: (err instanceof Error ? err.message : String(err)).slice(0, 100),
+        });
         continue;
       }
     }
@@ -313,6 +442,7 @@ export async function importIdilesomPlaces(opts: {
     total: ids.length,
     imported,
     skipped,
+    filtered,
     no_coords,
     errors,
     duration_ms: Date.now() - t0,
