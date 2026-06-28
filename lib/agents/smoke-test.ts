@@ -58,7 +58,8 @@ export async function smokeTestEditorWrites(
     const msg =
       `<b>SMOKE WARN: Editor</b>\n` +
       `Обработано: ${processed} маршрутов, улучшено: 0 (ошибок: ${errors})\n` +
-      `Возможно AI не отвечает или все маршруты уже с описаниями. Проверь editor.ts.`;
+      `Скорее всего AI-провайдеры не ответили за прогон (мерцание egress / outage), а не баг editor. ` +
+      `Диагностика: GET /api/ai/debug-waterfall?secret=CRON_SECRET — покажет, какой провайдер упал и почему.`;
     sendTgAlertAsync(msg);
     return { passed: true, kind: 'all_errors', claimed: 0, actual: 0, message: msg };
   }

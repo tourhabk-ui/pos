@@ -18,6 +18,8 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
+import { searchLegislation } from '@/lib/services/legislation-importer';
+import { trimHistoryToBudget } from '@/lib/kuzmich/context-budget';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -883,7 +885,7 @@ export async function getHistory(chatId: number, mode: string): Promise<ChatMess
        ORDER BY created_at DESC LIMIT 20`,
       [chatId, mode],
     );
-    return rows.reverse() as ChatMessage[];
+    return trimHistoryToBudget(rows.reverse() as ChatMessage[]);
   } catch { return []; }
 }
 
@@ -1670,7 +1672,7 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
@@ -1679,6 +1681,7 @@ export async function aiChat(opts: {
     searchOperatorAvailability(text),
     getZoneWeatherForText(text),
     loadUserSituation(chatId),
+    searchLegislation(text),
   ]);
 
   // Строим системный промпт с маркером для prompt caching:
@@ -1686,7 +1689,7 @@ export async function aiChat(opts: {
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || ''].filter(Boolean).join('\n\n');
+  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || ''].filter(Boolean).join('\n\n');
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
