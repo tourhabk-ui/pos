@@ -11,6 +11,7 @@
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
 import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
+import { getZoneWeatherForText } from '@/lib/services/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
@@ -89,7 +90,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 ТВОИ РОЛИ:
 
 1. ХРАНИТЕЛЬ И СОВЕТНИК ПО БЕЗОПАСНОСТИ (главная роль, приоритет над всем)
-  Перед любой рекомендацией физической активности (восхождение, вулкан, переправа, ледник, термальные поля, места выхода медведей, выход в межсезонье) ОБЯЗАТЕЛЬНО вызови get_guardian_context и опирайся только на полученный статус и опасности. Не давай оценку проходимости, сложности или безопасности места по памяти.
+  При ЛЮБОМ упоминании конкретного места, вулкана, маршрута, озера, перевала, источника или природного объекта Камчатки — ПЕРВЫМ ДЕЙСТВИЕМ вызови get_guardian_context, прежде чем отвечать. Не давай информацию о месте, пока не получишь из инструмента статус и опасности. Особенно важно перед любой активностью: восхождение, вулкан, переправа, ледник, термальные поля, места выхода медведей, выход в межсезонье.
   Если место в жёлтом или красном статусе — скажи об этом ПЕРВЫМ, до описания и до любых допвопросов.
   Всегда называй хотя бы одну конкретную опасность места и напоминай о регистрации в МЧС на серьёзных маршрутах, даже если тебя об этом не спросили.
   Никогда не преуменьшай риск ради вовлечения или продажи. Безопасность важнее красивого ответа и важнее тура.
@@ -620,17 +621,51 @@ async function fetchMchsAlerts(): Promise<string> {
   return _mchsCache.text;
 }
 
+/** Load active seismic/safety alerts from external_alerts DB table */
+async function loadExternalAlerts(): Promise<string> {
+  try {
+    const { rows } = await pool.query<{
+      title: string;
+      description: string | null;
+      alert_type: string | null;
+      severity: number;
+      affected_zones: string[] | null;
+    }>(
+      `SELECT title, description, alert_type, severity, affected_zones
+       FROM external_alerts
+       WHERE (expires_at IS NULL OR expires_at > NOW())
+         AND severity >= 1
+       ORDER BY severity DESC, created_at DESC
+       LIMIT 5`,
+    );
+    if (!rows.length) return '';
+    const LEVEL = ['', 'INFO', 'ВНИМАНИЕ', 'ОПАСНОСТЬ'];
+    const lines = rows.map(r => {
+      const level = LEVEL[Math.min(r.severity, 3)] ?? 'ПРЕДУПРЕЖДЕНИЕ';
+      const zones = r.affected_zones?.length ? ` (${r.affected_zones.join(', ')})` : '';
+      const desc = r.description ? `: ${r.description.slice(0, 150)}` : '';
+      return `[${level}] ${r.title}${zones}${desc}`;
+    });
+    return lines.join('\n');
+  } catch { return ''; }
+}
+
 /** Build full live context block */
 async function loadLiveContext(): Promise<string> {
-  const [weather, news, mchs, dbIntel, groupIntel] = await Promise.all([
+  const [weather, news, mchs, dbIntel, groupIntel, extAlerts] = await Promise.all([
     fetchWeather(),
     fetchKamchatkaNews(),
     fetchMchsAlerts(),
     loadDbIntel(),
     loadGroupIntel(),
+    loadExternalAlerts(),
   ]);
 
   const blocks: string[] = [];
+
+  if (extAlerts) {
+    blocks.push(`АКТИВНЫЕ ПРЕДУПРЕЖДЕНИЯ КБГС/МЧС (база платформы):\n${extAlerts}`);
+  }
 
   if (weather) {
     blocks.push(`ПОГОДА СЕЙЧАС:\n${weather}`);
@@ -1594,13 +1629,14 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx] = await Promise.all([
+  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather] = await Promise.all([
     getHistory(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
     searchPlaceKnowledge(text),
     searchRoutes(text),
     searchOperatorAvailability(text),
+    getZoneWeatherForText(text),
   ]);
 
   // Строим системный промпт с маркером для prompt caching:
@@ -1608,7 +1644,7 @@ export async function aiChat(opts: {
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || ''].filter(Boolean).join('\n\n');
+  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || ''].filter(Boolean).join('\n\n');
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;

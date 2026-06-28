@@ -35,7 +35,9 @@ import { confirmBooking, cancelBooking } from '@/lib/bookings/booking.service';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { KUZMICH_PROMPT, type ChatMessage } from '@/lib/ai/prompts';
+import { type ChatMessage } from '@/lib/ai/prompts';
+import { KUZMICH_SYSTEM, buildTourContext, searchPlaceKnowledge } from '@/lib/kuzmich/core';
+import { getZoneWeatherForText } from '@/lib/services/zone-weather';
 import { parseInterestsFromText, findRoutesByInterests, formatRoutesForTelegram } from '@/lib/services/routes-recommender';
 import {
   postRouteToChannel,
@@ -66,10 +68,8 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-const KUZMICH_CHAT_SYSTEM =
-  KUZMICH_PROMPT +
-  '\n\nРЕЖИМ: Telegram-чат, не публикация. Ответ 70-120 слов.' +
-  ' HTML-теги для Telegram: <b>жирный</b>, <i>курсив</i>. Без markdown-звёздочек.';
+const KUZMICH_TG_SUFFIX =
+  '\n\nРЕЖИМ: Telegram-чат. Ответ 70-120 слов. HTML-теги: <b>жирный</b>, <i>курсив</i>. Без markdown-звёздочек.';
 
 // ── Zod-схемы ─────────────────────────────────────────────────────────────────
 
@@ -208,32 +208,39 @@ function saveHistory(tgChatId: string, messages: HistoryMessage[]): void {
     `INSERT INTO chat_sessions (session_id, role, messages, updated_at)
      VALUES ($1, 'tourist', $2::jsonb, NOW())
      ON CONFLICT (session_id) DO UPDATE SET messages = $2::jsonb, updated_at = NOW()`,
-    [`tg_${tgChatId}`, JSON.stringify(messages.slice(-12))]
+    [`tg_${tgChatId}`, JSON.stringify(messages.slice(-20))]
   ).catch(() => {});
 }
 
 // ── AI Кузьмич с историей ─────────────────────────────────────────────────────
 
 async function kuzmichReply(userText: string, chatId: string): Promise<string> {
-  const history = await getHistory(chatId);
+  const [history, tourCtx, placeCtx, zoneWeather] = await Promise.all([
+    getHistory(chatId),
+    buildTourContext(),
+    searchPlaceKnowledge(userText),
+    getZoneWeatherForText(userText),
+  ]);
 
-  // Try to detect interests + dates from user text
-  const parsed = parseInterestsFromText(userText);
-
-  // If interests detected, fetch matching routes
+  // Supplementary interest-based route lookup (legacy path, kept for coverage)
   let routesText = '';
+  const parsed = parseInterestsFromText(userText);
   if (parsed.interests.length > 0) {
     const routes = await findRoutesByInterests(parsed.interests, 3);
     if (routes.length > 0) {
-      routesText = `\n\nВот подходящие туры:\n${formatRoutesForTelegram(routes)}`;
+      routesText = formatRoutesForTelegram(routes);
     }
   }
 
-  // Build AI context
+  const dynamic = [placeCtx, zoneWeather, routesText ? `МАРШРУТЫ ПО ЗАПРОСУ:\n${routesText}` : '']
+    .filter(Boolean).join('\n\n');
+  const systemContent = [KUZMICH_SYSTEM + KUZMICH_TG_SUFFIX, tourCtx, dynamic]
+    .filter(Boolean).join('\n\n');
+
   const messages: ChatMessage[] = [
-    { role: 'system', content: KUZMICH_CHAT_SYSTEM },
-    ...history.slice(-8),
-    { role: 'user', content: routesText ? `${userText}\n\n[Подходящие туры для ответа:${routesText}]` : userText },
+    { role: 'system', content: systemContent },
+    ...history,
+    { role: 'user', content: userText },
   ];
 
   const reply = await callAIWithModelDirect(messages, getModelForAgent('kuzmich'));
@@ -798,7 +805,7 @@ export async function POST(request: NextRequest) {
     // /tip
     if (text.startsWith('/tip')) {
       const tip = await callAIWithModelDirect([
-        { role: 'system', content: KUZMICH_CHAT_SYSTEM },
+        { role: 'system', content: KUZMICH_SYSTEM + KUZMICH_TG_SUFFIX },
         { role: 'user', content: 'Дай один конкретный практический совет туристу, который едет на Камчатку первый раз. Не общие слова — что-то реально полезное из личного опыта.' },
       ], getModelForAgent('kuzmich'));
       await sendHTML(chatId, tip);

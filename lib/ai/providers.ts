@@ -14,6 +14,43 @@
 
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey } from '@/lib/ai/provider-config';
+import { pool } from '@/lib/db-pool';
+
+// ── LLM usage tracking ────────────────────────────────────────
+// Logs token counts and estimated costs to llm_usage_log (migration 686).
+// Fire-and-forget — never throws, never blocks the caller.
+
+interface ProviderUsage { prompt_tokens?: number; completion_tokens?: number }
+
+const COST_PER_1K: Record<string, number> = {
+  'deepseek-chat':                             0.00050,
+  'deepseek/deepseek-chat-v3-0324':            0.00050,
+  'anthropic/claude-fable-5':                  0.01500,
+  'anthropic/claude-opus-4-8':                 0.01500,
+  'anthropic/claude-haiku-4-5-20251001':       0.00025,
+  'anthropic/claude-haiku-4-5':                0.00025,
+  'openai/gpt-4o-mini':                        0.00040,
+  'meta-llama/llama-3.3-70b-instruct':         0.00020,
+  'gemini-2.0-flash':                          0.00010,
+  'google/gemini-2.0-flash-001':               0.00010,
+  'mimo-v2-pro':                               0.00010,
+  'glm-5.1':                                   0.00030,
+};
+
+function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
+  if (!usage) return;
+  const prompt = usage.prompt_tokens ?? 0;
+  const completion = usage.completion_tokens ?? 0;
+  const total = prompt + completion;
+  if (total === 0) return;
+  const cost = ((COST_PER_1K[model] ?? 0.00050) * total) / 1000;
+  pool.query(
+    `INSERT INTO llm_usage_log
+       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())`,
+    [model, prompt, completion, total, cost],
+  ).catch(() => { /* silent */ });
+}
 
 // ── Xiaomi MiMo-V2-Pro ────────────────────────────────────────
 export async function callMiMo(messages: ChatMessage[]): Promise<string | null> {
@@ -112,9 +149,15 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
       }
 
       clearOpenRouterFailure();
-      const data = await res.json();
+      const data = await res.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: ProviderUsage;
+      };
       const text: string | undefined = data?.choices?.[0]?.message?.content;
-      if (text?.trim()) return text;
+      if (text?.trim()) {
+        logLLMUsage(id, data.usage);
+        return text;
+      }
       // No valid content — try next model
     } catch { continue; }
   }
@@ -571,9 +614,16 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
       signal: AbortSignal.timeout(20_000),
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
-    return text?.trim() || null;
+    if (text?.trim()) {
+      logLLMUsage('deepseek-chat', data.usage);
+      return text;
+    }
+    return null;
   } catch { return null; }
 }
 
