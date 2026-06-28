@@ -227,11 +227,21 @@ export async function GET(request: NextRequest) {
   if (!anyOk) {
     issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (MiMo + OpenRouter + Anthropic + DeepSeek + Fugu)' });
   } else {
+    // Предупреждаем только о РЕАЛЬНЫХ проблемах, а не об ожидаемом:
+    // — провайдеры без ключа = не настроены, это не сбой
+    // — Anthropic-direct блокируется регионом, но Claude доступен через OpenRouter,
+    //   поэтому это проблема, только если и OpenRouter лёг
     if (!deepseekOk) issues.push({ level: 'warn', text: 'DeepSeek недоступен' });
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
-    if (!mimoOk) issues.push({ level: 'warn', text: 'MiMo недоступен (нет XIAOMI_API_KEY или ошибка)' });
-    if (!anthropicOk) issues.push({ level: 'warn', text: 'Anthropic недоступен' });
-    if (!fuguOk) issues.push({ level: 'warn', text: 'Fugu Ultra недоступен (нет FUGU_API_KEY или ошибка)' });
+    if (process.env.XIAOMI_API_KEY && !mimoOk) {
+      issues.push({ level: 'warn', text: 'MiMo недоступен (ключ задан, но провайдер не отвечает)' });
+    }
+    if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
+      issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
+    }
+    if (process.env.FUGU_API_KEY && !fuguOk) {
+      issues.push({ level: 'warn', text: 'Fugu недоступен (ключ задан, но провайдер не отвечает)' });
+    }
   }
 
   // Всплеск регистраций операторов
