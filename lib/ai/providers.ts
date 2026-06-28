@@ -1152,29 +1152,33 @@ export async function callMuseSpark(messages: ChatMessage[]): Promise<string | n
   }
 }
 
-// ── Sakana AI Fugu Ultra ────────────────────────────────────
-// Multilingual frontier model, особенно силён в японском/азиатских языках.
-// OpenAI-compatible API. Endpoint: https://api.sakana.ai/v1/chat/completions
-// Env: FUGU_API_KEY
+// ── Sakana AI Fugu ──────────────────────────────────────────
+// OpenAI-compatible API (Chat Completions). Ключ FUGU_API_KEY (формат fish_...).
+// Base URL настраивается через FUGU_BASE_URL (по докам Sakana), дефолт api.sakana.ai.
+// Модель: FUGU_MODEL (fugu — быстрая дефолтная / fugu-ultra — максимум качества).
 export async function callFugu(messages: ChatMessage[]): Promise<string | null> {
   const apiKey = getFuguKey();
   if (!apiKey) return null;
 
+  // База: FUGU_BASE_URL, нормализуем до .../v1
+  let base = (process.env.FUGU_BASE_URL || 'https://api.sakana.ai').replace(/\/+$/, '');
+  if (!base.endsWith('/v1')) base = `${base}/v1`;
+  const model = process.env.FUGU_MODEL || 'fugu';
+
   try {
     const payload = messages.map(({ role, content }) => ({ role, content }));
-    const res = await fetch('https://api.sakana.ai/v1/chat/completions', {
+    const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'fugu-ultra',
-        temperature: 0.4,
-        max_tokens: 800,
+        model,
+        max_completion_tokens: 800,  // fugu-ultra: лимит только на финальный ответ
         messages: payload,
       }),
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(45_000),  // ultra оркеструет несколько агентов — дольше
     });
 
     if (!res.ok) return null;
