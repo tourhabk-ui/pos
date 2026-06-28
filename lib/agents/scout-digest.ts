@@ -18,6 +18,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { readAgentBriefing } from '@/lib/agents/warmup';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface DigestResult {
@@ -174,6 +175,53 @@ function unsourcedPercents(post: string, source: string): string[] {
   });
 }
 
+/**
+ * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
+ * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
+ */
+async function fetchArticleText(url: string): Promise<string> {
+  if (!url) return '';
+  if (firecrawlAvailable()) {
+    try {
+      const page = await firecrawlScrape(url);
+      if (page?.markdown) return page.markdown.slice(0, 2500);
+    } catch { /* fallthrough */ }
+  }
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z#0-9]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 2500);
+  } catch { return ''; }
+}
+
+/**
+ * Семантический фактчек: AI сверяет проверяемые факты поста с источниками.
+ * Возвращает список неподтверждённых/противоречащих утверждений (только факты, не оценки).
+ */
+async function unsupportedClaims(post: string, sources: string): Promise<string[]> {
+  try {
+    const raw = await callAIFast([
+      { role: 'system', content: 'Ты строгий фактчекер. Сверь ПРОВЕРЯЕМЫЕ факты поста (цифры, проценты, версии, названия фич/моделей, технический механизм) с источниками. Оценочные суждения и takeaway («это полезно инженеру») НЕ проверяй. Верни ТОЛЬКО JSON: {"unsupported":["конкретное фактическое утверждение, которого нет в источниках или которое им противоречит"]}. Если все факты подтверждены — {"unsupported":[]}.' },
+      { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 9000)}\n\nПОСТ:\n${post}` },
+    ]);
+    const m = raw?.match(/\{[\s\S]*\}/);
+    if (!m) return [];
+    const parsed = JSON.parse(m[0]) as { unsupported?: unknown };
+    return Array.isArray(parsed.unsupported) ? parsed.unsupported.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
 export async function runScoutDigest(): Promise<DigestResult> {
   const start = Date.now();
 
@@ -299,25 +347,31 @@ export async function runScoutDigest(): Promise<DigestResult> {
     const aiItems = dedupedItems.filter(i => AI_LABELS.has(i.source));
     if (aiItems.length > 0) {
       const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-      const aiSignals = aiItems
-        .map(i => `[${i.source}] ${i.title}${i.url ? `\nURL: ${i.url}` : ''}`)
-        .join('\n\n');
+      // Тянем текст статей (фон, cron) — чтобы модель опиралась на содержание, а не на заголовок
+      const aiTop = aiItems.slice(0, 3);
+      const withText = await Promise.all(
+        aiTop.map(async i => ({ ...i, text: await fetchArticleText(i.url) })),
+      );
+      const aiSignals = withText
+        .map(i => `[${i.source}] ${i.title}\nURL: ${i.url}\nТЕКСТ СТАТЬИ:\n${i.text || '(текст недоступен — опирайся ТОЛЬКО на заголовок, без выдуманных деталей)'}`)
+        .join('\n\n---\n\n');
       const aiMessages: ChatMessage[] = [
         {
           role: 'system',
           content: `Ты практикующий AI-инженер и редактор Telegram-канала о вайб-кодинге (40К подписчиков).
-Читатели САМИ строят с LLM и агентами: Claude Code, Cursor, LangGraph, MCP, локальные модели. Им не нужен пересказ — нужен сигнал «что попробовать сегодня» и почему это меняет их работу.
+Читатели САМИ строят с LLM и агентами: Claude Code, Cursor, LangGraph, MCP, локальные модели. Им нужен сигнал «что попробовать сегодня» и почему это меняет их работу.
 
-У тебя есть ТОЛЬКО ЗАГОЛОВКИ материалов (не полные статьи). Это значит:
-- НЕ придумывай цифры, проценты, ускорения («на 60%»), версии моделей, названия фич, бенчмарки — если их НЕТ дословно в заголовке. Выдуманная цифра = провал, такой пост лучше не публиковать.
-- НЕ домысливай технический механизм («параллельный драфтер», «semi-autoregressive»), если он не назван в заголовке. Лучше «детали — по ссылке», чем переврать суть.
-- Если в заголовке есть конкретика — используй её дословно. Если нет — пиши на уровне «что появилось и зачем это инженеру», без выдуманных деталей.
+ГЛАВНОЕ ПРАВИЛО — НЕ ВРАТЬ. Тебе даны выдержки статей. Опирайся ТОЛЬКО на них:
+- Цифры, проценты, версии, названия фич, технический механизм бери ДОСЛОВНО из текста статьи. Нет в тексте — не пиши.
+- НЕ переноси цифру с одного инструмента на другой. НЕ обобщай чужие бенчмарки.
+- Если у материала текст недоступен (только заголовок) — пиши общо «что появилось и зачем», без выдуманной конкретики.
+- Лучше скромный честный пост, чем эффектный с выдумкой. Выдуманный факт = провал.
 
-Из сигналов выбери 2-3 САМЫХ СИЛЬНЫХ материала (новая модель/фича, рабочий приём, агентная архитектура, локальный деплой). Вводное и вторичное — выбрасывай.
+Из материалов выбери 2-3 САМЫХ СИЛЬНЫХ. Вводное и вторичное — выбрасывай.
 
-Для каждого дай саммари честно-экспертное:
-- что появилось (по заголовку, без выдуманной конкретики)
-- <b>Почему важно:</b> практический takeaway — что это даёт строителю агентов (это твоя оценка, она допустима; цифры-факты — только из заголовка)
+Для каждого:
+- что появилось (по тексту статьи, дословная конкретика)
+- <b>Почему важно:</b> практический takeaway (это твоя оценка-вывод, она допустима; факты-цифры — только из статьи)
 
 ОБЯЗАТЕЛЬНЫЙ ФОРМАТ — только Telegram HTML:
 
@@ -363,7 +417,25 @@ export async function runScoutDigest(): Promise<DigestResult> {
           if (retry) { aiDigest = retry; bad = unsourcedPercents(aiDigest, aiSignals); }
         }
         if (bad.length > 0) {
-          // Фактчек не пройден — НЕ публикуем (лучше не запостить, чем соврать).
+          // Числовой фактчек не пройден — НЕ публикуем (лучше не запостить, чем соврать).
+          aiDigest = null;
+        }
+      }
+
+      // ── Семантический фактчек: сверяем факты поста с текстом статей ──
+      if (aiDigest) {
+        let claims = await unsupportedClaims(aiDigest, aiSignals);
+        if (claims.length > 0) {
+          const fix: ChatMessage[] = [
+            ...aiMessages,
+            { role: 'assistant', content: aiDigest },
+            { role: 'user', content: `Эти утверждения НЕ подтверждаются текстом статей (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост, убрав или исправив их строго по источникам. Не добавляй новых непроверенных фактов. Верни только исправленный пост.` },
+          ];
+          const retry = await callAIFast(fix).catch(() => null);
+          if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
+        }
+        if (claims.length > 0) {
+          // После переписи факты всё ещё не сходятся — не публикуем.
           aiDigest = null;
         }
       }
