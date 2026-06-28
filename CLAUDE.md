@@ -47,6 +47,8 @@
 
 **DS-утилиты:** `ds-page` `ds-card` `ds-input` `ds-btn` `ds-btn-primary` `ds-btn-secondary` `ds-btn-danger` `ds-section` `ds-badge` `ds-h1` `ds-h2` `ds-label` `ds-skeleton`
 
+> Полный агент-читаемый справочник DS (токены, утилиты, запреты, композиция) — `.claude/DESIGN_SYSTEM.md`. Перед генерацией UI сверяться с ним, не выдумывать классы/библиотеки.
+
 **Типографика:** заголовки — `Playfair Display` (`--font-playfair`), текст — `Outfit` (`--font-outfit`)
 
 ### Запрещено
