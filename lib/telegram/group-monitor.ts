@@ -104,6 +104,16 @@ class GroupMonitorService {
   }
 
   /**
+   * Анализ пачки сообщений, прочитанных извне через MTProto (pull отраслевых каналов).
+   * В отличие от processMessage (push из webhook) — сразу обрабатывает готовый батч.
+   */
+  async analyzeChannelBatch(chatId: string, chatTitle: string, messages: GroupMessage[]): Promise<boolean> {
+    if (messages.length === 0) return false;
+    await this.analyzeAndStore(chatId, chatTitle, messages, messages.length);
+    return true;
+  }
+
+  /**
    * Возвращает реестр мониторируемых групп из agent_memory.
    */
   async getMonitoredGroups(): Promise<MonitoredGroup[]> {
