@@ -119,10 +119,10 @@ const DURATION_OPTIONS = [
   { value: 'multi_day', label: 'Многодневный' },
 ];
 
-const DIFFICULTY_BADGE: Record<string, { label: string; cls: string }> = {
-  easy:   { label: 'Лёгкий',  cls: 'bg-emerald-500/15 text-emerald-400' },
-  medium: { label: 'Средний', cls: 'bg-amber-500/15 text-amber-400' },
-  hard:   { label: 'Сложный', cls: 'bg-rose-500/15 text-rose-400' },
+const DIFFICULTY_BADGE: Record<string, { label: string; style: React.CSSProperties }> = {
+  easy:   { label: 'Лёгкий',  style: { background: 'color-mix(in srgb, var(--success) 15%, transparent)', color: 'var(--success)' } },
+  medium: { label: 'Средний', style: { background: 'color-mix(in srgb, var(--warning) 15%, transparent)', color: 'var(--warning)' } },
+  hard:   { label: 'Сложный', style: { background: 'color-mix(in srgb, var(--danger) 15%, transparent)', color: 'var(--danger)' } },
 };
 
 const CATEGORY_DATA = [
@@ -208,7 +208,7 @@ function HeroSection() {
               <TrendingUp className="w-3 h-3" />
               {getSeasonLabel()} 2026
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-medium ">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 text-white text-xs font-medium ">
               <Mountain className="w-3 h-3" />
               13 туров
             </span>
@@ -234,7 +234,7 @@ function HeroSection() {
             </Link>
             <a
               href="#tours"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-sm font-medium transition-all duration-200  border border-white/20"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-black/25 hover:bg-black/40 text-white text-sm font-medium transition-all duration-200 border border-white/30"
             >
               Смотреть все туры
               <ArrowRight className="w-4 h-4" />
@@ -253,9 +253,9 @@ function StatsBar() {
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
       {[
         { icon: Mountain, label: 'Направлений', value: '8', color: 'text-[var(--accent)]' },
-        { icon: Calendar, label: 'Сезон', value: getSeasonLabel(), color: 'text-emerald-400' },
-        { icon: Users, label: 'Операторов', value: '2+', color: 'text-sky-400' },
-        { icon: Star, label: 'Проверенные', value: '100%', color: 'text-amber-400' },
+        { icon: Calendar, label: 'Сезон', value: getSeasonLabel(), color: 'text-[var(--success)]' },
+        { icon: Users, label: 'Операторов', value: '2+', color: 'text-[var(--ocean)]' },
+        { icon: Star, label: 'Проверенные', value: '100%', color: 'text-[var(--warning)]' },
       ].map((stat, i) => (
         <div
           key={i}
@@ -333,7 +333,7 @@ function TourCard({
               {activityLabel}
             </span>
             {diffBadge && (
-              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg  ${diffBadge.cls}`}>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg" style={diffBadge.style}>
                 {diffBadge.label}
               </span>
             )}
@@ -341,8 +341,8 @@ function TourCard({
 
           {/* Season badge */}
           {inSeason && (
-            <span className="absolute top-3 right-14 flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/80  text-white text-[9px] font-bold uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            <span className="absolute top-3 right-14 flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[9px] font-bold uppercase tracking-wider" style={{ background: 'color-mix(in srgb, var(--success) 80%, transparent)' }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--bg-card)] animate-pulse" />
               Сезон
             </span>
           )}
@@ -422,7 +422,7 @@ function TourCard({
       {tour.included && tour.included.length > 0 && (
         <div className="mx-5 mb-3 p-2.5 bg-[var(--bg-hover)] rounded-xl">
           <div className="flex items-start gap-1.5">
-            <CheckCircle2 className="w-3 h-3 text-emerald-400 mt-0.5 flex-shrink-0" />
+            <CheckCircle2 className="w-3 h-3 text-[var(--success)] mt-0.5 flex-shrink-0" />
             <p className="text-xs text-[var(--text-secondary)] line-clamp-1">
               {tour.included.slice(0, 2).join(' \u00B7 ')}
               {tour.included.length > 2 && (
@@ -441,7 +441,7 @@ function TourCard({
             title={inCart ? 'Убрать из корзины' : 'В корзину'}
             className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-all duration-200 ${
               inCart
-                ? 'bg-emerald-500 border-emerald-500 text-white'
+                ? 'bg-[var(--success)] border-[var(--success)] text-white'
                 : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/5'
             }`}
           >

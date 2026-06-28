@@ -76,9 +76,9 @@ export default function ReturnClient() {
     return (
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">С возвращением!</h1>
-          <p className="text-white/60 mb-6">{resultMessage}</p>
+          <p className="text-[var(--text-secondary)] mb-6">{resultMessage}</p>
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
@@ -94,9 +94,9 @@ export default function ReturnClient() {
     return (
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
-          <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <XCircle className="w-16 h-16 text-[var(--danger)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Ошибка</h1>
-          <p className="text-white/60 mb-6">{resultMessage}</p>
+          <p className="text-[var(--text-secondary)] mb-6">{resultMessage}</p>
           <button
             onClick={() => { setResult(null); }}
             className="w-full py-3 rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
@@ -112,9 +112,9 @@ export default function ReturnClient() {
     return (
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
-          <XCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+          <XCircle className="w-16 h-16 text-[var(--warning)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Маршрут не найден</h1>
-          <p className="text-white/60 mb-6">
+          <p className="text-[var(--text-secondary)] mb-6">
             Проверьте ссылку или вернитесь к карте.
           </p>
           <button
@@ -132,9 +132,9 @@ export default function ReturnClient() {
     return (
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Возврат уже отмечен</h1>
-          <p className="text-white/60 mb-6">
+          <p className="text-[var(--text-secondary)] mb-6">
             Маршрут «{route.name}» уже закрыт.
           </p>
           <button
@@ -153,21 +153,21 @@ export default function ReturnClient() {
       <div className="max-w-lg mx-auto px-4 py-8">
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-white/60 mb-6 hover:text-white"
+          className="flex items-center gap-2 text-[var(--text-secondary)] mb-6 hover:text-[var(--text-primary)]"
         >
           <ArrowLeft className="w-4 h-4" /> Назад
         </button>
 
         <h1 className="text-2xl font-bold mb-6">Отметить возврат</h1>
 
-        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 mb-6">
-          <p><span className="text-white/40">Маршрут:</span> {route.name}</p>
-          <p><span className="text-white/40">Руководитель:</span> {route.leader}</p>
-          <p><span className="text-white/40">Даты:</span> {route.start_date} — {route.end_date}</p>
+        <div className="p-4 rounded-xl bg-[var(--bg-hover)] border border-[var(--border)] space-y-3 mb-6">
+          <p><span className="text-[var(--text-muted)]">Маршрут:</span> {route.name}</p>
+          <p><span className="text-[var(--text-muted)]">Руководитель:</span> {route.leader}</p>
+          <p><span className="text-[var(--text-muted)]">Даты:</span> {route.start_date} — {route.end_date}</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 mb-6">
-          <p className="text-sm text-green-300">
+        <div className="p-4 rounded-xl mb-6" style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--success) 30%, transparent)' }}>
+          <p className="text-sm text-[var(--success)]">
             Нажимая кнопку, вы подтверждаете что <strong>вернулись с маршрута</strong> и
             все участники группы в безопасности.
           </p>
@@ -176,8 +176,8 @@ export default function ReturnClient() {
         <button
           onClick={handleReturn}
           disabled={submitting}
-          className="w-full py-4 rounded-xl bg-green-600 text-white font-bold text-lg
-            disabled:opacity-50 hover:bg-green-700 transition-colors
+          className="w-full py-4 rounded-xl bg-[var(--success)] text-white font-bold text-lg
+            disabled:opacity-50 hover:opacity-90 transition-opacity
             flex items-center justify-center gap-3"
         >
           {submitting ? (

@@ -402,7 +402,7 @@ export default function MapPageClient() {
               onClick={() => setShowMyLocation(!showMyLocation)}
               className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 showMyLocation
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-[var(--ocean)] text-white'
                   : 'bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)]'
               }`}
             >
@@ -426,8 +426,8 @@ export default function MapPageClient() {
             onClick={() => setShowSos(!showSos)}
             className={`flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
               showSos
-                ? 'bg-[var(--bg-primary)] text-[var(--danger)]'
-                : 'bg-[var(--danger)] text-[var(--text-primary)] hover:bg-[var(--danger)]/90'
+                ? 'bg-white text-[var(--danger)]'
+                : 'bg-[var(--danger)] text-white hover:opacity-90'
             }`}
             style={!showSos ? { animation: 'kh-sos-pulse 2s ease-out infinite' } : {}}
           >
@@ -492,7 +492,7 @@ export default function MapPageClient() {
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-white font-bold text-sm flex items-center gap-2">
-                  <span className="text-red-500">🆘</span> Экстренные номера
+                  <AlertTriangle className="w-4 h-4 text-[var(--danger)]" /> Экстренные номера
                 </h3>
                 <button
                   onClick={() => setShowSos(false)}
@@ -504,7 +504,7 @@ export default function MapPageClient() {
               {/* Координаты */}
               {userPos && (
                 <div className="mb-3 px-3 py-2 rounded-lg bg-white/5 border border-white/10">
-                  <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">📍 Ваши координаты</p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Ваши координаты</p>
                   <p className="text-sm text-white font-mono">{userPos.lat.toFixed(4)}, {userPos.lng.toFixed(4)}</p>
                 </div>
               )}
@@ -516,8 +516,8 @@ export default function MapPageClient() {
                     href={`tel:${c.phone.replace(/\s/g, '')}`}
                     className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-all active:bg-[var(--bg-card)]"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
-                      <Phone className="w-4 h-4 text-red-400" />
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'color-mix(in srgb, var(--danger) 20%, transparent)' }}>
+                      <Phone className="w-4 h-4 text-[var(--danger)]" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm font-medium truncate">{c.name}</p>
@@ -550,10 +550,10 @@ export default function MapPageClient() {
                 }}
                 className={`w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-lg font-semibold text-sm transition-all ${
                   sosSending === 'sent'
-                    ? 'bg-green-600 text-white'
+                    ? 'bg-[var(--success)] text-white'
                     : sosSending === 'error'
-                    ? 'bg-yellow-600 text-white'
-                    : 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800'
+                    ? 'bg-[var(--warning)] text-white'
+                    : 'bg-[var(--danger)] text-white hover:opacity-90 active:opacity-80'
                 }`}
               >
                 {sosSending === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -570,7 +570,7 @@ export default function MapPageClient() {
                   href={`sms:+79000000000?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — TourHab.ru`}
                   className="w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-white font-semibold text-sm hover:bg-[var(--bg-card)] transition-all"
                 >
-                  💬 SMS с координатами (без интернета)
+                  SMS с координатами (без интернета)
                 </a>
               )}
               <p className="text-[10px] text-white/30 mt-3 text-center">
@@ -642,7 +642,7 @@ export default function MapPageClient() {
               {/* Расстояние от пользователя */}
               {userPos && (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-white/5">
-                  <Navigation className="w-4 h-4 text-blue-400" />
+                  <Navigation className="w-4 h-4 text-[var(--ocean)]" />
                   <span className="text-sm text-white font-bold">
                     {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
                   </span>
@@ -742,7 +742,7 @@ export default function MapPageClient() {
             onClick={() => setShowMyLocation(!showMyLocation)}
             className={`absolute top-3 right-3 z-[500] p-2.5 rounded-lg shadow-lg transition-all ${
               showMyLocation
-                ? 'bg-blue-500 text-white'
+                ? 'bg-[var(--ocean)] text-white'
                 : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border)]'
             }`}
             aria-label="Показать моё местоположение"
@@ -826,7 +826,7 @@ export default function MapPageClient() {
             {/* Расстояние */}
             {userPos && (
               <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
-                <Navigation className="w-4 h-4 text-blue-500" />
+                <Navigation className="w-4 h-4 text-[var(--ocean)]" />
                 <span className="text-sm font-bold text-[var(--text-primary)]">
                   {formatDistance(haversineDistance(userPos.lat, userPos.lng, selectedRoute.lat, selectedRoute.lng))}
                 </span>
@@ -865,8 +865,8 @@ export default function MapPageClient() {
       <Link
         href="/return"
         className="fixed top-20 left-3 z-[500] flex items-center gap-2 px-3 py-2 rounded-lg
-          bg-green-600/90  text-white text-xs font-semibold shadow-lg
-          hover:bg-green-700 transition-colors"
+          bg-[var(--success)] text-white text-xs font-semibold shadow-lg
+          hover:opacity-90 transition-opacity"
       >
         Я вернулся
       </Link>

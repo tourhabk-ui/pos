@@ -486,7 +486,7 @@ function EditModal({ tour, onClose, onSave }: {
                         >→</button>
                       )}
                     </div>
-                    <span className="absolute bottom-0.5 left-1 text-[9px] text-white/80 bg-black/50 px-1 rounded">{idx + 1}</span>
+                    <span className="absolute bottom-0.5 left-1 text-[9px] text-white bg-black/50 px-1 rounded opacity-80">{idx + 1}</span>
                   </div>
                 ))}
               </div>

@@ -381,16 +381,30 @@ function OnTrailTab() {
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* Network / GPS banners */}
-      <div className={`flex items-center gap-2 px-4 py-2 text-xs ${
-        isOffline
-          ? 'bg-yellow-900/40 border-b border-yellow-700/30 text-yellow-400'
-          : 'bg-green-900/30 border-b border-green-800/30 text-green-400'
-      }`}>
+      <div
+        className="flex items-center gap-2 px-4 py-2 text-xs"
+        style={{
+          background: isOffline
+            ? 'color-mix(in srgb, var(--warning) 15%, transparent)'
+            : 'color-mix(in srgb, var(--success) 12%, transparent)',
+          borderBottom: isOffline
+            ? '1px solid color-mix(in srgb, var(--warning) 25%, transparent)'
+            : '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
+          color: isOffline ? 'var(--warning)' : 'var(--success)',
+        }}
+      >
         {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
         {isOffline ? 'Офлайн-режим • Карты доступны' : 'Онлайн • GPS активен'}
       </div>
       {gpsError && (
-        <div className="flex items-center gap-2 px-4 py-2 text-xs bg-orange-900/40 border-b border-orange-700/30 text-orange-400">
+        <div
+          className="flex items-center gap-2 px-4 py-2 text-xs"
+          style={{
+            background: 'color-mix(in srgb, var(--warning) 15%, transparent)',
+            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
+            color: 'var(--warning)',
+          }}
+        >
           <AlertCircle className="w-3.5 h-3.5" />
           Разрешите геолокацию в настройках браузера
         </div>
@@ -412,21 +426,21 @@ function OnTrailTab() {
             ) : waypoints.length > 0 ? (
               <>
                 {activeRouteTitle && (
-                  <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
+                  <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
                 )}
-                <p className="text-gray-400 text-sm mb-0.5">
+                <p className="text-[var(--text-secondary)] text-sm mb-0.5">
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
-                <p className="text-gray-500 text-xs mb-2">до следующей точки</p>
+                <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
                 <p className="text-5xl font-bold leading-none" style={{ color: 'var(--success)', letterSpacing: '-1px' }}>
                   {distLabel ?? '—'}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">{nextWp?.name ?? ''}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
               </>
             ) : activeRouteTitle ? (
               <>
-                <p className="text-green-400 text-xs font-medium mb-0.5 truncate max-w-[200px]">{activeRouteTitle}</p>
-                <p className="text-gray-500 text-xs mb-2">GPS-трек недоступен</p>
+                <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[200px]">{activeRouteTitle}</p>
+                <p className="text-[var(--text-muted)] text-xs mb-2">GPS-трек недоступен</p>
                 <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
@@ -435,7 +449,7 @@ function OnTrailTab() {
               </>
             ) : (
               <>
-                <p className="text-gray-500 text-sm mb-2">нет активного маршрута</p>
+                <p className="text-[var(--text-muted)] text-sm mb-2">нет активного маршрута</p>
                 <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
@@ -448,16 +462,16 @@ function OnTrailTab() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 w-full">
-          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}>
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Высота</p>
-            <p className="text-2xl font-bold text-white">
+          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Высота</p>
+            <p className="text-2xl font-bold text-[var(--text-primary)]">
               {altitude !== null ? `${altitude.toLocaleString('ru')}м` : '— м'}
-              {altitude !== null && <span className="text-green-400 text-base ml-0.5">↑</span>}
+              {altitude !== null && <span className="text-[var(--success)] text-base ml-0.5">↑</span>}
             </p>
           </div>
-          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}>
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Время в пути</p>
-            <p className="text-2xl font-bold text-white">
+          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Время в пути</p>
+            <p className="text-2xl font-bold text-[var(--text-primary)]">
               {hours}ч {mins.toString().padStart(2, '0')}м
             </p>
           </div>
@@ -487,7 +501,7 @@ function OnTrailTab() {
               ))}
             </svg>
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-700 text-xs">
+            <div className="flex items-center justify-center h-full text-[var(--text-secondary)] text-xs">
               {isLoadingRoute ? 'Загрузка трека…' : 'Выберите маршрут для отображения трека'}
             </div>
           )}
@@ -527,18 +541,18 @@ function OnTrailTab() {
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
           onClick={() => setShowRouteModal(false)}>
           <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
-            style={{ background: 'var(--bg-card)', border: '1px solid #30363d' }}
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-white text-base">Выбрать маршрут</h3>
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Выбрать маршрут</h3>
               <button onClick={() => setShowRouteModal(false)}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
-                <X className="w-4 h-4 text-gray-400" />
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
             </div>
             {modalError ? (
               <div className="flex flex-col items-center gap-3 py-6">
-                <p className="text-red-400 text-sm text-center">{modalError}</p>
+                <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
                 <button
                   onClick={() => { setModalError(null); openRouteModal(); }}
                   className="text-xs font-semibold px-4 py-2 rounded-lg"
@@ -547,15 +561,15 @@ function OnTrailTab() {
                 </button>
               </div>
             ) : modalRoutes.length === 0 ? (
-              <div className="text-gray-500 text-sm text-center py-6">Загрузка маршрутов…</div>
+              <div className="text-[var(--text-muted)] text-sm text-center py-6">Загрузка маршрутов…</div>
             ) : (
               <div className="space-y-2">
                 {modalRoutes.map(r => (
                   <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl"
-                    style={{ background: 'var(--bg-primary)', border: '1px solid #21262d' }}>
+                    style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{r.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">
                         {r.distanceKm ? `${r.distanceKm} км · ` : ''}
                         {r.difficulty ? DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty : '—'}
                       </p>
@@ -904,9 +918,7 @@ export function PlanningClient() {
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'planning'
                 ? 'border-[var(--accent)] text-[var(--accent)]'
-                : tab === 'trail'
-                  ? 'border-transparent text-gray-500 hover:text-gray-300'
-                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Navigation className="w-4 h-4" /> Планирование
@@ -915,10 +927,8 @@ export function PlanningClient() {
             onClick={() => setTab('trail')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'trail'
-                ? 'border-green-500 text-green-400'
-                : tab === 'trail'
-                  ? 'border-transparent text-gray-500 hover:text-gray-300'
-                  : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                ? 'border-[var(--success)] text-[var(--success)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <MapPin className="w-4 h-4" /> На маршруте

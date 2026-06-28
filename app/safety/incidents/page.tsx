@@ -89,9 +89,9 @@ async function getClosedPlaces(): Promise<ClosedPlace[]> {
 }
 
 const SEVERITY_CONFIG: Record<number, { label: string; color: string; bg: string }> = {
-  1: { label: 'Низкий', color: 'text-[var(--warning)]', bg: 'bg-yellow-50 dark:bg-yellow-900/20' },
-  2: { label: 'Средний', color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-  3: { label: 'Высокий', color: 'text-[var(--danger)]', bg: 'bg-red-50 dark:bg-red-900/20' },
+  1: { label: 'Низкий',   color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
+  2: { label: 'Средний',  color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/15' },
+  3: { label: 'Высокий',  color: 'text-[var(--danger)]',  bg: 'bg-[var(--danger)]/10' },
 };
 
 const EMERGENCY_CONTACTS = [
@@ -154,11 +154,11 @@ export default async function IncidentsPage() {
                   <a
                     key={c.number}
                     href={`tel:${c.number.replace(/[^\d+]/g, '')}`}
-                    className="bg-white/10 hover:bg-white/20 transition-colors rounded-lg p-3 flex flex-col gap-0.5"
+                    className="bg-black/10 hover:bg-black/20 transition-colors rounded-lg p-3 flex flex-col gap-0.5"
                   >
                     <span className="text-xl font-bold font-playfair">{c.number}</span>
                     <span className="text-sm font-medium">{c.label}</span>
-                    <span className="text-xs text-white/70">{c.note}</span>
+                    <span className="text-xs opacity-70">{c.note}</span>
                   </a>
                 ))}
               </div>

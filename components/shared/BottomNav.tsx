@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { House, Map, User, AlertTriangle, Navigation } from 'lucide-react';
+import { House, Map, User, AlertTriangle, Navigation, Bot } from 'lucide-react';
 
 const LEFT_ITEMS = [
   { icon: House,      label: 'Домой',    href: '/' },
@@ -87,12 +87,11 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             alignItems: 'center',
             justifyContent: 'center',
             textDecoration: 'none',
-            fontSize: '22px',
             boxShadow: '0 2px 12px rgba(0,0,0,0.20)',
             transition: 'transform 200ms ease',
           }}
         >
-          🐻
+          <Bot size={24} color="white" />
         </Link>
       </div>
 

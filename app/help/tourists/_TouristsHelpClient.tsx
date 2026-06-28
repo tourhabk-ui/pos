@@ -233,7 +233,7 @@ export default function TouristsHelpClient() {
         {/* Безопасность */}
         <section id="safety">
           <h2 className="ds-h2 mb-4">Безопасность на Камчатке</h2>
-          <div className="ds-card p-5 mb-4 bg-red-50 dark:bg-red-950/20 border-l-4 border-[var(--danger)]">
+          <div className="ds-card p-5 mb-4 border-l-4 border-[var(--danger)]" style={{ background: 'color-mix(in srgb, var(--danger) 6%, var(--bg-card))' }}>
             <div className="flex gap-3 items-start">
               <AlertTriangle size={20} className="text-[var(--danger)] flex-shrink-0 mt-0.5" />
               <div>
@@ -292,7 +292,7 @@ export default function TouristsHelpClient() {
           <p className="mb-5 opacity-90">1189 маршрутов. Вулканы, медведи, термальные источники, сплавы.</p>
           <Link
             href="/marketplace"
-            className="inline-flex items-center gap-2 bg-[var(--bg-primary)] text-[var(--ocean)] px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-colors"
+            className="inline-flex items-center gap-2 bg-[var(--bg-card)] text-[var(--ocean)] px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
           >
             Смотреть все туры <ArrowRight size={18} />
           </Link>

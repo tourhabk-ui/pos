@@ -9,6 +9,17 @@ export default function GlobalError({
 }) {
   return (
     <html lang="ru">
+      <head>
+        <style>{`
+          :root {
+            --bg-primary: #F5F0EB;
+            --text-primary: #1A1714;
+            --text-secondary: #6B6560;
+            --text-muted: #9A9590;
+            --accent: #D44A0C;
+          }
+        `}</style>
+      </head>
       <body
         style={{
           margin: 0,
@@ -17,19 +28,19 @@ export default function GlobalError({
           alignItems: 'center',
           justifyContent: 'center',
           fontFamily: 'system-ui, sans-serif',
-          backgroundColor: '#f8f9fa',
-          color: '#1a1a2e',
+          backgroundColor: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
         }}
       >
         <div style={{ textAlign: 'center', padding: '2rem' }}>
           <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
             Что-то пошло не так
           </h1>
-          <p style={{ color: '#666', marginBottom: '1.5rem', maxWidth: '400px' }}>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', maxWidth: '400px' }}>
             Произошла непредвиденная ошибка. Попробуйте обновить страницу.
           </p>
           {error.digest && (
-            <p style={{ color: '#999', fontSize: '0.75rem', marginBottom: '1rem' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '1rem' }}>
               Код ошибки: {error.digest}
             </p>
           )}
@@ -37,7 +48,7 @@ export default function GlobalError({
             onClick={reset}
             style={{
               padding: '0.75rem 2rem',
-              backgroundColor: '#00D4FF',
+              backgroundColor: 'var(--accent)',
               color: '#fff',
               border: 'none',
               borderRadius: '0.75rem',

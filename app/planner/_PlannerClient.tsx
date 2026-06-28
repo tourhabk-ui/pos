@@ -1987,12 +1987,12 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                 <a href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
-                  style={{ background: '#2AABEE22', color: '#2AABEE', border: '1px solid #2AABEE44' }}>
+                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
                   <ExternalLink className="w-3.5 h-3.5" />Telegram
                 </a>
                 <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
-                  style={{ background: '#FF6B0022', color: 'var(--accent)', border: '1px solid var(--accent)44' }}>
+                  style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
                   <ExternalLink className="w-3.5 h-3.5" />MAX
                 </a>
               </div>

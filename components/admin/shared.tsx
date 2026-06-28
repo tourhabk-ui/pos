@@ -215,7 +215,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const styles = {
     active: 'bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30',
     success: 'bg-[var(--success)]/15 text-[var(--success)] border-[var(--success)]/30',
-    inactive: 'bg-gray-500/20 text-gray-300 border-gray-500/40',
+    inactive: 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]',
     pending: 'bg-[var(--warning)]/15 text-[var(--warning)] border-[var(--warning)]/30',
   };
 
@@ -228,7 +228,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
   const safeStatus = status as keyof typeof styles;
   return (
-    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles[safeStatus] || 'bg-gray-500/20 text-gray-400 border-gray-500/40'}`}>
+    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles[safeStatus] || 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border)]'}`}>
       {labels[safeStatus as keyof typeof labels] || status}
     </span>
   );
