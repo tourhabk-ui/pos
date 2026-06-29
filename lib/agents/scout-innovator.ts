@@ -10,7 +10,7 @@
 
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
-import { callAIWithModel } from '@/lib/ai/providers';
+import { callAIWithModel, callAIFast } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
@@ -30,6 +30,7 @@ interface StructuredProposal {
 export interface ScoutInnovatorResult {
   proposals_count: number;
   skipped_duplicates: number;
+  skipped_by_critic?: number;
   sent_to_tg: boolean;
   intel_entries: number;
   duration_ms: number;
@@ -258,6 +259,62 @@ function formatTelegramMessage(
   return lines.join('\n');
 }
 
+interface CriticVerdict { approved: boolean; reason: string }
+
+/**
+ * Critic-gate (Roitman §24.6.2 reflection / §24.8.5 против amplification):
+ * дешёвая вторая пара глаз ПЕРЕД созданием Issue. Отсеивает предложения,
+ * нарушающие жёсткие правила CLAUDE.md или уже реализованные.
+ * Fail-open: при любом сбое AI/парсинга → approved (поток не блокируется,
+ * гейт никогда не обнуляет выдачу — только убирает явно плохое).
+ */
+export async function criticReviewProposal(
+  p: StructuredProposal,
+  codebaseRules: string,
+  closedIssues: string,
+  libFilesList: string,
+): Promise<CriticVerdict> {
+  const prompt = `Ты — строгий ревьюер предложений для платформы. Реши, можно ли создавать задачу.
+
+ПРЕДЛОЖЕНИЕ:
+Заголовок: ${p.title}
+Зачем: ${p.why}
+Файлы: ${(p.files_to_change ?? []).join(', ')}
+Шаги: ${(p.implementation_steps ?? []).join('; ')}
+
+ОТКЛОНИ (approved=false), если предложение:
+- трогает защищённые области ради рефактора (middleware.ts, lib/auth.ts, app/api/payments/, app/api/safety/sos);
+- использует устаревшее (таблицы bookings/tours вместо operator_*, прямая запись в agent_route_knowledge вместо places/kamchatka_routes, импорт pool по умолчанию, прямые вызовы провайдеров вместо waterfall);
+- меняет схему БД без миграции;
+- по сути УЖЕ реализовано (см. закрытые issues / существующие файлы lib ниже);
+- расплывчато и не имеет проверяемого критерия приёмки.
+Иначе approved=true.
+
+=== ПРАВИЛА (CLAUDE.md, выдержка) ===
+${codebaseRules.slice(0, 2500)}
+
+=== УЖЕ РЕАЛИЗОВАНО (закрытые issues) ===
+${closedIssues.slice(0, 1500)}
+
+=== СУЩЕСТВУЮЩИЕ ФАЙЛЫ lib/ ===
+${libFilesList.slice(0, 1500)}
+
+Верни ТОЛЬКО JSON: {"approved": true|false, "reason": "<кратко почему>"}`;
+
+  try {
+    const raw = await callAIFast([{ role: 'user' as const, content: prompt }]);
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return { approved: true, reason: 'critic: нет JSON, fail-open' };
+    const parsed = JSON.parse(m[0]) as { approved?: unknown; reason?: unknown };
+    return {
+      approved: parsed.approved !== false, // отклоняет только явное false
+      reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+    };
+  } catch {
+    return { approved: true, reason: 'critic: ошибка, fail-open' };
+  }
+}
+
 async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   const repo = 'tourhabk-ui/pos';
@@ -439,15 +496,26 @@ export async function runScoutInnovator(
     .map((l) => l.slice(2).trim())
     .filter(Boolean);
 
-  const proposals = rawProposals.filter(
+  const deduped = rawProposals.filter(
     (p) => !openTitles.some((t) => jaccardSimilarity(p.title, t) >= 0.5),
   );
-  const skipped_duplicates = rawProposals.length - proposals.length;
+  const skipped_duplicates = rawProposals.length - deduped.length;
+
+  // Critic-gate: вторая пара глаз перед созданием Issue (fail-open, параллельно)
+  const verdicts = await Promise.all(
+    deduped.map((p) => criticReviewProposal(p, codebaseRules, closedIssues, libFilesList)),
+  );
+  const proposals = deduped.filter((_, i) => verdicts[i].approved);
+  const skipped_by_critic = deduped.length - proposals.length;
+  verdicts.forEach((v, i) => {
+    if (!v.approved) console.error(`[scout-innovator] critic отклонил: ${deduped[i].title} — ${v.reason}`);
+  });
 
   if (proposals.length === 0) {
     return {
       proposals_count: 0,
       skipped_duplicates,
+      skipped_by_critic,
       sent_to_tg: false,
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
@@ -471,6 +539,7 @@ export async function runScoutInnovator(
         generated_at: dateKey,
         proposals_count: proposals.length,
         skipped_duplicates,
+        skipped_by_critic,
       },
       agent_id: 'scout-innovator',
     });
@@ -495,6 +564,7 @@ export async function runScoutInnovator(
   return {
     proposals_count: proposals.length,
     skipped_duplicates,
+    skipped_by_critic,
     sent_to_tg: sent,
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,

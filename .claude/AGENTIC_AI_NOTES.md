@@ -50,7 +50,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Eval: held-out regression set** (§14.8.3, §20.7.2) | — | ⚠️ TODO: фикс-набор ID для воспроизводимого TSR |
 | **Multi-agent: стигмергия (общая очередь Issues)** (§24.3.6) | Scout-Innovator ↔ GitHub Issues | ✅ правильно для нас (§24.11 «start simple») |
 | **Multi-agent: task locking** (§24.8.2) | дедуп по Jaccard заголовка | ⚠️ TODO: лок по триггеру, не только по тексту |
-| **Multi-agent: critic/red-team gate перед PR** (§24.6.2/§24.8.5) | proposal→Issue→@claude→PR без критика | ⚠️ TODO: дешёвый `callAIFast` критик до Issue |
+| **Multi-agent: critic/red-team gate перед PR** (§24.6.2/§24.8.5) | `scout-innovator.criticReviewProposal` перед `createGitHubIssue` | ✅ fail-open критик (`callAIFast`) отсеивает нарушающее CLAUDE.md/уже сделанное |
 
 ---
 
@@ -76,7 +76,6 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - рефлектор-крон: эпизоды `agent_memory` → семантические `[INSIGHT]` в `agent_knowledge` + рёбра links; importance-LRU забывание
 - contradiction-флаг при записи памяти (safety-critical)
 - held-out regression-харнесс для Editor + LLM-judge качества (bias-mitigated)
-- critic-gate перед созданием Issue у Scout-Innovator
 
 ---
 
