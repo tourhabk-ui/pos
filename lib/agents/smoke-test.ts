@@ -15,7 +15,7 @@ import { pool } from '@/lib/db-pool';
 
 export interface SmokeResult {
   passed: boolean;
-  kind: 'ok' | 'silent_fail' | 'all_errors' | 'zero_processed' | 'skip' | 'db_error';
+  kind: 'ok' | 'silent_fail' | 'under_spec' | 'all_errors' | 'zero_processed' | 'skip' | 'db_error';
   claimed: number;
   actual: number;
   message: string;
@@ -69,33 +69,37 @@ export async function smokeTestEditorWrites(
     return { passed: true, kind: 'skip', claimed: improved, actual: -1, message: 'IDs не переданы — пропуск проверки по строкам' };
   }
 
+  // Два порога вместо одного «>= 100»:
+  //  written — описание реально записано (детектор полного провала записи / тихой ошибки)
+  //  goal    — описание удовлетворяет контракту платформы (CLAUDE.md: >= 300 символов)
+  // Так оракул нельзя «обмануть» коротким наполнителем: запись короче 300 проходит как
+  // under_spec-предупреждение, а не как успех (Roitman §20.2.3 — reward должен быть aligned).
+  const WRITTEN_MIN = 50;
+  const GOAL_MIN = 300;
+
   try {
-    // Проверяем что хотя бы одна из заявленных строк действительно обновлена
     // places: id = ark_id, kamchatka_routes: id = COALESCE(ark_id, id)
+    const sql = (table: string, idCol: string) =>
+      `SELECT
+         COUNT(*) FILTER (WHERE description IS NOT NULL AND LENGTH(description) >= $2)::text AS written,
+         COUNT(*) FILTER (WHERE description IS NOT NULL AND LENGTH(description) >= $3)::text AS goal
+       FROM ${table}
+       WHERE ${idCol} = ANY($1::uuid[])`;
+
     const [placesResult, routesResult] = await Promise.all([
-      pool.query<{ cnt: string }>(
-        `SELECT COUNT(*)::text AS cnt
-         FROM places
-         WHERE ark_id = ANY($1::uuid[])
-           AND description IS NOT NULL
-           AND LENGTH(description) >= 100`,
-        [ids],
-      ),
-      pool.query<{ cnt: string }>(
-        `SELECT COUNT(*)::text AS cnt
-         FROM kamchatka_routes
-         WHERE COALESCE(ark_id, id) = ANY($1::uuid[])
-           AND description IS NOT NULL
-           AND LENGTH(description) >= 100`,
-        [ids],
-      ),
+      pool.query<{ written: string; goal: string }>(sql('places', 'ark_id'), [ids, WRITTEN_MIN, GOAL_MIN]),
+      pool.query<{ written: string; goal: string }>(sql('kamchatka_routes', 'COALESCE(ark_id, id)'), [ids, WRITTEN_MIN, GOAL_MIN]),
     ]);
 
-    const actual =
-      parseInt(placesResult.rows[0]?.cnt ?? '0', 10) +
-      parseInt(routesResult.rows[0]?.cnt ?? '0', 10);
+    const written =
+      parseInt(placesResult.rows[0]?.written ?? '0', 10) +
+      parseInt(routesResult.rows[0]?.written ?? '0', 10);
+    const goalMet =
+      parseInt(placesResult.rows[0]?.goal ?? '0', 10) +
+      parseInt(routesResult.rows[0]?.goal ?? '0', 10);
 
-    if (actual === 0) {
+    // Полный провал записи — ничего не записано, хотя агент заявил улучшения
+    if (written === 0) {
       const msg =
         `<b>SMOKE FAIL: Editor — тихая ошибка</b>\n` +
         `Агент сообщил: <b>${improved}</b> улучшено (IDs: ${ids.slice(0, 5).join(', ')}...)\n` +
@@ -105,12 +109,22 @@ export async function smokeTestEditorWrites(
       return { passed: false, kind: 'silent_fail', claimed: improved, actual: 0, message: msg };
     }
 
+    // Записано, но часть описаний короче контракта 300 — под-спек (не блокер, но сигнал)
+    if (goalMet < written) {
+      const msg =
+        `<b>SMOKE WARN: Editor — под-спек</b>\n` +
+        `Записано ${written}/${ids.length} строк, но контракту (>= ${GOAL_MIN} симв) удовлетворяют только <b>${goalMet}</b>.\n` +
+        `Короткие описания будут снова выбраны на следующем прогоне. Проверь промпт/обрезку в editor.ts.`;
+      sendTgAlertAsync(msg);
+      return { passed: true, kind: 'under_spec', claimed: improved, actual: written, message: msg };
+    }
+
     return {
       passed: true,
       kind: 'ok',
       claimed: improved,
-      actual,
-      message: `OK: claimed ${improved}, actual ${actual}/${ids.length} строк с описанием в БД`,
+      actual: written,
+      message: `OK: claimed ${improved}, записано ${written}/${ids.length}, контракту >= ${GOAL_MIN} удовлетворяют ${goalMet}`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
