@@ -31,7 +31,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Память: working** (история диалога) | `getHistory` + `trimHistoryToBudget` | ✅ token-aware |
 | **Память: episodic** (поиск похожих прошлых эпизодов) | `agent_memory` (по key/recency/FTS) | ⚠️ нет retrieve-by-similarity, нет recall провалов |
 | **Память: semantic** (факты/граф) | `agent_knowledge` + `agent_knowledge_links` (рёбра почти не used) | ⚠️ граф не обходится при ретриве |
-| **Память: consolidation/reflection** (эпизод→семантика, §17.4.4) | — | ⚠️ TODO: нет рефлектора (Editor ≠ консолидация) |
+| **Память: consolidation/reflection** (эпизод→семантика, §17.4.4) | `memory-reflector.ts` + `/api/cron/memory-reflect` | ✅ синтез истекающих intel-сигналов → durable insight-страницы (анти-галлюцинация) |
 | **Память: contradiction detection при записи** (§17.4.1) | пишем безусловно | ⚠️ TODO safety: «тропа открыта» не флагается против свежей «закрыта» |
 | **Память: temporal decay в ретриве** (§17.4.2 `λ·sim+(1−λ)·decay`) | чистая recency ИЛИ чистый FTS | ⚠️ TODO |
 | **Harness: prompt-cache (стат/динам префикс)** | `CACHE_BREAK_MARKER`, `cache_control:ephemeral` | ✅ хорошо (§18.8.1) |
@@ -73,7 +73,6 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - multi-query парафраз для коротких запросов (без векторов)
 
 **Larger:**
-- рефлектор-крон: эпизоды `agent_memory` → семантические `[INSIGHT]` в `agent_knowledge` + рёбра links; importance-LRU забывание
 - contradiction-флаг при записи памяти (safety-critical)
 - held-out regression-харнесс для Editor + LLM-judge качества (bias-mitigated)
 
