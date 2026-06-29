@@ -47,7 +47,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Eval: оракул tamper-proof/aligned** (§20.2.3) | `LENGTH>=100` геймится | ⚠️ TODO: проверять «изменилось», не «существует»; ≥300 по CLAUDE.md |
 | **Eval: A/B с Wilson CI** (§14.4.4-5) | `experiment-tracker` | ✅ исправлено: Wilson-интервалы + несмещённый pickVariant (был `getSeconds()%2`) |
 | **Eval: LLM-as-judge качества** (§14.7, с миtigation bias) | — | ⚠️ TODO: judge переписей Editor (присутствие ≠ качество) |
-| **Eval: held-out regression set** (§14.8.3, §20.7.2) | — | ⚠️ TODO: фикс-набор ID для воспроизводимого TSR |
+| **Eval: held-out regression set** (§14.8.3, §20.7.2) | `eval/editor-regression.ts` + `/api/cron/editor-eval` | ✅ TSR + Wilson CI по фикс-набору (dry-run, до выкатки промпта) |
 | **Multi-agent: стигмергия (общая очередь Issues)** (§24.3.6) | Scout-Innovator ↔ GitHub Issues | ✅ правильно для нас (§24.11 «start simple») |
 | **Multi-agent: task locking** (§24.8.2) | дедуп по Jaccard заголовка | ⚠️ TODO: лок по триггеру, не только по тексту |
 | **Multi-agent: critic/red-team gate перед PR** (§24.6.2/§24.8.5) | `scout-innovator.criticReviewProposal` перед `createGitHubIssue` | ✅ fail-open критик (`callAIFast`) отсеивает нарушающее CLAUDE.md/уже сделанное |
@@ -74,7 +74,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 
 **Larger:**
 - contradiction-флаг при записи памяти (safety-critical)
-- held-out regression-харнесс для Editor + LLM-judge качества (bias-mitigated)
+- LLM-judge качества Editor (bias-mitigated)
 
 ---
 
