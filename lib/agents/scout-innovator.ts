@@ -15,6 +15,7 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import { jaccardSimilarity } from '@/lib/utils/text-similarity';
+import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 interface StructuredProposal {
@@ -315,6 +316,44 @@ ${libFilesList.slice(0, 1500)}
   }
 }
 
+// ── Task-locking: кросс-прогонный дедуп предложений (Roitman §24.8.2) ─────────
+
+const LOCK_TYPE = 'proposal_lock';
+const LOCK_KEY = 'recent';
+const LOCK_CAP = 60;
+const LOCK_TTL_DAYS = 21;
+
+/** Похоже ли название на одно из existing (Jaccard ≥ threshold). Чистая функция. */
+export function isDuplicateTitle(title: string, existing: string[], threshold = 0.5): boolean {
+  return existing.some(t => jaccardSimilarity(title, t) >= threshold);
+}
+
+/** Персистентный набор недавно созданных предложений (живёт между прогонами). */
+async function loadProposalLocks(): Promise<string[]> {
+  try {
+    const e = await agentMemory.get('scout-innovator', LOCK_TYPE, LOCK_KEY);
+    const titles = (e?.value as { titles?: unknown })?.titles;
+    return Array.isArray(titles) ? titles.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveProposalLocks(titles: string[]): Promise<void> {
+  try {
+    await agentMemory.remember({
+      agent_id: 'scout-innovator',
+      memory_type: LOCK_TYPE,
+      key: LOCK_KEY,
+      value: { titles: titles.slice(-LOCK_CAP) },
+      source: 'scout-innovator',
+      expires_at: new Date(Date.now() + LOCK_TTL_DAYS * 24 * 60 * 60 * 1000),
+    });
+  } catch {
+    /* не критично — лок лишь снижает повторы */
+  }
+}
+
 async function createGitHubIssue(p: StructuredProposal, dateKey: string): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   const repo = 'tourhabk-ui/pos';
@@ -496,9 +535,12 @@ export async function runScoutInnovator(
     .map((l) => l.slice(2).trim())
     .filter(Boolean);
 
-  const deduped = rawProposals.filter(
-    (p) => !openTitles.some((t) => jaccardSimilarity(p.title, t) >= 0.5),
-  );
+  // Task-locking (§24.8.2): дедуп не только против открытых issues, но и против
+  // персистентного набора недавно созданных предложений — чтобы то же самое не
+  // предлагалось заново после закрытия issue. Детерминированный backstop к critic-gate.
+  const locks = await loadProposalLocks();
+  const blockTitles = [...openTitles, ...locks];
+  const deduped = rawProposals.filter((p) => !isDuplicateTitle(p.title, blockTitles));
   const skipped_duplicates = rawProposals.length - deduped.length;
 
   // Critic-gate: вторая пара глаз перед созданием Issue (fail-open, параллельно)
@@ -552,13 +594,20 @@ export async function runScoutInnovator(
 
   // 8. GitHub Issues — каждое предложение → задача для агента-кодера
   const issueUrls: string[] = [];
+  const createdTitles: string[] = [];
 
   for (const p of proposals) {
     const url = await createGitHubIssue(p, dateKey);
     if (url) {
       issueUrls.push(url);
+      createdTitles.push(p.title);
       await tgSend(`<b>Создана задача для кодера</b>\n${p.title}\n${url}`);
     }
+  }
+
+  // Обновляем лок: добавляем созданные предложения, чтобы не повторять их в будущих прогонах
+  if (createdTitles.length > 0) {
+    await saveProposalLocks([...locks, ...createdTitles]);
   }
 
   return {

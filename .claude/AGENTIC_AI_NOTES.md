@@ -44,12 +44,12 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Patterns: параллельный tool-exec / loop-detect** | `tool-loop.ts` `runTurnTools` в `aiChatAgentLoop` | ✅ Promise.all (порядок сохранён) + дедуп `(tool,args)` между ходами |
 | **Patterns: cron-агенты = workflows, не agents** (§19) | Watchdog/Editor/Scout/Evo | ✅ правильный выбор |
 | **Eval: outcome/TSR через DB-оракул** (§14.6.1, §20.5.2) | `smoke-test.ts` (claimed→actual в БД) | ✅ это и есть execution-based |
-| **Eval: оракул tamper-proof/aligned** (§20.2.3) | `LENGTH>=100` геймится | ⚠️ TODO: проверять «изменилось», не «существует»; ≥300 по CLAUDE.md |
+| **Eval: оракул tamper-proof/aligned** (§20.2.3) | `smoke-test.ts` два порога (written≥50 / goal≥300) | ✅ под-спек ловится как `under_spec`, не «успех» (#232) |
 | **Eval: A/B с Wilson CI** (§14.4.4-5) | `experiment-tracker` | ✅ исправлено: Wilson-интервалы + несмещённый pickVariant (был `getSeconds()%2`) |
 | **Eval: LLM-as-judge качества** (§14.7, с миtigation bias) | `eval/editor-judge.ts` (в харнессе, `?judge=1`) | ✅ pointwise 1-5, reference-guided, CoT+антиverbosity, штраф за выдумку |
 | **Eval: held-out regression set** (§14.8.3, §20.7.2) | `eval/editor-regression.ts` + `/api/cron/editor-eval` | ✅ TSR + Wilson CI по фикс-набору (dry-run, до выкатки промпта) |
 | **Multi-agent: стигмергия (общая очередь Issues)** (§24.3.6) | Scout-Innovator ↔ GitHub Issues | ✅ правильно для нас (§24.11 «start simple») |
-| **Multi-agent: task locking** (§24.8.2) | дедуп по Jaccard заголовка | ⚠️ TODO: лок по триггеру, не только по тексту |
+| **Multi-agent: task locking** (§24.8.2) | `isDuplicateTitle` + персистентный `proposal_lock` в agent_memory | ✅ кросс-прогонный дедуп: не предлагать заново даже после закрытия issue |
 | **Multi-agent: critic/red-team gate перед PR** (§24.6.2/§24.8.5) | `scout-innovator.criticReviewProposal` перед `createGitHubIssue` | ✅ fail-open критик (`callAIFast`) отсеивает нарушающее CLAUDE.md/уже сделанное |
 
 ---
