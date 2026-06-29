@@ -22,8 +22,8 @@ beforeEach(() => {
 });
 
 describe('smokeTestEditorWrites', () => {
-  it('provocation: agent claims 5 improved but DB has 0 → silent_fail + Telegram alert', async () => {
-    mockPoolQuery.mockResolvedValue({ rows: [{ cnt: '0' }] });
+  it('provocation: agent claims 5 improved but DB has 0 written → silent_fail + Telegram alert', async () => {
+    mockPoolQuery.mockResolvedValue({ rows: [{ written: '0', goal: '0' }] });
 
     const result = await smokeTestEditorWrites(5, FAKE_IDS, 5, 0);
 
@@ -35,6 +35,18 @@ describe('smokeTestEditorWrites', () => {
     expect(fetchSpy).toHaveBeenCalled();
     const [url] = fetchSpy.mock.calls[0] as [string, ...unknown[]];
     expect(url).toContain('telegram.org');
+  });
+
+  it('tamper-proof: rows written but below the 300-char contract → under_spec warning + Telegram', async () => {
+    // 3+3 written, but 0 meet the ≥300 goal → gaming with filler is caught, not passed as ok
+    mockPoolQuery.mockResolvedValue({ rows: [{ written: '3', goal: '0' }] });
+
+    const result = await smokeTestEditorWrites(5, FAKE_IDS, 5, 0);
+
+    expect(result.passed).toBe(true);
+    expect(result.kind).toBe('under_spec');
+    expect(result.actual).toBe(6); // 3 places + 3 routes written
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   it('honest zero: processed=0 → zero_processed, no Telegram', async () => {
@@ -55,8 +67,8 @@ describe('smokeTestEditorWrites', () => {
     expect(url).toContain('telegram.org');
   });
 
-  it('ok: agent claims 5, DB confirms 3+3=6 rows → passed + kind ok', async () => {
-    mockPoolQuery.mockResolvedValue({ rows: [{ cnt: '3' }] });
+  it('ok: agent claims 5, DB confirms 3+3=6 rows meeting the ≥300 contract → passed + kind ok', async () => {
+    mockPoolQuery.mockResolvedValue({ rows: [{ written: '3', goal: '3' }] });
 
     const result = await smokeTestEditorWrites(5, FAKE_IDS, 5, 0);
 
