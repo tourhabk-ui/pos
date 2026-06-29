@@ -46,7 +46,7 @@ async function tgSend(text: string): Promise<void> {
   } catch { /* silent */ }
 }
 
-interface RouteRow {
+export interface RouteRow {
   id: string;
   title: string;
   description: string | null;
@@ -83,7 +83,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ozera:                'озёра',
 };
 
-async function generateRouteDescription(
+export async function generateRouteDescription(
   route: RouteRow,
   experimentId?: string,
   tracker?: ExperimentTracker,
