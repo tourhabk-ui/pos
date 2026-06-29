@@ -54,26 +54,21 @@ RAG, память, harness/контекст, оценка, мульти-аген
 
 ---
 
-## Сделано в этом проходе (PR по статье)
+## Статус внедрения
 
-1. **RRF в `searchPlaceKnowledge`** — слияние источников по позиции, не по несравнимым ts_rank.
-2. **Кириллица-aware `estimateTokens`** (`context-budget.ts`) — раньше /3 недосчитывал русский.
-3. **`experiment-tracker`**: Wilson CI (победитель только при непересечении 95% ДИ) + несмещённый `pickVariant` (убран time-correlated `getSeconds()%2`).
-4. Тесты: `experiment-tracker.test.ts` (10), расширен `context-budget.test.ts`.
+Прикладной роадмап статьи **закрыт** — внедрено и смержено в `main` (PR #229–#244).
+Сводка изменений — в README («Последние изменения»); активация латентных фич
+(env + расписания) — в [`docs/ACTIVATION_CHECKLIST.md`](../docs/ACTIVATION_CHECKLIST.md).
+Статус каждого концепта — в таблице выше (✅ сделано / ⚠️ TODO / ⛔ неприменимо).
 
----
+## Остаётся (второстепенное, ⚠️ в таблице)
 
-## TODO (по value÷effort, из постраничного чтения)
+- chunking длинных доков законодательства (§16.4) — данные пока не наполнены
+- episodic retrieve-by-similarity / semantic-граф traversal / temporal decay (§17.4)
+- компакция = суммаризация вместо удаления; бюджет на динамический M-блок (§18)
+- agentic/iterative RAG с циклом достаточности (§16)
 
-**Quick wins:**
-- pre-flight token-check + обрезка динамического блока первым (Silent Truncation Trap)
-- summarize-on-evict в `trimHistoryToBudget` (через `callAIFast`, best-effort)
-- параллельный tool-exec + loop-dedup в `aiChatAgentLoop`
-- tamper-proof оракул Editor в `smoke-test.ts` (проверять изменение, не длину)
-- multi-query парафраз для коротких запросов (без векторов)
-
-**Осталось (опционально, желательна живая проверка):**
-- summarize-on-evict в `trimHistoryToBudget` (вместо удаления — суммаризация)
+Все заметно ниже по отдаче — берём по конкретной потребности, не ради галочки.
 
 ---
 
