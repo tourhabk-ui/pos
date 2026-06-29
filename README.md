@@ -34,10 +34,10 @@
 
 | | |
 |--|--|
-| Страниц | 169 |
-| API routes | 509 |
-| UI компонентов | 188 |
-| SQL миграций | 178 |
+| Страниц | 178 |
+| API routes | 551 |
+| UI компонентов | 197 |
+| SQL миграций | 207 |
 | Мест (places) | 779 |
 | Маршрутов | 294 |
 | Туров | 20 |
@@ -91,7 +91,9 @@ operator_tours (20)    — коммерческий продукт: цена, с
 |--------|---------|-----------|
 | **Безопасность** | Safety Ingest, Watchdog, Rescue, SOS Bridge | каждые 5–30 мин |
 | **Контент** | Editor, Import Routes, Enrich Routes, Places Enricher | 22:00–23:00 UTC |
-| **Разведка** | Scout Digest, Scout Innovator, Intelligence, KB Gap | 07:00–08:00 UTC |
+| **Разведка** | Scout Digest, Scout Innovator, Intelligence, KB Gap, Industry Intel (MTProto), Legislation Sync | 07:00–08:00 UTC |
+| **Память** | Memory Reflector (эпизод→семантика), Contradiction Scanner (safety) | раз в сутки |
+| **Качество** | Editor Eval (regression TSR + LLM-judge) | on-demand |
 | **Бизнес** | Abandoned Bookings, Payouts, Tour Reminder, Leads | почасово / 06:00 UTC |
 | **Эволюция** | Evo System (Growth Agent + Evolution Loop) | каждые 6ч |
 | **Боты** | Kuzmich (Telegram, MAX, Web, Widget) | realtime |
@@ -99,7 +101,8 @@ operator_tours (20)    — коммерческий продукт: цена, с
 **Общая память агентов:** каждый агент на старте читает `readAgentBriefing()` — состояние платформы, историю своих запусков, last repo-scan, must-have контекст туризма на Камчатке.
 
 Полный реестр с настройкой и шагами активации: [`docs/AGENTS_BOOK.md`](./docs/AGENTS_BOOK.md)  
-Краткий реестр: [`AGENTS.md`](./AGENTS.md)
+Краткий реестр: [`AGENTS.md`](./AGENTS.md)  
+Карта agentic-AI практик (концепт → наш код, по arXiv:2606.24937): [`.claude/AGENTIC_AI_NOTES.md`](./.claude/AGENTIC_AI_NOTES.md)
 
 ---
 
@@ -159,6 +162,10 @@ Push в `main` → Timeweb видит пуш → собирает Docker → `st
 
 ## Последние изменения (июнь 2026)
 
+- **Agentic-AI hardening** — постраничное внедрение применимого из практического руководства (arXiv:2606.24937), 11 PR: RAG-слияние через Reciprocal Rank Fusion, A/B с Wilson-интервалами + несмещённый split, token-aware контекст диалога (кириллица-корректный) + pre-flight против Silent Truncation, параллельное исполнение tool_calls с дедупом, untrusted-обёртка tool-выходов (анти-prompt-injection). Карта — `.claude/AGENTIC_AI_NOTES.md`
+- **Память агентов: эпизод→семантика** — Memory Reflector синтезирует истекающие разведсигналы в durable insight-страницы; Contradiction Scanner флагует прямые противоречия (safety) с алертом
+- **Оценка агентов** — tamper-proof оракул Editor (контракт ≥300), held-out regression-харнесс (TSR + Wilson CI) и LLM-judge качества (bias-mitigated); critic-gate отсекает плохие proposals Scout до GitHub Issue
+- **Сбор данных** — чтение отраслевых TG-каналов через MTProto и парсинг законодательства (Путешествуем.рф) → market-intelligence и контекст Кузьмича со ссылкой-источником
 - **Evo UI** — просмотр и одобрение фиксов агента эволюции в `/hub/admin/agents` (закрытая петля обратной связи)
 - **Agents Book** — полная документация всех 37+ агентов в `docs/AGENTS_BOOK.md` (расписание, env vars, шаги активации, мониторинг)
 - **Schema-drift защита** — явные колонки вместо `SELECT *` / `RETURNING *` в tourist API routes
