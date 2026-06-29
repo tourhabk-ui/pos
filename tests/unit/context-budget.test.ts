@@ -3,6 +3,7 @@ import {
   trimHistoryToBudget,
   capMessage,
   estimateTokens,
+  fitTextToTokenBudget,
   HISTORY_KEEP_MIN,
   HISTORY_TOKEN_BUDGET,
   PER_MSG_CHAR_CAP,
@@ -76,5 +77,28 @@ describe('trimHistoryToBudget', () => {
     ];
     const out = trimHistoryToBudget(h);
     expect(out.map(m => m.content)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
+describe('fitTextToTokenBudget', () => {
+  it('returns text unchanged when within budget', () => {
+    const t = 'короткий контекст';
+    expect(fitTextToTokenBudget(t, 1000)).toBe(t);
+    expect(fitTextToTokenBudget('', 1000)).toBe('');
+  });
+
+  it('truncates over-budget text to fit and appends a marker', () => {
+    const big = 'я'.repeat(10_000); // ~5000 токенов (кириллица /2)
+    const out = fitTextToTokenBudget(big, 500);
+    expect(out).toContain('[контекст сокращён');
+    expect(estimateTokens(out)).toBeLessThanOrEqual(500 + estimateTokens('\n\n…[контекст сокращён по бюджету токенов]'));
+    expect(out.length).toBeLessThan(big.length);
+  });
+
+  it('keeps the head (priority blocks first) when truncating', () => {
+    const head = 'ВАЖНЫЙ_БЛОК_PLACE ' + 'x'.repeat(200);
+    const tail = 'y'.repeat(20_000);
+    const out = fitTextToTokenBudget(head + '\n\n' + tail, 100);
+    expect(out.startsWith('ВАЖНЫЙ_БЛОК_PLACE')).toBe(true);
   });
 });

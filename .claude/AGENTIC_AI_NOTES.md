@@ -36,7 +36,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Память: temporal decay в ретриве** (§17.4.2 `λ·sim+(1−λ)·decay`) | чистая recency ИЛИ чистый FTS | ⚠️ TODO |
 | **Harness: prompt-cache (стат/динам префикс)** | `CACHE_BREAK_MARKER`, `cache_control:ephemeral` | ✅ хорошо (§18.8.1) |
 | **Harness: token-бюджет истории** | `context-budget.ts` (token-aware, кириллица ×, §18.2.6) | ✅ оценка токенов исправлена под кириллицу |
-| **Harness: pre-flight token check** (Silent Truncation Trap §18.2) | — | ⚠️ TODO: не считаем итоговый промпт перед отправкой |
+| **Harness: pre-flight token check** (Silent Truncation Trap §18.2) | `fitTextToTokenBudget` в сборке промпта Кузьмича | ✅ динамический RAG-контекст бюджетируется (6000 ток.), важные блоки первыми |
 | **Harness: компакция = суммаризация, не удаление** (Eq 18.4) | `trimHistoryToBudget` удаляет старое | ⚠️ TODO: терять исходную задачу/safety-факт плохо |
 | **Harness: бюджет на динамический M-блок + tool defs** | только H бюджетируется | ⚠️ TODO: реальный рост контекста именно тут |
 | **Harness: tool-output как untrusted (XML-wrap)** (§18.4.4) | web/RSS идут в контекст напрямую | ⚠️ TODO: prompt-injection поверхность |
@@ -73,7 +73,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - multi-query парафраз для коротких запросов (без векторов)
 
 **Осталось (hot-path — желательна живая проверка):**
-- pre-flight token-check (Silent Truncation Trap) + summarize-on-evict
+- summarize-on-evict в `trimHistoryToBudget` (вместо удаления — суммаризация)
 - multi-query парафраз для коротких запросов
 
 ---

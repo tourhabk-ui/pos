@@ -14,6 +14,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 export const HISTORY_TOKEN_BUDGET = 3000; // бюджет на историю (без системного промпта)
 export const HISTORY_KEEP_MIN = 4;        // минимум последних сообщений сохраняем всегда
 export const PER_MSG_CHAR_CAP = 4000;     // одно сообщение не должно доминировать
+export const DYNAMIC_CONTEXT_TOKEN_BUDGET = 6000; // бюджет на динамический RAG-контекст промпта
 
 // Оценка токенов с поправкой на язык. Кириллица токенизируется тяжелее под BPE
 // (~1 токен на 2 символа), латиница/ASCII ~1 токен на 3 символа. Раньше делили
@@ -51,4 +52,20 @@ export function trimHistoryToBudget(messages: ChatMessage[]): ChatMessage[] {
     total += t;
   }
   return kept.reverse();
+}
+
+// Pre-flight против Silent Truncation (Roitman §18.2): если динамический контекст
+// превышает бюджет токенов — обрезаем С КОНЦА до бюджета (важные блоки place/route
+// идут первыми, в хвосте — менее критичные) и помечаем маркером. Только урезает,
+// никогда не расширяет — fail-safe. Бинарный поиск длины префикса под бюджет.
+export function fitTextToTokenBudget(text: string, budget = DYNAMIC_CONTEXT_TOKEN_BUDGET): string {
+  if (!text || estimateTokens(text) <= budget) return text;
+  const marker = '\n\n…[контекст сокращён по бюджету токенов]';
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (estimateTokens(text.slice(0, mid)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo).trimEnd() + marker;
 }

@@ -19,7 +19,7 @@ import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/legislation-importer';
-import { trimHistoryToBudget } from '@/lib/kuzmich/context-budget';
+import { trimHistoryToBudget, fitTextToTokenBudget } from '@/lib/kuzmich/context-budget';
 import { runTurnTools } from '@/lib/kuzmich/tool-loop';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
@@ -1702,7 +1702,11 @@ export async function aiChat(opts: {
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || ''].filter(Boolean).join('\n\n');
+  // Pre-flight: бюджетируем динамический контекст, чтобы он не выдавил остальное
+  // из окна модели (Silent Truncation). Важные блоки (place/route) идут первыми.
+  const dynamic = fitTextToTokenBudget(
+    [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || ''].filter(Boolean).join('\n\n'),
+  );
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
     : cacheable;
