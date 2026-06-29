@@ -20,6 +20,7 @@ import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/legislation-importer';
 import { trimHistoryToBudget } from '@/lib/kuzmich/context-budget';
+import { runTurnTools } from '@/lib/kuzmich/tool-loop';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -1637,6 +1638,8 @@ async function aiChatAgentLoop(
     ...extraUserMsg.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content } as ToolMsg)),
   ];
 
+  const seenToolSigs = new Set<string>(); // дедуп повторных вызовов между ходами
+
   for (let turn = 0; turn < 4; turn++) {
     const result = await callOpenRouterWithTools(msgs, KUZMICH_TOOLS);
     if (!result) return null;
@@ -1647,15 +1650,14 @@ async function aiChatAgentLoop(
 
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
 
-    for (const tc of result.tool_calls) {
-      let args: Record<string, string> = {};
-      try { args = JSON.parse(tc.function.arguments) as Record<string, string>; } catch { /* empty args */ }
-      const toolResult = await executeTool(tc.function.name, args);
-      msgs.push({ role: 'tool', content: toolResult, tool_call_id: tc.id });
+    // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
+    const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool);
+    for (const o of outcomes) {
+      msgs.push({ role: 'tool', content: o.content, tool_call_id: o.id });
 
-      // Auto-save search results to KB for future use
-      if (tc.function.name === 'search_kamchatka' && toolResult !== 'Поиск не дал результатов.') {
-        void saveSearchResultToKB(args.query ?? userText, toolResult);
+      // Auto-save search results to KB for future use (только для реально выполненных)
+      if (o.executed && o.name === 'search_kamchatka' && o.content !== 'Поиск не дал результатов.') {
+        void saveSearchResultToKB(o.args.query ?? userText, o.content);
       }
     }
   }
