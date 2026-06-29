@@ -14,10 +14,16 @@ function msg(role: ChatMessage['role'], content: string): ChatMessage {
 }
 
 describe('estimateTokens', () => {
-  it('approximates ~1 token per 3 chars, safe on empty', () => {
+  it('approximates ~1 token per 3 chars for latin, safe on empty', () => {
     expect(estimateTokens('')).toBe(0);
     expect(estimateTokens('abcdef')).toBe(2);
     expect(estimateTokens(undefined as unknown as string)).toBe(0);
+  });
+
+  it('counts Cyrillic heavier than latin (≈1 token / 2 chars)', () => {
+    // 6 кириллических символов → ceil(6/2)=3, тяжелее латинских 6 симв (=2)
+    expect(estimateTokens('привет')).toBe(3);
+    expect(estimateTokens('привет')).toBeGreaterThan(estimateTokens('abcdef'));
   });
 });
 

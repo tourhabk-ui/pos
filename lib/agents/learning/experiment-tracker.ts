@@ -38,11 +38,28 @@ export interface CreateExperimentParams {
   metric?:      string;
 }
 
+export interface WilsonInterval { low: number; high: number }
+
 export interface ExperimentResults {
-  variant_a: { success: number; fail: number; rate: number };
-  variant_b: { success: number; fail: number; rate: number };
+  variant_a: { success: number; fail: number; rate: number; ci: WilsonInterval };
+  variant_b: { success: number; fail: number; rate: number; ci: WilsonInterval };
   winner:    'a' | 'b' | 'tie' | null;
   total:     number;
+}
+
+/**
+ * Wilson score-интервал для доли (z=1.96 ≈ 95%). Корректен у краёв (p→0/1)
+ * и при малом N — в отличие от нормального приближения. Книга (Roitman, §14.4.4):
+ * победителя объявляем только если доверительные интервалы НЕ пересекаются.
+ */
+export function wilsonInterval(success: number, total: number, z = 1.96): WilsonInterval {
+  if (total <= 0) return { low: 0, high: 0 };
+  const p = success / total;
+  const z2 = z * z;
+  const denom = 1 + z2 / total;
+  const center = (p + z2 / (2 * total)) / denom;
+  const margin = (z / denom) * Math.sqrt((p * (1 - p)) / total + z2 / (4 * total * total));
+  return { low: Math.max(0, center - margin), high: Math.min(1, center + margin) };
 }
 
 interface ResultRow {
@@ -97,11 +114,20 @@ export class ExperimentTracker {
   }
 
   /**
-   * Детерминированный 50/50 split по секунде.
-   * Не случайный — чтобы один запрос всегда получал один вариант в рамках минуты.
+   * Несмещённый 50/50 split.
+   * Раньше использовалось `getSeconds() % 2` — это коррелирует со временем запуска
+   * (cron, стартующий в :00, всегда получал вариант 'a') и ломало A/B-баланс.
+   * Теперь: если передан стабильный ключ (например, chatId/userId) — детерминированно
+   * хэшируем его (один и тот же субъект всегда в одном варианте); иначе — случайно.
    */
-  pickVariant(_experimentId: string): 'a' | 'b' {
-    return new Date().getSeconds() % 2 === 0 ? 'a' : 'b';
+  pickVariant(experimentId: string, key?: string | number): 'a' | 'b' {
+    if (key === undefined || key === null) {
+      return Math.random() < 0.5 ? 'a' : 'b';
+    }
+    const seed = `${experimentId}:${key}`;
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    return (h & 1) === 0 ? 'a' : 'b';
   }
 
   async recordResult(
@@ -153,15 +179,21 @@ export class ExperimentTracker {
     const rateA  = totalA > 0 ? counts.a.success / totalA : 0;
     const rateB  = totalB > 0 ? counts.b.success / totalB : 0;
 
+    const ciA = wilsonInterval(counts.a.success, totalA);
+    const ciB = wilsonInterval(counts.b.success, totalB);
+
+    // Победителя объявляем только если 95% Wilson-интервалы НЕ пересекаются
+    // (Roitman §14.4.5: «модели с пересекающимися ДИ статистически неразличимы»).
     let winner: 'a' | 'b' | 'tie' | null = null;
     if (totalA >= 10 && totalB >= 10) {
-      const diff = Math.abs(rateA - rateB);
-      winner = diff < 0.05 ? 'tie' : (rateA > rateB ? 'a' : 'b');
+      if (ciA.low > ciB.high) winner = 'a';
+      else if (ciB.low > ciA.high) winner = 'b';
+      else winner = 'tie';
     }
 
     return {
-      variant_a: { success: counts.a.success, fail: counts.a.fail, rate: rateA },
-      variant_b: { success: counts.b.success, fail: counts.b.fail, rate: rateB },
+      variant_a: { success: counts.a.success, fail: counts.a.fail, rate: rateA, ci: ciA },
+      variant_b: { success: counts.b.success, fail: counts.b.fail, rate: rateB, ci: ciB },
       winner,
       total:     totalA + totalB,
     };

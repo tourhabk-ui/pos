@@ -15,9 +15,19 @@ export const HISTORY_TOKEN_BUDGET = 3000; // бюджет на историю (�
 export const HISTORY_KEEP_MIN = 4;        // минимум последних сообщений сохраняем всегда
 export const PER_MSG_CHAR_CAP = 4000;     // одно сообщение не должно доминировать
 
-// Грубая оценка: смешанный RU/EN текст ≈ 1 токен на 3 символа.
+// Оценка токенов с поправкой на язык. Кириллица токенизируется тяжелее под BPE
+// (~1 токен на 2 символа), латиница/ASCII ~1 токен на 3 символа. Раньше делили
+// всё на 3 и недосчитывали русский текст (Roitman §18.2.6: приближение «4 симв/токен»
+// ошибается на 20-40% для не-английского) — теперь считаем по долям.
 export function estimateTokens(text: string): number {
-  return Math.ceil((text?.length ?? 0) / 3);
+  if (!text) return 0;
+  let cyr = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0x0400 && c <= 0x04ff) cyr++; // кириллический блок Unicode
+  }
+  const other = text.length - cyr;
+  return Math.ceil(cyr / 2 + other / 3);
 }
 
 // Обрезает слишком длинное сообщение по краям, сохраняя начало и конец.
