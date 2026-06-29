@@ -27,9 +27,10 @@ export async function GET(request: NextRequest) {
 
   const limitRaw = request.nextUrl.searchParams.get('limit');
   const limit = limitRaw ? Math.min(50, Math.max(1, parseInt(limitRaw, 10) || 12)) : undefined;
+  const judge = request.nextUrl.searchParams.get('judge') === '1';
 
   try {
-    const report = await runEditorRegression({ limit });
+    const report = await runEditorRegression({ limit, judge });
     return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), ...report });
   } catch (err) {
     return NextResponse.json(

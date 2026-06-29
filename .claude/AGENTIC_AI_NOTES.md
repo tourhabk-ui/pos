@@ -46,7 +46,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Eval: outcome/TSR через DB-оракул** (§14.6.1, §20.5.2) | `smoke-test.ts` (claimed→actual в БД) | ✅ это и есть execution-based |
 | **Eval: оракул tamper-proof/aligned** (§20.2.3) | `LENGTH>=100` геймится | ⚠️ TODO: проверять «изменилось», не «существует»; ≥300 по CLAUDE.md |
 | **Eval: A/B с Wilson CI** (§14.4.4-5) | `experiment-tracker` | ✅ исправлено: Wilson-интервалы + несмещённый pickVariant (был `getSeconds()%2`) |
-| **Eval: LLM-as-judge качества** (§14.7, с миtigation bias) | — | ⚠️ TODO: judge переписей Editor (присутствие ≠ качество) |
+| **Eval: LLM-as-judge качества** (§14.7, с миtigation bias) | `eval/editor-judge.ts` (в харнессе, `?judge=1`) | ✅ pointwise 1-5, reference-guided, CoT+антиverbosity, штраф за выдумку |
 | **Eval: held-out regression set** (§14.8.3, §20.7.2) | `eval/editor-regression.ts` + `/api/cron/editor-eval` | ✅ TSR + Wilson CI по фикс-набору (dry-run, до выкатки промпта) |
 | **Multi-agent: стигмергия (общая очередь Issues)** (§24.3.6) | Scout-Innovator ↔ GitHub Issues | ✅ правильно для нас (§24.11 «start simple») |
 | **Multi-agent: task locking** (§24.8.2) | дедуп по Jaccard заголовка | ⚠️ TODO: лок по триггеру, не только по тексту |
@@ -74,7 +74,6 @@ RAG, память, harness/контекст, оценка, мульти-аген
 
 **Larger:**
 - contradiction-флаг при записи памяти (safety-critical)
-- LLM-judge качества Editor (bias-mitigated)
 
 ---
 

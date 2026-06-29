@@ -42,4 +42,23 @@ describe('summarizeRegression', () => {
     expect(r.tsr).toBe(1);
     expect(r.ci.high).toBe(1);
   });
+
+  it('aggregates judge quality when cases carry quality_score', () => {
+    const cases: RegressionCase[] = [
+      { id: 'a', title: 'a', generated_len: 400, passed: true, quality_score: 5 },
+      { id: 'b', title: 'b', generated_len: 400, passed: true, quality_score: 4 },
+      { id: 'c', title: 'c', generated_len: 350, passed: true, quality_score: 2 },
+      { id: 'd', title: 'd', generated_len: 400, passed: true }, // не оценён судьёй
+    ];
+    const r = summarizeRegression(cases);
+    expect(r.judged).toBe(3);
+    expect(r.quality_avg).toBeCloseTo((5 + 4 + 2) / 3, 2);
+    expect(r.quality_good).toBe(2); // >=4
+  });
+
+  it('omits quality fields when no case was judged', () => {
+    const r = summarizeRegression(mk(3, true));
+    expect(r.judged).toBeUndefined();
+    expect(r.quality_avg).toBeUndefined();
+  });
 });

@@ -18,6 +18,7 @@
 import { pool } from '@/lib/db-pool';
 import { generateRouteDescription, type RouteRow } from '@/lib/agents/editor';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
+import { judgeDescription } from '@/lib/agents/eval/editor-judge';
 
 const GOAL_MIN = 300;       // контракт платформы (CLAUDE.md)
 const DEFAULT_LIMIT = 12;
@@ -27,14 +28,21 @@ export interface RegressionCase {
   title: string;
   generated_len: number;
   passed: boolean;
+  quality_score?: number | null; // 1..5 от LLM-судьи (если включён judge)
 }
+
+const QUALITY_GOOD_MIN = 4; // балл судьи >= 4 считаем качественным
 
 export interface RegressionReport {
   total: number;
   passed: number;
-  tsr: number;            // task success rate
+  tsr: number;            // task success rate (по длине-контракту)
   ci: WilsonInterval;     // 95% Wilson по TSR
   goal_min: number;
+  // Качество (если запускали с judge): средний балл и доля «хороших» (>=4)
+  judged?: number;
+  quality_avg?: number | null;
+  quality_good?: number;
   cases: RegressionCase[];
   reason?: string;
 }
@@ -46,12 +54,20 @@ export function scoreGeneration(text: string | null, minLen = GOAL_MIN): boolean
   return !!text && text.trim().length >= minLen;
 }
 
-/** Сводит результаты в отчёт с TSR и Wilson-интервалом. */
+/** Сводит результаты в отчёт с TSR, Wilson-интервалом и (если есть) качеством. */
 export function summarizeRegression(cases: RegressionCase[], goalMin = GOAL_MIN): RegressionReport {
   const total = cases.length;
   const passed = cases.filter(c => c.passed).length;
   const tsr = total > 0 ? passed / total : 0;
-  return { total, passed, tsr, ci: wilsonInterval(passed, total), goal_min: goalMin, cases };
+  const report: RegressionReport = { total, passed, tsr, ci: wilsonInterval(passed, total), goal_min: goalMin, cases };
+
+  const scored = cases.map(c => c.quality_score).filter((s): s is number => typeof s === 'number');
+  if (scored.length > 0) {
+    report.judged = scored.length;
+    report.quality_avg = Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100) / 100;
+    report.quality_good = scored.filter(s => s >= QUALITY_GOOD_MIN).length;
+  }
+  return report;
 }
 
 // ── Источник seed-набора ─────────────────────────────────────────────────────
@@ -88,7 +104,7 @@ async function loadSeedRoutes(seedIds: string[], limit: number): Promise<RouteRo
 
 // ── Оркестратор ──────────────────────────────────────────────────────────────
 
-export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: number }): Promise<RegressionReport> {
+export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: number; judge?: boolean }): Promise<RegressionReport> {
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const seedIds = resolveSeedIds(opts?.seedIds);
 
@@ -112,7 +128,12 @@ export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: n
       text = null;
     }
     const passed = scoreGeneration(text);
-    cases.push({ id: route.id, title: route.title, generated_len: text?.trim().length ?? 0, passed });
+    const c: RegressionCase = { id: route.id, title: route.title, generated_len: text?.trim().length ?? 0, passed };
+    if (opts?.judge && text) {
+      const verdict = await judgeDescription(route, text);
+      c.quality_score = verdict.score;
+    }
+    cases.push(c);
   }
 
   return summarizeRegression(cases);
