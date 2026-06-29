@@ -1,0 +1,54 @@
+import { describe, it, expect, vi } from 'vitest';
+import { runTurnTools, toolSignature } from '@/lib/kuzmich/tool-loop';
+import type { ToolCall } from '@/lib/ai/providers';
+
+function tc(id: string, name: string, args: string): ToolCall {
+  return { id, type: 'function', function: { name, arguments: args } };
+}
+
+describe('toolSignature', () => {
+  it('combines name and raw args', () => {
+    expect(toolSignature(tc('1', 'search', '{"q":"a"}'))).toBe('search:{"q":"a"}');
+  });
+});
+
+describe('runTurnTools', () => {
+  it('executes all calls and preserves order matching tool_calls', async () => {
+    const calls = [tc('a', 'x', '{"q":"1"}'), tc('b', 'y', '{"q":"2"}'), tc('c', 'z', '{"q":"3"}')];
+    const exec = vi.fn(async (name: string) => `res-${name}`);
+    const out = await runTurnTools(calls, new Set(), exec);
+    expect(out.map(o => o.id)).toEqual(['a', 'b', 'c']);
+    expect(out.map(o => o.content)).toEqual(['res-x', 'res-y', 'res-z']);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(out.every(o => o.executed)).toBe(true);
+  });
+
+  it('runs in parallel (overlapping executions)', async () => {
+    let active = 0, maxActive = 0;
+    const exec = vi.fn(async () => {
+      active++; maxActive = Math.max(maxActive, active);
+      await new Promise(r => setTimeout(r, 10));
+      active--; return 'ok';
+    });
+    await runTurnTools([tc('a', 'x', '{}'), tc('b', 'y', '{}')], new Set(), exec);
+    expect(maxActive).toBeGreaterThan(1); // обе исполнялись одновременно
+  });
+
+  it('dedups repeated signatures: second call short-circuits, exec not re-run', async () => {
+    const seen = new Set<string>();
+    const exec = vi.fn(async () => 'data');
+    const first = await runTurnTools([tc('a', 'search', '{"q":"same"}')], seen, exec);
+    expect(first[0].executed).toBe(true);
+    const second = await runTurnTools([tc('b', 'search', '{"q":"same"}')], seen, exec);
+    expect(second[0].executed).toBe(false);
+    expect(second[0].content).toContain('уже выполнял');
+    expect(exec).toHaveBeenCalledTimes(1); // повтор не исполнялся
+  });
+
+  it('tolerates malformed args (empty object, still executes)', async () => {
+    const exec = vi.fn(async (_name: string, args: Record<string, string>) => JSON.stringify(args));
+    const out = await runTurnTools([tc('a', 'x', 'not-json')], new Set(), exec);
+    expect(out[0].args).toEqual({});
+    expect(out[0].executed).toBe(true);
+  });
+});

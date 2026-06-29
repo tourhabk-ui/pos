@@ -41,7 +41,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Harness: бюджет на динамический M-блок + tool defs** | только H бюджетируется | ⚠️ TODO: реальный рост контекста именно тут |
 | **Harness: tool-output как untrusted (XML-wrap)** (§18.4.4) | web/RSS идут в контекст напрямую | ⚠️ TODO: prompt-injection поверхность |
 | **Patterns: ReAct + max-iter + fallback** | `aiChatAgentLoop` (cap 4) + waterfall fallback | ✅ корректно (§19.2) |
-| **Patterns: параллельный tool-exec / loop-detect** | tools выполняются последовательно; только iter-cap | ⚠️ TODO: `Promise.all` + дедуп `(tool,args)` |
+| **Patterns: параллельный tool-exec / loop-detect** | `tool-loop.ts` `runTurnTools` в `aiChatAgentLoop` | ✅ Promise.all (порядок сохранён) + дедуп `(tool,args)` между ходами |
 | **Patterns: cron-агенты = workflows, не agents** (§19) | Watchdog/Editor/Scout/Evo | ✅ правильный выбор |
 | **Eval: outcome/TSR через DB-оракул** (§14.6.1, §20.5.2) | `smoke-test.ts` (claimed→actual в БД) | ✅ это и есть execution-based |
 | **Eval: оракул tamper-proof/aligned** (§20.2.3) | `LENGTH>=100` геймится | ⚠️ TODO: проверять «изменилось», не «существует»; ≥300 по CLAUDE.md |
@@ -72,8 +72,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - tamper-proof оракул Editor в `smoke-test.ts` (проверять изменение, не длину)
 - multi-query парафраз для коротких запросов (без векторов)
 
-**Осталось (hot-path — только с живой проверкой приложения, не вслепую):**
-- параллельный tool-exec + loop-dedup в `aiChatAgentLoop`
+**Осталось (hot-path — желательна живая проверка):**
 - pre-flight token-check (Silent Truncation Trap) + summarize-on-evict
 - multi-query парафраз для коротких запросов
 
