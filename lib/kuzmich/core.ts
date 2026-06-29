@@ -480,30 +480,41 @@ export async function searchPlaceKnowledge(query: string): Promise<string> {
 
     // FTS через GIN-индексы — без фильтра is_visible (1127/1258 записей is_visible=false, но имеют координаты)
     // UNION: agent_route_knowledge (с координатами) + kamchatka_routes (описания с visitkamchatka.ru)
+    //
+    // Слияние через Reciprocal Rank Fusion (Roitman §16.3.3): ts_rank по разным
+    // tsvector'ам (search_text vs только title) НЕсравнимы напрямую — нельзя
+    // `ORDER BY rank` по объединению. Берём позицию внутри каждого источника
+    // (ROW_NUMBER) и сортируем по 1/(k+pos), k=60. Так топ-1 каждого источника
+    // получает наивысший приоритет, затем топ-2 и т.д.
+    const RRF_K = 60;
     const { rows } = await pool.query<PlaceRow>(
       `SELECT title, description, lat, lng, source_name
        FROM (
          (
            SELECT title, description, lat::text AS lat, lng::text AS lng, source_name,
-                  ts_rank(to_tsvector('russian', search_text), plainto_tsquery('russian', $1)) AS rank
+                  ROW_NUMBER() OVER (
+                    ORDER BY ts_rank(to_tsvector('russian', search_text), plainto_tsquery('russian', $1)) DESC
+                  ) AS pos
            FROM agent_route_knowledge
            WHERE to_tsvector('russian', search_text) @@ plainto_tsquery('russian', $1)
              AND lat IS NOT NULL AND lat != 0
-           ORDER BY rank DESC
+           ORDER BY ts_rank(to_tsvector('russian', search_text), plainto_tsquery('russian', $1)) DESC
            LIMIT 6
          )
          UNION ALL
          (
            SELECT title, description, NULL::text AS lat, NULL::text AS lng, source_name,
-                  ts_rank(to_tsvector('russian', title), plainto_tsquery('russian', $1)) AS rank
+                  ROW_NUMBER() OVER (
+                    ORDER BY ts_rank(to_tsvector('russian', title), plainto_tsquery('russian', $1)) DESC
+                  ) AS pos
            FROM v_kamchatka_routes_api
            WHERE to_tsvector('russian', title) @@ plainto_tsquery('russian', $1)
              AND description IS NOT NULL
-           ORDER BY rank DESC
+           ORDER BY ts_rank(to_tsvector('russian', title), plainto_tsquery('russian', $1)) DESC
            LIMIT 3
          )
        ) combined
-       ORDER BY rank DESC
+       ORDER BY 1.0 / (${RRF_K} + pos) DESC
        LIMIT 8`,
       [ftsQuery],
     );
