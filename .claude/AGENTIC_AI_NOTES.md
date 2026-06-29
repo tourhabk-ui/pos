@@ -32,7 +32,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Память: episodic** (поиск похожих прошлых эпизодов) | `agent_memory` (по key/recency/FTS) | ⚠️ нет retrieve-by-similarity, нет recall провалов |
 | **Память: semantic** (факты/граф) | `agent_knowledge` + `agent_knowledge_links` (рёбра почти не used) | ⚠️ граф не обходится при ретриве |
 | **Память: consolidation/reflection** (эпизод→семантика, §17.4.4) | `memory-reflector.ts` + `/api/cron/memory-reflect` | ✅ синтез истекающих intel-сигналов → durable insight-страницы (анти-галлюцинация) |
-| **Память: contradiction detection при записи** (§17.4.1) | пишем безусловно | ⚠️ TODO safety: «тропа открыта» не флагается против свежей «закрыта» |
+| **Память: contradiction detection** (§17.4.1) | `memory-contradiction.ts` + `/api/cron/memory-contradiction` | ✅ периодический safety-сканер: прямые противоречия → флаг + алерт (не в hot write-path) |
 | **Память: temporal decay в ретриве** (§17.4.2 `λ·sim+(1−λ)·decay`) | чистая recency ИЛИ чистый FTS | ⚠️ TODO |
 | **Harness: prompt-cache (стат/динам префикс)** | `CACHE_BREAK_MARKER`, `cache_control:ephemeral` | ✅ хорошо (§18.8.1) |
 | **Harness: token-бюджет истории** | `context-budget.ts` (token-aware, кириллица ×, §18.2.6) | ✅ оценка токенов исправлена под кириллицу |
@@ -72,8 +72,10 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - tamper-proof оракул Editor в `smoke-test.ts` (проверять изменение, не длину)
 - multi-query парафраз для коротких запросов (без векторов)
 
-**Larger:**
-- contradiction-флаг при записи памяти (safety-critical)
+**Осталось (hot-path — только с живой проверкой приложения, не вслепую):**
+- параллельный tool-exec + loop-dedup в `aiChatAgentLoop`
+- pre-flight token-check (Silent Truncation Trap) + summarize-on-evict
+- multi-query парафраз для коротких запросов
 
 ---
 
