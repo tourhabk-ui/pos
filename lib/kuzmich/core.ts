@@ -20,7 +20,7 @@ import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/legislation-importer';
 import { trimHistoryToBudget, fitTextToTokenBudget } from '@/lib/kuzmich/context-budget';
-import { runTurnTools } from '@/lib/kuzmich/tool-loop';
+import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -1653,7 +1653,10 @@ async function aiChatAgentLoop(
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool);
     for (const o of outcomes) {
-      msgs.push({ role: 'tool', content: o.content, tool_call_id: o.id });
+      // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
+      // short-circuit дублей не оборачиваем. В KB ниже идёт СЫРОЙ результат.
+      const msgContent = o.executed ? wrapToolOutput(o.name, o.content) : o.content;
+      msgs.push({ role: 'tool', content: msgContent, tool_call_id: o.id });
 
       // Auto-save search results to KB for future use (только для реально выполненных)
       if (o.executed && o.name === 'search_kamchatka' && o.content !== 'Поиск не дал результатов.') {

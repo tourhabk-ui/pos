@@ -39,7 +39,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **Harness: pre-flight token check** (Silent Truncation Trap §18.2) | `fitTextToTokenBudget` в сборке промпта Кузьмича | ✅ динамический RAG-контекст бюджетируется (6000 ток.), важные блоки первыми |
 | **Harness: компакция = суммаризация, не удаление** (Eq 18.4) | `trimHistoryToBudget` удаляет старое | ⚠️ TODO: терять исходную задачу/safety-факт плохо |
 | **Harness: бюджет на динамический M-блок + tool defs** | только H бюджетируется | ⚠️ TODO: реальный рост контекста именно тут |
-| **Harness: tool-output как untrusted (XML-wrap)** (§18.4.4) | web/RSS идут в контекст напрямую | ⚠️ TODO: prompt-injection поверхность |
+| **Harness: tool-output как untrusted (XML-wrap)** (§18.4.4) | `wrapToolOutput` в agent-loop Кузьмича | ✅ tool-выходы обёрнуты в untrusted-делимитеры + пометка (не команды) |
 | **Patterns: ReAct + max-iter + fallback** | `aiChatAgentLoop` (cap 4) + waterfall fallback | ✅ корректно (§19.2) |
 | **Patterns: параллельный tool-exec / loop-detect** | `tool-loop.ts` `runTurnTools` в `aiChatAgentLoop` | ✅ Promise.all (порядок сохранён) + дедуп `(tool,args)` между ходами |
 | **Patterns: cron-агенты = workflows, не agents** (§19) | Watchdog/Editor/Scout/Evo | ✅ правильный выбор |
