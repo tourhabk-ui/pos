@@ -25,7 +25,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **RAG: слияние источников через RRF** (§16.3.3, ранги несравнимы) | `searchPlaceKnowledge` | ✅ исправлено (был `ORDER BY rank` по UNION — анти-паттерн) → RRF 1/(60+pos) |
 | **RAG: dense/эмбеддинги** | — | ⛔ нельзя локально (50 МБ); только внешний API |
 | **RAG: chunking длинных доков** (§16.4) | `legislation_docs.full_text` — один блок 20K | ⚠️ TODO: бьёт precision на длинных законах |
-| **RAG: multi-query/query rewriting** (§16.5) | сырой текст → FTS | ⚠️ TODO: дешёвый `callAIFast`-парафраз закрыл бы vocab-gap без векторов |
+| **RAG: multi-query/query rewriting** (§16.5) | `query-expansion.ts` в `searchRoutes` (env `RAG_MULTIQUERY`) | ✅ перефразы → объединение с дедупом; по умолчанию ВЫКЛ, fail-open |
 | **RAG: agentic/iterative** (retrieve→оценка достаточности→re-retrieve) | один фиксированный fan-out 9 источников | ⚠️ нет цикла достаточности; FTS дёшев, не срочно |
 | **RAG: grounding/цитирование** (§16.8.4) | `searchLegislation` даёт `Источник:`; importer не переписывает оригинал | ✅ частично; нет faithfulness-проверки в генерации |
 | **Память: working** (история диалога) | `getHistory` + `trimHistoryToBudget` | ✅ token-aware |
@@ -72,9 +72,8 @@ RAG, память, harness/контекст, оценка, мульти-аген
 - tamper-proof оракул Editor в `smoke-test.ts` (проверять изменение, не длину)
 - multi-query парафраз для коротких запросов (без векторов)
 
-**Осталось (hot-path — желательна живая проверка):**
+**Осталось (опционально, желательна живая проверка):**
 - summarize-on-evict в `trimHistoryToBudget` (вместо удаления — суммаризация)
-- multi-query парафраз для коротких запросов
 
 ---
 
