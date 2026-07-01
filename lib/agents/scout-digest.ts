@@ -13,7 +13,7 @@
  * Хранит результат в agent_memory для истории.
  */
 
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFast, fetchWithRetry } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
@@ -52,30 +52,19 @@ const RSS_SOURCES: Array<{ url: string; label: string; category: 'ai' | 'travel'
 // Метки AI-источников — для отдельного поста в @ai_hub_money
 const AI_LABELS = new Set(RSS_SOURCES.filter(s => s.category === 'ai').map(s => s.label));
 
-async function fetchRssWithRetry(url: string, options: RequestInit, maxAttempts = 3): Promise<Response> {
-  let lastErr: unknown;
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(timeout);
-      return res;
-    } catch (err) {
-      lastErr = err;
-      if (i < maxAttempts - 1) {
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
-      }
-    }
-  }
-  throw lastErr;
+// Общий ретрай-хелпер с backoff+jitter (Roitman §18.7.1) — переиспользуем
+// вместо локальной реализации без jitter, которая ретраила ЛЮБую ошибку
+// (включая собственный таймаут); теперь таймаут фида не ретраится (это
+// не транзиентный сбой, а исчерпанный бюджет времени на медленный источник).
+async function fetchRssWithRetry(url: string, options: RequestInit, label: string): Promise<Response> {
+  return fetchWithRetry(url, options, { timeoutMs: 8000, maxRetries: 2, baseDelayMs: 1000, label: `rss:${label}` });
 }
 
 async function fetchRss(url: string, label: string): Promise<RssItem[]> {
   try {
     const res = await fetchRssWithRetry(url, {
       headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
-    });
+    }, label);
     const xml = await res.text();
     const items: RssItem[] = [];
     // RSS использует <item>, Atom (напр. Simon Willison) — <entry>. Поддерживаем оба.
