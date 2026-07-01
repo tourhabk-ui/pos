@@ -54,6 +54,35 @@ const HAZARD_LABELS: Record<string, string> = {
   weather: 'резкая смена погоды',
 };
 
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * CRAG-lite relevance grading (Roitman §16.5.5): ILIKE '%query%' can bind the
+ * wrong place — "ORDER BY char_length ASC" prefers the shortest name
+ * containing the substring, which for a query like "Толбачик" can surface an
+ * unrelated short-named place before the actual volcano. For a safety tool,
+ * a confident-looking wrong match is worse than no match: grade the name
+ * match before trusting it, so a weak match degrades to an explicit
+ * uncertainty note instead of asserting someone else's safety facts.
+ */
+const MIN_PREFIX_LEN = 3; // короче — тоже "префикс" почти чего угодно (напр. "г." → "гора"/"гейзер")
+
+export function gradeNameMatch(query: string, candidate: string): 'high' | 'low' {
+  const q = normalizeForMatch(query);
+  const c = normalizeForMatch(candidate);
+  if (!q || !c) return 'low';
+  if (c === q) return 'high';
+  const qWords = q.split(' ').filter(Boolean);
+  const cWords = c.split(' ').filter(Boolean);
+  const wordMatch = (w: string, t: string) =>
+    t === w || (w.length >= MIN_PREFIX_LEN && t.length >= MIN_PREFIX_LEN && (t.startsWith(w) || w.startsWith(t)));
+  const covers = (from: string[], to: string[]) =>
+    from.every(w => to.some(t => wordMatch(w, t)));
+  return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
+}
+
 export async function getGuardianContext(placeName: string): Promise<string> {
   if (!placeName.trim()) return '';
 
@@ -111,6 +140,29 @@ export async function getGuardianContext(placeName: string): Promise<string> {
       ? `${p.name} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
       : p.name;
     parts.push(header);
+
+    if (gradeNameMatch(placeName, p.name) === 'low') {
+      // Слабое совпадение по названию (в т.ч. из-за русской морфологии —
+      // "Авачинский" vs "Авачинская сопка" рвёт префиксное сравнение) — не
+      // факт что это то же место, которое спросил пользователь. Высоту,
+      // расстояние до медпомощи и т.п. этого места не прикладываем — они
+      // могут быть про другой объект. Но активный алерт молчать нельзя:
+      // на safety-платформе тихо уронить реальное предупреждение опаснее,
+      // чем один лишний уточняющий вопрос — отдаём его с явной рамкой
+      // неуверенности вместо простого отказа.
+      const hedge =
+        `(!) "${p.name}" — неточное совпадение по названию с запросом "${placeName}", ` +
+        `данные этого места ниже не приложены. Уточни у пользователя точное ` +
+        `название, прежде чем говорить про статус или опасности.`;
+      if (p.alert_message) {
+        parts.push(`${hedge} Но по похожему названию есть активный алерт: ${p.alert_message} — уточни, относится ли он к месту, которое спросили.`);
+      } else if (p.active_alerts?.length) {
+        parts.push(`${hedge} Но по похожему названию есть активные алерты: ${p.active_alerts.join(', ')} — уточни, относятся ли они к месту, которое спросили.`);
+      } else {
+        parts.push(hedge);
+      }
+      continue;
+    }
 
     // Алерты первыми — безопасность важнее описания
     if (p.alert_message) {

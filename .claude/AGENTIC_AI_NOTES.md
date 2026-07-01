@@ -27,6 +27,7 @@ RAG, память, harness/контекст, оценка, мульти-аген
 | **RAG: chunking длинных доков** (§16.4) | `legislation_docs.full_text` — один блок 20K | ⚠️ TODO: бьёт precision на длинных законах |
 | **RAG: multi-query/query rewriting** (§16.5) | `query-expansion.ts` в `searchRoutes` (env `RAG_MULTIQUERY`) | ✅ перефразы → объединение с дедупом; по умолчанию ВЫКЛ, fail-open |
 | **RAG: agentic/iterative** (retrieve→оценка достаточности→re-retrieve) | один фиксированный fan-out 9 источников | ⚠️ нет цикла достаточности; FTS дёшев, не срочно |
+| **RAG: corrective/CRAG-lite грейдинг ретрива** (§16.5.5, слабый матч → честная неуверенность вместо доверия) | `guardian-context.ts` `gradeNameMatch` в `getGuardianContext` | ✅ ILIKE-матч по имени места грейдится high/low; low → explicit пометка неуверенности вместо фактов безопасности о вероятно не том месте |
 | **RAG: grounding/цитирование** (§16.8.4) | `searchLegislation` даёт `Источник:`; importer не переписывает оригинал | ✅ частично; нет faithfulness-проверки в генерации |
 | **Память: working** (история диалога) | `getHistory` + `trimHistoryToBudget` | ✅ token-aware |
 | **Память: episodic** (поиск похожих прошлых эпизодов) | `agent_memory` (по key/recency/FTS) | ⚠️ нет retrieve-by-similarity, нет recall провалов |
