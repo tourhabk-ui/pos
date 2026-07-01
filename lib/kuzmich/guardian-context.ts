@@ -67,6 +67,8 @@ function normalizeForMatch(s: string): string {
  * match before trusting it, so a weak match degrades to an explicit
  * uncertainty note instead of asserting someone else's safety facts.
  */
+const MIN_PREFIX_LEN = 3; // короче — тоже "префикс" почти чего угодно (напр. "г." → "гора"/"гейзер")
+
 export function gradeNameMatch(query: string, candidate: string): 'high' | 'low' {
   const q = normalizeForMatch(query);
   const c = normalizeForMatch(candidate);
@@ -74,8 +76,10 @@ export function gradeNameMatch(query: string, candidate: string): 'high' | 'low'
   if (c === q) return 'high';
   const qWords = q.split(' ').filter(Boolean);
   const cWords = c.split(' ').filter(Boolean);
+  const wordMatch = (w: string, t: string) =>
+    t === w || (w.length >= MIN_PREFIX_LEN && t.length >= MIN_PREFIX_LEN && (t.startsWith(w) || w.startsWith(t)));
   const covers = (from: string[], to: string[]) =>
-    from.every(w => to.some(t => t === w || t.startsWith(w) || w.startsWith(t)));
+    from.every(w => to.some(t => wordMatch(w, t)));
   return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
 }
 
@@ -138,15 +142,25 @@ export async function getGuardianContext(placeName: string): Promise<string> {
     parts.push(header);
 
     if (gradeNameMatch(placeName, p.name) === 'low') {
-      // Слабое совпадение по названию — не факт что это то же место, которое
-      // спросил пользователь. Не отдаём его опасности/высоту/расстояния как
-      // факты о запрошенном месте — только явную пометку неуверенности.
-      parts.push(
-        `(!) Неточное совпадение по названию с запросом "${placeName}" — ` +
-        `это может быть не то место. Не выдавай данные ниже как факты про ` +
-        `запрошенное место: уточни у пользователя точное название, прежде ` +
-        `чем говорить про статус или опасности.`,
-      );
+      // Слабое совпадение по названию (в т.ч. из-за русской морфологии —
+      // "Авачинский" vs "Авачинская сопка" рвёт префиксное сравнение) — не
+      // факт что это то же место, которое спросил пользователь. Высоту,
+      // расстояние до медпомощи и т.п. этого места не прикладываем — они
+      // могут быть про другой объект. Но активный алерт молчать нельзя:
+      // на safety-платформе тихо уронить реальное предупреждение опаснее,
+      // чем один лишний уточняющий вопрос — отдаём его с явной рамкой
+      // неуверенности вместо простого отказа.
+      const hedge =
+        `(!) "${p.name}" — неточное совпадение по названию с запросом "${placeName}", ` +
+        `данные этого места ниже не приложены. Уточни у пользователя точное ` +
+        `название, прежде чем говорить про статус или опасности.`;
+      if (p.alert_message) {
+        parts.push(`${hedge} Но по похожему названию есть активный алерт: ${p.alert_message} — уточни, относится ли он к месту, которое спросили.`);
+      } else if (p.active_alerts?.length) {
+        parts.push(`${hedge} Но по похожему названию есть активные алерты: ${p.active_alerts.join(', ')} — уточни, относятся ли они к месту, которое спросили.`);
+      } else {
+        parts.push(hedge);
+      }
       continue;
     }
 
