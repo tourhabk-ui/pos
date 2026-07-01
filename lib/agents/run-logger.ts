@@ -17,6 +17,11 @@ export interface RunLogParams {
   errors_count?: number;
   error_msg?: string;
   metadata?: Record<string, unknown>;
+  // Roitman §18.7.4 — usage per run (см. lib/ai/usage-context.ts runWithUsageTracking)
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  llm_calls?: number;
+  estimated_cost_usd?: number;
 }
 
 export async function logAgentRun(params: RunLogParams): Promise<void> {
@@ -25,8 +30,9 @@ export async function logAgentRun(params: RunLogParams): Promise<void> {
     await pool.query(
       `INSERT INTO agent_run_history
          (agent_id, status, started_at, ended_at, duration_ms,
-          items_processed, items_created, errors_count, error_msg, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          items_processed, items_created, errors_count, error_msg, metadata,
+          prompt_tokens, completion_tokens, llm_calls, estimated_cost_usd)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         params.agent_id,
         params.status,
@@ -38,6 +44,10 @@ export async function logAgentRun(params: RunLogParams): Promise<void> {
         params.errors_count ?? 0,
         params.error_msg ?? null,
         params.metadata ? JSON.stringify(params.metadata) : null,
+        params.prompt_tokens ?? null,
+        params.completion_tokens ?? null,
+        params.llm_calls ?? null,
+        params.estimated_cost_usd ?? null,
       ]
     );
   } catch (err) {

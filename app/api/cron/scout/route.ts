@@ -15,6 +15,7 @@ import { runScoutInnovator } from '@/lib/agents/scout-innovator';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -24,7 +25,7 @@ async function runWithContext(
   started_at: Date,
 ) {
   try {
-    const result = await runScoutInnovator(gitContext);
+    const { result, usage } = await runWithUsageTracking('scout', () => runScoutInnovator(gitContext));
     void logAgentRun({
       agent_id: 'scout',
       status: result.proposals_count > 0 ? 'success' : 'partial',
@@ -32,6 +33,10 @@ async function runWithContext(
       duration_ms: result.duration_ms,
       items_processed: result.intel_entries,
       items_created: result.proposals_count + result.issues_created.length,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      llm_calls: usage.llm_calls,
+      estimated_cost_usd: usage.estimated_cost_usd,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
