@@ -43,6 +43,10 @@ describe('gradeNameMatch (CRAG-lite relevance grading, Roitman §16.5.5)', () =>
     expect(gradeNameMatch('г', 'гейзер')).toBe('low');
   });
 
+  it('a multi-word query with a short word does not become high solely via that word', () => {
+    expect(gradeNameMatch('г Ключевская', 'гейзер')).toBe('low');
+  });
+
   it('still grades an exact short word as high confidence', () => {
     expect(gradeNameMatch('юг', 'юг')).toBe('high');
   });
