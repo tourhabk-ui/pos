@@ -54,6 +54,31 @@ const HAZARD_LABELS: Record<string, string> = {
   weather: 'резкая смена погоды',
 };
 
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * CRAG-lite relevance grading (Roitman §16.5.5): ILIKE '%query%' can bind the
+ * wrong place — "ORDER BY char_length ASC" prefers the shortest name
+ * containing the substring, which for a query like "Толбачик" can surface an
+ * unrelated short-named place before the actual volcano. For a safety tool,
+ * a confident-looking wrong match is worse than no match: grade the name
+ * match before trusting it, so a weak match degrades to an explicit
+ * uncertainty note instead of asserting someone else's safety facts.
+ */
+export function gradeNameMatch(query: string, candidate: string): 'high' | 'low' {
+  const q = normalizeForMatch(query);
+  const c = normalizeForMatch(candidate);
+  if (!q || !c) return 'low';
+  if (c === q) return 'high';
+  const qWords = q.split(' ').filter(Boolean);
+  const cWords = c.split(' ').filter(Boolean);
+  const covers = (from: string[], to: string[]) =>
+    from.every(w => to.some(t => t === w || t.startsWith(w) || w.startsWith(t)));
+  return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
+}
+
 export async function getGuardianContext(placeName: string): Promise<string> {
   if (!placeName.trim()) return '';
 
@@ -111,6 +136,19 @@ export async function getGuardianContext(placeName: string): Promise<string> {
       ? `${p.name} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
       : p.name;
     parts.push(header);
+
+    if (gradeNameMatch(placeName, p.name) === 'low') {
+      // Слабое совпадение по названию — не факт что это то же место, которое
+      // спросил пользователь. Не отдаём его опасности/высоту/расстояния как
+      // факты о запрошенном месте — только явную пометку неуверенности.
+      parts.push(
+        `(!) Неточное совпадение по названию с запросом "${placeName}" — ` +
+        `это может быть не то место. Не выдавай данные ниже как факты про ` +
+        `запрошенное место: уточни у пользователя точное название, прежде ` +
+        `чем говорить про статус или опасности.`,
+      );
+      continue;
+    }
 
     // Алерты первыми — безопасность важнее описания
     if (p.alert_message) {
