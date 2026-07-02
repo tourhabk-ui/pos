@@ -2,6 +2,7 @@ import { runScoutDigest } from '@/lib/agents/scout-digest';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 
 /**
  * GET /api/cron/scout-digest
@@ -22,13 +23,17 @@ export async function GET(req: Request) {
 
   const started_at = new Date();
   try {
-    const result = await runScoutDigest();
+    const { result, usage } = await runWithUsageTracking('scout-digest', () => runScoutDigest());
     void logAgentRun({
       agent_id: 'scout-digest',
       status: result.digest_sent ? 'success' : 'partial',
       started_at,
       duration_ms: result.duration_ms,
       items_processed: result.signals_found,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      llm_calls: usage.llm_calls,
+      estimated_cost_usd: usage.estimated_cost_usd,
     });
     return Response.json({ success: true, ...result });
   } catch (err) {

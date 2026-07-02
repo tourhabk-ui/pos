@@ -15,6 +15,7 @@
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
+import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 
 // ── LLM usage tracking ────────────────────────────────────────
 // Logs token counts and estimated costs to llm_usage_log (migration 686).
@@ -44,11 +45,14 @@ function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
   const total = prompt + completion;
   if (total === 0) return;
   const cost = ((COST_PER_1K[model] ?? 0.00050) * total) / 1000;
+  // Атрибуция вызывающему агенту (Roitman §18.7.4) — no-op вне
+  // runWithUsageTracking (обычные HTTP-запросы Кузьмича), agent_id тогда NULL.
+  addUsage(prompt, completion, cost);
   pool.query(
     `INSERT INTO llm_usage_log
-       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, created_at)
-     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())`,
-    [model, prompt, completion, total, cost],
+       (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, agent_id, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())`,
+    [model, prompt, completion, total, cost, currentAgentId()],
   ).catch(() => { /* silent */ });
 }
 

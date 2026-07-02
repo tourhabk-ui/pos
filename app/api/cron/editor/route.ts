@@ -4,6 +4,7 @@ import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
 import { readAgentBriefing } from '@/lib/agents/warmup';
 import { smokeTestEditorWrites } from '@/lib/agents/smoke-test';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 
 /**
  * GET /api/cron/editor
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
     // Warm-up: read platform briefing + own run history before editing.
     // Provides context so the agent knows what was already processed.
     const briefing = await readAgentBriefing('editor');
-    const result = await runEditor(briefing);
+    const { result, usage } = await runWithUsageTracking('editor', () => runEditor(briefing));
 
     // Smoke test: проверяет конкретные строки по ID — не просто updated_at за период.
     // Telegram fire-and-forget внутри, logAgentRun пишет в DB независимо от Telegram.
@@ -49,6 +50,10 @@ export async function GET(req: Request) {
       items_created: result.improved,
       error_msg: smoke.passed ? undefined : smoke.message,
       metadata: { ...result as unknown as Record<string, unknown>, smoke_kind: smoke.kind } as Record<string, unknown>,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      llm_calls: usage.llm_calls,
+      estimated_cost_usd: usage.estimated_cost_usd,
     });
     return Response.json({ success: true, smoke: smoke.kind, ...result });
   } catch (err) {
