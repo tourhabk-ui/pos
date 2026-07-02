@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml } from '@/lib/services/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -231,7 +231,11 @@ const HtmlBodySchema = z.object({
   eqkam_html: z.string().min(1),
 });
 
-// POST — GitHub Actions передаёт уже скачанный HTML, сервер только парсит
+// POST — GitHub Actions передаёт уже скачанный HTML (Telegram, geo-заблокирован
+// для хостинга), сервер парсит его + сам тянет МЧС RSS и USGS напрямую (эти два
+// источника не заблокированы — раньше POST-путь их вообще не вызывал, из-за
+// чего волкан-алерты МЧС/#258 никогда не доходили через реальный cron, только
+// через ручной GET).
 export async function POST(req: Request) {
   const err = authError(req);
   if (err) return err;
@@ -250,7 +254,18 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const ingestResult = await ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html);
+  const [telegramResult, mchsResult, usgsResult] = await Promise.all([
+    ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
+    ingestMchsAlerts(),
+    ingestUsgs(),
+  ]);
+  const ingestResult = {
+    kbgsras: telegramResult.kbgsras,
+    eqkam: telegramResult.eqkam,
+    mchs: mchsResult,
+    usgs: usgsResult,
+    total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted,
+  };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
