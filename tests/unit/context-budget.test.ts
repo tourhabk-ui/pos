@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   trimHistoryToBudget,
+  splitHistoryForCompaction,
   capMessage,
   estimateTokens,
   fitTextToTokenBudget,
@@ -77,6 +78,35 @@ describe('trimHistoryToBudget', () => {
     ];
     const out = trimHistoryToBudget(h);
     expect(out.map(m => m.content)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
+describe('splitHistoryForCompaction', () => {
+  it('reports nothing dropped when everything fits (trimHistoryToBudget delegates to it)', () => {
+    const h = [msg('user', 'привет'), msg('assistant', 'здравствуйте')];
+    const r = splitHistoryForCompaction(h);
+    expect(r.kept).toHaveLength(2);
+    expect(r.dropped).toHaveLength(0);
+  });
+
+  it('kept + dropped reconstruct the original chronological order', () => {
+    const heavy = 'я'.repeat(HISTORY_TOKEN_BUDGET * 3);
+    const h: ChatMessage[] = Array.from({ length: 10 }, (_, i) =>
+      msg(i % 2 === 0 ? 'user' : 'assistant', `${heavy}-${i}`),
+    );
+    const { kept, dropped } = splitHistoryForCompaction(h);
+    expect(dropped.length).toBeGreaterThan(0);
+    expect(dropped.length + kept.length).toBe(h.length);
+    // dropped — самая старая голова, kept — хвост, вместе воспроизводят исходный порядок
+    expect([...dropped, ...kept].map(m => m.content)).toEqual(
+      h.map(m => capMessage(m.content)),
+    );
+  });
+
+  it('trimHistoryToBudget(messages) === splitHistoryForCompaction(messages).kept', () => {
+    const heavy = 'a'.repeat(HISTORY_TOKEN_BUDGET * 3);
+    const h: ChatMessage[] = Array.from({ length: 8 }, (_, i) => msg('user', `${heavy}${i}`));
+    expect(trimHistoryToBudget(h)).toEqual(splitHistoryForCompaction(h).kept);
   });
 });
 

@@ -19,7 +19,8 @@ import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/legislation-importer';
-import { trimHistoryToBudget, fitTextToTokenBudget } from '@/lib/kuzmich/context-budget';
+import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
+import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
@@ -902,6 +903,28 @@ export async function getHistory(chatId: number, mode: string): Promise<ChatMess
   } catch { return []; }
 }
 
+/**
+ * Как getHistory, но вместо молчаливого отбрасывания хвоста по токен-бюджету
+ * суммирует отброшенное (Roitman §18, Eq 18.4) — см. history-compaction.ts.
+ * Используется только в aiChat (tourist-facing чат); operator-chat.ts и сырой
+ * telegram webhook продолжают использовать getHistory() как раньше.
+ */
+async function getHistoryWithCompactionSummary(
+  chatId: number, mode: string,
+): Promise<{ history: ChatMessage[]; summary: string }> {
+  try {
+    const { rows } = await pool.query<{ role: string; content: string }>(
+      `SELECT role, content FROM tg_conversations
+       WHERE chat_id = $1 AND mode = $2
+       ORDER BY created_at DESC LIMIT 20`,
+      [chatId, mode],
+    );
+    const { kept, dropped } = splitHistoryForCompaction(rows.reverse() as ChatMessage[]);
+    const summary = dropped.length ? await summarizeDroppedTurns(dropped) : '';
+    return { history: kept, summary };
+  } catch { return { history: [], summary: '' }; }
+}
+
 export async function saveMsg(
   chatId: number, mode: string, role: 'user' | 'assistant', content: string,
   userId?: number | null, userName?: string | null,
@@ -1634,8 +1657,8 @@ export async function aiChat(opts: {
     : text;
   await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [history, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx] = await Promise.all([
-    getHistory(chatId, mode),
+  const [historyResult, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx] = await Promise.all([
+    getHistoryWithCompactionSummary(chatId, mode),
     buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
     searchPlaceKnowledge(text),
@@ -1645,16 +1668,22 @@ export async function aiChat(opts: {
     loadUserSituation(chatId),
     searchLegislation(text),
   ]);
+  const { history, summary: historySummary } = historyResult;
 
   // Строим системный промпт с маркером для prompt caching:
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
   const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
+  // Компакция (Roitman §18, Eq 18.4): то, что не влезло в токен-бюджет истории
+  // (splitHistoryForCompaction), не пропадает молча — сжато в 1-2 предложения.
+  const historySummaryBlock = historySummary
+    ? `[РАНЕЕ В РАЗГОВОРЕ, за пределами недавней истории]\n${historySummary}`
+    : '';
   // Pre-flight: бюджетируем динамический контекст, чтобы он не выдавил остальное
   // из окна модели (Silent Truncation). Важные блоки (place/route) идут первыми.
   const dynamic = fitTextToTokenBudget(
-    [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || ''].filter(Boolean).join('\n\n'),
+    [placeCtx || '', routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
   );
   const systemContent = dynamic
     ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
