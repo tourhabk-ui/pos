@@ -541,15 +541,40 @@ export function classifyMchsItem(
   };
 }
 
+// https://41.mchs.gov.ru/rss (старый, зашитый годами ранее) на практике не
+// отдаёт RSS — подтверждено вживую. Реальный работающий путь —
+// .../operativnaya-informaciya/rss (подтверждено вживую 2026-07-02, содержит
+// именно срочные бюллетени вроде "воздержаться от восхождения на Мутновский").
+// .../novosti/rss (используется отдельно в lib/kuzmich/core.ts fetchMchsAlerts
+// для общих новостей) — второй кандидат на случай, если сайт снова переедет.
+// Старый /rss — третьим, вдруг вернётся. Берём первый, что реально отдаёт RSS
+// (HTTP ok И есть хотя бы один <item> — гос-сайты любят отдавать 200 с HTML
+// страницей ошибки вместо ожидаемого фида).
+const MCHS_FEED_CANDIDATES = [
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss',
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss',
+  'https://41.mchs.gov.ru/rss',
+];
+
+export async function fetchMchsFeedXml(): Promise<string> {
+  for (const url of MCHS_FEED_CANDIDATES) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0)' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      if (/<item[\s>]/i.test(xml)) return xml;
+    } catch { /* пробуем следующий кандидат */ }
+  }
+  throw new Error(`none of ${MCHS_FEED_CANDIDATES.length} MChS feed URLs returned valid RSS`);
+}
+
 export async function ingestMchsAlerts(): Promise<ParseResult> {
   const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
   try {
-    const res = await fetch('https://41.mchs.gov.ru/rss', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0)' },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
+    const xml = await fetchMchsFeedXml();
 
     // Простой regex-парсер RSS 2.0 (без xml2js)
     const itemRe = /<item>([\s\S]*?)<\/item>/g;
