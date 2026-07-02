@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle } from 'lucide-react';
+import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2 } from 'lucide-react';
 
 interface Place {
   id: string;
@@ -30,6 +30,17 @@ interface DuplicatePair {
   places: [DuplicatePlace, DuplicatePlace];
 }
 
+interface MergedPlace {
+  id: string;
+  name: string;
+  locationType: string | null;
+  arkId: string | null;
+  mergedAt: string | null;
+  keepId: string;
+  keepName: string;
+  hasSafetyProfile: boolean;
+}
+
 const LOCATION_LABELS: Record<string, string> = {
   volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Источник', mountain: 'Гора',
   river: 'Река', bay: 'Бухта', cape: 'Мыс', island: 'Остров',
@@ -55,6 +66,64 @@ export default function PlacesPhotosClient() {
   const [merging, setMerging] = useState<number | null>(null);
   const [dupeFeedback, setDupeFeedback] = useState<Record<number, { ok: boolean; msg: string }>>({});
   const [mergedPairs, setMergedPairs] = useState<Set<number>>(new Set());
+
+  const [showMerged, setShowMerged] = useState(false);
+  const [mergedLoaded, setMergedLoaded] = useState(false);
+  const [loadingMerged, setLoadingMerged] = useState(false);
+  const [mergedPlaces, setMergedPlaces] = useState<MergedPlace[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+
+  const fetchMergedPlaces = useCallback(async () => {
+    setLoadingMerged(true);
+    try {
+      const res = await fetch('/api/admin/places/merged?limit=200');
+      if (!res.ok) throw new Error('Не удалось загрузить список объединённых мест');
+      const data = await res.json() as { items: MergedPlace[] };
+      setMergedPlaces(data.items);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMerged(false);
+      setMergedLoaded(true);
+    }
+  }, []);
+
+  const toggleMergedPanel = () => {
+    const next = !showMerged;
+    setShowMerged(next);
+    if (next && !mergedLoaded) void fetchMergedPlaces();
+  };
+
+  const handleDelete = async (placeId: string, force: boolean) => {
+    setDeleting(placeId);
+    setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: true, msg: 'Удаляю…' } }));
+
+    try {
+      const res = await fetch(`/api/admin/places/${placeId}${force ? '?force=true' : ''}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+
+      if (!res.ok || !data.ok) {
+        setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: false, msg: data.error ?? 'Ошибка удаления' } }));
+        return;
+      }
+
+      setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: true, msg: 'Удалено' } }));
+      setDeletedIds((prev) => new Set(prev).add(placeId));
+    } catch (err) {
+      setDeleteFeedback((prev) => ({
+        ...prev,
+        [placeId]: { ok: false, msg: err instanceof Error ? err.message : 'Ошибка сети' },
+      }));
+    } finally {
+      setDeleting(null);
+      setConfirmingDelete(null);
+    }
+  };
 
   const fetchDuplicates = useCallback(async () => {
     setLoadingDupes(true);
@@ -278,6 +347,91 @@ export default function PlacesPhotosClient() {
                       {isMerging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
                       Оставить выбранное, объединить со вторым
                     </button>
+                    {fb && (
+                      <span
+                        className="flex items-center gap-1.5 text-xs"
+                        style={{ color: fb.ok ? 'var(--success)' : 'var(--danger)' }}
+                      >
+                        {fb.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                        {fb.msg}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Merged (already-confirmed) duplicates — hard delete */}
+      <div className="mb-6 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        <button
+          onClick={toggleMergedPanel}
+          className="w-full flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium bg-[var(--bg-card)]"
+        >
+          <span className="flex items-center gap-2 text-[var(--text-primary)]">
+            <Trash2 className="w-4 h-4" />
+            Объединённые дубли — удалить насовсем
+            {mergedLoaded && !loadingMerged && (
+              <span className="text-[var(--text-muted)] font-normal">
+                ({mergedPlaces.filter((p) => !deletedIds.has(p.id)).length} осталось)
+              </span>
+            )}
+          </span>
+          {loadingMerged && <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
+        </button>
+
+        {showMerged && (
+          <div className="p-4 border-t space-y-3" style={{ borderColor: 'var(--border)' }}>
+            {loadingMerged && <p className="text-sm text-[var(--text-muted)]">Загружаю список…</p>}
+            {!loadingMerged && mergedLoaded && mergedPlaces.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)]">Нет объединённых записей — сначала подтвердите слияние выше.</p>
+            )}
+            {mergedPlaces.map((p) => {
+              if (deletedIds.has(p.id)) return null;
+              const fb = deleteFeedback[p.id];
+              const isDeleting = deleting === p.id;
+              const isConfirming = confirmingDelete === p.id;
+              return (
+                <div key={p.id} className="rounded-lg border p-3 flex items-start justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">{p.name}</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      объединено в «{p.keepName}»
+                      {p.locationType && ` · ${LOCATION_LABELS[p.locationType] ?? p.locationType}`}
+                      {p.hasSafetyProfile && ' · есть непереданный safety-профиль'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    {!isConfirming ? (
+                      <button
+                        onClick={() => setConfirmingDelete(p.id)}
+                        disabled={isDeleting}
+                        className="ds-btn ds-btn-danger text-xs px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Удалить
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--text-secondary)]">Точно удалить?</span>
+                        <button
+                          onClick={() => handleDelete(p.id, p.hasSafetyProfile)}
+                          disabled={isDeleting}
+                          className="ds-btn ds-btn-danger text-xs px-2 py-1 disabled:opacity-50"
+                        >
+                          {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Да, удалить'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(null)}
+                          disabled={isDeleting}
+                          className="ds-btn ds-btn-secondary text-xs px-2 py-1 disabled:opacity-50"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    )}
                     {fb && (
                       <span
                         className="flex items-center gap-1.5 text-xs"
