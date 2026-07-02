@@ -13,7 +13,7 @@ import { transaction } from '@/lib/database';
 import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import type { ToolDefinition, ToolCall } from '@/lib/ai/providers';
+import type { ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
@@ -21,6 +21,7 @@ import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/legislation-importer';
 import { trimHistoryToBudget, fitTextToTokenBudget } from '@/lib/kuzmich/context-budget';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
+import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -1514,63 +1515,8 @@ async function saveSearchResultToKB(query: string, result: string): Promise<void
 }
 
 // ── Level 2: Tool use ────────────────────────────────────────────────────────
-
-const KUZMICH_TOOLS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'search_kamchatka',
-      description: 'Поиск актуальной информации о Камчатке: цены, адреса, телефоны, расписание, отзывы. Используй ВСЕГДА когда не знаешь точных цифр или деталей.',
-      parameters: { type: 'object', properties: { query: { type: 'string', description: 'Поисковый запрос' } }, required: ['query'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_tours',
-      description: 'Получить активные туры из платформы TourHab с ценами и датами. Используй когда турист спрашивает о конкретных турах или программах.',
-      parameters: { type: 'object', properties: { activity_type: { type: 'string', description: 'Фильтр по типу: рыбалка, вулканы, медведи, гейзеры, трекинг и т.д.' } }, required: [] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_guardian_context',
-      description: 'Получить полный контекст места как Хранитель: статус (открыто/закрыто), реалтайм алерты КБГС РАН, опасности, загрузка, традиционные знания о месте. Используй ВСЕГДА когда спрашивают о конкретном месте, вулкане, озере, маршруте, источнике Камчатки.',
-      parameters: { type: 'object', properties: { place: { type: 'string', description: 'Название места или объекта' } }, required: ['place'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_place_info',
-      description: 'Найти базовую информацию о месте из базы данных (используй get_guardian_context для полного контекста с безопасностью и алертами).',
-      parameters: { type: 'object', properties: { name: { type: 'string', description: 'Название объекта' } }, required: ['name'] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_weather',
-      description: 'Получить текущую погоду в Петропавловске-Камчатском.',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_taaft',
-      description: 'Найти внешний AI-инструмент или онлайн-сервис для специфической задачи: определить растение или животное по фото, транскрибировать аудио, обработать GPX-трек, перевести текст, создать аудиогид, проверить лавинную обстановку. Используй когда нужен специализированный инструмент за пределами TourHab.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task: { type: 'string', description: 'Что нужно сделать (на русском): например "определить растение на фото", "транскрибировать аудиозапись", "анализировать GPX-трек"' },
-        },
-        required: ['task'],
-      },
-    },
-  },
-];
+// KUZMICH_TOOLS и валидация аргументов — единый реестр в tool-schemas.ts
+// (JSON-схема для API генерируется из того же источника, что и Zod-валидация).
 
 type ToolMsg =
   | { role: 'system' | 'user'; content: string }
@@ -1651,7 +1597,7 @@ async function aiChatAgentLoop(
     msgs.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls });
 
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
-    const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool);
+    const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool, validateToolArgs);
     for (const o of outcomes) {
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
       // short-circuit дублей не оборачиваем. В KB ниже идёт СЫРОЙ результат.
