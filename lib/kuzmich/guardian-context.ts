@@ -99,7 +99,7 @@ export async function getGuardianContext(placeName: string): Promise<string> {
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
-       WHERE p.name ILIKE $1
+       WHERE p.merged_into_id IS NULL AND p.name ILIKE $1
        ORDER BY char_length(p.name) ASC
        LIMIT 3`,
       [`%${placeName}%`],
