@@ -22,6 +22,12 @@ export interface ToolRunOutcome {
 }
 
 const DUP_NOTICE = 'Этот запрос уже выполнялся выше — используй полученные данные, не повторяй вызов.';
+const INVALID_ARGS_NOTICE = 'Аргументы этого вызова некорректны — повтори с правильными аргументами.';
+
+export type ToolArgsValidator = (
+  name: string,
+  args: Record<string, string>,
+) => { ok: true } | { ok: false; error: string };
 
 /** Сигнатура вызова для дедупа: имя + сырые аргументы. */
 export function toolSignature(tc: ToolCall): string {
@@ -46,11 +52,15 @@ export function wrapToolOutput(name: string, content: string): string {
  * Исполняет все tool_calls хода параллельно, сохраняя порядок.
  * @param seen множество уже исполненных сигнатур (живёт между ходами одного цикла)
  * @param exec реальный исполнитель инструмента
+ * @param validate опциональный валидатор аргументов — не исполняет exec при ok:false
+ *   (защитный слой на границе модель→executor, инжектируется как и exec, модуль
+ *   остаётся протокол-нейтральным: не завязан на конкретный набор Zod-схем)
  */
 export async function runTurnTools(
   toolCalls: ToolCall[],
   seen: Set<string>,
   exec: (name: string, args: Record<string, string>) => Promise<string>,
+  validate?: ToolArgsValidator,
 ): Promise<ToolRunOutcome[]> {
   return Promise.all(
     toolCalls.map(async (tc): Promise<ToolRunOutcome> => {
@@ -65,8 +75,16 @@ export async function runTurnTools(
       if (seen.has(sig)) {
         return { id: tc.id, name: tc.function.name, args, content: DUP_NOTICE, executed: false };
       }
-      seen.add(sig);
 
+      if (validate) {
+        const v = validate(tc.function.name, args);
+        if (!v.ok) {
+          seen.add(sig); // повтор того же невалидного вызова — тоже short-circuit, не долбим exec
+          return { id: tc.id, name: tc.function.name, args, content: v.error || INVALID_ARGS_NOTICE, executed: false };
+        }
+      }
+
+      seen.add(sig);
       const content = await exec(tc.function.name, args);
       return { id: tc.id, name: tc.function.name, args, content, executed: true };
     }),

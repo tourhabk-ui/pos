@@ -70,4 +70,54 @@ describe('runTurnTools', () => {
     expect(out[0].args).toEqual({});
     expect(out[0].executed).toBe(true);
   });
+
+  it('with no validate param, behaves exactly as before (existing callers unaffected)', async () => {
+    const exec = vi.fn(async () => 'ok');
+    const out = await runTurnTools([tc('a', 'x', '{"q":"1"}')], new Set(), exec);
+    expect(out[0].executed).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call exec when validate reports invalid args', async () => {
+    const exec = vi.fn(async () => 'should not run');
+    const validate = vi.fn(() => ({ ok: false as const, error: 'нужен query' }));
+    const out = await runTurnTools([tc('a', 'search_kamchatka', '{}')], new Set(), exec, validate);
+    expect(out[0].executed).toBe(false);
+    expect(out[0].content).toBe('нужен query');
+    expect(exec).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledWith('search_kamchatka', {});
+  });
+
+  it('calls exec when validate reports the args are valid', async () => {
+    const exec = vi.fn(async () => 'ok');
+    const validate = vi.fn(() => ({ ok: true as const }));
+    const out = await runTurnTools([tc('a', 'search_kamchatka', '{"query":"x"}')], new Set(), exec, validate);
+    expect(out[0].executed).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('short-circuits a repeated invalid call without re-validating or re-executing', async () => {
+    const exec = vi.fn(async () => 'should not run');
+    const validate = vi.fn(() => ({ ok: false as const, error: 'нужен query' }));
+    const seen = new Set<string>();
+    await runTurnTools([tc('a', 'search_kamchatka', '{}')], seen, exec, validate);
+    const second = await runTurnTools([tc('b', 'search_kamchatka', '{}')], seen, exec, validate);
+    expect(second[0].executed).toBe(false);
+    expect(second[0].content).toContain('уже выполнял'); // дедуп, не повторная валидация
+    expect(exec).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledTimes(1); // второй раз уже не валидируется — дедуп раньше
+  });
+
+  it('order and tool_call ids are preserved when some calls fail validation and others succeed', async () => {
+    const exec = vi.fn(async (name: string) => `res-${name}`);
+    const validate = vi.fn((name: string) => (name === 'bad' ? { ok: false as const, error: 'invalid' } : { ok: true as const }));
+    const calls = [tc('a', 'good', '{}'), tc('b', 'bad', '{}'), tc('c', 'good', '{"x":"1"}')];
+    const out = await runTurnTools(calls, new Set(), exec, validate);
+    expect(out.map(o => o.id)).toEqual(['a', 'b', 'c']);
+    expect(out[0].executed).toBe(true);
+    expect(out[1].executed).toBe(false);
+    expect(out[1].content).toBe('invalid');
+    expect(out[2].executed).toBe(true);
+    expect(exec).toHaveBeenCalledTimes(2);
+  });
 });
