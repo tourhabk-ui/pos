@@ -1163,6 +1163,27 @@ export async function preflightProviders(): Promise<{
     } catch (e) { return { ok: false, error: String(e) }; }
   }
 
+  async function probeFugu() {
+    const apiKey = getFuguKey();
+    if (!apiKey) return { ok: false, error: 'FUGU_API_KEY not set' };
+    let base = (process.env.FUGU_BASE_URL || 'https://api.sakana.ai').replace(/\/+$/, '');
+    if (!base.endsWith('/v1')) base = `${base}/v1`;
+    const model = process.env.FUGU_MODEL || 'fugu';
+    try {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_completion_tokens: 5, messages: testMsg }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
   async function probeAnthropic() {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { ok: false, error: 'ANTHROPIC_API_KEY not set' };
@@ -1194,6 +1215,7 @@ export async function preflightProviders(): Promise<{
       probeDetailed('mimo',       'MiMo-V2-Pro (Xiaomi)',        probeMiMo),
       probeDetailed('openrouter', 'OpenRouter (GPT-4o-mini)',     probeOpenrouter),
       probeDetailed('deepseek',   'DeepSeek-V3 (DeepSeek)',       probeDeepSeek),
+      probeDetailed('fugu',       'Sakana Fugu',                  probeFugu),
     ]),
     checkOpenRouterBalance(),
   ]);
