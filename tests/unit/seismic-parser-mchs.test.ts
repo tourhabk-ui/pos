@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { classifyMchsItem, mchs_zones } from '@/lib/services/seismic-parser';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts } from '@/lib/services/seismic-parser';
 
 // Реальный бюллетень МЧС Камчатка (2 июля), который раньше молча отбрасывался —
 // ни цунами, ни шторм, ни паводок, ни пожар: 4 категории classifyMchsItem не
@@ -74,5 +74,73 @@ describe('mchs_zones', () => {
 
   it('defaults to avachinsky when neither volcano nor known district is mentioned', () => {
     expect(mchs_zones('погодное предупреждение по краю')).toEqual(['avachinsky']);
+  });
+});
+
+describe('fetchMchsFeedXml (fetches ALL candidate URLs — confirmed live 2026-07-02 that extrenniye-preduprezhdeniya/prognozy/operativnaya-informaciya are distinct sections, not mirrors)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('queries every known candidate URL, not just the first', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response('<rss><channel><item><title>ok</title></item></channel></rss>', { status: 200 }),
+    );
+    await fetchMchsFeedXml();
+    expect(fetchSpy).toHaveBeenCalledTimes(5); // все 5 кандидатов, не останавливаемся на первом успешном
+  });
+
+  it('collects XML from every candidate that returns valid RSS, not just one', async () => {
+    // Response.text() консьюмит тело один раз — каждому concurrent-вызову
+    // нужен свой экземпляр Response, иначе конкурирующие .text() читают
+    // общий поток и часть вызовов получает пустоту.
+    vi.spyOn(global, 'fetch').mockImplementation(async () =>
+      new Response('<rss><channel><item><title>ok</title></item></channel></rss>', { status: 200 }),
+    );
+    const feeds = await fetchMchsFeedXml();
+    expect(feeds).toHaveLength(5); // все 5 валидны в этом моке → все 5 в результате
+  });
+
+  it('skips a candidate that errors over the network without dropping the others', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('shtormovye')) throw new Error('network down');
+      return new Response('<rss><channel><item><title>ok</title></item></channel></rss>', { status: 200 });
+    });
+    const feeds = await fetchMchsFeedXml();
+    expect(feeds).toHaveLength(4); // 5 кандидатов минус 1 упавший
+  });
+
+  it('skips a candidate that returns HTTP ok but not RSS (e.g. an HTML error page)', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('novosti')) return new Response('<html><body>404 not found</body></html>', { status: 200 });
+      return new Response('<rss><channel><item><title>ok</title></item></channel></rss>', { status: 200 });
+    });
+    const feeds = await fetchMchsFeedXml();
+    expect(feeds).toHaveLength(4);
+  });
+
+  it('skips a candidate that returns a non-ok HTTP status', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      if (String(url).endsWith('/rss') && !String(url).includes('press-centr')) return new Response('', { status: 404 });
+      return new Response('<rss><channel><item><title>ok</title></item></channel></rss>', { status: 200 });
+    });
+    const feeds = await fetchMchsFeedXml();
+    expect(feeds).toHaveLength(4);
+  });
+
+  it('returns an empty array when none of the candidates return valid RSS', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('<html>error</html>', { status: 200 }));
+    const feeds = await fetchMchsFeedXml();
+    expect(feeds).toEqual([]);
+  });
+});
+
+describe('ingestMchsAlerts', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('reports an error and inserts nothing when no candidate feed is reachable', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('<html>error</html>', { status: 200 }));
+    const result = await ingestMchsAlerts();
+    expect(result.inserted).toBe(0);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0]).toContain('none of');
   });
 });

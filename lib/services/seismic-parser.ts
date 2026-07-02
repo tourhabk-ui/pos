@@ -541,42 +541,97 @@ export function classifyMchsItem(
   };
 }
 
-export async function ingestMchsAlerts(): Promise<ParseResult> {
-  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+// https://41.mchs.gov.ru/rss (старый, зашитый годами ранее) на практике не
+// отдаёт RSS — подтверждено вживую. Реальные работающие пути (подтверждены
+// пользователем открытием в браузере 2026-07-02), по убыванию целевой точности:
+//  1. .../shtormovye-i-ekstrennye-preduprezhdeniya/rss — экстренные
+//     предупреждения, официальное название раздела для подписки — самое
+//     целевое под "воздержаться от восхождения на Мутновский".
+//  2. .../operativnaya-informaciya/prognozy/rss — прогнозы опасности.
+//  3. .../operativnaya-informaciya/rss — общий раздел оперативной информации.
+// .../novosti/rss (используется отдельно в lib/kuzmich/core.ts fetchMchsAlerts
+// для общих новостей) и старый /rss — фоллбэки на случай, если сайт снова
+// переедет. Берём первый, что реально отдаёт RSS (HTTP ok И есть хотя бы
+// один <item> — гос-сайты любят отдавать 200 с HTML страницей ошибки вместо
+// ожидаемого фида). Дубли между источниками не страшны — saveEvent
+// дедуплицирует по external_id (ON CONFLICT DO NOTHING).
+const MCHS_FEED_CANDIDATES = [
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/shtormovye-i-ekstrennye-preduprezhdeniya/rss',
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/prognozy/rss',
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/rss',
+  'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/rss',
+  'https://41.mchs.gov.ru/rss',
+];
+
+async function fetchOneMchsFeed(url: string): Promise<string | null> {
   try {
-    const res = await fetch('https://41.mchs.gov.ru/rss', {
+    const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KamchatourBot/1.0)' },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) return null;
     const xml = await res.text();
+    return /<item[\s>]/i.test(xml) ? xml : null;
+  } catch {
+    return null;
+  }
+}
 
-    // Простой regex-парсер RSS 2.0 (без xml2js)
-    const itemRe = /<item>([\s\S]*?)<\/item>/g;
-    const tagRe  = (t: string) => new RegExp(`<${t}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${t}>|<${t}[^>]*>([^<]*)<\\/${t}>`, 'i');
-    let m: RegExpExecArray | null;
-    let idx = 0;
+/**
+ * Раньше брали первый рабочий URL и останавливались — но экстренные
+ * предупреждения/прогнозы/общая оперативная информация оказались РАЗНЫМИ
+ * разделами сайта, не зеркалами друг друга. Останавливаться на первом
+ * означало молча терять содержимое остальных. Собираем со всех валидных
+ * фидов; отдельные упавшие (сеть/404/не-RSS) не блокируют остальные.
+ */
+export async function fetchMchsFeedXml(): Promise<string[]> {
+  const results = await Promise.all(MCHS_FEED_CANDIDATES.map(fetchOneMchsFeed));
+  return results.filter((xml): xml is string => xml !== null);
+}
 
-    while ((m = itemRe.exec(xml)) !== null) {
-      const chunk = m[1];
-      const get = (tag: string) => {
-        const r = tagRe(tag).exec(chunk);
-        return (r?.[1] ?? r?.[2] ?? '').trim();
-      };
-      const title   = get('title');
-      const link    = get('link');
-      const pubDate = get('pubDate');
-      const desc    = get('description');
-      const guid    = get('guid') || `${pubDate}-${idx++}`;
+function parseMchsItems(xml: string): Array<{ id: string; title: string; link: string; pubDate: string; desc: string }> {
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  const tagRe  = (t: string) => new RegExp(`<${t}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${t}>|<${t}[^>]*>([^<]*)<\\/${t}>`, 'i');
+  const items: Array<{ id: string; title: string; link: string; pubDate: string; desc: string }> = [];
+  let m: RegExpExecArray | null;
+  let idx = 0;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const chunk = m[1];
+    const get = (tag: string) => {
+      const r = tagRe(tag).exec(chunk);
+      return (r?.[1] ?? r?.[2] ?? '').trim();
+    };
+    const title   = get('title');
+    const link    = get('link');
+    const pubDate = get('pubDate');
+    const desc    = get('description');
+    const guid    = get('guid') || `${pubDate}-${idx++}`;
+    items.push({ id: guid, title, link, pubDate, desc });
+  }
+  return items;
+}
 
-      const event = classifyMchsItem(guid, title, desc, pubDate, link);
-      if (!event) continue;
-      result.events.push(event);
-      try {
-        const status = await saveEvent(event);
-        if (status === 'inserted') result.inserted++;
-        else result.skipped++;
-      } catch (e) { result.errors.push((e as Error).message); }
+export async function ingestMchsAlerts(): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  try {
+    const feeds = await fetchMchsFeedXml();
+    if (feeds.length === 0) {
+      throw new Error(`none of ${MCHS_FEED_CANDIDATES.length} MChS feed URLs returned valid RSS`);
+    }
+
+    for (const xml of feeds) {
+      for (const it of parseMchsItems(xml)) {
+        const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link);
+        if (!event) continue;
+        result.events.push(event);
+        try {
+          // Один и тот же бюллетень может попасть в несколько разделов сайта —
+          // saveEvent дедуплицирует по external_id (ON CONFLICT DO NOTHING).
+          const status = await saveEvent(event);
+          if (status === 'inserted') result.inserted++;
+          else result.skipped++;
+        } catch (e) { result.errors.push((e as Error).message); }
+      }
     }
   } catch (e) {
     result.errors.push(`mchs fetch failed: ${(e as Error).message}`);
