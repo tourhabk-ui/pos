@@ -56,6 +56,63 @@ function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
   ).catch(() => { /* silent */ });
 }
 
+// ── Retry с exponential backoff + jitter (Roitman §18.7.1) ────
+// Транзиентный 429/5xx или сетевой сбой у провайдера раньше выбивал модель
+// из цепочки без повтора — падаем сразу на следующую, часто более дорогую.
+// Ретраит ТОЛЬКО транзиентное: 429/500/502/503/504, ECONNRESET/ETIMEDOUT/
+// "fetch failed". НЕ ретраит: 400 (кроме уже существующей safety-block ветки
+// в callAnthropic — она вне этого хелпера, не трогаем), 401/403 (у OpenRouter
+// уже есть markOpenRouterAuthFailure — не дублируем cooldown), 404, и
+// AbortError от намеренного таймаута (это НЕ транзиентный сбой, а бюджет
+// времени, который вызывающий код сам заложил).
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function isRetryableNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'AbortError') return false;
+  return /ECONNRESET|ETIMEDOUT|ECONNREFUSED|fetch failed|network/i.test(err.message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * fetch с ретраями транзиентных сбоев. timeoutMs задаётся отдельным
+ * параметром (не через init.signal) — каждая попытка получает свежий
+ * AbortSignal.timeout, а не урезанный остаток от предыдущей попытки.
+ * Суммарный retry-бюджет по умолчанию (maxRetries=2, baseDelayMs=300) —
+ * максимум ~1.5с сверх timeoutMs, что укладывается в ~1.5x даже для самых
+ * коротких таймаутов в waterfall-цепочке (12с у openai/gpt-4o-mini).
+ */
+export async function fetchWithRetry(
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  opts: { timeoutMs: number; maxRetries?: number; baseDelayMs?: number; label?: string },
+): Promise<Response> {
+  const { timeoutMs, maxRetries = 2, baseDelayMs = 300, label } = opts;
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      const retryable = RETRYABLE_STATUS.has(res.status);
+      if (res.ok || attempt === maxRetries || !retryable) {
+        return res;
+      }
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      if (attempt === maxRetries || !isRetryableNetworkError(err)) throw err;
+      lastErr = err;
+    }
+    const delay = baseDelayMs * 2 ** attempt + Math.random() * baseDelayMs;
+    console.warn(`[ai:retry] ${label ?? url} retrying after ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+    await sleep(delay);
+  }
+  // Недостижимо (цикл всегда return/throw на attempt === maxRetries), но TS требует возврат.
+  throw lastErr instanceof Error ? lastErr : new Error('fetchWithRetry: retries exhausted');
+}
+
 // ── Xiaomi MiMo-V2-Pro ────────────────────────────────────────
 export async function callMiMo(messages: ChatMessage[]): Promise<string | null> {
   const apiKey = getMiMoKey();
@@ -63,7 +120,7 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 
   try {
     const payload = messages.map(({ role, content }) => ({ role, content }));
-    const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
+    const res = await fetchWithRetry('https://api.xiaomimimo.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -75,8 +132,7 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
         max_tokens: 800,
         messages: payload,
       }),
-      signal: AbortSignal.timeout(20_000),
-    });
+    }, { timeoutMs: 20_000, label: 'mimo' });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
@@ -127,7 +183,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
 
   for (const { id, timeout } of OR_MODELS) {
     try {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -141,8 +197,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
           max_tokens: 800,
           messages: payload,
         }),
-        signal: AbortSignal.timeout(timeout),
-      });
+      }, { timeoutMs: timeout, label: `openrouter:${id}` });
 
       if (!res.ok) {
         if (res.status === 401) {
@@ -210,7 +265,7 @@ export async function callOpenRouterModel(
       body.response_format = { type: 'json_object' };
     }
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -219,8 +274,7 @@ export async function callOpenRouterModel(
         'X-Title': 'Vedarai Kamchatka',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    }, { timeoutMs, label: `openrouter-model:${modelId}` });
 
     if (!res.ok) {
       if (res.status === 401) {
@@ -272,7 +326,7 @@ export async function callOpenRouterWithTools(
   if (!apiKey || isOpenRouterTemporarilyDisabled()) return null;
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -288,8 +342,7 @@ export async function callOpenRouterWithTools(
         tools,
         tool_choice: 'auto',
       }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    }, { timeoutMs, label: `openrouter-tools:${modelId}` });
 
     if (!res.ok) {
       if (res.status === 401) markOpenRouterAuthFailure();
@@ -444,7 +497,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
       content: m.content,
     }));
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -459,8 +512,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
         ...(systemMsg ? { system: buildSystemBlocks(systemMsg.content) } : {}),
         messages: anthropicMessages,
       }),
-      signal: AbortSignal.timeout(20_000),
-    });
+    }, { timeoutMs: 20_000, label: 'anthropic' });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
@@ -603,7 +655,7 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
 
   try {
     const payload = messages.map(({ role, content }) => ({ role, content }));
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -615,8 +667,7 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
         max_tokens: 800,
         messages: payload,
       }),
-      signal: AbortSignal.timeout(20_000),
-    });
+    }, { timeoutMs: 20_000, label: 'deepseek' });
     if (!res.ok) return null;
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -740,14 +791,14 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
       body.systemInstruction = { parts: [{ text: systemMsg.content }] };
     }
 
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(20_000),
-      }
+      },
+      { timeoutMs: 20_000, label: 'gemini-direct' },
     );
     if (!res.ok) return null;
     const data = await res.json();
