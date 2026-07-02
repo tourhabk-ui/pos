@@ -1626,7 +1626,7 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
   }
 }
 
-async function aiChatAgentLoop(
+export async function aiChatAgentLoop(
   userText: string,
   systemContent: string,
   history: ChatMessage[],
@@ -1780,6 +1780,36 @@ export async function aiChat(opts: {
       void synthesizeBotNotes(chatId, platform, allMsgs, botMemory?.ai_notes ?? null);
     }
   }
+}
+
+// ── Eval entry point (Roitman §16.8.3 faithfulness-регрессия) ───────────────
+// Как aiChat, но без Telegram/MAX-обвязки: без chatId, без записи в
+// tg_conversations/agent_memory/booking-состояние, без outcomes-грейдера.
+// Собирает ТОТ ЖЕ retrieved-контекст и прогоняет ТОТ ЖЕ агент-цикл с
+// инструментами (get_guardian_context и т.д.), что и живой Кузьмич —
+// иначе регрессия проверяла бы не тот пайплайн, который видит турист.
+// Сигнатура/поведение aiChat не меняются — это отдельная функция.
+export async function askKuzmichForEval(question: string): Promise<{ answer: string; context: string } | null> {
+  const [tourContext, placeCtx, routeCtx, legalCtx] = await Promise.all([
+    buildTourContext(),
+    searchPlaceKnowledge(question),
+    searchRoutes(question),
+    searchLegislation(question),
+  ]);
+
+  const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
+  const dynamic = fitTextToTokenBudget(
+    [placeCtx || '', routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
+  );
+  const systemContent = dynamic
+    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
+    : cacheable;
+
+  const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }])
+    .catch(() => null);
+  if (!raw?.trim()) return null;
+
+  return { answer: cleanAIResponse(raw.trim()), context: dynamic };
 }
 
 // ── Full Message Processor ────────────────────────────────────────────────────
