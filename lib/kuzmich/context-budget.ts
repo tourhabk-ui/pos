@@ -39,19 +39,37 @@ export function capMessage(content: string): string {
   return `${head}\n…[сообщение сокращено]…\n${tail}`;
 }
 
-// Из истории (хронологический порядок) оставляет хвост, влезающий в бюджет токенов,
-// но не меньше HISTORY_KEEP_MIN последних сообщений.
-export function trimHistoryToBudget(messages: ChatMessage[]): ChatMessage[] {
+export interface HistorySplit {
+  kept: ChatMessage[];
+  dropped: ChatMessage[]; // хронологический порядок, то что не влезло в бюджет
+}
+
+// Из истории (хронологический порядок) отделяет хвост, влезающий в бюджет
+// токенов (не меньше HISTORY_KEEP_MIN последних сообщений), от отброшенной
+// по бюджету головы. Разделение вынесено из trimHistoryToBudget (Roitman
+// §18, Eq 18.4): компакция должна суммировать отброшенное, а не просто
+// стирать — но само разбиение чистое и не знает про AI/суммаризацию.
+export function splitHistoryForCompaction(messages: ChatMessage[]): HistorySplit {
   const capped = messages.map(m => ({ ...m, content: capMessage(m.content) }));
   const kept: ChatMessage[] = [];
   let total = 0;
+  let cutIndex = 0; // индекс в capped, начиная с которого сообщения попали в kept
   for (let i = capped.length - 1; i >= 0; i--) {
     const t = estimateTokens(capped[i].content);
-    if (total + t > HISTORY_TOKEN_BUDGET && kept.length >= HISTORY_KEEP_MIN) break;
+    if (total + t > HISTORY_TOKEN_BUDGET && kept.length >= HISTORY_KEEP_MIN) {
+      cutIndex = i + 1;
+      break;
+    }
     kept.push(capped[i]);
     total += t;
   }
-  return kept.reverse();
+  return { kept: kept.reverse(), dropped: capped.slice(0, cutIndex) };
+}
+
+// Из истории (хронологический порядок) оставляет хвост, влезающий в бюджет токенов,
+// но не меньше HISTORY_KEEP_MIN последних сообщений.
+export function trimHistoryToBudget(messages: ChatMessage[]): ChatMessage[] {
+  return splitHistoryForCompaction(messages).kept;
 }
 
 // Pre-flight против Silent Truncation (Roitman §18.2): если динамический контекст
