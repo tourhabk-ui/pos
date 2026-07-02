@@ -391,6 +391,7 @@ export async function buildTourContext(): Promise<string> {
       pool.query<{ name: string; category: string; district: string | null; description: string | null }>(`
         SELECT name, category, district, LEFT(description, 120) AS description
         FROM places
+        WHERE merged_into_id IS NULL
         ORDER BY category, name
         LIMIT 100
       `),

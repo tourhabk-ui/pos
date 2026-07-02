@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon } from 'lucide-react';
+import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2 } from 'lucide-react';
 
 interface Place {
   id: string;
@@ -11,6 +11,34 @@ interface Place {
   locationType: string | null;
   hasPhoto: boolean;
   photoUrl: string | null;
+}
+
+interface DuplicatePlace {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  locationType: string | null;
+  arkId: string | null;
+  hasPhoto: boolean;
+  hasSafetyProfile: boolean;
+}
+
+interface DuplicatePair {
+  distanceM: number;
+  nameSimilarity: number;
+  places: [DuplicatePlace, DuplicatePlace];
+}
+
+interface MergedPlace {
+  id: string;
+  name: string;
+  locationType: string | null;
+  arkId: string | null;
+  mergedAt: string | null;
+  keepId: string;
+  keepName: string;
+  hasSafetyProfile: boolean;
 }
 
 const LOCATION_LABELS: Record<string, string> = {
@@ -29,6 +57,141 @@ export default function PlacesPhotosClient() {
   const [feedback, setFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [filter, setFilter] = useState<'all' | 'no-photo' | 'with-photo'>('all');
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const [showDupes, setShowDupes] = useState(false);
+  const [dupesLoaded, setDupesLoaded] = useState(false);
+  const [loadingDupes, setLoadingDupes] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicatePair[]>([]);
+  const [keepChoice, setKeepChoice] = useState<Record<number, string>>({});
+  const [merging, setMerging] = useState<number | null>(null);
+  const [dupeFeedback, setDupeFeedback] = useState<Record<number, { ok: boolean; msg: string }>>({});
+  const [mergedPairs, setMergedPairs] = useState<Set<number>>(new Set());
+
+  const [showMerged, setShowMerged] = useState(false);
+  const [mergedLoaded, setMergedLoaded] = useState(false);
+  const [loadingMerged, setLoadingMerged] = useState(false);
+  const [mergedPlaces, setMergedPlaces] = useState<MergedPlace[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+
+  const fetchMergedPlaces = useCallback(async () => {
+    setLoadingMerged(true);
+    try {
+      const res = await fetch('/api/admin/places/merged?limit=200');
+      if (!res.ok) throw new Error('Не удалось загрузить список объединённых мест');
+      const data = await res.json() as { items: MergedPlace[] };
+      setMergedPlaces(data.items);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMerged(false);
+      setMergedLoaded(true);
+    }
+  }, []);
+
+  const toggleMergedPanel = () => {
+    const next = !showMerged;
+    setShowMerged(next);
+    if (next && !mergedLoaded) void fetchMergedPlaces();
+  };
+
+  const handleDelete = async (placeId: string, force: boolean) => {
+    setDeleting(placeId);
+    setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: true, msg: 'Удаляю…' } }));
+
+    try {
+      const res = await fetch(`/api/admin/places/${placeId}${force ? '?force=true' : ''}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+
+      if (!res.ok || !data.ok) {
+        setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: false, msg: data.error ?? 'Ошибка удаления' } }));
+        return;
+      }
+
+      setDeleteFeedback((prev) => ({ ...prev, [placeId]: { ok: true, msg: 'Удалено' } }));
+      setDeletedIds((prev) => new Set(prev).add(placeId));
+    } catch (err) {
+      setDeleteFeedback((prev) => ({
+        ...prev,
+        [placeId]: { ok: false, msg: err instanceof Error ? err.message : 'Ошибка сети' },
+      }));
+    } finally {
+      setDeleting(null);
+      setConfirmingDelete(null);
+    }
+  };
+
+  const fetchDuplicates = useCallback(async () => {
+    setLoadingDupes(true);
+    try {
+      const res = await fetch('/api/admin/places/duplicates?limit=100');
+      if (!res.ok) throw new Error('Не удалось найти дубли');
+      const data = await res.json() as { pairs: DuplicatePair[] };
+      setDuplicates(data.pairs);
+      // По умолчанию оставляем ту запись пары, у которой уже есть фото или safety-профиль
+      setKeepChoice(Object.fromEntries(
+        data.pairs.map((p, i) => {
+          const [a, b] = p.places;
+          const preferred = (a.hasPhoto || a.hasSafetyProfile) && !(b.hasPhoto || b.hasSafetyProfile) ? a.id : b.id;
+          return [i, preferred];
+        }),
+      ));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingDupes(false);
+      setDupesLoaded(true);
+    }
+  }, []);
+
+  const toggleDupesPanel = () => {
+    const next = !showDupes;
+    setShowDupes(next);
+    if (next && !dupesLoaded) void fetchDuplicates();
+  };
+
+  const handleMerge = async (pairIndex: number) => {
+    const pair = duplicates[pairIndex];
+    if (!pair) return;
+    const keepId = keepChoice[pairIndex];
+    const other = pair.places.find((p) => p.id !== keepId);
+    if (!keepId || !other) return;
+
+    setMerging(pairIndex);
+    setDupeFeedback((prev) => ({ ...prev, [pairIndex]: { ok: true, msg: 'Объединяю…' } }));
+
+    try {
+      const res = await fetch('/api/admin/places/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepId, mergeIds: [other.id] }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string; warnings?: string[] };
+
+      if (!res.ok || !data.ok) {
+        setDupeFeedback((prev) => ({ ...prev, [pairIndex]: { ok: false, msg: data.error ?? 'Ошибка слияния' } }));
+        return;
+      }
+
+      const warn = data.warnings?.length ? ` · ${data.warnings.join('; ')}` : '';
+      setDupeFeedback((prev) => ({ ...prev, [pairIndex]: { ok: true, msg: `Объединено${warn}` } }));
+      setMergedPairs((prev) => new Set(prev).add(pairIndex));
+
+      // Убираем объединённую запись из основного списка мест на странице
+      setPlaces((prev) => prev.filter((p) => p.id !== other.id));
+    } catch (err) {
+      setDupeFeedback((prev) => ({
+        ...prev,
+        [pairIndex]: { ok: false, msg: err instanceof Error ? err.message : 'Ошибка сети' },
+      }));
+    } finally {
+      setMerging(null);
+    }
+  };
 
   const fetchPlaces = useCallback(async (q: string) => {
     setLoading(true);
@@ -110,6 +273,181 @@ export default function PlacesPhotosClient() {
           Загрузи фото — оно будет автоматически обрезано до 1280×720 (16:9) и сохранено для карточки места.
         </p>
       </header>
+
+      {/* Duplicates panel */}
+      <div className="mb-6 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        <button
+          onClick={toggleDupesPanel}
+          className="w-full flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium bg-[var(--bg-card)]"
+        >
+          <span className="flex items-center gap-2 text-[var(--text-primary)]">
+            <Layers className="w-4 h-4" />
+            Возможные дубли мест
+            {dupesLoaded && !loadingDupes && (
+              <span className="text-[var(--text-muted)] font-normal">
+                ({duplicates.length - mergedPairs.size} осталось)
+              </span>
+            )}
+          </span>
+          {loadingDupes && <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
+        </button>
+
+        {showDupes && (
+          <div className="p-4 border-t space-y-4" style={{ borderColor: 'var(--border)' }}>
+            {loadingDupes && <p className="text-sm text-[var(--text-muted)]">Ищу дубли по координатам и похожести названий…</p>}
+            {!loadingDupes && dupesLoaded && duplicates.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)]">Дублей не найдено.</p>
+            )}
+            {duplicates.map((pair, i) => {
+              if (mergedPairs.has(i)) return null;
+              const [a, b] = pair.places;
+              const fb = dupeFeedback[i];
+              const isMerging = merging === i;
+              return (
+                <div key={`${a.id}-${b.id}`} className="rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs text-[var(--text-muted)] mb-2">
+                    {pair.distanceM <= 300 ? `${pair.distanceM} м друг от друга` : 'далеко, но похожие названия'}
+                    {' · '}похожесть названий {Math.round(pair.nameSimilarity * 100)}%
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[a, b].map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex items-start gap-2 p-2 rounded-lg cursor-pointer text-sm"
+                        style={{
+                          background: keepChoice[i] === p.id ? 'var(--bg-hover)' : 'transparent',
+                          border: `1px solid ${keepChoice[i] === p.id ? 'var(--accent)' : 'var(--border)'}`,
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name={`keep-${i}`}
+                          checked={keepChoice[i] === p.id}
+                          onChange={() => setKeepChoice((prev) => ({ ...prev, [i]: p.id }))}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="font-medium text-[var(--text-primary)] block">{p.name}</span>
+                          <span className="text-[11px] text-[var(--text-muted)] block">
+                            {p.locationType ? LOCATION_LABELS[p.locationType] ?? p.locationType : '—'}
+                            {p.hasPhoto && ' · есть фото'}
+                            {p.hasSafetyProfile && ' · есть safety-профиль'}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3 mt-3">
+                    <button
+                      onClick={() => handleMerge(i)}
+                      disabled={isMerging}
+                      className="ds-btn ds-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {isMerging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+                      Оставить выбранное, объединить со вторым
+                    </button>
+                    {fb && (
+                      <span
+                        className="flex items-center gap-1.5 text-xs"
+                        style={{ color: fb.ok ? 'var(--success)' : 'var(--danger)' }}
+                      >
+                        {fb.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                        {fb.msg}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Merged (already-confirmed) duplicates — hard delete */}
+      <div className="mb-6 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        <button
+          onClick={toggleMergedPanel}
+          className="w-full flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium bg-[var(--bg-card)]"
+        >
+          <span className="flex items-center gap-2 text-[var(--text-primary)]">
+            <Trash2 className="w-4 h-4" />
+            Объединённые дубли — удалить насовсем
+            {mergedLoaded && !loadingMerged && (
+              <span className="text-[var(--text-muted)] font-normal">
+                ({mergedPlaces.filter((p) => !deletedIds.has(p.id)).length} осталось)
+              </span>
+            )}
+          </span>
+          {loadingMerged && <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
+        </button>
+
+        {showMerged && (
+          <div className="p-4 border-t space-y-3" style={{ borderColor: 'var(--border)' }}>
+            {loadingMerged && <p className="text-sm text-[var(--text-muted)]">Загружаю список…</p>}
+            {!loadingMerged && mergedLoaded && mergedPlaces.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)]">Нет объединённых записей — сначала подтвердите слияние выше.</p>
+            )}
+            {mergedPlaces.map((p) => {
+              if (deletedIds.has(p.id)) return null;
+              const fb = deleteFeedback[p.id];
+              const isDeleting = deleting === p.id;
+              const isConfirming = confirmingDelete === p.id;
+              return (
+                <div key={p.id} className="rounded-lg border p-3 flex items-start justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">{p.name}</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      объединено в «{p.keepName}»
+                      {p.locationType && ` · ${LOCATION_LABELS[p.locationType] ?? p.locationType}`}
+                      {p.hasSafetyProfile && ' · есть непереданный safety-профиль'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    {!isConfirming ? (
+                      <button
+                        onClick={() => setConfirmingDelete(p.id)}
+                        disabled={isDeleting}
+                        className="ds-btn ds-btn-danger text-xs px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Удалить
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--text-secondary)]">Точно удалить?</span>
+                        <button
+                          onClick={() => handleDelete(p.id, p.hasSafetyProfile)}
+                          disabled={isDeleting}
+                          className="ds-btn ds-btn-danger text-xs px-2 py-1 disabled:opacity-50"
+                        >
+                          {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Да, удалить'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(null)}
+                          disabled={isDeleting}
+                          className="ds-btn ds-btn-secondary text-xs px-2 py-1 disabled:opacity-50"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    )}
+                    {fb && (
+                      <span
+                        className="flex items-center gap-1.5 text-xs"
+                        style={{ color: fb.ok ? 'var(--success)' : 'var(--danger)' }}
+                      >
+                        {fb.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                        {fb.msg}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Search + filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
