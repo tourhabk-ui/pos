@@ -475,14 +475,20 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   [/олюторск/i,     ['eastern']],
 ];
 
-function mchs_zones(text: string): string[] {
+export function mchs_zones(text: string): string[] {
+  // Название вулкана в тексте — точнее административного района (переиспользуем
+  // ту же карту, что и для КБГС РАН, а не только 9 паттернов по районам).
+  const lower = text.toLowerCase();
+  for (const [volcano, zones] of Object.entries(VOLCANO_ZONES)) {
+    if (lower.includes(volcano)) return zones;
+  }
   for (const [re, zones] of MCHS_DISTRICT_ZONES) {
     if (re.test(text)) return zones;
   }
   return ['avachinsky'];
 }
 
-function classifyMchsItem(
+export function classifyMchsItem(
   id: string,
   title: string,
   description: string,
@@ -503,6 +509,18 @@ function classifyMchsItem(
     alert_type = 'flood'; severity = 1; expires_hours = 120;
   } else if (/пожар|противопожарный режим|особый.*режим/i.test(text)) {
     alert_type = 'fire_danger'; severity = 1; expires_hours = 168;
+  } else if (
+    /вулкан/.test(text) &&
+    /газопепловый выброс|пепловый выброс|пепловое облако|извержени|оползн|обвал|восхождени|сейсмическ|землетрясен/.test(text)
+  ) {
+    // Раньше такие бюллетени (напр. "воздержаться от восхождения на Мутновский —
+    // газопепловый выброс, землетрясения в постройке, оползни/обвалы") молча
+    // отбрасывались — из 4 категорий (цунами/шторм/паводок/пожар) ни одна не
+    // покрывала вулканическую опасность конкретной горы. Явная рекомендация
+    // МЧС избегать места — severity 2 (red в recommender_status), иначе 1.
+    alert_type = 'volcanic_eruption';
+    severity = /воздержаться|не рекомендует|не совершать|избегать|опасн/.test(text) ? 2 : 1;
+    expires_hours = severity >= 2 ? 48 : 24;
   } else {
     return null; // не интересно
   }
