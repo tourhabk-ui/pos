@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim() ?? '';
   const limit = Math.min(parseInt(request.nextUrl.searchParams.get('limit') ?? '50', 10) || 50, 200);
 
-  const where = q.length > 0 ? `WHERE p.name ILIKE $1` : '';
+  const where = q.length > 0
+    ? `WHERE p.merged_into_id IS NULL AND p.name ILIKE $1`
+    : `WHERE p.merged_into_id IS NULL`;
   const params: (string | number)[] = q.length > 0 ? [`%${q}%`, limit] : [limit];
   const limitPlaceholder = q.length > 0 ? '$2' : '$1';
 
