@@ -1,0 +1,25 @@
+[
+  { "id": "route-1", "category": "route", "question": "Расскажи про маршрут на Авачинский вулкан." },
+  { "id": "route-2", "category": "route", "question": "Как добраться до Долины гейзеров?" },
+  { "id": "route-3", "category": "route", "question": "Какой маршрут ведёт к Мутновскому вулкану?" },
+  { "id": "route-4", "category": "route", "question": "Что за маршрут в природном парке Налычево?" },
+  { "id": "route-5", "category": "route", "question": "Расскажи про маршрут к вулкану Толбачик." },
+
+  { "id": "safety-1", "category": "safety", "question": "Опасно ли сейчас подниматься на Авачинский вулкан?" },
+  { "id": "safety-2", "category": "safety", "question": "Какие опасности на маршруте к Мутновскому вулкану?" },
+  { "id": "safety-3", "category": "safety", "question": "Нужна ли регистрация в МЧС для похода в Налычево?" },
+  { "id": "safety-4", "category": "safety", "question": "Есть ли риск встретить медведей возле Курильского озера?" },
+  { "id": "safety-5", "category": "safety", "question": "Насколько сложен подъём на Корякский вулкан?" },
+  { "id": "safety-6", "category": "safety", "question": "Термальные источники на Мутновском вулкане — это безопасно?" },
+  { "id": "safety-7", "category": "safety", "question": "Открыта ли сейчас Долина гейзеров для посещения?" },
+  { "id": "safety-8", "category": "safety", "question": "Далеко ли до ближайшей медицинской помощи от Толбачика?" },
+
+  { "id": "season-1", "category": "season", "question": "Когда лучше ехать на Камчатку смотреть медведей?" },
+  { "id": "season-2", "category": "season", "question": "В какие месяцы открыта Долина гейзеров?" },
+  { "id": "season-3", "category": "season", "question": "Когда сезон рыбалки на горбушу?" },
+  { "id": "season-4", "category": "season", "question": "Можно ли зимой подняться на Авачинский вулкан?" },
+
+  { "id": "logistics-1", "category": "logistics", "question": "Сколько километров от Петропавловска-Камчатского до Паратунки?" },
+  { "id": "logistics-2", "category": "logistics", "question": "Как далеко Малкинские источники от города?" },
+  { "id": "logistics-3", "category": "logistics", "question": "Сколько ехать до Курильского озера?" }
+]
