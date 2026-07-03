@@ -21,7 +21,9 @@ interface BottomNavProps {
 export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
   return (
     <nav
-      className="md:hidden"
+      /* display управляется ТОЛЬКО классами: inline display:flex перебивал
+         md:hidden (инлайн-стиль сильнее класса) — нав был виден и на десктопе */
+      className="flex md:hidden items-center justify-around"
       aria-label="Основная навигация"
       style={{
         position: 'fixed',
@@ -34,9 +36,6 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
         boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
         borderRadius: '50px',
         padding: '12px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-around',
       }}
     >
       {LEFT_ITEMS.map(({ icon: Icon, label, href }) => {
@@ -67,8 +66,8 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
         );
       })}
 
-      {/* Center Kuzmich button — protruding */}
-      <div style={{ position: 'relative', width: '52px', flexShrink: 0 }}>
+      {/* Center Kuzmich button — protruding, главный AI-центр (Field OS) */}
+      <div style={{ position: 'relative', width: '60px', flexShrink: 0 }}>
         <Link
           href="/ai-assistant"
           aria-label="Кузьмич"
@@ -76,10 +75,10 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
           style={{
             position: 'absolute',
             left: '50%',
-            top: '-28px',
+            top: '-32px',
             transform: 'translateX(-50%)',
-            width: '52px',
-            height: '52px',
+            width: '60px',
+            height: '60px',
             borderRadius: '50%',
             background: 'var(--accent)',
             border: '3px solid var(--bg-primary)',
@@ -87,11 +86,11 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             alignItems: 'center',
             justifyContent: 'center',
             textDecoration: 'none',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.20)',
+            boxShadow: '0 0 15px var(--success)',
             transition: 'transform 200ms ease',
           }}
         >
-          <Bot size={24} color="white" />
+          <Bot size={26} color="white" />
         </Link>
       </div>
 

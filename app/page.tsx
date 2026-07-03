@@ -16,6 +16,9 @@ import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import { MoodEntry } from '@/components/homepage/MoodEntry'
+import { MobileDashboardHeader } from '@/components/homepage/MobileDashboardHeader'
+import { MobileHeroDashboard } from '@/components/homepage/MobileHeroDashboard'
+import { MobileBentoDashboard } from '@/components/homepage/MobileBentoDashboard'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,9 +93,23 @@ export default async function Page() {
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
-      <Header />
+      <div className="hidden md:block">
+        <Header />
+      </div>
       <OnSiteBanner />
-      <main className="flex-1 pt-[56px]">
+      <main className="flex-1 md:pt-[56px]">
+
+        {/* Mobile: Field OS Dashboard — компактный статус-бар + AI-hero + bento */}
+        <div className="md:hidden flex flex-col bg-[var(--bg-primary)] pb-28">
+          <MobileDashboardHeader />
+          <MobileHeroDashboard />
+          <SectionErrorBoundary>
+            <MobileBentoDashboard />
+          </SectionErrorBoundary>
+        </div>
+
+        {/* Desktop: текущий лейаут без изменений */}
+        <div className="hidden md:block">
 
         {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
         <HeroStatus safety={safety} fetchedAt={fetchedAt} />
@@ -133,8 +150,11 @@ export default async function Page() {
           </div>
         </SectionErrorBoundary>
 
+        </div>
+
       </main>
-      <div className="lg:block pb-[80px] lg:pb-0">
+      {/* Футер — только desktop (CLAUDE.md §2); на мобильном дашборд завершается bento-сеткой */}
+      <div className="hidden md:block">
         <Footer />
       </div>
       <BottomNav activePath="/" />
