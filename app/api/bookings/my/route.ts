@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
               ob.booking_status, ob.payment_status, ob.special_requests,
               ob.created_at, ob.updated_at,
               ot.id::text AS tour_id, ot.title AS tour_title,
-              ot.description AS tour_description, ot.duration_days,
+              ot.description AS tour_description, ot.multi_day_count AS duration_days,
               p.name AS operator_name, p.contact AS operator_contact
        FROM operator_bookings ob
        JOIN operator_tours ot ON ot.id = ob.operator_tour_id

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       paramIndex++;
     }
     if (category) {
-      conditions.push(`t.category = $${paramIndex}`);
+      conditions.push(`t.activity_type = $${paramIndex}`);
       params.push(category);
       paramIndex++;
     }
@@ -48,9 +48,9 @@ export async function GET(request: NextRequest) {
 
     const toursResult = await query(
       `SELECT
-         t.id, t.title, t.description, t.category, t.difficulty,
-         t.duration_days, t.base_price, t.currency, t.is_active,
-         t.rating, t.reviews_count, t.created_at, t.updated_at,
+         t.id, t.title, t.description, t.activity_type AS category, t.difficulty,
+         t.multi_day_count AS duration_days, t.base_price, t.currency, t.is_active,
+         t.rating, t.review_count AS reviews_count, t.created_at, t.updated_at,
          p.name as operator_name,
          COUNT(b.id) as bookings_count,
          COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed','completed') THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as total_revenue

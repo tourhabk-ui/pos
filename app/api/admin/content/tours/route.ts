@@ -47,17 +47,17 @@ export async function GET(request: NextRequest) {
          t.title AS name,
          t.description,
          t.difficulty,
-         t.duration_days AS duration,
+         t.multi_day_count AS duration,
          t.base_price AS price,
          t.currency,
          t.operator_id,
          t.is_active,
          t.rating,
-         t.reviews_count AS review_count,
+         t.review_count,
          t.created_at,
          t.updated_at,
          p.name as operator_name,
-         t.images,
+         t.photos AS images,
          COALESCE((SELECT COUNT(*) FROM operator_bookings b WHERE b.operator_tour_id = t.id)::text, '0') as bookings_count
        FROM operator_tours t
        LEFT JOIN partners p ON t.operator_id = p.id

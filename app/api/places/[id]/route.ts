@@ -150,7 +150,7 @@ export async function GET(
     // Tours to this place (via route_waypoints → kamchatka_routes → operator_tours)
     const toursResult = await query(
       `SELECT DISTINCT ON (ot.id)
-         ot.id, ot.title, ot.base_price, ot.duration_days,
+         ot.id, ot.title, ot.base_price, ot.multi_day_count AS duration_days,
          p.name AS operator_name, p.slug AS operator_slug
        FROM route_waypoints rw
        JOIN kamchatka_routes kr ON kr.id = rw.route_id
