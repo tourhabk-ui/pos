@@ -99,8 +99,8 @@ export default async function Page() {
       <OnSiteBanner />
       <main className="flex-1 md:pt-[56px]">
 
-        {/* Mobile: Field OS Dashboard — компактный статус-бар + AI-hero + bento */}
-        <div className="md:hidden flex flex-col bg-[var(--bg-primary)] pb-28">
+        {/* Mobile: Field OS Dashboard — плавающий статус-бар + AI-hero + bento */}
+        <div className="md:hidden relative flex flex-col bg-[var(--bg-primary)] pb-28">
           <MobileDashboardHeader />
           <MobileHeroDashboard />
           <SectionErrorBoundary>

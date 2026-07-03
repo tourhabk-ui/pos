@@ -54,17 +54,17 @@
 ### Запрещено
 
 ```
-bg-white/10        → bg-[var(--bg-card)]
-text-white         → text-[var(--text-primary)]
-text-white/70      → text-[var(--text-muted)]
-border-white/20    → border-[var(--border)]
-backdrop-blur-*    → удалить
+bg-white/10        → bg-[var(--bg-card)] (на сплошных фонах; поверх фото/glass — допустимо)
+text-white         → text-[var(--text-primary)] (на сплошных фонах; поверх фото — допустимо)
+text-white/70      → text-[var(--text-muted)] (на сплошных фонах; поверх фото — допустимо)
+border-white/20    → border-[var(--border)] (на сплошных фонах; поверх фото/glass — допустимо)
 text-cyber-cyan / text-premium-gold / bg-premium-* → устаревшие, не использовать
 font-black         → font-bold
-rounded-2xl        → rounded-lg
+rounded-2xl        → rounded-lg (кроме glass-элементов и bento-тайлов — там rounded-2xl)
 Хардкод hex        → только CSS vars
-Glassmorphism      → запрещён
 ```
+
+**Glassmorphism (решение владельца 2026-07-03):** разрешён **поверх фото и тёмных подложек** — `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl`. Подложка — только чёрная/белая альфа или CSS-токены, не хардкод-hex. НЕ использовать на сплошных фонах — там блюрить нечего, только сплошной `var(--bg-card)`.
 
 ### Компоненты платформы
 
@@ -96,7 +96,7 @@ Glassmorphism      → запрещён
 3. Шрифты — Playfair Display для заголовков, Outfit для остального. Никаких Google Fonts import
 4. Изображения — из `public/images/`, не placeholder.com и не unsplash ссылки
 5. Иконки — только `lucide-react`. Никаких emoji
-6. Glassmorphism — под абсолютным запретом даже для "эффекта"
+6. Glassmorphism — только поверх фото и тёмных подложек (`backdrop-blur-md bg-black/40 border border-white/15`), никогда на сплошных фонах — см. §2
 
 ### Контекст платформы для дизайна
 

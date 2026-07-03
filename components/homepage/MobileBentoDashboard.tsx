@@ -5,8 +5,10 @@
  * радар безопасности (реальные статусы из /api/safety/routes — НЕ заглушки:
  * фейковый факт о безопасности хуже отсутствия данных), карта, офлайн.
  *
- * Без glassmorphism — сплошные var(--bg-card) тайлы (запрет ДС).
- * «N ГБ доступно» — реальное число из navigator.storage.estimate(), не фикция.
+ * Тайлы — сплошные var(--bg-card): они лежат на сплошном фоне, блюрить нечего
+ * (glassmorphism разрешён владельцем 2026-07-03, но только поверх фото/тёмных
+ * подложек — см. CLAUDE.md §2). «N ГБ доступно» — реальное число из
+ * navigator.storage.estimate(), не фикция.
  */
 
 import { useEffect, useState } from 'react';
@@ -70,7 +72,7 @@ export function MobileBentoDashboard() {
   return (
     <div className="grid grid-cols-2 gap-3 px-4 pt-4">
       {/* Радар безопасности — широкий тайл */}
-      <div className="col-span-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+      <div className="col-span-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
         <Link href="/safety" className="flex items-center justify-between">
           <span className="font-playfair text-lg font-bold text-[var(--text-primary)]">
             Радар безопасности
@@ -126,7 +128,7 @@ export function MobileBentoDashboard() {
       {/* Карта — квадратный тайл */}
       <Link
         href="/map"
-        className="relative h-40 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]"
+        className="relative h-40 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]"
       >
         <Image
           src="/images/hero/IMG_20260316_133026.jpg"
@@ -151,7 +153,7 @@ export function MobileBentoDashboard() {
       {/* Офлайн — квадратный тайл */}
       <Link
         href="/offline/manage"
-        className="flex h-40 flex-col justify-between rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3"
+        className="flex h-40 flex-col justify-between rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3"
       >
         <div className="flex items-center justify-between">
           <span className="font-playfair text-base font-bold text-[var(--text-primary)]">Офлайн</span>

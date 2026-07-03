@@ -18,11 +18,11 @@ Use this workflow whenever a user asks to:
 
 ## Critical Project Constraints (Volcano OS / TourHab)
 If working on the TourHab / Volcano OS project, you **MUST** adhere to these rules from `DESIGN.md`:
-- **NO Glassmorphism**: `backdrop-blur` and semi-transparent cards are strictly forbidden. Do not use them in mockups or code prompts.
+- **Glassmorphism allowed** (owner decision 2026-07-03): Use `backdrop-blur-md` + semi-transparent backgrounds (`bg-black/40`, `bg-white/10`) **over photos and dark surfaces only**. Background colors must be black/white alpha or CSS tokens — no hardcoded hex. Do NOT use glassmorphism on solid-color backgrounds where there is nothing to blur.
 - **NO Nested Cards**: Do not place cards inside other cards.
 - **Typography**: Playfair Display for headings (`font-playfair`), Outfit for body text. No `font-black`, max weight is `font-bold`.
-- **Colors**: Use ONLY CSS variables (`var(--bg-primary)`, `var(--bg-card)`, `var(--accent)`, `var(--ocean)`, `var(--success)`, `var(--danger)`). No hardcoded hex values.
-- **Corners**: `rounded-lg` everywhere. No `rounded-2xl`.
+- **Colors**: Use ONLY CSS variables (`var(--bg-primary)`, `var(--bg-card)`, `var(--accent)`, `var(--ocean)`, `var(--success)`, `var(--danger)`) for solid backgrounds. For glass overlays: `bg-black/40`, `bg-white/10`, `border-white/15` are acceptable.
+- **Corners**: `rounded-lg` for standard cards; `rounded-2xl` allowed for glass panels overlaying photos.
 - **Icons**: Lucide React only. No emojis in UI.
 - **Theme**: Warm, earthy, natural (lava, volcanoes, taiga). Not cyberpunk, not generic startup-white.
 
@@ -40,7 +40,7 @@ Analyze the current interface (using browser tools or provided screenshots/code)
 ### Step 2: Trend Research
 Ground your redesign in current design realities.
 1. Search the web for current UI/UX trends relevant to the specific domain (e.g., "mobile travel app UI trends 2026", "fintech dashboard design patterns").
-2. Extract 3-4 key trends that directly solve the problems identified in Step 1 (e.g., Dynamic Minimalism, Bento UI grids, Contextual Awareness). *Note: Filter out trends that violate project constraints (e.g., Glassmorphism).*
+2. Extract 3-4 key trends that directly solve the problems identified in Step 1 (e.g., Dynamic Minimalism, Glassmorphism over photos, Bento UI grids, Contextual Awareness).
 
 ### Step 3: Concept Strategy
 Write a clear, structured concept document explaining the *why* and *what* of the redesign.
@@ -51,14 +51,15 @@ The concept must shift the paradigm (e.g., "From Marketplace to Field OS Dashboa
 Generate a high-quality visual mockup using the `generate_image` tool.
 1. Craft a highly detailed prompt describing the exact layout, colors, and UI elements.
 2. Specify the aspect ratio (`9:16` for mobile, `16:9` for desktop).
-3. Example prompt structure: `[Platform] UI mockup, [Theme] mode. A [App Type] called '[Name]'. Top section: [Details]. Middle section: [Bento grid / Cards details]. Bottom: [Navigation details]. Modern, clean, professional UI design. Solid background [Color], accent [Color]. NO glassmorphism.`
+3. Example prompt structure: `[Platform] UI mockup, [Theme] mode. A [App Type] called '[Name]'. Top section: [floating header with glass pill, white text over full-bleed photo]. Middle section: [glass panel with backdrop-blur over hero photo, input field, chips]. Below photo: [Bento grid with solid dark cards]. Bottom: [Navigation details]. Modern, clean, professional UI design.`
 
 ### Step 5: Developer Handoff Prompt
 Write an actionable prompt for a coding agent to implement the design.
 1. If you have access to the codebase, map your new UI components to specific existing files.
 2. Break the implementation down into specific, achievable tasks.
 3. Explicitly state the CSS variables and utility classes (e.g., `ds-card`, `ds-btn`) to be used.
-4. Use the template provided in `/home/ubuntu/skills/ui-redesign-pipeline/templates/handoff_prompt_template.md`.
+4. For glass elements: specify `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl`.
+5. Use the template provided in `/home/ubuntu/skills/ui-redesign-pipeline/templates/handoff_prompt_template.md`.
 
 ## Delivery
 Deliver the final result to the user using the `message` tool.

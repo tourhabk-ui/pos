@@ -2,10 +2,11 @@
 
 /**
  * MobileDashboardHeader — компактный статус-бар мобильного Field OS дашборда.
- * Заменяет стандартный Header на главной для мобильных (< md).
+ * Заменяет стандартный Header на главной для мобильных (< md). Плавает поверх
+ * hero-фото (absolute), glass-pill справа.
  *
- * Без glassmorphism (запрет ДС подтверждён аудитом 2026-07-03 и скиллом
- * ui-redesign-pipeline: только сплошные var(--bg-*) фоны, без backdrop-blur).
+ * Glassmorphism — осознанное решение владельца (2026-07-03), запрет снят,
+ * см. CLAUDE.md §2: разрешён поверх фото и тёмных подложек.
  */
 
 import { useEffect, useState } from 'react';
@@ -53,18 +54,18 @@ export function MobileDashboardHeader() {
   const tempSign = weather && parseInt(weather.tempC) > 0 ? '+' : '';
 
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
+    <header className="absolute inset-x-0 top-0 z-40 flex items-start justify-between px-4 py-3">
       <Link href="/" className="flex flex-col" aria-label="Ведар — на главную">
         <span className="flex items-center gap-2">
           <Logo size={22} className="text-[var(--success)]" />
-          <span className="font-playfair text-lg font-bold text-[var(--text-primary)]">Vedar</span>
+          <span className="font-playfair text-lg font-bold text-white">Vedar</span>
         </span>
-        <span className="text-[9px] uppercase tracking-[0.2em] text-[var(--text-secondary)]">
+        <span className="text-[9px] uppercase tracking-[0.2em] text-white/60">
           Камчатка · дикая территория
         </span>
       </Link>
 
-      <div className="flex items-center gap-3 rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1.5 text-xs text-[var(--text-primary)]">
+      <div className="flex items-center gap-3 rounded-full border border-white/15 backdrop-blur-md bg-black/40 px-3 py-1.5 text-xs text-white">
         <span className="flex items-center gap-1.5">
           <span
             aria-hidden
@@ -75,7 +76,7 @@ export function MobileDashboardHeader() {
         </span>
         {weather && (
           <>
-            <span className="h-3 w-px bg-[var(--border)]" aria-hidden />
+            <span className="h-3 w-px bg-white/20" aria-hidden />
             <span className="flex items-center gap-1">
               <Cloud size={13} strokeWidth={1.5} aria-hidden />
               {tempSign}{weather.tempC}°C
