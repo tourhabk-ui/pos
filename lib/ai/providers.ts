@@ -1317,9 +1317,17 @@ export async function callFugu(messages: ChatMessage[]): Promise<string | null> 
 }
 
 // ── Waterfall: race tiers for speed ─────────────────────────
-// Tier 1: OpenRouter + DeepSeek + Gemini + MiMo + Fugu + MuseSpark — race (кто быстрее)
+// Tier 1: OpenRouter + DeepSeek + Gemini + MiMo + MuseSpark — race (кто быстрее)
 // Tier 2: Yandex + MiniMax — fallback
 // Tier 3: Anthropic — sequential fallback
+//
+// Fugu Ultra сюда сознательно НЕ включена: raceProviders() не отменяет
+// проигравшие вызовы — они дожидаются полного ответа в фоне и всё равно
+// тарифицируются. Оркестрация Fugu Ultra стоит ~1260 токенов оверхеда на
+// запрос и отвечает за ~20с против 2-8с у остальных Tier 1 — она проигрывает
+// гонку почти всегда, но деньги списываются каждый раз. Fugu используется
+// точечно там, где задержка не важна: lib/agents/editor.ts (A/B вариант B,
+// прямой callFugu()) и app/api/admin/test-fugu (ручная проверка).
 export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> {
   // Tier 1: race all primary providers simultaneously
   const tier1 = await raceProviders([
@@ -1329,7 +1337,6 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     callMiMo(messages),
     callGLM(messages),
     callNvidia(messages),    // NVIDIA NIM: Llama 3.3-70B бесплатно (NVIDIA_API_KEY)
-    callFugu(messages),      // Sakana AI Fugu Ultra (FUGU_API_KEY)
     callMuseSpark(messages), // активируется когда Meta откроет API (MUSE_SPARK_API_KEY)
   ]);
   if (tier1) return tier1;
@@ -1351,7 +1358,6 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     DeepSeek: !!process.env.DEEPSEEK_API_KEY,
     Gemini: !!process.env.GEMINI_API_KEY,
     MiMo: !!process.env.XIAOMI_API_KEY,
-    Fugu: !!process.env.FUGU_API_KEY,
     Anthropic: !!process.env.ANTHROPIC_API_KEY,
     Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
     MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
