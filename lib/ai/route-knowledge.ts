@@ -56,6 +56,17 @@ async function searchRoutesOnce(q: string): Promise<RouteRow[]> {
   return rows;
 }
 
+// Issue #250: замер эффекта multi-query расширения — сколько вариантов
+// сгенерировано и сколько маршрутов добавили ИМЕННО расширенные варианты
+// (не базовый запрос) — данные для решения оставлять/откатывать
+// RAG_MULTIQUERY. Fire-and-forget, не блокирует и не роняет поиск.
+function logQueryExpansion(origQuery: string, expandedCount: number, uniqueAdded: number): void {
+  pool.query(
+    `INSERT INTO query_expansion_log (orig_query, expanded_count, unique_added) VALUES ($1, $2, $3)`,
+    [origQuery, expandedCount, uniqueAdded],
+  ).catch(() => { /* логирование не критично для самого поиска */ });
+}
+
 export async function searchRoutes(query: string): Promise<string> {
   if (!query || query.length < 3) return '';
   const base = normalizeQuery(query);
@@ -68,15 +79,22 @@ export async function searchRoutes(query: string): Promise<string> {
     const variants = (await expandQuery(base)).map(normalizeQuery).filter(Boolean);
     const seen = new Set<string>();
     const merged: RouteRow[] = [];
-    for (const v of variants) {
+    let uniqueAddedByExpansion = 0;
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i]!;
       for (const r of await searchRoutesOnce(v)) {
         const key = r.title.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
         merged.push(r);
+        if (i > 0) uniqueAddedByExpansion++; // попал в выдачу только благодаря перефразу, не оригиналу
         if (merged.length >= 3) break;
       }
       if (merged.length >= 3) break;
+    }
+
+    if (variants.length > 1) {
+      logQueryExpansion(base, variants.length - 1, uniqueAddedByExpansion);
     }
 
     if (merged.length === 0) return '';
