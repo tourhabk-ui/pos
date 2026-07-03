@@ -14,9 +14,11 @@ export interface RouteGeometryHealth {
   pct: number;
   ok: boolean;
   by_region: Array<{ zone: string | null; total: number; without_track: number }>;
+  missing_geometry_ids: string[];
 }
 
 const OK_THRESHOLD_PCT = 80;
+const MAX_MISSING_IDS = 200;
 
 /** Проверка валидности трека — coordinates должен быть массивом из ≥2 точек. */
 const HAS_TRACK_SQL = `
@@ -46,6 +48,13 @@ export async function computeGeometryHealth(): Promise<RouteGeometryHealth> {
      ORDER BY without_track DESC, zone ASC`,
   );
 
+  const missingRes = await pool.query<{ id: string }>(
+    `SELECT id::text FROM v_kamchatka_routes_api
+     WHERE NOT (${HAS_TRACK_SQL})
+     ORDER BY id
+     LIMIT ${MAX_MISSING_IDS}`,
+  );
+
   return {
     total,
     with_track,
@@ -56,5 +65,6 @@ export async function computeGeometryHealth(): Promise<RouteGeometryHealth> {
       total: parseInt(r.total, 10),
       without_track: parseInt(r.without_track, 10),
     })),
+    missing_geometry_ids: missingRes.rows.map(r => r.id),
   };
 }
