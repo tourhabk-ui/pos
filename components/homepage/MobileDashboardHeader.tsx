@@ -65,7 +65,7 @@ export function MobileDashboardHeader() {
         </span>
       </Link>
 
-      <div className="flex items-center gap-3 rounded-full border border-white/15 backdrop-blur-md bg-black/40 px-3 py-1.5 text-xs text-white">
+      <div className="flex items-center gap-3 rounded-full border border-white/15 backdrop-blur-md bg-black/40 px-3 py-1 text-xs text-white">
         <span className="flex items-center gap-1.5">
           <span
             aria-hidden

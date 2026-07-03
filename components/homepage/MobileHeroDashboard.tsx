@@ -33,9 +33,9 @@ export function MobileHeroDashboard() {
   };
 
   return (
-    <section className="relative min-h-[58vh] w-full" aria-label="Кузьмич — AI-помощник">
+    <section className="relative h-[60vh] w-full" aria-label="Кузьмич — AI-помощник">
       <Image
-        src="/images/hero/IMG_20260316_133049.jpg"
+        src="/images/hero/IMG_20260316_133026.jpg"
         alt="Вулкан на Камчатке"
         fill
         priority
@@ -44,12 +44,12 @@ export function MobileHeroDashboard() {
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-[var(--bg-primary)]" aria-hidden />
 
-      <div className="relative z-10 flex min-h-[58vh] flex-col justify-end px-4 pb-5 pt-24">
-        <div className="rounded-2xl border border-white/15 backdrop-blur-md bg-black/40 p-5">
+      <div className="relative z-10 flex h-full flex-col justify-end px-4 pb-5 pt-24">
+        <div className="rounded-2xl border border-white/10 backdrop-blur-md bg-black/40 p-5">
           <h1 className="font-playfair text-3xl font-bold text-white">
             Привет. Я Кузьмич.
           </h1>
-          <p className="mt-1 text-lg text-white/80">Куда отправимся?</p>
+          <p className="mt-1 text-lg text-white/60">Куда отправимся?</p>
 
           <form
             onSubmit={submit}
@@ -60,7 +60,7 @@ export function MobileHeroDashboard() {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Например: Долина гейзеров"
-              className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder-white/50 outline-none"
+              className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/40 outline-none"
               aria-label="Спросить Кузьмича"
             />
             <button
@@ -77,7 +77,7 @@ export function MobileHeroDashboard() {
               <Link
                 key={label}
                 href={href}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 px-4 py-2 text-sm text-white transition-all duration-200 active:scale-95"
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/5 px-4 py-2 text-sm text-white transition-all duration-200 active:scale-95"
               >
                 <Icon size={15} strokeWidth={1.5} aria-hidden />
                 {label}

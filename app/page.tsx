@@ -99,8 +99,10 @@ export default async function Page() {
       <OnSiteBanner />
       <main className="flex-1 md:pt-[56px]">
 
-        {/* Mobile: Field OS Dashboard — плавающий статус-бар + AI-hero + bento */}
-        <div className="md:hidden relative flex flex-col bg-[var(--bg-primary)] pb-28">
+        {/* Mobile: Field OS Dashboard — принудительно тёмная тема (data-theme
+            переопределяет токены для потомков, см. globals.css), плавающий
+            статус-бар + AI-hero + bento */}
+        <div data-theme="dark" className="md:hidden relative flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] pb-28">
           <MobileDashboardHeader />
           <MobileHeroDashboard />
           <SectionErrorBoundary>
@@ -157,7 +159,10 @@ export default async function Page() {
       <div className="hidden md:block">
         <Footer />
       </div>
-      <BottomNav activePath="/" />
+      {/* data-theme=dark — нав на главной в тёмной теме дашборда (Field OS) */}
+      <div data-theme="dark">
+        <BottomNav activePath="/" />
+      </div>
       <div className="hidden md:block">
         <SOSButton />
       </div>
