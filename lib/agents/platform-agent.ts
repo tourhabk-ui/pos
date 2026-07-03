@@ -40,6 +40,7 @@ export type AgentIntent =
   | 'guide_groups'
   | 'guide_earnings'
   | 'guide_status'
+  | 'guide_route_preflight'
   // Трансфер-оператор
   | 'transfer_fleet'
   | 'transfer_drivers'
@@ -112,7 +113,7 @@ const VALID_INTENTS: AgentIntent[] = [
   'op_tours_summary', 'op_bookings_today', 'op_revenue',
   'op_create_tour', 'op_fill_ai', 'op_add_slots',
   'tourist_recommend',
-  'guide_schedule', 'guide_groups', 'guide_earnings', 'guide_status',
+  'guide_schedule', 'guide_groups', 'guide_earnings', 'guide_status', 'guide_route_preflight',
   'transfer_fleet', 'transfer_drivers', 'transfer_bookings', 'transfer_status',
   'legal_contract', 'legal_compliance', 'legal_risks',
   'sec_access_audit', 'sec_anomaly', 'sec_report',
@@ -268,7 +269,8 @@ class PlatformAgentClass {
       case 'guide_schedule':
       case 'guide_groups':
       case 'guide_earnings':
-      case 'guide_status': {
+      case 'guide_status':
+      case 'guide_route_preflight': {
         const { GuideAgency } = await import('./agencies/guide-agency');
         return new GuideAgency().run(intent, context, originalMessage);
       }
