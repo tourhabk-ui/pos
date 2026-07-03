@@ -16,7 +16,7 @@ interface WttrResponse {
   current_condition: WttrCondition[];
 }
 
-const ZONES = {
+export const ZONES = {
   mutnovsky:    { lat: 52.4, lon: 158.3, name: 'Мутновский вулкан',   keywords: ['мутновск', 'mutnovsky', 'дачные источники', 'дачных'] },
   nalychevo:    { lat: 53.5, lon: 159.0, name: 'Долина Налычево',     keywords: ['налычево', 'nalychevo'] },
   tolbachik:    { lat: 55.8, lon: 160.3, name: 'Толбачик',            keywords: ['толбачик', 'tolbachik', 'ключевской парк', 'плоский', 'острый толбачик'] },
@@ -25,7 +25,7 @@ const ZONES = {
   mutnovsky_s:  { lat: 52.1, lon: 157.8, name: 'Южная Камчатка',      keywords: ['курильское озеро', 'ходутка', 'ксудач', 'кошелев'] },
 } satisfies Record<string, { lat: number; lon: number; name: string; keywords: string[] }>;
 
-type ZoneKey = keyof typeof ZONES;
+export type ZoneKey = keyof typeof ZONES;
 
 const _cache = new Map<ZoneKey, { text: string; at: number }>();
 const TTL_MS = 30 * 60 * 1000;
