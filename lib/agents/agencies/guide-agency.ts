@@ -1,14 +1,43 @@
 /**
  * GuideAgency — агент для гидов.
  *
- * guide_schedule  — предстоящие назначения гида
- * guide_groups    — активные группы и количество туристов
- * guide_earnings  — сводка по заработку
- * guide_status    — combined: расписание + группы + заработок
+ * guide_schedule         — предстоящие назначения гида
+ * guide_groups           — активные группы и количество туристов
+ * guide_earnings         — сводка по заработку
+ * guide_status           — combined: расписание + группы + заработок
+ * guide_route_preflight  — pre-flight safety-чек маршрута перед выходом (issue #248)
  */
 
 import { pool } from '@/lib/db-pool';
 import type { AgentContext } from '../context-hub';
+import { findRoutePreflightSafety } from '@/lib/services/route-preflight-safety';
+
+// Фразы-триггеры pre-flight команды — снимаются с начала сообщения, остаток
+// считается названием маршрута ("проверь маршрут Авачинский" → "Авачинский").
+const PREFLIGHT_TRIGGERS = [
+  'предполётная проверка маршрута', 'предполетная проверка маршрута',
+  'предполётная проверка', 'предполетная проверка',
+  'safety-чек маршрута', 'safety чек маршрута',
+  'проверка маршрута перед выходом',
+  'проверь маршрут', 'route preflight', 'чек маршрута',
+];
+
+/** Чистая функция — извлекает название маршрута из свободного текста команды гида. */
+export function extractRouteQueryFromMessage(message: string): string {
+  const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
+  let rest = trimmed;
+
+  for (const trigger of PREFLIGHT_TRIGGERS) {
+    const idx = lower.indexOf(trigger);
+    if (idx !== -1) {
+      rest = trimmed.slice(idx + trigger.length);
+      break;
+    }
+  }
+
+  return rest.replace(/^[\s:\-—,]*(на|по|для)?[\s:\-—,]*/i, '').trim();
+}
 
 export interface AgencyResult {
   response: string;
@@ -41,10 +70,11 @@ export class GuideAgency {
     _originalMessage: string
   ): Promise<AgencyResult> {
     switch (intent) {
-      case 'guide_schedule':  return this.getSchedule(context);
-      case 'guide_groups':    return this.getGroups(context);
-      case 'guide_earnings':  return this.getEarnings(context);
-      case 'guide_status':    return this.getStatus(context);
+      case 'guide_schedule':         return this.getSchedule(context);
+      case 'guide_groups':           return this.getGroups(context);
+      case 'guide_earnings':         return this.getEarnings(context);
+      case 'guide_status':           return this.getStatus(context);
+      case 'guide_route_preflight':  return this.getRoutePreflight(_originalMessage);
       default:
         return {
           response:
@@ -52,7 +82,8 @@ export class GuideAgency {
             '- расписание / мои туры\n' +
             '- мои группы\n' +
             '- мой заработок\n' +
-            '- статус (всё сразу)',
+            '- статус (всё сразу)\n' +
+            '- проверь маршрут <название> (safety pre-flight)',
         };
     }
   }
@@ -187,5 +218,38 @@ export class GuideAgency {
         earnings: earnings.data,
       },
     };
+  }
+
+  private async getRoutePreflight(message: string): Promise<AgencyResult> {
+    const routeQuery = extractRouteQueryFromMessage(message);
+    if (!routeQuery) {
+      return { response: 'Укажите название маршрута для проверки, например: "проверь маршрут Авачинский вулкан".' };
+    }
+
+    try {
+      const safety = await findRoutePreflightSafety(routeQuery);
+      if (!safety) {
+        return { response: `Маршрут "${routeQuery}" не найден.` };
+      }
+
+      const yesNo = (v: boolean | null) => v === null ? 'нет данных' : (v ? 'да' : 'нет');
+      const list  = (arr: string[]) => arr.length > 0 ? arr.join(', ') : 'нет данных';
+
+      const lines = [
+        `<b>Pre-flight safety-чек: ${safety.title}</b>`,
+        '',
+        `Трек (geometry): ${safety.hasGeometry ? 'есть' : 'нет данных'}`,
+        `Контакт МЧС: ${safety.hasMchsContact ? 'есть' : 'нет данных'}`,
+        `Регистрация в МЧС обязательна: ${yesNo(safety.mchsRegistrationRequired)}`,
+        `Сложность: ${safety.difficulty ?? 'нет данных'}`,
+        `Опасности: ${list(safety.hazards)}`,
+        `Снаряжение: ${list(safety.equipment)}`,
+      ];
+
+      return { response: lines.join('\n'), data: { ...safety } };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Ошибка проверки маршрута';
+      return { response: `Не удалось выполнить safety-чек: ${msg}` };
+    }
   }
 }
