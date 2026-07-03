@@ -51,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
        ot.base_price,
        ot.activity_type,
        ot.duration_hours,
-       ot.duration_days,
+       ot.multi_day_count AS duration_days,
        ot.difficulty,
        ot.description,
        (SELECT url FROM ai_route_images WHERE route_id = ot.route_id LIMIT 1) AS photo_url,
