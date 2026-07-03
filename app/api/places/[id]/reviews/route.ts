@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { containsProfanity } from '@/lib/services/profanity-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +90,23 @@ export async function POST(
     );
   }
 
+  const { rating, comment, authorName } = parsed.data;
+
+  // Отзыв публикуется сразу (is_verified не фильтрует показ ни в одном
+  // GET-эндпоинте) — проверка на мат здесь единственная реальная защита,
+  // не advisory-флаг для последующей модерации. Fail-open: недоступность
+  // PurgoMalum не блокирует легитимный отзыв.
+  const textToCheck = [comment, authorName].filter(Boolean).join(' ');
+  if (textToCheck) {
+    const profane = await containsProfanity(textToCheck);
+    if (profane === true) {
+      return NextResponse.json(
+        { success: false, error: 'Отзыв содержит недопустимую лексику. Пожалуйста, перефразируйте.' },
+        { status: 422 },
+      );
+    }
+  }
+
   try {
     const place = await query(
       `SELECT ark_id FROM places WHERE (ark_id::text = $1 OR id = $1) AND is_visible = true`,
@@ -98,8 +116,6 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Место не найдено' }, { status: 404 });
     }
     const placeId = place.rows[0].ark_id as string;
-
-    const { rating, comment, authorName } = parsed.data;
 
     const result = await query(
       `INSERT INTO reviews (place_id, rating, comment, author_name, is_verified)

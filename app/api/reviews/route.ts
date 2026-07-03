@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
+import { containsProfanity } from '@/lib/services/profanity-filter';
 
 const reviewLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -169,6 +170,19 @@ export async function POST(request: NextRequest) {
     const normalizedImages = [...new Set(images)];
 
     const userId = auth.userId;
+
+    // Отзыв публикуется сразу (is_verified не фильтрует показ в GET-эндпоинтах
+    // отзывов) — проверка на мат единственная реальная защита на входе.
+    // Fail-open: недоступность PurgoMalum не блокирует легитимный отзыв.
+    if (comment) {
+      const profane = await containsProfanity(comment);
+      if (profane === true) {
+        return NextResponse.json(
+          { success: false, error: 'Отзыв содержит недопустимую лексику. Пожалуйста, перефразируйте.' } as ApiResponse<null>,
+          { status: 422 }
+        );
+      }
+    }
 
     // Проверяем, что пользователь прошел тур (есть завершенная бронь)
     const bookingCheck = await query(`
