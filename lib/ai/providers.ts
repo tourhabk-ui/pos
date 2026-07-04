@@ -1329,12 +1329,15 @@ export async function callFugu(messages: ChatMessage[]): Promise<string | null> 
 // точечно там, где задержка не важна: lib/agents/editor.ts (A/B вариант B,
 // прямой callFugu()) и app/api/admin/test-fugu (ручная проверка).
 export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> {
-  // Tier 1: race all primary providers simultaneously
+  // Tier 1: race all primary providers simultaneously.
+  // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал
+  // (health WARN), а в гонке он лишь тратил соединение и шумел в мониторинге.
+  // Если MiMo снова понадобится — вернуть через OpenRouter (модель-id в OR_MODELS),
+  // а не прямым вызовом Xiaomi. Функция callMiMo оставлена для этого.
   const tier1 = await raceProviders([
     callOpenrouter(messages),
     callDeepSeek(messages),
     callGeminiDirect(messages),
-    callMiMo(messages),
     callGLM(messages),
     callNvidia(messages),    // NVIDIA NIM: Llama 3.3-70B бесплатно (NVIDIA_API_KEY)
     callMuseSpark(messages), // активируется когда Meta откроет API (MUSE_SPARK_API_KEY)
@@ -1357,7 +1360,6 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     OR: !!getOpenRouterKey(),
     DeepSeek: !!process.env.DEEPSEEK_API_KEY,
     Gemini: !!process.env.GEMINI_API_KEY,
-    MiMo: !!process.env.XIAOMI_API_KEY,
     Anthropic: !!process.env.ANTHROPIC_API_KEY,
     Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
     MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
@@ -1372,9 +1374,9 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
 export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   const apiKey = getOpenRouterKey();
 
+  // MiMo убран 04.07.2026 — прямой api.xiaomimimo.com не отвечал (см. callAIWaterfall).
   const calls: Promise<string | null>[] = [
     callDeepSeek(messages),
-    callMiMo(messages),
     callGeminiDirect(messages),
   ];
 
