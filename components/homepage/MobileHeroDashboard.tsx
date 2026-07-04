@@ -10,11 +10,35 @@
  * Emoji из концепта заменены на lucide-иконки (решение владельца).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowUpRight, Flame, PawPrint, MountainSnow } from 'lucide-react';
+import { ArrowUpRight, Flame, PawPrint, MountainSnow, Mic } from 'lucide-react';
+
+// Web Speech API — нет в lib.dom TypeScript, объявляем минимально необходимое.
+// Кнопка микрофона рендерится только если API реально доступен в браузере.
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognition(): SpeechRecognitionCtor | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 const QUICK_TAGS = [
   { icon: Flame,        label: 'Вулканы',  href: '/routes?kind=place&location_type=volcano' },
@@ -26,6 +50,37 @@ export function MobileHeroDashboard() {
   const router = useRouter();
   const [value, setValue] = useState('');
   const [userName, setUserName] = useState<string | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  useEffect(() => {
+    setVoiceSupported(getSpeechRecognition() !== null);
+    return () => { recognitionRef.current?.stop(); };
+  }, []);
+
+  const toggleVoice = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = 'ru-RU';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (transcript) setValue(transcript);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    try { rec.start(); } catch { setListening(false); }
+  };
 
   // Персонализация: «Привет, {имя}!» для авторизованных. Fail-silent —
   // гость или ошибка сети просто оставляют нейтральное приветствие.
@@ -79,6 +134,18 @@ export function MobileHeroDashboard() {
               className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/40 outline-none"
               aria-label="Спросить Кузьмича"
             />
+            {voiceSupported && (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                aria-label={listening ? 'Остановить запись' : 'Продиктовать вопрос'}
+                aria-pressed={listening}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:scale-95"
+                style={{ color: listening ? 'var(--danger)' : 'white' }}
+              >
+                <Mic size={18} strokeWidth={1.5} className={listening ? 'animate-pulse' : undefined} />
+              </button>
+            )}
             <button
               type="submit"
               aria-label="Отправить Кузьмичу"
