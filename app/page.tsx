@@ -18,6 +18,7 @@ import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import { MoodEntry } from '@/components/homepage/MoodEntry'
 import { MobileDashboardHeader } from '@/components/homepage/MobileDashboardHeader'
 import { MobileHeroDashboard } from '@/components/homepage/MobileHeroDashboard'
+import { MobileAlertBanner } from '@/components/homepage/MobileAlertBanner'
 import { MobileBentoDashboard } from '@/components/homepage/MobileBentoDashboard'
 
 export const dynamic = 'force-dynamic'
@@ -105,6 +106,8 @@ export default async function Page() {
         <div data-theme="dark" className="md:hidden relative flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] pb-28">
           <MobileDashboardHeader />
           <MobileHeroDashboard />
+          {/* Активная тревога — заметный баннер, а не только строка в радаре */}
+          <MobileAlertBanner safety={safety} />
           <SectionErrorBoundary>
             <MobileBentoDashboard />
           </SectionErrorBoundary>

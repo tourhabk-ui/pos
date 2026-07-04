@@ -29,6 +29,21 @@ interface GlobalSafetyStatus {
   maxSeverity: number;
   activeCount: number;
   topTitle: string | null;
+  dataUpdatedAt: string | null;
+  source: string;
+}
+
+/** «Обновлено N мин назад» — честная свежесть данных; null = «данные не обновлялись» */
+function formatFreshness(iso: string | null): string {
+  if (!iso) return 'данные не обновлялись';
+  const ts = new Date(iso).getTime();
+  if (Number.isNaN(ts)) return 'данные не обновлялись';
+  const diffMin = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+  if (diffMin < 1) return 'обновлено только что';
+  if (diffMin < 60) return `обновлено ${diffMin} мин назад`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `обновлено ${diffH} ч назад`;
+  return `обновлено ${Math.round(diffH / 24)} дн назад`;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -100,6 +115,9 @@ export function MobileBentoDashboard() {
         </Link>
         <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
           Актуальная обстановка на маршрутах
+          {globalAlert && (
+            <> · {formatFreshness(globalAlert.dataUpdatedAt)} · {globalAlert.source}</>
+          )}
         </p>
 
         {globalAlert && (

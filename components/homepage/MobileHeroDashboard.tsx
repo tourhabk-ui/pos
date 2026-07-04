@@ -10,7 +10,7 @@
  * Emoji из концепта заменены на lucide-иконки (решение владельца).
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -25,6 +25,22 @@ const QUICK_TAGS = [
 export function MobileHeroDashboard() {
   const router = useRouter();
   const [value, setValue] = useState('');
+  const [userName, setUserName] = useState<string | null>(null);
+
+  // Персонализация: «Привет, {имя}!» для авторизованных. Fail-silent —
+  // гость или ошибка сети просто оставляют нейтральное приветствие.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me')
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: { success?: boolean; data?: { name?: string | null } } | null) => {
+        if (cancelled) return;
+        const name = json?.success ? json.data?.name?.trim() : null;
+        if (name) setUserName(name.split(' ')[0]);
+      })
+      .catch(() => { /* гость — нейтральное приветствие */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +63,7 @@ export function MobileHeroDashboard() {
       <div className="relative z-10 flex h-full flex-col justify-end px-4 pb-5 pt-24">
         <div className="rounded-2xl border border-white/10 backdrop-blur-md bg-black/40 p-5">
           <h1 className="font-playfair text-3xl font-bold text-white">
-            Привет. Я Кузьмич.
+            {userName ? `Привет, ${userName}! Я Кузьмич.` : 'Привет. Я Кузьмич.'}
           </h1>
           <p className="mt-1 text-lg text-white/60">Куда отправимся?</p>
 
