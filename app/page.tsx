@@ -26,6 +26,7 @@ export const dynamic = 'force-dynamic'
 
 const BottomNav = loadDynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = loadDynamic(() => import('@/components/shared/SOSButton'));
+const MobileOnboarding = loadDynamic(() => import('@/components/onboarding/MobileOnboarding'));
 
 async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   try {
@@ -105,6 +106,8 @@ export default async function Page() {
             переопределяет токены для потомков, см. globals.css), плавающий
             статус-бар + AI-hero + bento */}
         <div data-theme="dark" className="md:hidden relative flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] pb-28">
+          {/* Онбординг — один раз при первом визите (localStorage), учит long-press СОС */}
+          <MobileOnboarding />
           <MobilePullToRefresh>
             <MobileDashboardHeader />
             <MobileHeroDashboard />
