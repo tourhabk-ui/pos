@@ -14,14 +14,22 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, Download, Map as MapIcon } from 'lucide-react';
+import { ChevronRight, Download, Map as MapIcon, Megaphone, Eye } from 'lucide-react';
 import { getStorageEstimate } from '@/lib/offline/db';
+import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
 interface RadarItem {
   id: number;
   title: string;
   status: string; // 'green' | 'yellow' | 'red'
   reason: string;
+}
+
+interface TrailReport {
+  id: string;
+  type_label: string;
+  text: string;
+  created_at: string;
 }
 
 interface GlobalSafetyStatus {
@@ -67,6 +75,8 @@ export function MobileBentoDashboard() {
   const [radarFailed, setRadarFailed] = useState(false);
   const [globalAlert, setGlobalAlert] = useState<GlobalSafetyStatus | null>(null);
   const [freeGb, setFreeGb] = useState<string | null>(null);
+  const [reports, setReports] = useState<TrailReport[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +99,19 @@ export function MobileBentoDashboard() {
         if (!cancelled && json?.success && json.data) setGlobalAlert(json.data);
       })
       .catch(() => { /* строка общего статуса просто не показывается */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Подтверждённые наблюдения туристов — отдельный блок с явным бейджем
+    // «не проверено официально», не смешиваем с данными КБГС
+    fetch('/api/safety/reports')
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: { success?: boolean; data?: TrailReport[] } | null) => {
+        if (!cancelled && json?.success && Array.isArray(json.data)) setReports(json.data.slice(0, 3));
+      })
+      .catch(() => { /* блок наблюдений просто не показывается */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -176,7 +199,36 @@ export function MobileBentoDashboard() {
             </Link>
           ))}
         </div>
+
+        {/* Наблюдения туристов — отдельно от официальных статусов, с явным бейджем */}
+        {reports.length > 0 && (
+          <div className="mt-3 border-t border-[var(--border)] pt-3">
+            <p className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+              <Eye size={13} strokeWidth={1.5} aria-hidden />
+              Наблюдения туристов · не проверено официально
+            </p>
+            <div className="mt-1.5 space-y-1.5">
+              {reports.map(r => (
+                <p key={r.id} className="text-xs leading-snug text-[var(--text-secondary)]">
+                  <span className="font-semibold text-[var(--text-primary)]">{r.type_label}:</span>{' '}
+                  {r.text}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-all duration-200 active:bg-[var(--bg-hover)]"
+        >
+          <Megaphone size={16} strokeWidth={1.5} aria-hidden />
+          Сообщить о наблюдении
+        </button>
       </div>
+
+      <TrailReportSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
 
       {/* Карта — квадратный тайл */}
       <Link
