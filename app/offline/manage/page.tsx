@@ -150,7 +150,7 @@ export default function OfflineManagePage() {
 
         {/* Footer note */}
         <p className="text-xs text-[var(--text-muted)] text-center leading-relaxed">
-          Тайлы карт: OpenTopoMap (CC-BY-SA). Карты актуальны на момент скачивания.
+          Тайлы карт: OpenStreetMap (ODbL). Карты актуальны на момент скачивания.
           Рекомендуем обновлять перед каждой поездкой.
         </p>
       </div>
