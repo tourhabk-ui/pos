@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
         GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
         XAI_API_KEY: !!process.env.XAI_API_KEY,
         ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
+        FUGU_API_KEY: !!process.env.FUGU_API_KEY,
+        GLM_API_KEY: !!process.env.GLM_API_KEY,
+        NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
         CRON_SECRET: !!process.env.CRON_SECRET,
       },
       node_env: process.env.NODE_ENV,
@@ -83,6 +86,9 @@ export async function GET(request: NextRequest) {
       GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
       XAI_API_KEY: !!process.env.XAI_API_KEY,
       ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
+      FUGU_API_KEY: !!process.env.FUGU_API_KEY,
+      GLM_API_KEY: !!process.env.GLM_API_KEY,
+      NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
     },
   });
 }
