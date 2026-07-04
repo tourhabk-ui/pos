@@ -1,0 +1,59 @@
+# Dependabot: автоматические PR на обновление зависимостей.
+# Security-обновления приходят сразу (вне расписания), версионные — раз в неделю.
+# Каждый PR проходит обычный CI (tsc + vitest) — мержить только зелёные,
+# по циклу «один PR = одна задача». Пуш в main = автодеплой Timeweb.
+version: 2
+updates:
+  # npm: минорные и патчи группируются в один PR, чтобы не заспамить очередь.
+  # Мажорные версии идут отдельными PR — их смотреть внимательно
+  # (прошлый опыт: nodemailer 7→9 и vitest 3→4 требовали правок).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dependencies
+
+  # GitHub Actions: пины экшенов в 41 workflow (cron-агенты, CI, deploy)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+
+  # Docker: базовый образ node в Dockerfile (лимит standalone 50 МБ —
+  # обновление базового образа проверять на размер, см. CLAUDE.md §6.1)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "docker"
+    labels:
+      - dependencies
