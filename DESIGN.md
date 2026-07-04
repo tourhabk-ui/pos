@@ -35,7 +35,8 @@ All colors are defined as CSS custom properties in `app/globals.css`. Never use 
 ### Prohibited
 
 - `bg-white`, `bg-black`, `text-white`, `text-black` — use token equivalents
-- `bg-white/10`, `backdrop-blur-*` — glassmorphism is banned
+- `bg-white/10` on solid backgrounds — use token equivalents; white/black alpha is allowed over photos and glass surfaces
+- Glassmorphism on solid backgrounds — glass (`backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl`) is allowed **only over photos and dark surfaces** (owner decision 2026-07-03); there is nothing to blur on a solid background
 - Hardcoded hex anywhere in components
 - `text-cyber-cyan`, `text-premium-gold`, `bg-premium-*` — legacy, do not use
 - `rounded-2xl` — use `rounded-lg`
@@ -128,7 +129,7 @@ Dashboard register. Sidebar nav. Data-dense tables. Operator, tourist, admin sub
 
 ## Anti-patterns (impeccable rules applied to this codebase)
 
-- No glassmorphism (`backdrop-blur`, semi-transparent cards)
+- No glassmorphism on solid backgrounds — allowed only over photos/dark surfaces (`backdrop-blur-md bg-black/40 border border-white/15`, owner decision 2026-07-03)
 - No gradient overlays on text — use `text-[var(--text-primary)]` with solid backgrounds
 - No card nesting (card inside card)
 - No arbitrary z-index values (999, 9999)

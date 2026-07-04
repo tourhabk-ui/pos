@@ -1679,5 +1679,97 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     }
   }
 
+  // 8. Sakana Fugu — primary-провайдер Editor-агента (A/B вариант B).
+  // Форма запроса — как в callFugu: FUGU_BASE_URL нормализуется до /v1,
+  // модель FUGU_MODEL, лимит через max_completion_tokens (не max_tokens).
+  {
+    const start = Date.now();
+    const apiKey = getFuguKey();
+    let base = (process.env.FUGU_BASE_URL || 'https://api.sakana.ai').replace(/\/+$/, '');
+    if (!base.endsWith('/v1')) base = `${base}/v1`;
+    const model = process.env.FUGU_MODEL || 'fugu';
+    if (!apiKey) {
+      results.push({ provider: 'fugu', model, status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model, max_completion_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(45_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'fugu', model, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'fugu', model, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'fugu', model, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 9. GLM (ZhipuAI direct)
+  {
+    const start = Date.now();
+    const apiKey = getGLMKey();
+    if (!apiKey) {
+      results.push({ provider: 'glm', model: 'glm-5.1', status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'glm-5.1', temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'glm', model: 'glm-5.1', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'glm', model: 'glm-5.1', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'glm', model: 'glm-5.1', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 10. NVIDIA NIM
+  {
+    const start = Date.now();
+    const apiKey = getNvidiaKey();
+    if (!apiKey) {
+      results.push({ provider: 'nvidia', model: 'meta/llama-3.3-70b-instruct', status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'meta/llama-3.3-70b-instruct', temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'nvidia', model: 'meta/llama-3.3-70b-instruct', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'nvidia', model: 'meta/llama-3.3-70b-instruct', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'nvidia', model: 'meta/llama-3.3-70b-instruct', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
   return results;
 }

@@ -123,7 +123,7 @@ export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: n
   for (const route of routes) {
     let text: string | null = null;
     try {
-      text = await generateRouteDescription(route); // dry-run, без записи и без A/B
+      text = (await generateRouteDescription(route)).text; // dry-run, без записи и без A/B
     } catch {
       text = null;
     }
