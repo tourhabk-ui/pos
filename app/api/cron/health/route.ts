@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callMiMo, callDeepSeek, callFugu } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -213,9 +213,10 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const issues: HealthIssue[] = [];
 
-  // AI-провайдеры + registration spike (параллельно)
-  const [mimoOk, openrouterOk, anthropicOk, deepseekOk, fuguOk, regSpike] = await Promise.all([
-    probeAI(callMiMo),
+  // AI-провайдеры + registration spike (параллельно).
+  // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
+  // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, regSpike] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -223,9 +224,9 @@ export async function GET(request: NextRequest) {
     checkOperatorRegistrationSpike().catch(() => ({ today: 0, baseline_median: 0, is_spike: false })),
   ]);
 
-  const anyOk = mimoOk || openrouterOk || anthropicOk || deepseekOk || fuguOk;
+  const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk;
   if (!anyOk) {
-    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (MiMo + OpenRouter + Anthropic + DeepSeek + Fugu)' });
+    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (OpenRouter + Anthropic + DeepSeek + Fugu)' });
   } else {
     // Предупреждаем только о РЕАЛЬНЫХ проблемах, а не об ожидаемом:
     // — провайдеры без ключа = не настроены, это не сбой
@@ -233,9 +234,6 @@ export async function GET(request: NextRequest) {
     //   поэтому это проблема, только если и OpenRouter лёг
     if (!deepseekOk) issues.push({ level: 'warn', text: 'DeepSeek недоступен' });
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
-    if (process.env.XIAOMI_API_KEY && !mimoOk) {
-      issues.push({ level: 'warn', text: 'MiMo недоступен (ключ задан, но провайдер не отвечает)' });
-    }
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
       issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
     }
@@ -278,7 +276,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: issues.filter(i => i.level === 'crit').length === 0,
     ms: Date.now() - started,
-    ai: { mimo: mimoOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
+    ai: { openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
     issues,
