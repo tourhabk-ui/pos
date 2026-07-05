@@ -126,6 +126,7 @@ import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
+import { OfflineBanner } from '@/components/PWA/OfflineBanner'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 
@@ -148,6 +149,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable}`}>
         <Providers>
+          <OfflineBanner />
           {children}
           <GlobalSearchModal />
           <LastPositionTracker />
