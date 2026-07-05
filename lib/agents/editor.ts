@@ -39,6 +39,15 @@ export interface EditorResult {
 const BATCH_SIZE = 30;
 const MIN_DESCRIPTION_LENGTH = 300;
 
+// «Отдых» перед повторной попыткой для уже обработанных коротких описаний.
+// Причина (фидбэк владельца 07.2026): часть обскурных маршрутов честно
+// получает короткий ответ (<300) — промпт прямо разрешает «честный короткий
+// ответ, а не выдумку». Раньше такие строки < 300 переселялись КАЖДЫЙ прогон,
+// бесконечно тратя AI-вызовы и вытесняя маршруты вообще без описания. Теперь
+// после нашей записи маршрут «отдыхает» 7 дней (updated_at свежий) — за это
+// время могут появиться реальные данные/лучшая модель. NULL-описания в приоритете.
+const REATTEMPT_REST_DAYS = 7;
+
 async function tgSend(text: string): Promise<void> {
   const token  = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -60,14 +69,17 @@ export interface RouteRow {
 }
 
 async function findRoutesNeedingDescription(): Promise<RouteRow[]> {
+  // NULL-описания — всегда в приоритете (реальные пробелы важнее полировки).
+  // Короткие (<300) берём только если их давно (>7 дней) никто не трогал —
+  // иначе честно-короткие ответы циклятся каждый прогон (см. REATTEMPT_REST_DAYS).
   const { rows } = await pool.query<RouteRow>(`
     SELECT id, title, description, category
     FROM agent_route_knowledge
     WHERE description IS NULL
-       OR LENGTH(description) < $1
-    ORDER BY RANDOM()
+       OR (LENGTH(description) < $1 AND updated_at < NOW() - make_interval(days => $3))
+    ORDER BY (description IS NULL) DESC, RANDOM()
     LIMIT $2
-  `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE]);
+  `, [MIN_DESCRIPTION_LENGTH, BATCH_SIZE, REATTEMPT_REST_DAYS]);
   return rows;
 }
 
@@ -202,19 +214,30 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   }
 
   if (improved > 0) {
-    let remaining = 0;
+    // Два числа вместо одного: queue — сколько Editor реально возьмёт на
+    // следующих прогонах (NULL + короткие «отдохнувшие»); total_short — общий
+    // разрыв качества, который плато на честно-неизвестных маршрутах (их
+    // короткие описания правдивы, до 300 не растянуть без выдумки).
+    let queue = -1;
+    let totalShort = -1;
     try {
-      const { rows } = await pool.query<{ cnt: string }>(
-        'SELECT COUNT(*)::text AS cnt FROM agent_route_knowledge WHERE description IS NULL OR LENGTH(description) < $1',
-        [MIN_DESCRIPTION_LENGTH]
+      const { rows } = await pool.query<{ queue: string; total_short: string }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE description IS NULL
+             OR (LENGTH(description) < $1 AND updated_at < NOW() - make_interval(days => $2)))::text AS queue,
+           COUNT(*) FILTER (WHERE description IS NULL OR LENGTH(description) < $1)::text AS total_short
+         FROM agent_route_knowledge`,
+        [MIN_DESCRIPTION_LENGTH, REATTEMPT_REST_DAYS]
       );
-      remaining = Number(rows[0]?.cnt ?? 0);
-    } catch { /* fallback */ remaining = -1; }
+      queue = Number(rows[0]?.queue ?? 0);
+      totalShort = Number(rows[0]?.total_short ?? 0);
+    } catch { /* оставляем -1 → «?» */ }
 
     const titlesList = improvedTitles.map((t, i) => `${i + 1}. ${t}`).join('\n');
     await tgSend(
       `<b>Editor</b> — улучшил ${improved} описаний\n` +
-      `(обработано: ${processed}, ошибок: ${errors}, осталось кратких: ${remaining >= 0 ? remaining : '?'})\n\n` +
+      `(обработано: ${processed}, ошибок: ${errors})\n` +
+      `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
       `<b>Улучшенные маршруты и локации:</b>\n${titlesList}`,
     );
   }
