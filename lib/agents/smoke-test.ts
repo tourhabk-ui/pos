@@ -47,6 +47,7 @@ export async function smokeTestEditorWrites(
   ids: string[],
   processed: number,
   errors: number,
+  errorSamples: string[] = [],
 ): Promise<SmokeResult> {
   // Честный ноль: агент не нашёл маршрутов без описания
   if (processed === 0) {
@@ -55,11 +56,16 @@ export async function smokeTestEditorWrites(
 
   // Подозрительный ноль: обработал N, но не улучшил ни одного (все errors)
   if (processed > 0 && improved === 0) {
+    // Реальные причины из editor.error_samples вместо догадки — раньше алерт
+    // хардкодил «скорее всего провайдеры», и диагностировать было нечем.
+    const causes = errorSamples.length > 0
+      ? `Причины (первые ${errorSamples.length}):\n${errorSamples.map(s => `— ${s}`).join('\n')}`
+      : `Причины не переданы (старый формат результата) — вероятно AI-провайдеры не ответили за прогон.`;
     const msg =
       `<b>SMOKE WARN: Editor</b>\n` +
       `Обработано: ${processed} маршрутов, улучшено: 0 (ошибок: ${errors})\n` +
-      `Скорее всего AI-провайдеры не ответили за прогон (мерцание egress / outage), а не баг editor. ` +
-      `Диагностика: GET /api/ai/debug-waterfall?secret=CRON_SECRET — покажет, какой провайдер упал и почему.`;
+      `${causes}\n` +
+      `Диагностика провайдеров: GET /api/ai/debug-waterfall?secret=CRON_SECRET (включая Fugu/GLM/NVIDIA).`;
     sendTgAlertAsync(msg);
     return { passed: true, kind: 'all_errors', claimed: 0, actual: 0, message: msg };
   }

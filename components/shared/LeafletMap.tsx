@@ -131,15 +131,34 @@ export default function LeafletMap({
       // Zoom-контролы — справа вверху, чтобы не перекрывать фильтры снизу
       L.control.zoom({ position: 'topright' }).addTo(map);
 
-      // OpenTopoMap тайлы через .cz-зеркало (доступно из РФ)
+      // Базовый слой тайлов с авто-фолбэком. Раньше был единственный хост
+      // (.cz-зеркало OpenTopoMap) — когда он лёг, карта превращалась в пустой
+      // фон. Теперь при серии ошибок тайлов переключаемся на следующий источник,
+      // а оверлей "карта недоступна" показываем только если лёг ПОСЛЕДНИЙ.
+      // Оба источника — без ключа; OSM широко доступен из РФ (primary),
+      // OpenTopoMap — топографический запасной.
+      const TILE_URLS = [
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      ];
+      let sourceIdx = 0;
       let tileErrors = 0;
-      const tileLayer = L.tileLayer('https://tile.opentopomap.cz/{z}/{x}/{y}.png', {
+      const tileLayer = L.tileLayer(TILE_URLS[0], {
         maxZoom: 17,
-        attribution: attribution !== false ? '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' : '',
+        attribution: attribution !== false ? '© OpenStreetMap | OpenTopoMap (CC-BY-SA)' : '',
       }).addTo(map);
       tileLayer.on('tileerror', () => {
         tileErrors++;
-        if (tileErrors >= 5 && !errorOverlay && containerRef.current) {
+        if (tileErrors < 4) return;
+        // Есть ещё непробованный источник — молча переключаемся на него
+        if (sourceIdx < TILE_URLS.length - 1) {
+          sourceIdx++;
+          tileErrors = 0;
+          tileLayer.setUrl(TILE_URLS[sourceIdx]);
+          return;
+        }
+        // Все источники исчерпаны — оверлей (GPS всё равно работает)
+        if (!errorOverlay && containerRef.current) {
           errorOverlay = document.createElement('div');
           errorOverlay.style.cssText =
             'position:absolute;top:0;left:0;right:0;bottom:0;' +

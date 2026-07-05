@@ -72,9 +72,9 @@
 | Нельзя | Надо |
 |--------|------|
 | Хардкод hex (`#fff`, `#000`, `#E8734A`) | `var(--accent)` и др. токены |
-| `bg-white`, `text-white`, `bg-white/10` | `bg-[var(--bg-card)]`, `text-[var(--text-primary)]` |
-| `backdrop-blur-*`, glassmorphism | удалить |
-| `rounded-2xl` | `rounded-lg` (или `var(--radius-lg)`) |
+| `bg-white`, `text-white`, `bg-white/10` на сплошных фонах | `bg-[var(--bg-card)]`, `text-[var(--text-primary)]`; поверх фото/glass — бело-чёрная альфа допустима |
+| Glassmorphism на сплошных фонах | только поверх фото/тёмных подложек: `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl` (решение владельца 2026-07-03) |
+| `rounded-2xl` | `rounded-lg` (или `var(--radius-lg)`); для glass-элементов и bento-тайлов — `rounded-2xl` |
 | `font-black` | `font-bold` |
 | Эмодзи в коде/UI | иконки `lucide-react` |
 | `@keyframes` в компоненте | Tailwind `transition-*` (`transition-all duration-200`) |

@@ -16,11 +16,17 @@ import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { HomeMapPreviewLazy } from '@/components/homepage/HomeMapPreviewLazy'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import { MoodEntry } from '@/components/homepage/MoodEntry'
+import { MobileDashboardHeader } from '@/components/homepage/MobileDashboardHeader'
+import { MobileHeroDashboard } from '@/components/homepage/MobileHeroDashboard'
+import { MobileAlertBanner } from '@/components/homepage/MobileAlertBanner'
+import { MobileBentoDashboard } from '@/components/homepage/MobileBentoDashboard'
+import { MobilePullToRefresh } from '@/components/shared/MobilePullToRefresh'
 
 export const dynamic = 'force-dynamic'
 
 const BottomNav = loadDynamic(() => import('@/components/shared/BottomNav'));
 const SOSButton = loadDynamic(() => import('@/components/shared/SOSButton'));
+const MobileOnboarding = loadDynamic(() => import('@/components/onboarding/MobileOnboarding'));
 
 async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   try {
@@ -90,9 +96,31 @@ export default async function Page() {
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
-      <Header />
+      <div className="hidden md:block">
+        <Header />
+      </div>
       <OnSiteBanner />
-      <main className="flex-1 pt-[56px]">
+      <main className="flex-1 md:pt-[56px]">
+
+        {/* Mobile: Field OS Dashboard — принудительно тёмная тема (data-theme
+            переопределяет токены для потомков, см. globals.css), плавающий
+            статус-бар + AI-hero + bento */}
+        <div data-theme="dark" className="md:hidden relative flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] pb-28">
+          {/* Онбординг — один раз при первом визите (localStorage), учит long-press СОС */}
+          <MobileOnboarding />
+          <MobilePullToRefresh>
+            <MobileDashboardHeader />
+            <MobileHeroDashboard />
+            {/* Активная тревога — заметный баннер, а не только строка в радаре */}
+            <MobileAlertBanner safety={safety} />
+            <SectionErrorBoundary>
+              <MobileBentoDashboard />
+            </SectionErrorBoundary>
+          </MobilePullToRefresh>
+        </div>
+
+        {/* Desktop: текущий лейаут без изменений */}
+        <div className="hidden md:block">
 
         {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
         <HeroStatus safety={safety} fetchedAt={fetchedAt} />
@@ -133,11 +161,17 @@ export default async function Page() {
           </div>
         </SectionErrorBoundary>
 
+        </div>
+
       </main>
-      <div className="lg:block pb-[80px] lg:pb-0">
+      {/* Футер — только desktop (CLAUDE.md §2); на мобильном дашборд завершается bento-сеткой */}
+      <div className="hidden md:block">
         <Footer />
       </div>
-      <BottomNav activePath="/" />
+      {/* data-theme=dark — нав на главной в тёмной теме дашборда (Field OS) */}
+      <div data-theme="dark">
+        <BottomNav activePath="/" />
+      </div>
       <div className="hidden md:block">
         <SOSButton />
       </div>

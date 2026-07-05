@@ -1,17 +1,17 @@
 // Kamchatour Hub Service Worker -- cache-first для офлайн-доступа
 // Кэш: статика + карточки мест /places/[id] + туры + API /api/places/[id]
-// + тайлы OpenTopoMap для офлайн-карты (управляются через postMessage)
+// + тайлы OpenStreetMap для офлайн-карты (управляются через postMessage)
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v11'; // bumped: tile host .org → .cz (RU access)
+const CACHE_NAME = 'kamchatour-v12'; // bumped: tile host .cz → OSM (.cz-зеркало легло)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
 const TILE_CACHE_PREFIX = 'kh-tiles-';
-const TILE_CACHE_VERSION = 5; // bumped: .org → .cz, старый кеш kh-tiles-4 будет удалён
-const TILE_HOST = 'tile.opentopomap.cz';
+const TILE_CACHE_VERSION = 6; // bumped: .cz → OSM, старый кеш kh-tiles-5 будет удалён
+const TILE_HOST = 'tile.openstreetmap.org';
 
 // Базовые тайлы для всей Камчатки — кэшируются при установке SW.
 // Зум 7 (обзор) + 8 (средний) + 9 (детальный) = ~525 тайлов, ~8-10 МБ.
@@ -234,7 +234,7 @@ async function cacheTilesForRegion(tileUrls, regionId, client) {
       try {
         const response = await fetch(url);
         // Проверяем что это действительно изображение (PNG), а не error page / CORS block.
-        // OpenTopoMap иногда возвращает HTML error вместо картинки.
+        // Тайл-серверы иногда возвращают HTML error вместо картинки.
         const ct = response.headers.get('content-type') || '';
         if (response.ok && (ct.includes('image/png') || ct.includes('image/jpeg'))) {
           await cache.put(url, response);
@@ -315,7 +315,7 @@ self.addEventListener('fetch', (event) => {
   // Остальные API — не кэшируем
   if (url.pathname.startsWith('/api/')) return;
 
-  // Тайлы OpenTopoMap — cache-first c прозрачным PNG fallback
+  // Тайлы OpenStreetMap — cache-first c прозрачным PNG fallback
   if (url.hostname === TILE_HOST) {
     event.respondWith(handleTileRequest(request));
     return;

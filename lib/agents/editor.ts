@@ -27,6 +27,11 @@ export interface EditorResult {
   improved_titles: string[];
   improved_ids: string[];  // ark_id / route.id — для smoke test по конкретным строкам
   errors: number;
+  /** Раздельные счётчики: без них "30 ошибок" неотличимо — AI не ответил или БД не приняла запись */
+  generation_failed: number;
+  db_update_failed: number;
+  /** Первые ~5 уникальных причин ошибок — уходят в Telegram-алерт смоук-теста вместо догадок */
+  error_samples: string[];
   duration_ms: number;
 }
 
@@ -83,11 +88,27 @@ const CATEGORY_LABELS: Record<string, string> = {
   ozera:                'озёра',
 };
 
+/** Минимальная длина сгенерированного текста, чтобы считать генерацию успешной. */
+const MIN_GENERATION_LENGTH = 100;
+
+export interface GenerationOutcome {
+  text: string | null;
+  /** Причина провала (для error_samples) — только когда text непригоден */
+  failReason?: string;
+}
+
+// Слишком короткий текст — почти всегда fallback-заглушка waterfall
+// («Сервис временно недоступен.»), а не осмысленное описание.
+function describeShortText(text: string | null): string {
+  if (!text) return 'пустой ответ';
+  return `короткий ответ ${text.length} симв. (вероятно fallback-заглушка — все fast-провайдеры отказали)`;
+}
+
 export async function generateRouteDescription(
   route: RouteRow,
   experimentId?: string,
   tracker?: ExperimentTracker,
-): Promise<string | null> {
+): Promise<GenerationOutcome> {
   const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
   const messages: ChatMessage[] = [
     {
@@ -130,28 +151,33 @@ ${route.description ? `Имеющееся описание (бери из нег
         if (fugu === null) {
           // Замер пропущен — провайдер B не ответил. Чистота статистики важнее.
           const fallback = (await callAIFast(messages))?.trim() ?? null;
-          return fallback;
+          if (fallback && fallback.length >= MIN_GENERATION_LENGTH) return { text: fallback };
+          return {
+            text: fallback,
+            failReason: `fugu: null (ключ/квота/сеть); fallback callAIFast: ${describeShortText(fallback)}`,
+          };
         }
-        const ok = fugu.length >= 100;
+        const ok = fugu.length >= MIN_GENERATION_LENGTH;
         await tracker.recordResult(experimentId, 'b', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
-        return fugu;
+        return ok ? { text: fugu } : { text: fugu, failReason: `fugu: короткий ответ ${fugu.length} симв.` };
       }
       const text = (await callAIFast(messages))?.trim() ?? null;
-      const ok = !!text && text.length >= 100;
+      const ok = !!text && text.length >= MIN_GENERATION_LENGTH;
       await tracker.recordResult(experimentId, 'a', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
-      return text;
-    } catch {
+      return ok ? { text } : { text, failReason: `callAIFast: ${describeShortText(text)}` };
+    } catch (err) {
       // Реальная ошибка варианта (а не отсутствие провайдера) — это валидный fail
       await tracker.recordResult(experimentId, variant, 'fail', Date.now() - t0).catch(() => {});
-      return null;
+      return { text: null, failReason: `exception (${variant}): ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
   try {
-    const result = await callAIFast(messages);
-    return result?.trim() ?? null;
-  } catch {
-    return null;
+    const result = (await callAIFast(messages))?.trim() ?? null;
+    if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
+    return { text: result, failReason: `callAIFast: ${describeShortText(result)}` };
+  } catch (err) {
+    return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -160,6 +186,12 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   let processed = 0;
   let improved  = 0;
   let errors    = 0;
+  let generationFailed = 0;
+  let dbUpdateFailed   = 0;
+  const errorSamples: string[] = [];
+  const addErrorSample = (s: string) => {
+    if (errorSamples.length < 5 && !errorSamples.includes(s)) errorSamples.push(s);
+  };
 
   if (briefing?.platformSummary) {
     // Platform state is available — could be used for future smart prioritisation.
@@ -187,15 +219,22 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   let routes: RouteRow[];
   try {
     routes = await findRoutesNeedingDescription();
-  } catch {
-    return { processed: 0, improved: 0, improved_titles: [], improved_ids: [], errors: 1, duration_ms: Date.now() - start };
+  } catch (err) {
+    return {
+      processed: 0, improved: 0, improved_titles: [], improved_ids: [], errors: 1,
+      generation_failed: 0, db_update_failed: 0,
+      error_samples: [`db_select: ${err instanceof Error ? err.message : String(err)}`],
+      duration_ms: Date.now() - start,
+    };
   }
 
   for (const route of routes) {
     processed++;
-    const newDescription = await generateRouteDescription(route, experimentId, tracker);
-    if (!newDescription || newDescription.length < 100) {
+    const { text: newDescription, failReason } = await generateRouteDescription(route, experimentId, tracker);
+    if (!newDescription || newDescription.length < MIN_GENERATION_LENGTH) {
       errors++;
+      generationFailed++;
+      addErrorSample(failReason ?? 'генерация: причина неизвестна');
       continue;
     }
     try {
@@ -206,8 +245,10 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       improved++;
       improvedTitles.push(route.title);
       improvedIds.push(route.id);
-    } catch {
+    } catch (err) {
       errors++;
+      dbUpdateFailed++;
+      addErrorSample(`db_update «${route.title}»: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -251,5 +292,9 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     } catch { /* трекинг не критичен */ }
   }
 
-  return { processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors, duration_ms: Date.now() - start };
+  return {
+    processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors,
+    generation_failed: generationFailed, db_update_failed: dbUpdateFailed, error_samples: errorSamples,
+    duration_ms: Date.now() - start,
+  };
 }

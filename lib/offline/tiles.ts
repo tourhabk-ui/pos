@@ -1,5 +1,7 @@
 /**
- * Утилиты генерации URL тайлов OpenTopoMap для офлайн-скачивания.
+ * Утилиты генерации URL тайлов OpenStreetMap для офлайн-скачивания.
+ * Хост совпадает с primary-слоем живой карты (LeafletMap.tsx) и перехватом
+ * в service worker — иначе офлайн-кэш не совпал бы с онлайн-тайлами.
  * Zoom levels 7-12: достаточно для общего обзора и навигации на маршруте.
  * Zoom 5-6 перекрываются между регионами и избыточны.
  * Zoom 13+ растёт квадратично: 1 регион = несколько ГБ.
@@ -7,7 +9,7 @@
 
 import type { RegionBbox } from '@/lib/geo/regions';
 
-export const TILE_HOST = 'tile.opentopomap.cz';
+export const TILE_HOST = 'tile.openstreetmap.org';
 export const TILE_ZOOM_MIN = 7;
 export const TILE_ZOOM_MAX = 12;
 export const TILE_ZOOM_LEVELS: number[] = [7, 8, 9, 10, 11, 12];
@@ -44,7 +46,7 @@ export function countTotalTiles(
 }
 
 /**
- * Генерирует массив URL тайлов OpenTopoMap для bbox на заданных zoom уровнях.
+ * Генерирует массив URL тайлов OpenStreetMap для bbox на заданных zoom уровнях.
  * Порядок: от меньшего zoom к большему (сначала общий вид, потом детали).
  */
 export function generateTileUrls(
@@ -72,7 +74,7 @@ export function generateTileUrls(
 
 /**
  * Оценка размера тайлов в МБ.
- * Средний тайл OpenTopoMap ~10 КБ на низких zoom, ~25 КБ на высоких.
+ * Средний тайл OpenStreetMap ~10 КБ на низких zoom, ~25 КБ на высоких.
  */
 export function estimateTilesMb(bbox: RegionBbox): number {
   const avgKbPerZoom: Record<number, number> = {
