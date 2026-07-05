@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { geocodeAddress, withinKamchatka } from '@/lib/services/geocode';
+import { geocodeAddress, withinKamchatka, clearGeocodeCache, normalizeGeocodeKey } from '@/lib/services/geocode';
 
 describe('withinKamchatka', () => {
   it('accepts coordinates within the Kamchatka bounding box', () => {
@@ -22,7 +22,10 @@ describe('withinKamchatka', () => {
 });
 
 describe('geocodeAddress (Nominatim/OpenStreetMap)', () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearGeocodeCache();
+  });
 
   it('returns null for an empty query without calling fetch', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch');
@@ -44,7 +47,39 @@ describe('geocodeAddress (Nominatim/OpenStreetMap)', () => {
       lat: 53.2551,
       lng: 158.6939,
       displayName: 'Петропавловск-Камчатский, Камчатский край, Россия',
+      source: 'nominatim',
     });
+  });
+
+  it('повторный геокод того же имени → source: cache, без сетевого вызова (issue #290)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify([
+        { lat: '52.4550', lon: '157.9880', display_name: 'Вулкан Горелый, Камчатский край' },
+      ]), { status: 200 }),
+    );
+
+    const first = await geocodeAddress('Вулкан Горелый');
+    // То же имя в другом регистре и с лишними пробелами — тот же кэш-ключ
+    const second = await geocodeAddress('  вулкан   горелый ');
+
+    expect(first?.source).toBe('nominatim');
+    expect(second?.source).toBe('cache');
+    expect(second?.lat).toBe(52.455);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('null-результат НЕ кэшируется — временный сбой сети не залипает', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { lat: '53.0', lon: '158.0', display_name: 'Место' },
+      ]), { status: 200 }));
+
+    expect(await geocodeAddress('Ключевская сопка')).toBeNull();
+    const retry = await geocodeAddress('Ключевская сопка');
+
+    expect(retry?.source).toBe('nominatim');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('sends a valid User-Agent header (required by Nominatim usage policy)', async () => {
@@ -74,5 +109,11 @@ describe('geocodeAddress (Nominatim/OpenStreetMap)', () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 429 }));
     const result = await geocodeAddress('вулкан');
     expect(result).toBeNull();
+  });
+});
+
+describe('normalizeGeocodeKey', () => {
+  it('схлопывает регистр и пробелы', () => {
+    expect(normalizeGeocodeKey('  Вулкан   Горелый ')).toBe('вулкан горелый');
   });
 });
