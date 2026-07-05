@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v12'; // bumped: tile host .cz → OSM (.cz-зеркало легло)
+const CACHE_NAME = 'kamchatour-v13'; // bumped: устойчивый precache (Халактырский пляж — offline не поднимался)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -54,37 +54,67 @@ function makeTransparentPngResponse() {
   });
 }
 
-// Страницы для предварительного кэширования при установке
-const PRECACHE_URLS = [
-  '/emergency', // ПЕРВЫЙ: нулевые зависимости, GPS+звонок+протоколы
-  '/leaflet/leaflet.min.js',  // Leaflet для офлайн-карты на /emergency
+// КРИТИЧНЫЕ ресурсы — без них теряется смысл safety-приложения офлайн.
+// Кэшируются с ретраем; их успех определяет, поднялся ли offline вообще.
+// /emergency, /sos, /safety/offline — не должны зависеть от сети НИКОГДА.
+const CRITICAL_URLS = [
+  '/emergency',        // нулевые зависимости: GPS + звонок 112 + протоколы
+  '/sos',              // экстренная помощь
+  '/safety/offline',   // инструкции выживания
+  '/leaflet/leaflet.min.js',   // Leaflet для офлайн-карты на /emergency
   '/leaflet/leaflet.min.css',
   '/icons/kamchatka-silhouette.jpg',
+];
+
+// ОПЦИОНАЛЬНЫЕ — полезно иметь офлайн, но их отсутствие не ломает СОС.
+// Часть из них dynamic/может редиректить — поэтому строго best-effort.
+const OPTIONAL_URLS = [
   '/',
   '/map',
   '/offline',
   '/offline/manage',
-  '/sos',          // критично: экстренная помощь всегда офлайн
-  '/safety/offline', // критично: инструкции выживания всегда офлайн
   '/planning',
   '/ai-assistant',
 ];
 
-// Установка: кэшируем базовые страницы (обязательно) + тайлы зум 7-9 (фоновая загрузка)
+// Кэширует один URL, не бросая наверх. Для критичных — с повторами.
+// Причина переписывания (07.2026, фидбэк с Халактырского пляжа): раньше был
+// один cache.addAll(PRECACHE_URLS) — АТОМАРНЫЙ: один упавший URL (редирект,
+// медленный dynamic-роут, 404) ронял ВЕСЬ precache, и offline не поднимался
+// целиком, включая /emergency. Теперь каждый URL независим.
+async function cacheOne(cache, url, retries) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      // cache: 'reload' — не брать из HTTP-кэша, чтобы положить свежую версию
+      const res = await fetch(url, { cache: 'reload' });
+      if (res && res.ok) {
+        await cache.put(url, res.clone());
+        return true;
+      }
+    } catch { /* сеть моргнула — повторим */ }
+    if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  return false;
+}
+
+// Установка: критичные страницы (с ретраем) + опциональные (best-effort) +
+// тайлы (фоном). Установка НЕ падает целиком из-за одного ресурса.
 self.addEventListener('install', (event) => {
-  // 1. Базовые страницы — обязательно, блокируют установку:
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting())
-  );
-  // 2. Тайлы зум 7-9 — загружаются фоном, НЕ блокируют установку.
-  // Если сеть плохая — тайлы подгрузятся позже при просмотре карты онлайн.
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // Критичные — 2 повтора каждый, независимо друг от друга
+    await Promise.allSettled(CRITICAL_URLS.map((u) => cacheOne(cache, u, 2)));
+    // Опциональные — без повторов, тихо
+    await Promise.allSettled(OPTIONAL_URLS.map((u) => cacheOne(cache, u, 0)));
+    await self.skipWaiting();
+  })());
+
+  // Тайлы зум 7-9 — фоном, НЕ блокируют установку (allSettled: один битый
+  // тайл не рушит остальные).
   event.waitUntil(
     caches.open(`${TILE_CACHE_PREFIX}${TILE_CACHE_VERSION}`).then((tileCache) =>
-      tileCache.addAll(BASE_TILE_URLS)
-    ).catch(() => {
-      // Тихо игнорируем ошибки — тайлы закэшируются при просмотре онлайн
-    })
+      Promise.allSettled(BASE_TILE_URLS.map((u) => cacheOne(tileCache, u, 0)))
+    ).catch(() => {})
   );
 });
 
@@ -411,7 +441,9 @@ self.addEventListener('fetch', (event) => {
   // Остальные страницы: network-first с fallback на кэш
   event.respondWith(
     fetch(request).then((response) => {
-      if (response.ok && url.pathname === '/' || url.pathname === '/tours') {
+      // Кэшируем только успешные ответы главной и /tours (скобки — фикс
+      // приоритета: раньше && / || без скобок кэшировал даже не-ok /tours)
+      if (response.ok && (url.pathname === '/' || url.pathname === '/tours')) {
         const clone = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
       }
