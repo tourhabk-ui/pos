@@ -48,7 +48,9 @@ export async function GET(request: NextRequest, { params }: Props) {
   const inBounds = withinKamchatka(result.lat, result.lng);
   return NextResponse.json({
     suggestion: { lat: result.lat, lng: result.lng, displayName: result.displayName },
-    warning: inBounds ? null : 'Координаты вне ожидаемых границ Камчатки — проверьте вручную перед применением',
+    source: result.source,
+    out_of_bounds: !inBounds,
+    warning: inBounds ? null : 'Координаты вне ожидаемых границ Камчатки — применить не получится (issue #290)',
   });
 }
 
@@ -79,14 +81,26 @@ export async function POST(request: NextRequest, { params }: Props) {
   }
   const { lat, lng } = parsed.data;
 
+  // Вне bbox Камчатки — НЕ сохраняем (issue #290): координаты за пределами
+  // края ломают офлайн-карту и SOS-позиционирование, «сохранено с warning»
+  // было слишком мягко — мусор попадал в places. Проверка до похода в БД.
+  if (!withinKamchatka(lat, lng)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        out_of_bounds: true,
+        error: 'Координаты вне границ Камчатки — не сохранено. Проверьте название места или укажите координаты вручную.',
+      },
+      { status: 422 },
+    );
+  }
+
   const place = await findPlaceMissingCoords(id);
   if (!place) {
     return NextResponse.json({ error: 'Место не найдено или координаты уже заполнены' }, { status: 404 });
   }
 
-  const warning = withinKamchatka(lat, lng) ? undefined : 'Координаты вне ожидаемых границ Камчатки — сохранено, но проверьте';
-
   await pool.query(`UPDATE places SET lat = $1, lng = $2 WHERE id = $3`, [lat, lng, id]);
 
-  return NextResponse.json({ ok: true, id, lat, lng, warning });
+  return NextResponse.json({ ok: true, id, lat, lng, out_of_bounds: false });
 }

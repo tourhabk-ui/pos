@@ -15,6 +15,26 @@ export interface GeocodeResult {
   lat: number;
   lng: number;
   displayName: string;
+  /** Откуда результат: повторный запрос того же имени не ходит в сеть */
+  source: 'cache' | 'nominatim';
+}
+
+// In-memory кэш по нормализованному имени. Nominatim = 1 req/sec — при
+// массовом геокодинге повторные названия («Халактырский пляж» из разных
+// источников) не должны тратить лимит. Таблица БД — оверкилл: кэш нужен
+// в рамках процесса импорта, имена мест стабильны, инстанс один (Timeweb).
+// Кэшируются только успешные ответы — null-результат может быть временным
+// сбоем сети, его повторный запрос оправдан.
+const geocodeCache = new Map<string, Omit<GeocodeResult, 'source'>>();
+
+/** trim + lower + схлопывание пробелов — «Вулкан  Горелый » === «вулкан горелый» */
+export function normalizeGeocodeKey(query: string): string {
+  return query.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Для тестов: сброс кэша между кейсами */
+export function clearGeocodeCache(): void {
+  geocodeCache.clear();
 }
 
 // Kamchatka bounding box (см. lib/services/idilesom-importer.ts) — защита от
@@ -29,6 +49,10 @@ export function withinKamchatka(lat: number, lng: number): boolean {
 export async function geocodeAddress(query: string): Promise<GeocodeResult | null> {
   const q = query.trim();
   if (!q) return null;
+
+  const cacheKey = normalizeGeocodeKey(q);
+  const cached = geocodeCache.get(cacheKey);
+  if (cached) return { ...cached, source: 'cache' };
 
   try {
     const url = `${NOMINATIM_BASE}/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
@@ -46,7 +70,8 @@ export async function geocodeAddress(query: string): Promise<GeocodeResult | nul
     const lng = parseFloat(first.lon);
     if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
 
-    return { lat, lng, displayName: first.display_name };
+    geocodeCache.set(cacheKey, { lat, lng, displayName: first.display_name });
+    return { lat, lng, displayName: first.display_name, source: 'nominatim' };
   } catch {
     return null;
   }
