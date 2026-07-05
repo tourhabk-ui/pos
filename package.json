@@ -91,7 +91,7 @@
     "eslint-config-next": "15.5.16",
     "framer-motion": "^12.42.2",
     "idb": "^8.0.3",
-    "jose": "^5.2.0",
+    "jose": "^6.2.3",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "lottie-web": "^5.13.0",
