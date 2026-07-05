@@ -20,6 +20,24 @@ updates:
         update-types:
           - minor
           - patch
+    # major-обновления критичных пакетов Dependabot НЕ создаёт автоматически:
+    # 05.07.2026 бамп react-dom 18→19 (без react) сломал main и мог уронить
+    # деплой. Такие миграции делаем вручную, согласованным набором версий:
+    #   - react/react-dom — только вместе, одним мажором, с проверкой 188 компонентов
+    #   - next — major с ним тянет React/сборку
+    #   - типы react — за реальными версиями, не сами по себе
+    # Minor/patch этих пакетов приходят как обычно.
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "deps"
     labels:
@@ -44,7 +62,10 @@ updates:
       - dependencies
 
   # Docker: базовый образ node в Dockerfile (лимит standalone 50 МБ —
-  # обновление базового образа проверять на размер, см. CLAUDE.md §6.1)
+  # обновление базового образа проверять на размер, см. CLAUDE.md §6.1).
+  # Major node НЕ автоматизируем: Docker-сборку CI не проверяет, смена базы
+  # может тихо уронить деплой (npm ci / размер образа). Меняем базу вручную
+  # с локальной сборкой. Minor/patch (обновления патч-тега образа) — ок.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -53,6 +74,9 @@ updates:
       time: "03:00"
       timezone: Etc/UTC
     open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "docker"
     labels:
