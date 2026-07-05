@@ -44,6 +44,20 @@ function toRad(deg: number): number {
 }
 
 /**
+ * Живой геофенс-алерт («вы приближаетесь к зоне») можно показывать ТОЛЬКО по
+ * свежему GPS-фиксу. Устаревшая позиция из кеша (прошлая сессия у источника,
+ * а сейчас пользователь за тысячи км) не должна утверждать текущую близость к
+ * опасности — это ложная тревога, которая подрывает доверие к настоящим
+ * предупреждениям (trust-first: фейковый safety-факт хуже его отсутствия).
+ */
+export const GEOFENCE_MAX_POSITION_AGE_MS = 3 * 60 * 1_000; // 3 минуты
+
+export function isPositionFreshForGeofence(timestamp: number, now: number = Date.now()): boolean {
+  const ageMs = now - timestamp;
+  return ageMs >= 0 && ageMs < GEOFENCE_MAX_POSITION_AGE_MS;
+}
+
+/**
  * Проверяет, находится ли точка в зоне или рядом с ней.
  * Возвращает null если точка явно снаружи с учётом погрешности GPS.
  */

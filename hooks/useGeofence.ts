@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useOfflineGPS } from '@/hooks/useOfflineGPS';
-import { checkBreach } from '@/lib/safety/geofence';
+import { checkBreach, isPositionFreshForGeofence } from '@/lib/safety/geofence';
 import type { GeofenceZone, GeofenceBreach } from '@/lib/safety/geofence';
 
 const ZONES_LS_KEY   = 'vedar_geofence_zones';
@@ -76,20 +76,28 @@ export function useGeofence(): GeofenceState {
       .catch(() => { /* офлайн — продолжаем с тем, что есть в кеше */ });
   }, []);
 
-  // Проверка бреча при каждом обновлении позиции
-  // Не проверяем если точность GPS хуже 300м — ложные срабатывания на вышки сотовой
+  // Проверка бреча. Три гейта против ложной тревоги:
+  //  1) точность хуже 300м — вышка сотовой, не GPS;
+  //  2) позиция старше 3 мин — устаревший кеш (юзер уже не там), НЕ живой алерт;
+  //  3) нет зон/позиции.
+  // Интервал переоценивает и СБРАСЫВАЕТ алерт, когда позиция протухает
+  // (GPS пропал в поле) — иначе «вы приближаетесь, 0.7 км» висело бы навсегда.
   useEffect(() => {
-    if (!lastPosition || !zones.length || lastPosition.accuracy > 300) {
-      setBreach(null);
-      return;
-    }
-    const result = checkBreach(
-      lastPosition.lat,
-      lastPosition.lng,
-      lastPosition.accuracy,
-      zones,
-    );
-    setBreach(result);
+    const evaluate = () => {
+      if (
+        !lastPosition ||
+        !zones.length ||
+        lastPosition.accuracy > 300 ||
+        !isPositionFreshForGeofence(lastPosition.timestamp)
+      ) {
+        setBreach(null);
+        return;
+      }
+      setBreach(checkBreach(lastPosition.lat, lastPosition.lng, lastPosition.accuracy, zones));
+    };
+    evaluate();
+    const ticker = setInterval(evaluate, 30_000);
+    return () => clearInterval(ticker);
   }, [lastPosition, zones]);
 
   return { breach, zonesLoaded, zonesAgeHours };
