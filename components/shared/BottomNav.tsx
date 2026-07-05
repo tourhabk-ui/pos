@@ -3,20 +3,23 @@
 import { useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { House, Map, User, Navigation, Bot } from 'lucide-react';
+import { House, Map, User, Navigation, Bot, Siren } from 'lucide-react';
 
+// СОС — отдельный красный пункт (фидбэк с Халактырского пляжа: в поле
+// скрытого long-press недостаточно, нужна ВИДИМАЯ кнопка). Ведёт на
+// /emergency — офлайн-страница с нулевыми зависимостями (GPS + 112 + протоколы).
 const LEFT_ITEMS = [
   { icon: House,      label: 'Домой',    href: '/' },
   { icon: Map,        label: 'Карта',    href: '/map' },
+  { icon: Navigation, label: 'Маршрут',  href: '/planning' },
 ];
 
 const RIGHT_ITEMS = [
-  { icon: Navigation, label: 'Маршрут',  href: '/planning' },
   { icon: User,       label: 'ЛК',       href: '/profile' },
 ];
 
-// Долгое удержание центральной кнопки — экстренный доступ к СОС
-// (решение владельца: СОС убран как отдельный пункт нава).
+// Долгое удержание центральной кнопки — быстрый жест к СОС в дополнение
+// к видимой красной кнопке (обе ведут на /emergency).
 const SOS_LONG_PRESS_MS = 600;
 
 interface BottomNavProps {
@@ -161,6 +164,28 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
           </Link>
         );
       })}
+
+      {/* СОС — всегда красный и видимый, ведёт на офлайн /emergency */}
+      <Link
+        href="/emergency"
+        aria-label="СОС — экстренная помощь"
+        onClick={onNavClick}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '2px',
+          color: 'var(--danger)',
+          textDecoration: 'none',
+          padding: '4px 8px',
+          borderRadius: '12px',
+        }}
+      >
+        <Siren size={20} strokeWidth={1.75} />
+        <span style={{ fontFamily: "var(--font-outfit,'Outfit',sans-serif)", fontSize: '10px', fontWeight: 700 }}>
+          СОС
+        </span>
+      </Link>
     </nav>
   );
 }
