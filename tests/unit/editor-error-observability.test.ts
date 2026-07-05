@@ -9,16 +9,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runEditor, generateRouteDescription, type RouteRow } from '@/lib/agents/editor';
-import type { ExperimentTracker } from '@/lib/agents/learning/experiment-tracker';
+import { runEditor, type RouteRow } from '@/lib/agents/editor';
 
 // ── Моки провайдеров ─────────────────────────────────────────────────────────
 const callAIFastMock = vi.fn<(...args: unknown[]) => Promise<string | null>>();
-const callFuguMock = vi.fn<(...args: unknown[]) => Promise<string | null>>();
 
 vi.mock('@/lib/ai/providers', () => ({
   callAIFast: (...args: unknown[]) => callAIFastMock(...args),
-  callFugu: (...args: unknown[]) => callFuguMock(...args),
 }));
 
 // ── Мок пула БД ──────────────────────────────────────────────────────────────
@@ -26,20 +23,6 @@ const poolQueryMock = vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows:
 
 vi.mock('@/lib/db-pool', () => ({
   pool: { query: (sql: string, params?: unknown[]) => poolQueryMock(sql, params) },
-}));
-
-// ── Мок трекера экспериментов ────────────────────────────────────────────────
-// findOrCreate падает → runEditor идёт без эксперимента (generateRouteDescription
-// берёт прямой путь callAIFast). Вариант B (Fugu) тестируем отдельно, передавая
-// fake tracker прямо в generateRouteDescription.
-vi.mock('@/lib/agents/learning/experiment-tracker', () => ({
-  ExperimentTracker: class {
-    async findOrCreate(): Promise<never> { throw new Error('experiment tracking disabled in test'); }
-    pickVariant(): 'a' | 'b' { return 'a'; }
-    async recordResult(): Promise<void> {}
-    async calculateResults(): Promise<{ winner: null }> { return { winner: null }; }
-    async updateStatus(): Promise<void> {}
-  },
 }));
 
 const ROUTE: RouteRow = {
@@ -152,53 +135,5 @@ describe('runEditor: наблюдаемость ошибок', () => {
   });
 });
 
-// ── generateRouteDescription: вариант B (Fugu) ───────────────────────────────
-
-describe('generateRouteDescription: причины провала варианта B (Fugu)', () => {
-  function trackerWithVariant(variant: 'a' | 'b'): ExperimentTracker {
-    return {
-      pickVariant: () => variant,
-      recordResult: vi.fn().mockResolvedValue(undefined),
-    } as unknown as ExperimentTracker;
-  }
-
-  it('fugu null + fallback null → failReason называет обоих', async () => {
-    callFuguMock.mockResolvedValue(null);
-    callAIFastMock.mockResolvedValue(null);
-
-    const outcome = await generateRouteDescription(ROUTE, 'exp-1', trackerWithVariant('b'));
-
-    expect(outcome.text).toBeNull();
-    expect(outcome.failReason).toContain('fugu: null');
-    expect(outcome.failReason).toContain('fallback callAIFast');
-    expect(outcome.failReason).toContain('пустой ответ');
-  });
-
-  it('fugu null, но fallback дал текст → успех без failReason', async () => {
-    callFuguMock.mockResolvedValue(null);
-    callAIFastMock.mockResolvedValue(LONG_TEXT);
-
-    const outcome = await generateRouteDescription(ROUTE, 'exp-1', trackerWithVariant('b'));
-
-    expect(outcome.text?.length).toBeGreaterThanOrEqual(100);
-    expect(outcome.failReason).toBeUndefined();
-  });
-
-  it('fugu короткий ответ → failReason с длиной', async () => {
-    callFuguMock.mockResolvedValue('Коротко.');
-
-    const outcome = await generateRouteDescription(ROUTE, 'exp-1', trackerWithVariant('b'));
-
-    expect(outcome.failReason).toContain('fugu: короткий ответ 8 симв.');
-  });
-
-  it('exception внутри варианта → failReason с сообщением и вариантом', async () => {
-    callFuguMock.mockRejectedValue(new Error('fetch failed: ENOTFOUND api.sakana.ai'));
-
-    const outcome = await generateRouteDescription(ROUTE, 'exp-1', trackerWithVariant('b'));
-
-    expect(outcome.text).toBeNull();
-    expect(outcome.failReason).toContain('exception (b)');
-    expect(outcome.failReason).toContain('ENOTFOUND api.sakana.ai');
-  });
-});
+// Тесты варианта B (Fugu) удалены вместе с A/B экспериментом: он завершился
+// ничьёй (оба 100%), выбран waterfall как бесплатный — см. комментарий в editor.ts.
