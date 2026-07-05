@@ -11,15 +11,16 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast, callFugu } from '@/lib/ai/providers';
-import { ExperimentTracker } from '@/lib/agents/learning/experiment-tracker';
+import { callAIFast } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
-// A/B: вариант B — Sakana Fugu Ultra напрямую (НЕ через OpenRouter — он недоступен).
-// Новое имя эксперимента, чтобы старые мусорные данные (Gemma-через-OpenRouter,
-// тихо падавшая на waterfall) не смешивались с чистыми замерами Fugu.
-const EXP_NAME = 'editor-fugu-vs-waterfall';
+// A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
+// (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
+// waterfall: бесплатные fast-провайдеры против платной оркестрации Fugu
+// (~1260 токенов оверхеда на запрос). Решение владельца 04.07.2026:
+// «фугу нам не нужно, опенроут дешевле». callFugu остаётся в providers.ts
+// для ручной проверки (/api/admin/test-fugu) и health-пробы.
 
 export interface EditorResult {
   processed: number;
@@ -104,11 +105,7 @@ function describeShortText(text: string | null): string {
   return `короткий ответ ${text.length} симв. (вероятно fallback-заглушка — все fast-провайдеры отказали)`;
 }
 
-export async function generateRouteDescription(
-  route: RouteRow,
-  experimentId?: string,
-  tracker?: ExperimentTracker,
-): Promise<GenerationOutcome> {
+export async function generateRouteDescription(route: RouteRow): Promise<GenerationOutcome> {
   const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
   const messages: ChatMessage[] = [
     {
@@ -139,39 +136,6 @@ ${route.description ? `Имеющееся описание (бери из нег
     },
   ];
 
-  if (experimentId && tracker) {
-    const variant = tracker.pickVariant(experimentId);
-    const t0 = Date.now();
-    try {
-      if (variant === 'b') {
-        // Вариант B — Fugu напрямую. Если Fugu недоступен (нет ключа / ошибка),
-        // НЕ засчитываем замер в B (иначе waterfall маскируется под Fugu),
-        // а для прода падаем на waterfall, чтобы маршрут всё равно получил описание.
-        const fugu = (await callFugu(messages))?.trim() ?? null;
-        if (fugu === null) {
-          // Замер пропущен — провайдер B не ответил. Чистота статистики важнее.
-          const fallback = (await callAIFast(messages))?.trim() ?? null;
-          if (fallback && fallback.length >= MIN_GENERATION_LENGTH) return { text: fallback };
-          return {
-            text: fallback,
-            failReason: `fugu: null (ключ/квота/сеть); fallback callAIFast: ${describeShortText(fallback)}`,
-          };
-        }
-        const ok = fugu.length >= MIN_GENERATION_LENGTH;
-        await tracker.recordResult(experimentId, 'b', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
-        return ok ? { text: fugu } : { text: fugu, failReason: `fugu: короткий ответ ${fugu.length} симв.` };
-      }
-      const text = (await callAIFast(messages))?.trim() ?? null;
-      const ok = !!text && text.length >= MIN_GENERATION_LENGTH;
-      await tracker.recordResult(experimentId, 'a', ok ? 'success' : 'fail', Date.now() - t0).catch(() => {});
-      return ok ? { text } : { text, failReason: `callAIFast: ${describeShortText(text)}` };
-    } catch (err) {
-      // Реальная ошибка варианта (а не отсутствие провайдера) — это валидный fail
-      await tracker.recordResult(experimentId, variant, 'fail', Date.now() - t0).catch(() => {});
-      return { text: null, failReason: `exception (${variant}): ${err instanceof Error ? err.message : String(err)}` };
-    }
-  }
-
   try {
     const result = (await callAIFast(messages))?.trim() ?? null;
     if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
@@ -201,21 +165,6 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
 
-  // A/B experiment: current waterfall (A) vs Sakana Fugu Ultra (B)
-  const tracker = new ExperimentTracker();
-  let experimentId: string | undefined;
-  try {
-    const exp = await tracker.findOrCreate({
-      name: EXP_NAME,
-      description: 'Sakana Fugu Ultra (прямой API) vs callAIFast waterfall для генерации описаний маршрутов Камчатки',
-      intent: 'route_description_generation',
-      variant_a: { model: 'waterfall', label: 'callAIFast (текущий)' },
-      variant_b: { model: 'fugu-ultra', label: 'Sakana Fugu Ultra (direct)' },
-      metric: 'success_rate',
-    });
-    experimentId = exp.id;
-  } catch { /* experiment tracking не критично — продолжаем без него */ }
-
   let routes: RouteRow[];
   try {
     routes = await findRoutesNeedingDescription();
@@ -230,7 +179,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
 
   for (const route of routes) {
     processed++;
-    const { text: newDescription, failReason } = await generateRouteDescription(route, experimentId, tracker);
+    const { text: newDescription, failReason } = await generateRouteDescription(route);
     if (!newDescription || newDescription.length < MIN_GENERATION_LENGTH) {
       errors++;
       generationFailed++;
@@ -268,28 +217,6 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       `(обработано: ${processed}, ошибок: ${errors}, осталось кратких: ${remaining >= 0 ? remaining : '?'})\n\n` +
       `<b>Улучшенные маршруты и локации:</b>\n${titlesList}`,
     );
-  }
-
-  // Уведомить когда эксперимент наберёт достаточно данных
-  if (experimentId) {
-    try {
-      const expResults = await tracker.calculateResults(experimentId);
-      if (expResults.winner !== null) {
-        const winnerLabel = expResults.winner === 'tie'
-          ? 'Ничья'
-          : expResults.winner === 'a'
-            ? 'Waterfall (A) победил'
-            : 'Gemma 4 (B) победил';
-        await tgSend(
-          `<b>A/B эксперимент Editor завершён</b>\n\n` +
-          `${winnerLabel}\n\n` +
-          `Waterfall: ${expResults.variant_a.success}/${expResults.variant_a.success + expResults.variant_a.fail} (${Math.round(expResults.variant_a.rate * 100)}%)\n` +
-          `Gemma 4:   ${expResults.variant_b.success}/${expResults.variant_b.success + expResults.variant_b.fail} (${Math.round(expResults.variant_b.rate * 100)}%)\n\n` +
-          `Всего замеров: ${expResults.total}`,
-        );
-        await tracker.updateStatus(experimentId, 'completed', expResults.winner === 'tie' ? undefined : expResults.winner);
-      }
-    } catch { /* трекинг не критичен */ }
   }
 
   return {
