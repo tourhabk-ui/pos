@@ -9,6 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
+import { generateAndStoreRouteImage } from '@/lib/services/ai-image-generator';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -398,8 +399,12 @@ const ACTIVITY_PHOTO: Record<string, string> = {
   bears:       '/images/hero/bears-kurilskoye.jpg',
 };
 
+function publicAppUrl(): string {
+  return (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+}
+
 function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = publicAppUrl();
   // 1. Яндекс Static Maps если есть координаты
   if (r.lat && r.lng) {
     const ll = `${r.lng},${r.lat}`;
@@ -409,6 +414,30 @@ function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
   const actPhoto = ACTIVITY_PHOTO[r.activity_type ?? ''];
   if (actPhoto) return `${appUrl}${actPhoto}`;
   return null;
+}
+
+/**
+ * Фото для поста Кузьмича — сначала РЕАЛЬНЫЙ снимок места, а не карта.
+ *
+ * Раньше buildRoutePhotoUrl отдавал Яндекс-карту (при наличии координат) —
+ * поэтому пост про гору приходил с картой, и фото добавляли вручную. Теперь
+ * Кузьмич «добавляет фото сам»: generateAndStoreRouteImage идемпотентно
+ * возвращает существующее фото места (ai_route_images) или генерирует новое
+ * по типу локации (Pollinations Flux) и кэширует навсегда. Пост ссылается на
+ * публичный /api/images/route/[id], который отдаёт этот снимок.
+ *
+ * Генерация может занять до ~60с, поэтому делаем её ДО постинга (а не полагаемся
+ * на ленивую генерацию при fetch'е Telegram — тот отвалится по таймауту).
+ * Любой сбой генерации → фолбэк на карту/тематику, пост всё равно уходит.
+ */
+async function resolvePostPhotoUrl(r: KuzmichRouteRow): Promise<string | null> {
+  try {
+    await generateAndStoreRouteImage(r.id, r.title, r.location_type, r.description ?? '');
+    return `${publicAppUrl()}/api/images/route/${r.id}`;
+  } catch {
+    // Генерация/сеть подвели — не блокируем пост, отдаём карту/тематику
+    return buildRoutePhotoUrl(r);
+  }
 }
 
 /**
@@ -462,7 +491,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 - Не начинай с "Привет" или своего имени`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-  const photoUrl = buildRoutePhotoUrl(r);
+  const photoUrl = await resolvePostPhotoUrl(r);
   const result = await postToAllChannels(channelId, text, photoUrl);
 
   if (result.ok) {
