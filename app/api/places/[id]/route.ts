@@ -157,7 +157,7 @@ export async function GET(
        JOIN operator_tours ot ON ot.route_id = kr.id
        JOIN partners p ON p.id = ot.operator_id
        WHERE rw.place_id = $1
-         AND ot.is_visible = true
+         AND ot.is_active = true AND ot.is_published = true
        ORDER BY ot.id, ot.base_price ASC
        LIMIT 5`,
       [r.place_pk]
