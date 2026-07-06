@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Map, Route, Wrench, FileText, X, ArrowRight } from 'lucide-react';
+import { Search, Map, Route, Wrench, FileText, X, ArrowRight, TreePine } from 'lucide-react';
 
 interface SearchResult {
   id: string;
-  type: 'route' | 'place' | 'tool' | 'page';
+  type: 'route' | 'place' | 'park' | 'tool' | 'page';
   title: string;
   subtitle?: string;
   href: string;
@@ -15,6 +15,7 @@ interface SearchResult {
 const TYPE_CONFIG = {
   route:  { label: 'Маршрут', icon: Route,    color: 'var(--accent)' },
   place:  { label: 'Место',   icon: Map,       color: 'var(--ocean)' },
+  park:   { label: 'Парк',    icon: TreePine,  color: 'var(--success)' },
   tool:   { label: 'Утилита', icon: Wrench,    color: 'var(--success)' },
   page:   { label: 'Раздел',  icon: FileText,  color: 'var(--text-muted)' },
 };

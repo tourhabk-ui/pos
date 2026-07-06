@@ -36,10 +36,18 @@ export async function GET(
          kr.elevation_gain_m,
          kr.duration_hours AS kr_duration_hours,
          kr.pdf_url,
-         kr.ark_id AS kr_ark_id
+         kr.ark_id AS kr_ark_id,
+         pk.slug AS park_slug
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       LEFT JOIN LATERAL (
+         SELECT slug FROM parks
+         WHERE kr.park_name IS NOT NULL
+           AND kr.park_name ILIKE '%' || search_term || '%'
+           AND is_active
+         LIMIT 1
+       ) pk ON TRUE
        WHERE ark.id = $1 AND ark.is_visible = TRUE`,
       [id]
     );
@@ -187,6 +195,7 @@ export async function GET(
         mchsPhone:       (r.mchs_phone as string | null) ?? null,
         parkName:        (r.park_name as string | null) ?? null,
         parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
+        parkSlug:        (r.park_slug as string | null) ?? null,
         hazards:         (r.hazards as string[] | null) ?? null,
         distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,

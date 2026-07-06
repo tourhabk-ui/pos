@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [placesResult, routeRows] = await Promise.all([
+    const [placesResult, routeRows, parksResult] = await Promise.all([
       query(
         `SELECT id, name AS title, location_type, LEFT(description, 80) AS subtitle
          FROM places
@@ -104,6 +104,15 @@ export async function GET(request: NextRequest) {
         [pattern, q, perType]
       ),
       findRoutes(),
+      // Парки — справочник маленький (единицы строк), ошибка не роняет поиск
+      query(
+        `SELECT slug, display_name
+         FROM parks
+         WHERE is_active = true AND display_name ILIKE $1
+         ORDER BY display_name
+         LIMIT 3`,
+        [pattern]
+      ).catch(() => ({ rows: [] })),
     ]);
 
     const lq = q.toLowerCase();
@@ -128,6 +137,13 @@ export async function GET(request: NextRequest) {
         title: r.title as string,
         subtitle: LOCATION_LABELS[r.location_type as string] ?? 'Место',
         href: `/places/${r.id as string}`,
+      })),
+      ...parksResult.rows.map(r => ({
+        id: `park-${r.slug as string}`,
+        type: 'park' as const,
+        title: r.display_name as string,
+        subtitle: 'Природный парк',
+        href: `/park/${r.slug as string}`,
       })),
       ...matchingTools.map(t => ({ ...t, type: 'tool' as const })),
       ...matchingPages.map(p => ({ ...p, type: 'page' as const })),

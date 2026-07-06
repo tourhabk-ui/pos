@@ -57,6 +57,7 @@ describe('GET /api/search — семантика для маршрутов', () 
         { id: ROUTE_UUID, title: 'К медведям Курильского озера', category: 'medvedi', location_type: null, kind: 'route' },
       ],
       'FROM places': [],
+      'FROM parks': [],
     });
 
     const res = await GET(req('где увидеть медведей'));
@@ -82,6 +83,7 @@ describe('GET /api/search — семантика для маршрутов', () 
         { id: ROUTE_UUID, title: 'Авачинский перевал', category: 'trekking', location_type: null, slug: 'avacha' },
       ],
       'FROM places': [],
+      'FROM parks': [],
     });
 
     const res = await GET(req('авачинский'));
@@ -105,6 +107,7 @@ describe('GET /api/search — семантика для маршрутов', () 
       'FROM places': [
         { id: PLACE_UUID, title: 'Голубые озёра', location_type: 'lake', subtitle: 'Озёра' },
       ],
+      'FROM parks': [],
     });
 
     const res = await GET(req('озеро'));
@@ -122,9 +125,47 @@ describe('GET /api/search — семантика для маршрутов', () 
   });
 
   it('короткий запрос (<3 символов) → семантика не вызывается', async () => {
-    mockSql({ 'FROM kamchatka_routes': [], 'FROM places': [] });
+    mockSql({ 'FROM kamchatka_routes': [], 'FROM places': [], 'FROM parks': [] });
 
     await GET(req('ав'));
     expect(semanticSearchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/search — парки в результатах', () => {
+  it('парк из справочника → элемент type=park со ссылкой на /park/[slug]', async () => {
+    semanticSearchMock.mockResolvedValue([]);
+    mockSql({
+      'FROM kamchatka_routes': [],
+      'FROM places': [],
+      'FROM parks': [{ slug: 'nalychevo', display_name: 'Природный парк «Налычево»' }],
+    });
+
+    const res = await GET(req('Налычево'));
+    const json = await res.json();
+
+    const parks = json.data.filter((r: { type: string }) => r.type === 'park');
+    expect(parks).toEqual([{
+      id: 'park-nalychevo',
+      type: 'park',
+      title: 'Природный парк «Налычево»',
+      subtitle: 'Природный парк',
+      href: '/park/nalychevo',
+    }]);
+  });
+
+  it('ошибка запроса парков не роняет поиск (fail-soft)', async () => {
+    semanticSearchMock.mockResolvedValue([]);
+    queryMock.mockImplementation((sql: string) =>
+      String(sql).includes('FROM parks')
+        ? Promise.reject(new Error('relation parks does not exist'))
+        : Promise.resolve({ rows: [] })
+    );
+
+    const res = await GET(req('Налычево'));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data.filter((r: { type: string }) => r.type === 'park')).toEqual([]);
   });
 });
