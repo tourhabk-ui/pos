@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { semanticSearch } from '@/lib/ai/embeddings';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,8 +53,46 @@ export async function GET(request: NextRequest) {
   const perType = Math.ceil(limit / 2);
   const pattern = `%${q}%`;
 
+  // Маршруты: сначала семантика (embeddings — «где увидеть медведей» находит
+  // релевантное, а не только совпадение букв), при ошибке/пустоте — ILIKE.
+  // Порядок сохраняется по убыванию схожести.
+  async function findRoutes(): Promise<Array<Record<string, unknown>>> {
+    if (q.length >= 3) {
+      try {
+        const hits = await semanticSearch(q, perType * 3);
+        if (hits.length > 0) {
+          const { rows } = await query(
+            `SELECT id, title, category, location_type, kind
+             FROM agent_route_knowledge
+             WHERE id = ANY($1::uuid[]) AND is_visible = TRUE`,
+            [hits.map(h => h.id)]
+          );
+          const byId = Object.fromEntries(rows.map(r => [r.id as string, r]));
+          const semanticRoutes = hits
+            .filter(h => byId[h.id] && (byId[h.id].kind as string) === 'route')
+            .slice(0, perType)
+            .map(h => byId[h.id]);
+          if (semanticRoutes.length > 0) return semanticRoutes;
+        }
+      } catch {
+        // семантика недоступна (нет эмбеддингов/модели) → честный ILIKE ниже
+      }
+    }
+    const { rows } = await query(
+      `SELECT id, title, category, location_type, route_dedupe_key AS slug
+       FROM kamchatka_routes
+       WHERE is_visible = TRUE AND title ILIKE $1
+       ORDER BY
+         CASE WHEN title ILIKE $2 THEN 0 ELSE 1 END,
+         LENGTH(title) ASC
+       LIMIT $3`,
+      [pattern, q, perType]
+    );
+    return rows;
+  }
+
   try {
-    const [placesResult, routesResult] = await Promise.all([
+    const [placesResult, routeRows] = await Promise.all([
       query(
         `SELECT id, name AS title, location_type, LEFT(description, 80) AS subtitle
          FROM places
@@ -64,16 +103,7 @@ export async function GET(request: NextRequest) {
          LIMIT $3`,
         [pattern, q, perType]
       ),
-      query(
-        `SELECT id, title, category, location_type, route_dedupe_key AS slug
-         FROM kamchatka_routes
-         WHERE is_visible = TRUE AND title ILIKE $1
-         ORDER BY
-           CASE WHEN title ILIKE $2 THEN 0 ELSE 1 END,
-           LENGTH(title) ASC
-         LIMIT $3`,
-        [pattern, q, perType]
-      ),
+      findRoutes(),
     ]);
 
     const lq = q.toLowerCase();
@@ -85,7 +115,7 @@ export async function GET(request: NextRequest) {
     );
 
     const results = [
-      ...routesResult.rows.map(r => ({
+      ...routeRows.map(r => ({
         id: `route-${r.id as string}`,
         type: 'route' as const,
         title: r.title as string,
