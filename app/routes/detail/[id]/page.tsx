@@ -1,12 +1,11 @@
-import type { Metadata } from 'next';
-import RouteCardClient from './_RouteCardClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Маршрут | TourHab',
-  description: 'Описание маршрута, точки, опасности, снаряжение и регистрация МЧС',
-};
-
+/**
+ * Каноническая карточка маршрута — /routes/[id] (SEO, ISR, JSON-LD, GPX,
+ * бронирование). Параллельная реализация (_RouteCardClient) объединена с ней;
+ * старый URL оставлен как редирект, чтобы не умирали внешние ссылки.
+ */
 export default async function RouteCardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <RouteCardClient id={id} />;
+  redirect(`/routes/${id}`);
 }

@@ -34,7 +34,9 @@ export async function GET(
          kr.equipment     AS kr_equipment,
          kr.distance_km,
          kr.elevation_gain_m,
-         kr.duration_hours AS kr_duration_hours
+         kr.duration_hours AS kr_duration_hours,
+         kr.pdf_url,
+         kr.ark_id AS kr_ark_id
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
@@ -141,6 +143,19 @@ export async function GET(
       [id]
     ).catch(() => ({ rows: [] }));
 
+    // Отзывы о маршруте — запрос перенесён из /api/routes/detail/[id]
+    // (карточка B, объединена с этой). Привязка через legacy ark_id.
+    const reviewsResult = await query(
+      `SELECT rv.id, rv.rating, rv.comment, rv.created_at,
+         COALESCE(u.name, 'Турист') AS author_name
+       FROM reviews rv
+       LEFT JOIN users u ON u.id = rv.user_id
+       WHERE rv.tour_id::text = $1
+       ORDER BY rv.created_at DESC
+       LIMIT 5`,
+      [(r.kr_ark_id as string | null) ?? id]
+    ).catch(() => ({ rows: [] }));
+
     return NextResponse.json({
       success: true,
       data: {
@@ -176,6 +191,14 @@ export async function GET(
         distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
         durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
+        pdfUrl:          (r.pdf_url as string | null) ?? null,
+        reviews: reviewsResult.rows.map(rv => ({
+          id:         String(rv.id),
+          rating:     rv.rating != null ? Number(rv.rating) : null,
+          comment:    (rv.comment as string | null) ?? null,
+          authorName: rv.author_name as string,
+          createdAt:  rv.created_at as string,
+        })),
         createdAt:   r.created_at as string,
         waypoints: waypointsResult.rows.map(w => ({
           position:     Number(w.position),
