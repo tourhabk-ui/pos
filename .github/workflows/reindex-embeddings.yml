@@ -1,0 +1,48 @@
+name: Reindex — Route Embeddings (semantic search)
+
+# Ручная переиндексация эмбеддингов семантического поиска.
+# Когда запускать:
+#   - после миграции 711, если backfill из legacy-таблицы оказался пустым
+#     (семантика честно молчит, глобальный поиск работает на ILIKE)
+#   - после массового импорта/правки маршрутов и мест
+# Пишет через VIEW agent_route_knowledge — INSTEAD OF триггер (миграция 711)
+# раскладывает embedding в master-таблицы places / kamchatka_routes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Перегенерировать ВСЕ эмбеддинги (иначе — только отсутствующие)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  reindex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Reindex embeddings
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production # включает ssl для managed PostgreSQL
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret not set — добавьте его в Settings → Secrets"
+            exit 1
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            npx tsx scripts/index-route-embeddings.ts --force
+          else
+            npx tsx scripts/index-route-embeddings.ts
+          fi
