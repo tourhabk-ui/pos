@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
-import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
+import TourDateField from '@/components/marketplace/TourDateField';
 
 interface BookingFormProps {
   tourId: number;
@@ -14,13 +14,6 @@ interface BookingFormProps {
 
 function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
-}
-
-// Минимальная дата — завтра
-function minDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
 }
 
 export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, tourTitle }: BookingFormProps) {
@@ -36,40 +29,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     special_requests: '',
   });
 
-  // Календарь доступности: если у тура есть открытые слоты
-  // (/api/tours/[id]/slots — после PR #335 считает занятость из реальных
-  // броней), даём выбирать дату по ним. Слотов нет / фетч упал → ручной
-  // ввод, как раньше: календарь у операторов опционален, отсутствие строк
-  // tour_availability означает «даты свободны».
-  const [slotsMode, setSlotsMode] = useState<'loading' | 'calendar' | 'manual'>('loading');
-  const [dateSource, setDateSource] = useState<'none' | 'manual' | 'calendar'>('none');
-
-  useEffect(() => {
-    let alive = true;
-    fetch(`/api/tours/${tourId}/slots`)
-      .then(r => (r.ok ? r.json() : { slots: [] }))
-      .then((d: { slots?: unknown[] }) => {
-        if (alive) setSlotsMode((d.slots?.length ?? 0) > 0 ? 'calendar' : 'manual');
-      })
-      .catch(() => { if (alive) setSlotsMode('manual'); });
-    return () => { alive = false; };
-  }, [tourId]);
-
-  // offers — в зависимостях эффекта AvailabilityCalendar: новый массив на
-  // каждый рендер зациклил бы рефетч слотов.
-  const calendarOffers = useMemo(
-    () => [{ tourId, tourName: tourTitle ?? '', nextDeparture: null, nextSlots: null }],
-    [tourId, tourTitle]
-  );
-
-  const showCalendar = slotsMode === 'calendar' && dateSource !== 'manual';
-
   const participants = parseInt(formData.participants_count) || 1;
   const totalPrice = basePrice * participants;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    if (name === 'booking_date') setDateSource('manual');
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -131,34 +95,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           <Calendar className="w-3.5 h-3.5" />
           Дата заезда *
         </label>
-        {showCalendar ? (
-          <div className="space-y-2">
-            <AvailabilityCalendar
-              offers={calendarOffers}
-              onDateSelect={(date) => {
-                setDateSource('calendar');
-                setFormData(prev => ({ ...prev, booking_date: date }));
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setDateSource('manual')}
-              className="text-xs text-[var(--ocean)] hover:underline"
-            >
-              Ввести дату вручную
-            </button>
-          </div>
-        ) : (
-          <input
-            type="date"
-            name="booking_date"
-            value={formData.booking_date}
-            onChange={handleChange}
-            min={minDate()}
-            className="ds-input w-full"
-            required
-          />
-        )}
+        <TourDateField
+          tourId={tourId}
+          tourTitle={tourTitle}
+          value={formData.booking_date}
+          onChange={(date) => setFormData(prev => ({ ...prev, booking_date: date }))}
+        />
       </div>
 
       {/* Участники */}
