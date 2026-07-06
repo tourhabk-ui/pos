@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Wind, Cloud } from 'lucide-react';
+import { Wind, Cloud, User } from 'lucide-react';
 import Logo from '@/components/shared/Logo';
 import { useGeo } from '@/contexts/GeoContext';
 
@@ -65,30 +65,40 @@ export function MobileDashboardHeader() {
         </span>
       </Link>
 
-      <div className="flex items-center gap-3 rounded-full border border-white/15 backdrop-blur-md bg-black/40 px-3 py-1 text-xs text-white">
-        <span className="flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className="inline-block h-2 w-2 rounded-full"
-            style={{ background: statusColor }}
-          />
-          {statusLabel}
-        </span>
-        {weather && (
-          <>
-            <span className="h-3 w-px bg-white/20" aria-hidden />
-            <span className="flex items-center gap-1">
-              <Cloud size={13} strokeWidth={1.5} aria-hidden />
-              {tempSign}{weather.tempC}°C
-            </span>
-            {weather.windKmph && (
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 rounded-full border border-white/15 backdrop-blur-md bg-black/40 px-3 py-1 text-xs text-white">
+          <span className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: statusColor }}
+            />
+            {statusLabel}
+          </span>
+          {weather && (
+            <>
+              <span className="h-3 w-px bg-white/20" aria-hidden />
               <span className="flex items-center gap-1">
-                <Wind size={13} strokeWidth={1.5} aria-hidden />
-                {Math.round(parseInt(weather.windKmph) / 3.6)} м/с
+                <Cloud size={13} strokeWidth={1.5} aria-hidden />
+                {tempSign}{weather.tempC}°C
               </span>
-            )}
-          </>
-        )}
+              {weather.windKmph && (
+                <span className="flex items-center gap-1">
+                  <Wind size={13} strokeWidth={1.5} aria-hidden />
+                  {Math.round(parseInt(weather.windKmph) / 3.6)} м/с
+                </span>
+              )}
+            </>
+          )}
+        </div>
+        {/* ЛК убран из нижнего нава — доступ к профилю теперь тут, как на /map и /ai-assistant */}
+        <Link
+          href="/profile"
+          aria-label="Личный кабинет"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 backdrop-blur-md bg-black/40 text-white transition-all duration-200 active:scale-95"
+        >
+          <User size={15} strokeWidth={1.5} />
+        </Link>
       </div>
     </header>
   );

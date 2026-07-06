@@ -3,19 +3,21 @@
 import { useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { House, Map, User, Navigation, Bot, Siren } from 'lucide-react';
+import { House, Map, Navigation, Bot, Siren } from 'lucide-react';
 
+// ЛК убран из нижнего нава (решение владельца) — личный кабинет теперь
+// только в шапке (иконка User рядом с темой), как уже было на /map и
+// /ai-assistant; MobileDashboardHeader (главная) получил тот же паттерн.
 // СОС — отдельный красный пункт (фидбэк с Халактырского пляжа: в поле
 // скрытого long-press недостаточно, нужна ВИДИМАЯ кнопка). Ведёт на
 // /emergency — офлайн-страница с нулевыми зависимостями (GPS + 112 + протоколы).
 const LEFT_ITEMS = [
   { icon: House,      label: 'Домой',    href: '/' },
   { icon: Map,        label: 'Карта',    href: '/map' },
-  { icon: Navigation, label: 'Маршрут',  href: '/planning' },
 ];
 
 const RIGHT_ITEMS = [
-  { icon: User,       label: 'ЛК',       href: '/profile' },
+  { icon: Navigation, label: 'Маршрут',  href: '/planning' },
 ];
 
 // Долгое удержание центральной кнопки — быстрый жест к СОС в дополнение
