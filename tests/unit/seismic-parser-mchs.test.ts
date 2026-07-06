@@ -48,6 +48,17 @@ describe('classifyMchsItem — volcanic hazard advisories (regression: Mutnovsky
     expect(event).toBeNull();
   });
 
+  it('drops a TV-program teaser mentioning "пожарной" (regression: false fire_danger alert seen live 2026-07-06)', () => {
+    const event = classifyMchsItem(
+      'mchs/teaser-1',
+      'Эксперименты сотрудников испытательной пожарной лаборатории',
+      'В новом выпуске программы «МЧС. Экстренный вызов» — эксперименты сотрудников испытательной пожарной лаборатории.',
+      '2026-07-06T05:00:00Z',
+      'https://41.mchs.gov.ru/item/teaser',
+    );
+    expect(event).toBeNull();
+  });
+
   it('still classifies the pre-existing categories unchanged (tsunami/flood/fire)', () => {
     const tsunami = classifyMchsItem('mchs/t', 'Угроза цунами', 'Объявлена угроза цунами на побережье.', '2026-07-02T05:00:00Z', 'https://x');
     expect(tsunami!.alert_type).toBe('tsunami_warning');
