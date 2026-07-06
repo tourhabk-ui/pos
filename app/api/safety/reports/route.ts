@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { containsProfanity } from '@/lib/services/profanity-filter';
+import { withinKamchatka } from '@/lib/services/geocode';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,9 +29,11 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
 const PostSchema = z.object({
   report_type: z.enum(['bear', 'rockfall', 'weather', 'other']),
   text: z.string().trim().min(3, 'Опишите наблюдение (минимум 3 символа)').max(500),
-  // Координаты Камчатки и окрестностей; за пределами — отклоняем как мусор
-  lat: z.number().min(48).max(64).optional(),
-  lng: z.number().min(153).max(178).optional(),
+  // Границы проверяются отдельно (withinKamchatka) — общий с гео-гейтом
+  // маршрутов (migration 709) источник правды, не дублируем bbox здесь.
+  // z.number() уже отклоняет NaN, так что null-island (0,0) не пройдёт дальше.
+  lat: z.number().finite().optional(),
+  lng: z.number().finite().optional(),
 });
 
 function notifyOwnerAsync(type: string, text: string, lat?: number, lng?: number): void {
@@ -99,6 +102,16 @@ export async function POST(req: NextRequest) {
   }
 
   const { report_type, text, lat, lng } = parsed.data;
+
+  // Координаты вне Камчатки (или явный null-island 0,0) — не пишем в БД.
+  // Тот же гео-гейт, что у маршрутов (migration 709): ложная метка опасности
+  // на карте безопасности хуже, чем наблюдение без координат.
+  if (lat !== undefined && lng !== undefined && !withinKamchatka(lat, lng)) {
+    return NextResponse.json(
+      { success: false, error: 'Координаты вне Камчатки — наблюдение не сохранено', code: 'OUT_OF_BOUNDS' },
+      { status: 422 }
+    );
+  }
 
   // Мат — на входе (репорты видны публично после модерации; fail-open:
   // недоступность PurgoMalum не блокирует легитимное сообщение о медведе)
