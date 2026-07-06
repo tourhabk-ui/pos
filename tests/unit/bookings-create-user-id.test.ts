@@ -58,6 +58,7 @@ const TOUR_ROW = {
 function mockHappyPathQueries() {
   clientQueryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [TOUR_ROW] });
+    if (sql.includes('FROM tour_availability')) return Promise.resolve({ rows: [] }); // календарь не заполнен
     if (sql.includes('already_booked')) return Promise.resolve({ rows: [{ already_booked: '0' }] });
     if (sql.includes('INSERT INTO operator_bookings')) return Promise.resolve({ rows: [{ id: 42 }] });
     throw new Error('unexpected SQL: ' + sql);

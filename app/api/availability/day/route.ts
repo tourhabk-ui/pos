@@ -78,8 +78,8 @@ export async function GET(request: NextRequest) {
          t.max_participants,
          t.min_participants,
          ta.available_slots,
-         ta.booked_slots,
-         (ta.available_slots - ta.booked_slots)                             AS free_slots,
+         occ.taken                                                           AS booked_slots,
+         GREATEST(0, ta.available_slots - occ.taken)                         AS free_slots,
          ta.weather_status,
          p.id::text                                                          AS operator_id,
          p.name                                                              AS operator_name,
@@ -89,15 +89,25 @@ export async function GET(request: NextRequest) {
        FROM tour_availability ta
        JOIN operator_tours t ON ta.operator_tour_id = t.id
        JOIN partners p       ON t.operator_id = p.id
+       CROSS JOIN LATERAL (
+         -- Занятость из реальных броней (как у гейткипера), а не из
+         -- booked_slots: счётчик обновляется только при оплате
+         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+         FROM operator_bookings ob
+         WHERE ob.operator_tour_id = ta.operator_tour_id
+           AND ob.booking_date = ta.date
+           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+       ) occ
        WHERE ta.date = $1
          AND ta.is_cancelled = false
-         AND (ta.available_slots - ta.booked_slots) > 0
+         AND ta.deleted_at IS NULL
+         AND (ta.available_slots - occ.taken) > 0
          AND t.is_active = true
          AND t.is_published = true
          ${activityFilter}
        ORDER BY
          COALESCE(ta.base_price_override, t.base_price) ASC,
-         (ta.available_slots - ta.booked_slots) DESC`,
+         (ta.available_slots - occ.taken) DESC`,
       params
     );
 
