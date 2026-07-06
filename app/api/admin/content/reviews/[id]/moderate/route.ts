@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { ApiResponse } from '@/types';
 import { z } from 'zod';
@@ -55,6 +56,10 @@ export async function POST(
       `;
 
       const result = await query(approveQuery, [id]);
+
+      // Фото-бонус лояльности — только после одобрения модератором
+      // (внутри проверяется наличие фото и дедуп). Fire-and-forget.
+      loyaltySystem.awardPhotoBonusIfEligible(String(id)).catch(() => {});
 
       return NextResponse.json({
         success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
+import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 import { ApiResponse } from '@/types';
 import { ReviewAdminRow, CountRow } from '@/lib/types/db-rows';
 
@@ -92,6 +93,9 @@ export async function PATCH(request: NextRequest) {
 
     if (action === 'verify') {
       await query('UPDATE reviews SET is_verified = true, updated_at = NOW() WHERE id = $1', [id]);
+      // Фото-бонус лояльности — только после одобрения модератором
+      // (внутри проверяется наличие фото и дедуп). Fire-and-forget.
+      loyaltySystem.awardPhotoBonusIfEligible(String(id)).catch(() => {});
     } else if (action === 'unverify') {
       await query('UPDATE reviews SET is_verified = false, updated_at = NOW() WHERE id = $1', [id]);
     } else if (action === 'delete') {
