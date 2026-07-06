@@ -3,7 +3,8 @@
  *
  * POST/GET /api/safety/reports — наблюдения туристов с маршрутов.
  * Контракты: rate-limit → 429, мат → 422 без INSERT, валидный → 201 pending,
- * мусорные координаты → 400, GET отдаёт только approved с русской меткой типа.
+ * координаты вне Камчатки → 422 OUT_OF_BOUNDS (issue #305), GET отдаёт только
+ * approved с русской меткой типа.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -92,10 +93,37 @@ describe('POST /api/safety/reports', () => {
     expect(queryMock).not.toHaveBeenCalled();
   });
 
-  it('координаты вне Камчатки → 400 (мусор не пишем)', async () => {
-    const res = await POST(postReq({ report_type: 'bear', text: 'Медведь у тропы', lat: 55.75, lng: 37.61 }));
+  it('координаты вне Камчатки → 422 OUT_OF_BOUNDS, INSERT не вызывается (issue #305)', async () => {
+    const res = await POST(postReq({ report_type: 'bear', text: 'Медведь у тропы', lat: 55.75, lng: 37.61 })); // Москва
+    const json = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(json.code).toBe('OUT_OF_BOUNDS');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('null-island (0,0) → 422 OUT_OF_BOUNDS, INSERT не вызывается (issue #305)', async () => {
+    const res = await POST(postReq({ report_type: 'bear', text: 'Медведь у тропы', lat: 0, lng: 0 }));
+    const json = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(json.code).toBe('OUT_OF_BOUNDS');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('битый тип координаты (строка вместо числа) → 400 до проверки bbox', async () => {
+    // JSON не переносит NaN/Infinity (JSON.stringify превращает их в null) —
+    // реалистичный «мусор» от клиента это неверный тип, не NaN-литерал.
+    const res = await POST(postReq({ report_type: 'bear', text: 'Медведь у тропы', lat: 'not-a-number', lng: 158.6 }));
     expect(res.status).toBe(400);
     expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('валидные координаты внутри Камчатки → 201 (issue #305, критерий приёмки)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 'abc-789' }] });
+    const res = await POST(postReq({ report_type: 'bear', text: 'Медведь у тропы к перевалу', lat: 53.0, lng: 158.5 }));
+    expect(res.status).toBe(201);
+    expect(queryMock).toHaveBeenCalled();
   });
 
   it('неизвестный тип → 400', async () => {
