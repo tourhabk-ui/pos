@@ -737,7 +737,9 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           </div>
         </div>
         <div className="p-4">
-          <Link href="/ai-assistant"
+          {/* AI-конструктор маршрута (граф зон, живая доступность, погода,
+              safety-гейты) — не /ai-assistant, это отдельный, более мощный движок */}
+          <Link href="/planner"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)' }}>
             Собрать маршрут <ChevronRight className="w-4 h-4" />
