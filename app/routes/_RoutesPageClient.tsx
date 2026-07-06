@@ -8,6 +8,7 @@ import {
   Flame, Droplets, Wind, Thermometer, Mountain, Waves, Anchor, TreePine, MapPin,
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
+import ParksStrip from '@/components/routes/ParksStrip';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
@@ -280,6 +281,9 @@ export default function RoutesPageClient() {
             </button>
           ))}
         </div>
+
+        {/* ── Природные парки ───────────────────────────────── */}
+        <ParksStrip />
 
         {/* ── Search + controls ─────────────────────────────── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">

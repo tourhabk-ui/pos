@@ -155,6 +155,7 @@ interface RouteDetail {
   mchsRequired: boolean;
   mchsPhone: string | null;
   parkName: string | null;
+  parkSlug: string | null;
   parkApprovalUrl: string | null;
   hazards: string[] | null;
   distanceKm: number | null;
@@ -1199,7 +1200,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
               <div className="px-5 py-4 space-y-3">
                 {route.parkName && (
                   <p className="text-sm text-[var(--text-secondary)]">
-                    <span className="font-medium text-[var(--text-primary)]">Природный парк:</span> {route.parkName}
+                    <span className="font-medium text-[var(--text-primary)]">Природный парк:</span>{' '}
+                    {route.parkSlug ? (
+                      <Link href={`/park/${route.parkSlug}`} className="text-[var(--ocean)] hover:underline">
+                        {route.parkName}
+                      </Link>
+                    ) : (
+                      route.parkName
+                    )}
                   </p>
                 )}
                 <div className="flex flex-col sm:flex-row gap-3">

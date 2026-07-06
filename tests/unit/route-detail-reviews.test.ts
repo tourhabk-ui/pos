@@ -50,6 +50,7 @@ const ROUTE_ROW = {
   kr_duration_hours: '8',
   pdf_url: 'https://visitkamchatka.ru/passport.pdf',
   kr_ark_id: ARK_ID,
+  park_slug: 'nalychevo',
 };
 
 const REVIEW_ROW = {
@@ -90,6 +91,7 @@ describe('GET /api/routes/[id] — reviews + pdfUrl (объединение ка
 
     expect(res.status).toBe(200);
     expect(json.data.pdfUrl).toBe('https://visitkamchatka.ru/passport.pdf');
+    expect(json.data.parkSlug).toBe('nalychevo');
     expect(json.data.reviews).toEqual([{
       id: '5', rating: 5, comment: 'Отличный маршрут',
       authorName: 'Иван', createdAt: '2026-06-01',
