@@ -184,22 +184,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. Декрементируем booked_slots для всех дат диапазона в tour_availability
-    if (durationDays > 1) {
-      await client.query(
-        `UPDATE tour_availability
-         SET booked_slots = booked_slots + $1
-         WHERE operator_tour_id = $2
-           AND date BETWEEN $3::date AND $4::date
-           AND is_cancelled IS NOT TRUE`,
-        [participants, tourId, bookingDate, endDate]
-      );
-    } else if (startSlotResult.rows.length > 0) {
-      await client.query(
-        'UPDATE tour_availability SET booked_slots = booked_slots + $1 WHERE id = $2',
-        [participants, startSlotResult.rows[0].id]
-      );
-    }
+    // 6. booked_slots при создании НЕ трогаем: единственный писатель счётчика —
+    // payment-webhook (hub/operator/payments/webhook), семантика «оплаченные
+    // участники». Раньше здесь был инкремент при создании + webhook инкрементил
+    // ещё раз при оплате той же брони — двойной счёт, а при переполнении
+    // CHECK (booked_slots <= available_slots) ронял обработку платежа.
+    // Гейт занятости этого потока (шаг 5) считает из operator_bookings через
+    // v_tour_daily_occupancy и от счётчика не зависит.
 
     // 7. Финансовый расчёт
     const baseTotal      = pricePerPerson * participants;
@@ -214,8 +205,8 @@ export async function POST(request: NextRequest) {
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
          booking_date, end_date, duration_days, participants,
          base_total_price, final_price, currency,
-         payment_status, payment_method, booking_status, created_via, metadata
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending','cloudpayments','new','website',$12)
+         payment_status, payment_method, booking_status, created_via, metadata, user_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending','cloudpayments','new','website',$12,$13)
        RETURNING id`,
       [
         tourId,
@@ -230,6 +221,9 @@ export async function POST(request: NextRequest) {
         finalPrice,
         tour.currency ?? 'RUB',
         JSON.stringify({ user_id: userId }),
+        // user_id и в колонку (не только в metadata) — линк для
+        // lib/recommendations/engine.ts, как в /api/hub/bookings/create (PR #321)
+        userId,
       ]
     );
     const bookingId = bookingResult.rows[0].id;
