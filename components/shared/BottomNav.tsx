@@ -3,7 +3,8 @@
 import { useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { House, Map, Navigation, Bot, Siren } from 'lucide-react';
+import { House, Map, Navigation, Siren } from 'lucide-react';
+import { BearIcon } from '@/components/shared/BearIcon';
 
 // ЛК убран из нижнего нава (решение владельца) — личный кабинет теперь
 // только в шапке (иконка User рядом с темой), как уже было на /map и
@@ -106,6 +107,8 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
       })}
 
       {/* Center Kuzmich button — protruding, главный AI-центр (Field OS).
+          Медведь вместо абстрактного робота — Кузьмич камчатский, не generic
+          бот; свечение (--success) вокруг кнопки остаётся визуальным AI-акцентом.
           Долгое удержание (600мс) — экстренный переход на /emergency (СОС). */}
       <div style={{ position: 'relative', width: '60px', flexShrink: 0 }}>
         <Link
@@ -135,7 +138,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             touchAction: 'manipulation',
           }}
         >
-          <Bot size={26} color="white" />
+          <BearIcon size={26} color="white" />
         </Link>
       </div>
 
