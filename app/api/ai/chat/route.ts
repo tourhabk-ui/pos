@@ -34,6 +34,7 @@ import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
+import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
 
 export const dynamic = 'force-dynamic';
 
@@ -304,6 +305,19 @@ export async function POST(request: NextRequest) {
           if (sdkResult.response) answer = sdkResult.response;
         } catch { /* fall through to simple AI */ }
       }
+    }
+
+    // Кузьмич-мозг (lib/kuzmich/core.ts) для туристов — ВКЛЮЧАЯ анонимов.
+    // Тот же agent loop, что у Telegram/MAX: обязательный safety-тул
+    // get_guardian_context перед разговором о любом месте, персона Хранителя
+    // (KUZMICH_SYSTEM) вместо legacy TOURIST_PROMPT. Все инструменты цикла
+    // read-only — безопасны без авторизации. До этого анонимы (основной
+    // трафик) получали one-shot LLM без каких-либо safety-инструментов.
+    if (!answer && safeRole === 'tourist') {
+      try {
+        const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
+        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), []);
+      } catch { /* fall through to legacy single-shot */ }
     }
 
     answer ??= await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
