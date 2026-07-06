@@ -156,18 +156,30 @@ export class LoyaltySystem {
     source: string = 'booking'
   ): Promise<{ success: boolean; pointsEarned: number; message: string }> {
     try {
-      const pointsEarned = Math.floor(amount * this.earnRate);
+      // Множитель уровня: уровни обещают ×1.2–×3.0 (benefits в levels),
+      // раньше он нигде не применялся — Золото получало столько же, сколько Новичок.
+      const spentResult = await query<{ total_spent: string }>(
+        'SELECT COALESCE(total_spent, 0) as total_spent FROM users WHERE id = $1',
+        [userId]
+      );
+      const level = this.getUserLevel(parseFloat(spentResult.rows[0]?.total_spent ?? '0'));
+
+      const pointsEarned = Math.floor(amount * this.earnRate * level.earnMultiplier);
       if (pointsEarned <= 0) return { success: true, pointsEarned: 0, message: 'Сумма слишком мала для начисления' };
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + this.expirationDays);
       const txId = `lt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
+      const multiplierNote = level.earnMultiplier > 1
+        ? ` (уровень «${level.name}», ×${level.earnMultiplier})`
+        : '';
+
       await query(
         `INSERT INTO loyalty_transactions (id, user_id, type, amount, source, description, booking_id, expires_at)
          VALUES ($1, $2, 'earn', $3, $4, $5, $6, $7)`,
         [txId, userId, pointsEarned, source,
-         `Начислено ${pointsEarned} баллов за заказ на сумму ${amount} руб.`,
+         `Начислено ${pointsEarned} баллов за заказ на сумму ${amount} руб.${multiplierNote}`,
          bookingId, expiresAt]
       );
 
@@ -219,6 +231,28 @@ export class LoyaltySystem {
     );
 
     return { success: true, pointsEarned: config.points, message: `+${config.points} баллов: ${config.description}` };
+  }
+
+  /**
+   * Фото-бонус (+20) — только после модерации: отзыв одобрен (is_verified)
+   * И к нему реально приложены фото (review_assets). Вызывается из точек
+   * одобрения отзыва; дедуп по (user, 'photo', reviewId) внутри
+   * earnActivityPoints — повторное одобрение не начислит дважды.
+   */
+  async awardPhotoBonusIfEligible(reviewId: string): Promise<void> {
+    const result = await query<{ user_id: string }>(
+      `SELECT r.user_id
+       FROM reviews r
+       WHERE r.id::text = $1
+         AND r.is_verified = true
+         AND r.user_id IS NOT NULL
+         AND EXISTS (SELECT 1 FROM review_assets ra WHERE ra.review_id = r.id)`,
+      [reviewId]
+    );
+    const userId = result.rows[0]?.user_id;
+    if (!userId) return;
+
+    await this.earnActivityPoints(userId, 'photo', reviewId);
   }
 
   async redeemPoints(

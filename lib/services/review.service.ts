@@ -197,6 +197,14 @@ export const reviewService = {
       values
     );
     if (!result.rows[0]) throw new ReviewNotFoundError(id);
+
+    if (status === 'approved') {
+      // Фото-бонус лояльности — только после одобрения модератором
+      // (внутри проверяется наличие фото и дедуп). Fire-and-forget.
+      const { loyaltySystem } = await import('@/lib/loyalty/loyalty-system');
+      loyaltySystem.awardPhotoBonusIfEligible(String(id)).catch(() => {});
+    }
+
     return this.normalize(result.rows[0] ?? null);
   },
   async delete(id: string) {
