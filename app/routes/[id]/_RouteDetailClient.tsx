@@ -10,7 +10,7 @@ import {
   Star, CheckCircle, Phone, ChevronLeft, ChevronRight,
   TrendingUp, Thermometer, MessageSquare,
   Fish, Plane, PawPrint, Anchor, Snowflake, Car,
-  Download, Navigation, ShieldAlert, ExternalLink,
+  Download, Navigation, ShieldAlert, ExternalLink, FileText,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
@@ -160,7 +160,17 @@ interface RouteDetail {
   distanceKm: number | null;
   elevationGainM: number | null;
   durationHours: number | null;
+  pdfUrl: string | null;
+  reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
+}
+
+interface RouteReview {
+  id: string;
+  rating: number | null;
+  comment: string | null;
+  authorName: string;
+  createdAt: string;
 }
 
 // ── Карточка оффера ───────────────────────────────────────────────────────────
@@ -1221,6 +1231,31 @@ export default function RouteDetailClient({ id }: { id: string }) {
           </div>
         )}
 
+        {/* ── Паспорт маршрута (PDF, visitkamchatka.ru) ─────────────────────── */}
+        {route.pdfUrl && (
+          <div className="mt-10 pt-8 border-t border-[var(--border)]">
+            <a
+              href={route.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg flex-shrink-0" style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)' }}>
+                  <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+                </div>
+                <div>
+                  <p className="font-semibold text-[var(--text-primary)]">Паспорт маршрута (PDF)</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                    Официальный документ: нитка маршрута, сезонность, требования
+                  </p>
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-[var(--ocean)] flex-shrink-0" />
+            </a>
+          </div>
+        )}
+
         {/* ── Безопасность маршрута ─────────────────────────────────────────── */}
         <SafetyWarnings routeId={route.id} />
 
@@ -1244,6 +1279,35 @@ export default function RouteDetailClient({ id }: { id: string }) {
             <span className="text-sm text-[var(--ocean)] flex-shrink-0">→</span>
           </Link>
         </div>
+
+        {/* ── Отзывы о маршруте (перенесено из /routes/detail) ──────────────── */}
+        {(route.reviews?.length ?? 0) > 0 && (
+          <div className="mt-10 pt-8 border-t border-[var(--border)]">
+            <h2 className="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
+              <Star className="w-4 h-4 text-[var(--warning)]" /> Отзывы о маршруте
+            </h2>
+            <div className="space-y-3">
+              {route.reviews!.map(rv => (
+                <div key={rv.id} className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+                  <div className="flex items-center gap-2 mb-2">
+                    {rv.rating != null && (
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} className={`w-3.5 h-3.5 ${i < (rv.rating ?? 0) ? 'fill-[var(--warning)] text-[var(--warning)]' : 'text-[var(--border)]'}`} />
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-xs text-[var(--text-muted)]">{rv.authorName}</span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      {new Date(rv.createdAt).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })}
+                    </span>
+                  </div>
+                  {rv.comment && <p className="text-sm text-[var(--text-secondary)]">{rv.comment}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Похожие ───────────────────────────────────────────────────────── */}
         {relatedRoutes.length > 0 && (
