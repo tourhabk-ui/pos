@@ -281,10 +281,12 @@ export default function SosPage() {
             {sendStatus === 'error' && 'Ошибка — позвоните 112 напрямую'}
           </button>
 
-          {/* SMS с координатами (без интернета) */}
+          {/* SMS с координатами (без интернета).
+              112 официально принимает SMS во всех сетях РФ — раньше здесь
+              стоял плейсхолдер +79000000000, сигнал бедствия уходил в никуда. */}
           {coords && (
             <a
-              href={`sms:+79000000000?body=${encodeURIComponent(smsBody)}`}
+              href={`sms:112?body=${encodeURIComponent(smsBody)}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',

@@ -564,10 +564,12 @@ export default function MapPageClient() {
                 {sosSending === 'error' && <><AlertTriangle size={14} className="inline mr-1" />Ошибка — позвоните 112</>}
               </button>
 
-              {/* SMS с координатами (работает без интернета) */}
+              {/* SMS с координатами (работает без интернета).
+                  112 официально принимает SMS во всех сетях РФ — раньше здесь
+                  стоял плейсхолдер +79000000000, сигнал уходил в никуда. */}
               {userPos && (
                 <a
-                  href={`sms:+79000000000?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — TourHab.ru`}
+                  href={`sms:112?body=SOS! Помогите. Мои координаты: ${userPos.lat.toFixed(5)}, ${userPos.lng.toFixed(5)} — TourHab.ru`}
                   className="w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-white font-semibold text-sm hover:bg-[var(--bg-card)] transition-all"
                 >
                   SMS с координатами (без интернета)
