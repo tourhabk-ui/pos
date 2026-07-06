@@ -112,7 +112,7 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
   return (
     <div className="relative mx-4 mt-4 mb-0 rounded-lg overflow-hidden h-[320px] md:h-[380px]">
       <Image
-        src="/images/hero/IMG_20260316_133049.jpg"
+        src="/images/hero/hero-light.jpeg"
         alt="Камчатка"
         fill
         className="object-cover"
