@@ -54,6 +54,8 @@ const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/safety/seismic':    ['GET'],  // публичные сейсмические данные (КБГС РАН / USGS)
   '/api/safety/volcanic':   ['GET'],  // публичные вулканические алерты
   '/api/safety/weather':    ['GET'],  // публичная погода (wttr.in)
+  '/api/safety/routes':     ['GET'],  // радар безопасности на главной — гость без токена получал 401
+  '/api/safety/reports':    ['GET', 'POST'], // наблюдения туристов — анонимно по дизайну (rate-limit внутри)
   '/api/p':                 'ALL',   // публичные подборки туров + трекинг
   '/api/mcp': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
