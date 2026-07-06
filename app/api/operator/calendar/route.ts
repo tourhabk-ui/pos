@@ -69,7 +69,9 @@ export async function GET(request: NextRequest) {
           AND b.booking_status IN ('confirmed', 'new')
           AND b.deleted_at IS NULL
       ), 0)::int                               AS booked_spots,
-      ta.notes
+      -- Колонки notes в tour_availability нет (migrations 040/041) — раньше
+      -- SELECT падал и весь календарь отвечал 500. Контракт поля сохраняем.
+      NULL::text                               AS notes
     FROM tour_availability ta
     JOIN operator_tours t ON ta.operator_tour_id = t.id
     WHERE t.operator_id = $1
