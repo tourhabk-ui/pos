@@ -110,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         parsedUser.createdAt = new Date(parsedUser.createdAt);
         parsedUser.updatedAt = new Date(parsedUser.updatedAt);
         parsedUser.preferences = { ...defaultPreferences, ...parsedUser.preferences };
-        
+
         // Verify session with server
         try {
           const response = await fetch('/api/auth/me', {
@@ -118,25 +118,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               'Authorization': `Bearer ${parsedUser.token}`
             }
           });
-          
+
           if (response.ok) {
             const result = await response.json();
             if (result.success) {
               result.data.token = parsedUser.token;
               setUser(result.data);
-              
+
               return;
             }
           }
         } catch (err) {
         }
-        
+
         // If verification failed, clear storage
         localStorage.removeItem('user');
       }
+
+      // Fallback: сессия может жить только в httpOnly-cookie auth_token —
+      // magic-link вход (ссылка из Telegram-бота) не пишет localStorage,
+      // и раньше такой юзер был невидим для всех потребителей useAuth
+      // (Protected выкидывал залогиненного на /auth/login). Запрос без
+      // Authorization — сервер читает cookie (паттерн MobileAuthContext).
+      await loadUserFromCookie();
     } catch (error) {
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadUserFromCookie = async () => {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (!response.ok) return;
+      const result = await response.json();
+      if (!result.success || !result.data?.id) return;
+
+      const cookieUser: User = {
+        ...result.data,
+        preferences: { ...defaultPreferences, ...result.data.preferences },
+        createdAt: new Date(result.data.createdAt),
+        updatedAt: new Date(result.data.updatedAt),
+        // token намеренно undefined: cookie-only сессию рефрешит сервер,
+        // и юзера НЕ пишем в localStorage['user'] — иначе следующая
+        // загрузка пойдёт Bearer-веткой с пустым токеном.
+      };
+      setUser(cookieUser);
+
+      // Паритет с signIn/signUp — AdminProtected читает user_roles
+      if (Array.isArray(result.data.roles)) {
+        localStorage.setItem('user_roles', JSON.stringify(result.data.roles));
+      }
+    } catch {
+      // Нет сети/сессии — остаёмся гостем, как раньше
     }
   };
 
