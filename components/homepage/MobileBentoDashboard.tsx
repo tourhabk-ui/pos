@@ -18,6 +18,7 @@ import { ChevronRight, Download, Map as MapIcon, Megaphone, Eye } from 'lucide-r
 import { getStorageEstimate } from '@/lib/offline/db';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import { MobileForYouTile } from '@/components/homepage/MobileForYouTile';
+import { MobileExploreTile } from '@/components/homepage/MobileExploreTile';
 
 interface RadarItem {
   id: number;
@@ -274,6 +275,8 @@ export function MobileBentoDashboard() {
           </span>
         </div>
       </Link>
+
+      <MobileExploreTile />
     </div>
   );
 }
