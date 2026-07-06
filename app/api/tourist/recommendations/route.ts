@@ -14,6 +14,8 @@ import { requireRole } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+const ALLOWED_CATEGORIES = ['trekking', 'bears', 'thermal', 'boat_trip', 'helicopter'] as const;
+
 export async function GET(request: NextRequest) {
   try {
     const authResult = await requireRole(request, ['tourist', 'admin']);
@@ -27,8 +29,15 @@ export async function GET(request: NextRequest) {
 
     const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
 
-    // Проверяем кэш (24ч)
-    if (!forceRefresh) {
+    const rawCategory = request.nextUrl.searchParams.get('category');
+    const category = rawCategory && (ALLOWED_CATEGORIES as readonly string[]).includes(rawCategory)
+      ? rawCategory
+      : undefined;
+
+    // Кэш (24ч) — общий, единственный слот на юзера (без учёта category).
+    // Фильтрованный по режиму похода запрос всегда обходит и не перезаписывает
+    // общий кэш, иначе выбор режима "затирал" бы обычные рекомендации.
+    if (!forceRefresh && !category) {
       const cached = await getCachedRecommendations(userId);
       if (cached) {
         return NextResponse.json({
@@ -40,15 +49,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Генерируем свежие рекомендации
-    const recommendations = await getRecommendations(userId, limit);
+    const recommendations = await getRecommendations(userId, limit, category);
 
-    // Сохраняем в кэш
-    await saveRecommendationsCache(userId, recommendations);
+    if (!category) {
+      await saveRecommendationsCache(userId, recommendations);
+    }
 
     return NextResponse.json({
       success: true,
       data: recommendations,
-      meta: { cached: false, count: recommendations.length },
+      meta: { cached: false, count: recommendations.length, category: category ?? null },
     });
   } catch (error) {
     return NextResponse.json(

@@ -19,6 +19,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronRight, Mountain } from 'lucide-react';
 import { useMobileAuth } from '@/contexts/MobileAuthContext';
+import { useAdventureMode } from '@/contexts/AdventureModeContext';
 
 interface RecommendedTourLite {
   id: string;
@@ -35,6 +36,7 @@ interface LoyaltyLite {
 
 export function MobileForYouTile() {
   const { status, role } = useMobileAuth();
+  const { mode } = useAdventureMode();
   const [tours, setTours] = useState<RecommendedTourLite[] | null>(null);
   const [toursFailed, setToursFailed] = useState(false);
   const [loyalty, setLoyalty] = useState<LoyaltyLite | null>(null);
@@ -43,10 +45,13 @@ export function MobileForYouTile() {
     if (status !== 'auth') return;
     let cancelled = false;
     const canSeeRecs = role === 'tourist' || role === 'admin';
+    setTours(null);
+    setToursFailed(false);
 
+    const categoryParam = mode !== 'all' ? `&category=${mode}` : '';
     Promise.allSettled([
       canSeeRecs
-        ? fetch('/api/tourist/recommendations?limit=3').then(res => (res.ok ? res.json() : Promise.reject(new Error('unavailable'))))
+        ? fetch(`/api/tourist/recommendations?limit=3${categoryParam}`).then(res => (res.ok ? res.json() : Promise.reject(new Error('unavailable'))))
         : Promise.reject(new Error('role not eligible')),
       fetch('/api/loyalty/stats').then(res => (res.ok ? res.json() : Promise.reject(new Error('unavailable')))),
     ]).then(([recRes, loyRes]) => {
@@ -66,7 +71,7 @@ export function MobileForYouTile() {
     });
 
     return () => { cancelled = true; };
-  }, [status, role]);
+  }, [status, role, mode]);
 
   return (
     <div className="col-span-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">

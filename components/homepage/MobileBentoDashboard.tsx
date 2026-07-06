@@ -19,6 +19,7 @@ import { getStorageEstimate } from '@/lib/offline/db';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import { MobileForYouTile } from '@/components/homepage/MobileForYouTile';
 import { MobileExploreTile } from '@/components/homepage/MobileExploreTile';
+import { MobileModeSwitcher } from '@/components/homepage/MobileModeSwitcher';
 
 interface RadarItem {
   id: number;
@@ -129,7 +130,9 @@ export function MobileBentoDashboard() {
   }, []);
 
   return (
-    <div className="grid grid-cols-2 gap-3 px-4 pt-4">
+    <>
+      <MobileModeSwitcher />
+      <div className="grid grid-cols-2 gap-3 px-4 pt-4">
       {/* Радар безопасности — широкий тайл, акцентная рамка помечает как главный */}
       <div className="col-span-2 rounded-lg border border-[var(--accent)]/35 bg-[var(--bg-card)] p-4">
         <Link href="/safety" className="flex items-center justify-between">
@@ -277,6 +280,7 @@ export function MobileBentoDashboard() {
       </Link>
 
       <MobileExploreTile />
-    </div>
+      </div>
+    </>
   );
 }
