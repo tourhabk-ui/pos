@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { ChevronRight, Download, Map as MapIcon, Megaphone, Eye } from 'lucide-react';
 import { getStorageEstimate } from '@/lib/offline/db';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
+import { MobileForYouTile } from '@/components/homepage/MobileForYouTile';
 
 interface RadarItem {
   id: number;
@@ -128,8 +129,8 @@ export function MobileBentoDashboard() {
 
   return (
     <div className="grid grid-cols-2 gap-3 px-4 pt-4">
-      {/* Радар безопасности — широкий тайл */}
-      <div className="col-span-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+      {/* Радар безопасности — широкий тайл, акцентная рамка помечает как главный */}
+      <div className="col-span-2 rounded-lg border border-[var(--accent)]/35 bg-[var(--bg-card)] p-4">
         <Link href="/safety" className="flex items-center justify-between">
           <span className="font-playfair text-lg font-bold text-[var(--text-primary)]">
             Радар безопасности
@@ -159,16 +160,16 @@ export function MobileBentoDashboard() {
           </p>
         )}
 
-        <div className="mt-3 space-y-1">
+        <div className="mt-3 flex flex-wrap gap-2">
           {radar === null && !radarFailed && (
-            <div className="space-y-2" aria-hidden>
+            <>
               {[0, 1, 2].map(i => (
-                <div key={i} className="h-9 animate-pulse rounded-lg bg-[var(--bg-hover)]" />
+                <div key={i} className="h-7 w-24 animate-pulse rounded-full bg-[var(--bg-hover)]" aria-hidden />
               ))}
-            </div>
+            </>
           )}
           {radarFailed && (
-            <p className="py-2 text-sm text-[var(--text-secondary)]">
+            <p className="py-1 text-sm text-[var(--text-secondary)]">
               Статусы временно недоступны.{' '}
               <Link href="/safety" className="text-[var(--ocean)] underline">
                 Раздел безопасности
@@ -179,23 +180,15 @@ export function MobileBentoDashboard() {
             <Link
               key={item.id}
               href={`/routes?q=${encodeURIComponent(item.title)}`}
-              className="flex items-center gap-2.5 rounded-lg px-2 py-2 transition-all duration-200 active:bg-[var(--bg-hover)]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-hover)] px-3 py-1.5 text-xs transition-all duration-200 active:scale-95"
+              title={STATUS_LABEL[item.status] ?? item.reason}
             >
               <span
                 aria-hidden
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
                 style={{ background: STATUS_COLOR[item.status] ?? 'var(--text-muted)' }}
               />
-              <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
-                {item.title}
-              </span>
-              <span
-                className="shrink-0 text-xs"
-                style={{ color: STATUS_COLOR[item.status] ?? 'var(--text-muted)' }}
-              >
-                {STATUS_LABEL[item.status] ?? item.reason}
-              </span>
-              <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-[var(--text-muted)]" aria-hidden />
+              <span className="max-w-[8rem] truncate text-[var(--text-primary)]">{item.title}</span>
             </Link>
           ))}
         </div>
@@ -229,6 +222,8 @@ export function MobileBentoDashboard() {
       </div>
 
       <TrailReportSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+
+      <MobileForYouTile />
 
       {/* Карта — квадратный тайл */}
       <Link
