@@ -11,6 +11,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { emailService } from '@/lib/notifications/email-service';
 import { createUonRequest } from '@/lib/integrations/uon';
+import { verifyToken, extractToken } from '@/lib/auth/jwt';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +62,15 @@ export async function POST(req: NextRequest) {
   if (new Date(data.booking_date) < new Date(new Date().toISOString().slice(0, 10))) {
     return NextResponse.json({ error: BOOKING_ERROR_MESSAGES.DATE_PAST }, { status: 422 });
   }
+
+  // Гостевой чек-аут остаётся рабочим — авторизация опциональна (fail-open).
+  // Если юзер залогинен, линкуем бронь к его аккаунту: без этого
+  // lib/recommendations/engine.ts не может найти историю броней ни для кого.
+  const cookieToken = req.cookies.get('auth_token')?.value;
+  const headerToken = extractToken(req.headers.get('Authorization'));
+  const token = cookieToken || headerToken;
+  const authedUser = token ? await verifyToken(token) : null;
+  const userId = authedUser?.userId ?? null;
 
   try {
     const result = await transaction(async (client) => {
@@ -119,8 +129,8 @@ export async function POST(req: NextRequest) {
         `INSERT INTO operator_bookings (
            operator_tour_id, tourist_name, tourist_email, tourist_phone,
            participants, booking_date, special_requests, booking_status,
-           base_total_price, final_price, created_via
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $8, 'website')
+           base_total_price, final_price, created_via, user_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', $8, $8, 'website', $9)
          RETURNING id`,
         [
           data.tour_id,
@@ -131,6 +141,7 @@ export async function POST(req: NextRequest) {
           data.booking_date,
           data.special_requests ?? '',
           total_price,
+          userId,
         ],
       );
 
