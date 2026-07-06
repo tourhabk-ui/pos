@@ -39,6 +39,7 @@ import {
   upsertUserMemory,
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
+import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -219,8 +220,9 @@ export async function POST(request: NextRequest) {
     ]);
     const systemPrompt = basePrompt + geoContext + ragContext + memContext + agentInsights;
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
-
-    const orStreamResponse = await streamViaOpenRouter(messagesForAI);
+    // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
+    // KUZMICH_SYSTEM (обязательный get_guardian_context) + живые контексты
+    const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -228,6 +230,17 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start' })}\n\n`));
 
         let fullAnswer = '';
+
+        // Готовый ответ (от agent loop или non-stream фолбэка) — по словам,
+        // тем же псевдостримом, что и существующий фолбэк ниже
+        const flushWords = (text: string) => {
+          for (const word of text.split(/(\s+)/)) {
+            if (!word) continue;
+            controller.enqueue(encoder.encode(
+              `data: ${JSON.stringify({ type: 'token', content: word })}\n\n`,
+            ));
+          }
+        };
         const persistState = async () => {
           const assistantMsg: ChatMessage = { role: 'assistant', content: fullAnswer, timestamp: Date.now() };
           history.push(assistantMsg);
@@ -256,7 +269,22 @@ export async function POST(request: NextRequest) {
         };
 
         try {
-          if (orStreamResponse?.body) {
+          // Туристы (включая анонимов) — через agent loop core.ts:
+          // get_guardian_context и персона Хранителя, как в Telegram/MAX и
+          // /api/ai/chat (PR #333). Ответ приходит целиком — отдаём по словам.
+          if (safeRole === 'tourist') {
+            try {
+              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [])) ?? '';
+            } catch { fullAnswer = ''; /* фолбэк на прежний стрим ниже */ }
+          }
+
+          if (fullAnswer) {
+            flushWords(fullAnswer);
+          } else {
+            // OpenRouter-стрим открываем ЛЕНИВО — только когда мозг не ответил,
+            // иначе платили бы за две генерации на каждый запрос
+            const orStreamResponse = await streamViaOpenRouter(messagesForAI);
+            if (orStreamResponse?.body) {
             const reader = orStreamResponse.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
@@ -293,13 +321,9 @@ export async function POST(request: NextRequest) {
                 }
               }
             }
-          } else {
-            fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
-            for (const word of fullAnswer.split(/(\s+)/)) {
-              if (!word) continue;
-              controller.enqueue(encoder.encode(
-                `data: ${JSON.stringify({ type: 'token', content: word })}\n\n`,
-              ));
+            } else {
+              fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
+              flushWords(fullAnswer);
             }
           }
 
