@@ -48,7 +48,7 @@ export default function ParkClient({ slug }: { slug: string }) {
 
   useEffect(() => {
     fetch(`/api/parks/${slug}`)
-      .then(r => { if (r.status === 404) { setNotFound(true); return null; } return r.json(); })
+      .then(r => { if (!r.ok) { setNotFound(true); return null; } return r.json(); })
       .then((d: ParkData | null) => { if (d) setPark(d); })
       .catch(() => {})
       .finally(() => setLoading(false));
