@@ -136,6 +136,13 @@ export default function CartClient() {
             Точная стоимость зависит от выбранных дат и числа участников
           </p>
           <button
+            onClick={() => router.push('/hub/tourist/cart/checkout')}
+            className="w-full ds-btn ds-btn-primary py-2.5 flex items-center justify-center gap-2 text-sm"
+          >
+            Оформить заявки на все туры
+            <ArrowRight className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => router.push('/planner')}
             className="w-full ds-btn ds-btn-secondary py-2.5 flex items-center justify-center gap-2 text-sm"
           >
