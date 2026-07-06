@@ -517,13 +517,13 @@ COPY --from=builder /app/start.js ./start.js
 | `accessibility` | TEXT | Доступность (ОВЗ, транспорт) |
 | `geometry` | JSONB | GeoJSON LineString трека |
 
-### Данные (май 2026)
+### Данные (июль 2026)
 
 - 294 маршрута, 105 с богатыми данными из visitkamchatka.ru
 - 100 с PDF паспортами
 - 154 с обязательной регистрацией МЧС
-- 0 с GPS-треками (geometry)
-- 0 связей route_waypoints
+- ~150 маршрутов со связями route_waypoints (migrations 653-657: 238 связей) — см. §4.1
+- geometry: синтетический LineString из waypoints (migration 168); GPS-треки из OSM не импортированы
 
 > Статус: MVP завершён. Фаза: эволюция через агентов.
 > Обновлено: Май 2026 | Агенты: `AGENTS.md`
