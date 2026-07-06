@@ -40,6 +40,10 @@ export async function PATCH(
     // 4. Начислить баллы лояльности (fire-and-forget)
     if (booking.tourist?.id && booking.totalAmount > 0) {
       loyaltySystem.earnPoints(booking.tourist.id, bookingId, booking.totalAmount).catch(() => {});
+      // Бонус «Первое бронирование» (+100) — обещан в UI лояльности
+      // (_LoyaltyClient «как заработать»), но раньше нигде не вызывался.
+      // Внутри earnActivityPoints свой дедуп-гард: начислится ровно один раз.
+      loyaltySystem.earnActivityPoints(booking.tourist.id, 'first_booking', bookingId).catch(() => {});
     }
 
     return NextResponse.json({
