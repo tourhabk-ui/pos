@@ -42,7 +42,8 @@ const STRATEGY_LABELS: Record<RecommendationStrategy, string> = {
 async function getSimilarUsersRecommendations(
   userId: string,
   bookedTourIds: string[],
-  limit: number
+  limit: number,
+  category?: string
 ): Promise<RecommendedTour[]> {
   if (bookedTourIds.length === 0) return [];
 
@@ -69,6 +70,7 @@ async function getSimilarUsersRecommendations(
                             AND t.id != ALL($2::text[])
                             AND t.is_active = true
                             AND t.deleted_at IS NULL
+                            AND ($4::text IS NULL OR t.activity_type = $4)
        WHERE b1.user_id = $1
          AND b1.booking_status IN ('confirmed', 'completed')
          AND b1.deleted_at IS NULL
@@ -78,7 +80,7 @@ async function getSimilarUsersRecommendations(
        HAVING COUNT(DISTINCT b2.user_id) >= 1
        ORDER BY COUNT(DISTINCT b2.user_id) DESC, t.rating DESC NULLS LAST
        LIMIT $3`,
-      [userId, bookedTourIds, limit]
+      [userId, bookedTourIds, limit, category ?? null]
     );
 
     return result.rows.map((r) => ({
@@ -98,7 +100,8 @@ async function getSimilarUsersRecommendations(
  */
 async function getContentBasedRecommendations(
   bookedTourIds: string[],
-  limit: number
+  limit: number,
+  category?: string
 ): Promise<RecommendedTour[]> {
   if (bookedTourIds.length === 0) return [];
 
@@ -144,13 +147,14 @@ async function getContentBasedRecommendations(
            OR difficulty = $3
            OR (base_price BETWEEN $4 AND $5)
          )
+         AND ($7::text IS NULL OR activity_type = $7)
        ORDER BY
          (CASE WHEN activity_type = $2 THEN 3 ELSE 0 END +
           CASE WHEN difficulty = $3 THEN 2 ELSE 0 END +
           CASE WHEN base_price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) DESC,
          rating DESC NULLS LAST
        LIMIT $6`,
-      [bookedTourIds, top_category, top_difficulty, minPrice, maxPrice, limit]
+      [bookedTourIds, top_category, top_difficulty, minPrice, maxPrice, limit, category ?? null]
     );
 
     return result.rows.map((r) => ({
@@ -170,13 +174,15 @@ async function getContentBasedRecommendations(
  */
 async function getEcoOptimizedRecommendations(
   bookedTourIds: string[],
-  limit: number
+  limit: number,
+  category?: string
 ): Promise<RecommendedTour[]> {
   try {
-    // Топ категории пользователя (если есть история)
-    let categoryFilter = '';
-    const params: (string | number | string[])[] = [bookedTourIds, limit];
+    // category — явный выбор режима похода, всегда $3 (стабильная позиция)
+    const params: (string | number | string[] | null)[] = [bookedTourIds, limit, category ?? null];
 
+    // Топ категории пользователя (если есть история) — отдельный, необязательный фильтр
+    let categoryFilter = '';
     if (bookedTourIds.length > 0) {
       const cats = await query<{ category: string }>(
         `SELECT DISTINCT activity_type AS category FROM operator_tours WHERE id = ANY($1::text[]) AND activity_type IS NOT NULL AND deleted_at IS NULL LIMIT 3`,
@@ -184,7 +190,7 @@ async function getEcoOptimizedRecommendations(
       );
       if (cats.rows.length > 0) {
         const categories = cats.rows.map((r) => r.category);
-        categoryFilter = `AND activity_type = ANY($3::text[])`;
+        categoryFilter = `AND activity_type = ANY($4::text[])`;
         params.push(categories);
       }
     }
@@ -205,6 +211,7 @@ async function getEcoOptimizedRecommendations(
          AND deleted_at IS NULL
          AND eco_points_reward IS NOT NULL
          AND eco_points_reward > 0
+         AND ($3::text IS NULL OR activity_type = $3)
          ${categoryFilter}
        ORDER BY eco_points_reward DESC, rating DESC NULLS LAST
        LIMIT $2`,
@@ -224,7 +231,8 @@ async function getEcoOptimizedRecommendations(
 // ── Основная функция ──────────────────────────────────────────
 export async function getRecommendations(
   userId: string,
-  limit: number = 6
+  limit: number = 6,
+  category?: string
 ): Promise<RecommendedTour[]> {
   // Получаем последние 5 бронирований пользователя
   const bookingsResult = await query<{ tour_id: string }>(
@@ -242,9 +250,9 @@ export async function getRecommendations(
   // Запускаем все 3 стратегии параллельно
   const perStrategy = Math.ceil(limit / 3);
   const [similar, content, eco] = await Promise.all([
-    getSimilarUsersRecommendations(userId, bookedTourIds, perStrategy),
-    getContentBasedRecommendations(bookedTourIds, perStrategy),
-    getEcoOptimizedRecommendations(bookedTourIds, perStrategy),
+    getSimilarUsersRecommendations(userId, bookedTourIds, perStrategy, category),
+    getContentBasedRecommendations(bookedTourIds, perStrategy, category),
+    getEcoOptimizedRecommendations(bookedTourIds, perStrategy, category),
   ]);
 
   // Дедупликация по id
@@ -258,7 +266,7 @@ export async function getRecommendations(
     }
   }
 
-  // Если история пустая — возвращаем топ по рейтингу
+  // Если история пустая — возвращаем топ по рейтингу (с учётом category, если задан)
   if (merged.length === 0) {
     const fallback = await query<RecommendedTour>(
       `SELECT id, title, description,
@@ -268,10 +276,12 @@ export async function getRecommendations(
               activity_type  AS category,
               location_name  AS location,
               rating, images, eco_points_reward
-       FROM operator_tours WHERE is_active = true AND deleted_at IS NULL
+       FROM operator_tours
+       WHERE is_active = true AND deleted_at IS NULL
+         AND ($2::text IS NULL OR activity_type = $2)
        ORDER BY rating DESC NULLS LAST, created_at DESC
        LIMIT $1`,
-      [limit]
+      [limit, category ?? null]
     );
     return fallback.rows.map((r) => ({
       ...r,
