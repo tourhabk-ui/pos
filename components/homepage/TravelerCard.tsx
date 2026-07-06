@@ -18,7 +18,7 @@ export function TravelerCard() {
         {/* Author */}
         <div className="flex items-center gap-2">
           <div className="relative w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/30 flex-shrink-0">
-            <Image src="/images/bento/bears-kurilskoye.jpg" alt="" fill className="object-cover" />
+            <Image src="/images/hero/bears-kurilskoye.jpg" alt="" fill className="object-cover" />
           </div>
           <div>
             <p className="text-white text-xs font-semibold leading-none">Мария, 26 лет</p>

@@ -35,7 +35,7 @@ const SLIDES = [
     icon: Download,
     title: 'Карты работают без связи',
     text: 'На Камчатке сети часто нет. Скачайте карты и маршруты заранее — навигация, треки и СОС-инструкции будут доступны офлайн даже в глуши.',
-    image: '/images/hero/IMG_20260316_133049.jpg',
+    image: '/images/hero/hero-dark.jpeg',
   },
   {
     icon: UserRound,

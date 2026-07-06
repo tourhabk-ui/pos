@@ -5,9 +5,9 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 const STORIES = [
-  { label: 'Ключевской',   image: '/images/hero/IMG_20260316_133049.jpg', href: '/routes?location_type=volcano' },
+  { label: 'Ключевской',   image: '/images/hero/IMG_20260316_133026.jpg', href: '/routes?location_type=volcano' },
   { label: 'Халактырский', image: '/images/bento/khalaktyr.jpg',           href: '/routes?category=morskie_progulki' },
-  { label: 'Курильское',   image: '/images/bento/bears-kurilskoye.jpg',    href: '/routes?category=medvedi' },
+  { label: 'Курильское',   image: '/images/hero/bears-kurilskoye.jpg',     href: '/routes?category=medvedi' },
   { label: 'Паратунка',    image: '/images/bento/paratunka.jpg',           href: '/routes?location_type=hot_spring' },
   { label: 'Мутновский',   image: '/images/bento/mutnovsky.jpg',           href: '/routes?location_type=volcano' },
   { label: 'Мыс',          image: '/images/bento/cape.jpg',                href: '/routes?category=morskie_progulki' },
