@@ -15,6 +15,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowUpRight, Flame, PawPrint, MountainSnow, Mic } from 'lucide-react';
+import { useMobileAuth } from '@/contexts/MobileAuthContext';
 
 // Web Speech API — нет в lib.dom TypeScript, объявляем минимально необходимое.
 // Кнопка микрофона рендерится только если API реально доступен в браузере.
@@ -48,8 +49,8 @@ const QUICK_TAGS = [
 
 export function MobileHeroDashboard() {
   const router = useRouter();
+  const { status, firstName } = useMobileAuth();
   const [value, setValue] = useState('');
-  const [userName, setUserName] = useState<string | null>(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -82,21 +83,6 @@ export function MobileHeroDashboard() {
     try { rec.start(); } catch { setListening(false); }
   };
 
-  // Персонализация: «Привет, {имя}!» для авторизованных. Fail-silent —
-  // гость или ошибка сети просто оставляют нейтральное приветствие.
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/auth/me')
-      .then(res => (res.ok ? res.json() : null))
-      .then((json: { success?: boolean; data?: { name?: string | null } } | null) => {
-        if (cancelled) return;
-        const name = json?.success ? json.data?.name?.trim() : null;
-        if (name) setUserName(name.split(' ')[0]);
-      })
-      .catch(() => { /* гость — нейтральное приветствие */ });
-    return () => { cancelled = true; };
-  }, []);
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
@@ -118,7 +104,7 @@ export function MobileHeroDashboard() {
       <div className="relative z-10 flex h-full flex-col justify-end px-4 pb-5 pt-24">
         <div className="rounded-2xl border border-white/10 backdrop-blur-md bg-black/40 p-5">
           <h1 className="font-playfair text-3xl font-bold text-white">
-            {userName ? `Привет, ${userName}! Я Кузьмич.` : 'Привет. Я Кузьмич.'}
+            {status === 'auth' && firstName ? `Привет, ${firstName}! Я Кузьмич.` : 'Привет. Я Кузьмич.'}
           </h1>
           <p className="mt-1 text-lg text-white/60">Куда отправимся?</p>
 
