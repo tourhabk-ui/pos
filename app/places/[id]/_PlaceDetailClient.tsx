@@ -16,6 +16,7 @@ const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSaf
 const PlaceAccess           = dynamic(() => import('@/components/places/PlaceAccess'),           { ssr: false });
 const PlaceSeason           = dynamic(() => import('@/components/places/PlaceSeason'),           { ssr: false });
 const PlaceRoutes           = dynamic(() => import('@/components/places/PlaceRoutes'),           { ssr: false });
+const PlaceTours            = dynamic(() => import('@/components/places/PlaceTours'),            { ssr: false });
 const PlaceKuzmich          = dynamic(() => import('@/components/places/PlaceKuzmich'),          { ssr: false });
 const PlaceReviews          = dynamic(() => import('@/components/places/PlaceReviews'),          { ssr: false });
 const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNearby'),           { ssr: false });
@@ -260,6 +261,13 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         </div>
       )}
 
+      {/* 9. Tours to this place — компактные ссылки (CLAUDE.md §9, блок 11);
+          коммерция остаётся на странице тура, здесь только переходы */}
+      {place.tours.length > 0 && (
+        <div className="mt-8">
+          <PlaceTours tours={place.tours} />
+        </div>
+      )}
 
       {/* 10. Map + access */}
       <div className="mt-8">
