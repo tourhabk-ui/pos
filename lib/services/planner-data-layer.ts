@@ -195,6 +195,11 @@ export async function fetchAvailabilityForTour(
 ): Promise<SlotInfo[]> {
   return cached(cache, `avail:${tourId}:${dateFrom}:${dateTo}`, async () => {
     try {
+      // Занятость — из реальных броней, не из счётчика booked_slots:
+      // счётчик пишет только payment-webhook («оплаченные участники»),
+      // неоплаченные брони для него невидимы, и remaining завышался бы —
+      // планировщик показывал бы места, по которым гейт бронь отклонит.
+      // Статусы и кламп по max_participants — как в /api/tours/[id]/slots.
       const { rows } = await pool.query<{
         date: string;
         available_slots: number;
@@ -203,17 +208,26 @@ export async function fetchAvailabilityForTour(
         price_override: number | null;
       }>(
         `SELECT
-          date::text,
-          available_slots,
-          COALESCE(booked_slots, 0) AS booked_slots,
-          (available_slots - COALESCE(booked_slots, 0)) AS remaining,
-          base_price_override AS price_override
-        FROM tour_availability
-        WHERE operator_tour_id = $1
-          AND date BETWEEN $2::date AND $3::date
-          AND is_cancelled = FALSE
-          AND available_slots > COALESCE(booked_slots, 0)
-        ORDER BY date ASC`,
+          ta.date::text,
+          ta.available_slots,
+          occ.taken AS booked_slots,
+          GREATEST(0, LEAST(ta.available_slots, COALESCE(ot.max_participants, ta.available_slots)) - occ.taken) AS remaining,
+          ta.base_price_override AS price_override
+        FROM tour_availability ta
+        JOIN operator_tours ot ON ot.id = ta.operator_tour_id
+        CROSS JOIN LATERAL (
+          SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+          FROM operator_bookings ob
+          WHERE ob.operator_tour_id = ta.operator_tour_id
+            AND ob.booking_date = ta.date
+            AND ob.booking_status NOT IN ('cancelled', 'rejected')
+        ) occ
+        WHERE ta.operator_tour_id = $1
+          AND ta.date BETWEEN $2::date AND $3::date
+          AND ta.is_cancelled = FALSE
+          AND ta.deleted_at IS NULL
+          AND GREATEST(0, LEAST(ta.available_slots, COALESCE(ot.max_participants, ta.available_slots)) - occ.taken) > 0
+        ORDER BY ta.date ASC`,
         [tourId, dateFrom, dateTo]
       );
 
@@ -246,15 +260,24 @@ export async function fetchZoneCapacity(
         total_slots: string;
         total_booked: string;
       }>(
+        // Занятость зоны — из v_tour_daily_occupancy (реальные брони с
+        // разворотом многодневных диапазонов, migration 140), не из
+        // счётчика booked_slots (пишется только при оплате). VIEW считает
+        // статусы 'new'/'confirmed' — уже гейткиперского NOT IN, но для
+        // мягкого штрафа зоны (-10 при >80%) это допустимо, а multi-day
+        // разворот тут важнее.
         `SELECT
           COUNT(DISTINCT ot.id) AS tour_count,
           COALESCE(SUM(ta.available_slots), 0) AS total_slots,
-          COALESCE(SUM(COALESCE(ta.booked_slots, 0)), 0) AS total_booked
+          COALESCE(SUM(COALESCE(occ.occupied, 0)), 0) AS total_booked
         FROM operator_tours ot
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         LEFT JOIN tour_availability ta ON ta.operator_tour_id = ot.id
           AND ta.date BETWEEN $2::date AND $3::date
           AND ta.is_cancelled = FALSE
+        LEFT JOIN v_tour_daily_occupancy occ
+          ON occ.operator_tour_id = ta.operator_tour_id
+          AND occ.date = ta.date
         WHERE ark.zone = $1
           AND ot.is_active = TRUE
           AND ot.is_published = TRUE
