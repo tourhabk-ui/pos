@@ -55,16 +55,27 @@ export async function GET(request: NextRequest) {
       `SELECT
          ta.date::text,
          COUNT(DISTINCT ta.operator_tour_id)::text             AS tour_count,
-         SUM(ta.available_slots - ta.booked_slots)::text       AS free_slots,
+         SUM(ta.available_slots - occ.taken)::text             AS free_slots,
          MIN(COALESCE(ta.base_price_override, t.base_price))::text AS price_from,
          ARRAY_AGG(DISTINCT t.activity_type)                   AS activities,
          COUNT(DISTINCT t.operator_id)::text                   AS operators
        FROM tour_availability ta
        JOIN operator_tours t ON ta.operator_tour_id = t.id
+       CROSS JOIN LATERAL (
+         -- Занятость из реальных броней (как у гейткипера), а не из
+         -- booked_slots: счётчик обновляется только при оплате и не видит
+         -- созданные-но-неоплаченные брони
+         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+         FROM operator_bookings ob
+         WHERE ob.operator_tour_id = ta.operator_tour_id
+           AND ob.booking_date = ta.date
+           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+       ) occ
        WHERE ta.date >= $1
          AND ta.date <= $2
          AND ta.is_cancelled = false
-         AND (ta.available_slots - ta.booked_slots) > 0
+         AND ta.deleted_at IS NULL
+         AND (ta.available_slots - occ.taken) > 0
          AND t.is_active = true
          AND t.is_published = true
          ${activityFilter}

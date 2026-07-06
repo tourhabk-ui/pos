@@ -20,6 +20,7 @@ const bookingCreateLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 const BOOKING_ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND:    'Тур не найден или больше не доступен. Попробуйте выбрать другой тур.',
   DATE_PAST:    'Выбранная дата уже прошла. Укажите будущую дату.',
+  DATE_BLOCKED: 'Оператор закрыл бронирование на эту дату. Выберите другую дату.',
   NO_SLOTS:     'На выбранную дату нет свободных мест. Выберите другую дату или свяжитесь с оператором.',
   MAX_EXCEEDED: 'Превышено максимальное число участников для этого тура.',
 };
@@ -93,9 +94,31 @@ export async function POST(req: NextRequest) {
 
       const tour = tourResult.rows[0]!;
 
-      if (tour.max_participants != null && data.participants_count > tour.max_participants) {
+      // Календарь оператора (tour_availability) — опционален: нет строки на
+      // дату = дата свободна (большинство операторов календарём не пользуются).
+      // Но ЯВНАЯ блокировка (is_cancelled) или лимит слотов на дату должны
+      // уважаться — раньше гейткипер календарь вообще не читал и принимал
+      // брони на закрытые оператором даты.
+      const calendarResult = await client.query<{ available_slots: number; is_cancelled: boolean }>(
+        `SELECT available_slots, is_cancelled FROM tour_availability
+         WHERE operator_tour_id = $1 AND date = $2 AND deleted_at IS NULL
+         LIMIT 1`,
+        [data.tour_id, data.booking_date],
+      );
+      const calendarRow = calendarResult.rows[0] ?? null;
+
+      if (calendarRow?.is_cancelled) {
+        throw Object.assign(new Error(BOOKING_ERROR_MESSAGES.DATE_BLOCKED), { code: 'DATE_BLOCKED' });
+      }
+
+      // Эффективный лимит на дату: пересечение лимита тура и лимита календаря
+      const capacityCap: number | null = calendarRow
+        ? Math.min(tour.max_participants ?? calendarRow.available_slots, calendarRow.available_slots)
+        : tour.max_participants;
+
+      if (capacityCap != null && data.participants_count > capacityCap) {
         throw Object.assign(
-          new Error(`${BOOKING_ERROR_MESSAGES.MAX_EXCEEDED} (максимум: ${tour.max_participants})`),
+          new Error(`${BOOKING_ERROR_MESSAGES.MAX_EXCEEDED} (максимум: ${capacityCap})`),
           { code: 'MAX_EXCEEDED' },
         );
       }
@@ -113,8 +136,8 @@ export async function POST(req: NextRequest) {
       );
       const alreadyBooked = parseInt(slotCheckResult.rows[0]!.already_booked, 10);
 
-      if (tour.max_participants != null && alreadyBooked + data.participants_count > tour.max_participants) {
-        const remaining = tour.max_participants - alreadyBooked;
+      if (capacityCap != null && alreadyBooked + data.participants_count > capacityCap) {
+        const remaining = capacityCap - alreadyBooked;
         throw Object.assign(
           new Error(remaining <= 0
             ? BOOKING_ERROR_MESSAGES.NO_SLOTS

@@ -68,7 +68,13 @@ export async function GET(req: NextRequest) {
           WHERE ta.operator_tour_id = ot.id
             AND ta.date >= CURRENT_DATE
             AND ta.deleted_at IS NULL
-            AND (ta.available_slots - COALESCE(ta.booked_slots, 0)) > 0
+            AND ta.is_cancelled = false
+            AND ta.available_slots > COALESCE((
+              SELECT SUM(ob2.participants) FROM operator_bookings ob2
+              WHERE ob2.operator_tour_id = ot.id
+                AND ob2.booking_date = ta.date
+                AND ob2.booking_status NOT IN ('cancelled', 'rejected')
+            ), 0)
         ) as has_availability`;
 
     const from = `
