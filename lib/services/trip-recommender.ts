@@ -492,7 +492,10 @@ interface CrowdRow {
 
 /**
  * Returns a crowd score 0-100 for a date range.
- * Based on tour_departures load during the trip dates.
+ * Считает по живому календарю tour_availability + реальным броням
+ * (v_tour_daily_occupancy). Раньше считал по tour_departures — там счётчик
+ * booked_slots никогда не заполнялся, и ratio всегда был 0 (эвристика
+ * вырождалась в сезонный fallback).
  * Higher score = more crowded. Affects zone scoring.
  */
 async function fetchCrowdLoad(arrivalDate?: string, departureDate?: string): Promise<number> {
@@ -509,13 +512,16 @@ async function fetchCrowdLoad(arrivalDate?: string, departureDate?: string): Pro
          COUNT(*)::text                                                          AS total_departures,
          ROUND(
            COALESCE(
-             SUM(booked_slots)::numeric / NULLIF(SUM(available_slots), 0) * 100,
+             SUM(COALESCE(occ.occupied, 0))::numeric / NULLIF(SUM(ta.available_slots), 0) * 100,
              0
            )
          )::text                                                                AS booked_ratio
-       FROM tour_departures
-       WHERE status IN ('active', 'sold_out')
-         AND start_date BETWEEN $1::date AND $2::date`,
+       FROM tour_availability ta
+       LEFT JOIN v_tour_daily_occupancy occ
+         ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
+       WHERE ta.is_cancelled = FALSE
+         AND ta.deleted_at IS NULL
+         AND ta.date BETWEEN $1::date AND $2::date`,
       [arrivalDate, departureDate]
     );
     const row = rows[0];

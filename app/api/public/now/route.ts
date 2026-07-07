@@ -52,17 +52,29 @@ export async function GET() {
     // погода недоступна — пропускаем
   }
 
-  // Ближайший выезд
+  // Ближайший выезд — из живого календаря tour_availability (свободные места
+  // из реальных броней), а не из полу-мёртвой tour_departures, где счётчик
+  // занятости никогда не заполнялся.
   let nextDeparture: { date: string; tourName: string; operatorName: string; slots: number } | null = null;
   try {
     const dRes = await pool.query(
-      `SELECT td.departure_date, t.title AS tour_name, p.name AS operator_name, td.available_slots
-       FROM tour_departures td
-       JOIN operator_tours t ON t.id = td.tour_id AND t.is_active = TRUE
+      `SELECT ta.date AS departure_date, t.title AS tour_name, p.name AS operator_name,
+              GREATEST(0, LEAST(ta.available_slots, COALESCE(t.max_participants, ta.available_slots)) - occ.taken) AS available_slots
+       FROM tour_availability ta
+       JOIN operator_tours t ON t.id = ta.operator_tour_id AND t.is_active = TRUE AND t.deleted_at IS NULL
        JOIN partners p ON p.id = t.operator_id
-       WHERE td.departure_date >= CURRENT_DATE
-         AND td.available_slots > 0
-       ORDER BY td.departure_date ASC
+       CROSS JOIN LATERAL (
+         SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+         FROM operator_bookings ob
+         WHERE ob.operator_tour_id = ta.operator_tour_id
+           AND ob.booking_date = ta.date
+           AND ob.booking_status NOT IN ('cancelled', 'rejected')
+       ) occ
+       WHERE ta.date >= CURRENT_DATE
+         AND ta.is_cancelled = FALSE
+         AND ta.deleted_at IS NULL
+         AND GREATEST(0, LEAST(ta.available_slots, COALESCE(t.max_participants, ta.available_slots)) - occ.taken) > 0
+       ORDER BY ta.date ASC
        LIMIT 1`,
     );
     if (dRes.rows[0]) {
