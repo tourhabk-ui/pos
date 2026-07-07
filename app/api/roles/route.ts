@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ApiResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { query } from '@/lib/database';
+import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
+import { getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -263,17 +266,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Здесь должна быть логика обновления роли в базе данных
-    // Пока возвращаем успешный ответ
+    // Смена роли: users.role + добавление в preferences.roles (мультироли),
+    // уровень оператора — в preferences.operator_level
+    const updateResult = await query<{ id: string; email: string; name: string; role: string; preferences: unknown }>(
+      `UPDATE users
+       SET role = $2,
+           preferences = jsonb_set(
+             CASE WHEN $3::text IS NULL
+                  THEN COALESCE(preferences, '{}'::jsonb)
+                  ELSE jsonb_set(COALESCE(preferences, '{}'::jsonb), '{operator_level}', to_jsonb($3::text))
+             END,
+             '{roles}',
+             CASE WHEN COALESCE(preferences->'roles', '[]'::jsonb) ? $2
+                  THEN COALESCE(preferences->'roles', '[]'::jsonb)
+                  ELSE COALESCE(preferences->'roles', '[]'::jsonb) || to_jsonb($2::text)
+             END
+           ),
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, email, name, role, preferences`,
+      [userId, role, level ?? null]
+    );
+
+    if (updateResult.rows.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Пользователь не найден',
+      } as ApiResponse<null>, { status: 404 });
+    }
+
+    // Партнёрским ролям — партнёрский профиль (иначе кабинет пуст)
+    const partnerId = await ensurePartnerForRole(userId, role);
+
+    // Аудит смены роли; сбой аудита не блокирует ответ
+    await query(
+      `INSERT INTO audit_log (entity_type, entity_id, action, data, ip_address, created_at)
+       VALUES ('user', $1, 'role_change', $2, $3, NOW())`,
+      [
+        userId,
+        JSON.stringify({ role, level: level || null, changedBy: adminOrResponse.userId }),
+        getClientIp(request.headers),
+      ]
+    ).catch(() => {});
+
+    const updated = updateResult.rows[0];
     return NextResponse.json({
       success: true,
       data: {
-        userId,
-        role,
+        userId: updated.id,
+        role: updated.role,
         level: level || null,
-        message: 'Role updated successfully',
+        partnerId,
+        message: 'Роль пользователя обновлена',
       },
-    } as ApiResponse<{ userId: string; role: string; level: string | null; message: string }>);
+    } as ApiResponse<{ userId: string; role: string; level: string | null; partnerId: string | null; message: string }>);
 
   } catch (error) {
     return NextResponse.json({
