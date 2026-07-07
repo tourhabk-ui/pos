@@ -57,11 +57,16 @@ export async function calculateDynamicPrice(input: PriceCalcInput): Promise<Pric
     return { basePrice, finalPrice: basePrice, discount: 0, multiplier: 1, appliedRules: [] };
   }
 
-  // Загружаем текущую загрузку слота (если есть)
+  // Загружаем текущую загрузку слота (если есть). Занятость — из реальных
+  // броней (v_tour_daily_occupancy), не из счётчика booked_slots: счётчик
+  // видит только оплаченных, и occupancy-сюрдж недо-срабатывал, пока
+  // неоплаченные заявки заполняли даты.
   const { rows: slotRows } = await pool.query<{ available_slots: number | null; booked_slots: number }>(
-    `SELECT available_slots, COALESCE(booked_slots, 0) AS booked_slots
-     FROM tour_availability
-     WHERE operator_tour_id = $1 AND date = $2 AND is_cancelled = FALSE`,
+    `SELECT ta.available_slots, COALESCE(occ.occupied, 0)::int AS booked_slots
+     FROM tour_availability ta
+     LEFT JOIN v_tour_daily_occupancy occ
+       ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
+     WHERE ta.operator_tour_id = $1 AND ta.date = $2 AND ta.is_cancelled = FALSE`,
     [tourId, tourDate]
   );
 

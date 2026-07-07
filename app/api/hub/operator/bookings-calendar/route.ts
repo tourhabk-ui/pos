@@ -64,21 +64,33 @@ export async function GET(req: NextRequest) {
     [operatorId, dateFrom, dateTo]
   );
 
-  // Доступность слотов за месяц
+  // Доступность слотов за месяц. Занятость (booked_slots для клиента) — из
+  // реальных броней (SUM(participants), NOT IN cancelled/rejected), а не из
+  // счётчика: счётчик пишет только payment-webhook («оплаченные»), и оператор
+  // не видел неоплаченные заявки в заполненности своего календаря.
   const availResult = await pool.query(
     `SELECT
        ta.date::text,
        ta.available_slots,
-       ta.booked_slots,
+       occ.taken AS booked_slots,
        ta.weather_status,
        ta.is_cancelled,
        t.title AS tour_title,
        t.id::text AS tour_id
      FROM tour_availability ta
      JOIN operator_tours t ON ta.operator_tour_id = t.id
+     CROSS JOIN LATERAL (
+       SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+       FROM operator_bookings ob
+       WHERE ob.operator_tour_id = ta.operator_tour_id
+         AND ob.booking_date = ta.date
+         AND ob.booking_status NOT IN ('cancelled', 'rejected')
+         AND ob.deleted_at IS NULL
+     ) occ
      WHERE t.operator_id = $1
        AND ta.date >= $2
        AND ta.date <= $3
+       AND ta.deleted_at IS NULL
      ORDER BY ta.date ASC`,
     [operatorId, dateFrom, dateTo]
   );

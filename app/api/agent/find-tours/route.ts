@@ -57,6 +57,10 @@ export async function GET(req: NextRequest) {
     activityFilter = `AND t.activity_type = $${params.length}`;
   }
 
+  // Свободные места — из реальных броней, не из счётчика booked_slots:
+  // счётчик видит только оплаченных (пишет payment-webhook), и агент
+  // получал бы завышенную доступность → овербукинг. Статусы и кламп —
+  // как у гейта бронирования (/api/tours/[id]/slots).
   const sql = `
     SELECT
       t.id                                                             AS tour_id,
@@ -72,7 +76,7 @@ export async function GET(req: NextRequest) {
       p.company_name                                                   AS operator_name,
       p.contacts->>'phone'                                             AS operator_phone,
       a.date                                                           AS available_date,
-      (a.available_slots - COALESCE(a.booked_slots, 0))               AS available_spots,
+      GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) AS available_spots,
       COALESCE(a.base_price_override, t.base_price)::numeric          AS price,
       ROUND(COALESCE(a.base_price_override, t.base_price) * 0.10)     AS agent_commission
     FROM operator_tours t
@@ -81,9 +85,17 @@ export async function GET(req: NextRequest) {
       ON a.operator_tour_id = t.id
       AND a.date BETWEEN $1 AND $2
       AND a.deleted_at IS NULL
+      AND a.is_cancelled = FALSE
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+      FROM operator_bookings ob
+      WHERE ob.operator_tour_id = a.operator_tour_id
+        AND ob.booking_date = a.date
+        AND ob.booking_status NOT IN ('cancelled', 'rejected')
+    ) occ
     WHERE t.is_published  = TRUE
       AND t.deleted_at    IS NULL
-      AND (a.available_slots - COALESCE(a.booked_slots, 0)) >= $3
+      AND GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) >= $3
       ${activityFilter}
     ORDER BY a.date ASC, price ASC
     LIMIT $4

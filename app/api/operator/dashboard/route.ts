@@ -217,16 +217,21 @@ export async function GET(request: NextRequest) {
       label: '',
     }));
 
-    // 6. ПРЕДСТОЯЩИЕ ТУРЫ (через availability slots)
+    // 6. ПРЕДСТОЯЩИЕ ТУРЫ (через availability slots). Занятость — из
+    // v_tour_daily_occupancy (реальные брони), не из счётчика booked_slots
+    // («оплаченные», webhook) — иначе оператор не видел неоплаченные заявки,
+    // хотя остальной дашборд считает из operator_bookings.
     const upcomingResult = await query<OpDashboardUpcomingTourRow>(`
       SELECT
-        t.id::text          AS tour_id,
-        t.title             AS tour_name,
-        a.date              AS date,
-        a.booked_slots      AS bookings_count,
-        a.available_slots   AS capacity
+        t.id::text                  AS tour_id,
+        t.title                     AS tour_name,
+        a.date                      AS date,
+        COALESCE(occ.occupied, 0)   AS bookings_count,
+        a.available_slots           AS capacity
       FROM tour_availability a
       JOIN operator_tours t ON a.operator_tour_id = t.id
+      LEFT JOIN v_tour_daily_occupancy occ
+        ON occ.operator_tour_id = a.operator_tour_id AND occ.date = a.date
       WHERE t.operator_id = $1
         AND a.date >= CURRENT_DATE
         AND a.is_cancelled = FALSE
