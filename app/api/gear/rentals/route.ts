@@ -57,8 +57,8 @@ export async function POST(request: NextRequest) {
     // Проверяем доступность снаряжения
     const availabilityCheck = await query<{ available_quantity: number; price_per_day: string; price_per_week: string }>(`
       SELECT available_quantity, price_per_day, price_per_week
-      FROM gear
-      WHERE id = $1
+      FROM gear_items
+      WHERE id = $1 AND is_active = TRUE
     `, [gearId]);
 
     if (availabilityCheck.rows.length === 0) {
@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
         g.name as gear_name,
         g.category as gear_category
       FROM gear_rentals gr
-      JOIN gear g ON gr.gear_id = g.id
+      JOIN gear_items g ON gr.gear_id = g.id
     `;
 
     const params: (string | number)[] = [];

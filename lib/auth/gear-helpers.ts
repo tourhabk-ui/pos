@@ -136,9 +136,10 @@ export async function verifyGearItemOwnership(userId: string, gearItemId: string
 export async function verifyGearRentalOwnership(userId: string, rentalId: string): Promise<boolean> {
   try {
     const result = await query(
-      `SELECT gr.id 
+      `SELECT gr.id
        FROM gear_rentals gr
-       JOIN partners p ON gr.partner_id = p.id
+       JOIN gear_items gi ON gr.gear_id = gi.id
+       JOIN partners p ON gi.partner_id = p.id
        WHERE p.user_id = $1 AND gr.id = $2`,
       [userId, rentalId]
     );
@@ -253,40 +254,40 @@ export async function getGearStats(userId: string): Promise<Record<string, unkno
       return null;
     }
     
-    // Overall stats
+    // Overall stats. Аренды связаны с партнёром через gear_items (у gear_rentals
+    // нет partner_id), выручка — из total_price выданных/завершённых аренд:
+    // отдельного трекинга оплат по снаряжению нет, честнее считать по факту выдачи.
     const statsResult = await query(
-      `SELECT 
-        COUNT(DISTINCT gi.id) as total_items,
-        COUNT(DISTINCT gi.id) FILTER (WHERE gi.is_active = true) as active_items,
-        COUNT(DISTINCT gr.id) as total_rentals,
-        COUNT(DISTINCT gr.id) FILTER (WHERE gr.status = 'active') as active_rentals,
-        COUNT(DISTINCT gr.id) FILTER (WHERE gr.status = 'completed') as completed_rentals,
-        COUNT(DISTINCT gr.id) FILTER (WHERE gr.status = 'pending') as pending_rentals,
-        COALESCE(SUM(gr.total_amount) FILTER (WHERE gr.payment_status = 'paid'), 0) as total_revenue,
-        COALESCE(SUM(gr.deposit_amount) FILTER (WHERE gr.deposit_paid = true AND gr.deposit_refunded = false), 0) as deposits_held,
-        COALESCE(AVG(grev.rating), 0) as avg_rating,
-        COUNT(DISTINCT grev.id) as total_reviews
-      FROM partners p
-      LEFT JOIN gear_items gi ON p.id = gi.partner_id
-      LEFT JOIN gear_rentals gr ON p.id = gr.partner_id
-      LEFT JOIN gear_reviews grev ON gi.id = grev.gear_item_id AND grev.is_public = true
-      WHERE p.id = $1`,
+      `SELECT
+        (SELECT COUNT(*) FROM gear_items WHERE partner_id = $1) as total_items,
+        (SELECT COUNT(*) FROM gear_items WHERE partner_id = $1 AND is_active = true) as active_items,
+        (SELECT COALESCE(SUM(review_count), 0) FROM gear_items WHERE partner_id = $1) as total_reviews,
+        (SELECT COALESCE(AVG(rating) FILTER (WHERE review_count > 0), 0) FROM gear_items WHERE partner_id = $1) as avg_rating,
+        COUNT(gr.id) as total_rentals,
+        COUNT(gr.id) FILTER (WHERE gr.status = 'active') as active_rentals,
+        COUNT(gr.id) FILTER (WHERE gr.status = 'completed') as completed_rentals,
+        COUNT(gr.id) FILTER (WHERE gr.status = 'pending') as pending_rentals,
+        COALESCE(SUM(gr.total_price) FILTER (WHERE gr.status IN ('active', 'completed', 'overdue')), 0) as total_revenue
+      FROM gear_rentals gr
+      JOIN gear_items gi ON gr.gear_id = gi.id
+      WHERE gi.partner_id = $1`,
       [partnerId]
     );
-    
+
     const stats = statsResult.rows[0];
-    
+
     // Monthly revenue trend (last 6 months)
     const trendsResult = await query(
-      `SELECT 
-        DATE_TRUNC('month', created_at) as month,
+      `SELECT
+        DATE_TRUNC('month', gr.created_at) as month,
         COUNT(*) as rentals_count,
-        SUM(total_amount) as revenue
-      FROM gear_rentals
-      WHERE partner_id = $1 
-        AND payment_status = 'paid'
-        AND created_at >= CURRENT_DATE - INTERVAL '6 months'
-      GROUP BY DATE_TRUNC('month', created_at)
+        COALESCE(SUM(gr.total_price) FILTER (WHERE gr.status IN ('active', 'completed', 'overdue')), 0) as revenue
+      FROM gear_rentals gr
+      JOIN gear_items gi ON gr.gear_id = gi.id
+      WHERE gi.partner_id = $1
+        AND gr.status <> 'cancelled'
+        AND gr.created_at >= CURRENT_DATE - INTERVAL '6 months'
+      GROUP BY DATE_TRUNC('month', gr.created_at)
       ORDER BY month ASC`,
       [partnerId]
     );
@@ -335,7 +336,6 @@ export async function getGearStats(userId: string): Promise<Record<string, unkno
       },
       revenue: {
         total: parseFloat(String(stats.total_revenue ?? 0)),
-        depositsHeld: parseFloat(String(stats.deposits_held ?? 0)),
         monthlyTrends
       },
       reviews: {
