@@ -31,6 +31,7 @@ const ROLE_HUB: Record<string, string> = {
   transfer:          '/hub/transfer-operator',
   transfer_operator: '/hub/transfer-operator',
   agent:             '/hub/agent',
+  gear:              '/hub/gear',
   admin:             '/hub/admin',
 };
 

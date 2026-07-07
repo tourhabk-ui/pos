@@ -151,6 +151,25 @@ export async function GET(request: NextRequest) {
         dashboard: '/hub/agent',
       },
       {
+        id: 'gear',
+        name: 'Прокат снаряжения',
+        description: 'Управление инвентарём и заявками на аренду снаряжения',
+        permissions: [
+          'manage_gear_items',
+          'manage_gear_rentals',
+          'view_gear_stats',
+          'manage_profile',
+        ],
+        features: [
+          'Инвентарь: добавление и редактирование позиций',
+          'Публикация на витрине аренды',
+          'Подтверждение и ведение аренд',
+          'Учёт выдачи и возврата',
+          'Статистика по выручке и топ-позициям',
+        ],
+        dashboard: '/hub/gear',
+      },
+      {
         id: 'admin',
         name: 'Администратор',
         description: 'Системное управление, мониторинг и аналитика',
