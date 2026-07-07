@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
+import { SURFACE_TYPES as SURFACE_LABELS } from '@/lib/import/elevation-profile';
 import LeadModal from '@/components/routes/LeadModal';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
@@ -160,6 +161,10 @@ interface RouteDetail {
   hazards: string[] | null;
   distanceKm: number | null;
   elevationGainM: number | null;
+  elevationLossM: number | null;
+  elevationMinM: number | null;
+  elevationMaxM: number | null;
+  surfaceTypes: string[] | null;
   durationHours: number | null;
   pdfUrl: string | null;
   officialPassportUrl: string | null;
@@ -709,6 +714,46 @@ export default function RouteDetailClient({ id }: { id: string }) {
 
           {/* ── Левая колонка ───────────────────────────────────────────────── */}
           <div className="space-y-8">
+
+            {/* Высотный профиль и покрытие — только реальные данные из трека,
+                без графика; где null — блок честно не показывается */}
+            {(route.elevationGainM != null || (route.surfaceTypes?.length ?? 0) > 0) && (
+              <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+                {route.elevationGainM != null && route.elevationLossM != null && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-1">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Набор</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">+{route.elevationGainM} м</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Сброс</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">−{route.elevationLossM} м</p>
+                    </div>
+                    {route.elevationMinM != null && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Мин. высота</p>
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMinM} м</p>
+                      </div>
+                    )}
+                    {route.elevationMaxM != null && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Макс. высота</p>
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{route.elevationMaxM} м</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {(route.surfaceTypes?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {route.surfaceTypes!.map(s => (
+                      <span key={s} className="ds-badge text-[var(--text-secondary)] border border-[var(--border)]">
+                        {SURFACE_LABELS[s] ?? s}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Описание */}
             {descParagraphs.length > 0 && (
