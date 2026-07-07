@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { UserDetailRow, UserCheckRow, UserUpdateRow } from '@/lib/types/db-rows';
+import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,8 +52,9 @@ export async function PATCH(
     if (adminOrResponse instanceof NextResponse) return adminOrResponse;
 
     const { id } = await params;
+    // 'user' — legacy-значение роли туриста, встречается в старых записях
     const PatchSchema = z.object({
-      role: z.enum(['user', 'operator', 'guide', 'admin']).optional(),
+      role: z.enum(['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin']).optional(),
       name: z.string().min(1).max(255).optional(),
     }).refine(d => d.role !== undefined || d.name !== undefined, {
       message: 'Нет данных для обновления',
@@ -89,6 +91,11 @@ export async function PATCH(
       `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING id, email, name, role, updated_at`,
       values
     );
+
+    // Партнёрским ролям — партнёрский профиль (иначе кабинет пуст)
+    if (parsed.data.role !== undefined) {
+      await ensurePartnerForRole(id, parsed.data.role);
+    }
 
     return NextResponse.json({ success: true, data: result.rows[0] } as ApiResponse<UserUpdateRow>);
   } catch (error) {
