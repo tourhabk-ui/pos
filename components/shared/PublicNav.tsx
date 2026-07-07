@@ -17,7 +17,8 @@ const navItems: NavItem[] = [
   { name: 'Маршруты',     path: '/routes',         icon: Route  },
   { name: 'Карта',        path: '/map',             icon: Map    },
   { name: 'Партнёры',     path: '/operators',       icon: Users  },
-  { name: 'Трансферы',    path: '/hub/transfer',   icon: Bus    },
+  // Публичная страница поиска/бронирования; /hub/transfer — мок-дашборд, туда не ведём
+  { name: 'Трансферы',    path: '/transfers',      icon: Bus    },
   { name: 'Безопасность', path: '/hub/safety',     icon: Shield },
 ];
 
