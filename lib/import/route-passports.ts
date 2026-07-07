@@ -59,7 +59,8 @@ function stripTags(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
-    .replace(/&laquo;|&raquo;/g, '"')
+    .replace(/&quot;|&laquo;|&raquo;|&#171;|&#187;/g, '"')
+    .replace(/&mdash;|&ndash;/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -80,7 +81,9 @@ export function extractPassportLinks(html: string, baseUrl: string): PassportLin
     headings.push({ index: hm.index, text: stripTags(hm[2]) });
   }
 
-  const anchorRe = /<a\s[^>]*href="([^"]+\.pdf[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  // href в двойных ИЛИ одинарных кавычках; ссылки без текста (иконки)
+  // пропускаются осознанно — без названия паспорт не смапить
+  const anchorRe = /<a\s[^>]*href=["']([^"']+\.pdf[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let am: RegExpExecArray | null;
   while ((am = anchorRe.exec(html)) !== null) {
     const href = am[1];
@@ -127,7 +130,7 @@ export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/["«»„“().,:;!?№—–-]/g, ' ')
+    .replace(/["«»„“”’‘'`….,():;!?№—–-]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 0 && !STOP_WORDS.has(w))
     .join(' ')

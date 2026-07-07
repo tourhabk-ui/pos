@@ -76,6 +76,8 @@ interface Report {
   matched: Array<{ passport: string; route_id: string; route_title: string }>;
   ambiguous: Array<{ passport: string; candidates: Array<{ id: string; title: string }> }>;
   new_routes: string[];
+  /** Несколько паспортов смапились на один маршрут: применяется первый, остальные — на ручную разметку */
+  conflicts: Array<{ route_id: string; route_title: string; applied: string; skipped: string[] }>;
   applied: number;
 }
 
@@ -114,7 +116,11 @@ function sha256(buf: Buffer): string {
 
 function safeFileName(url: string): string {
   const base = url.split('/').filter(Boolean).pop() ?? 'passport.pdf';
-  return decodeURIComponent(base).replace(/[^\wа-яё.-]+/gi, '_').slice(0, 120);
+  const clean = decodeURIComponent(base).replace(/[^\wа-яё.-]+/gi, '_').slice(0, 110);
+  // Префикс от хэша URL: одинаковые basename из разных директорий
+  // (/kronotsky/pasport.pdf и /vulkany/pasport.pdf) не затирают друг друга
+  const urlHash = createHash('sha256').update(url).digest('hex').slice(0, 8);
+  return `${urlHash}_${clean}`;
 }
 
 function loadManifest(): Record<string, ManifestEntry> {
@@ -201,6 +207,7 @@ async function main(): Promise<void> {
     matched: [],
     ambiguous: [],
     new_routes: [],
+    conflicts: [],
     applied: 0,
   };
 
@@ -237,7 +244,10 @@ async function main(): Promise<void> {
     }
     const hash = sha256(buf);
 
-    if (manifest[key]?.sha256 === hash && manifest[key]?.parse_quality) {
+    // Скип только при успешном прошлом парсинге: partial/failed — временные
+    // состояния (LLM/сеть могли лежать), их надо ретраить при каждом прогоне
+    const prevQuality = manifest[key]?.parse_quality;
+    if (manifest[key]?.sha256 === hash && (prevQuality === 'ok' || SKIP_PARSE)) {
       log(`  skip (sha256 не изменился): ${link.title}`);
       report.skipped_unchanged++;
       continue;
@@ -284,12 +294,27 @@ async function main(): Promise<void> {
   const routes = routesResult.rows;
   log(`Маршрутов в БД: ${routes.length}`);
 
-  const toApply: Array<{ routeId: string; entry: ManifestEntry }> = [];
+  // Один маршрут — одна привязка: если несколько паспортов (напр. летний и
+  // зимний варианты) смапились на один route_id, применяется первый, остальные
+  // уходят в conflicts на ручную разметку — молчаливый last-write-wins запрещён
+  const toApply = new Map<string, ManifestEntry>();
   for (const entry of Object.values(manifest)) {
     const outcome: MappingOutcome = mapPassportToRoutes(entry.title, routes);
     if (outcome.kind === 'matched') {
+      const existing = toApply.get(outcome.route.id);
+      if (existing) {
+        const conflict = report.conflicts.find(c => c.route_id === outcome.route.id);
+        if (conflict) conflict.skipped.push(entry.title);
+        else report.conflicts.push({
+          route_id: outcome.route.id,
+          route_title: outcome.route.title,
+          applied: existing.title,
+          skipped: [entry.title],
+        });
+        continue;
+      }
       report.matched.push({ passport: entry.title, route_id: outcome.route.id, route_title: outcome.route.title });
-      toApply.push({ routeId: outcome.route.id, entry });
+      toApply.set(outcome.route.id, entry);
     } else if (outcome.kind === 'ambiguous') {
       report.ambiguous.push({ passport: entry.title, candidates: outcome.candidates });
     } else {
@@ -299,7 +324,7 @@ async function main(): Promise<void> {
 
   // ── 4. apply ──
   if (APPLY) {
-    for (const { routeId, entry } of toApply) {
+    for (const [routeId, entry] of toApply) {
       await pool.query(
         `UPDATE kamchatka_routes
          SET official_passport_url = $2,
@@ -323,9 +348,13 @@ async function main(): Promise<void> {
   log(`парсинг:            ok ${report.parsed_ok} / partial ${report.parsed_partial} / failed ${report.parsed_failed}`);
   log(`matched:            ${report.matched.length}${APPLY ? ` (применено: ${report.applied})` : ''}`);
   log(`ambiguous:          ${report.ambiguous.length} — на ручную разметку, автопривязки НЕТ`);
+  log(`конфликты:          ${report.conflicts.length} — несколько паспортов на один маршрут`);
   log(`new (нет в базе):   ${report.new_routes.length}`);
   for (const a of report.ambiguous) {
     log(`  ? «${a.passport}» → кандидаты: ${a.candidates.map(c => c.title).join(' | ')}`);
+  }
+  for (const c of report.conflicts) {
+    log(`  ! «${c.route_title}»: применён «${c.applied}», пропущены: ${c.skipped.join(' | ')}`);
   }
 
   await pool.end();
