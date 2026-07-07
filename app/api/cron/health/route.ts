@@ -99,10 +99,15 @@ async function checkDB(): Promise<HealthIssue[]> {
     }
   } catch { /* ai_actions_log может не существовать */ }
 
-  // OCTO: expire ON_HOLD bookings (hold_expires_at < NOW) + decrement booked_slots
+  // OCTO: expire ON_HOLD bookings (hold_expires_at < NOW).
+  // booked_slots не трогаем: OCTO больше не пишет счётчик (единственный
+  // писатель — payment-webhook, семантика «оплаченные»); смена статуса на
+  // 'cancelled' сама освобождает место в честной занятости. Старый декремент
+  // вдобавок выбирал ПРОИЗВОЛЬНЫЙ слот (WHERE booked_slots > 0 LIMIT 1),
+  // а не дату брони — портил чужие дни.
   try {
-    const expiredBkgResult = await pool.query<{ id: string; operator_tour_id: string; availability_id: string; octo_uuid: string; octo_api_key_id: string; participants: number }>(
-      `SELECT id, operator_tour_id, availability_id, octo_uuid, octo_api_key_id, participants
+    const expiredBkgResult = await pool.query<{ id: string; octo_uuid: string; participants: number }>(
+      `SELECT id, octo_uuid, participants
        FROM operator_bookings
        WHERE booking_status = 'new' AND hold_expires_at < NOW() AND deleted_at IS NULL
        LIMIT 1000`
@@ -120,28 +125,12 @@ async function checkDB(): Promise<HealthIssue[]> {
           [booking.id]
         );
 
-        // Decrement booked_slots in tour_availability (only if calendar-based, skip FREESALE)
-        const availResult = await pool.query<{ date: string }>(
-          `SELECT date FROM tour_availability WHERE operator_tour_id = $1 AND booked_slots > 0 LIMIT 1`,
-          [booking.operator_tour_id]
-        );
-        if (availResult.rows.length > 0) {
-          await pool.query(
-            `UPDATE tour_availability
-             SET booked_slots = GREATEST(0, booked_slots - $1)
-             WHERE operator_tour_id = $2 AND date = $3`,
-            [booking.participants, booking.operator_tour_id, availResult.rows[0].date]
-          );
-        }
-
         // Webhook notification
         const fullBooking = await getBookingByUuid(booking.octo_uuid);
         notifyOctoWebhooks('booking:expired', booking.id, fullBooking ?? {}).catch(() => {});
       }
 
-      if (expiredBkgResult.rows.length > 0) {
-        issues.push({ level: 'warn', text: `${expiredBkgResult.rows.length} OCTO hold'ы истекли, marked cancelled + slots freed` });
-      }
+      issues.push({ level: 'warn', text: `${expiredBkgResult.rows.length} OCTO hold'ы истекли, marked cancelled` });
     }
   } catch { /* OCTO tables могут не существовать */ }
 
