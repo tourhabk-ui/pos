@@ -38,11 +38,11 @@ export async function GET(
 
     // Проверяем существование размещения
     const accommQuery = `
-      SELECT id, name, total_rooms, price_per_night, is_active
+      SELECT id, name, total_rooms, price_per_night_from, is_active
       FROM accommodations
       WHERE id = $1
     `;
-    const accommResult = await query<{ id: string; name: string; total_rooms: string; price_per_night: string; is_active: boolean }>(accommQuery, [id]);
+    const accommResult = await query<{ id: string; name: string; total_rooms: string; price_per_night_from: string; is_active: boolean }>(accommQuery, [id]);
 
     if (accommResult.rows.length === 0) {
       return NextResponse.json({
@@ -76,8 +76,8 @@ export async function GET(
         FROM date_series ds
         LEFT JOIN accommodation_bookings ab ON ab.accommodation_id = $3
           AND ab.status IN ('confirmed', 'pending')
-          AND ds.date >= DATE(ab.check_in)
-          AND ds.date < DATE(ab.check_out)
+          AND ds.date >= ab.check_in_date
+          AND ds.date < ab.check_out_date
         GROUP BY ds.date
       )
       SELECT
@@ -117,7 +117,7 @@ export async function GET(
         date: row.date,
         available,
         roomsLeft: available ? roomsLeft : 0,
-        price: parseFloat(accommodation.price_per_night),
+        price: parseFloat(accommodation.price_per_night_from),
         reason
       };
     });

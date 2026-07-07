@@ -35,11 +35,11 @@ export async function GET(
 
     // Проверяем существование размещения
     const accommQuery = `
-      SELECT id, name, price_per_night, is_active
+      SELECT id, name, price_per_night_from, is_active
       FROM accommodations
       WHERE id = $1
     `;
-    const accommResult = await query<{ id: string; name: string; price_per_night: string; is_active: boolean }>(accommQuery, [id]);
+    const accommResult = await query<{ id: string; name: string; price_per_night_from: string; is_active: boolean }>(accommQuery, [id]);
 
     if (accommResult.rows.length === 0) {
       return NextResponse.json({
@@ -85,7 +85,7 @@ export async function GET(
       startDate,
       endDate,
       id,
-      accommodation.price_per_night
+      accommodation.price_per_night_from
     ]);
 
     const prices: PriceInfo[] = pricesResult.rows.map(row => ({
@@ -101,7 +101,7 @@ export async function GET(
         accommodationName: accommodation.name,
         startDate,
         endDate,
-        basePrice: parseFloat(accommodation.price_per_night),
+        basePrice: parseFloat(accommodation.price_per_night_from),
         prices
       }
     } as ApiResponse<unknown>);

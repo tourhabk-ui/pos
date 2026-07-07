@@ -1,10 +1,15 @@
 /**
- * API endpoint для получения детальной информации об объекте размещения
- * GET /api/accommodations/[id]
+ * API endpoint объекта размещения
+ * GET /api/accommodations/[id] — публичная карточка
+ * PATCH /api/accommodations/[id] — редактирование владельцем (или admin)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { query } from '@/lib/database';
+import { ApiResponse } from '@/types';
+import { requireAuth } from '@/lib/auth/middleware';
+import { verifyAccommodationOwnership } from '@/lib/auth/stay-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,11 +31,11 @@ export async function GET(
       is_verified: boolean; partner_name: string | null; partner_email: string | null;
       partner_phone: string | null; images: unknown; created_at: unknown; updated_at: unknown;
     }>(
-      `SELECT 
+      `SELECT
         a.*,
         p.name as partner_name,
-        p.email as partner_email,
-        p.phone as partner_phone,
+        p.contact->>'email' as partner_email,
+        p.contact->>'phone' as partner_phone,
         (
           SELECT json_agg(json_build_object(
             'url', ast.url, 
@@ -86,16 +91,16 @@ export async function GET(
       id: string; rating: string; comment: unknown; created_at: unknown;
       user_name: string | null; user_email: string | null;
     }>(
-      `SELECT 
+      `SELECT
         r.id,
-        r.rating,
+        r.overall_rating as rating,
         r.comment,
         r.created_at,
         u.name as user_name,
         u.email as user_email
-      FROM reviews r
+      FROM accommodation_reviews r
       LEFT JOIN users u ON r.user_id = u.id
-      WHERE r.accommodation_id = $1
+      WHERE r.accommodation_id = $1 AND r.is_visible = true
       ORDER BY r.created_at DESC
       LIMIT 10`,
       [id]
@@ -215,6 +220,113 @@ export async function GET(
         error: 'Ошибка при получении информации об объекте',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
+      { status: 500 }
+    );
+  }
+}
+
+const paramsSchema = z.object({ id: z.string().uuid('Некорректный ID объекта') });
+
+const UpdateAccommodationSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  shortDescription: z.string().max(500).optional(),
+  amenities: z.array(z.string()).optional(),
+  pricePerNightFrom: z.number().positive('Цена должна быть положительной').optional(),
+  pricePerNightTo: z.number().positive().nullable().optional(),
+  checkInTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
+  checkOutTime: z.string().regex(/^\d{2}:\d{2}$/, 'Формат времени — ЧЧ:ММ').optional(),
+  isActive: z.boolean().optional(),
+}).refine(data => Object.keys(data).length > 0, { message: 'Нет полей для обновления' });
+
+// PATCH /api/accommodations/[id] — владелец редактирует свой объект, admin — любой
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult.userId;
+    const isAdmin = authResult.role === 'admin';
+
+    const parsedParams = paramsSchema.safeParse(await params);
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        { success: false, error: 'Некорректный ID объекта' } as ApiResponse<null>,
+        { status: 400 }
+      );
+    }
+    const accommodationId = parsedParams.data.id;
+
+    if (!isAdmin) {
+      const owns = await verifyAccommodationOwnership(userId, accommodationId);
+      if (!owns) {
+        return NextResponse.json(
+          { success: false, error: 'Объект размещения не найден' } as ApiResponse<null>,
+          { status: 404 }
+        );
+      }
+    }
+
+    const body = await request.json();
+    const parsed = UpdateAccommodationSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' } as ApiResponse<null>,
+        { status: 400 }
+      );
+    }
+
+    // camelCase поля запроса → snake_case колонки; amenities — JSONB.
+    const columnMap: Record<string, { column: string; transform?: (v: unknown) => unknown }> = {
+      name: { column: 'name' },
+      description: { column: 'description' },
+      shortDescription: { column: 'short_description' },
+      amenities: { column: 'amenities', transform: v => JSON.stringify(v) },
+      pricePerNightFrom: { column: 'price_per_night_from' },
+      pricePerNightTo: { column: 'price_per_night_to' },
+      checkInTime: { column: 'check_in_time' },
+      checkOutTime: { column: 'check_out_time' },
+      isActive: { column: 'is_active' },
+    };
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+
+    for (const [key, value] of Object.entries(parsed.data)) {
+      const mapping = columnMap[key];
+      if (!mapping) continue;
+      setClauses.push(`${mapping.column} = $${idx}`);
+      values.push(mapping.transform ? mapping.transform(value) : value);
+      idx++;
+    }
+
+    setClauses.push('updated_at = NOW()');
+    values.push(accommodationId);
+
+    const result = await query(
+      `UPDATE accommodations SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Объект размещения не найден' } as ApiResponse<null>,
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Объект размещения обновлён'
+    } as ApiResponse<unknown>);
+
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: 'Ошибка при обновлении объекта размещения' } as ApiResponse<null>,
       { status: 500 }
     );
   }
