@@ -151,6 +151,27 @@ export async function GET(
       [id]
     ).catch(() => ({ rows: [] }));
 
+    // Оперативные ограничения точек маршрута: точечные сообщения
+    // (alert_message из PATCH /api/admin/places/[id]/status и миграций),
+    // закрытия (is_open=false) и зонные алерты (active_alerts из
+    // safety-ingest). hazards — статичный перечень опасностей, а это —
+    // живой статус «прямо сейчас».
+    const operationalResult = await query(
+      `SELECT p.name AS place_name, p.ark_id AS place_id,
+              rs.is_open, rs.alert_message, rs.active_alerts, rs.alert_severity
+       FROM route_waypoints rw
+       JOIN places p ON p.id = rw.place_id
+       JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
+       WHERE rw.route_id = $1
+         AND (
+           (rs.alert_message IS NOT NULL AND (rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()))
+           OR rs.is_open = FALSE
+           OR COALESCE(array_length(rs.active_alerts, 1), 0) > 0
+         )
+       ORDER BY rw.position`,
+      [id]
+    ).catch(() => ({ rows: [] }));
+
     // Отзывы о маршруте — запрос перенесён из /api/routes/detail/[id]
     // (карточка B, объединена с этой). Привязка через legacy ark_id.
     const reviewsResult = await query(
@@ -223,6 +244,14 @@ export async function GET(
           hazardTypes:  (w.hazard_types as string[]) ?? [],
         })),
         offers,
+        operationalAlerts: operationalResult.rows.map(a => ({
+          placeId:      a.place_id as string,
+          placeName:    a.place_name as string,
+          isOpen:       (a.is_open as boolean | null) ?? true,
+          message:      (a.alert_message as string | null) ?? null,
+          activeAlerts: (a.active_alerts as string[] | null) ?? [],
+          severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
+        })),
       },
     });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs } from '@/lib/services/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -161,6 +161,8 @@ function buildResponse(
     eqkam: ParseResultSummary;
     usgs?: ParseResultSummary;
     mchs?: ParseResultSummary;
+    news?: ParseResultSummary;
+    minec?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -171,6 +173,8 @@ function buildResponse(
     ...ingestResult.kbgsras.errors,
     ...ingestResult.eqkam.errors,
     ...(ingestResult.mchs?.errors ?? []),
+    ...(ingestResult.news?.errors ?? []),
+    ...(ingestResult.minec?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -196,6 +200,16 @@ function buildResponse(
       events_found: ingestResult.mchs.events.length,
       inserted: ingestResult.mchs.inserted,
       skipped: ingestResult.mchs.skipped,
+    } : undefined,
+    news: ingestResult.news ? {
+      events_found: ingestResult.news.events.length,
+      inserted: ingestResult.news.inserted,
+      skipped: ingestResult.news.skipped,
+    } : undefined,
+    minec: ingestResult.minec ? {
+      events_found: ingestResult.minec.events.length,
+      inserted: ingestResult.minec.inserted,
+      skipped: ingestResult.minec.skipped,
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
@@ -229,6 +243,9 @@ export async function GET(req: Request) {
 const HtmlBodySchema = z.object({
   kbgsras_html: z.string().min(1),
   eqkam_html: z.string().min(1),
+  // Канал Минэкономразвития (законодательство/ограничения для туризма).
+  // Optional: старый воркфлоу без этого поля продолжает работать.
+  minec_html: z.string().optional(),
 });
 
 // POST — GitHub Actions передаёт уже скачанный HTML (Telegram, geo-заблокирован
@@ -254,17 +271,24 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult] = await Promise.all([
+  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
+    ingestNewsFeeds(),
+    parsed.data.minec_html
+      ? ingestTelegramNewsHtml(parsed.data.minec_html)
+      : Promise.resolve(undefined),
   ]);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
     eqkam: telegramResult.eqkam,
     mchs: mchsResult,
     usgs: usgsResult,
-    total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted,
+    news: newsResult,
+    minec: minecResult,
+    total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
+      + newsResult.inserted + (minecResult?.inserted ?? 0),
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;

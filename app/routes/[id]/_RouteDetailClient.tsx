@@ -164,6 +164,18 @@ interface RouteDetail {
   pdfUrl: string | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
+  operationalAlerts?: OperationalAlert[];
+}
+
+// Живой статус точек маршрута (закрытия, пропускной режим) — в отличие
+// от hazards, это не свойство места, а «что происходит прямо сейчас»
+interface OperationalAlert {
+  placeId: string;
+  placeName: string;
+  isOpen: boolean;
+  message: string | null;
+  activeAlerts: string[];
+  severity: number;
 }
 
 interface RouteReview {
@@ -654,6 +666,31 @@ export default function RouteDetailClient({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {/* ── ОПЕРАТИВНЫЕ ОГРАНИЧЕНИЯ ─────────────────────────────────────────── */}
+      {(route.operationalAlerts?.length ?? 0) > 0 && (
+        <div className="border-b border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="max-w-6xl mx-auto px-4 md:px-8 py-3 space-y-2">
+            {route.operationalAlerts!.map(alert => (
+              <div key={alert.placeId} className="flex items-start gap-2.5">
+                <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${alert.severity >= 2 || !alert.isOpen ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`} />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[var(--text-primary)]">
+                    {alert.placeName}
+                    {!alert.isOpen && <span className="text-[var(--danger)]"> — закрыто</span>}
+                  </p>
+                  {alert.message && (
+                    <p className="text-xs text-[var(--text-secondary)]">{alert.message}</p>
+                  )}
+                  {!alert.message && alert.activeAlerts.length > 0 && (
+                    <p className="text-xs text-[var(--text-secondary)]">{alert.activeAlerts.join(' · ')}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── ОПАСНОСТИ ────────────────────────────────────────────────────────── */}
       {((route.hazards?.length ?? 0) > 0 || route.mchsRequired) && (
