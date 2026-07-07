@@ -16,7 +16,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -125,6 +125,22 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
   }
 
   return messages;
+}
+
+// ── Дорожные ограничения ──────────────────────────────────────────────────
+// Закрытие проезда / пропускной режим / перекрытие дорог к туристическим
+// местам. Категория появилась после пропущенной новости о пропусках к
+// Вилючинскому перевалу и закрытии проезда к Вачкажцу (июль 2026): все
+// прежние категории были природными, дорожные ограничения отбрасывались.
+
+const ROAD_RESTRICTION_RE =
+  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)/i;
+
+export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
+  if (!ROAD_RESTRICTION_RE.test(text)) return null;
+  // Полное закрытие — красный уровень, ограничение/пропуска — жёлтый
+  const severity: 1 | 2 = /закрыт|перекрыт/i.test(text) ? 2 : 1;
+  return { severity };
 }
 
 // ── Классификатор событий ─────────────────────────────────────────────────
@@ -247,6 +263,22 @@ function classifyMessage(id: string, text: string, datetime: string): SeismicEve
         expires_hours: isBulletin ? 24 * 7 : severity >= 2 ? 48 : 24,
       };
     }
+  }
+
+  // ── Дорожные ограничения (закрытие проезда, пропускной режим) ─────────
+  const road = detectRoadRestriction(t);
+  if (road) {
+    return {
+      source_id: id,
+      source_url: `https://${id}`,
+      published_at: publishedAt,
+      alert_type: 'road_closure',
+      severity: road.severity,
+      title: text.split('\n')[0].slice(0, 200) || 'Ограничение проезда',
+      description: text.slice(0, 800),
+      affected_zones: mchs_zones(text),
+      expires_hours: 24 * 7,
+    };
   }
 
   return null;
@@ -464,6 +496,8 @@ export async function ingestUsgs(): Promise<ParseResult> {
 // ── МЧС Камчатка ─────────────────────────────────────────────────────────────
 
 const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
+  // Вачкажец/Сокоч/Начики — трасса на западное побережье, задевает обе зоны
+  [/вачкажец|сокоч|начикинск/i, ['western', 'avachinsky']],
   [/елизов/i,       ['avachinsky']],
   [/петропавловск/i,['avachinsky']],
   [/быстринск/i,    ['western']],
@@ -519,6 +553,12 @@ export function classifyMchsItem(
     alert_type = 'flood'; severity = 1; expires_hours = 120;
   } else if (/пожар|противопожарный режим|особый.*режим/i.test(text)) {
     alert_type = 'fire_danger'; severity = 1; expires_hours = 168;
+  } else if (detectRoadRestriction(text)) {
+    // Дорожные ограничения: пропускной режим, закрытие/перекрытие проезда
+    // к туристическим местам (пропущенный кейс: Вилючинский перевал/Вачкажец)
+    alert_type = 'road_closure';
+    severity = detectRoadRestriction(text)!.severity;
+    expires_hours = 24 * 7;
   } else if (
     /вулкан/.test(text) &&
     /газопепловый выброс|пепловый выброс|пепловое облако|извержени|оползн|обвал|восхождени|сейсмическ|землетрясен/.test(text)
