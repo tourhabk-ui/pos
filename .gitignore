@@ -162,3 +162,6 @@ content/places-update/*.png
 public/dark.jpg
 scripts/update-timeweb-envs.ps1
 *.ps1
+
+# PDF-паспорта маршрутов (качаются скриптом, в git только манифест-отчёты в артефактах CI)
+data/route-passports/

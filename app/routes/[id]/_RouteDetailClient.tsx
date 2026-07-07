@@ -162,6 +162,8 @@ interface RouteDetail {
   elevationGainM: number | null;
   durationHours: number | null;
   pdfUrl: string | null;
+  officialPassportUrl: string | null;
+  passportAgency: string | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
   operationalAlerts?: OperationalAlert[];
@@ -1276,11 +1278,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
           </div>
         )}
 
-        {/* ── Паспорт маршрута (PDF, visitkamchatka.ru) ─────────────────────── */}
-        {route.pdfUrl && (
+        {/* ── Паспорт маршрута (PDF, visitkamchatka.ru) ───────────────────────
+            officialPassportUrl — привязка, верифицированная импортом (с
+            ведомством); pdfUrl — историческая ссылка ранних импортов.
+            Показываем один блок, не дублируем ссылки. */}
+        {(route.officialPassportUrl || route.pdfUrl) && (
           <div className="mt-10 pt-8 border-t border-[var(--border)]">
             <a
-              href={route.pdfUrl}
+              href={route.officialPassportUrl ?? route.pdfUrl ?? '#'}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between gap-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)] transition-colors"
@@ -1290,9 +1295,16 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                 </div>
                 <div>
-                  <p className="font-semibold text-[var(--text-primary)]">Паспорт маршрута (PDF)</p>
+                  <p className="font-semibold text-[var(--text-primary)] flex items-center gap-2 flex-wrap">
+                    {route.officialPassportUrl ? 'Официальный паспорт маршрута' : 'Паспорт маршрута (PDF)'}
+                    {route.officialPassportUrl && (
+                      <span className="ds-badge text-[var(--success)] border border-[var(--border)]">Проверено</span>
+                    )}
+                  </p>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Официальный документ: нитка маршрута, сезонность, требования
+                    {route.passportAgency
+                      ? `Утверждён: ${route.passportAgency} · нитка маршрута, сезонность, требования`
+                      : 'Официальный документ: нитка маршрута, сезонность, требования'}
                   </p>
                 </div>
               </div>
