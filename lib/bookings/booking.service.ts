@@ -180,17 +180,9 @@ export async function confirmBooking(
       [bookingId]
     );
 
-    // Обновляем счётчик занятых мест в заезде (если бронь привязана к tour_departures)
-    await client.query(
-      `UPDATE tour_departures
-       SET booked_slots = booked_slots + b.participants
-       FROM operator_bookings b
-       WHERE tour_departures.id = b.departure_id
-         AND b.id = $1
-         AND b.departure_id IS NOT NULL
-         AND b.deleted_at IS NULL`,
-      [bookingId]
-    );
+    // Счётчик tour_departures.booked_slots здесь не трогаем: колонку
+    // operator_bookings.departure_id не заполняет ни один поток — старый
+    // UPDATE был вечным no-op (модель отправлений полу-мёртвая, см. бэклог).
 
     await logStatusChange(client, bookingId, currentStatus, 'confirmed', operatorId, 'Бронирование подтверждено оператором');
 
@@ -633,17 +625,9 @@ export async function confirmBookingPayment(
       [bookingId]
     );
 
-    // Обновляем счётчик занятых мест в заезде (если бронь привязана к tour_departures)
-    await client.query(
-      `UPDATE tour_departures
-       SET booked_slots = booked_slots + b.participants
-       FROM operator_bookings b
-       WHERE tour_departures.id = b.departure_id
-         AND b.id = $1
-         AND b.departure_id IS NOT NULL
-         AND b.deleted_at IS NULL`,
-      [bookingId]
-    );
+    // Счётчик tour_departures.booked_slots здесь не трогаем: колонку
+    // operator_bookings.departure_id не заполняет ни один поток — старый
+    // UPDATE был вечным no-op (модель отправлений полу-мёртвая, см. бэклог).
 
     await logStatusChange(
       client,

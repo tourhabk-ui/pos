@@ -24,10 +24,13 @@ export async function GET(request: NextRequest) {
       ? (rawPeriod as AllowedPeriod)
       : '30';
 
-    // Метрики агента
+    // Метрики агента. Период применяется к ДАТЕ БРОНИ (b.created_at):
+    // раньше он стоял на c.created_at (дата регистрации клиента), и брони/
+    // выручка клиентов, заведённых до начала периода, молча выпадали из
+    // всех тоталов. Клиенты за период — отдельным CASE (семантика прежняя).
     const metricsQuery = `
       SELECT
-        COUNT(DISTINCT c.id) as total_clients,
+        COUNT(DISTINCT CASE WHEN c.created_at >= NOW() - ($2::int * INTERVAL '1 day') THEN c.id END) as total_clients,
         COUNT(DISTINCT CASE WHEN c.status = 'active' THEN c.id END) as active_clients,
         COUNT(b.id) as total_bookings,
         COUNT(CASE WHEN b.status = 'pending' THEN 1 END) as pending_bookings,
@@ -41,8 +44,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(CASE WHEN b.commission_status = 'pending' THEN b.agent_commission END), 0) as pending_commission
       FROM agent_clients c
       LEFT JOIN agent_bookings b ON c.id = b.client_id AND b.agent_id = $1
+        AND b.created_at >= NOW() - ($2::int * INTERVAL '1 day')
       WHERE c.agent_id = $1
-        AND c.created_at >= NOW() - ($2::int * INTERVAL '1 day')
     `;
 
     const metricsResult = await query<{
