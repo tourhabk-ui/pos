@@ -64,6 +64,24 @@ interface EarningsRow {
 }
 
 export class GuideAgency {
+  /**
+   * Гид → оператор: единственная реальная связь в схеме —
+   * partners.guide_operator_id (как в /api/guide/tours). Старые запросы
+   * агентства опирались на несуществующие operator_tours.guide_id и
+   * operator_bookings.departure_id → всегда пусто/ошибка.
+   */
+  private async resolveGuideOperatorId(userId: number | undefined): Promise<string | null> {
+    if (!userId) return null;
+    const { rows } = await pool.query<{ guide_operator_id: string | null }>(
+      `SELECT p.guide_operator_id
+       FROM partners p
+       WHERE p.user_id = $1
+       LIMIT 1`,
+      [userId]
+    );
+    return rows[0]?.guide_operator_id ?? null;
+  }
+
   async run(
     intent: string,
     context: AgentContext,
@@ -94,25 +112,29 @@ export class GuideAgency {
     }
 
     try {
+      const operatorId = await this.resolveGuideOperatorId(context.user.userId);
+      if (!operatorId) {
+        return { response: 'Вы не прикреплены к оператору — назначений нет.' };
+      }
+
       const { rows } = await pool.query<ScheduleRow>(
         `SELECT
-           b.id            AS booking_id,
-           t.title         AS tour_title,
-           td.start_date::text AS start_date,
-           td.end_date::text   AS end_date,
-           td.booked_slots,
-           b.booking_status AS status
+           b.id                    AS booking_id,
+           t.title                 AS tour_title,
+           b.booking_date::text    AS start_date,
+           b.end_date::text        AS end_date,
+           b.participants          AS booked_slots,
+           b.booking_status        AS status
          FROM operator_bookings b
-         JOIN operator_tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
+         JOIN operator_tours t ON t.id = b.operator_tour_id
+         WHERE t.operator_id = $1
            AND b.booking_status = 'confirmed'
-           AND td.start_date >= CURRENT_DATE
+           AND b.booking_date >= CURRENT_DATE
            AND b.deleted_at IS NULL
            AND t.deleted_at IS NULL
-         ORDER BY td.start_date
+         ORDER BY b.booking_date
          LIMIT 10`,
-        [context.user.userId]
+        [operatorId]
       );
 
       if (rows.length === 0) {
@@ -138,19 +160,23 @@ export class GuideAgency {
     }
 
     try {
+      const operatorId = await this.resolveGuideOperatorId(context.user.userId);
+      if (!operatorId) {
+        return { response: 'Вы не прикреплены к оператору — групп нет.' };
+      }
+
       const { rows } = await pool.query<GroupsRow>(
         `SELECT
-           COUNT(DISTINCT b.id)::text         AS active_groups,
-           COALESCE(SUM(td.booked_slots), 0)::text AS total_tourists
+           COUNT(DISTINCT b.id)::text              AS active_groups,
+           COALESCE(SUM(b.participants), 0)::text  AS total_tourists
          FROM operator_bookings b
-         JOIN operator_tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
+         JOIN operator_tours t ON t.id = b.operator_tour_id
+         WHERE t.operator_id = $1
            AND b.booking_status = 'confirmed'
-           AND td.start_date >= CURRENT_DATE
+           AND b.booking_date >= CURRENT_DATE
            AND b.deleted_at IS NULL
            AND t.deleted_at IS NULL`,
-        [context.user.userId]
+        [operatorId]
       );
 
       const r = rows[0] ?? { active_groups: '0', total_tourists: '0' };
@@ -170,18 +196,22 @@ export class GuideAgency {
     }
 
     try {
+      const operatorId = await this.resolveGuideOperatorId(context.user.userId);
+      if (!operatorId) {
+        return { response: 'Вы не прикреплены к оператору — данных по заработку нет.' };
+      }
+
       const { rows } = await pool.query<EarningsRow>(
         `SELECT
-           COUNT(DISTINCT b.id)::text                                              AS completed_tours,
-           SUM(COALESCE(td.price_override, t.base_price, 0) * td.booked_slots)::text AS estimated_earnings
+           COUNT(DISTINCT b.id)::text            AS completed_tours,
+           SUM(b.final_price)::text              AS estimated_earnings
          FROM operator_bookings b
-         JOIN operator_tours t        ON t.id = b.tour_id
-         JOIN tour_departures td ON td.id = b.departure_id
-         WHERE t.guide_id = $1
-           AND b.booking_status = 'confirmed'
+         JOIN operator_tours t ON t.id = b.operator_tour_id
+         WHERE t.operator_id = $1
+           AND b.booking_status IN ('confirmed', 'completed')
            AND b.deleted_at IS NULL
            AND t.deleted_at IS NULL`,
-        [context.user.userId]
+        [operatorId]
       );
 
       const r = rows[0] ?? { completed_tours: '0', estimated_earnings: null };
