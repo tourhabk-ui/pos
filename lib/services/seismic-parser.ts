@@ -528,6 +528,7 @@ export function classifyMchsItem(
   description: string,
   pubDate: string,
   link: string,
+  sourcePrefix: string = 'mchs',
 ): SeismicEvent | null {
   const text = `${title} ${description}`.toLowerCase();
 
@@ -579,7 +580,7 @@ export function classifyMchsItem(
   if (isNaN(publishedAt.getTime())) return null;
 
   return {
-    source_id:     `mchs/${id}`,
+    source_id:     `${sourcePrefix}/${id}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,
@@ -689,22 +690,97 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
   return result;
 }
 
+// ── Новостные источники (kamgov, visitkamchatka) ─────────────────────────
+// Появились после пропущенной дорожной новости (пропуска к Вилючинскому
+// перевалу): kamgov RSS читался только суточным Scout Digest — в
+// Telegram-дайджест, мимо external_alerts; visitkamchatka не читался вообще.
+// Классификация — той же classifyMchsItem: природные категории + road_closure.
+
+const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?: boolean }> = [
+  { prefix: 'kamgov', candidates: ['https://www.kamgov.ru/rss'] },
+  // WordPress-фиды турпортала; из среды разработки сеть к нему закрыта,
+  // работоспособность не проверена — источник optional: недоступность
+  // не считается ошибкой конвейера, fetchOneMchsFeed отбрасывает не-RSS.
+  {
+    prefix: 'visitkamchatka',
+    optional: true,
+    candidates: [
+      'https://visitkamchatka.ru/security/feed/',
+      'https://visitkamchatka.ru/feed/',
+    ],
+  },
+];
+
+export async function ingestNewsFeeds(): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+
+  for (const source of NEWS_FEED_SOURCES) {
+    const xmls = (await Promise.all(source.candidates.map(fetchOneMchsFeed)))
+      .filter((xml): xml is string => xml !== null);
+
+    if (xmls.length === 0) {
+      if (!source.optional) result.errors.push(`news feed unavailable: ${source.prefix}`);
+      continue;
+    }
+
+    for (const xml of xmls) {
+      for (const it of parseMchsItems(xml)) {
+        const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link, source.prefix);
+        if (!event) continue;
+        result.events.push(event);
+        try {
+          const status = await saveEvent(event);
+          if (status === 'inserted') result.inserted++;
+          else result.skipped++;
+        } catch (e) {
+          result.errors.push((e as Error).message);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// ── Telegram-каналы с новостями (minec_tourism) ───────────────────────────
+// HTML канала скачивает GitHub Actions (t.me заблокирован для хостинга)
+// и передаёт в POST /api/cron/safety-ingest — как для kbgsras/eqkam.
+
+export async function ingestTelegramNewsHtml(html: string): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  for (const msg of extractMessages(html)) {
+    const event = classifyMessage(msg.id, msg.text, msg.datetime);
+    if (!event) continue;
+    result.events.push(event);
+    try {
+      const status = await saveEvent(event);
+      if (status === 'inserted') result.inserted++;
+      else result.skipped++;
+    } catch (e) {
+      result.errors.push((e as Error).message);
+    }
+  }
+  return result;
+}
+
 export async function ingestAll(): Promise<{
   kbgsras: ParseResult;
   eqkam: ParseResult;
   usgs: ParseResult;
   mchs: ParseResult;
+  news: ParseResult;
   total_inserted: number;
 }> {
-  const [kbgsras, eqkam, usgs, mchs] = await Promise.all([
-    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(),
+  const [kbgsras, eqkam, usgs, mchs, news] = await Promise.all([
+    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(), ingestNewsFeeds(),
   ]);
   return {
     kbgsras,
     eqkam,
     usgs,
     mchs,
-    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted + mchs.inserted,
+    news,
+    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted + mchs.inserted + news.inserted,
   };
 }
 

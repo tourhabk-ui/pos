@@ -30,8 +30,17 @@ jobs:
             "https://t.me/s/eqkam" > /tmp/eqkam.html \
             || echo "" > /tmp/eqkam.html
 
+          # Минэкономразвития Камчатки — законодательство и ограничения
+          # для туризма (дорожные закрытия, пропускные режимы)
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://t.me/s/minec_tourism" > /tmp/minec.html \
+            || echo "" > /tmp/minec.html
+
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
+          echo "minec:   $(wc -c < /tmp/minec.html) bytes"
 
       - name: Safety Ingest — POST HTML to server
         env:
@@ -39,11 +48,14 @@ jobs:
         run: |
           if [ -z "$CRON_SECRET" ]; then echo "ERROR: CRON_SECRET secret not configured in repo settings"; exit 1; fi
 
-          # jq --rawfile корректно экранирует произвольный HTML в JSON
+          # jq --rawfile корректно экранирует произвольный HTML в JSON.
+          # minec_html может быть пустым (канал недоступен) — сервер
+          # пропускает пустое поле, Zod-схема допускает отсутствие.
           jq -n \
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
-            '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}' \
+            --rawfile minec_html   /tmp/minec.html \
+            '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html} + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)' \
             > /tmp/payload.json
 
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
