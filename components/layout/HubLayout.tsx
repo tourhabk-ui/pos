@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { Sun, Moon, User } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import Logo from '@/components/shared/Logo';
+import { ROLE_HUB } from '@/lib/auth/role-routes';
 
 interface SidebarItem {
   href: string;
@@ -23,18 +24,6 @@ interface HubLayoutProps {
   /** Роль(и), необходимые для доступа. Неавторизованные → /auth/login, чужая роль → свой хаб. */
   requiredRole: string | string[];
 }
-
-const ROLE_HUB: Record<string, string> = {
-  tourist:           '/hub/tourist',
-  operator:          '/hub/operator',
-  guide:             '/hub/guide',
-  transfer:          '/hub/transfer-operator',
-  transfer_operator: '/hub/transfer-operator',
-  agent:             '/hub/agent',
-  gear:              '/hub/gear',
-  stay:              '/hub/stay',
-  admin:             '/hub/admin',
-};
 
 export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole }: HubLayoutProps) {
   const router = useRouter();
