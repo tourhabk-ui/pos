@@ -10,6 +10,7 @@ import {
   Calendar, Mountain, Star, Share2, Heart,
 } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
+import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 
@@ -421,12 +422,17 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 {tour.operator_name.charAt(0).toUpperCase()}
               </span>
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--text-primary)]">
                 {tour.operator_name}
               </p>
               <p className="text-xs text-[var(--text-muted)]">Реальный оператор, который проводит этот тур</p>
             </div>
+            <MessageOperatorButton
+              operatorPartnerId={tour.operator_id}
+              tourId={tour.id}
+              tourTitle={tour.title}
+            />
           </div>
 
           {/* Separator */}
