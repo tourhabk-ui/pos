@@ -151,6 +151,25 @@ export async function GET(request: NextRequest) {
         dashboard: '/hub/agent',
       },
       {
+        id: 'stay',
+        name: 'Владелец жилья',
+        description: 'Управление объектами размещения и бронями гостей',
+        permissions: [
+          'manage_accommodations',
+          'manage_stay_bookings',
+          'view_stay_stats',
+          'manage_profile',
+        ],
+        features: [
+          'Редактирование объектов размещения',
+          'Публикация и снятие с витрины',
+          'Подтверждение и ведение броней',
+          'Учёт заездов и no-show',
+          'Статистика по броням и выручке',
+        ],
+        dashboard: '/hub/stay',
+      },
+      {
         id: 'gear',
         name: 'Прокат снаряжения',
         description: 'Управление инвентарём и заявками на аренду снаряжения',

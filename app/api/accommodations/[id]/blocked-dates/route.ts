@@ -67,8 +67,8 @@ export async function GET(
         SELECT 1 FROM accommodation_bookings ab
         WHERE ab.accommodation_id = $3
           AND ab.status IN ('confirmed', 'pending')
-          AND ds.date >= DATE(ab.check_in)
-          AND ds.date < DATE(ab.check_out)
+          AND ds.date >= ab.check_in_date
+          AND ds.date < ab.check_out_date
       )
       ORDER BY ds.date
     `;
