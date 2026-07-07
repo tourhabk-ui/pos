@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
+import RouteAffiliateBlock from '@/components/routes/RouteAffiliateBlock';
+import YandexTravelBlock from '@/components/routes/YandexTravelBlock';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 
@@ -705,6 +707,12 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           tourTitle={tour.title}
         />
       </div>
+
+      {/* ─── Партнёрские сервисы поездки (§9 CLAUDE.md: место — страница тура) ───
+          Готовые блоки с трекингом кликов; раньше рендерились только на
+          маршрутах и /partners — на самой конверсионной странице их не было. */}
+      <RouteAffiliateBlock activityType={tour.activity_type} routeId={`tour-${tour.id}`} />
+      <YandexTravelBlock routeId={`tour-${tour.id}`} source="tour_detail" />
     </div>
   );
 }
