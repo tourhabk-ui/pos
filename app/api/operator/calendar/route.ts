@@ -60,13 +60,14 @@ export async function GET(request: NextRequest) {
       ta.weather_status,
       ta.is_cancelled,
       ta.cancellation_reason                   AS block_reason,
-      -- Реальные брони за эту дату
+      -- Реальные брони за эту дату: SUM(participants) — люди, не COUNT(*)
+      -- броней (групповая бронь на 5 человек занимает 5 мест, не 1)
       COALESCE((
-        SELECT COUNT(*)
+        SELECT SUM(b.participants)
         FROM operator_bookings b
         WHERE b.operator_tour_id = ta.operator_tour_id
           AND b.booking_date = ta.date
-          AND b.booking_status IN ('confirmed', 'new')
+          AND b.booking_status NOT IN ('cancelled', 'rejected')
           AND b.deleted_at IS NULL
       ), 0)::int                               AS booked_spots,
       -- Колонки notes в tour_availability нет (migrations 040/041) — раньше
