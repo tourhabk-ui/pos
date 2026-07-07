@@ -171,12 +171,21 @@ export async function checkAvailability(
   dateStart: string,
   dateEnd: string
 ) {
-  // Get explicit calendar slots
+  // Get explicit calendar slots. Занятость (booked_slots для мапперов) —
+  // из реальных броней, не из счётчика: счётчик пишет только payment-webhook
+  // («оплаченные»), и OCTO-канал отдавал бы резселлерам завышенные остатки.
   const { rows: slots } = await pool.query(
-    `SELECT ta.id, ta.date::text AS date, ta.available_slots, ta.booked_slots,
+    `SELECT ta.id, ta.date::text AS date, ta.available_slots, occ.taken AS booked_slots,
             ta.base_price_override, ot.base_price
      FROM tour_availability ta
      JOIN operator_tours ot ON ot.id = ta.operator_tour_id
+     CROSS JOIN LATERAL (
+       SELECT COALESCE(SUM(ob.participants), 0)::int AS taken
+       FROM operator_bookings ob
+       WHERE ob.operator_tour_id = ta.operator_tour_id
+         AND ob.booking_date = ta.date
+         AND ob.booking_status NOT IN ('cancelled', 'rejected')
+     ) occ
      WHERE ta.operator_tour_id = $1
        AND ta.date BETWEEN $2 AND $3
        AND ta.is_cancelled = false
@@ -272,9 +281,16 @@ export async function createBooking(data: {
     const participants = data.adultCount + data.childCount;
     const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
 
-    // Проверка слотов с блокировкой строки (FOR UPDATE SKIP LOCKED)
-    const slotCheck = await client.query<{ id: string; available_slots: number; booked_slots: number }>(
-      `SELECT id, available_slots, booked_slots
+    // Проверка слотов с блокировкой строки (FOR UPDATE SKIP LOCKED сериализует
+    // конкурентные OCTO-холды на дату). Занятость — из реальных броней:
+    // раньше здесь читался и ИНКРЕМЕНТИЛСЯ счётчик booked_slots — но его
+    // единственный писатель payment-webhook («оплаченные участники», #336),
+    // и OCTO-инкремент на неоплаченном холде смешивал семантики с риском
+    // переполнения CHECK (booked_slots <= available_slots) на смешанных
+    // каналах. OCTO-бронь — обычная строка operator_bookings, честная
+    // занятость считает её сама.
+    const slotCheck = await client.query<{ id: string; available_slots: number }>(
+      `SELECT id, available_slots
        FROM tour_availability
        WHERE operator_tour_id = $1 AND date = $2
        FOR UPDATE SKIP LOCKED`,
@@ -282,20 +298,20 @@ export async function createBooking(data: {
     );
     if (slotCheck.rows.length > 0) {
       const slot = slotCheck.rows[0];
-      const remaining = slot.available_slots - slot.booked_slots;
+      const { rows: occRows } = await client.query<{ taken: string }>(
+        `SELECT COALESCE(SUM(participants), 0) AS taken
+         FROM operator_bookings
+         WHERE operator_tour_id = $1
+           AND booking_date = $2
+           AND booking_status NOT IN ('cancelled', 'rejected')`,
+        [data.tourId, data.bookingDate]
+      );
+      const remaining = slot.available_slots - parseInt(occRows[0]?.taken ?? '0', 10);
       if (remaining < participants) {
         await client.query('ROLLBACK');
         return { error: 'AVAILABILITY_SOLD_OUT' };
       }
     }
-
-    // Increment booked_slots if calendar-based
-    await client.query(
-      `UPDATE tour_availability
-       SET booked_slots = booked_slots + $3
-       WHERE operator_tour_id = $1 AND date = $2`,
-      [data.tourId, data.bookingDate, participants]
-    );
 
     // Create booking
     const { rows: bookingRows } = await client.query(
@@ -436,14 +452,8 @@ export async function cancelBooking(octoUuid: string, apiKeyId: string, reason?:
 
     const booking = rows[0];
 
-    // Decrement booked_slots
-    await client.query(
-      `UPDATE tour_availability
-       SET booked_slots = GREATEST(0, booked_slots - $3)
-       WHERE operator_tour_id = $1 AND date = $2`,
-      [booking.operator_tour_id, booking.booking_date, booking.participants]
-    );
-
+    // booked_slots не трогаем: OCTO больше не пишет счётчик (см. createBooking) —
+    // отменённая бронь исчезает из честной занятости сама (status='cancelled').
     await client.query(
       `INSERT INTO octo_booking_log (booking_id, action, api_key_id, request_body)
        VALUES ($1, 'CANCEL', $2, $3)`,
