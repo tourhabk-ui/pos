@@ -6,6 +6,8 @@ import { hashPassword } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
+// Роли, которым нужен партнёрский профиль (partners.category совпадает с ролью)
+const PARTNER_ROLE_SET = new Set(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear']);
 
 const RegisterSchema = z.object({
   email: z.string({ required_error: 'Email обязателен' }).email('Неверный формат email'),
@@ -84,20 +86,37 @@ export async function POST(request: NextRequest) {
     
     const user = result.rows[0];
 
-    // Если роль — оператор, сразу создаём запись в partners
-    if (userRole === 'operator') {
-      const slug = name.toLowerCase()
-        .replace(/[^a-zа-я0-9]/gi, '-')
-        .replace(/-+/g, '-')
-        .slice(0, 40) + '-' + (user.id as string).slice(0, 8);
-      await client.query(
-        `INSERT INTO partners
-           (user_id, name, category, contact, commission_rate,
-            profile_status, onboarding_completed, is_public, slug, created_at, updated_at)
-         VALUES ($1, $2, 'operator', '{}'::jsonb, 0.15, 'none', false, false, $3, NOW(), NOW())
-         ON CONFLICT DO NOTHING`,
-        [user.id, name, slug]
-      );
+    // Партнёрский профиль — для каждой партнёрской роли из выбранных.
+    // Без него кабинеты (hub/guide, hub/stay, ...) не видят своих данных:
+    // всё партнёрское связано через partners.user_id + category.
+    for (const partnerRole of allRoles) {
+      if (!PARTNER_ROLE_SET.has(partnerRole)) continue;
+
+      if (partnerRole === 'operator') {
+        // Оператор — расширенный профиль под онбординг и комиссию
+        const slug = name.toLowerCase()
+          .replace(/[^a-zа-я0-9]/gi, '-')
+          .replace(/-+/g, '-')
+          .slice(0, 40) + '-' + (user.id as string).slice(0, 8);
+        await client.query(
+          `INSERT INTO partners
+             (user_id, name, category, contact, commission_rate,
+              profile_status, onboarding_completed, is_public, slug, created_at, updated_at)
+           VALUES ($1, $2, 'operator', '{}'::jsonb, 0.15, 'none', false, false, $3, NOW(), NOW())
+           ON CONFLICT DO NOTHING`,
+          [user.id, name, slug]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO partners
+             (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
+           SELECT $1, $2, $3, $4::jsonb, false, 0, 0, NOW(), NOW()
+           WHERE NOT EXISTS (
+             SELECT 1 FROM partners WHERE user_id = $1 AND category = $3
+           )`,
+          [user.id, name, partnerRole, JSON.stringify({ email: email.toLowerCase() })]
+        );
+      }
     }
 
     // Handle referral code

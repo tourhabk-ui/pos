@@ -6,16 +6,19 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, User, Briefcase, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { ROLE_HUB } from '@/lib/auth/role-routes';
 import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
 
 const PARTNER_ROLES = [
-  { id: 'operator', label: 'Туроператор', desc: 'Организация туров' },
-  { id: 'guide',    label: 'Гид',         desc: 'Проведение экскурсий' },
-  { id: 'transfer', label: 'Трансфер',    desc: 'Перевозка туристов' },
-  { id: 'agent',    label: 'Агент',       desc: 'Продажа туров' },
+  { id: 'operator', label: 'Туроператор',       desc: 'Организация туров' },
+  { id: 'guide',    label: 'Гид',               desc: 'Проведение экскурсий' },
+  { id: 'transfer', label: 'Трансфер',          desc: 'Перевозка туристов' },
+  { id: 'agent',    label: 'Агент',             desc: 'Продажа туров' },
+  { id: 'stay',     label: 'Владелец жилья',    desc: 'Отели и гостевые дома' },
+  { id: 'gear',     label: 'Прокат снаряжения', desc: 'Аренда снаряжения' },
 ] as const;
 
 const INPUT = 'w-full px-3.5 py-2.5 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors';
@@ -65,15 +68,7 @@ export default function AuthPageClient() {
       await signIn(email, password);
       const storedUser = JSON.parse(localStorage.getItem('user') ?? '{}') as { role?: string };
       const role = storedUser.role ?? 'tourist';
-      const redirectMap: Record<string, string> = {
-        tourist: '/hub/tourist',
-        operator: '/hub/operator',
-        guide: '/hub/guide',
-        admin: '/hub/admin',
-        transfer: '/hub/transfer-operator',
-        agent: '/hub/agent',
-      };
-      router.push(redirectMap[role] ?? '/hub/tourist');
+      router.push(ROLE_HUB[role] ?? '/hub/tourist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Неверный email или пароль');
     } finally {
@@ -144,18 +139,9 @@ export default function AuthPageClient() {
       };
       localStorage.setItem('user', JSON.stringify(userData));
 
-      // Редирект
+      // Редирект в кабинет главной роли
       const primaryRole = userType === 'tourist' ? 'tourist' : partnerRoles[0] ?? 'operator';
-      const redirectMap: Record<string, string> = {
-        tourist: '/hub/tourist',
-        operator: '/hub/operator',
-        guide: '/hub/guide',
-        transfer: '/hub/transfer-operator',
-        agent: '/hub/agent',
-        stay: '/hub/operator',
-        gear: '/hub/operator',
-      };
-      router.push(redirectMap[primaryRole] ?? '/hub/tourist');
+      router.push(ROLE_HUB[primaryRole] ?? '/hub/tourist');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка регистрации');
     } finally {
