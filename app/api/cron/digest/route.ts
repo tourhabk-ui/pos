@@ -182,11 +182,13 @@ async function collectMetrics(): Promise<PlatformMetrics> {
          JOIN partners p ON p.user_id = ot.operator_id
          WHERE ot.is_active = true
            AND NOT EXISTS (
-             SELECT 1 FROM tour_departures td
-             WHERE td.tour_id = ot.id
-               AND td.departure_date >= CURRENT_DATE
-               AND td.departure_date <= CURRENT_DATE + INTERVAL '30 days'
-               AND td.available_slots > 0
+             SELECT 1 FROM tour_availability ta
+             WHERE ta.operator_tour_id = ot.id
+               AND ta.date >= CURRENT_DATE
+               AND ta.date <= CURRENT_DATE + INTERVAL '30 days'
+               AND ta.available_slots > 0
+               AND ta.is_cancelled = FALSE
+               AND ta.deleted_at IS NULL
            )
          ORDER BY ot.created_at DESC
          LIMIT 5`

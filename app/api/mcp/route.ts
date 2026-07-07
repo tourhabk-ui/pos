@@ -169,12 +169,22 @@ async function getTours(args: Record<string, unknown>): Promise<string> {
   const category = typeof args.category === 'string' ? args.category : null;
   const limit = typeof args.limit === 'number' ? Math.min(args.limit, 10) : 5;
 
+  // Ближайшая дата — из tour_availability (живой календарь), а не из
+  // полу-мёртвой tour_departures (счётчик занятости никогда не заполнялся)
   let sql = `
     SELECT t.id, t.title, t.description, t.base_price AS price, t.multi_day_count AS duration_days,
-           td.start_date, td.available_slots, td.price_override
+           td.date AS start_date, td.available_slots, td.base_price_override AS price_override
     FROM operator_tours t
-    LEFT JOIN tour_departures td ON td.tour_id = t.id AND td.status = 'open'
-      AND td.start_date >= CURRENT_DATE
+    LEFT JOIN LATERAL (
+      SELECT ta.date, ta.available_slots, ta.base_price_override
+      FROM tour_availability ta
+      WHERE ta.operator_tour_id = t.id
+        AND ta.date >= CURRENT_DATE
+        AND ta.is_cancelled = FALSE
+        AND ta.deleted_at IS NULL
+      ORDER BY ta.date ASC
+      LIMIT 1
+    ) td ON TRUE
     WHERE t.is_active = TRUE AND t.deleted_at IS NULL
   `;
   const params: (string | number)[] = [];
@@ -184,7 +194,7 @@ async function getTours(args: Record<string, unknown>): Promise<string> {
     sql += ` AND t.category = $${idx++}`;
     params.push(category);
   }
-  sql += ` ORDER BY t.title, td.start_date LIMIT $${idx}`;
+  sql += ` ORDER BY t.title, td.date LIMIT $${idx}`;
   params.push(limit);
 
   const result = await query<{
