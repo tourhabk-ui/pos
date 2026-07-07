@@ -1,0 +1,68 @@
+name: Import — Route Passports Collect & Map (visitkamchatka.ru)
+
+# Сбор ~130 официальных PDF-паспортов со страницы /route-passports/,
+# манифест с sha256, консервативный маппинг на kamchatka_routes и (с галкой
+# apply) запись привязок matched-маршрутов. Отличается от
+# import-route-passports.yml (батчевое Gemini-обогащение уже привязанных
+# маршрутов по source_url): здесь — первичный сбор и привязка.
+#
+# Runner GitHub Actions вне РФ — visitkamchatka.ru доступен напрямую
+# (из прод-хостинга и dev-песочницы — нет).
+# Ambiguous-паспорта НИКОГДА не привязываются автоматически — их список
+# в артефакте отчёта, разметка вручную.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Записать matched-привязки в БД (иначе dry-run)'
+        required: false
+        default: false
+        type: boolean
+      skip_parse:
+        description: 'Пропустить LLM-извлечение структуры из PDF'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  collect-and-map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Collect, parse and map route passports
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production # ssl для managed PostgreSQL
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret not set — добавьте его в Settings → Secrets"
+            exit 1
+          fi
+          ARGS=""
+          if [ "${{ github.event.inputs.apply }}" = "true" ]; then ARGS="$ARGS --apply"; fi
+          if [ "${{ github.event.inputs.skip_parse }}" = "true" ]; then ARGS="$ARGS --skip-parse"; fi
+          npx tsx scripts/import-route-passports.ts $ARGS
+
+      - name: Upload manifest and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-passports-report
+          path: |
+            data/route-passports/manifest.json
+            data/route-passports/report.json
+          if-no-files-found: warn
+          retention-days: 90

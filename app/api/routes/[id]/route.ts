@@ -36,6 +36,8 @@ export async function GET(
          kr.elevation_gain_m,
          kr.duration_hours AS kr_duration_hours,
          kr.pdf_url,
+         kr.official_passport_url,
+         kr.passport_agency,
          kr.ark_id AS kr_ark_id,
          pk.slug AS park_slug
        FROM agent_route_knowledge ark
@@ -222,6 +224,8 @@ export async function GET(
         elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
         durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
         pdfUrl:          (r.pdf_url as string | null) ?? null,
+        officialPassportUrl: (r.official_passport_url as string | null) ?? null,
+        passportAgency:      (r.passport_agency as string | null) ?? null,
         reviews: reviewsResult.rows.map(rv => ({
           id:         String(rv.id),
           rating:     rv.rating != null ? Number(rv.rating) : null,
