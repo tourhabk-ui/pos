@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/chat.service';
+import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,12 +47,30 @@ export async function POST(request: NextRequest) {
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const body = await request.json();
-    const participantId = typeof body.participantId === 'string' ? body.participantId.trim() : '';
-    const participantRole = typeof body.participantRole === 'string' ? body.participantRole : 'tourist';
+    let participantId = typeof body.participantId === 'string' ? body.participantId.trim() : '';
+    let participantRole = typeof body.participantRole === 'string' ? body.participantRole : 'tourist';
     const subject = typeof body.subject === 'string' ? body.subject.trim() : undefined;
     const bookingId = typeof body.bookingId === 'string' ? body.bookingId.trim() : undefined;
     const tourId = typeof body.tourId === 'number' ? body.tourId : undefined;
     const message = typeof body.message === 'string' ? body.message.trim() : undefined;
+
+    // Кнопка «Написать оператору» на карточке тура знает только id партнёра —
+    // user_id оператора резолвим на сервере, чтобы не светить его в публичном API
+    const operatorPartnerId = typeof body.operatorPartnerId === 'string' ? body.operatorPartnerId.trim() : '';
+    if (!participantId && operatorPartnerId) {
+      const { rows } = await pool.query<{ user_id: string | null }>(
+        `SELECT user_id FROM partners WHERE id = $1 LIMIT 1`,
+        [operatorPartnerId]
+      );
+      if (!rows[0]?.user_id) {
+        return NextResponse.json(
+          { success: false, error: 'У оператора нет аккаунта для сообщений. Свяжитесь с ним по телефону из карточки тура.' },
+          { status: 404 }
+        );
+      }
+      participantId = rows[0].user_id;
+      participantRole = 'operator';
+    }
 
     if (!participantId) {
       return NextResponse.json(
