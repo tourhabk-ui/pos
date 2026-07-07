@@ -1,12 +1,11 @@
-import type { Metadata } from 'next';
-import TransferDashboardClient from './_TransferDashboardClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Трансферы | Tourhab',
-  description: 'Заказ и управление трансферами на Камчатке',
-  robots: 'noindex, nofollow',
-};
-
-export default function TransferDashboard() {
-  return <TransferDashboardClient />;
+/**
+ * Старый мок-дашборд трансферов удалён (решение владельца): 100% фиктивные
+ * данные (mockRoutes, графики на Math.random) и кнопки без обработчиков.
+ * Публичный поиск/бронирование — /transfers; реальный кабинет транспортного
+ * оператора — /hub/transfer-operator.
+ */
+export default function TransferRedirect() {
+  redirect('/transfers');
 }

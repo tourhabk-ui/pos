@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 
 // Публичные хабы — индексируются, несмотря на закрытый /hub/*
-const PUBLIC_HUBS = ['/hub/safety', '/hub/fishing', '/hub/transfer'];
+const PUBLIC_HUBS = ['/hub/safety', '/hub/fishing'];
 
 export default function robots(): MetadataRoute.Robots {
   return {
