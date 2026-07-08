@@ -8,6 +8,7 @@ import {
   ChevronLeft, Wifi,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { StayBookingForm } from '@/components/booking/StayBookingForm';
 import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
 import { ACCOMMODATION_TYPE_LABELS, AccommodationType } from '@/lib/stay/accommodation-types';
 
@@ -243,6 +244,26 @@ export default function AccommodationDetailClient({ accommodationId }: { accommo
               </div>
             ))}
           </div>
+        )}
+
+        {/* Бронирование */}
+        {data.rooms.length > 0 && (
+          <>
+            <h2 className="ds-h2 mb-4">Забронировать</h2>
+            <div className="mb-8">
+              <StayBookingForm
+                accommodationId={data.id}
+                accommodationName={data.name}
+                rooms={data.rooms.map(r => ({
+                  id: r.id,
+                  name: r.name,
+                  roomType: r.roomType,
+                  maxGuests: r.maxGuests,
+                  pricePerNight: r.pricePerNight,
+                }))}
+              />
+            </div>
+          </>
         )}
 
         {/* Отзывы */}
