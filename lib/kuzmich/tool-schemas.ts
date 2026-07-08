@@ -71,6 +71,15 @@ const searchTaaftSchema = z.object({
   query: looseString(300).optional(),
 }).refine(v => !!(v.task || v.query), { message: 'нужно указать task (что нужно сделать)' });
 
+// ── search_accommodations ───────────────────────────────────────────────────
+// Все фильтры необязательны — без них отдаём топ по рейтингу. price_max
+// приходит строкой (как и прочие args), executor коэрсит через Number().
+const searchAccommodationsSchema = z.object({
+  zone: looseString(100).optional(),
+  type: looseString(50).optional(),
+  price_max: looseString(20).optional(),
+});
+
 interface ToolSpec {
   definition: ToolDefinition;
   schema: z.ZodTypeAny;
@@ -131,6 +140,25 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: getWeatherSchema,
+  },
+  search_accommodations: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'search_accommodations',
+        description: 'Найти жильё на Камчатке (гостиницы, базы, глэмпинг, дома) из платформы TourHab с ценами и адресами. Используй когда турист спрашивает где остановиться, переночевать, снять жильё.',
+        parameters: {
+          type: 'object',
+          properties: {
+            zone: { type: 'string', description: 'Зона расположения (например: Петропавловск-Камчатский, Налычево, Паратунка)' },
+            type: { type: 'string', description: 'Тип жилья: hotel, hostel, guesthouse, glamping, apartment, cottage' },
+            price_max: { type: 'string', description: 'Максимальная цена за ночь в рублях' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: searchAccommodationsSchema,
   },
   search_taaft: {
     definition: {
