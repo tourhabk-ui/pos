@@ -183,6 +183,7 @@ export async function GET(request: NextRequest) {
         a.amenities,
         a.rating,
         a.review_count,
+        a.is_verified,
         a.created_at,
         p.name as partner_name,
         (
@@ -195,7 +196,7 @@ export async function GET(request: NextRequest) {
       FROM accommodations a
       LEFT JOIN partners p ON a.partner_id = p.id
       ${whereClause}
-      ORDER BY ${orderBy}
+      ORDER BY a.is_verified DESC, ${orderBy}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
     
@@ -205,7 +206,7 @@ export async function GET(request: NextRequest) {
       id: string; name: string; type: string; description: string | null; short_description: string | null;
       address: string; coordinates: unknown; location_zone: string; star_rating: unknown;
       price_per_night_from: string; price_per_night_to: string | null; currency: string;
-      amenities: unknown; rating: string | null; review_count: unknown;
+      amenities: unknown; rating: string | null; review_count: unknown; is_verified: boolean;
       created_at: unknown; partner_name: string | null; images: unknown;
     }>(accommodationsQuery, params);
     
@@ -227,6 +228,7 @@ export async function GET(request: NextRequest) {
       amenities: row.amenities || [],
       rating: row.rating ? parseFloat(row.rating) : 0,
       reviewCount: row.review_count || 0,
+      isVerified: row.is_verified,
       partnerName: row.partner_name,
       images: row.images || [],
       createdAt: row.created_at,

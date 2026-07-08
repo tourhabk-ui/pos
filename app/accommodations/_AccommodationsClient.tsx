@@ -6,20 +6,20 @@ import { AccommodationCard } from '@/components/shared/AccommodationCard';
 import { AccommodationCardSkeleton } from '@/components/shared/AccommodationCardSkeleton';
 import { AccommodationFilters } from '@/components/shared/AccommodationFilters';
 
+// Форма ответа GET /api/accommodations (camelCase — как отдаёт роут;
+// старый snake_case интерфейс не совпадал с API и листинг падал)
 interface Accommodation {
   id: string;
   name: string;
   type: string;
   description: string;
-  short_description: string | null;
   address: string;
-  star_rating: number | null;
-  price_per_night_from: string;
-  price_per_night_to: string | null;
-  currency: string;
+  starRating: number | null;
+  pricePerNight: { from: number; to: number | null; currency: string };
   amenities: string[];
-  rating: string;
-  review_count: number;
+  rating: number;
+  reviewCount: number;
+  isVerified: boolean;
   images: Array<{ url: string; alt?: string }>;
 }
 
@@ -70,14 +70,16 @@ export function AccommodationsClient() {
     try {
       const res = await fetch(`/api/accommodations?${p}`);
       if (res.ok) {
+        // Роут отдаёт { success, data: { accommodations, pagination } } —
+        // старое чтение data.data-массива и meta.total ломало листинг
         const data = await res.json() as {
           success: boolean;
-          data: Accommodation[];
-          meta: { total: number };
+          data: { accommodations: Accommodation[]; pagination: { total: number } };
         };
-        if (data.success) {
-          setAccommodations(currentPage === 1 ? data.data : prev => [...prev, ...data.data]);
-          setTotal(data.meta.total);
+        if (data.success && Array.isArray(data.data?.accommodations)) {
+          const items = data.data.accommodations;
+          setAccommodations(currentPage === 1 ? items : prev => [...prev, ...items]);
+          setTotal(data.data.pagination?.total ?? items.length);
         }
       }
     } finally {
@@ -193,18 +195,15 @@ export function AccommodationsClient() {
                     id={acc.id}
                     name={acc.name}
                     type={acc.type}
-                    description={acc.short_description ?? acc.description}
+                    description={acc.description}
                     address={acc.address}
-                    pricePerNight={{
-                      from: Number(acc.price_per_night_from),
-                      to: acc.price_per_night_to ? Number(acc.price_per_night_to) : null,
-                      currency: acc.currency,
-                    }}
-                    rating={Number(acc.rating)}
-                    reviewCount={acc.review_count}
+                    pricePerNight={acc.pricePerNight}
+                    rating={acc.rating}
+                    reviewCount={acc.reviewCount}
                     amenities={acc.amenities}
                     images={acc.images}
-                    starRating={acc.star_rating ?? undefined}
+                    starRating={acc.starRating ?? undefined}
+                    isVerified={acc.isVerified}
                   />
                 ))}
               </div>

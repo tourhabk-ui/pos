@@ -21,6 +21,8 @@ interface AccommodationCardProps {
   amenities: string[];
   images: Array<{ url: string; alt?: string }>;
   starRating?: number;
+  /** false — объект создан владельцем и ещё не проверен платформой */
+  isVerified?: boolean;
   onFavoriteToggle?: (id: string) => void;
   isFavorite?: boolean;
 }
@@ -68,6 +70,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
   amenities,
   images,
   starRating,
+  isVerified,
   onFavoriteToggle,
   isFavorite = false,
 }) => {
@@ -142,10 +145,21 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
           </button>
           
           {/* Тип и звёзды */}
-          <div className="absolute bottom-4 left-4 flex gap-2">
+          <div className="absolute bottom-4 left-4 flex gap-2 flex-wrap">
             <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--text-secondary)] font-medium">
               {typeLabels[type] || type}
             </span>
+            {/* Честная пометка статуса проверки (поверх фото — альфа-подложка) */}
+            {isVerified === true && (
+              <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--success)] font-medium">
+                Проверено
+              </span>
+            )}
+            {isVerified === false && (
+              <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--warning)] font-medium">
+                Новый объект
+              </span>
+            )}
             {starRating && (
               <span className="px-3 py-1 bg-black/70 rounded-full text-xs text-[var(--accent)] font-medium">
                 {''.repeat(starRating)}
