@@ -3,7 +3,10 @@
  * Утилиты для владельцев жилья: партнёр category='stay'.
  */
 
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { requireAuth } from '@/lib/auth/middleware';
+import type { JWTPayload } from '@/lib/auth/jwt';
 
 /**
  * Партнёрский профиль владельца жилья по user_id.
@@ -21,6 +24,27 @@ export async function getStayPartnerId(userId: string): Promise<string | null> {
   } catch (error) {
     return null;
   }
+}
+
+/**
+ * Общий гвард owner-эндпоинтов жилья: авторизация + владение объектом
+ * (admin — в обход). Возвращает JWTPayload либо готовый NextResponse.
+ */
+export async function requireAccommodationAccess(
+  request: NextRequest,
+  accommodationId: string
+): Promise<JWTPayload | NextResponse> {
+  const authResult = await requireAuth(request);
+  if (authResult instanceof NextResponse) return authResult;
+
+  const isOwner = await verifyAccommodationOwnership(authResult.userId, accommodationId);
+  if (!isOwner && authResult.role !== 'admin') {
+    return NextResponse.json(
+      { success: false, error: 'Объект не найден или нет прав' },
+      { status: 404 }
+    );
+  }
+  return authResult;
 }
 
 /**

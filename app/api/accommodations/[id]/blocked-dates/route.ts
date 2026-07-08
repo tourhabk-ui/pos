@@ -51,7 +51,8 @@ export async function GET(
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Получаем все забронированные даты в диапазоне
+    // Занятые даты: брони + даты, закрытые владельцем в тарифном
+    // календаре (accommodation_availability уровня объекта)
     const bookedDatesQuery = `
       WITH RECURSIVE date_series AS (
         SELECT $1::date AS date
@@ -69,6 +70,13 @@ export async function GET(
           AND ab.status IN ('confirmed', 'pending')
           AND ds.date >= ab.check_in_date
           AND ds.date < ab.check_out_date
+      )
+      OR EXISTS (
+        SELECT 1 FROM accommodation_availability av
+        WHERE av.accommodation_id = $3
+          AND av.room_id IS NULL
+          AND av.is_blocked = TRUE
+          AND av.date = ds.date
       )
       ORDER BY ds.date
     `;

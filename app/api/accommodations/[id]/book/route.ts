@@ -156,7 +156,7 @@ export async function POST(
     );
     
     const existingBookings = parseInt(availabilityCheck.rows[0]?.bookings || '0');
-    
+
     if (existingBookings >= room.available_rooms) {
       return NextResponse.json(
         {
@@ -166,10 +166,51 @@ export async function POST(
         { status: 409 }
       );
     }
-    
-    // Рассчитываем стоимость
-    const pricePerNight = parseFloat(room.price_per_night);
-    const totalPrice = pricePerNight * nights;
+
+    // Тарифный календарь владельца (accommodation_availability):
+    // блокировки закрывают продажу, price_override меняет цену ночи.
+    // Строка уровня объекта (room_id IS NULL) действует на все номера,
+    // строка уровня номера — точнее и приоритетнее.
+    const ratesResult = await query<{
+      date: string; room_id: string | null; price_override: string | null; is_blocked: boolean;
+    }>(
+      `SELECT date::text, room_id, price_override, is_blocked
+       FROM accommodation_availability
+       WHERE accommodation_id = $1
+         AND date >= $2 AND date < $3
+         AND (room_id IS NULL OR room_id = $4)`,
+      [accommodationId, checkInDate, checkOutDate, roomId]
+    );
+
+    const blockedDate = ratesResult.rows.find(r => r.is_blocked);
+    if (blockedDate) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Владелец закрыл продажу на ${blockedDate.date.split('-').reverse().join('.')} — выберите другие даты`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Рассчитываем стоимость по ночам: override номера > override объекта > базовая
+    const basePricePerNight = parseFloat(room.price_per_night);
+    const roomOverrides = new Map<string, number>();
+    const objectOverrides = new Map<string, number>();
+    for (const r of ratesResult.rows) {
+      if (r.price_override == null) continue;
+      (r.room_id ? roomOverrides : objectOverrides).set(r.date, parseFloat(r.price_override));
+    }
+
+    let totalPrice = 0;
+    const nightMs = 24 * 60 * 60 * 1000;
+    const checkInUtc = Date.UTC(checkIn.getUTCFullYear(), checkIn.getUTCMonth(), checkIn.getUTCDate());
+    for (let n = 0; n < nights; n++) {
+      const night = new Date(checkInUtc + n * nightMs).toISOString().slice(0, 10);
+      totalPrice += roomOverrides.get(night) ?? objectOverrides.get(night) ?? basePricePerNight;
+    }
+    // room_price_per_night в брони — средняя за ночь (тарифы по датам могут различаться)
+    const pricePerNight = Math.round((totalPrice / nights) * 100) / 100;
     
     // Создаём бронирование
     const bookingResult = await query<{ id: string }>(

@@ -60,7 +60,8 @@ export async function GET(
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Проверяем доступность номеров на каждую дату в диапазоне
+    // Доступность на каждую дату: брони + блокировки/тарифы владельца
+    // из accommodation_availability (уровень объекта, room_id IS NULL)
     const availabilityQuery = `
       WITH RECURSIVE date_series AS (
         SELECT $1::date AS date
@@ -85,17 +86,21 @@ export async function GET(
         COALESCE(br.rooms_booked, 0) as booked,
         $4::integer as total_rooms,
         ($4::integer - COALESCE(br.rooms_booked, 0)) as rooms_left,
+        av.price_override,
         CASE
           WHEN ds.date < CURRENT_DATE THEN 'past'
+          WHEN COALESCE(av.is_blocked, false) THEN 'blocked'
           WHEN COALESCE(br.rooms_booked, 0) >= $4::integer THEN 'full'
           ELSE 'available'
         END as status
       FROM date_series ds
       LEFT JOIN booked_rooms br ON br.date = ds.date
+      LEFT JOIN accommodation_availability av
+        ON av.accommodation_id = $3 AND av.room_id IS NULL AND av.date = ds.date
       ORDER BY ds.date
     `;
 
-    const availResult = await query<{ date: string; booked: string; total_rooms: number; rooms_left: string; status: string }>(availabilityQuery, [
+    const availResult = await query<{ date: string; booked: string; total_rooms: number; rooms_left: string; price_override: string | null; status: string }>(availabilityQuery, [
       checkIn,
       checkOut,
       id,
@@ -105,19 +110,23 @@ export async function GET(
     const availability: RoomAvailability[] = availResult.rows.map(row => {
       const available = row.status === 'available';
       const roomsLeft = parseInt(row.rooms_left);
-      
+
       let reason: string | undefined;
       if (row.status === 'past') {
         reason = 'Дата в прошлом';
       } else if (row.status === 'full') {
         reason = 'Все номера заняты';
+      } else if (row.status === 'blocked') {
+        reason = 'Владелец закрыл продажу на эту дату';
       }
 
       return {
         date: row.date,
         available,
         roomsLeft: available ? roomsLeft : 0,
-        price: parseFloat(accommodation.price_per_night_from),
+        price: row.price_override != null
+          ? parseFloat(row.price_override)
+          : parseFloat(accommodation.price_per_night_from),
         reason
       };
     });
