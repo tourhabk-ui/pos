@@ -134,9 +134,12 @@ export async function DELETE(
 
   try {
     const { rows: bookingRows } = await pool.query(
-      `SELECT COUNT(*)::int AS active FROM accommodation_bookings
-       WHERE room_id = $1 AND status IN ('pending', 'confirmed')
-         AND check_out_date > CURRENT_DATE`,
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('pending', 'confirmed')
+                            AND check_out_date > CURRENT_DATE)::int AS active,
+         COUNT(*)::int AS total
+       FROM accommodation_bookings
+       WHERE room_id = $1`,
       [id]
     );
 
@@ -150,14 +153,10 @@ export async function DELETE(
       );
     }
 
-    // Прошедшие брони ссылаются на номер (room_id) — при их наличии не
-    // удаляем строку, а деактивируем, чтобы не рвать историю броней
-    const { rows: historyRows } = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM accommodation_bookings WHERE room_id = $1`,
-      [id]
-    );
-
-    if (historyRows[0].total > 0) {
+    // Любые брони (включая отменённые) ссылаются на номер по FK без
+    // ON DELETE — удаление строки нарушило бы ссылку и рвало историю
+    // броней, поэтому при наличии истории деактивируем
+    if (bookingRows[0].total > 0) {
       await pool.query(
         `UPDATE accommodation_rooms SET is_active = false, updated_at = NOW() WHERE id = $1`,
         [id]

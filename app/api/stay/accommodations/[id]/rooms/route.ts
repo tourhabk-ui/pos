@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireAuth } from '@/lib/auth/middleware';
-import { verifyAccommodationOwnership } from '@/lib/auth/stay-helpers';
+import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
 import { ROOM_TYPES } from '@/lib/stay/room-types';
 import { z } from 'zod';
 
@@ -20,20 +19,6 @@ const CreateRoomSchema = z.object({
   pricePerNight:     z.number().min(0, 'Цена не может быть отрицательной'),
 });
 
-async function checkAccess(request: NextRequest, accommodationId: string) {
-  const authResult = await requireAuth(request);
-  if (authResult instanceof NextResponse) return authResult;
-
-  const isOwner = await verifyAccommodationOwnership(authResult.userId, accommodationId);
-  if (!isOwner && authResult.role !== 'admin') {
-    return NextResponse.json(
-      { success: false, error: 'Объект не найден или нет прав' },
-      { status: 404 }
-    );
-  }
-  return authResult;
-}
-
 // ─── GET /api/stay/accommodations/[id]/rooms ──────────────────────────────────
 // Номера объекта для владельца (включая неактивные).
 
@@ -42,7 +27,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
-  const authOrResponse = await checkAccess(request, id);
+  const authOrResponse = await requireAccommodationAccess(request, id);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   try {
@@ -94,7 +79,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
-  const authOrResponse = await checkAccess(request, id);
+  const authOrResponse = await requireAccommodationAccess(request, id);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   let body: unknown;

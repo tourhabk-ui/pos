@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { requireAuth } from '@/lib/auth/middleware';
-import { verifyAccommodationOwnership } from '@/lib/auth/stay-helpers';
+import { requireAccommodationAccess } from '@/lib/auth/stay-helpers';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -19,20 +18,6 @@ const SetRateSchema = z.object({
   notes:           z.string().max(1000).nullish(),
 });
 
-async function checkAccess(request: NextRequest, accommodationId: string) {
-  const authResult = await requireAuth(request);
-  if (authResult instanceof NextResponse) return authResult;
-
-  const isOwner = await verifyAccommodationOwnership(authResult.userId, accommodationId);
-  if (!isOwner && authResult.role !== 'admin') {
-    return NextResponse.json(
-      { success: false, error: 'Объект не найден или нет прав' },
-      { status: 404 }
-    );
-  }
-  return authResult;
-}
-
 // ─── GET /api/stay/calendar ───────────────────────────────────────────────────
 // Тарифный календарь объекта за диапазон дат: override/блокировки из
 // accommodation_availability + реальная занятость из accommodation_bookings.
@@ -44,7 +29,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'accommodationId обязателен' }, { status: 400 });
   }
 
-  const authOrResponse = await checkAccess(request, accommodationId);
+  const authOrResponse = await requireAccommodationAccess(request, accommodationId);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const startDate = searchParams.get('startDate') ?? new Date().toISOString().slice(0, 10);
@@ -67,7 +52,7 @@ export async function GET(request: NextRequest) {
       // Занятость по дням: бронь занимает [check_in, check_out) — полуинтервал,
       // как в /api/accommodations/[id]/availability
       pool.query(
-        `SELECT d.date::text, COUNT(b.id)::int AS booked
+        `SELECT d.date::date::text, COUNT(b.id)::int AS booked
          FROM generate_series($2::date, $3::date, '1 day') AS d(date)
          LEFT JOIN accommodation_bookings b
            ON b.accommodation_id = $1
@@ -125,7 +110,7 @@ export async function POST(request: NextRequest) {
   }
   const { accommodationId, date, roomId, priceOverride, availableRooms, isBlocked, blockReason, notes } = parsed.data;
 
-  const authOrResponse = await checkAccess(request, accommodationId);
+  const authOrResponse = await requireAccommodationAccess(request, accommodationId);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   // Номер должен принадлежать этому объекту
@@ -140,43 +125,34 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // При конфликте обновляются ТОЛЬКО переданные поля — непереданные
+    // (undefined) не затирают существующую строку NULL'ом. Имена колонок —
+    // из фиксированного списка, значения — через параметры.
+    const provided: [string, unknown][] = [];
+    if (priceOverride !== undefined) provided.push(['price_override', priceOverride]);
+    if (availableRooms !== undefined) provided.push(['available_rooms', availableRooms]);
+    if (isBlocked !== undefined) provided.push(['is_blocked', isBlocked]);
+    if (blockReason !== undefined) provided.push(['block_reason', blockReason]);
+    if (notes !== undefined) provided.push(['notes', notes]);
+
+    const cols = ['accommodation_id', 'room_id', 'date', ...provided.map(([c]) => c)];
+    const values: unknown[] = [accommodationId, roomId ?? null, date, ...provided.map(([, v]) => v)];
+    const placeholders = values.map((_, i) => `$${i + 1}`);
     // Два partial unique index (room_id IS NULL / IS NOT NULL) — ON CONFLICT
-    // должен указывать соответствующий, поэтому две ветки
-    const { rows } = roomId
-      ? await pool.query(
-          `INSERT INTO accommodation_availability (
-             accommodation_id, room_id, date, price_override,
-             available_rooms, is_blocked, block_reason, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (accommodation_id, room_id, date) WHERE room_id IS NOT NULL
-           DO UPDATE SET
-             price_override  = EXCLUDED.price_override,
-             available_rooms = EXCLUDED.available_rooms,
-             is_blocked      = EXCLUDED.is_blocked,
-             block_reason    = EXCLUDED.block_reason,
-             notes           = EXCLUDED.notes,
-             updated_at      = NOW()
-           RETURNING id::text, date::text, room_id::text, price_override, is_blocked`,
-          [accommodationId, roomId, date, priceOverride ?? null, availableRooms ?? null,
-           isBlocked ?? false, blockReason ?? null, notes ?? null]
-        )
-      : await pool.query(
-          `INSERT INTO accommodation_availability (
-             accommodation_id, room_id, date, price_override,
-             available_rooms, is_blocked, block_reason, notes
-           ) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (accommodation_id, date) WHERE room_id IS NULL
-           DO UPDATE SET
-             price_override  = EXCLUDED.price_override,
-             available_rooms = EXCLUDED.available_rooms,
-             is_blocked      = EXCLUDED.is_blocked,
-             block_reason    = EXCLUDED.block_reason,
-             notes           = EXCLUDED.notes,
-             updated_at      = NOW()
-           RETURNING id::text, date::text, room_id::text, price_override, is_blocked`,
-          [accommodationId, date, priceOverride ?? null, availableRooms ?? null,
-           isBlocked ?? false, blockReason ?? null, notes ?? null]
-        );
+    // должен указывать соответствующий
+    const conflictTarget = roomId
+      ? 'ON CONFLICT (accommodation_id, room_id, date) WHERE room_id IS NOT NULL'
+      : 'ON CONFLICT (accommodation_id, date) WHERE room_id IS NULL';
+    const updates = [...provided.map(([c]) => `${c} = EXCLUDED.${c}`), 'updated_at = NOW()'].join(', ');
+
+    const { rows } = await pool.query(
+      `INSERT INTO accommodation_availability (${cols.join(', ')})
+       VALUES (${placeholders.join(', ')})
+       ${conflictTarget}
+       DO UPDATE SET ${updates}
+       RETURNING id::text, date::text, room_id::text, price_override, is_blocked`,
+      values
+    );
 
     return NextResponse.json({ success: true, data: rows[0], message: 'Тариф обновлён' });
   } catch {

@@ -62,7 +62,7 @@ export async function GET(
 
     const pricesResult = await query<{ date: string; price: string; has_override: boolean; is_blocked: boolean }>(
       `SELECT
-         ds.date::text,
+         ds.date::date::text,
          COALESCE(av.price_override, $4::numeric) AS price,
          (av.price_override IS NOT NULL) AS has_override,
          COALESCE(av.is_blocked, false) AS is_blocked

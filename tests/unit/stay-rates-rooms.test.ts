@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const poolQueryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({
@@ -29,16 +29,34 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: (...args: unknown[]) => requireAuthMock(...args),
 }));
 
+vi.mock('@/lib/notifications/email-service', () => ({
+  emailService: { sendEmail: vi.fn().mockResolvedValue(undefined) },
+}));
+vi.mock('@/lib/auth', () => ({
+  getTokenFromRequest: () => null,
+}));
+
+// Гвард повторяет форму requireAccommodationAccess: auth → ownership → 404
 const verifyOwnershipMock = vi.fn();
 vi.mock('@/lib/auth/stay-helpers', () => ({
   verifyAccommodationOwnership: (...args: unknown[]) => verifyOwnershipMock(...args),
   getStayPartnerId: vi.fn(),
+  requireAccommodationAccess: async (request: unknown, accommodationId: string) => {
+    const auth = await requireAuthMock(request);
+    if (auth instanceof NextResponse) return auth;
+    const isOwner = await verifyOwnershipMock(auth.userId, accommodationId);
+    if (!isOwner && auth.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Объект не найден или нет прав' }, { status: 404 });
+    }
+    return auth;
+  },
 }));
 
 import { GET as getCalendar, POST as postCalendar } from '@/app/api/stay/calendar/route';
 import { GET as getRooms, POST as postRoom } from '@/app/api/stay/accommodations/[id]/rooms/route';
 import { PATCH as patchRoom, DELETE as deleteRoom } from '@/app/api/stay/rooms/[id]/route';
 import { GET as getPrices } from '@/app/api/accommodations/[id]/prices/route';
+import { POST as postBooking } from '@/app/api/accommodations/[id]/book/route';
 
 const ACC_ID = '33333333-3333-4333-8333-333333333333';
 const ROOM_ID = '55555555-5555-4555-8555-555555555555';
@@ -171,7 +189,7 @@ describe('CRUD номеров', () => {
   it('DELETE с активными бронями → 409', async () => {
     poolQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('JOIN partners')) return Promise.resolve({ rows: [{ id: ROOM_ID, accommodation_id: ACC_ID, user_id: 'user-1' }] });
-      if (sql.includes('check_out_date > CURRENT_DATE')) return Promise.resolve({ rows: [{ active: 2 }] });
+      if (sql.includes('FILTER')) return Promise.resolve({ rows: [{ active: 2, total: 3 }] });
       throw new Error('unexpected SQL: ' + sql);
     });
 
@@ -183,8 +201,7 @@ describe('CRUD номеров', () => {
   it('DELETE с историей броней → деактивация вместо удаления', async () => {
     poolQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('JOIN partners')) return Promise.resolve({ rows: [{ id: ROOM_ID, accommodation_id: ACC_ID, user_id: 'user-1' }] });
-      if (sql.includes('check_out_date > CURRENT_DATE')) return Promise.resolve({ rows: [{ active: 0 }] });
-      if (sql.includes('COUNT(*)::int AS total')) return Promise.resolve({ rows: [{ total: 5 }] });
+      if (sql.includes('FILTER')) return Promise.resolve({ rows: [{ active: 0, total: 5 }] });
       if (sql.includes('UPDATE accommodation_rooms')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
@@ -199,8 +216,7 @@ describe('CRUD номеров', () => {
   it('DELETE без броней → удаление строки', async () => {
     poolQueryMock.mockImplementation((sql: string) => {
       if (sql.includes('JOIN partners')) return Promise.resolve({ rows: [{ id: ROOM_ID, accommodation_id: ACC_ID, user_id: 'user-1' }] });
-      if (sql.includes('check_out_date > CURRENT_DATE')) return Promise.resolve({ rows: [{ active: 0 }] });
-      if (sql.includes('COUNT(*)::int AS total')) return Promise.resolve({ rows: [{ total: 0 }] });
+      if (sql.includes('FILTER')) return Promise.resolve({ rows: [{ active: 0, total: 0 }] });
       if (sql.includes('DELETE FROM accommodation_rooms')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
@@ -251,5 +267,71 @@ describe('GET /api/accommodations/[id]/prices — честные цены', () =
     expect(allSql).not.toContain('1.2');
     expect(allSql).not.toContain('peak');
     expect(allSql).toContain('accommodation_availability');
+  });
+});
+
+describe('POST /api/accommodations/[id]/book — календарь владельца учитывается', () => {
+  const ROOM_ROW = {
+    id: ROOM_ID, accommodation_id: ACC_ID, name: 'Стандарт', max_guests: 4,
+    available_rooms: 3, price_per_night: '9000', accommodation_name: 'Дом', is_active: true,
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+  });
+
+  function mockBookingQueries(rates: unknown[]) {
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('FROM accommodation_rooms r')) return Promise.resolve({ rows: [ROOM_ROW] });
+      if (sql.includes('COUNT(*) as bookings')) return Promise.resolve({ rows: [{ bookings: '0' }] });
+      if (sql.includes('FROM accommodation_availability')) return Promise.resolve({ rows: rates });
+      if (sql.includes('INSERT INTO accommodation_bookings')) return Promise.resolve({ rows: [{ id: 'booking-1' }] });
+      if (sql.includes('FROM users')) return Promise.resolve({ rows: [{ email: null, name: 'Гость' }] });
+      throw new Error('unexpected SQL: ' + sql);
+    });
+  }
+
+  it('дата закрыта владельцем → 409, бронь не создаётся', async () => {
+    mockBookingQueries([{ date: '2099-08-02', room_id: null, price_override: null, is_blocked: true }]);
+
+    const res = await postBooking(jsonReq(`http://localhost/api/accommodations/${ACC_ID}/book`, 'POST', {
+      roomId: ROOM_ID, checkInDate: '2099-08-01', checkOutDate: '2099-08-03', adults: 2,
+    }), routeParams(ACC_ID));
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain('закрыл продажу');
+    expect(queryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO accommodation_bookings'))).toBe(false);
+  });
+
+  it('override владельца попадает в цену брони (номер > объект > базовая)', async () => {
+    mockBookingQueries([
+      { date: '2099-08-01', room_id: null, price_override: '12000', is_blocked: false },
+      { date: '2099-08-01', room_id: ROOM_ID, price_override: '15000', is_blocked: false },
+    ]);
+
+    const res = await postBooking(jsonReq(`http://localhost/api/accommodations/${ACC_ID}/book`, 'POST', {
+      roomId: ROOM_ID, checkInDate: '2099-08-01', checkOutDate: '2099-08-03', adults: 2,
+    }), routeParams(ACC_ID));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Ночь 1: room-override 15000; ночь 2: базовая 9000 → 24000
+    expect(body.data.priceBreakdown.totalPrice).toBe(24000);
+
+    const insert = queryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO accommodation_bookings'))!;
+    expect(insert[1]).toContain(24000);
+  });
+
+  it('без тарифов — базовая цена за все ночи', async () => {
+    mockBookingQueries([]);
+
+    const res = await postBooking(jsonReq(`http://localhost/api/accommodations/${ACC_ID}/book`, 'POST', {
+      roomId: ROOM_ID, checkInDate: '2099-08-01', checkOutDate: '2099-08-03', adults: 2,
+    }), routeParams(ACC_ID));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.priceBreakdown.totalPrice).toBe(18000);
   });
 });
