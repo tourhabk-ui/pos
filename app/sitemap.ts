@@ -1,6 +1,6 @@
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
-import { CATEGORY_SLUGS } from '@/lib/routes/category-meta';
+import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -63,13 +63,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/legal/agent-agreement`, lastModified: STABLE,     changeFrequency: 'monthly', priority: 0.3 },
   ];
 
-  // Категории маршрутов (14 страниц с высоким SEO-приоритетом)
-  const categoryPages: MetadataRoute.Sitemap = CATEGORY_SLUGS.map(slug => ({
-    url: `${BASE}/routes/${slug}`,
-    lastModified: STABLE,
-    changeFrequency: 'weekly' as const,
-    priority: 0.85,
-  }));
+  // Категории и зонные срезы каталога — динамически, только живые (≥3
+  // объектов; тонкие отдают 404 и в sitemap не предлагаются), lastmod из
+  // max(updated_at) выборки. БД недоступна → честно без этих страниц,
+  // а не статичный список с непроверенным правилом ≥3.
+  let categoryPages: MetadataRoute.Sitemap = [];
+  try {
+    const catalogPages = await getCatalogPages();
+    categoryPages = catalogPages.map(p => ({
+      url: `${BASE}/routes/${p.path}`,
+      lastModified: p.lastModified,
+      changeFrequency: 'weekly' as const,
+      priority: p.path.includes('/') ? 0.75 : 0.85,
+    }));
+  } catch {
+    // sitemap без страниц каталога
+  }
 
   // Динамические страницы мест (places) — 779 страниц /places/[id]
   let placesPages: MetadataRoute.Sitemap = [];

@@ -1,14 +1,25 @@
 import { pool } from '@/lib/db-pool';
+import { notFound } from 'next/navigation';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
+import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE } from '@/lib/routes/zone-meta';
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 
-export default async function CategoryPage({ category }: { category: string }) {
+/**
+ * SEO-страница категории (/routes/[category]) и её зонного среза
+ * (/routes/[category]/[zone]). Правило ≥3: страница с меньшим числом
+ * объектов отдаёт 404 и не попадает в sitemap — никакого индексного мусора.
+ * Никакого сгенерированного SEO-текста: intro категории написан вручную
+ * (category-meta), зонный срез показывает только реальные данные.
+ */
+export default async function CategoryPage({ category, zone }: { category: string; zone?: string }) {
   const meta = CATEGORY_PAGES[category];
+  const zoneMeta = zone ? ZONE_PAGES[zone] : null;
+  if (!meta || (zone && !zoneMeta)) notFound();
 
-  const [routeResult, countResult] = await Promise.all([
+  const [routeResult, countResult, zonesResult] = await Promise.all([
     pool.query<{
       id: string; title: string; description: string; category: string;
       lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
@@ -21,19 +32,33 @@ export default async function CategoryPage({ category }: { category: string }) {
               source_name
        FROM agent_route_knowledge
        WHERE category = $1 AND is_visible = TRUE
+         AND ($2::text IS NULL OR zone = $2)
        ORDER BY
          CASE WHEN source_name = 'idilesom.com' THEN 0
               WHEN source_name = 'kamchatintour.ru' THEN 1
               ELSE 2 END,
          title ASC
        LIMIT 24`,
-      [category]
+      [category, zone ?? null]
     ),
     pool.query<{ count: string }>(
-      'SELECT COUNT(*) AS count FROM agent_route_knowledge WHERE category = $1 AND is_visible = TRUE',
+      `SELECT COUNT(*) AS count FROM agent_route_knowledge
+       WHERE category = $1 AND is_visible = TRUE
+         AND ($2::text IS NULL OR zone = $2)`,
+      [category, zone ?? null]
+    ),
+    // Живые зонные срезы этой категории — для перелинковки (только ≥3)
+    pool.query<{ zone: string; count: string }>(
+      `SELECT zone, COUNT(*) AS count FROM agent_route_knowledge
+       WHERE category = $1 AND is_visible = TRUE AND zone IS NOT NULL
+       GROUP BY zone`,
       [category]
     ),
   ]);
+
+  const total = Number(countResult.rows[0].count);
+  // Правило ≥3 — тонкие страницы отдают 404
+  if (total < MIN_ITEMS_FOR_PAGE) notFound();
 
   const routes: RouteItem[] = routeResult.rows.map(r => ({
     id: r.id,
@@ -48,8 +73,12 @@ export default async function CategoryPage({ category }: { category: string }) {
     sourceName: r.source_name,
   }));
 
-  const total = Number(countResult.rows[0].count);
   const otherCategories = Object.values(CATEGORY_PAGES).filter(c => c.slug !== category);
+  const liveZones = zonesResult.rows
+    .filter(z => Number(z.count) >= MIN_ITEMS_FOR_PAGE && ZONE_PAGES[z.zone])
+    .map(z => ({ ...ZONE_PAGES[z.zone], count: Number(z.count) }));
+
+  const h1 = zoneMeta ? `${meta.name}: ${zoneMeta.name}` : meta.h1;
 
   return (
     <>
@@ -62,19 +91,32 @@ export default async function CategoryPage({ category }: { category: string }) {
           <ChevronRight className="w-3 h-3" />
           <Link href="/routes" className="hover:text-[var(--accent)] transition-colors">Маршруты</Link>
           <ChevronRight className="w-3 h-3" />
-          <span className="text-[var(--text-primary)]">{meta.name}</span>
+          {zoneMeta ? (
+            <>
+              <Link href={`/routes/${category}`} className="hover:text-[var(--accent)] transition-colors">{meta.name}</Link>
+              <ChevronRight className="w-3 h-3" />
+              <span className="text-[var(--text-primary)]">{zoneMeta.name}</span>
+            </>
+          ) : (
+            <span className="text-[var(--text-primary)]">{meta.name}</span>
+          )}
         </nav>
 
-        {/* Hero */}
+        {/* Hero: intro — только рукописный текст категории, зонный срез без
+            сочинённых текстов, только реальные данные */}
         <div className="mb-8 max-w-2xl">
-          <h1 className="ds-h1 mb-3">{meta.h1}</h1>
-          <p className="text-[var(--text-secondary)] leading-relaxed text-base">{meta.intro}</p>
+          <h1 className="ds-h1 mb-3">{h1}</h1>
+          {!zoneMeta && (
+            <p className="text-[var(--text-secondary)] leading-relaxed text-base">{meta.intro}</p>
+          )}
         </div>
 
         {/* Stats */}
         <div className="flex items-center gap-3 mb-6 text-sm">
           <span className="text-[var(--text-muted)]">{total} маршрутов</span>
-          {total > 24 && (
+          {/* Ссылка «все» только на странице категории: листинг /routes
+              не умеет фильтровать по зоне, для среза она обманула бы счётчиком */}
+          {!zoneMeta && total > 24 && (
             <>
               <span className="text-[var(--border)]">·</span>
               <Link
@@ -86,6 +128,29 @@ export default async function CategoryPage({ category }: { category: string }) {
             </>
           )}
         </div>
+
+        {/* Зонные срезы категории (перелинковка; только живые, ≥3) */}
+        {liveZones.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-8">
+            {zoneMeta && (
+              <Link
+                href={`/routes/${category}`}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+              >
+                Все зоны
+              </Link>
+            )}
+            {liveZones.filter(z => z.slug !== zone).map(z => (
+              <Link
+                key={z.slug}
+                href={`/routes/${category}/${z.slug}`}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+              >
+                {z.name} · {z.count}
+              </Link>
+            ))}
+          </div>
+        )}
 
         {/* Grid */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
