@@ -139,7 +139,10 @@ export async function PUT(request: NextRequest) {
     }
 
     if (contact) {
-      updateFields.push(`contact = $${paramIndex++}`);
+      // Merge, не полная замена — иначе правка одного поля стирала
+      // остальные контакты (тот же фикс, что в gear PUT и общем
+      // PATCH /api/partners/profile)
+      updateFields.push(`contact = COALESCE(contact, '{}'::jsonb) || $${paramIndex++}::jsonb`);
       updateValues.push(JSON.stringify(contact));
     }
 
