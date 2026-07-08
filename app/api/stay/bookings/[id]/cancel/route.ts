@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { transaction } from '@/lib/database';
 import { requireAuth } from '@/lib/auth/middleware';
 import { notifyStayBookingCancelled } from '@/lib/notifications/stay-booking';
+import { calculateStayRefund } from '@/lib/stay/refund-policy';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function POST(
     const outcome = await transaction(async (client) => {
       // Строго своя бронь; данные владельца — для уведомления
       const bookingResult = await client.query(
-        `SELECT b.id, b.status,
+        `SELECT b.id, b.status, b.payment_status, b.total_price,
                 b.check_in_date > CURRENT_DATE AS is_future,
                 b.check_in_date::text AS check_in_date,
                 b.check_out_date::text AS check_out_date,
@@ -49,8 +50,8 @@ export async function POST(
         return { code: 404 as const };
       }
       const b = bookingResult.rows[0] as {
-        status: string; is_future: boolean;
-        check_in_date: string; check_out_date: string;
+        status: string; payment_status: string; total_price: string | null;
+        is_future: boolean; check_in_date: string; check_out_date: string;
         accommodation_name: string; owner_chat: string | null;
       };
 
@@ -59,9 +60,36 @@ export async function POST(
         return { code: 422 as const, status: b.status, isFuture: b.is_future };
       }
 
+      // Возврат считаем только по оплаченной брони (офлайн-исполнение).
+      const wasPaid = b.payment_status === 'paid';
+      const refund = wasPaid
+        ? calculateStayRefund(Number(b.total_price ?? 0), new Date(b.check_in_date), false)
+        : null;
+
+      // payment_status: полный возврат → refunded; частичный → partially_refunded;
+      // 0% или неоплаченная → без изменения статуса оплаты.
+      let nextPaymentStatus: string | null = null;
+      if (refund && refund.amount > 0) {
+        nextPaymentStatus = refund.percent >= 100 ? 'refunded' : 'partially_refunded';
+      }
+
       await client.query(
-        `UPDATE accommodation_bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
-        [bookingId]
+        `UPDATE accommodation_bookings
+         SET status = 'cancelled',
+             cancelled_at = NOW(),
+             refund_amount = $2,
+             refund_percent = $3,
+             refund_reason = $4,
+             payment_status = COALESCE($5, payment_status),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [
+          bookingId,
+          refund ? refund.amount : null,
+          refund ? refund.percent : null,
+          refund ? refund.reason : null,
+          nextPaymentStatus,
+        ]
       );
 
       return {
@@ -70,6 +98,9 @@ export async function POST(
         accommodationName: b.accommodation_name,
         checkInDate: b.check_in_date,
         checkOutDate: b.check_out_date,
+        wasPaid,
+        refundAmount: refund ? refund.amount : null,
+        refundPercent: refund ? refund.percent : null,
       };
     });
 
@@ -83,7 +114,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: reason }, { status: 422 });
     }
 
-    // Уведомляем владельца — даты снова свободны. Non-fatal.
+    // Уведомляем владельца — даты снова свободны + сумма к возврату. Non-fatal.
     try {
       await notifyStayBookingCancelled({
         bookingId,
@@ -91,12 +122,23 @@ export async function POST(
         checkInDate: outcome.checkInDate,
         checkOutDate: outcome.checkOutDate,
         ownerTelegramChatId: outcome.ownerChat,
+        wasPaid: outcome.wasPaid,
+        refundAmount: outcome.refundAmount,
+        refundPercent: outcome.refundPercent,
       });
     } catch {
       // уведомление не критично
     }
 
-    return NextResponse.json({ success: true, message: 'Бронь отменена' });
+    return NextResponse.json({
+      success: true,
+      message: 'Бронь отменена',
+      data: {
+        refundAmount: outcome.refundAmount,
+        refundPercent: outcome.refundPercent,
+        wasPaid: outcome.wasPaid,
+      },
+    });
   } catch {
     return NextResponse.json({ success: false, error: 'Ошибка при отмене брони' }, { status: 500 });
   }

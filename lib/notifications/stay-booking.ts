@@ -70,13 +70,28 @@ export interface StayBookingCancelPayload {
   checkInDate: string;
   checkOutDate: string;
   ownerTelegramChatId?: string | null;
+  /** Кто отменил — влияет только на формулировку заголовка */
+  byOwner?: boolean;
+  /** Была ли бронь оплачена (иначе возврат не нужен) */
+  wasPaid?: boolean;
+  /** Сумма к возврату (офлайн-исполнение), если бронь была оплачена */
+  refundAmount?: number | null;
+  /** Процент возврата по политике */
+  refundPercent?: number | null;
 }
 
 export async function notifyStayBookingCancelled(p: StayBookingCancelPayload): Promise<void> {
+  const refundLine = p.wasPaid
+    ? (p.refundAmount && p.refundAmount > 0
+        ? `К возврату гостю: ${money(p.refundAmount)}${p.refundPercent != null ? ` (${p.refundPercent}%)` : ''}. Возврат — вручную по CloudPayments.`
+        : `Возврат не предусмотрен (отмена в срок менее 24 часов до заезда).`)
+    : `Предоплаты не было — возврат не требуется.`;
+
   const text = [
-    `<b>Бронь жилья #${p.bookingId} отменена гостем</b>`,
+    `<b>Бронь жилья #${p.bookingId} отменена ${p.byOwner ? 'объектом' : 'гостем'}</b>`,
     `Объект: ${esc(p.accommodationName)}`,
     `Даты: ${fmtDate(p.checkInDate)} — ${fmtDate(p.checkOutDate)}`,
+    refundLine,
     `Даты снова свободны для продажи.`,
   ].join('\n');
 
