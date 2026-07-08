@@ -128,6 +128,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Если БД недоступна при сборке — sitemap без динамических страниц
   }
 
+  // Детальные страницы жилья /accommodations/[id]
+  let accommodationPages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ id: string; updated_at: Date }>(
+      `SELECT id, updated_at FROM accommodations
+       WHERE is_active = true
+       ORDER BY updated_at DESC LIMIT 500`
+    );
+    accommodationPages = rows.map(row => ({
+      url: `${BASE}/accommodations/${row.id}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
+    }));
+  } catch {
+    // Если БД недоступна при сборке — sitemap без страниц жилья
+  }
+
   // Маркетплейс-туры
   let marketplacePages: MetadataRoute.Sitemap = [];
   try {
@@ -187,6 +205,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...categoryPages,
     ...placesPages,
     ...routePages,
+    ...accommodationPages,
     ...marketplacePages,
     ...collectionPages,
     ...operatorPages,

@@ -86,7 +86,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
   };
   
   return (
-    <Link href={`/hub/stay/${id}`}>
+    <Link href={`/accommodations/${id}`}>
       <div
         className={`
           bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden
@@ -233,7 +233,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
             "
             onClick={(e) => {
               e.preventDefault();
-              window.location.href = `/hub/stay/${id}`;
+              window.location.href = `/accommodations/${id}`;
             }}
           >
             Забронировать
