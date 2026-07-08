@@ -1,358 +1,313 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { StayDatePicker } from './calendars/StayDatePicker';
 import { GuestSelector } from './ui/GuestSelector';
-import { LoadingSpinner } from '@/components/admin/shared';
 import { CloudPaymentsWidget } from '@/components/payments/CloudPaymentsWidget';
 import { useAuth } from '@/contexts/AuthContext';
+import { computeStayTotal, NightPrice } from '@/lib/booking/stay-price';
+import { ROOM_TYPE_LABELS, RoomType } from '@/lib/stay/room-types';
+
+/**
+ * Форма бронирования жилья с выбором номера. Расчёт суммы зеркалит
+ * серверный book-роут: сумма реальных цен по ночам из
+ * /prices?roomId= (override номера > объекта > базовая цена номера),
+ * БЕЗ множителей на гостей и выдуманных сборов. Гости — только
+ * валидация вместимости номера. Бронь создаёт POST .../book,
+ * оплата — виджетом на сумму из ответа сервера.
+ */
+
+export interface BookableRoom {
+  id: string;
+  name: string;
+  roomType: string;
+  maxGuests: number;
+  pricePerNight: number;
+}
 
 interface StayBookingFormProps {
   accommodationId: string;
   accommodationName: string;
-  pricePerNight: number;
-  onSubmit: (booking: BookingData) => Promise<{ id: string }>;
+  rooms: BookableRoom[];
 }
 
-interface BookingData {
-  accommodationId: string;
-  checkInDate: Date;
-  checkOutDate: Date;
-  adults: number;
-  children: number;
+interface BookingSuccess {
+  bookingId: string;
   totalPrice: number;
-  specialRequirements?: string;
+  nights: number;
 }
 
-interface AvailabilityDate {
-  date: string;
-  available: boolean;
-  price: number;
+function formatMoney(v: number): string {
+  return new Intl.NumberFormat('ru-RU').format(v);
 }
 
-export function StayBookingForm({ 
-  accommodationId, 
-  accommodationName, 
-  pricePerNight, 
-  onSubmit 
-}: StayBookingFormProps) {
-  const [checkInDate, setCheckInDate] = useState<Date | null>(null);
-  const [checkOutDate, setCheckOutDate] = useState<Date | null>(null);
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function StayBookingForm({ accommodationId, accommodationName, rooms }: StayBookingFormProps) {
+  const { user } = useAuth();
+  const [roomId, setRoomId] = useState<string>(rooms[0]?.id ?? '');
+  const [checkIn, setCheckIn] = useState<Date | null>(null);
+  const [checkOut, setCheckOut] = useState<Date | null>(null);
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
-  const [specialRequirements, setSpecialRequirements] = useState('');
-  const [availability, setAvailability] = useState<AvailabilityDate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [specialRequests, setSpecialRequests] = useState('');
+  const [prices, setPrices] = useState<NightPrice[]>([]);
+  const [pricesFailed, setPricesFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [bookingId, setBookingId] = useState<string | null>(null);
-  const [paymentId, setPaymentId] = useState<string | null>(null);
-  const [showPayment, setShowPayment] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
+  const [success, setSuccess] = useState<BookingSuccess | null>(null);
 
-  useEffect(() => {
-    fetchAvailability();
-  }, [accommodationId]);
+  const room = rooms.find(r => r.id === roomId) ?? null;
 
-  const fetchAvailability = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + 6); // 6 месяцев вперёд
+  // Реальные цены по ночам выбранного номера на полгода вперёд
+  const loadPrices = useCallback(() => {
+    if (!roomId) return;
+    setPricesFailed(false);
+    const start = new Date();
+    const end = new Date();
+    end.setMonth(end.getMonth() + 6);
+    fetch(
+      `/api/accommodations/${accommodationId}/prices?` +
+      `startDate=${ymd(start)}&endDate=${ymd(end)}&roomId=${roomId}`
+    )
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { success?: boolean; data?: { prices: { date: string; price: number; isBlocked: boolean }[] } } | null) => {
+        if (d?.success && Array.isArray(d.data?.prices)) {
+          setPrices(d.data.prices.map(p => ({ date: p.date, price: p.price, isBlocked: p.isBlocked })));
+        } else {
+          setPricesFailed(true);
+        }
+      })
+      .catch(() => setPricesFailed(true));
+  }, [accommodationId, roomId]);
 
-      const params = new URLSearchParams({
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0]
-      });
+  useEffect(() => { loadPrices(); }, [loadPrices]);
 
-      const response = await fetch(
-        `/api/accommodations/${accommodationId}/availability?${params}`
-      );
-      
-      if (!response.ok) {
-        throw new Error('Ошибка при загрузке доступности');
-      }
-      
-      const result = await response.json();
+  const totals = useMemo(() => {
+    if (!checkIn || !checkOut || checkOut <= checkIn) return null;
+    return computeStayTotal(prices, ymd(checkIn), ymd(checkOut));
+  }, [prices, checkIn, checkOut]);
 
-      if (result.success) {
-        setAvailability(result.data.availability || []);
-      } else {
-        setError('Не удалось загрузить информацию о доступности');
-      }
-    } catch (err) {
-      setError('Ошибка при загрузке доступности');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const guestsOverCapacity = room ? adults + children > room.maxGuests : false;
 
-  const isDateAvailable = (date: Date): boolean => {
-    const dateStr = date.toISOString().split('T')[0];
-    const availDate = availability.find(a => a.date === dateStr);
-    return availDate ? availDate.available : false;
-  };
+  const canSubmit =
+    !!room && !!checkIn && !!checkOut && !!totals &&
+    totals.blockedDate === null && totals.missingNights === 0 &&
+    !guestsOverCapacity && adults >= 1 && !submitting;
 
-  const getPriceForDate = (date: Date): number => {
-    const dateStr = date.toISOString().split('T')[0];
-    const availDate = availability.find(a => a.date === dateStr);
-    return availDate ? availDate.price : pricePerNight;
-  };
-
-  const calculateNights = (): number => {
-    if (!checkInDate || !checkOutDate) return 0;
-    const time = checkOutDate.getTime() - checkInDate.getTime();
-    return Math.ceil(time / (1000 * 3600 * 24));
-  };
-
-  const calculateTotalPrice = (): number => {
-    if (!checkInDate || !checkOutDate) return 0;
-    
-    const nights = calculateNights();
-    if (nights <= 0) return 0;
-
-    // Суммируем стоимость по ночам
-    let total = 0;
-    const currentDate = new Date(checkInDate);
-    
-    for (let i = 0; i < nights; i++) {
-      const nightPrice = getPriceForDate(currentDate);
-      total += nightPrice;
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    // Дети со скидкой 50%
-    const childrenDiscount = 0.5;
-    return Math.round(total * (adults + children * childrenDiscount));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!room || !checkIn || !checkOut) return;
     setError(null);
-
-    if (!checkInDate || !checkOutDate) {
-      setError('Пожалуйста, выберите даты заезда и выезда');
-      return;
-    }
-
-    if (checkOutDate <= checkInDate) {
-      setError('Дата выезда должна быть позже даты заезда');
-      return;
-    }
-
-    const totalGuests = adults + children;
-    if (totalGuests === 0) {
-      setError('Пожалуйста, добавьте хотя бы одного гостя');
-      return;
-    }
-
-    // Проверяем доступность всех ночей
-    const currentDate = new Date(checkInDate);
-    while (currentDate < checkOutDate) {
-      if (!isDateAvailable(currentDate)) {
-        const dateStr = currentDate.toLocaleDateString('ru-RU');
-        setError(`Номер недоступен на ${dateStr}`);
-        return;
-      }
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
     setSubmitting(true);
     try {
-      const booking = await onSubmit({
-        accommodationId,
-        checkInDate,
-        checkOutDate,
-        adults,
-        children,
-        totalPrice: calculateTotalPrice(),
-        specialRequirements: specialRequirements.trim() || undefined
+      const res = await fetch(`/api/accommodations/${accommodationId}/book`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: room.id,
+          checkInDate: ymd(checkIn),
+          checkOutDate: ymd(checkOut),
+          adults,
+          children,
+          specialRequests: specialRequests.trim() || undefined,
+        }),
       });
-      
-      // После создания бронирования показываем оплату
-      setBookingId(booking.id);
-      setPaymentId(booking.id);
-      setShowPayment(true);
-    } catch (err) {
-      setError('Ошибка при создании бронирования');
+
+      if (res.status === 401) {
+        setError('Чтобы забронировать, войдите в аккаунт');
+        return;
+      }
+
+      const d = await res.json() as {
+        success?: boolean;
+        error?: string;
+        data?: { bookingId: string; nights: number; priceBreakdown?: { totalPrice: number } };
+      };
+      if (!res.ok || !d.success || !d.data) {
+        setError(d.error || 'Не удалось создать бронирование');
+        return;
+      }
+
+      setSuccess({
+        bookingId: d.data.bookingId,
+        // Сумма к оплате — СЕРВЕРНАЯ, не клиентский расчёт
+        totalPrice: d.data.priceBreakdown?.totalPrice ?? totals?.total ?? 0,
+        nights: d.data.nights,
+      });
+    } catch {
+      setError('Сетевая ошибка — попробуйте ещё раз');
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
-  const handlePaymentSuccess = async (_transactionId: number) => {
-    setError(null);
-    // TODO: Редирект на страницу подтверждения или показать сообщение об успехе
-  };
-
-  const handlePaymentFail = (reason: string) => {
-    setError(`Ошибка оплаты: ${reason}`);
-    setShowPayment(false);
-  };
-
-  if (loading) {
+  if (rooms.length === 0) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <LoadingSpinner message="Загрузка доступности номеров..." />
+      <div className="ds-card p-6 text-center">
+        <p className="text-sm text-[var(--text-secondary)]">
+          Онлайн-бронирование появится, когда владелец добавит номера.
+        </p>
       </div>
     );
   }
 
-  const nights = calculateNights();
-  const totalPrice = calculateTotalPrice();
+  if (success) {
+    return (
+      <div className="ds-card p-6 space-y-4" aria-live="polite">
+        <p className="text-base font-semibold text-[var(--success)]">Бронирование создано</p>
+        <p className="text-sm text-[var(--text-secondary)]">
+          {accommodationName} · {room?.name} · {success.nights} ноч. ·{' '}
+          <span className="font-semibold text-[var(--text-primary)]">{formatMoney(success.totalPrice)} ₽</span>
+        </p>
+        <p className="text-xs text-[var(--text-muted)]">
+          Бронь ожидает подтверждения владельцем. Оплатить можно сейчас:
+        </p>
+        <CloudPaymentsWidget
+          amount={success.totalPrice}
+          currency="RUB"
+          description={`Оплата размещения: ${accommodationName}`}
+          invoiceId={success.bookingId}
+          accountId={user?.id ?? ''}
+          email={user?.email ?? ''}
+          onSuccess={() => {}}
+          onFail={(reason: string) => setError(`Ошибка оплаты: ${reason}`)}
+          buttonText={`Оплатить ${formatMoney(success.totalPrice)} ₽`}
+        />
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      </div>
+    );
+  }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Accommodation Info */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
-        <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">{accommodationName}</h3>
-        <p className="text-[var(--accent)] text-xl font-semibold">
-          {pricePerNight.toLocaleString('ru-RU')} ₽ за ночь
-        </p>
+    <form onSubmit={handleSubmit} className="space-y-5">
+
+      {/* Выбор номера */}
+      <div className="ds-card p-5">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Номер</h3>
+        <div className="space-y-2">
+          {rooms.map(r => (
+            <label
+              key={r.id}
+              className={`flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                roomId === r.id
+                  ? 'border-[var(--accent)] bg-[var(--bg-hover)]'
+                  : 'border-[var(--border)] hover:border-[var(--accent)]'
+              }`}
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <input
+                  type="radio"
+                  name="room"
+                  value={r.id}
+                  checked={roomId === r.id}
+                  onChange={() => setRoomId(r.id)}
+                />
+                <span className="text-sm text-[var(--text-primary)] truncate">{r.name}</span>
+                <span className="text-xs text-[var(--text-muted)] hidden sm:inline">
+                  {ROOM_TYPE_LABELS[r.roomType as RoomType] ?? r.roomType} · до {r.maxGuests} гостей
+                </span>
+              </span>
+              <span className="text-sm font-semibold text-[var(--text-primary)] whitespace-nowrap">
+                {formatMoney(r.pricePerNight)} ₽/ночь
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="bg-[var(--danger)]/20 border border-[var(--danger)]/50 rounded-lg p-4">
-          <p className="text-[var(--danger)]">{error}</p>
-        </div>
-      )}
-
-      {/* Date Selection */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Даты проживания</h4>
+      {/* Даты */}
+      <div className="ds-card p-5">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Даты проживания</h3>
         <StayDatePicker
           accommodationId={accommodationId}
-          pricePerNight={pricePerNight}
-          onDatesChange={(checkIn, checkOut, pricing) => {
-            setCheckInDate(checkIn);
-            setCheckOutDate(checkOut);
+          pricePerNight={room?.pricePerNight ?? 0}
+          showPriceBreakdown={false}
+          onDatesChange={(inDate, outDate) => {
+            setCheckIn(inDate);
+            setCheckOut(outDate);
           }}
-          initialCheckIn={checkInDate}
-          initialCheckOut={checkOutDate}
-          enableAvailabilityCheck={true}
         />
-        
-        {checkInDate && checkOutDate && (
-          <div className="mt-4 p-4 bg-[var(--success)]/10 border border-[var(--success)]/30 rounded-xl">
-            <p className="text-[var(--success)]">
-              [] Заезд: {checkInDate.toLocaleDateString('ru-RU')}
-            </p>
-            <p className="text-[var(--success)]">
-              [] Выезд: {checkOutDate.toLocaleDateString('ru-RU')}
-            </p>
-            <p className="text-[var(--text-muted)] text-sm mt-2">
-              Количество ночей: {nights}
-            </p>
-          </div>
+      </div>
+
+      {/* Гости */}
+      <div className="ds-card p-5">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Гости</h3>
+        <GuestSelector
+          maxGuests={room?.maxGuests ?? 10}
+          initialAdults={adults}
+          initialChildren={children}
+          onChange={(a, c) => { setAdults(a); setChildren(c); }}
+        />
+        {guestsOverCapacity && room && (
+          <p className="text-xs text-[var(--danger)] mt-2">
+            Номер вмещает до {room.maxGuests} гостей — выберите другой номер или уменьшите число гостей.
+          </p>
         )}
       </div>
 
-      {/* Guests Selection */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Количество гостей</h4>
-        <GuestSelector
-          maxGuests={20}
-          initialAdults={adults}
-          initialChildren={children}
-          onChange={(newAdults, newChildren) => {
-            setAdults(newAdults);
-            setChildren(newChildren);
-          }}
-        />
-      </div>
-
-      {/* Special Requirements */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Особые пожелания</h4>
+      {/* Пожелания */}
+      <div className="ds-card p-5">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Пожелания (необязательно)</h3>
         <textarea
-          value={specialRequirements}
-          onChange={(e) => setSpecialRequirements(e.target.value)}
-          placeholder="Например: высокий этаж, вид на море, гипоаллергенные подушки..."
-          rows={4}
-          className="w-full px-4 py-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none"
+          className="ds-input resize-none"
+          rows={3}
+          value={specialRequests}
+          onChange={e => setSpecialRequests(e.target.value)}
+          placeholder="Поздний заезд, детская кроватка..."
         />
       </div>
 
-      {/* Price Summary */}
-      <div className="bg-[var(--bg-card)] border border-[var(--accent)]/30 rounded-lg p-6">
-        <div className="space-y-3 mb-4">
-          <div className="flex justify-between items-center">
-            <span className="text-[var(--text-muted)]">Ночей:</span>
-            <span className="text-[var(--text-primary)] font-semibold">{nights}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[var(--text-muted)]">Цена за ночь:</span>
-            <span className="text-[var(--text-primary)] font-semibold">
-              {pricePerNight.toLocaleString('ru-RU')} ₽
+      {/* Итог — честная сумма по ночам, как посчитает сервер */}
+      {totals && room && (
+        <div className="ds-card p-5">
+          <div className="flex justify-between items-center text-sm mb-1">
+            <span className="text-[var(--text-secondary)]">
+              {room.name} · {totals.nights} ноч.
+            </span>
+            <span className="font-bold text-lg text-[var(--text-primary)]">
+              {formatMoney(totals.total)} ₽
             </span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[var(--text-muted)]">Взрослые ({adults}):</span>
-            <span className="text-[var(--text-primary)] font-semibold">
-              {nights > 0 ? (adults * pricePerNight * nights).toLocaleString('ru-RU') : 0} ₽
-            </span>
-          </div>
-          {children > 0 && (
-            <div className="flex justify-between items-center">
-              <span className="text-[var(--text-muted)]">Дети ({children}, скидка 50%):</span>
-              <span className="text-[var(--text-primary)] font-semibold">
-                {nights > 0 ? (children * pricePerNight * nights * 0.5).toLocaleString('ru-RU') : 0} ₽
-              </span>
-            </div>
+          <p className="text-[10px] text-[var(--text-muted)]">
+            Сумма реальных цен по ночам (тарифы владельца учтены). Без скрытых сборов.
+          </p>
+          {totals.blockedDate && (
+            <p className="text-xs text-[var(--danger)] mt-2">
+              Владелец закрыл продажу на {totals.blockedDate.split('-').reverse().join('.')} — выберите другие даты.
+            </p>
+          )}
+          {totals.missingNights > 0 && (
+            <p className="text-xs text-[var(--warning)] mt-2">
+              Не удалось загрузить цены на часть ночей — обновите страницу.
+            </p>
           )}
         </div>
-        <div className="border-t border-[var(--border)] pt-4 mt-4">
-          <div className="flex justify-between items-center">
-            <span className="text-xl font-bold text-[var(--text-primary)]">Итого:</span>
-            <span className="text-2xl font-bold text-[var(--accent)]">
-              {totalPrice.toLocaleString('ru-RU')} ₽
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Payment or Submit */}
-      {showPayment && bookingId && paymentId ? (
-        <div className="space-y-4">
-          <CloudPaymentsWidget
-            amount={totalPrice}
-            currency="RUB"
-            description={`Бронирование: ${accommodationName}`}
-            invoiceId={paymentId}
-            accountId={user?.id ?? ''}
-            email={user?.email ?? ''}
-            onSuccess={handlePaymentSuccess}
-            onFail={handlePaymentFail}
-            buttonText={`Оплатить ${totalPrice.toLocaleString('ru-RU')} ₽`}
-          />
-          <button
-            type="button"
-            onClick={() => setShowPayment(false)}
-            className="w-full px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] rounded-lg transition-colors"
-          >
-            Вернуться к бронированию
-          </button>
-        </div>
-      ) : (
-        <button
-          type="submit"
-          disabled={!checkInDate || !checkOutDate || submitting}
-          className="w-full px-8 py-4 bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-[var(--bg-primary)] font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-lg"
-        >
-          {submitting ? (
-            <span className="flex items-center justify-center">
-              <span className="animate-spin mr-2"> </span>
-              Оформление...
-            </span>
-          ) : (
-            'Забронировать номер'
-          )}
-        </button>
       )}
+
+      {pricesFailed && (
+        <p className="text-sm text-[var(--danger)]">Не удалось загрузить цены номера. Обновите страницу.</p>
+      )}
+
+      {error && (
+        <p className="text-sm text-[var(--danger)]" role="alert">
+          {error}{' '}
+          {error.includes('войдите') && (
+            <Link href="/login" className="underline text-[var(--ocean)]">Войти</Link>
+          )}
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={!canSubmit}
+        className="w-full ds-btn ds-btn-primary py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {submitting ? 'Оформляем…' : 'Забронировать'}
+      </button>
     </form>
   );
 }

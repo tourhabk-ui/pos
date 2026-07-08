@@ -21,6 +21,12 @@ vi.mock('@/components/layout/Header', () => ({
   Header: () => React.createElement('div', { 'data-testid': 'header' }),
 }));
 
+// Форма бронирования тестируется отдельно (stay-booking-flow) —
+// здесь мокаем, чтобы не тянуть AuthContext/пикер
+vi.mock('@/components/booking/StayBookingForm', () => ({
+  StayBookingForm: () => React.createElement('div', { 'data-testid': 'booking-form' }),
+}));
+
 vi.mock('next/image', () => ({
   // eslint-disable-next-line @next/next/no-img-element
   default: (props: { src: string; alt: string }) => React.createElement('img', { src: props.src, alt: props.alt }),

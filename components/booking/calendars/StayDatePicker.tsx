@@ -87,18 +87,22 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
     setError(null);
 
     try {
+      // startDate/endDate обязательны для роута (иначе 400); горизонт — год
+      const start = new Date();
+      const end = new Date();
+      end.setFullYear(end.getFullYear() + 1);
       const response = await fetch(
-        `/api/accommodations/${accommodationId}/blocked-dates`
+        `/api/accommodations/${accommodationId}/blocked-dates?` +
+        `startDate=${formatAPIDate(start)}&endDate=${formatAPIDate(end)}`
       );
-      
+
       if (!response.ok) {
         throw new Error('Не удалось загрузить доступные даты');
       }
 
-      const data: BlockedDatesResponse = await response.json();
-      
-      // Преобразуем строки в Date объекты
-      const dates = data.blockedDates.map(dateStr => new Date(dateStr));
+      // Роут отдаёт { success, data: { blockedDates } }
+      const payload: { data?: BlockedDatesResponse } = await response.json();
+      const dates = (payload.data?.blockedDates ?? []).map(dateStr => new Date(dateStr));
       setBlockedDates(dates);
     } catch (err) {
       toast.error('Не удалось загрузить календарь');
@@ -127,9 +131,11 @@ export const StayDatePicker: React.FC<StayDatePickerProps> = ({
           throw new Error('Не удалось проверить доступность');
         }
 
-        const data: AvailabilityResponse = await response.json();
+        // Роут отдаёт { success, data: { available, availability } }
+        const payload: { data?: AvailabilityResponse } = await response.json();
+        const data = payload.data;
 
-        if (!data.available) {
+        if (data && !data.available) {
           setError(data.reason || 'К сожалению, номера заняты на эти даты');
           toast.error('Выбранные даты недоступны');
           setCheckOut(null);
