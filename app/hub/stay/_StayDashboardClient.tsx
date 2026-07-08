@@ -6,8 +6,9 @@ import { BarChart3, Home, ClipboardList, CalendarCheck, Wallet } from 'lucide-re
 
 /**
  * Обзор кабинета владельца жилья. Данные — из /api/stay/stats.
- * Профиль владельца (partners, category='stay') заводит администратор —
- * без него честно показываем, куда обратиться, а не пустые нули.
+ * Профиль партнёра создаётся при регистрации (ensurePartnerForRole)
+ * или автоматически при первом заходе (GET /api/partners/profile);
+ * незавершённый онбординг уводит в /hub/stay/onboarding.
  */
 
 interface StayStats {
@@ -30,6 +31,19 @@ export default function StayDashboardClient() {
   const [noProfile, setNoProfile] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  // Гвард онбординга: GET /api/partners/profile авто-создаёт профиль
+  // (legacy-аккаунты без partners-записи), незавершённый — в визард
+  useEffect(() => {
+    fetch('/api/partners/profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { data?: { partner?: { onboarding_completed?: boolean } } } | null) => {
+        if (d?.data?.partner && !d.data.partner.onboarding_completed) {
+          router.replace('/hub/stay/onboarding');
+        }
+      })
+      .catch(() => {});
+  }, [router]);
+
   useEffect(() => {
     fetch('/api/stay/stats')
       .then(r => {
@@ -51,11 +65,13 @@ export default function StayDashboardClient() {
     return (
       <div className="p-5 lg:p-6">
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center max-w-lg">
-          <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">Профиль владельца жилья не найден</p>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Объекты размещения заводит администратор платформы и привязывает их к вашему аккаунту.
-            Напишите на info@tourhab.ru, чтобы подключить объект.
+          <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">Кабинет ещё не настроен</p>
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Заполните профиль владельца и добавьте первый объект — брони начнут приходить сюда.
           </p>
+          <button className="ds-btn ds-btn-primary" onClick={() => router.push('/hub/stay/onboarding')}>
+            Настроить кабинет
+          </button>
         </div>
       </div>
     );

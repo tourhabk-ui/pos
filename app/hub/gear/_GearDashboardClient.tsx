@@ -31,6 +31,19 @@ export default function GearDashboardClient() {
   const [data, setData] = useState<ProfileData | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // Гвард онбординга: новый партнёр сначала настраивает профиль
+  // (partners.onboarding_completed — общий флаг, миграция 052)
+  useEffect(() => {
+    fetch('/api/partners/profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { data?: { partner?: { onboarding_completed?: boolean } } } | null) => {
+        if (d?.data?.partner && !d.data.partner.onboarding_completed) {
+          router.replace('/hub/gear/onboarding');
+        }
+      })
+      .catch(() => {});
+  }, [router]);
+
   useEffect(() => {
     fetch('/api/gear/profile')
       .then(r => (r.ok ? r.json() : null))
