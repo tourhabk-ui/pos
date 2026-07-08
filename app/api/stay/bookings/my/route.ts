@@ -29,7 +29,9 @@ export async function GET(request: NextRequest) {
           WHERE aa.accommodation_id = a.id
           ORDER BY ast.created_at ASC LIMIT 1) AS image_url,
          (b.check_in_date > CURRENT_DATE
-          AND b.status IN ('pending', 'confirmed')) AS cancellable
+          AND b.status IN ('pending', 'confirmed')) AS cancellable,
+         (b.status = 'completed'
+          AND NOT EXISTS (SELECT 1 FROM accommodation_reviews rv WHERE rv.booking_id = b.id)) AS reviewable
        FROM accommodation_bookings b
        JOIN accommodations a ON b.accommodation_id = a.id
        LEFT JOIN accommodation_rooms r ON b.room_id = r.id
@@ -58,6 +60,7 @@ export async function GET(request: NextRequest) {
           roomName: r.room_name,
           imageUrl: r.image_url,
           cancellable: r.cancellable,
+          reviewable: r.reviewable,
           createdAt: r.created_at,
         })),
       },

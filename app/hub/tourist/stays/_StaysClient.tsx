@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BedDouble, MapPin, CalendarDays, X } from 'lucide-react';
+import { BedDouble, MapPin, CalendarDays, X, Star } from 'lucide-react';
+import StayReviewForm from './_StayReviewForm';
 
 /**
  * Брони жилья гостя (GET /api/stay/bookings/my). Отмена будущих
@@ -22,6 +23,7 @@ interface StayBooking {
   address: string;
   roomName: string | null;
   cancellable: boolean;
+  reviewable: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -60,6 +62,7 @@ export default function StaysClient() {
   const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch('/api/stay/bookings/my')
@@ -145,16 +148,33 @@ export default function StaysClient() {
                 )}
               </div>
             </div>
-            {b.cancellable && (
-              <button
-                onClick={() => cancel(b)}
-                disabled={busyId === b.id}
-                className="ds-btn ds-btn-secondary text-xs shrink-0"
-              >
-                <X className="w-3.5 h-3.5" /> {busyId === b.id ? 'Отмена…' : 'Отменить'}
-              </button>
-            )}
+            <div className="flex flex-col gap-2 shrink-0">
+              {b.cancellable && (
+                <button
+                  onClick={() => cancel(b)}
+                  disabled={busyId === b.id}
+                  className="ds-btn ds-btn-secondary text-xs"
+                >
+                  <X className="w-3.5 h-3.5" /> {busyId === b.id ? 'Отмена…' : 'Отменить'}
+                </button>
+              )}
+              {b.reviewable && reviewingId !== b.id && (
+                <button
+                  onClick={() => setReviewingId(b.id)}
+                  className="ds-btn ds-btn-secondary text-xs"
+                >
+                  <Star className="w-3.5 h-3.5" /> Отзыв
+                </button>
+              )}
+            </div>
           </div>
+          {b.reviewable && reviewingId === b.id && (
+            <StayReviewForm
+              accommodationId={b.accommodationId}
+              bookingId={b.id}
+              onDone={() => { setReviewingId(null); load(); }}
+            />
+          )}
         </div>
       ))}
     </div>
