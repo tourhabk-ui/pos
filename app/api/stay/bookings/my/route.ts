@@ -21,8 +21,10 @@ export async function GET(request: NextRequest) {
          b.check_in_date::text AS check_in_date,
          b.check_out_date::text AS check_out_date,
          b.nights, b.adults, b.children, b.total_price, b.currency,
+         b.refund_amount, b.refund_percent,
          b.created_at,
          a.id AS accommodation_id, a.name AS accommodation_name, a.address,
+         a.cancellation_policy,
          r.name AS room_name,
          (SELECT ast.url FROM accommodation_assets aa
           JOIN assets ast ON aa.asset_id = ast.id
@@ -54,9 +56,12 @@ export async function GET(request: NextRequest) {
           children: r.children,
           totalPrice: r.total_price != null ? Number(r.total_price) : null,
           currency: r.currency,
+          refundAmount: r.refund_amount != null ? Number(r.refund_amount) : null,
+          refundPercent: r.refund_percent,
           accommodationId: r.accommodation_id,
           accommodationName: r.accommodation_name,
           address: r.address,
+          cancellationPolicy: r.cancellation_policy,
           roomName: r.room_name,
           imageUrl: r.image_url,
           cancellable: r.cancellable,

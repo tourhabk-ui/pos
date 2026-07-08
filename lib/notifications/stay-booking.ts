@@ -78,13 +78,15 @@ export interface StayBookingCancelPayload {
   refundAmount?: number | null;
   /** Процент возврата по политике */
   refundPercent?: number | null;
+  /** Причина/итог по политике (точная формулировка тира) */
+  refundReason?: string | null;
 }
 
 export async function notifyStayBookingCancelled(p: StayBookingCancelPayload): Promise<void> {
   const refundLine = p.wasPaid
     ? (p.refundAmount && p.refundAmount > 0
         ? `К возврату гостю: ${money(p.refundAmount)}${p.refundPercent != null ? ` (${p.refundPercent}%)` : ''}. Возврат — вручную по CloudPayments.`
-        : `Возврат не предусмотрен (отмена в срок менее 24 часов до заезда).`)
+        : (p.refundReason || 'Возврат не предусмотрен по условиям отмены.'))
     : `Предоплаты не было — возврат не требуется.`;
 
   const text = [

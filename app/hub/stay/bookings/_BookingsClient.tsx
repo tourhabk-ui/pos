@@ -60,6 +60,8 @@ interface BookingRow {
   total_price: string | number;
   status: string;
   payment_status: string;
+  refund_amount: string | number | null;
+  refund_percent: number | null;
   special_requests: string | null;
   created_at: string;
 }
@@ -191,6 +193,12 @@ export default function BookingsClient() {
               <p className="text-xs text-[var(--text-secondary)] mt-1">
                 {[booking.guest_name, booking.guest_email].filter(Boolean).join(' · ') || 'Гость не указан'}
               </p>
+              {booking.status === 'cancelled' && booking.refund_amount != null && Number(booking.refund_amount) > 0 && (
+                <p className="text-xs font-medium text-[var(--danger)] mt-1">
+                  К возврату гостю: {formatMoney(booking.refund_amount)}
+                  {booking.refund_percent != null && ` (${booking.refund_percent}%)`} — вручную по CloudPayments
+                </p>
+              )}
               {booking.special_requests && (
                 <p className="text-xs text-[var(--text-muted)] mt-1">{booking.special_requests}</p>
               )}

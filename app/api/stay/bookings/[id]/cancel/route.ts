@@ -101,6 +101,7 @@ export async function POST(
         wasPaid,
         refundAmount: refund ? refund.amount : null,
         refundPercent: refund ? refund.percent : null,
+        refundReason: refund ? refund.reason : null,
       };
     });
 
@@ -125,6 +126,7 @@ export async function POST(
         wasPaid: outcome.wasPaid,
         refundAmount: outcome.refundAmount,
         refundPercent: outcome.refundPercent,
+        refundReason: outcome.refundReason,
       });
     } catch {
       // уведомление не критично

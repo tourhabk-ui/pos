@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
         b.adults, b.children,
         b.room_price_per_night, b.total_price, b.currency,
         b.status, b.payment_status,
+        b.refund_amount, b.refund_percent,
         b.special_requests, b.guest_notes, b.created_at,
         a.name AS accommodation_name,
         r.name AS room_name,

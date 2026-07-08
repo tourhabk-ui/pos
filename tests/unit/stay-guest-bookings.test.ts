@@ -60,6 +60,28 @@ describe('GET /api/stay/bookings/my', () => {
     expect(String(sql)).toContain('WHERE b.user_id = $1');
     expect(params).toEqual(['guest-1']);
   });
+
+  it('отдаёт refund-поля и политику отмены', async () => {
+    poolQueryMock.mockResolvedValue({ rows: [{
+      id: 'b1', status: 'cancelled', payment_status: 'partially_refunded',
+      check_in_date: '2099-08-01', check_out_date: '2099-08-03',
+      nights: 2, adults: 2, children: 0, total_price: '20000', currency: 'RUB',
+      refund_amount: '10000', refund_percent: 50,
+      accommodation_id: 'a1', accommodation_name: 'Дом', address: 'ул. 1',
+      cancellation_policy: 'Отмена за 24 часа — без штрафа',
+      room_name: null, image_url: null, cancellable: false, reviewable: false,
+      created_at: '2026-07-01',
+    }] });
+    const res = await getMy(req('http://localhost/api/stay/bookings/my', 'GET'));
+    const body = await res.json();
+    const b = body.data.bookings[0];
+    expect(b.refundAmount).toBe(10000);
+    expect(b.refundPercent).toBe(50);
+    expect(b.cancellationPolicy).toBe('Отмена за 24 часа — без штрафа');
+    const [sql] = poolQueryMock.mock.calls[0];
+    expect(String(sql)).toContain('a.cancellation_policy');
+    expect(String(sql)).toContain('b.refund_amount');
+  });
 });
 
 describe('POST /api/stay/bookings/[id]/cancel', () => {

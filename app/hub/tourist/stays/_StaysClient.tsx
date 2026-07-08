@@ -24,6 +24,9 @@ interface StayBooking {
   roomName: string | null;
   cancellable: boolean;
   reviewable: boolean;
+  refundAmount: number | null;
+  refundPercent: number | null;
+  cancellationPolicy: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -61,6 +64,7 @@ export default function StaysClient() {
   const [bookings, setBookings] = useState<StayBooking[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
@@ -77,16 +81,27 @@ export default function StaysClient() {
   useEffect(() => { load(); }, [load]);
 
   async function cancel(booking: StayBooking) {
-    if (!window.confirm(`Отменить бронь «${booking.accommodationName}»?`)) return;
+    const policyNote = booking.cancellationPolicy ? `\n\nУсловия отмены: ${booking.cancellationPolicy}` : '';
+    if (!window.confirm(`Отменить бронь «${booking.accommodationName}»?${policyNote}`)) return;
     setBusyId(booking.id);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/stay/bookings/${booking.id}/cancel`, { method: 'POST' });
-      const d = await res.json() as { success?: boolean; error?: string };
+      const d = await res.json() as {
+        success?: boolean; error?: string;
+        data?: { refundAmount: number | null; refundPercent: number | null; wasPaid: boolean };
+      };
       if (!res.ok || !d.success) {
         setError(d.error || 'Не удалось отменить бронь');
         return;
       }
+      const refund = d.data?.refundAmount ?? 0;
+      setNotice(
+        refund > 0
+          ? `Бронь отменена. К возврату ${formatMoney(refund)}${d.data?.refundPercent != null ? ` (${d.data.refundPercent}%)` : ''} — поступит на карту в течение нескольких дней.`
+          : 'Бронь отменена.'
+      );
       load();
     } catch {
       setError('Не удалось отменить бронь');
@@ -103,6 +118,7 @@ export default function StaysClient() {
       </div>
 
       {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      {notice && <p className="text-sm text-[var(--success)]">{notice}</p>}
       {failed && <p className="text-sm text-[var(--danger)]">Не удалось загрузить брони. Обновите страницу.</p>}
 
       {bookings === null && !failed && (
@@ -147,6 +163,14 @@ export default function StaysClient() {
                   <span className="text-xs font-semibold text-[var(--text-primary)]">{formatMoney(b.totalPrice)}</span>
                 )}
               </div>
+              {b.status === 'cancelled' && b.refundAmount != null && b.refundAmount > 0 && (
+                <p className="text-xs text-[var(--text-secondary)] mt-2">
+                  Возврат: {formatMoney(b.refundAmount)}{b.refundPercent != null && ` (${b.refundPercent}%)`}
+                </p>
+              )}
+              {b.cancellable && b.cancellationPolicy && (
+                <p className="text-xs text-[var(--text-muted)] mt-2">Условия отмены: {b.cancellationPolicy}</p>
+              )}
             </div>
             <div className="flex flex-col gap-2 shrink-0">
               {b.cancellable && (

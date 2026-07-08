@@ -139,6 +139,7 @@ export async function PATCH(
               wasPaid,
               refundAmount: refund ? refund.amount : null,
               refundPercent: refund ? refund.percent : null,
+              refundReason: refund ? refund.reason : null,
             }
           : null,
       };
@@ -174,6 +175,7 @@ export async function PATCH(
           wasPaid: outcome.notify.wasPaid,
           refundAmount: outcome.notify.refundAmount,
           refundPercent: outcome.notify.refundPercent,
+          refundReason: outcome.notify.refundReason,
         });
       } catch {
         // уведомление не критично
