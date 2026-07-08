@@ -147,6 +147,53 @@ export default function StayCalendarClient() {
     setReasonInput(rate?.blockReason ?? '');
   }
 
+  // Массовое задание тарифа на диапазон (сезон/выходные)
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkStart, setBulkStart] = useState('');
+  const [bulkEnd, setBulkEnd] = useState('');
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [bulkBlocked, setBulkBlocked] = useState(false);
+  // EXTRACT(DOW): 0=вс..6=сб; пустой набор — все дни
+  const [bulkWeekdays, setBulkWeekdays] = useState<number[]>([]);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+
+  const bulkValid =
+    bulkStart !== '' && bulkEnd !== '' && bulkEnd >= bulkStart &&
+    (bulkPrice !== '' || bulkBlocked);
+
+  async function saveBulk() {
+    if (!selectedId || !bulkValid) return;
+    setBusy(true);
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const res = await fetch('/api/stay/calendar/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accommodationId: selectedId,
+          roomId: selectedRoomId || null,
+          startDate: bulkStart,
+          endDate: bulkEnd,
+          ...(bulkWeekdays.length > 0 && bulkWeekdays.length < 7 ? { weekdays: bulkWeekdays } : {}),
+          ...(bulkPrice !== '' ? { priceOverride: Number(bulkPrice) } : {}),
+          isBlocked: bulkBlocked,
+        }),
+      });
+      const d = await res.json() as { success?: boolean; error?: string; message?: string };
+      if (!res.ok || !d.success) {
+        setError(d.error || 'Не удалось применить тариф к диапазону');
+        return;
+      }
+      setBulkMessage(d.message ?? 'Применено');
+      load();
+    } catch {
+      setError('Не удалось применить тариф к диапазону');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveDay() {
     if (!editDate || !selectedId) return;
     setBusy(true);
@@ -245,6 +292,73 @@ export default function StayCalendarClient() {
                 </span>
               ) : null;
             })()}
+          </div>
+
+          {/* Массовое задание: сезонные цены и блокировки диапазоном */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+            <button
+              type="button"
+              className="text-sm font-semibold text-[var(--text-primary)]"
+              onClick={() => setBulkOpen(!bulkOpen)}
+            >
+              Задать на диапазон {bulkOpen ? '−' : '+'}
+            </button>
+            {bulkOpen && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                <div>
+                  <label className="ds-label">С даты</label>
+                  <input className="ds-input" type="date" value={bulkStart}
+                    onChange={e => setBulkStart(e.target.value)} />
+                </div>
+                <div>
+                  <label className="ds-label">По дату</label>
+                  <input className="ds-input" type="date" value={bulkEnd}
+                    onChange={e => setBulkEnd(e.target.value)} />
+                </div>
+                <div>
+                  <label className="ds-label">Цена, ₽/ночь</label>
+                  <input className="ds-input" type="number" min="0" value={bulkPrice}
+                    placeholder="Не менять" onChange={e => setBulkPrice(e.target.value)} />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-[var(--text-primary)] pb-2.5">
+                  <input type="checkbox" checked={bulkBlocked}
+                    onChange={e => setBulkBlocked(e.target.checked)} />
+                  Закрыть продажу
+                </label>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <p className="ds-label mb-1.5">Дни недели (пусто — все)</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* Порядок Пн..Вс; значения — EXTRACT(DOW): вс=0 */}
+                    {[1, 2, 3, 4, 5, 6, 0].map((dow, i) => (
+                      <button
+                        key={dow}
+                        type="button"
+                        onClick={() => setBulkWeekdays(prev =>
+                          prev.includes(dow) ? prev.filter(x => x !== dow) : [...prev, dow]
+                        )}
+                        className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                          bulkWeekdays.includes(dow)
+                            ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--bg-hover)]'
+                            : 'border-[var(--border)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {WEEKDAYS[i]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  className="ds-btn ds-btn-primary"
+                  onClick={saveBulk}
+                  disabled={!bulkValid || busy}
+                >
+                  {busy ? 'Применяем…' : 'Применить'}
+                </button>
+                {bulkMessage && (
+                  <p className="text-xs text-[var(--success)] sm:col-span-2 lg:col-span-4">{bulkMessage}</p>
+                )}
+              </div>
+            )}
           </div>
 
           {data === null && !failed && <div className="ds-skeleton h-80 rounded-lg" />}
