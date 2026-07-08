@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import {
   Compass, Calendar, Star, Heart, Award, MessageSquare, User, Bell, Route,
-  ShoppingCart, LifeBuoy, Trophy, Mail, Mountain,
+  ShoppingCart, LifeBuoy, Trophy, Mail, Mountain, BedDouble,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -13,6 +13,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/tourist/my-kamchatka',     label: 'Моя Камчатка',      icon: Mountain },
   { href: '/hub/tourist/trips',            label: 'Мои маршруты',      icon: Route },
   { href: '/hub/tourist/bookings',         label: 'Бронирования',      icon: Calendar },
+  { href: '/hub/tourist/stays',            label: 'Мои проживания',    icon: BedDouble },
   { href: '/marketplace',              label: 'Найти тур',         icon: Star },
   { href: '/hub/tourist/cart',         label: 'Корзина',           icon: ShoppingCart },
   { href: '/hub/tourist/wishlist',     label: 'Избранное',         icon: Heart },
