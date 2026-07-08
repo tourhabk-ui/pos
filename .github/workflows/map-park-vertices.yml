@@ -1,0 +1,57 @@
+name: Data — Park Vertices (привязка маршрутов к паркам)
+
+# Ручной прогон scripts/map-park-vertices.ts (issue #367, PR #375):
+# заполняет kamchatka_routes.park_name по матрице вершин visitkamchatka
+# (Налычево: Ааг/Арик/Корякский/Авачинский; Ключевской: Ключевская/
+# Толбачик; Вачкажец). Только пустые park_name; ambiguous («Камень») —
+# в отчёт без привязки. Отчёт — в artifacts, ambiguous-список оттуда
+# на ручную разметку.
+#
+# Требует secret DATABASE_URL (тот же, что у Reindex Embeddings).
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Записать привязки в БД (иначе dry-run с отчётом)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  map-vertices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Map park vertices
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production # включает ssl для managed PostgreSQL
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret not set — добавьте его в Settings → Secrets"
+            exit 1
+          fi
+          if [ "${{ github.event.inputs.apply }}" = "true" ]; then
+            npx tsx scripts/map-park-vertices.ts --apply
+          else
+            npx tsx scripts/map-park-vertices.ts
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: park-vertices-report
+          path: data/park-vertices-report.json
+          if-no-files-found: warn
