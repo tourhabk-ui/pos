@@ -4,6 +4,7 @@ import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getStayPartnerId } from '@/lib/auth/stay-helpers';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
+import { ACCOMMODATION_TYPES } from '@/lib/stay/accommodation-types';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -14,9 +15,7 @@ const CreateAccommodationSchema = z.object({
   name: z.string().min(3, 'Название должно быть минимум 3 символа').max(255),
   description: z.string().min(10, 'Описание должно быть минимум 10 символов').max(5000),
   shortDescription: z.string().max(500).optional(),
-  type: z.enum(['hotel', 'hostel', 'apartment', 'guesthouse', 'resort', 'camping', 'glamping', 'cottage'], {
-    message: 'Выберите тип размещения',
-  }),
+  type: z.enum(ACCOMMODATION_TYPES, { message: 'Выберите тип размещения' }),
   address: z.string().min(5, 'Укажите адрес').max(500),
   coordinates: z.object({
     lat: z.number().min(-90).max(90),

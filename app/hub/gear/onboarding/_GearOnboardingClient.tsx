@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { Building2, Package, Loader2, Check } from 'lucide-react';
 import OnboardingWizard from '@/components/hub/OnboardingWizard';
-import PartnerProfileStep, { PartnerProfileData } from '@/components/hub/PartnerProfileStep';
+import PartnerProfileStep from '@/components/hub/PartnerProfileStep';
+import { usePartnerOnboarding } from '@/components/hub/usePartnerOnboarding';
 
 /**
  * Онбординг проката снаряжения: профиль → первый товар.
@@ -18,37 +18,13 @@ const STEPS = [
 ];
 
 export default function GearOnboardingClient() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
-  const [profile, setProfile] = useState<PartnerProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [finishing, setFinishing] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/partners/profile')
-      .then(r => (r.ok ? r.json() : null))
-      .then((d: { success?: boolean; data?: { partner: PartnerProfileData & { onboarding_completed?: boolean } } } | null) => {
-        const partner = d?.data?.partner;
-        if (partner) {
-          if (partner.onboarding_completed) {
-            router.replace('/hub/gear');
-            return;
-          }
-          setProfile(partner);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [router]);
+  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/gear');
 
   async function finish(goToInventory: boolean) {
     setFinishing(true);
-    await fetch('/api/partners/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ complete_onboarding: true }),
-    }).catch(() => {});
-    router.replace(goToInventory ? '/hub/gear/inventory' : '/hub/gear');
+    await completeOnboarding(goToInventory ? '/hub/gear/inventory' : '/hub/gear');
   }
 
   if (loading) {

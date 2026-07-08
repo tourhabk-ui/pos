@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { ClipboardList } from 'lucide-react';
 
 /**
@@ -146,9 +147,10 @@ export default function BookingsClient() {
 
       {noProfile && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center max-w-lg">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Профиль владельца жилья не найден. Объекты подключает администратор — напишите на info@tourhab.ru.
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Кабинет ещё не настроен — заполните профиль и добавьте первый объект, брони будут приходить сюда.
           </p>
+          <Link href="/hub/stay/onboarding" className="ds-btn ds-btn-primary">Настроить кабинет</Link>
         </div>
       )}
 

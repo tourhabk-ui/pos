@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BarChart3, Home, ClipboardList, CalendarCheck, Wallet } from 'lucide-react';
+import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 /**
  * Обзор кабинета владельца жилья. Данные — из /api/stay/stats.
@@ -32,19 +33,12 @@ export default function StayDashboardClient() {
   const [failed, setFailed] = useState(false);
 
   // Гвард онбординга: GET /api/partners/profile авто-создаёт профиль
-  // (legacy-аккаунты без partners-записи), незавершённый — в визард
-  useEffect(() => {
-    fetch('/api/partners/profile')
-      .then(r => (r.ok ? r.json() : null))
-      .then((d: { data?: { partner?: { onboarding_completed?: boolean } } } | null) => {
-        if (d?.data?.partner && !d.data.partner.onboarding_completed) {
-          router.replace('/hub/stay/onboarding');
-        }
-      })
-      .catch(() => {});
-  }, [router]);
+  // (legacy-аккаунты без partners-записи), незавершённый — в визард.
+  // Загрузка статистики ждёт гварда — без гонки и вспышки дашборда
+  const onboardingReady = useOnboardingGuard('/hub/stay/onboarding');
 
   useEffect(() => {
+    if (!onboardingReady) return;
     fetch('/api/stay/stats')
       .then(r => {
         if (r.status === 404) {
@@ -59,7 +53,7 @@ export default function StayDashboardClient() {
         else setFailed(true);
       })
       .catch(() => setFailed(true));
-  }, []);
+  }, [onboardingReady]);
 
   if (noProfile) {
     return (

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { Building2, Home, Loader2, Check } from 'lucide-react';
 import OnboardingWizard from '@/components/hub/OnboardingWizard';
-import PartnerProfileStep, { PartnerProfileData } from '@/components/hub/PartnerProfileStep';
+import PartnerProfileStep from '@/components/hub/PartnerProfileStep';
+import { usePartnerOnboarding } from '@/components/hub/usePartnerOnboarding';
+import { ACCOMMODATION_TYPES, ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 
 /**
  * Онбординг владельца жилья: профиль → первый объект.
@@ -16,17 +17,6 @@ import PartnerProfileStep, { PartnerProfileData } from '@/components/hub/Partner
 const STEPS = [
   { icon: Building2, label: 'Профиль владельца' },
   { icon: Home, label: 'Первый объект' },
-];
-
-const TYPE_OPTIONS = [
-  { value: 'guesthouse', label: 'Гостевой дом' },
-  { value: 'hotel', label: 'Отель' },
-  { value: 'hostel', label: 'Хостел' },
-  { value: 'apartment', label: 'Апартаменты' },
-  { value: 'resort', label: 'Курорт' },
-  { value: 'camping', label: 'Кемпинг' },
-  { value: 'glamping', label: 'Глэмпинг' },
-  { value: 'cottage', label: 'Коттедж' },
 ];
 
 function FirstObjectStep({ onFinish }: { onFinish: (created: boolean) => void }) {
@@ -41,11 +31,15 @@ function FirstObjectStep({ onFinish }: { onFinish: (created: boolean) => void })
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Валидация зеркалит серверную Zod-схему (включая диапазоны координат)
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
   const valid =
     name.trim().length >= 3 &&
     description.trim().length >= 10 &&
     address.trim().length >= 5 &&
-    lat !== '' && lng !== '' &&
+    lat !== '' && Number.isFinite(latNum) && latNum >= -90 && latNum <= 90 &&
+    lng !== '' && Number.isFinite(lngNum) && lngNum >= -180 && lngNum <= 180 &&
     Number(totalRooms) >= 1 &&
     Number(priceFrom) > 0;
 
@@ -90,7 +84,7 @@ function FirstObjectStep({ onFinish }: { onFinish: (created: boolean) => void })
         <div>
           <label className="ds-label">Тип</label>
           <select className="ds-input" value={type} onChange={e => setType(e.target.value)}>
-            {TYPE_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {ACCOMMODATION_TYPES.map(t => <option key={t} value={t}>{ACCOMMODATION_TYPE_LABELS[t]}</option>)}
           </select>
         </div>
         <div>
@@ -155,35 +149,11 @@ function FirstObjectStep({ onFinish }: { onFinish: (created: boolean) => void })
 }
 
 export default function StayOnboardingClient() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
-  const [profile, setProfile] = useState<PartnerProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/partners/profile')
-      .then(r => (r.ok ? r.json() : null))
-      .then((d: { success?: boolean; data?: { partner: PartnerProfileData & { onboarding_completed?: boolean } } } | null) => {
-        const partner = d?.data?.partner;
-        if (partner) {
-          if (partner.onboarding_completed) {
-            router.replace('/hub/stay');
-            return;
-          }
-          setProfile(partner);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [router]);
+  const { profile, loading, completeOnboarding } = usePartnerOnboarding('/hub/stay');
 
   async function finish(created: boolean) {
-    await fetch('/api/partners/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ complete_onboarding: true }),
-    }).catch(() => {});
-    router.replace(created ? '/hub/stay/accommodations' : '/hub/stay');
+    await completeOnboarding(created ? '/hub/stay/accommodations' : '/hub/stay');
   }
 
   if (loading) {

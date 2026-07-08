@@ -136,6 +136,36 @@ describe('PATCH /api/partners/profile', () => {
     expect(res.status).toBe(403);
     expect(queryMock).not.toHaveBeenCalled();
   });
+
+  it('оператор → 403 (у него свой API с другой колонкой contacts)', async () => {
+    requireAuthMock.mockResolvedValue({ userId: 'user-1', role: 'operator' });
+    const res = await patchProfile(jsonReq('http://localhost/api/partners/profile', 'PATCH', { phone: '1' }));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('hub/operator/profile');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('пустая строка очищает ключ contact, а не копится', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT id, name')) return Promise.resolve({ rows: [PARTNER_ROW] });
+      if (sql.includes('UPDATE partners')) return Promise.resolve({ rows: [] });
+      throw new Error('unexpected SQL: ' + sql);
+    });
+
+    const res = await patchProfile(jsonReq('http://localhost/api/partners/profile', 'PATCH', {
+      phone: '',
+    }));
+    expect(res.status).toBe(200);
+
+    const update = queryMock.mock.calls.find(([sql]) => String(sql).includes('UPDATE partners'))!;
+    const contactParam = (update[1] as unknown[]).find(
+      p => typeof p === 'string' && p.includes('email')
+    ) as string;
+    const contact = JSON.parse(contactParam);
+    expect(contact.email).toBe('x@x.ru');
+    expect('phone' in contact).toBe(false);
+  });
 });
 
 describe('POST /api/stay/accommodations — owner-create', () => {

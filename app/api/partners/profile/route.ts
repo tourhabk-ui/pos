@@ -24,6 +24,27 @@ export const dynamic = 'force-dynamic';
 
 const PARTNER_ROLE_SET = new Set<string>(PARTNER_ROLES);
 
+/**
+ * У оператора собственный профильный API с ДРУГОЙ колонкой контактов
+ * (contacts, не contact) — сюда его не пускаем, чтобы данные не
+ * расщеплялись между двумя колонками.
+ */
+function checkRole(role: string): NextResponse | null {
+  if (!PARTNER_ROLE_SET.has(role)) {
+    return NextResponse.json(
+      { success: false, error: 'Партнёрский профиль доступен только партнёрским ролям' },
+      { status: 403 }
+    );
+  }
+  if (role === 'operator') {
+    return NextResponse.json(
+      { success: false, error: 'Профиль оператора редактируется через /api/hub/operator/profile' },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
 const PatchSchema = z.object({
   name:                z.string().min(1).max(255).optional(),
   description:         z.string().max(2000).optional(),
@@ -51,12 +72,8 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult;
 
   const role = authResult.role ?? '';
-  if (!PARTNER_ROLE_SET.has(role)) {
-    return NextResponse.json(
-      { success: false, error: 'Партнёрский профиль доступен только партнёрским ролям' },
-      { status: 403 }
-    );
-  }
+  const roleError = checkRole(role);
+  if (roleError) return roleError;
 
   try {
     let partner = await resolvePartner(authResult.userId, role);
@@ -79,12 +96,8 @@ export async function PATCH(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult;
 
   const role = authResult.role ?? '';
-  if (!PARTNER_ROLE_SET.has(role)) {
-    return NextResponse.json(
-      { success: false, error: 'Партнёрский профиль доступен только партнёрским ролям' },
-      { status: 403 }
-    );
-  }
+  const roleError = checkRole(role);
+  if (roleError) return roleError;
 
   let body: unknown;
   try { body = await request.json(); } catch {
@@ -110,12 +123,18 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Профиль не найден' }, { status: 404 });
     }
 
-    // Merge contact (jsonb): непереданные ключи сохраняются
+    // Merge contact (jsonb): непереданные ключи сохраняются,
+    // пустая строка — явная очистка (ключ удаляется, а не копится '')
     const currentContact = (partner.contact as Record<string, string> | null) ?? {};
     const newContact = { ...currentContact };
-    if (phone !== undefined) newContact.phone = phone;
-    if (telegram !== undefined) newContact.telegram = telegram;
-    if (website !== undefined) newContact.website = website;
+    const setOrClear = (key: string, value: string | undefined) => {
+      if (value === undefined) return;
+      if (value.trim() === '') delete newContact[key];
+      else newContact[key] = value.trim();
+    };
+    setOrClear('phone', phone);
+    setOrClear('telegram', telegram);
+    setOrClear('website', website);
 
     const params: unknown[] = [];
     const sets: string[] = ['updated_at = NOW()'];

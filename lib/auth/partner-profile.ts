@@ -34,12 +34,25 @@ export async function ensurePartnerForRole(userId: string, role: string): Promis
   if (userResult.rows.length === 0) return null;
   const { name, email } = userResult.rows[0];
 
+  // WHERE NOT EXISTS сужает гонку параллельных ensure-вызовов (у partners
+  // нет уникального индекса user_id+category — два конкурентных INSERT
+  // могли задвоить профиль)
   const inserted = await query(
     `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count, created_at, updated_at)
-     VALUES ($1, $2, $3, $4::jsonb, false, 0, 0, NOW(), NOW())
+     SELECT $1, $2, $3, $4::jsonb, false, 0, 0, NOW(), NOW()
+     WHERE NOT EXISTS (
+       SELECT 1 FROM partners WHERE user_id = $1 AND category = $3
+     )
      RETURNING id`,
     [userId, name, role, JSON.stringify({ email })]
   );
+  if (inserted.rows.length === 0) {
+    const raced = await query(
+      `SELECT id FROM partners WHERE user_id = $1 AND category = $2 LIMIT 1`,
+      [userId, role]
+    );
+    return (raced.rows[0]?.id as string | undefined) ?? null;
+  }
 
   return (inserted.rows[0]?.id as string | undefined) ?? null;
 }

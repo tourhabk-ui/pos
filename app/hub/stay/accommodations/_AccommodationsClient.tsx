@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble } from 'lucide-react';
+import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 
 /**
  * Объекты владельца жилья: список из GET /api/stay/accommodations
@@ -11,11 +12,7 @@ import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble } from 'lucide-react';
  * Создание — в онбординге (/hub/stay/onboarding, POST /api/stay/accommodations).
  */
 
-const TYPE_LABELS: Record<string, string> = {
-  hotel: 'Отель', hostel: 'Хостел', apartment: 'Апартаменты',
-  guesthouse: 'Гостевой дом', resort: 'Курорт', camping: 'Кемпинг',
-  glamping: 'Глэмпинг', cottage: 'Коттедж',
-};
+const TYPE_LABELS: Record<string, string> = ACCOMMODATION_TYPE_LABELS;
 
 interface AccommodationRow {
   id: string;
