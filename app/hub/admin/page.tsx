@@ -8,7 +8,7 @@ import {
   Briefcase, Calendar, BarChart3, AlertCircle,
   ArrowUpRight, RefreshCw, AlertTriangle, UserCheck,
   Bell, Activity, MessageSquareText, CalendarDays,
-  UserPlus, ShoppingCart, XCircle, Star, MapPin,
+  UserPlus, ShoppingCart, XCircle, Star, MapPin, BedDouble,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -240,6 +240,7 @@ export default function AdminDashboard() {
     { icon: FileText, label: 'Модерация', href: '/hub/admin/content/tours', badge: data.pendingTours ?? 0 },
     { icon: Briefcase, label: 'Партнёры', href: '/hub/admin/content/partners', badge: data.pendingPartners ?? 0 },
     { icon: MessageSquareText, label: 'Отзывы', href: '/hub/admin/content/reviews', badge: 0 },
+    { icon: BedDouble, label: 'Отзывы жилья', href: '/hub/admin/content/accommodation-reviews', badge: 0 },
     { icon: UserCheck, label: 'Операторы', href: '/hub/admin/operators', badge: 0 },
     { icon: BarChart3, label: 'Аналитика', href: '/hub/admin/analytics', badge: 0 },
     { icon: DollarSign, label: 'Финансы', href: '/hub/admin/finance', badge: 0 },
