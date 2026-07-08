@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking';
   count: number;
   details: string;
 }
@@ -160,6 +160,79 @@ async function checkOperatorNoResponse(): Promise<WatchdogAlert | null> {
   }
 }
 
+async function notifyStayOwnerDirectly(
+  chatId: string,
+  ownerName: string,
+  count: number,
+  oldest: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const text = [
+    `<b>Привет, ${ownerName}!</b>`,
+    '',
+    `У тебя ${count} ${count === 1 ? 'бронь жилья ожидает' : 'броней жилья ожидают'} подтверждения уже больше 24 часов.`,
+    `Самая ранняя — ${oldest}.`,
+    '',
+    `Подтверди или отклони: <a href="${appUrl}/hub/stay/bookings">Брони жилья</a>`,
+  ].join('\n');
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+  } catch { /* не блокируем */ }
+}
+
+async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{
+      partner_id: string | null;
+      owner_name: string | null;
+      telegram_chat_id: string | null;
+      count: string;
+      oldest: string;
+    }>(
+      `SELECT a.partner_id::text,
+              COALESCE(p.company_name, p.name) AS owner_name,
+              p.telegram_chat_id,
+              COUNT(*)::text AS count,
+              MIN(b.created_at)::date::text AS oldest
+       FROM accommodation_bookings b
+       JOIN accommodations a ON a.id = b.accommodation_id
+       LEFT JOIN partners p ON p.id = a.partner_id
+       WHERE b.status = 'pending'
+         AND b.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY a.partner_id, p.company_name, p.name, p.telegram_chat_id`,
+    );
+    if (rows.length === 0) return null;
+
+    let total = 0;
+    for (const row of rows) {
+      total += parseInt(row.count, 10) || 0;
+      if (row.telegram_chat_id && row.owner_name) {
+        notifyStayOwnerDirectly(
+          row.telegram_chat_id,
+          row.owner_name,
+          parseInt(row.count, 10),
+          row.oldest,
+        ).catch(() => {});
+      }
+    }
+
+    const notified = rows.filter(r => r.telegram_chat_id).length;
+    return {
+      type: 'unconfirmed_stay_booking',
+      count: total,
+      details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Владельцы не подключены к боту.'}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -239,15 +312,16 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, operators, leads, sos, seismic] = await Promise.all([
+  const [bookings, stayBookings, operators, leads, sos, seismic] = await Promise.all([
     checkUnconfirmedBookings(),
+    checkUnconfirmedStayBookings(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
     checkSeismicCronDead(),
   ]);
 
-  const alerts = [bookings, operators, leads, sos, seismic].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, operators, leads, sos, seismic].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
