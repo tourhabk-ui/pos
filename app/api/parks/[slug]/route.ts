@@ -14,6 +14,11 @@ interface ParkRow {
   zone: string | null;
   mchs_phone: string | null;
   permit_url: string | null;
+  permit_email: string | null;
+  permit_office_address: string | null;
+  permit_office_hours: string | null;
+  permit_gosuslugi_url: string | null;
+  permit_online_url: string | null;
   search_term: string;
 }
 
@@ -41,7 +46,9 @@ export async function GET(
 
   try {
     const parkResult = await pool.query<ParkRow>(
-      `SELECT slug, display_name, description, zone, mchs_phone, permit_url, search_term
+      `SELECT slug, display_name, description, zone, mchs_phone, permit_url,
+              permit_email, permit_office_address, permit_office_hours,
+              permit_gosuslugi_url, permit_online_url, search_term
        FROM parks
        WHERE slug = $1 AND is_active = true
        LIMIT 1`,
@@ -80,6 +87,15 @@ export async function GET(
       zone: park.zone,
       mchs_phone: park.mchs_phone,
       permit_url: park.permit_url,
+      // Каналы получения разрешения (issue #367); NULL — данных нет,
+      // UI показывает только заполненные
+      permitChannels: {
+        email: park.permit_email,
+        officeAddress: park.permit_office_address,
+        officeHours: park.permit_office_hours,
+        gosuslugiUrl: park.permit_gosuslugi_url,
+        onlineUrl: park.permit_online_url,
+      },
       routes,
     });
   } catch {
