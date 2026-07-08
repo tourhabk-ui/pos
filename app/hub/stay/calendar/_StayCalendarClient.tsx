@@ -5,14 +5,21 @@ import { CalendarDays, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 
 /**
  * Тарифный календарь объекта размещения: месячная сетка, клик по дню —
- * цена на дату / блокировка продажи. Данные: GET/POST /api/stay/calendar
- * (accommodation_availability уровня объекта, room_id IS NULL).
+ * цена на дату / блокировка продажи. Данные: GET/POST /api/stay/calendar.
+ * Уровень тарифа выбирается селектором: весь объект (room_id IS NULL)
+ * или конкретный номер — номерная цена приоритетнее при бронировании.
  * Занятость (брони) показывается числом в ячейке — только чтение.
  */
 
 interface AccommodationOption {
   id: string;
   name: string;
+}
+
+interface RoomOption {
+  id: string;
+  name: string;
+  pricePerNight: number;
 }
 
 interface RateRow {
@@ -47,6 +54,9 @@ function formatMoney(v: number): string {
 export default function StayCalendarClient() {
   const [accommodations, setAccommodations] = useState<AccommodationOption[] | null>(null);
   const [selectedId, setSelectedId] = useState<string>('');
+  const [rooms, setRooms] = useState<RoomOption[]>([]);
+  // '' — тарифы уровня объекта; иначе id номера
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('');
   const [monthStart, setMonthStart] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -73,6 +83,19 @@ export default function StayCalendarClient() {
       .catch(() => setFailed(true));
   }, []);
 
+  // Номера выбранного объекта — для селектора уровня тарифа
+  useEffect(() => {
+    if (!selectedId) return;
+    setSelectedRoomId('');
+    fetch(`/api/stay/accommodations/${selectedId}/rooms`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { success?: boolean; data?: { rooms: { id: string; name: string; pricePerNight: number; isActive: boolean }[] } } | null) => {
+        const list = d?.data?.rooms ?? [];
+        setRooms(list.filter(r => r.isActive).map(r => ({ id: r.id, name: r.name, pricePerNight: r.pricePerNight })));
+      })
+      .catch(() => setRooms([]));
+  }, [selectedId]);
+
   const rangeStart = ymd(monthStart);
   const rangeEnd = ymd(new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0));
 
@@ -92,11 +115,12 @@ export default function StayCalendarClient() {
 
   const rateByDate = useMemo(() => {
     const map = new Map<string, RateRow>();
+    const level = selectedRoomId || null;
     for (const r of data?.rates ?? []) {
-      if (r.roomId === null) map.set(r.date, r);
+      if (r.roomId === level) map.set(r.date, r);
     }
     return map;
-  }, [data]);
+  }, [data, selectedRoomId]);
 
   const occupancyByDate = useMemo(() => {
     const map = new Map<string, number>();
@@ -133,6 +157,7 @@ export default function StayCalendarClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accommodationId: selectedId,
+          roomId: selectedRoomId || null,
           date: editDate,
           priceOverride: priceInput ? Number(priceInput) : null,
           isBlocked: blockedInput,
@@ -182,6 +207,17 @@ export default function StayCalendarClient() {
               {accommodations.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
 
+            {rooms.length > 0 && (
+              <select
+                className="ds-input max-w-xs"
+                value={selectedRoomId}
+                aria-label="Уровень тарифа"
+                onChange={e => setSelectedRoomId(e.target.value)}>
+                <option value="">Весь объект</option>
+                {rooms.map(r => <option key={r.id} value={r.id}>Номер: {r.name}</option>)}
+              </select>
+            )}
+
             <div className="flex items-center gap-1">
               <button
                 className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
@@ -200,11 +236,15 @@ export default function StayCalendarClient() {
               </button>
             </div>
 
-            {data?.basePrice != null && (
-              <span className="text-xs text-[var(--text-secondary)]">
-                Базовая цена: {formatMoney(data.basePrice)} ₽/ночь · клик по дню — своя цена или блокировка
-              </span>
-            )}
+            {(() => {
+              const room = rooms.find(r => r.id === selectedRoomId);
+              const base = room ? room.pricePerNight : data?.basePrice;
+              return base != null ? (
+                <span className="text-xs text-[var(--text-secondary)]">
+                  Базовая цена{room ? ' номера' : ''}: {formatMoney(base)} ₽/ночь · клик по дню — своя цена или блокировка
+                </span>
+              ) : null;
+            })()}
           </div>
 
           {data === null && !failed && <div className="ds-skeleton h-80 rounded-lg" />}
