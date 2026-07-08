@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Home, Pencil, EyeOff, Eye, X, Star } from 'lucide-react';
+import Link from 'next/link';
+import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble } from 'lucide-react';
 
 /**
  * Объекты владельца жилья: список из GET /api/stay/accommodations
@@ -207,6 +208,12 @@ export default function AccommodationsClient() {
               )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              <Link
+                href={`/hub/stay/accommodations/${item.id}/rooms`}
+                className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                aria-label={`Номера ${item.name}`}>
+                <BedDouble className="w-4 h-4" />
+              </Link>
               <button
                 className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 aria-label={`Редактировать ${item.name}`}

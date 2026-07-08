@@ -246,7 +246,7 @@ describe('фиксы битой публичной витрины', () => {
   it('prices читает price_per_night_from', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes('FROM accommodations')) return Promise.resolve({ rows: [ACC_ROW] });
-      if (sql.includes('date_series')) return Promise.resolve({ rows: [] });
+      if (sql.includes('generate_series')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
 

@@ -7,12 +7,16 @@ export const dynamic = 'force-dynamic';
 interface PriceInfo {
   date: string;
   price: number;
-  type: 'regular' | 'peak' | 'discount';
+  /** override — владелец задал цену на дату; base — базовая цена объекта */
+  type: 'override' | 'base';
+  isBlocked: boolean;
 }
 
 /**
  * GET /api/accommodations/[id]/prices
- * Получить информацию о ценах на номера по датам
+ * Цены по датам: базовая цена объекта + реальные тарифы владельца из
+ * accommodation_availability (уровень объекта, room_id IS NULL).
+ * Никаких выдуманных «динамических» наценок: нет тарифа — базовая цена.
  * Public by design: price info for accommodation selection.
  */
 export async function GET(
@@ -22,29 +26,28 @@ export async function GET(
   try {
     const { id } = await context.params;
     const { searchParams } = new URL(request.url);
-    
+
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    if (!startDate || !endDate) {
+    if (!startDate || !endDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
       return NextResponse.json({
         success: false,
-        error: 'Start and end dates are required'
+        error: 'Нужны startDate и endDate в формате YYYY-MM-DD'
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Проверяем существование размещения
-    const accommQuery = `
-      SELECT id, name, price_per_night_from, is_active
-      FROM accommodations
-      WHERE id = $1
-    `;
-    const accommResult = await query<{ id: string; name: string; price_per_night_from: string; is_active: boolean }>(accommQuery, [id]);
+    const accommResult = await query<{ id: string; name: string; price_per_night_from: string; is_active: boolean }>(
+      `SELECT id, name, price_per_night_from, is_active
+       FROM accommodations
+       WHERE id = $1`,
+      [id]
+    );
 
     if (accommResult.rows.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'Accommodation not found'
+        error: 'Объект размещения не найден'
       } as ApiResponse<null>, { status: 404 });
     }
 
@@ -53,45 +56,30 @@ export async function GET(
     if (!accommodation.is_active) {
       return NextResponse.json({
         success: false,
-        error: 'Accommodation is not active'
+        error: 'Объект размещения не активен'
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Генерируем цены для каждой даты
-    // В реальном приложении это может быть в отдельной таблице
-    const pricesQuery = `
-      WITH RECURSIVE date_series AS (
-        SELECT $1::date AS date
-        UNION ALL
-        SELECT date + 1
-        FROM date_series
-        WHERE date < $2::date
-      )
-      SELECT
-        ds.date::text,
-        CASE
-          WHEN EXTRACT(DOW FROM ds.date) IN (5, 6) THEN $4::numeric * 1.2 -- выходные +20%
-          ELSE $4::numeric
-        END as price,
-        CASE
-          WHEN EXTRACT(DOW FROM ds.date) IN (5, 6) THEN 'peak'
-          ELSE 'regular'
-        END as price_type
-      FROM date_series ds
-      ORDER BY ds.date
-    `;
-
-    const pricesResult = await query<{ date: string; price: string; price_type: 'regular' | 'peak' | 'discount' }>(pricesQuery, [
-      startDate,
-      endDate,
-      id,
-      accommodation.price_per_night_from
-    ]);
+    const pricesResult = await query<{ date: string; price: string; has_override: boolean; is_blocked: boolean }>(
+      `SELECT
+         ds.date::text,
+         COALESCE(av.price_override, $4::numeric) AS price,
+         (av.price_override IS NOT NULL) AS has_override,
+         COALESCE(av.is_blocked, false) AS is_blocked
+       FROM generate_series($1::date, $2::date, '1 day') AS ds(date)
+       LEFT JOIN accommodation_availability av
+         ON av.accommodation_id = $3
+        AND av.room_id IS NULL
+        AND av.date = ds.date
+       ORDER BY ds.date`,
+      [startDate, endDate, id, accommodation.price_per_night_from]
+    );
 
     const prices: PriceInfo[] = pricesResult.rows.map(row => ({
       date: row.date,
       price: Math.round(parseFloat(row.price)),
-      type: row.price_type
+      type: row.has_override ? 'override' : 'base',
+      isBlocked: row.is_blocked,
     }));
 
     return NextResponse.json({
@@ -109,10 +97,8 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch prices',
+      error: 'Не удалось получить цены',
       message: error instanceof Error ? error.message : 'Unknown error'
     } as ApiResponse<null>, { status: 500 });
   }
 }
-
-
