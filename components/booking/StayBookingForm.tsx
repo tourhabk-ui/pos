@@ -36,6 +36,13 @@ interface BookingSuccess {
   bookingId: string;
   totalPrice: number;
   nights: number;
+  /**
+   * invoiceId = payments.id из /api/payments/create (создаётся book-роутом).
+   * Вебхук CloudPayments сверяет платёж ТОЛЬКО по нему — bookingId сюда
+   * подставлять нельзя (оплата не привяжется к брони).
+   */
+  paymentInvoiceId: string | null;
+  paymentAmount: number | null;
 }
 
 function formatMoney(v: number): string {
@@ -62,29 +69,44 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
 
   const room = rooms.find(r => r.id === roomId) ?? null;
 
-  // Реальные цены по ночам выбранного номера на полгода вперёд
-  const loadPrices = useCallback(() => {
+  // Реальные цены по ночам выбранного номера. Горизонт — год, как у
+  // календаря дат (иначе даты за горизонтом вечно «недогружены»).
+  // Смена номера сбрасывает карту цен и отменяет устаревший ответ —
+  // иначе цены прошлого номера применились бы к новому.
+  useEffect(() => {
     if (!roomId) return;
+    let cancelled = false;
+    setPrices([]);
     setPricesFailed(false);
     const start = new Date();
     const end = new Date();
-    end.setMonth(end.getMonth() + 6);
+    end.setFullYear(end.getFullYear() + 1);
     fetch(
       `/api/accommodations/${accommodationId}/prices?` +
       `startDate=${ymd(start)}&endDate=${ymd(end)}&roomId=${roomId}`
     )
       .then(r => (r.ok ? r.json() : null))
       .then((d: { success?: boolean; data?: { prices: { date: string; price: number; isBlocked: boolean }[] } } | null) => {
+        if (cancelled) return;
         if (d?.success && Array.isArray(d.data?.prices)) {
           setPrices(d.data.prices.map(p => ({ date: p.date, price: p.price, isBlocked: p.isBlocked })));
         } else {
           setPricesFailed(true);
         }
       })
-      .catch(() => setPricesFailed(true));
+      .catch(() => { if (!cancelled) setPricesFailed(true); });
+    return () => { cancelled = true; };
   }, [accommodationId, roomId]);
 
-  useEffect(() => { loadPrices(); }, [loadPrices]);
+  // Смена номера: гости не должны превышать вместимость нового номера
+  useEffect(() => {
+    if (!room) return;
+    if (adults + children > room.maxGuests) {
+      setAdults(Math.min(adults, room.maxGuests));
+      setChildren(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
 
   const totals = useMemo(() => {
     if (!checkIn || !checkOut || checkOut <= checkIn) return null;
@@ -125,7 +147,12 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
       const d = await res.json() as {
         success?: boolean;
         error?: string;
-        data?: { bookingId: string; nights: number; priceBreakdown?: { totalPrice: number } };
+        data?: {
+          bookingId: string;
+          nights: number;
+          priceBreakdown?: { totalPrice: number };
+          payment?: { paymentId: string; invoiceId: string; amount: number } | null;
+        };
       };
       if (!res.ok || !d.success || !d.data) {
         setError(d.error || 'Не удалось создать бронирование');
@@ -137,6 +164,8 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
         // Сумма к оплате — СЕРВЕРНАЯ, не клиентский расчёт
         totalPrice: d.data.priceBreakdown?.totalPrice ?? totals?.total ?? 0,
         nights: d.data.nights,
+        paymentInvoiceId: d.data.payment?.invoiceId ?? null,
+        paymentAmount: d.data.payment?.amount ?? null,
       });
     } catch {
       setError('Сетевая ошибка — попробуйте ещё раз');
@@ -163,20 +192,28 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
           {accommodationName} · {room?.name} · {success.nights} ноч. ·{' '}
           <span className="font-semibold text-[var(--text-primary)]">{formatMoney(success.totalPrice)} ₽</span>
         </p>
-        <p className="text-xs text-[var(--text-muted)]">
-          Бронь ожидает подтверждения владельцем. Оплатить можно сейчас:
-        </p>
-        <CloudPaymentsWidget
-          amount={success.totalPrice}
-          currency="RUB"
-          description={`Оплата размещения: ${accommodationName}`}
-          invoiceId={success.bookingId}
-          accountId={user?.id ?? ''}
-          email={user?.email ?? ''}
-          onSuccess={() => {}}
-          onFail={(reason: string) => setError(`Ошибка оплаты: ${reason}`)}
-          buttonText={`Оплатить ${formatMoney(success.totalPrice)} ₽`}
-        />
+        {success.paymentInvoiceId && (success.paymentAmount ?? 0) > 0 ? (
+          <>
+            <p className="text-xs text-[var(--text-muted)]">
+              Бронь ожидает подтверждения владельцем. Оплатить можно сейчас:
+            </p>
+            <CloudPaymentsWidget
+              amount={success.paymentAmount ?? success.totalPrice}
+              currency="RUB"
+              description={`Оплата размещения: ${accommodationName}`}
+              invoiceId={success.paymentInvoiceId}
+              accountId={user?.id ?? ''}
+              email={user?.email ?? ''}
+              onSuccess={() => {}}
+              onFail={(reason: string) => setError(`Ошибка оплаты: ${reason}`)}
+              buttonText={`Оплатить ${formatMoney(success.paymentAmount ?? success.totalPrice)} ₽`}
+            />
+          </>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            Бронь ожидает подтверждения владельцем — ссылка на оплату придёт после подтверждения.
+          </p>
+        )}
         {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
       </div>
     );
@@ -237,6 +274,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
       <div className="ds-card p-5">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Гости</h3>
         <GuestSelector
+          key={roomId}
           maxGuests={room?.maxGuests ?? 10}
           initialAdults={adults}
           initialChildren={children}

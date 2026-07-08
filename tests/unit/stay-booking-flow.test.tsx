@@ -33,8 +33,8 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 vi.mock('@/components/payments/CloudPaymentsWidget', () => ({
-  CloudPaymentsWidget: (props: { amount: number }) =>
-    React.createElement('div', { 'data-testid': 'payment-widget' }, `pay:${props.amount}`),
+  CloudPaymentsWidget: (props: { amount: number; invoiceId: string }) =>
+    React.createElement('div', { 'data-testid': 'payment-widget' }, `pay:${props.amount}:${props.invoiceId}`),
 }));
 
 vi.mock('@/components/booking/ui/GuestSelector', () => ({
@@ -187,7 +187,13 @@ describe('StayBookingForm', () => {
           status: bookResponse?.status ?? 200,
           json: () => Promise.resolve(bookResponse?.body ?? {
             success: true,
-            data: { bookingId: 'b1', nights: 2, priceBreakdown: { totalPrice: 21000 } },
+            data: {
+              bookingId: 'b1',
+              nights: 2,
+              priceBreakdown: { totalPrice: 21000 },
+              // Контракт вебхука: invoiceId = payments.id, НЕ bookingId
+              payment: { paymentId: 'pay-1', invoiceId: 'invoice-77', amount: 21000 },
+            },
           }),
         });
       }
@@ -219,8 +225,30 @@ describe('StayBookingForm', () => {
     expect(payload.roomId).toBe(ROOM_A); // выбран первый номер по умолчанию
     expect(payload.checkInDate).toBe('2099-08-01');
     expect(payload.checkOutDate).toBe('2099-08-03');
-    // Сумма к оплате — серверная
-    expect(screen.getByTestId('payment-widget')).toHaveTextContent('pay:21000');
+    // Сумма к оплате — серверная; invoiceId — payments.id из ответа book
+    // (вебхук CloudPayments сверяет только по нему), НЕ bookingId
+    expect(screen.getByTestId('payment-widget')).toHaveTextContent('pay:21000:invoice-77');
+  });
+
+  it('book без payment (создание платежа упало) → виджета нет, честное сообщение', async () => {
+    stubFetch({
+      status: 200,
+      body: {
+        success: true,
+        data: { bookingId: 'b2', nights: 2, priceBreakdown: { totalPrice: 21000 }, payment: null },
+      },
+    });
+    render(<StayBookingForm accommodationId={ACC_ID} accommodationName="Дом" rooms={ROOMS} />);
+
+    fireEvent.click(screen.getByText('выбрать даты'));
+    await waitFor(() => expect(screen.getByText(/21\s000/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Забронировать' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Бронирование создано')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('payment-widget')).not.toBeInTheDocument();
+    expect(screen.getByText(/ссылка на оплату придёт после подтверждения/)).toBeInTheDocument();
   });
 
   it('смена номера меняет roomId в prices-запросе', async () => {
