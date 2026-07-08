@@ -19,7 +19,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
   const zoneMeta = zone ? ZONE_PAGES[zone] : null;
   if (!meta || (zone && !zoneMeta)) notFound();
 
-  const [routeResult, countResult, zonesResult] = await Promise.all([
+  const [routeResult, countResult, zonesResult, parksResult] = await Promise.all([
     pool.query<{
       id: string; title: string; description: string; category: string;
       lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
@@ -54,6 +54,16 @@ export default async function CategoryPage({ category, zone }: { category: strin
        GROUP BY zone`,
       [category]
     ),
+    // Парки-согласователи зоны — для блока «Разрешения» на зонном срезе
+    // (issue #367); для страницы категории без зоны не запрашиваются
+    zone
+      ? pool.query<{ slug: string; display_name: string }>(
+          `SELECT slug, display_name FROM parks
+           WHERE zone = $1 AND is_active = true
+           ORDER BY display_name`,
+          [zone]
+        )
+      : Promise.resolve({ rows: [] as { slug: string; display_name: string }[] }),
   ]);
 
   const total = Number(countResult.rows[0].count);
@@ -79,6 +89,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
     .map(z => ({ ...ZONE_PAGES[z.zone], count: Number(z.count) }));
 
   const h1 = zoneMeta ? `${meta.name}: ${zoneMeta.name}` : meta.h1;
+  const zoneParks = parksResult.rows;
 
   return (
     <>
@@ -149,6 +160,30 @@ export default async function CategoryPage({ category, zone }: { category: strin
                 {z.name} · {z.count}
               </Link>
             ))}
+          </div>
+        )}
+
+        {/* Разрешения в этой зоне: парки-согласователи (issue #367).
+            Только реальные данные из parks — нет парков, нет блока */}
+        {zoneMeta && zoneParks.length > 0 && (
+          <div className="mb-8 p-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg max-w-2xl">
+            <p className="text-sm font-semibold text-[var(--text-primary)] mb-2">
+              Разрешения в этой зоне
+            </p>
+            <p className="text-xs text-[var(--text-secondary)] mb-3">
+              Часть маршрутов проходит по особо охраняемым территориям — посещение согласуется с дирекцией парка.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {zoneParks.map(p => (
+                <Link
+                  key={p.slug}
+                  href={`/park/${p.slug}`}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                >
+                  {p.display_name}
+                </Link>
+              ))}
+            </div>
           </div>
         )}
 

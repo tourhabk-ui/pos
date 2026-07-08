@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone } from 'lucide-react';
+import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone } from 'lucide-react';
 
 interface Route {
   id: string;
@@ -17,6 +17,14 @@ interface Route {
   hazards: string[];
 }
 
+interface PermitChannels {
+  email: string | null;
+  officeAddress: string | null;
+  officeHours: string | null;
+  gosuslugiUrl: string | null;
+  onlineUrl: string | null;
+}
+
 interface ParkData {
   slug: string;
   displayName: string;
@@ -24,6 +32,7 @@ interface ParkData {
   zone: string;
   mchs_phone: string;
   permit_url: string | null;
+  permitChannels?: PermitChannels;
   routes: Route[];
 }
 
@@ -127,6 +136,42 @@ export default function ParkClient({ slug }: { slug: string }) {
           <a href={park.permit_url} target="_blank" rel="noopener noreferrer" className="ds-btn ds-btn-secondary" style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}>
             Получить
           </a>
+        </div>
+      )}
+
+      {/* Как получить разрешение — только заполненные каналы (issue #367) */}
+      {park.permitChannels && (park.permitChannels.email || park.permitChannels.officeAddress || park.permitChannels.gosuslugiUrl || park.permitChannels.onlineUrl) && (
+        <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 20 }}>
+          <p style={{ margin: '0 0 10px', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>Как получить разрешение</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {park.permitChannels.officeAddress && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <Building2 size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span>
+                  Офис: {park.permitChannels.officeAddress}
+                  {park.permitChannels.officeHours && ` · ${park.permitChannels.officeHours}`}
+                </span>
+              </div>
+            )}
+            {park.permitChannels.email && (
+              <a href={`mailto:${park.permitChannels.email}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
+                <Mail size={13} style={{ flexShrink: 0 }} />
+                {park.permitChannels.email}
+              </a>
+            )}
+            {park.permitChannels.gosuslugiUrl && (
+              <a href={park.permitChannels.gosuslugiUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
+                <Globe size={13} style={{ flexShrink: 0 }} />
+                Госуслуги 41
+              </a>
+            )}
+            {park.permitChannels.onlineUrl && (
+              <a href={park.permitChannels.onlineUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
+                <Smartphone size={13} style={{ flexShrink: 0 }} />
+                Онлайн («Зелёная кнопка»)
+              </a>
+            )}
+          </div>
         </div>
       )}
 
