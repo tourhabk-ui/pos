@@ -23,10 +23,10 @@ function Harness({ path }: { path: string }) {
 }
 
 function mockProfile(ok: boolean, partner: unknown) {
-  global.fetch = vi.fn().mockResolvedValue({
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok,
     json: async () => ({ success: ok, data: { partner } }),
-  }) as unknown as typeof fetch;
+  }));
 }
 
 beforeEach(() => {
@@ -36,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('useOnboardingGuard (guide/agent)', () => {
@@ -61,7 +62,7 @@ describe('useOnboardingGuard (guide/agent)', () => {
   });
 
   it('сетевая ошибка → ready (fail-open)', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('network')) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network')));
     render(<Harness path="/hub/agent/onboarding" />);
     await waitFor(() => expect(screen.getByText('ready')).toBeTruthy());
     expect(replaceMock).not.toHaveBeenCalled();
