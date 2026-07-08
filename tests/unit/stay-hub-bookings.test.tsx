@@ -100,7 +100,7 @@ describe('Кабинет stay: входящие брони', () => {
     render(<BookingsClient />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Объекты подключает администратор/)).toBeInTheDocument();
+      expect(screen.getByText(/Кабинет ещё не настроен/)).toBeInTheDocument();
     });
   });
 

@@ -113,7 +113,10 @@ export async function PUT(request: NextRequest) {
     }
 
     if (contact) {
-      updateFields.push(`contact = $${paramIndex++}`);
+      // Merge, не полная замена: та же семантика, что у PATCH
+      // /api/partners/profile — иначе правка одного поля стирала
+      // остальные контакты (телефон/telegram терялись при смене сайта)
+      updateFields.push(`contact = COALESCE(contact, '{}'::jsonb) || $${paramIndex++}::jsonb`);
       updateValues.push(JSON.stringify(contact));
     }
 

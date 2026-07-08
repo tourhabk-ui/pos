@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BarChart3, Backpack, ClipboardList, Package, Star, Wallet } from 'lucide-react';
+import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 /**
  * Обзор кабинета проката снаряжения. Данные — из /api/gear/profile
@@ -30,8 +31,12 @@ export default function GearDashboardClient() {
   const router = useRouter();
   const [data, setData] = useState<ProfileData | null>(null);
   const [failed, setFailed] = useState(false);
+  // Гвард онбординга; загрузка данных ждёт его (не параллелим два
+  // авто-создающих фетча и не мигаем дашбордом перед редиректом)
+  const onboardingReady = useOnboardingGuard('/hub/gear/onboarding');
 
   useEffect(() => {
+    if (!onboardingReady) return;
     fetch('/api/gear/profile')
       .then(r => (r.ok ? r.json() : null))
       .then((d: { success?: boolean; data?: ProfileData } | null) => {
@@ -39,7 +44,7 @@ export default function GearDashboardClient() {
         else setFailed(true);
       })
       .catch(() => setFailed(true));
-  }, []);
+  }, [onboardingReady]);
 
   if (failed) {
     return (
@@ -49,7 +54,7 @@ export default function GearDashboardClient() {
     );
   }
 
-  if (!data) {
+  if (!onboardingReady || !data) {
     return (
       <div className="p-5 lg:p-6 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (

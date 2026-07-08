@@ -3,19 +3,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble } from 'lucide-react';
+import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 
 /**
  * Объекты владельца жилья: список из GET /api/stay/accommodations
  * (включая снятые с публикации), редактирование и переключатель
  * публикации — через PATCH /api/accommodations/[id].
- * Создание объектов — за администратором платформы.
+ * Создание — в онбординге (/hub/stay/onboarding, POST /api/stay/accommodations).
  */
 
-const TYPE_LABELS: Record<string, string> = {
-  hotel: 'Отель', hostel: 'Хостел', apartment: 'Апартаменты',
-  guesthouse: 'Гостевой дом', resort: 'Курорт', camping: 'Кемпинг',
-  glamping: 'Глэмпинг', cottage: 'Коттедж',
-};
+const TYPE_LABELS: Record<string, string> = ACCOMMODATION_TYPE_LABELS;
 
 interface AccommodationRow {
   id: string;
@@ -154,9 +151,10 @@ export default function AccommodationsClient() {
 
       {noProfile && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center max-w-lg">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Профиль владельца жилья не найден. Объекты подключает администратор — напишите на info@tourhab.ru.
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Кабинет ещё не настроен — заполните профиль и добавьте первый объект.
           </p>
+          <Link href="/hub/stay/onboarding" className="ds-btn ds-btn-primary">Настроить кабинет</Link>
         </div>
       )}
 
@@ -170,9 +168,10 @@ export default function AccommodationsClient() {
 
       {items !== null && items.length === 0 && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">
-          <p className="text-sm text-[var(--text-secondary)]">
-            К вашему профилю пока не привязано ни одного объекта. Подключение — через администратора платформы.
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Объектов пока нет — добавьте первый, и он появится на витрине после проверки.
           </p>
+          <Link href="/hub/stay/onboarding" className="ds-btn ds-btn-primary">Добавить объект</Link>
         </div>
       )}
 
