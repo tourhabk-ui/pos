@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getTokenFromRequest } from '@/lib/auth';
+import { notifyNewStayBooking } from '@/lib/notifications/stay-booking';
 
 // Валидация входных данных
 const bookingSchema = z.object({
@@ -257,9 +258,38 @@ export async function POST(
     const bookingId = bookingResult.rows[0].id;
 
     // Получаем email пользователя из базы
-    const userResult = await query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [userId]);
+    const userResult = await query<{ email: string; name: string; phone: string | null }>(
+      'SELECT email, name, phone FROM users WHERE id = $1', [userId]
+    );
     const userEmail = userResult.rows[0]?.email ?? null;
     const userName = userResult.rows[0]?.name || 'Гость';
+    const userPhone = userResult.rows[0]?.phone ?? null;
+
+    // Уведомляем владельца объекта (Telegram) — раньше о брони знал только
+    // гость (email), владелец узнавал, лишь зайдя в кабинет. Non-fatal.
+    try {
+      const ownerResult = await query<{ telegram_chat_id: string | null }>(
+        `SELECT p.telegram_chat_id
+         FROM accommodations a
+         JOIN partners p ON a.partner_id = p.id
+         WHERE a.id = $1`,
+        [accommodationId]
+      );
+      await notifyNewStayBooking({
+        bookingId,
+        accommodationName: room.accommodation_name,
+        roomName: room.name,
+        checkInDate,
+        checkOutDate,
+        guests: adults + children,
+        totalPrice,
+        guestName: userName,
+        guestPhone: userPhone,
+        ownerTelegramChatId: ownerResult.rows[0]?.telegram_chat_id ?? null,
+      });
+    } catch {
+      // Уведомление владельцу не должно ломать бронь
+    }
 
     // Отправляем email подтверждение бронирования
     if (userEmail) {
