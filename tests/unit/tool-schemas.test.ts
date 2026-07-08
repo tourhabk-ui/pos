@@ -2,11 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 describe('KUZMICH_TOOLS (generated from the registry)', () => {
-  it('exposes exactly the 6 known tools with their JSON-schema definitions intact', () => {
+  it('exposes exactly the 7 known tools with their JSON-schema definitions intact', () => {
     const names = KUZMICH_TOOLS.map(t => t.function.name).sort();
     expect(names).toEqual([
-      'get_guardian_context', 'get_place_info', 'get_tours', 'get_weather', 'search_kamchatka', 'search_taaft',
+      'get_guardian_context', 'get_place_info', 'get_tours', 'get_weather',
+      'search_accommodations', 'search_kamchatka', 'search_taaft',
     ]);
+  });
+
+  it('registers search_accommodations with all filters optional (no required params)', () => {
+    const def = KUZMICH_TOOLS.find(t => t.function.name === 'search_accommodations')!;
+    expect(def.function.parameters.required).toEqual([]);
+    expect(Object.keys(def.function.parameters.properties)).toEqual(
+      expect.arrayContaining(['zone', 'type', 'price_max']),
+    );
   });
 
   it('keeps get_guardian_context requiring "place" in its API-facing JSON schema', () => {
@@ -83,6 +92,20 @@ describe('validateToolArgs', () => {
     const r = validateToolArgs('search_kamchatka', { query: 'a'.repeat(5000) });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.args.query.length).toBe(300);
+  });
+
+  it('accepts search_accommodations with no arguments (all filters optional)', () => {
+    expect(validateToolArgs('search_accommodations', {}).ok).toBe(true);
+  });
+
+  it('accepts and preserves search_accommodations filters', () => {
+    const r = validateToolArgs('search_accommodations', { zone: 'Паратунка', type: 'hotel', price_max: '8000' });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.args.zone).toBe('Паратунка');
+      expect(r.args.type).toBe('hotel');
+      expect(r.args.price_max).toBe('8000');
+    }
   });
 
   it('passes unknown tool names through unchanged (executeTool keeps its own "unknown tool" message)', () => {
