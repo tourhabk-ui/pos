@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble } from 'lucide-react';
+import { Home, Pencil, EyeOff, Eye, X, Star, BedDouble, Image as ImageIcon } from 'lucide-react';
 import { ACCOMMODATION_TYPE_LABELS } from '@/lib/stay/accommodation-types';
 
 /**
@@ -212,6 +212,12 @@ export default function AccommodationsClient() {
                 className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 aria-label={`Номера ${item.name}`}>
                 <BedDouble className="w-4 h-4" />
+              </Link>
+              <Link
+                href={`/hub/stay/accommodations/${item.id}/photos`}
+                className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                aria-label={`Фото ${item.name}`}>
+                <ImageIcon className="w-4 h-4" />
               </Link>
               <button
                 className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
