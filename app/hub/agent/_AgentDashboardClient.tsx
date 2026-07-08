@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { AgentMetricsGrid } from '@/components/agent/Dashboard/AgentMetricsGrid';
 import { RecentClientsTable } from '@/components/agent/Dashboard/RecentClientsTable';
 import { UpcomingBookingsTable } from '@/components/agent/Dashboard/UpcomingBookingsTable';
-import { BarChart3, Users, Calendar, Receipt } from 'lucide-react';
+import { BarChart3, Users, Calendar, Receipt, Loader2 } from 'lucide-react';
+import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 const QUICK_ACTIONS = [
   { label: 'Добавить клиента', href: '/hub/agent/clients', icon: Users },
@@ -17,6 +18,17 @@ const QUICK_ACTIONS = [
 export default function AgentDashboardClient() {
   const router = useRouter();
   const [period, setPeriod] = useState('30');
+  // Гвард онбординга: незаполненный профиль агента уводит в визард
+  // (агентские таблицы на user_id никогда не 404, поэтому гейт — только здесь).
+  const onboardingReady = useOnboardingGuard('/hub/agent/onboarding');
+
+  if (!onboardingReady) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-5 lg:p-6 space-y-5">

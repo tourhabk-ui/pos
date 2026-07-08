@@ -6,6 +6,7 @@ import {
   Star, Wind, AlertTriangle, AlertCircle, DollarSign, BarChart3, TrendingUp, Droplets,
   Eye, Calendar, Users, User, Cloud, Loader2,
 } from 'lucide-react';
+import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 interface ScheduleItem {
   id: string; startTime: string; endTime: string; title: string;
@@ -52,8 +53,16 @@ export default function GuideDashboardClient() {
   const [earningsStats, setEarningsStats] = useState<EarningsStats | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
   const [earningsFetched, setEarningsFetched] = useState(false);
+  // Гвард онбординга: незаполненный профиль гида уводит в визард; данные
+  // грузятся только когда профиль завершён (зеркало gear/stay-дашбордов).
+  const onboardingReady = useOnboardingGuard('/hub/guide/onboarding');
 
-  useEffect(() => { fetchWeather(); fetchSchedule(); }, []);
+  useEffect(() => {
+    if (!onboardingReady) return;
+    fetchWeather();
+    fetchSchedule();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingReady]);
 
   useEffect(() => {
     if (selectedTab === 'groups' && !groupsFetched && !groupsLoading) fetchGroups();
