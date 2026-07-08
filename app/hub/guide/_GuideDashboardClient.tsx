@@ -7,6 +7,7 @@ import {
   Eye, Calendar, Users, User, Cloud, Loader2,
 } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
+import GuideProfileForm from './_GuideProfileForm';
 
 interface ScheduleItem {
   id: string; startTime: string; endTime: string; title: string;
@@ -37,8 +38,6 @@ const TABS = [
   { id: 'weather', name: 'Погода', Icon: Cloud },
   { id: 'profile', name: 'Профиль', Icon: User },
 ];
-
-const INPUT = 'w-full px-3.5 py-2.5 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors';
 
 export default function GuideDashboardClient() {
   const [weather, setWeather] = useState<Weather | null>(null);
@@ -385,50 +384,8 @@ export default function GuideDashboardClient() {
         </div>
       )}
 
-      {/* Profile Tab */}
-      {selectedTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
-            <p className="text-xs font-medium text-[var(--text-secondary)]">Личная информация</p>
-            {[
-              { id: 'g-name', label: 'Имя', placeholder: 'Ваше имя' },
-              { id: 'g-phone', label: 'Телефон', placeholder: '+7 (XXX) XXX-XX-XX' },
-              { id: 'g-email', label: 'Email', placeholder: 'your@email.com' },
-            ].map(f => (
-              <div key={f.id}>
-                <label htmlFor={f.id} className="block text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1.5">{f.label}</label>
-                <input id={f.id} defaultValue="" placeholder={f.placeholder} className={INPUT} />
-              </div>
-            ))}
-          </div>
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 space-y-3">
-            <p className="text-xs font-medium text-[var(--text-secondary)]">Профессиональная информация</p>
-            <div>
-              <label htmlFor="g-spec" className="block text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1.5">Специализация</label>
-              <select id="g-spec" className={INPUT}>
-                <option>Горные походы</option>
-                <option>Экскурсии</option>
-                <option>Дикая природа</option>
-                <option>Рыбалка</option>
-              </select>
-            </div>
-            {[
-              { id: 'g-exp', label: 'Опыт работы', placeholder: 'Например: 5 лет' },
-              { id: 'g-lang', label: 'Языки', placeholder: 'Русский, Английский' },
-            ].map(f => (
-              <div key={f.id}>
-                <label htmlFor={f.id} className="block text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1.5">{f.label}</label>
-                <input id={f.id} defaultValue="" placeholder={f.placeholder} className={INPUT} />
-              </div>
-            ))}
-          </div>
-          <div className="lg:col-span-2 flex justify-end">
-            <button className="px-4 py-2 text-xs font-medium bg-[var(--accent)] text-[var(--bg-card)] rounded-md hover:opacity-90 transition-opacity">
-              Сохранить изменения
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Profile Tab — живая форма (GET/PATCH /api/partners/profile) */}
+      {selectedTab === 'profile' && <GuideProfileForm />}
     </div>
   );
 }
