@@ -40,6 +40,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/integrations', label: 'Интеграции / OCTO', icon: Plug },
   { href: '/hub/admin/channels',     label: 'Каналы продаж',     icon: Share2 },
   { href: '/hub/admin/safety',  label: 'Безопасность', icon: AlertTriangle },
+  { href: '/hub/admin/health',  label: 'Health-метрики', icon: Activity },
   { href: '/hub/admin/places-photos', label: 'Фото мест', icon: ImageIcon },
   { href: '/hub/admin/user-photos', label: 'Фото туристов', icon: ImageIcon },
   { href: '/hub/admin/artem',  label: 'Рабочее место МЧС', icon: HardHat },
