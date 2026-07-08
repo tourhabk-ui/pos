@@ -1,0 +1,55 @@
+name: Data — Elevation Profile (высотные профили маршрутов)
+
+# Ручной прогон scripts/compute-elevation-profile.ts (задача L, PR #371):
+# считает gain/loss/min/max из 3-й компоненты GPX-треков kamchatka_routes.
+# Треки без высот честно остаются NULL (no_elevation), внешние
+# elevation-API не дёргаются. Отчёт — в artifacts.
+#
+# Требует secret DATABASE_URL (тот же, что у Reindex Embeddings).
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Записать результаты в БД (иначе dry-run с отчётом)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  elevation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Compute elevation profiles
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production # включает ssl для managed PostgreSQL
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret not set — добавьте его в Settings → Secrets"
+            exit 1
+          fi
+          if [ "${{ github.event.inputs.apply }}" = "true" ]; then
+            npx tsx scripts/compute-elevation-profile.ts --apply
+          else
+            npx tsx scripts/compute-elevation-profile.ts
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elevation-profile-report
+          path: data/elevation-profile-report.json
+          if-no-files-found: warn
