@@ -81,24 +81,18 @@ export async function POST(
       );
     }
 
-    // Один отзыв на бронь
-    const existing = await query(
-      `SELECT id FROM accommodation_reviews WHERE booking_id = $1 LIMIT 1`,
-      [b.bookingId]
-    );
-    if (existing.rows.length > 0) {
-      return NextResponse.json(
-        { success: false, error: 'Вы уже оставляли отзыв по этой брони' },
-        { status: 409 }
-      );
-    }
-
+    // Один отзыв на бронь. Атомарно (WHERE NOT EXISTS в самом INSERT), т.к.
+    // UNIQUE на booking_id в схеме нет — check-then-insert словил бы гонку
+    // двух параллельных запросов и удвоил отзыв (накрутка рейтинга).
     const result = await query<{ id: string; created_at: string }>(
       `INSERT INTO accommodation_reviews
          (user_id, accommodation_id, booking_id, overall_rating,
           cleanliness_rating, service_rating, location_rating, value_rating,
           title, comment, is_verified, is_visible)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, true)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, true
+       WHERE NOT EXISTS (
+         SELECT 1 FROM accommodation_reviews WHERE booking_id = $3
+       )
        RETURNING id, created_at`,
       [
         userId, accommodationId, b.bookingId, b.overallRating,
@@ -107,6 +101,13 @@ export async function POST(
         b.title ?? null, b.comment ?? null,
       ]
     );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Вы уже оставляли отзыв по этой брони' },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(
       { success: true, data: { id: result.rows[0].id, createdAt: result.rows[0].created_at } },

@@ -60,7 +60,7 @@ describe('POST /api/accommodations/[id]/reviews', () => {
   it('валидный отзыв при завершённой брони → 201', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes("status = 'completed'")) return Promise.resolve({ rows: [{ '?column?': 1 }] });
-      if (sql.includes('SELECT id FROM accommodation_reviews')) return Promise.resolve({ rows: [] });
+      // атомарный INSERT ... WHERE NOT EXISTS — отзыва ещё нет, строка вставлена
       if (sql.includes('INSERT INTO accommodation_reviews')) {
         return Promise.resolve({ rows: [{ id: 'rev-1', created_at: '2026-07-08T00:00:00Z' }] });
       }
@@ -79,15 +79,18 @@ describe('POST /api/accommodations/[id]/reviews', () => {
     expect(completedCall[1]).toEqual([BOOKING_ID, 'guest-1', ACC_ID]);
   });
 
-  it('повтор по той же брони → 409', async () => {
+  it('повтор по той же брони → 409 (атомарный INSERT вернул 0 строк)', async () => {
     queryMock.mockImplementation((sql: string) => {
       if (sql.includes("status = 'completed'")) return Promise.resolve({ rows: [{ '?column?': 1 }] });
-      if (sql.includes('SELECT id FROM accommodation_reviews')) return Promise.resolve({ rows: [{ id: 'existing' }] });
+      // WHERE NOT EXISTS не пропустил — отзыв уже есть
+      if (sql.includes('INSERT INTO accommodation_reviews')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
     const res = await POST(req({ bookingId: BOOKING_ID, overallRating: 5 }), routeParams(ACC_ID));
     expect(res.status).toBe(409);
-    expect(queryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO accommodation_reviews'))).toBe(false);
+    // INSERT содержит защиту от гонки
+    const insertCall = queryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO accommodation_reviews'))!;
+    expect(String(insertCall[0])).toContain('WHERE NOT EXISTS');
   });
 
   it('рейтинг вне 1-5 → 400, БД не трогаем', async () => {
