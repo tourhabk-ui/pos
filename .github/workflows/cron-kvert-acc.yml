@@ -1,0 +1,29 @@
+name: Cron — KVERT ACC (авиационные цветовые коды вулканов)
+
+# Тянет ACC вулканов из KVERT VONA в volcano_status (migration 728, PR #401).
+# Фетч KVERT идёт с прод-сервера (РФ-IP Timeweb) — эндпоинт лишь дёргается
+# по расписанию. KVERT отдаёт 403 не-российским адресам, поэтому запускать
+# именно через прод-эндпоинт, а не напрямую с GitHub-раннера (US).
+#
+# Требует secret CRON_SECRET (тот же, что у остальных крон-джобов).
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'  # каждые 6 часов (KVERT обновляется нечасто)
+  workflow_dispatch:
+
+jobs:
+  kvert-acc-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sync KVERT aviation color codes
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/kvert-acc")
+          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
