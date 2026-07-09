@@ -5,9 +5,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { launchSalesCampaign } from '@/lib/sales/bot-ceo';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+const LaunchSchema = z.object({
+  batch_size: z.number().int().positive().max(50).optional(),
+});
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,8 +22,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { batch_size } = await req.json();
-    const batchSize = Math.min(batch_size || 10, 50); // Max 50 per campaign
+    const parsed = LaunchSchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'batch_size — целое число 1..50' }, { status: 400 });
+    }
+    const batchSize = parsed.data.batch_size ?? 10;
 
     const result = await launchSalesCampaign(batchSize);
 

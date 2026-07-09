@@ -50,10 +50,8 @@ export async function PATCH(
   if (data.rateLimitPerMinute !== undefined) { sets.push(`rate_limit_per_minute = $${idx++}`); values.push(data.rateLimitPerMinute); }
   if (data.notes !== undefined) { sets.push(`notes = $${idx++}`); values.push(data.notes); }
 
-  // webhook fields (not in schema — accept directly from body)
-  const rawBody = body as Record<string, unknown>;
-  if (rawBody.webhookUrl    !== undefined) { sets.push(`webhook_url = $${idx++}`);    values.push(rawBody.webhookUrl    ?? null); }
-  if (rawBody.webhookSecret !== undefined) { sets.push(`webhook_secret = $${idx++}`); values.push(rawBody.webhookSecret ?? null); }
+  if (data.webhookUrl    !== undefined) { sets.push(`webhook_url = $${idx++}`);    values.push(data.webhookUrl    ?? null); }
+  if (data.webhookSecret !== undefined) { sets.push(`webhook_secret = $${idx++}`); values.push(data.webhookSecret ?? null); }
 
   if (sets.length === 0) {
     return NextResponse.json(

@@ -2,20 +2,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { pool } from '@/lib/db-pool';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const AssistantSchema = z.object({
+  message: z.string().min(1).max(4000),
+  // История чата: [{role, content}] — форма сообщений передаётся в waterfall как есть.
+  context: z.array(z.object({
+    role: z.enum(['user', 'assistant', 'system']),
+    content: z.string().max(8000),
+  })).max(30).optional(),
+});
 
 export async function POST(request: NextRequest) {
   try {
     const adminOrResponse = await requireAdmin(request);
     if (adminOrResponse instanceof NextResponse) return adminOrResponse;
 
-    const body = await request.json() as { message?: unknown; context?: unknown };
-    const { message, context } = body;
-
-    if (!message || typeof message !== 'string') {
+    const parsed = AssistantSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return NextResponse.json({ success: false, error: 'Message is required' }, { status: 400 });
     }
+    const { message, context } = parsed.data;
 
     // Получаем контекст платформы из БД
     const [bookingsResult, toursResult] = await Promise.all([
@@ -40,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
-      ...(Array.isArray(context) ? context : []),
+      ...(context ?? []),
       { role: 'user' as const, content: message },
     ];
 

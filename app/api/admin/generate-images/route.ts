@@ -4,6 +4,13 @@ import {
   generateAndStoreRouteImage,
   getRoutesWithoutImages,
 } from '@/lib/services/ai-image-generator';
+import { z } from 'zod';
+
+const GenerateSchema = z.object({
+  routeId: z.string().min(1).max(100).optional(),
+  batch: z.number().int().positive().max(50).optional(),
+  force: z.boolean().optional(),
+});
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min for batch job
@@ -30,11 +37,14 @@ export async function POST(req: NextRequest) {
   const authError = await requireAdmin(req);
   if (authError instanceof NextResponse) return authError;
 
-  const body = await req.json().catch(() => ({})) as {
-    routeId?: string;
-    batch?: number;
-    force?: boolean;
-  };
+  const parsed = GenerateSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+      { status: 400 },
+    );
+  }
+  const body = parsed.data;
 
   // Single route
   if (body.routeId) {
