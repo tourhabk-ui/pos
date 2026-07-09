@@ -18,6 +18,8 @@ const CreateTourBookingSchema = z.object({
   participants: z.number().int().min(1).max(100),
   touristName:  z.string().min(1).max(255).optional(),
   touristPhone: z.string().max(20).optional(),
+  // Агентский реферальный код (KH-AGT-...) — атрибуция брони реф-ссылке
+  ref:          z.string().max(32).optional(),
 });
 
 /** Добавляет N дней к дате (UTC-safe) */
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { tourId, bookingDate, participants, touristName, touristPhone } = parsed.data;
+  const { tourId, bookingDate, participants, touristName, touristPhone, ref } = parsed.data;
 
   const client = await pool.connect();
   try {
@@ -199,14 +201,28 @@ export async function POST(request: NextRequest) {
     const commissionAmt  = Number((finalPrice * commissionRate / 100).toFixed(2));
     const netAmount      = Number((finalPrice - commissionAmt).toFixed(2));
 
+    // 7b. Реферальная атрибуция: резолвим агентский код в активную ссылку.
+    // Источник истины для заработка агента — operator_bookings.referral_link_id.
+    let referralLinkId: string | null = null;
+    if (ref) {
+      const rl = await client.query<{ id: string }>(
+        `SELECT id FROM agent_referral_links
+         WHERE code = $1 AND is_active = true
+           AND (expires_at IS NULL OR expires_at > NOW())`,
+        [ref]
+      );
+      referralLinkId = rl.rows[0]?.id ?? null;
+    }
+
     // 8. Создаём operator_booking с end_date и duration_days
     const bookingResult = await client.query<{ id: string }>(
       `INSERT INTO operator_bookings (
          operator_tour_id, tourist_name, tourist_email, tourist_phone,
          booking_date, end_date, duration_days, participants,
          base_total_price, final_price, currency,
-         payment_status, payment_method, booking_status, created_via, metadata, user_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending','cloudpayments','new','website',$12,$13)
+         payment_status, payment_method, booking_status, created_via, metadata, user_id,
+         referral_link_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending','cloudpayments','new','website',$12,$13,$14)
        RETURNING id`,
       [
         tourId,
@@ -224,6 +240,7 @@ export async function POST(request: NextRequest) {
         // user_id и в колонку (не только в metadata) — линк для
         // lib/recommendations/engine.ts, как в /api/hub/bookings/create (PR #321)
         userId,
+        referralLinkId,
       ]
     );
     const bookingId = bookingResult.rows[0].id;
@@ -241,6 +258,24 @@ export async function POST(request: NextRequest) {
     const paymentId = paymentResult.rows[0].id;
 
     await client.query('COMMIT');
+
+    // 9b. Реферальный аудит-счётчик — best-effort, ПОСЛЕ коммита (бронь уже
+    // атрибутирована через referral_link_id; событие/счётчик — аналитика).
+    if (referralLinkId) {
+      try {
+        await pool.query(
+          `INSERT INTO agent_referral_events (link_id, event_type, booking_id)
+           VALUES ($1, 'booking', $2)`,
+          [referralLinkId, bookingId]
+        );
+        await pool.query(
+          `UPDATE agent_referral_links SET conversions = conversions + 1 WHERE id = $1`,
+          [referralLinkId]
+        );
+      } catch {
+        // не критично — источник истины в operator_bookings.referral_link_id
+      }
+    }
 
     // 10. Ответ — параметры для CloudPayments
     const dateDisplay = new Date(bookingDate + 'T00:00:00Z').toLocaleDateString('ru-RU', {

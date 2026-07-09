@@ -176,6 +176,10 @@ export default function TourPaymentModal({
     setSubmitting(true);
 
     try {
+      // Агентский реф-код из URL (?ref=KH-AGT-...) — атрибуция брони
+      const ref = typeof window !== 'undefined'
+        ? (new URLSearchParams(window.location.search).get('ref') || undefined)
+        : undefined;
       const res = await fetch('/api/bookings/tour', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -184,6 +188,7 @@ export default function TourPaymentModal({
           bookingDate,
           participants,
           touristPhone: touristPhone.trim() || undefined,
+          ref,
         }),
       });
       const json = await res.json();
