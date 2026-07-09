@@ -15,6 +15,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
+import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical } from '@/lib/ai/verbalized-sampling';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
@@ -147,7 +148,7 @@ function titleSimilarity(a: string, b: string): number {
 
 // ── AI-рерайт описания ─────────────────────────────────────────────
 
-async function rewriteDescription(title: string, rawDesc: string): Promise<string | null> {
+export async function rewriteDescription(title: string, rawDesc: string): Promise<string | null> {
   if (rawDesc.trim().length < 100) return null;
   const messages: ChatMessage[] = [
     {
@@ -167,12 +168,19 @@ async function rewriteDescription(title: string, rawDesc: string): Promise<strin
     },
     {
       role: 'user',
-      content: `Объект: ${title}\n\nИсходный текст (перефразируй, не добавляя ничего сверх него):\n${rawDesc.slice(0, 1500)}`,
+      content: `Объект: ${title}\n\nИсходный текст (перефразируй, не добавляя ничего сверх него):\n${rawDesc.slice(0, 1500)}
+
+${verbalizedInstruction(3)}
+Каждый text — это готовый переписанный текст по правилам выше (только факты из источника, без выдумки). Варианты отличаются подачей, но все — фактически честные.`,
     },
   ];
   try {
-    const result = await callAIFast(messages);
-    return result?.trim() ?? null;
+    const raw = (await callAIFast(messages))?.trim() ?? null;
+    if (!raw) return null;
+    // Verbalized Sampling: наименее шаблонный валидный вариант; fallback на сырой
+    // ответ, если модель вернула не-JSON (fast-провайдеры не гарантируют формат).
+    const picked = pickLeastTypical(parseVerbalizedSamples(raw), 100);
+    return picked ?? raw;
   } catch (e) {
     console.error('rewrite error:', e instanceof Error ? e.message : String(e));
     return null;
