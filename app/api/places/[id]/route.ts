@@ -79,10 +79,16 @@ export async function GET(
          rs.tourists_today,
          rs.tourists_hour,
          rs.updated_at AS realtime_updated_at,
+         vs.aviation_color_code AS volcano_acc,
+         vs.ash_height_m         AS volcano_ash_height_m,
+         vs.summary              AS volcano_summary,
+         vs.source_url           AS volcano_source_url,
+         vs.observed_at          AS volcano_observed_at,
          (SELECT count(*)::int FROM ai_route_images ai WHERE ai.route_id = p.ark_id) AS photo_count
        FROM places p
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
+       LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
        WHERE (p.ark_id::text = $1 OR p.id = $1)
          AND p.is_visible = true`,
       [id]
@@ -245,6 +251,14 @@ export async function GET(
           registrationRequired: r.registration_required as boolean ?? false,
           medicalInfo: r.medical_info as string | null,
         },
+
+        volcanoStatus: (r.location_type === 'volcano' && r.volcano_acc && r.volcano_acc !== 'unassigned') ? {
+          colorCode: r.volcano_acc as string,
+          ashHeightM: r.volcano_ash_height_m != null ? Number(r.volcano_ash_height_m) : null,
+          summary: (r.volcano_summary as string | null) ?? null,
+          sourceUrl: (r.volcano_source_url as string | null) ?? null,
+          observedAt: r.volcano_observed_at as string | null,
+        } : null,
 
         realtime: r.is_open !== null || r.alert_severity !== null ? {
           isOpen: r.is_open as boolean | null,
