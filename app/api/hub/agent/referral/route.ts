@@ -21,20 +21,21 @@ export async function GET(request: NextRequest) {
   const auth = await requireAgent(request);
   if (auth instanceof NextResponse) return auth;
 
+  // Конверсии и заработок считаем ЖИВО из источника истины
+  // operator_bookings.referral_link_id (миграция 727), а не из сломанного
+  // прежде join к agent_bookings (UUID vs BIGINT). rl.conversions — легаси-кэш.
   const { rows } = await pool.query(
     `SELECT
-       rl.id, rl.code, rl.tour_id, rl.clicks, rl.conversions,
+       rl.id, rl.code, rl.tour_id, rl.clicks,
        rl.commission_rate, rl.expires_at, rl.is_active, rl.created_at,
        ot.title AS tour_title,
-       COALESCE(SUM(
-         CASE WHEN re.event_type = 'booking' THEN ab.total_price * rl.commission_rate / 100 END
-       ), 0) AS earned_total
+       (SELECT COUNT(*) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id)::int AS conversions,
+       COALESCE(
+         (SELECT SUM(ob.final_price) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id), 0
+       ) * rl.commission_rate / 100 AS earned_total
      FROM agent_referral_links rl
      LEFT JOIN operator_tours ot ON ot.id = rl.tour_id
-     LEFT JOIN agent_referral_events re ON re.link_id = rl.id
-     LEFT JOIN agent_bookings ab ON ab.id::text = re.booking_id::text
      WHERE rl.agent_id = $1
-     GROUP BY rl.id, ot.title
      ORDER BY rl.created_at DESC`,
     [auth.userId]
   );
