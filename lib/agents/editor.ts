@@ -14,6 +14,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical } from '@/lib/ai/verbalized-sampling';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -144,13 +145,25 @@ ${route.description ? `Имеющееся описание (бери из нег
 Дай СОДЕРЖАТЕЛЬНЫЙ обзор (2 абзаца, не меньше 120 слов): что это за место и его общий характер, чем интересно, на что обратить внимание при подготовке.
 «Обобщённо» НЕ значит «кратко» — пиши полноценно про характер, ландшафт, общее впечатление.
 Запрет касается только ВЫДУМАННОЙ КОНКРЕТИКИ: не указывай конкретные числа (высоту, координаты, расстояния, температуру) и факты о безопасности (опасности, сложность, броды), если их нет в переданных данных. Общее описание характера места — пиши.
-Если про конкретно это место ты ничего достоверного не знаешь и название ничего не говорит — лучше дай честный короткий ответ, чем выдумку (такой маршрут получит описание позже из реальных источников).`,
+Если про конкретно это место ты ничего достоверного не знаешь и название ничего не говорит — лучше дай честный короткий ответ, чем выдумку (такой маршрут получит описание позже из реальных источников).
+
+${verbalizedInstruction(3)}
+Каждый text — это готовое описание по правилам выше (те же запреты на выдуманную конкретику). Варианты должны отличаться подачей и акцентами, но все — фактически честные.`,
     },
   ];
 
   try {
-    const result = (await callAIFast(messages))?.trim() ?? null;
-    if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
+    const raw = (await callAIFast(messages))?.trim() ?? null;
+    if (!raw) return { text: null, failReason: `callAIFast: ${describeShortText(raw)}` };
+
+    // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
+    // Fallback: если модель вернула не JSON (fast-провайдеры не гарантируют формат) —
+    // используем сырой ответ как раньше, поведение не хуже прежнего.
+    const samples = parseVerbalizedSamples(raw);
+    const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);
+    const result = picked ?? raw;
+
+    if (result.length >= MIN_GENERATION_LENGTH) return { text: result };
     return { text: result, failReason: `callAIFast: ${describeShortText(result)}` };
   } catch (err) {
     return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
