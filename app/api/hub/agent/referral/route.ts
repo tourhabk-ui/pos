@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
   // Конверсии и заработок считаем ЖИВО из источника истины
   // operator_bookings.referral_link_id (миграция 727), а не из сломанного
   // прежде join к agent_bookings (UUID vs BIGINT). rl.conversions — легаси-кэш.
+  // conversions — все атрибутированные брони (воронка); earned_total — только
+  // оплаченные (payment_status='paid'), чтобы отменённые/неоплаченные не раздували заработок.
   const { rows } = await pool.query(
     `SELECT
        rl.id, rl.code, rl.tour_id, rl.clicks,
@@ -31,7 +33,8 @@ export async function GET(request: NextRequest) {
        ot.title AS tour_title,
        (SELECT COUNT(*) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id)::int AS conversions,
        COALESCE(
-         (SELECT SUM(ob.final_price) FROM operator_bookings ob WHERE ob.referral_link_id = rl.id), 0
+         (SELECT SUM(ob.final_price) FROM operator_bookings ob
+           WHERE ob.referral_link_id = rl.id AND ob.payment_status = 'paid'), 0
        ) * rl.commission_rate / 100 AS earned_total
      FROM agent_referral_links rl
      LEFT JOIN operator_tours ot ON ot.id = rl.tour_id
