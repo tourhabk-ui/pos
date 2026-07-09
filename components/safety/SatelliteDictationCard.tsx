@@ -1,5 +1,9 @@
 'use client';
 
+// Тёмная glass-карточка SOS-экрана: белые с альфой — поверх тёмной подложки (§2, допустимо).
+// Фиолетовый #a78bfa — намеренный акцент «спутниковой связи» (DS-токена нет; ocean/danger
+// заняты другими смыслами SOS-экрана). #1a1a1a в <option> — фикс нативного дропдауна.
+
 import { useState, useCallback } from 'react';
 import { CheckCircle, Copy, Satellite } from 'lucide-react';
 
@@ -221,7 +225,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
             borderRadius: '10px',
             border: '1px solid rgba(147,112,219,0.4)',
             background: copied ? 'rgba(63,185,80,0.15)' : 'rgba(147,112,219,0.15)',
-            color: copied ? '#3FB950' : '#a78bfa',
+            color: copied ? 'var(--success)' : '#a78bfa',
             fontWeight: 700,
             fontSize: '13px',
             cursor: 'pointer',

@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 
 // Brand SVG icons — встроенные, чтобы не тянуть внешние зависимости.
+// Hex здесь — фирменные цвета мессенджеров (Telegram/MAX/виджет), не тема:
+// логотип Telegram обязан быть цвета Telegram в обеих темах. CSS-токены
+// неприменимы by design (аудит 2026-07-09).
 function TelegramIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
