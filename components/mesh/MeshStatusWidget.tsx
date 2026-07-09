@@ -36,13 +36,14 @@ export function MeshStatusWidget({ status, peers, relayedCount }: Props) {
     ? 'rgba(210,153,34,0.35)'
     : 'rgba(255,255,255,0.1)';
 
+  // Статусные цвета — DS-токены (§2); белые с альфой ниже — glass поверх тёмного, допустимо.
   const dotColor = hasRelay
-    ? '#3FB950'
+    ? 'var(--success)'
     : isConnected
-    ? '#2568B0'
+    ? 'var(--ocean)'
     : isConnecting
-    ? '#D29922'
-    : '#484F58';
+    ? 'var(--warning)'
+    : 'var(--text-muted)';
 
   return (
     <div
@@ -68,13 +69,13 @@ export function MeshStatusWidget({ status, peers, relayedCount }: Props) {
           }}
         />
         {isConnecting && (
-          <Loader2 size={13} style={{ color: '#D29922', animation: 'kh-spin 1s linear infinite', flexShrink: 0 }} />
+          <Loader2 size={13} style={{ color: 'var(--warning)', animation: 'kh-spin 1s linear infinite', flexShrink: 0 }} />
         )}
         {!isConnecting && hasRelay && (
-          <Radio size={13} style={{ color: '#3FB950', flexShrink: 0 }} />
+          <Radio size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
         )}
         {!isConnecting && !hasRelay && isConnected && (
-          <WifiOff size={13} style={{ color: '#2568B0', flexShrink: 0 }} />
+          <WifiOff size={13} style={{ color: 'var(--ocean)', flexShrink: 0 }} />
         )}
         <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', flex: 1 }}>
           {isConnecting && (status === 'reconnecting' ? 'Меш переподключается...' : 'Меш подключается...')}
