@@ -1588,6 +1588,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const { searchAccommodationsForKuzmich } = await import('@/lib/kuzmich/accommodation-search');
       return await searchAccommodationsForKuzmich({ zone: args.zone, type: args.type, price_max: args.price_max });
     }
+    if (name === 'search_gear') {
+      const { searchGearForKuzmich } = await import('@/lib/kuzmich/gear-search');
+      return await searchGearForKuzmich({ query: args.query, category: args.category, price_max: args.price_max });
+    }
     if (name === 'search_taaft') {
       const { searchExternalTools, trackToolUsage, formatToolsForKuzmich } = await import('@/lib/agents/tools/taaft-search');
       const tools = await searchExternalTools(args.task ?? args.query ?? '');
