@@ -10,10 +10,18 @@
  *   XAI_API_KEY             — xAI Grok-4 (geo-blocked RU)
  *   ANTHROPIC_API_KEY       — Claude Haiku direct (geo-blocked RU)
  *   MINIMAX_API_KEY         — Minimax (резерв)
+ *   NVIDIA_API_KEY          — NVIDIA NIM (Llama 3.3-70B, бесплатно)
+ *   GROQ_API_KEY            — Groq (Llama 3.3-70B, бесплатно, US — проверить geo)
+ *   CEREBRAS_API_KEY        — Cerebras (Llama 3.3-70B, бесплатно, US — проверить geo)
+ *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
+ *
+ * Бесплатные провайдеры инертны без ключа (getter→null→ноль сокетов в гонке).
+ * US/EU-провайдеры (Groq/Cerebras/Mistral) могут геоблокировать РФ-IP Timeweb —
+ * перед тем как полагаться, проверить достижимость через /api/ai/debug-waterfall.
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 
@@ -36,6 +44,9 @@ const COST_PER_1K: Record<string, number> = {
   'google/gemini-2.0-flash-001':               0.00010,
   'mimo-v2-pro':                               0.00010,
   'glm-5.1':                                   0.00030,
+  'llama-3.3-70b-versatile':                   0,        // Groq free tier
+  'llama-3.3-70b':                             0,        // Cerebras free tier
+  'mistral-small-latest':                      0,        // Mistral free tier
 };
 
 function logLLMUsage(model: string, usage: ProviderUsage | undefined): void {
@@ -742,6 +753,117 @@ export async function callNvidia(messages: ChatMessage[]): Promise<string | null
   } catch { return null; }
 }
 
+// ── Groq (OpenAI-compatible, Llama 3.3-70B бесплатно, очень быстрый LPU) ──
+// Docs: https://console.groq.com — Free tier, OpenAI API format
+// Env: GROQ_API_KEY. Инертна без ключа. GEO: US — проверить достижимость с РФ-IP.
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+export async function callGroq(messages: ChatMessage[]): Promise<string | null> {
+  const apiKey = getGroqKey();
+  if (!apiKey) return null;
+
+  try {
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetchWithRetry('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.4,
+        max_tokens: 800,
+        messages: payload,
+      }),
+    }, { timeoutMs: 15_000, label: 'groq' });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
+    const text: string | undefined = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) {
+      logLLMUsage(GROQ_MODEL, data.usage);
+      return text.trim();
+    }
+    return null;
+  } catch { return null; }
+}
+
+// ── Cerebras (OpenAI-compatible, Llama 3.3-70B бесплатно, экстремально быстрый) ──
+// Docs: https://cloud.cerebras.ai — Free tier, OpenAI API format
+// Env: CEREBRAS_API_KEY. Инертна без ключа. GEO: US — проверить достижимость.
+const CEREBRAS_MODEL = 'llama-3.3-70b';
+export async function callCerebras(messages: ChatMessage[]): Promise<string | null> {
+  const apiKey = getCerebrasKey();
+  if (!apiKey) return null;
+
+  try {
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetchWithRetry('https://api.cerebras.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: CEREBRAS_MODEL,
+        temperature: 0.4,
+        max_tokens: 800,
+        messages: payload,
+      }),
+    }, { timeoutMs: 15_000, label: 'cerebras' });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
+    const text: string | undefined = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) {
+      logLLMUsage(CEREBRAS_MODEL, data.usage);
+      return text.trim();
+    }
+    return null;
+  } catch { return null; }
+}
+
+// ── Mistral La Plateforme (OpenAI-compatible, mistral-small бесплатно) ──
+// Docs: https://console.mistral.ai — Free tier (opt-in), OpenAI API format
+// Env: MISTRAL_API_KEY. Инертна без ключа. GEO: EU — проверить достижимость.
+const MISTRAL_MODEL = 'mistral-small-latest';
+export async function callMistral(messages: ChatMessage[]): Promise<string | null> {
+  const apiKey = getMistralKey();
+  if (!apiKey) return null;
+
+  try {
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetchWithRetry('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MISTRAL_MODEL,
+        temperature: 0.4,
+        max_tokens: 800,
+        messages: payload,
+      }),
+    }, { timeoutMs: 15_000, label: 'mistral' });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
+    const text: string | undefined = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) {
+      logLLMUsage(MISTRAL_MODEL, data.usage);
+      return text.trim();
+    }
+    return null;
+  } catch { return null; }
+}
+
 // ── MiniMax 2.5 (direct API) ─────────────────────────────────
 export async function callMiniMax(messages: ChatMessage[]): Promise<string | null> {
   const keys = getMiniMaxKey();
@@ -1184,6 +1306,60 @@ export async function preflightProviders(): Promise<{
     } catch (e) { return { ok: false, error: String(e) }; }
   }
 
+  async function probeGroq() {
+    const apiKey = getGroqKey();
+    if (!apiKey) return { ok: false, error: 'GROQ_API_KEY not set' };
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: GROQ_MODEL, max_tokens: 5, messages: testMsg }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  async function probeCerebras() {
+    const apiKey = getCerebrasKey();
+    if (!apiKey) return { ok: false, error: 'CEREBRAS_API_KEY not set' };
+    try {
+      const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: CEREBRAS_MODEL, max_tokens: 5, messages: testMsg }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  async function probeMistral() {
+    const apiKey = getMistralKey();
+    if (!apiKey) return { ok: false, error: 'MISTRAL_API_KEY not set' };
+    try {
+      const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: MISTRAL_MODEL, max_tokens: 5, messages: testMsg }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return { ok: false, status: res.status, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+      }
+      return { ok: true };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
   async function probeAnthropic() {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { ok: false, error: 'ANTHROPIC_API_KEY not set' };
@@ -1216,6 +1392,9 @@ export async function preflightProviders(): Promise<{
       probeDetailed('openrouter', 'OpenRouter (GPT-4o-mini)',     probeOpenrouter),
       probeDetailed('deepseek',   'DeepSeek-V3 (DeepSeek)',       probeDeepSeek),
       probeDetailed('fugu',       'Sakana Fugu',                  probeFugu),
+      probeDetailed('groq',       'Groq (Llama 3.3-70B)',         probeGroq),
+      probeDetailed('cerebras',   'Cerebras (Llama 3.3-70B)',     probeCerebras),
+      probeDetailed('mistral',    'Mistral (small)',              probeMistral),
     ]),
     checkOpenRouterBalance(),
   ]);
@@ -1340,6 +1519,9 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     callGeminiDirect(messages),
     callGLM(messages),
     callNvidia(messages),    // NVIDIA NIM: Llama 3.3-70B бесплатно (NVIDIA_API_KEY)
+    callGroq(messages),      // Groq: Llama 3.3-70B бесплатно (GROQ_API_KEY, US — проверить geo)
+    callCerebras(messages),  // Cerebras: Llama 3.3-70B бесплатно (CEREBRAS_API_KEY, US — проверить geo)
+    callMistral(messages),   // Mistral: mistral-small бесплатно (MISTRAL_API_KEY, EU — проверить geo)
     callMuseSpark(messages), // активируется когда Meta откроет API (MUSE_SPARK_API_KEY)
   ]);
   if (tier1) return tier1;
@@ -1769,6 +1951,93 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         }
       } catch (e) {
         results.push({ provider: 'nvidia', model: 'meta/llama-3.3-70b-instruct', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 11. Groq (OpenAI-compatible, US — geo-проверка)
+  {
+    const start = Date.now();
+    const apiKey = getGroqKey();
+    if (!apiKey) {
+      results.push({ provider: 'groq', model: GROQ_MODEL, status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: GROQ_MODEL, temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'groq', model: GROQ_MODEL, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'groq', model: GROQ_MODEL, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'groq', model: GROQ_MODEL, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 12. Cerebras (OpenAI-compatible, US — geo-проверка)
+  {
+    const start = Date.now();
+    const apiKey = getCerebrasKey();
+    if (!apiKey) {
+      results.push({ provider: 'cerebras', model: CEREBRAS_MODEL, status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: CEREBRAS_MODEL, temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'cerebras', model: CEREBRAS_MODEL, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'cerebras', model: CEREBRAS_MODEL, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'cerebras', model: CEREBRAS_MODEL, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+      }
+    }
+  }
+
+  // 13. Mistral La Plateforme (OpenAI-compatible, EU — geo-проверка)
+  {
+    const start = Date.now();
+    const apiKey = getMistralKey();
+    if (!apiKey) {
+      results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: 'no_key', latency_ms: 0 });
+    } else {
+      try {
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: MISTRAL_MODEL, temperature: 0.4, max_tokens: 200, messages: payload }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const ms = Date.now() - start;
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+        } else {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+        }
+      } catch (e) {
+        results.push({ provider: 'mistral', model: MISTRAL_MODEL, status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }

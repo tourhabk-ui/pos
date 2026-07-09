@@ -63,6 +63,35 @@ export function getNvidiaKey(): string | null {
   return process.env.NVIDIA_API_KEY || null;
 }
 
+// Groq — бесплатный OpenAI-compatible API (Llama 3.3-70B и др., очень быстрый LPU).
+// Лимит free-tier: ~14 400 запросов/день. Ключ: https://console.groq.com/keys
+// Endpoint: https://api.groq.com/openai/v1/chat/completions
+// GEO-оговорка: US-провайдер, может геоблокировать РФ-IP Timeweb — проверить
+// достижимость через /api/ai/debug-waterfall перед тем как полагаться в гонке.
+// Env: GROQ_API_KEY
+export function getGroqKey(): string | null {
+  return process.env.GROQ_API_KEY || null;
+}
+
+// Cerebras — бесплатный OpenAI-compatible API (Llama 3.3-70B, экстремально быстрый).
+// Лимит free-tier: ~30 запросов/мин. Ключ: https://cloud.cerebras.ai
+// Endpoint: https://api.cerebras.ai/v1/chat/completions
+// GEO-оговорка: US-провайдер — см. комментарий к getGroqKey.
+// Env: CEREBRAS_API_KEY
+export function getCerebrasKey(): string | null {
+  return process.env.CEREBRAS_API_KEY || null;
+}
+
+// Mistral La Plateforme — бесплатный OpenAI-compatible API (mistral-small и др.).
+// Free-tier: ~500k токенов/мин (требует opt-in обучения на данных при регистрации).
+// Ключ: https://console.mistral.ai/api-keys
+// Endpoint: https://api.mistral.ai/v1/chat/completions
+// GEO-оговорка: EU-провайдер — проверить достижимость с РФ-IP через debug-waterfall.
+// Env: MISTRAL_API_KEY
+export function getMistralKey(): string | null {
+  return process.env.MISTRAL_API_KEY || null;
+}
+
 // Sakana AI Fugu Ultra — multilingual frontier model (Japanese/Asian focus).
 // Docs: https://sakana.ai/fugu/
 // Endpoint: https://api.sakana.ai/v1/chat/completions (OpenAI-compatible)
