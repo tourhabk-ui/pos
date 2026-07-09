@@ -80,6 +80,14 @@ const searchAccommodationsSchema = z.object({
   price_max: looseString(20).optional(),
 });
 
+// ── search_gear ─────────────────────────────────────────────────────────────
+// Прокат снаряжения. Все фильтры необязательны — без них топ по рейтингу.
+const searchGearSchema = z.object({
+  query: looseString(100).optional(),
+  category: looseString(50).optional(),
+  price_max: looseString(20).optional(),
+});
+
 interface ToolSpec {
   definition: ToolDefinition;
   schema: z.ZodTypeAny;
@@ -159,6 +167,25 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: searchAccommodationsSchema,
+  },
+  search_gear: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'search_gear',
+        description: 'Найти прокат туристического снаряжения на Камчатке из платформы TourHab с ценами за сутки. Используй когда турист спрашивает где арендовать/взять напрокат снаряжение: палатку, спальник, треккинговые палки, рюкзак, кошки, газовую горелку и т.д.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Что ищут: например "палатка", "спальник", "треккинговые палки", бренд' },
+            category: { type: 'string', description: 'Категория снаряжения (если известна)' },
+            price_max: { type: 'string', description: 'Максимальная цена за сутки в рублях' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: searchGearSchema,
   },
   search_taaft: {
     definition: {
