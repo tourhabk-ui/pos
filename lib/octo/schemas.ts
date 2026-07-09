@@ -80,6 +80,9 @@ export const CreateApiKeySchema = z.object({
   canCreateBookings: z.boolean().optional().default(true),
   rateLimitPerMinute: z.number().int().min(1).max(10000).optional().default(60),
   notes: z.string().optional(),
+  // Webhook-поля раньше читались из сырого body мимо схемы (аудит 2026-07-09)
+  webhookUrl: z.string().url().max(500).nullish(),
+  webhookSecret: z.string().max(255).nullish(),
 });
 
 export const UpdateApiKeySchema = z.object({
@@ -90,4 +93,7 @@ export const UpdateApiKeySchema = z.object({
   canCreateBookings: z.boolean().optional(),
   rateLimitPerMinute: z.number().int().min(1).max(10000).optional(),
   notes: z.string().optional(),
+  // null = очистить webhook; отсутствие поля = не трогать
+  webhookUrl: z.string().url().max(500).nullish(),
+  webhookSecret: z.string().max(255).nullish(),
 });

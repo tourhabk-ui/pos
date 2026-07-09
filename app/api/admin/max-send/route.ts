@@ -9,8 +9,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Bot } from '@maxhub/max-bot-api';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const MaxSendSchema = z.object({
+  chat_id: z.number().int(),
+  text: z.string().min(1).max(100_000),
+});
 
 function getApi() {
   const token = process.env.MAX_BOT_TOKEN;
@@ -24,10 +30,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { chat_id, text } = await req.json() as { chat_id: number; text: string };
-  if (!chat_id || !text) {
+  const parsed = MaxSendSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
     return NextResponse.json({ error: 'chat_id and text required' }, { status: 400 });
   }
+  const { chat_id, text } = parsed.data;
 
   const api = getApi();
   if (!api) {

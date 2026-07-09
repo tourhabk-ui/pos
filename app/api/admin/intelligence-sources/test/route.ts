@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
+
+const TestSchema = z.object({
+  action: z.enum(['test_rss', 'run_cycle']),
+  // Только http(s) — сервер не должен фетчить file:// и прочие схемы
+  url: z.string().url().max(500).refine(u => /^https?:\/\//i.test(u), 'только http(s) URL').optional(),
+});
 
 /**
  * POST /api/admin/intelligence-sources/test
@@ -16,7 +23,14 @@ export async function POST(request: NextRequest) {
   if (authErr instanceof NextResponse) return authErr;
 
   try {
-    const body = await request.json() as { action: string; url?: string };
+    const parsed = TestSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+        { status: 400 },
+      );
+    }
+    const body = parsed.data;
 
     if (body.action === 'test_rss') {
       if (!body.url) {

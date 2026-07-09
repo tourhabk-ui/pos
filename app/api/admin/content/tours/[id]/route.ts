@@ -3,8 +3,18 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { TourUpdateRow } from '@/lib/types/db-rows';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const TourUpdateSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  description: z.string().max(20_000).optional(),
+  category: z.string().max(100).optional(),
+  difficulty: z.string().max(50).optional(),
+  base_price: z.number().nonnegative().finite().optional(),
+  is_active: z.boolean().optional(),
+});
 
 export async function GET(
   request: NextRequest,
@@ -46,7 +56,14 @@ export async function PATCH(
     if (adminOrResponse instanceof NextResponse) return adminOrResponse;
 
     const { id } = await params;
-    const body = await request.json() as Record<string, unknown>;
+    const parsed = TourUpdateSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: parsed.error.issues[0]?.message ?? 'Некорректные данные' },
+        { status: 400 },
+      );
+    }
+    const body: Record<string, unknown> = parsed.data;
 
     const allowedFields = ['title', 'description', 'category', 'difficulty', 'base_price', 'is_active'];
     const updates: string[] = [];
@@ -54,7 +71,7 @@ export async function PATCH(
     let paramIndex = 1;
 
     for (const field of allowedFields) {
-      if (field in body) {
+      if (field in body && body[field] !== undefined) {
         updates.push(`${field} = $${paramIndex}`);
         values.push(body[field]);
         paramIndex++;

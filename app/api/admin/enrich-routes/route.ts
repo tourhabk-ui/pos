@@ -12,9 +12,17 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+const EnrichSchema = z.object({
+  mode: z.enum(['description', 'payload']).optional(),
+  batch: z.number().int().positive().max(50).optional(),
+  force: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
+});
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
@@ -118,12 +126,14 @@ export async function POST(req: NextRequest) {
     if (authError instanceof NextResponse) return authError;
   }
 
-  const body = await req.json().catch(() => ({})) as {
-    mode?: 'description' | 'payload';
-    batch?: number;
-    force?: boolean;
-    dryRun?: boolean;
-  };
+  const parsedBody = EnrichSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsedBody.success) {
+    return NextResponse.json(
+      { success: false, error: parsedBody.error.issues[0]?.message ?? 'Некорректные данные' },
+      { status: 400 },
+    );
+  }
+  const body = parsedBody.data;
 
   const mode = body.mode ?? 'description';
   const batchSize = Math.min(body.batch ?? 20, 50);

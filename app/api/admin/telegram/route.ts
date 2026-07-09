@@ -6,6 +6,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getSetting, setSetting } from '@/lib/platform-settings';
+import { z } from 'zod';
+
+const TelegramSetupSchema = z.object({
+  token: z.string().max(100).optional(),
+  reregister: z.boolean().optional(),
+});
 
 const APP_URL      = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
 const WEBHOOK_PATH = '/api/telegram/kuzmich';
@@ -56,7 +62,11 @@ export async function POST(request: NextRequest) {
   const adminOrErr = await requireAdmin(request);
   if (adminOrErr instanceof NextResponse) return adminOrErr;
 
-  const body = await request.json() as { token?: string; reregister?: boolean };
+  const parsedBody = TelegramSetupSchema.safeParse(await request.json().catch(() => null));
+  if (!parsedBody.success) {
+    return NextResponse.json({ success: false, error: 'Некорректные данные' }, { status: 400 });
+  }
+  const body = parsedBody.data;
 
   const token = body.token?.trim() || (body.reregister ? await resolveToken() : '');
   if (!token) return NextResponse.json({ success: false, error: 'Токен не указан и не задан в env' }, { status: 400 });

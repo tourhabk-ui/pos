@@ -5,8 +5,17 @@ import {
   FinanceMetricsRow, DailyFinanceRow, RevenueByTypeRow,
   PendingPayoutsRow, RecentTransactionRow, PayoutAdminRow, PayoutStatsRow, PayoutCreateRow,
 } from '@/lib/types/db-rows';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const PayoutSchema = z.object({
+  partnerId: z.string().min(1).max(100),
+  bookingId: z.union([z.string().min(1).max(100), z.number().int().positive()]),
+  amount: z.number().positive().finite(),
+  currency: z.string().length(3).optional(),
+  description: z.string().max(500).optional(),
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -143,12 +152,11 @@ export async function POST(request: NextRequest) {
     const adminOrResponse = await requireAdmin(request);
     if (adminOrResponse instanceof NextResponse) return adminOrResponse;
 
-    const body = await request.json() as { partnerId?: unknown; bookingId?: unknown; amount?: unknown; currency?: unknown; description?: unknown };
-    const { partnerId, bookingId, amount, currency, description } = body;
-
-    if (!partnerId || !bookingId || !amount) {
-      return NextResponse.json({ success: false, error: 'Обязательные поля: partnerId, bookingId, amount' }, { status: 400 });
+    const parsed = PayoutSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ success: false, error: 'Обязательные поля: partnerId, bookingId, amount (amount — положительное число)' }, { status: 400 });
     }
+    const { partnerId, bookingId, amount, currency, description } = parsed.data;
 
     const result = await query<PayoutCreateRow>(`
       INSERT INTO payouts (partner_id, booking_id, amount, currency, status, description)

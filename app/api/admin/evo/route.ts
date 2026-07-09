@@ -8,6 +8,14 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { submitFeedback, getEvoStats } from '@/lib/agents/evo/feedback-loop';
 import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
+import { z } from 'zod';
+
+const FeedbackSchema = z.object({
+  evolution_id: z.string().min(1).max(100),
+  outcome: z.enum(['success', 'partial', 'failure', 'regression']),
+  impact_score: z.number().finite().optional(),
+  human_notes: z.string().max(2000).optional(),
+});
 
 export const dynamic = 'force-dynamic';
 
@@ -36,22 +44,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const parsed = body as {
-    evolution_id: string;
-    outcome: 'success' | 'partial' | 'failure' | 'regression';
-    impact_score: number;
-    human_notes: string;
-  };
-
-  if (!parsed.evolution_id || !parsed.outcome) {
-    return NextResponse.json({ error: 'evolution_id and outcome required' }, { status: 400 });
+  const parsed = FeedbackSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'evolution_id and outcome required' }, { status: 400 });
   }
 
   const result = await submitFeedback({
-    evolution_id: parsed.evolution_id,
-    outcome: parsed.outcome,
-    impact_score: parsed.impact_score ?? 0,
-    human_notes: parsed.human_notes ?? '',
+    evolution_id: parsed.data.evolution_id,
+    outcome: parsed.data.outcome,
+    impact_score: parsed.data.impact_score ?? 0,
+    human_notes: parsed.data.human_notes ?? '',
   });
 
   return NextResponse.json({ success: true, data: result });
