@@ -35,6 +35,14 @@ export interface PlaceRealtime {
   updatedAt: string | null;
 }
 
+export interface VolcanoAccStatus {
+  colorCode: string;            // green | yellow | orange | red
+  ashHeightM: number | null;
+  summary: string | null;
+  sourceUrl: string | null;
+  observedAt: string | null;
+}
+
 export interface PlaceRoute {
   id: string;
   title: string;
@@ -111,6 +119,7 @@ export interface PlaceData {
   indigenous: PlaceIndigenous | null;
   safety: PlaceSafety;
   realtime: PlaceRealtime | null;
+  volcanoStatus: VolcanoAccStatus | null;
   routes: PlaceRoute[];
   tours: PlaceTour[];
   reviews: PlaceReview[];

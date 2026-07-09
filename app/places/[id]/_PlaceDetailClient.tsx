@@ -10,6 +10,7 @@ import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
 const PlaceRealtimeStatus   = dynamic(() => import('@/components/places/PlaceRealtimeStatus'),   { ssr: false });
+const VolcanoAccBadge       = dynamic(() => import('@/components/places/VolcanoAccBadge'),       { ssr: false });
 const PlaceDescription      = dynamic(() => import('@/components/places/PlaceDescription'),      { ssr: false });
 const PlaceCharacteristics  = dynamic(() => import('@/components/places/PlaceCharacteristics'),  { ssr: false });
 const PlaceSafety           = dynamic(() => import('@/components/places/PlaceSafety'),           { ssr: false });
@@ -200,6 +201,9 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           />
         </div>
       )}
+
+      {/* 1b. Авиационный цветовой код вулкана (KVERT) */}
+      {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
 
       {/* 2. Realtime alert — sticky on danger */}
       {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
