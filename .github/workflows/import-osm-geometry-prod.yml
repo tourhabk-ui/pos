@@ -1,0 +1,107 @@
+name: Data — OSM Geometry via prod (обход файрвола БД Timeweb)
+
+# Прогон импорта GPS-треков из OSM через прод-эндпоинт /api/cron/osm-import.
+#
+# Почему через прод: три прогона import-osm-geometry.yml с GitHub-раннера
+# упали по connection timeout — файрвол managed PostgreSQL Timeweb не пускает
+# внешние IP. Прод-сервер видит БД нативно, поэтому раннер лишь дёргает
+# эндпоинт партиями (паттерн cron-kvert-acc.yml).
+#
+# Два способа запуска:
+#   1. workflow_dispatch — кнопка Run workflow (входы dry_run/batch_limit).
+#   2. push в main, меняющий .github/triggers/osm-import-prod.json — параметры
+#      из этого файла (у Claude-интеграции нет actions:write, а мерж PR есть).
+#
+# Логика цикла:
+#   - Сначала ждём деплой: probe без авторизации — 401 значит эндпоинт
+#     задеплоен, 404 значит крутится старый билд (Timeweb собирает ~10 мин).
+#   - dry_run=true — одна партия и выход (проверка достижимости Overpass с прода).
+#   - dry_run=false — партии до remaining=0 или processed=0. offset двигается
+#     на (processed - imported): маршруты без трека в OSM (skipped/error)
+#     остаются с geometry IS NULL и без сдвига зациклили бы перебор.
+#
+# Требует secret CRON_SECRET (тот же, что у остальных крон-джобов).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (одна партия, без записи в БД)'
+        required: false
+        default: true
+        type: boolean
+      batch_limit:
+        description: 'Маршрутов на партию (1-10)'
+        required: false
+        default: '8'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/osm-import-prod.json'
+
+jobs:
+  import-osm-via-prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run import through prod endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRY=$(jq -r '.dry_run' .github/triggers/osm-import-prod.json)
+            LIMIT=$(jq -r '.batch_limit' .github/triggers/osm-import-prod.json)
+          else
+            DRY="${{ github.event.inputs.dry_run }}"
+            LIMIT="${{ github.event.inputs.batch_limit }}"
+          fi
+          echo "event=${{ github.event_name }} dry_run=$DRY batch_limit=$LIMIT"
+
+          BASE="https://vedarai.ru/api/cron/osm-import"
+
+          # Ждём, пока задеплоится эндпоинт: без авторизации новый билд отвечает
+          # 401, старый — 404. До 30 минут (Docker-сборка Timeweb ~10 мин).
+          READY=""
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE" || echo 000)
+            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+
+          TOTAL_IMPORTED=0; TOTAL_SKIPPED=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
+          for i in $(seq 1 80); do
+            RESP=$(curl -s --max-time 110 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$BASE?limit=$LIMIT&dry_run=$DRY&offset=$OFFSET" || echo '')
+            if ! echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
+              echo "партия $i упала: $RESP"
+              exit 1
+            fi
+            echo "партия $i: $(echo "$RESP" | jq -c '{offset,imported,skipped,errors,processed,routes_without_geometry}')"
+            echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .pts then " (\(.pts) точек)" else "" end)"'
+
+            IMP=$(echo "$RESP" | jq -r '.imported')
+            SKIP=$(echo "$RESP" | jq -r '.skipped')
+            ERRS=$(echo "$RESP" | jq -r '.errors')
+            PROC=$(echo "$RESP" | jq -r '.processed')
+            REMAIN=$(echo "$RESP" | jq -r '.routes_without_geometry')
+            TOTAL_IMPORTED=$((TOTAL_IMPORTED + IMP))
+            TOTAL_SKIPPED=$((TOTAL_SKIPPED + SKIP))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + ERRS))
+
+            if [ "$DRY" = "true" ]; then echo "dry-run: одна партия, выходим"; break; fi
+            if [ "$PROC" = "0" ] || [ "$REMAIN" = "0" ]; then break; fi
+            OFFSET=$((OFFSET + PROC - IMP))
+            sleep 5
+          done
+
+          echo "=================================================="
+          echo "ИТОГО: imported=$TOTAL_IMPORTED skipped=$TOTAL_SKIPPED errors=$TOTAL_ERRORS remaining_without_geometry=$REMAIN dry_run=$DRY"
