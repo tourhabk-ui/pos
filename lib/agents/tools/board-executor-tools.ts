@@ -289,6 +289,97 @@ export function scanSQLErrors(): { file: string; issues: string[] }[] {
   return report;
 }
 
+// ── Scope прав инструментов по агентствам (issue #327) ──────────────────────
+//
+// 73% AI-агентов имеют избыточные права. Явный whitelist «агентство → какими
+// инструментами можно пользоваться» блокирует нежелательные действия (напр.
+// rescue-agency не пишет схему БД и не патчит чужие файлы). Принцип наименьших
+// привилегий: диагностика + алерт — почти всем; запись (fix/schema) — только
+// admin/evolution/quality.
+
+export const BOARD_TOOLS = [
+  'fixSQLColumnErrors',
+  'runDiagnosticQuery',
+  'applySchemaFix',
+  'sendBoardAlert',
+  'scanSQLErrors',
+] as const;
+
+export type BoardToolName = (typeof BOARD_TOOLS)[number];
+
+// Только чтение/диагностика + право сообщить администратору.
+const READONLY_SCOPE: BoardToolName[] = ['runDiagnosticQuery', 'scanSQLErrors', 'sendBoardAlert'];
+
+export const AGENCY_TOOL_SCOPE: Record<string, BoardToolName[]> = {
+  // Полный доступ — только инфраструктурные агентства.
+  'admin-agency': [...BOARD_TOOLS],
+  'evolution-agency': [...BOARD_TOOLS],
+  // Может чинить SQL в файлах и диагностировать, но не менять схему БД.
+  'quality-agency': ['fixSQLColumnErrors', 'runDiagnosticQuery', 'scanSQLErrors', 'sendBoardAlert'],
+  // Безопасность/аудит: сканирование + диагностика, без записи.
+  'security-agency': ['scanSQLErrors', 'runDiagnosticQuery', 'sendBoardAlert'],
+  'hacker-agency': ['scanSQLErrors', 'runDiagnosticQuery'],
+  'content-auditor-agency': ['scanSQLErrors', 'runDiagnosticQuery', 'sendBoardAlert'],
+  // Доменные агентства — только чтение + алерт (rescue не пишет в БД/файлы).
+  'rescue-agency': READONLY_SCOPE,
+  'guide-agency': READONLY_SCOPE,
+  'transfer-agency': READONLY_SCOPE,
+  'lead-agency': READONLY_SCOPE,
+  'marketing-agency': READONLY_SCOPE,
+  'tourist-agency': READONLY_SCOPE,
+  'eco-agency': READONLY_SCOPE,
+  'legal-agency': READONLY_SCOPE,
+  'operator-agency': READONLY_SCOPE,
+  'planning-agency': READONLY_SCOPE,
+};
+
+/** true, если агентству разрешён инструмент. Неизвестное агентство → запрет. */
+export function isToolInScope(agency: string, tool: string): boolean {
+  const scope = AGENCY_TOOL_SCOPE[agency];
+  if (!scope) return false;
+  return (scope as readonly string[]).includes(tool);
+}
+
+/**
+ * Единая точка исполнения board-инструмента с проверкой scope. Инструмент вне
+ * scope агентства отклоняется с SCOPE_DENIED и логируется — побочный эффект не
+ * выполняется (guard стоит до вызова инструмента).
+ */
+export async function executeBoardTool(
+  agency: string,
+  tool: BoardToolName,
+  args: unknown[] = [],
+): Promise<ToolResult> {
+  if (!isToolInScope(agency, tool)) {
+    // Лог не блокирует ответ (и не роняет отказ, если БД недоступна).
+    void logToolAction('scope_denied', { agency, tool });
+    return {
+      success: false,
+      message: `SCOPE_DENIED: агентство "${agency}" не имеет доступа к инструменту "${tool}"`,
+      details: { code: 'SCOPE_DENIED', agency, tool },
+    };
+  }
+
+  switch (tool) {
+    case 'fixSQLColumnErrors':
+      return fixSQLColumnErrors(args[0] as string | undefined);
+    case 'runDiagnosticQuery':
+      return runDiagnosticQuery(args[0] as string, args[1] as string | undefined);
+    case 'applySchemaFix':
+      return applySchemaFix(args[0] as string, args[1] as string);
+    case 'sendBoardAlert':
+      return sendBoardAlert(args[0] as string, args[1] as string, args[2] as string);
+    case 'scanSQLErrors': {
+      const report = scanSQLErrors();
+      return { success: true, message: `Просканировано, файлов с ошибками: ${report.length}`, details: { report } };
+    }
+    default: {
+      const exhaustive: never = tool;
+      return { success: false, message: `Неизвестный инструмент: ${String(exhaustive)}` };
+    }
+  }
+}
+
 // ── Внутреннее логирование ────────────────────────────────────────────────────
 
 async function logToolAction(
