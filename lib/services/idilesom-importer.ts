@@ -113,9 +113,19 @@ function nameSimilarity(a: string, b: string): boolean {
 }
 
 // ── Fetch all place IDs via AJAX pagination ───────────────────────────────────
+//
+// Ошибки листинга НЕ глотаются: раньше недоступный сайт (бот-защита, 403,
+// таймаут) выглядел как «0 страниц, 0 ошибок» — тихий сбой, который владелец
+// принимал за пустой источник. Теперь причины возвращаются в отчёт.
 
-async function fetchAllIds(maxPages = 50): Promise<string[]> {
+export interface IdilesomListing {
+  ids: string[];
+  listingErrors: string[];
+}
+
+export async function fetchAllIds(maxPages = 50): Promise<IdilesomListing> {
   const all = new Set<string>();
+  const listingErrors: string[] = [];
 
   // First page (plain HTML)
   try {
@@ -126,10 +136,19 @@ async function fetchAllIds(maxPages = 50): Promise<string[]> {
     if (res.ok) {
       const html = await res.text();
       for (const m of html.matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
+      if (all.size === 0) {
+        listingErrors.push('Страница листинга загрузилась (HTTP 200), но ссылок /kam/places/N в ней нет — вёрстка изменилась?');
+      }
+    } else {
+      listingErrors.push(`Страница листинга: HTTP ${res.status} — возможно, включена бот-защита`);
     }
-  } catch { /* network hiccup */ }
+  } catch (err) {
+    listingErrors.push(`Страница листинга: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  // AJAX pages 2…N
+  // AJAX pages 2…N — отказы считаем и репортим сводкой, не по одному
+  let ajaxFailures = 0;
+  let firstAjaxError: string | null = null;
   for (let page = 2; page <= maxPages; page++) {
     await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
     try {
@@ -137,14 +156,25 @@ async function fetchAllIds(maxPages = 50): Promise<string[]> {
         headers: { ...HEADERS, 'X-Requested-With': 'XMLHttpRequest' },
         signal: AbortSignal.timeout(15_000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        ajaxFailures++;
+        firstAjaxError ??= `HTTP ${res.status}`;
+        continue;
+      }
       const data = await res.json() as { empty?: boolean; list?: string };
       if (data.empty) break;
       for (const m of (data.list ?? '').matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
-    } catch { continue; }
+    } catch (err) {
+      ajaxFailures++;
+      firstAjaxError ??= err instanceof Error ? err.message : String(err);
+      continue;
+    }
+  }
+  if (ajaxFailures > 0) {
+    listingErrors.push(`AJAX-пагинация: ${ajaxFailures} страниц не загрузились (первая ошибка: ${firstAjaxError})`);
   }
 
-  return [...all];
+  return { ids: [...all], listingErrors };
 }
 
 // ── Scrape individual place page ──────────────────────────────────────────────
@@ -270,6 +300,8 @@ export interface IdilesomImportResult {
   errors: number;
   duration_ms: number;
   places: IdilesomPlaceResult[];
+  /** Ошибки загрузки самого листинга (бот-защита/403/таймаут) — иначе они выглядели как «0 страниц». */
+  listing_errors: string[];
 }
 
 // ── Main import function ──────────────────────────────────────────────────────
@@ -307,7 +339,7 @@ export async function importIdilesomPlaces(opts: {
   const existingNames = existing.map(r => r.name);
 
   // Fetch all IDs from idilesom
-  const allIds = await fetchAllIds(50);
+  const { ids: allIds, listingErrors } = await fetchAllIds(50);
   const ids = limit ? allIds.slice(0, limit) : allIds;
 
   // Scrape all pages in parallel chunks
@@ -447,5 +479,6 @@ export async function importIdilesomPlaces(opts: {
     errors,
     duration_ms: Date.now() - t0,
     places,
+    listing_errors: listingErrors,
   };
 }

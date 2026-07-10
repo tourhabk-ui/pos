@@ -23,6 +23,7 @@ interface ImportResult {
   errors: number;
   duration_ms: number;
   places: PlaceResult[];
+  listing_errors?: string[];
   error?: string;
 }
 
@@ -153,6 +154,17 @@ export default function IdilesomImportPage() {
               )}
               <span>Готово за {(result.duration_ms / 1000).toFixed(1)} с · обработано {result.total} страниц</span>
             </div>
+            {(result.listing_errors?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 p-3 space-y-1">
+                <div className="flex items-center gap-2 text-sm font-medium text-[var(--danger)]">
+                  <XCircle size={14} className="shrink-0" />
+                  Источник недоступен — список мест не получен
+                </div>
+                {result.listing_errors!.map((e, i) => (
+                  <div key={i} className="text-xs text-[var(--text-secondary)]">{e}</div>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {[
                 { label: 'Добавлено',       val: result.imported,  color: 'var(--success)' },
