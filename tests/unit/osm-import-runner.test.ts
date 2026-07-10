@@ -96,11 +96,44 @@ describe('runOsmGeometryImport (общий раннер admin-роута и /api
     expect(res.details[0].status).toBe('skipped');
   });
 
+  it('406 на основном Overpass — фолбэк на зеркало Kumi Systems с нашими заголовками', async () => {
+    mockDb([ROUTE]);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 406 }) // primary: etiquette-фильтр
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ elements: [NEARBY_WAY] }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await runOsmGeometryImport({ limit: 8, dryRun: true, delayMs: 0 });
+
+    expect(res.imported).toBe(1);
+    expect(res.errors).toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('overpass.kumi.systems');
+    // Оба вызова идут с идентифицирующим User-Agent — требование Overpass etiquette
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1] as RequestInit).headers).toMatchObject({ 'User-Agent': expect.stringContaining('KamchatourHub') });
+    }
+  });
+
+  it('оба эндпоинта Overpass упали — ошибка маршрута с последней причиной', async () => {
+    mockDb([ROUTE]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 406 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await runOsmGeometryImport({ limit: 8, dryRun: true, delayMs: 0 });
+
+    expect(res.imported).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0]).toContain('406');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('ошибка Overpass по одному маршруту не роняет партию — копится в errors', async () => {
     const route2 = { ...ROUTE, id: 'r2', title: 'Второй маршрут' };
     mockDb([ROUTE, route2]);
     const fetchMock = vi.fn()
-      .mockRejectedValueOnce(new Error('Overpass HTTP 429'))
+      .mockRejectedValueOnce(new Error('Overpass HTTP 429')) // маршрут 1: primary
+      .mockRejectedValueOnce(new Error('Overpass HTTP 429')) // маршрут 1: зеркало
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ elements: [NEARBY_WAY] }) });
     vi.stubGlobal('fetch', fetchMock);
 
