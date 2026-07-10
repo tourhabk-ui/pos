@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2, ClipboardList } from 'lucide-react';
+import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2, ClipboardList, Pencil, X, Save } from 'lucide-react';
 
 interface Place {
   id: string;
@@ -12,6 +12,23 @@ interface Place {
   hasPhoto: boolean;
   photoUrl: string | null;
 }
+
+interface PlaceEdit {
+  id: string;
+  name: string;
+  description: string | null;
+  lat: number | null;
+  lng: number | null;
+  locationType: string | null;
+  isVisible: boolean | null;
+  mergedIntoId: string | null;
+}
+
+const LOCATION_TYPE_OPTIONS = [
+  'volcano', 'lake', 'hot_spring', 'mountain', 'river', 'bay', 'cape', 'island',
+  'glacier', 'forest', 'beach', 'waterfall', 'rock', 'viewpoint', 'settlement',
+  'museum', 'historical', 'geyser', 'other',
+];
 
 interface DuplicatePlace {
   id: string;
@@ -115,6 +132,77 @@ export default function PlacesPhotosClient() {
     const next = !showAudit;
     setShowAudit(next);
     if (next && !auditLoaded) void fetchAudit();
+  };
+
+  // ── Полный редактор места (правка полей + удаление) ──
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editData, setEditData] = useState<PlaceEdit | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editConfirmDelete, setEditConfirmDelete] = useState(false);
+
+  const openEditor = useCallback(async (placeId: string) => {
+    setEditId(placeId);
+    setEditData(null);
+    setEditError(null);
+    setEditConfirmDelete(false);
+    setEditLoading(true);
+    try {
+      const res = await fetch(`/api/admin/places/${placeId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setEditData(await res.json() as PlaceEdit);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Не удалось загрузить место');
+    } finally {
+      setEditLoading(false);
+    }
+  }, []);
+
+  const closeEditor = () => { setEditId(null); setEditData(null); setEditError(null); };
+
+  const saveEditor = async () => {
+    if (!editData || !editId) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/admin/places/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editData.name,
+          description: editData.description,
+          lat: editData.lat,
+          lng: editData.lng,
+          locationType: editData.locationType,
+          isVisible: editData.isVisible ?? undefined,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Ошибка сохранения');
+      setPlaces((prev) => prev.map((p) => p.id === editId ? { ...p, name: editData.name, locationType: editData.locationType } : p));
+      closeEditor();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Ошибка сети');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteFromEditor = async () => {
+    if (!editId) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/admin/places/${editId}?force=true`, { method: 'DELETE' });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Ошибка удаления');
+      setPlaces((prev) => prev.filter((p) => p.id !== editId));
+      closeEditor();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Ошибка сети');
+      setEditSaving(false);
+    }
   };
 
   const fetchMergedPlaces = useCallback(async () => {
@@ -660,6 +748,14 @@ export default function PlacesPhotosClient() {
                   )}
                 </button>
 
+                <button
+                  onClick={() => openEditor(place.id)}
+                  className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                >
+                  <Pencil className="w-3.5 h-3.5" />Редактировать
+                </button>
+
                 {!place.arkId && (
                   <p className="text-[10px] text-[var(--danger)] mt-2 leading-tight">
                     У места нет ark_id — загрузка невозможна
@@ -683,6 +779,150 @@ export default function PlacesPhotosClient() {
 
       {!loading && filtered.length === 0 && (
         <p className="text-center text-[var(--text-muted)] py-12">Ничего не найдено</p>
+      )}
+
+      {/* Полный редактор места */}
+      {editId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+          onClick={closeEditor}
+        >
+          <div
+            className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border bg-[var(--bg-card)] p-5"
+            style={{ borderColor: 'var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-playfair text-xl font-bold text-[var(--text-primary)]">Редактирование места</h2>
+              <button onClick={closeEditor} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editLoading && <p className="text-sm text-[var(--text-muted)] py-6 text-center">Загрузка…</p>}
+
+            {!editLoading && editData && (
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="ds-label">Название</span>
+                  <input
+                    className="ds-input w-full"
+                    value={editData.name}
+                    onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="ds-label">Тип</span>
+                  <select
+                    className="ds-input w-full"
+                    value={editData.locationType ?? ''}
+                    onChange={(e) => setEditData({ ...editData, locationType: e.target.value || null })}
+                  >
+                    <option value="">—</option>
+                    {LOCATION_TYPE_OPTIONS.map((t) => (
+                      <option key={t} value={t}>{LOCATION_LABELS[t] ?? t}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="ds-label">Широта</span>
+                    <input
+                      type="number" step="0.0001"
+                      className="ds-input w-full"
+                      value={editData.lat ?? ''}
+                      onChange={(e) => setEditData({ ...editData, lat: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="ds-label">Долгота</span>
+                    <input
+                      type="number" step="0.0001"
+                      className="ds-input w-full"
+                      value={editData.lng ?? ''}
+                      onChange={(e) => setEditData({ ...editData, lng: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="ds-label">Описание</span>
+                  <textarea
+                    className="ds-input w-full min-h-[120px]"
+                    value={editData.description ?? ''}
+                    onChange={(e) => setEditData({ ...editData, description: e.target.value || null })}
+                  />
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editData.isVisible ?? false}
+                    onChange={(e) => setEditData({ ...editData, isVisible: e.target.checked })}
+                  />
+                  <span className="text-sm text-[var(--text-primary)]">Видимо на сайте (is_visible)</span>
+                </label>
+
+                {editData.mergedIntoId && (
+                  <p className="text-[11px] text-[var(--warning)]">
+                    Это место помечено как дубль (merged_into_id) — оно скрыто из публички.
+                  </p>
+                )}
+
+                {editError && (
+                  <p className="text-sm text-[var(--danger)] flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" />{editError}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  <button
+                    onClick={saveEditor}
+                    disabled={editSaving}
+                    className="ds-btn ds-btn-primary flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {editSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Сохранить
+                  </button>
+
+                  {!editConfirmDelete ? (
+                    <button
+                      onClick={() => setEditConfirmDelete(true)}
+                      disabled={editSaving}
+                      className="ds-btn ds-btn-danger flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" />Удалить
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--text-secondary)]">Точно удалить?</span>
+                      <button
+                        onClick={deleteFromEditor}
+                        disabled={editSaving}
+                        className="ds-btn ds-btn-danger text-xs px-3 py-1.5 disabled:opacity-50"
+                      >
+                        {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Да, удалить'}
+                      </button>
+                      <button
+                        onClick={() => setEditConfirmDelete(false)}
+                        disabled={editSaving}
+                        className="ds-btn ds-btn-secondary text-xs px-3 py-1.5 disabled:opacity-50"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!editLoading && !editData && editError && (
+              <p className="text-sm text-[var(--danger)] py-4">{editError}</p>
+            )}
+          </div>
+        </div>
       )}
     </main>
   );
