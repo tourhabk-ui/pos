@@ -59,16 +59,35 @@ export default function IdilesomImportPage() {
       const lim = parseInt(limitStr, 10);
       if (lim > 0) body.limit = lim;
 
-      const res = await fetch('/api/admin/import/idilesom-places', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      // 110с таймаут: reverse-proxy рвёт долгий запрос раньше и браузер
+      // отдаёт невнятное «Failed to fetch». Явный AbortController даёт
+      // понятное сообщение и подсказку (уменьшить лимит / полный прогон
+      // делать batched-воркфлоу, а не одним браузерным запросом).
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 110_000);
+      let res: Response;
+      try {
+        res = await fetch('/api/admin/import/idilesom-places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       const data: ImportResult = await res.json();
       if (!data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setResult(data);
     } catch (e) {
-      setError((e as Error).message);
+      const err = e as Error;
+      setError(
+        err.name === 'AbortError'
+          ? 'Импорт не уложился в 110с и оборван. Для полного прогона (~480 мест) синхронный запрос не годится — уменьшите «Лимит мест» (напр. 10–20) или запросите batched-воркфлоу.'
+          : err.message === 'Failed to fetch'
+            ? 'Соединение оборвано (таймаут прокси на долгом импорте). Уменьшите «Лимит мест» или используйте batched-воркфлоу для полного прогона.'
+            : err.message,
+      );
     } finally {
       setRunning(false);
     }

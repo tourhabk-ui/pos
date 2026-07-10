@@ -162,7 +162,7 @@ export interface IdilesomListing {
   listingErrors: string[];
 }
 
-export async function fetchAllIds(maxPages = 50): Promise<IdilesomListing> {
+export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<IdilesomListing> {
   const all = new Set<string>();
   const listingErrors: string[] = [];
 
@@ -180,10 +180,14 @@ export async function fetchAllIds(maxPages = 50): Promise<IdilesomListing> {
   // AJAX pages 2…N — отказы считаем и репортим сводкой, не по одному.
   // Через BrightData ответ может прийти полной HTML-страницей (без флага
   // empty), поэтому дополнительный стоп: две страницы подряд без новых id.
+  // targetIds: при лимите импорта не тянем все 50 страниц (через BrightData
+  // это минуты и деньги) — останавливаемся, как только id хватает. Иначе
+  // даже limit=10 упирался в полный обход листинга и рвал запрос по таймауту.
   let ajaxFailures = 0;
   let firstAjaxError: string | null = null;
   let pagesWithoutNewIds = 0;
   for (let page = 2; page <= maxPages; page++) {
+    if (all.size >= targetIds) break;
     await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
     const res = await fetchTextWithFallback(`https://idilesom.com/kam/places?district=0&page=${page}`, true);
     if (res.text === null) {
@@ -369,8 +373,11 @@ export async function importIdilesomPlaces(opts: {
   // Names for name-similarity dedup (layer 3)
   const existingNames = existing.map(r => r.name);
 
-  // Fetch all IDs from idilesom
-  const { ids: allIds, listingErrors } = await fetchAllIds(50);
+  // Fetch IDs from idilesom. При лимите не тянем все 50 страниц листинга
+  // (через BrightData это минуты и деньги, плюс браузерный запрос рвётся по
+  // таймауту) — берём с запасом ×3 на отсев дублей/статей.
+  const targetIds = limit ? limit * 3 : Infinity;
+  const { ids: allIds, listingErrors } = await fetchAllIds(50, targetIds);
   const ids = limit ? allIds.slice(0, limit) : allIds;
 
   // Scrape all pages in parallel chunks
