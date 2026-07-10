@@ -61,33 +61,49 @@ async function main() {
 
     let ok = 0, skipped = 0, errors = 0;
 
-    for (const file of files) {
-      if (appliedSet.has(file)) { skipped++; continue; }
+    // ВАЖНО: один выделенный клиент на весь цикл. Раньше использовался
+    // pool.query() — и если транзакционная миграция (с BEGIN/COMMIT) падала
+    // на середине, соединение оставалось в состоянии «прерванной транзакции»
+    // (aborted transaction). Пул мог отдать это же соединение следующей
+    // миграции, и та падала с `current transaction is aborted, commands
+    // ignored until end of transaction block` — даже если сама по себе была
+    // корректной. Так одна упавшая миграция отравляла все последующие.
+    // Теперь после КАЖДОЙ ошибки делаем ROLLBACK на этом же клиенте, очищая
+    // состояние транзакции перед следующей миграцией.
+    const client = await pool.connect();
+    try {
+      for (const file of files) {
+        if (appliedSet.has(file)) { skipped++; continue; }
 
-      const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
+        const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
 
-      try {
-        if (isNonTransactional(sql)) {
-          for (const stmt of sql.split(';').map(s => s.trim()).filter(Boolean)) {
-            try { await pool.query(stmt + ';'); } catch (e) {
-              if (!isAlreadyExistsError(e.message)) throw e;
+        try {
+          if (isNonTransactional(sql)) {
+            for (const stmt of sql.split(';').map(s => s.trim()).filter(Boolean)) {
+              try { await client.query(stmt + ';'); } catch (e) {
+                if (!isAlreadyExistsError(e.message)) throw e;
+              }
             }
+          } else {
+            await client.query(sql);
           }
-        } else {
-          await pool.query(sql);
-        }
-        await pool.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]);
-        console.log(`[migrate] ✓ ${file}`);
-        ok++;
-      } catch (e) {
-        if (isAlreadyExistsError(e.message)) {
-          await pool.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]);
-          skipped++;
-        } else {
-          console.error(`[migrate] ✗ ${file}: ${e.message}`);
-          errors++;
+          await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]);
+          console.log(`[migrate] ✓ ${file}`);
+          ok++;
+        } catch (e) {
+          // Снять возможную прерванную транзакцию, чтобы не отравить следующие.
+          await client.query('ROLLBACK').catch(() => {});
+          if (isAlreadyExistsError(e.message)) {
+            await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]).catch(() => {});
+            skipped++;
+          } else {
+            console.error(`[migrate] ✗ ${file}: ${e.message}`);
+            errors++;
+          }
         }
       }
+    } finally {
+      client.release();
     }
 
     console.log(`[migrate] done: ${ok} applied, ${skipped} skipped, ${errors} errors`);
