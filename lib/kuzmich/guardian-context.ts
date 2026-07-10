@@ -77,6 +77,46 @@ function normalizeForMatch(s: string): string {
   return s.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Паттерны попыток перехвата инструкций модели (issue #328). Пользовательский
+// ввод (напр. название места) эхом уходит в контекст для callAIFast/
+// callAIWaterfall — маркеры ролей и «забудь инструкции» надо обезвредить ДО
+// формирования промпта. Держим RU и EN формы.
+const INJECTION_PATTERN_SOURCES: string[] = [
+  'ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions?',
+  'disregard\\s+(the\\s+)?(above|previous|prior)',
+  'you\\s+are\\s+now\\b',
+  'act\\s+as\\s+(an?\\s+)?(system|admin|developer)',
+  '</?(system|assistant|user|developer)>',
+  '(^|\\s)(system|assistant|developer)\\s*:',
+  'забудь\\s+(все\\s+)?(предыдущие|прошлые|прежние)\\s+(инструкции|указания|команды)',
+  'игнорируй\\s+(все\\s+)?(предыдущие|прошлые|выше)',
+  'ты\\s+теперь\\b',
+  'веди\\s+себя\\s+как\\s+(система|админ|разработчик)',
+];
+
+const MAX_PROMPT_INPUT_LEN = 200;
+
+/**
+ * Обезвреживает пользовательский ввод перед подстановкой в промпт модели:
+ * вырезает маркеры ролей и попытки «забудь инструкции», схлопывает пробелы и
+ * обрезает по длине. Возвращает очищенный текст и флаг injectionSuspected для
+ * логирования. НЕ трогает обычные туристические запросы (в них паттернов нет).
+ */
+export function sanitizePromptInput(raw: string): { text: string; injectionSuspected: boolean } {
+  let text = (typeof raw === 'string' ? raw : '').slice(0, MAX_PROMPT_INPUT_LEN * 4);
+  let injectionSuspected = false;
+
+  for (const src of INJECTION_PATTERN_SOURCES) {
+    if (new RegExp(src, 'i').test(text)) {
+      injectionSuspected = true;
+      text = text.replace(new RegExp(src, 'gi'), ' ');
+    }
+  }
+
+  text = text.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_INPUT_LEN);
+  return { text, injectionSuspected };
+}
+
 /**
  * CRAG-lite relevance grading (Roitman §16.5.5): ILIKE '%query%' can bind the
  * wrong place — "ORDER BY char_length ASC" prefers the shortest name
@@ -102,7 +142,12 @@ export function gradeNameMatch(query: string, candidate: string): 'high' | 'low'
   return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
 }
 
-export async function getGuardianContext(placeName: string): Promise<string> {
+export async function getGuardianContext(placeNameRaw: string): Promise<string> {
+  // Обезвреживаем ввод до подстановки в промпт (issue #328). Название места
+  // и так уходит эхом в hedge-строки контекста для callAIFast/callAIWaterfall.
+  // Флаг injectionSuspected доступен через sanitizePromptInput для логирования
+  // на уровне вызывающего кода; здесь просто не пропускаем маркеры в промпт.
+  const { text: placeName } = sanitizePromptInput(placeNameRaw);
   if (!placeName.trim()) return '';
 
   const [placesRes, alertsRes, knowledgeRes] = await Promise.all([
