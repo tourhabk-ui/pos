@@ -80,7 +80,8 @@ jobs:
             fi
             FAILS=0
             echo "партия $i: $(echo "$RESP" | jq -c '{processed,enriched,fields_written,errors,routes_pending}')"
-            echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .fields then " → \(.fields | join(\", \"))" else "" end)"'
+            echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)"'
+            echo "$RESP" | jq -r '.details[] | select(.fields) | "     поля: \(.fields | join(","))"'
             echo "$RESP" | jq -r '.error_details[]? | "  ! \(.)"'
 
             ENR=$(echo "$RESP" | jq -r '.enriched')
