@@ -1,0 +1,75 @@
+name: Data — OCR паспортов через OpenDataLoader (бесплатный локальный)
+
+# Бесплатная замена платному Mistral OCR: OpenDataLoader PDF (Apache-2.0,
+# Java-ядро + Node SDK) прогоняет паспорты маршрутов ЛОКАЛЬНО на раннере.
+# Прод отдаёт PDF в base64 (РФ-IP, visitkamchatka доступен) и принимает
+# готовый markdown — так Java не попадает в прод (лимит Docker 50 МБ, §6.1),
+# а запись обходит файрвол БД (раннер не ходит в PG напрямую).
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий
+# .github/triggers/ocr-opendataloader.json (нет actions:write у интеграции).
+#
+# Требует secret CRON_SECRET. Java 11+ и Node 20+ — из setup-*.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (OCR без записи в БД)'
+        required: false
+        default: true
+        type: boolean
+      batch_limit:
+        description: 'Паспортов на партию (1-5)'
+        required: false
+        default: '3'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/ocr-opendataloader.json'
+
+jobs:
+  ocr-opendataloader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install OpenDataLoader
+        run: npm init -y --scope=tmp >/dev/null 2>&1 || true; npm install @opendataloader/pdf --no-audit --no-fund
+
+      - name: Run OCR via OpenDataLoader
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          OCR_BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRY=$(jq -r '.dry_run' .github/triggers/ocr-opendataloader.json)
+            LIMIT=$(jq -r '.batch_limit' .github/triggers/ocr-opendataloader.json)
+          else
+            DRY="${{ github.event.inputs.dry_run }}"
+            LIMIT="${{ github.event.inputs.batch_limit }}"
+          fi
+          echo "event=${{ github.event_name }} dry_run=$DRY batch_limit=$LIMIT java=$(java -version 2>&1 | head -1)"
+
+          # Ждём деплой прод-эндпоинтов: без ключа новый билд отвечает 401.
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$OCR_BASE/api/cron/ocr-passports-pending" || echo 000)
+            if [ "$CODE" = "401" ]; then echo "endpoint deployed"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"; sleep 60
+          done
+
+          DRY_RUN="$DRY" BATCH_LIMIT="$LIMIT" node scripts/ocr-opendataloader.mjs
