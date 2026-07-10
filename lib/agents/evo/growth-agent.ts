@@ -266,12 +266,14 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     );
   }
 
-  // Atomic increment — safe under parallel execution with evolution-loop
+  // Atomic increment — safe under parallel execution with evolution-loop.
+  // value — JSONB (migration 151): извлекаем скаляр как текст (#>>'{}'),
+  // инкрементим и упаковываем обратно в jsonb.
   await pool.query(
-    `UPDATE evo_agent_state SET value = (value::int + 1)::text, updated_at = NOW() WHERE key = 'cycle_count'`,
+    `UPDATE evo_agent_state SET value = to_jsonb((value#>>'{}')::int + 1), updated_at = NOW() WHERE key = 'cycle_count'`,
   );
   await pool.query(
-    `UPDATE evo_agent_state SET value = $1, updated_at = NOW() WHERE key = 'last_scan_at'`,
+    `UPDATE evo_agent_state SET value = $1::jsonb, updated_at = NOW() WHERE key = 'last_scan_at'`,
     [JSON.stringify(new Date().toISOString())],
   );
 
