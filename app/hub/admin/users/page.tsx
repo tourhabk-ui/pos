@@ -5,7 +5,6 @@ import {
   DataTable,
   Pagination,
   SearchBar,
-  StatusBadge,
   LoadingSpinner,
   EmptyState,
   Column
@@ -35,11 +34,15 @@ export default function UsersManagement() {
       const response = await fetch(`/api/admin/users?${params}`);
       const result = await response.json();
       if (result.success) {
-        setUsers(result.data.data);
-        setTotalPages(result.data.pagination.totalPages);
+        // API отдаёт data.users (не data.data) — чтение неверного поля роняло
+        // рендер (users=undefined → users.length → error boundary).
+        setUsers(result.data?.users ?? []);
+        setTotalPages(result.data?.pagination?.totalPages ?? 1);
+      } else {
+        setUsers([]);
       }
     } catch {
-      // ignore
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -52,9 +55,12 @@ export default function UsersManagement() {
   };
 
   const formatDate = (date: Date) => {
+    const d = new Date(date);
+    // Intl.format кидает RangeError на Invalid Date — не роняем всю страницу.
+    if (Number.isNaN(d.getTime())) return '—';
     return new Intl.DateTimeFormat('ru-RU', {
       year: 'numeric', month: 'short', day: 'numeric'
-    }).format(new Date(date));
+    }).format(d);
   };
 
   const getRoleLabel = (role: string) => {
@@ -87,11 +93,8 @@ export default function UsersManagement() {
         </span>
       )
     },
-    {
-      key: 'status',
-      header: 'Статус',
-      render: (user) => <StatusBadge status={user.status === 'active' ? 'active' : 'inactive'} />
-    },
+    // Колонка «Статус» убрана: API/БД не хранят статус пользователя, бейдж
+    // показывал бы всем ложное «inactive». Вернуть при появлении поля в users.
     {
       key: 'bookingsCount',
       header: 'Броней',
