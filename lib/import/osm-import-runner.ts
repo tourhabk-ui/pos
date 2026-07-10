@@ -20,7 +20,18 @@ import {
   type OsmWay,
 } from '@/lib/import/osm-geometry';
 
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// Основной инстанс + зеркало. Primary с 2025-го отвечает 406 запросам без
+// осмысленного User-Agent (generic-клиенты режутся etiquette-фильтром), поэтому
+// шлём идентифицирующие заголовки; при не-2xx пробуем зеркало Kumi Systems.
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+const OSM_HEADERS = {
+  'Content-Type': 'application/x-www-form-urlencoded',
+  'Accept': 'application/json',
+  'User-Agent': 'KamchatourHub-OSM-Import/1.0 (+https://tourhab.ru)',
+};
 const DEFAULT_DELAY_MS = 1300; // пауза между запросами — щадим rate-limit Overpass
 
 export interface OsmImportParams {
@@ -49,15 +60,28 @@ export interface OsmImportResult {
 }
 
 async function fetchOsmWays(lat: number, lng: number): Promise<OsmWay[]> {
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(buildOverpassQuery(lat, lng))}`,
-    signal: AbortSignal.timeout(30_000),
-  });
+  const body = `data=${encodeURIComponent(buildOverpassQuery(lat, lng))}`;
+  let lastError: Error = new Error('Overpass: нет доступных эндпоинтов');
 
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  return parseOverpassWays(await res.json());
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: OSM_HEADERS,
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        lastError = new Error(`Overpass HTTP ${res.status} (${new URL(endpoint).host})`);
+        continue;
+      }
+      return parseOverpassWays(await res.json());
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastError;
 }
 
 export async function runOsmGeometryImport(params: OsmImportParams): Promise<OsmImportResult> {
