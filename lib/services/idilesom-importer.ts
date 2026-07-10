@@ -17,6 +17,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
@@ -112,6 +113,44 @@ function nameSimilarity(a: string, b: string): boolean {
   return overlap >= 2 || (wordsA.length === 1 && wordsB.size === 1 && wordsB.has(wordsA[0]));
 }
 
+// ── Fetch с фоллбэком на BrightData Web Unlocker ─────────────────────────────
+//
+// idilesom.com включил бот-защиту (прямые запросы получают 403 и с прода, и
+// с внешних фетчеров). Паттерн ровно как у импорта паспортов visitkamchatka:
+// прямой fetch → при отказе BrightData Web Unlocker (BRIGHTDATA_API_TOKEN,
+// lib/scraping/brightdata.ts). Без токена фоллбэк недоступен — это честно
+// попадает в listingErrors.
+
+type FetchedText = { text: string } | { text: null; error: string };
+
+async function fetchTextWithFallback(url: string, ajax = false): Promise<FetchedText> {
+  let directError: string;
+  try {
+    const res = await fetch(url, {
+      headers: ajax ? { ...HEADERS, 'X-Requested-With': 'XMLHttpRequest' } : HEADERS,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return { text: await res.text() };
+    directError = `HTTP ${res.status}`;
+  } catch (err) {
+    directError = err instanceof Error ? err.message : String(err);
+  }
+
+  const viaBd = await fetchViaBrightData(url);
+  if (viaBd) return { text: viaBd };
+
+  const bdNote = process.env.BRIGHTDATA_API_TOKEN
+    ? 'BrightData-фоллбэк тоже не пробился'
+    : 'BRIGHTDATA_API_TOKEN не задан — фоллбэк Web Unlocker недоступен';
+  return { text: null, error: `${directError} (${bdNote})` };
+}
+
+/** Ссылки /kam/places/N из HTML или JSON-тела (в JSON слэши экранированы как \/). */
+function extractPlaceIds(body: string): string[] {
+  const normalized = body.replace(/\\\//g, '/');
+  return [...normalized.matchAll(/\/kam\/places\/(\d+)/g)].map((m) => m[1]);
+}
+
 // ── Fetch all place IDs via AJAX pagination ───────────────────────────────────
 //
 // Ошибки листинга НЕ глотаются: раньше недоступный сайт (бот-защита, 403,
@@ -128,46 +167,41 @@ export async function fetchAllIds(maxPages = 50): Promise<IdilesomListing> {
   const listingErrors: string[] = [];
 
   // First page (plain HTML)
-  try {
-    const res = await fetch('https://idilesom.com/kam/places?district=0', {
-      headers: HEADERS,
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (res.ok) {
-      const html = await res.text();
-      for (const m of html.matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
-      if (all.size === 0) {
-        listingErrors.push('Страница листинга загрузилась (HTTP 200), но ссылок /kam/places/N в ней нет — вёрстка изменилась?');
-      }
-    } else {
-      listingErrors.push(`Страница листинга: HTTP ${res.status} — возможно, включена бот-защита`);
+  const first = await fetchTextWithFallback('https://idilesom.com/kam/places?district=0');
+  if (first.text !== null) {
+    for (const id of extractPlaceIds(first.text)) all.add(id);
+    if (all.size === 0) {
+      listingErrors.push('Страница листинга загрузилась, но ссылок /kam/places/N в ней нет — вёрстка изменилась?');
     }
-  } catch (err) {
-    listingErrors.push(`Страница листинга: ${err instanceof Error ? err.message : String(err)}`);
+  } else {
+    listingErrors.push(`Страница листинга: ${first.error}`);
   }
 
-  // AJAX pages 2…N — отказы считаем и репортим сводкой, не по одному
+  // AJAX pages 2…N — отказы считаем и репортим сводкой, не по одному.
+  // Через BrightData ответ может прийти полной HTML-страницей (без флага
+  // empty), поэтому дополнительный стоп: две страницы подряд без новых id.
   let ajaxFailures = 0;
   let firstAjaxError: string | null = null;
+  let pagesWithoutNewIds = 0;
   for (let page = 2; page <= maxPages; page++) {
     await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
-    try {
-      const res = await fetch(`https://idilesom.com/kam/places?district=0&page=${page}`, {
-        headers: { ...HEADERS, 'X-Requested-With': 'XMLHttpRequest' },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) {
-        ajaxFailures++;
-        firstAjaxError ??= `HTTP ${res.status}`;
-        continue;
-      }
-      const data = await res.json() as { empty?: boolean; list?: string };
-      if (data.empty) break;
-      for (const m of (data.list ?? '').matchAll(/\/kam\/places\/(\d+)/g)) all.add(m[1]);
-    } catch (err) {
+    const res = await fetchTextWithFallback(`https://idilesom.com/kam/places?district=0&page=${page}`, true);
+    if (res.text === null) {
       ajaxFailures++;
-      firstAjaxError ??= err instanceof Error ? err.message : String(err);
+      firstAjaxError ??= res.error;
       continue;
+    }
+    try {
+      const data = JSON.parse(res.text) as { empty?: boolean };
+      if (data.empty) break;
+    } catch { /* не-JSON (HTML через BrightData) — парсим ссылки как есть */ }
+    const before = all.size;
+    for (const id of extractPlaceIds(res.text)) all.add(id);
+    if (all.size === before) {
+      pagesWithoutNewIds++;
+      if (pagesWithoutNewIds >= 2) break;
+    } else {
+      pagesWithoutNewIds = 0;
     }
   }
   if (ajaxFailures > 0) {
@@ -192,12 +226,9 @@ interface ScrapedPlace {
 
 async function scrapePage(id: string): Promise<ScrapedPlace | null> {
   try {
-    const res = await fetch(`https://idilesom.com/kam/places/${id}`, {
-      headers: HEADERS,
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
+    const fetched = await fetchTextWithFallback(`https://idilesom.com/kam/places/${id}`);
+    if (fetched.text === null) return null;
+    const html = fetched.text;
 
     // Title
     const ogTitle = html.match(/property="og:title"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
