@@ -22,7 +22,7 @@
 | Frontend | Next.js 15 App Router, TypeScript strict, Tailwind CSS |
 | База данных | PostgreSQL — прямой SQL, без ORM |
 | Аутентификация | JWT, role-based middleware |
-| AI | Waterfall: 11 провайдеров — OpenRouter · DeepSeek · Gemini · MiMo · GLM · NVIDIA · xAI · YandexGPT · MiniMax · MuseSpark · Anthropic |
+| AI | Waterfall: 14 провайдеров — OpenRouter · DeepSeek · Gemini · MiMo · GLM · NVIDIA · Groq · Cerebras · Mistral · xAI · YandexGPT · MiniMax · MuseSpark · Anthropic. Плюс Mistral OCR (паспорта маршрутов) |
 | PWA | Service Worker, Web Push (VAPID), Background Sync, IndexedDB |
 | Меш | WebRTC P2P (VolcanoMesh) — SOS-ретрансляция между устройствами группы |
 | Деплой | Timeweb Cloud — автодеплой при пуше в `main` |
@@ -34,10 +34,10 @@
 
 | | |
 |--|--|
-| Страниц | 178 |
-| API routes | 551 |
-| UI компонентов | 197 |
-| SQL миграций | 207 |
+| Страниц | 201 |
+| API routes | 584 |
+| UI компонентов | 215 |
+| SQL миграций | 232 |
 | Мест (places) | 779 |
 | Маршрутов | 294 |
 | Туров | 20 |
@@ -113,11 +113,12 @@ operator_tours (20)    — коммерческий продукт: цена, с
 | Туристы | `/hub/tourist/` | tourist |
 | Операторы | `/hub/operator/` | operator |
 | Гиды | `/hub/guide/` | guide |
+| Агенты | `/hub/agent/` | agent |
+| Жильё | `/hub/stay/` | stay-партнёр |
+| Прокат снаряжения | `/hub/gear/` | gear-партнёр |
 | Безопасность | `/hub/safety` | public |
 | Трансфер | `/hub/transfer/` | transfer_operator |
-| Маркетинг | `/hub/marketing/` | marketing |
-| Партнёры | `/hub/partners/` | partner |
-| Поддержка | `/hub/support/` | support |
+| Рыбалка | `/hub/fishing/` | public |
 | Админ | `/hub/admin/` | admin |
 
 ---
@@ -160,19 +161,19 @@ Push в `main` → Timeweb видит пуш → собирает Docker → `st
 
 ---
 
-## Последние изменения (июнь 2026)
+## Последние изменения (июль 2026)
 
-- **Agentic-AI hardening** — постраничное внедрение применимого из практического руководства (arXiv:2606.24937), 11 PR: RAG-слияние через Reciprocal Rank Fusion, A/B с Wilson-интервалами + несмещённый split, token-aware контекст диалога (кириллица-корректный) + pre-flight против Silent Truncation, параллельное исполнение tool_calls с дедупом, untrusted-обёртка tool-выходов (анти-prompt-injection). Карта — `.claude/AGENTIC_AI_NOTES.md`
-- **Память агентов: эпизод→семантика** — Memory Reflector синтезирует истекающие разведсигналы в durable insight-страницы; Contradiction Scanner флагует прямые противоречия (safety) с алертом
-- **Оценка агентов** — tamper-proof оракул Editor (контракт ≥300), held-out regression-харнесс (TSR + Wilson CI) и LLM-judge качества (bias-mitigated); critic-gate отсекает плохие proposals Scout до GitHub Issue
-- **Сбор данных** — чтение отраслевых TG-каналов через MTProto и парсинг законодательства (Путешествуем.рф) → market-intelligence и контекст Кузьмича со ссылкой-источником
-- **Evo UI** — просмотр и одобрение фиксов агента эволюции в `/hub/admin/agents` (закрытая петля обратной связи)
-- **Agents Book** — полная документация всех 37+ агентов в `docs/AGENTS_BOOK.md` (расписание, env vars, шаги активации, мониторинг)
-- **Schema-drift защита** — явные колонки вместо `SELECT *` / `RETURNING *` в tourist API routes
-- **audit.mjs** — калибровка гейта: 0 ложных срабатываний, generic `SELECT *` downgraded to warning, новый critical-check на `SELECT * FROM kamchatka_routes`
-- **Channel Sync** — инфраструктура Tripster/Avito готова (`lib/channels/`), ожидает API-ключи операторов
-- **Карта** — исправлена перезагрузка каждую секунду на Android (мемоизация маркеров, GPS-троттлинг >10м)
-- **Repo Scanner** — ежедневное сканирование: 12 таблиц БД, дерево репо, 10 production-эндпоинтов → в брифинг агентов
+- **KVERT ACC вулканов** — авиационные цветовые коды (green/yellow/orange/red) синкаются из KVERT VONA каждые 6 часов с прод-сервера (KVERT отдаёт 403 не-РФ IP): бейдж на карточке вулкана + safety-контекст Кузьмича (без ложного «зелёный» при отсутствии наблюдения)
+- **Реальные GPS-треки из OSM** — импорт треков Overpass в `kamchatka_routes.geometry` через прод-эндпоинт (файрвол managed PG не пускает GitHub-раннеры); паттерн «маркер-файл → workflow → batched-цикл»
+- **Mistral OCR паспортов маршрутов** — ~100 официальных PDF-паспортов (visitkamchatka.ru) оцифровываются в markdown (`route_passport_ocr`) — сырьё для обогащения карточек: опасности, снаряжение, этапы
+- **Жильё end-to-end** — витрина `/accommodations`, бронь с выбором номера, уведомления владельцу, отмена гостем с честным возвратом по тирам (>48ч=100%, 24-48ч=50%), отзывы после проживания, модерация, фото, тарифный календарь
+- **Кузьмич знает всю платформу** — инструменты search_accommodations, search_gear, search_transfers (9 инструментов в реестре)
+- **Агентская реферальная программа** — атрибуция публичных броней по `?ref=`, конверсии, заработок по commission_rate, UI в кабинете агента
+- **МЧС-помощник туриста** — самостоятельная регистрация группы: copy-friendly данные + deep-link на forms.mchs.gov.ru (без ложного «вы зарегистрированы»)
+- **Verbalized Sampling** (arXiv:2510.01171) — разнообразие AI-текстов Editor и places-enricher без потери фактов
+- **+3 бесплатных LLM-провайдера** — Groq, Cerebras, Mistral в Tier-1 гонке (инертны без ключа); env-чек в debug-waterfall
+- **Аудит честности** — Zod на всех admin-POST, публичный /api/ai (починен мёртвый form-путь), хексы → DS-токены, честные ошибки админ-импортов вместо «0 страниц»
+- **Алерты дорог** — Халактырский пляж: перекрытие со стороны Дальнего (реконструкция) в external_alerts + карточке пляжа
 
 ---
 
