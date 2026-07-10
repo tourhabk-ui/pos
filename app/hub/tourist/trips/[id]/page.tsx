@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { TripDetailClient } from './_TripDetailClient';
 
 export const metadata: Metadata = {
-  title: 'Маршрут | TourHab',
+  title: 'Маршрут',
   robots: 'noindex, nofollow',
 };
 

@@ -4,7 +4,7 @@ import { Footer } from '@/components/layout/Footer';
 import { KuzmichHub } from '@/components/kuzmich/KuzmichHub';
 
 export const metadata: Metadata = {
-  title: 'Кузьмич Хаб — путеводитель по Камчатке | TourHab',
+  title: 'Кузьмич Хаб — путеводитель по Камчатке',
   description: 'Точка входа в экосистему Камчатки: маршруты по стихиям, погода, вулканы, AI-помощник Кузьмич.',
   robots: 'index, follow',
 };

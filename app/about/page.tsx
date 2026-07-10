@@ -7,21 +7,21 @@ import { Footer } from '@/components/layout/Footer';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'О платформе TourHab — честный проводник по Камчатке',
+  title: 'О платформе Ведар — честный проводник по Камчатке',
   description:
-    'TourHab — туристическая платформа Камчатки. Помогаем безопасно спланировать поездку: AI-помощник Кузьмич, проверенные операторы, офлайн-карта и SOS.',
+    'Ведар — туристическая платформа Камчатки. Помогаем безопасно спланировать поездку: AI-помощник Кузьмич, проверенные операторы, офлайн-карта и SOS.',
   keywords: [
-    'TourHab о нас',
+    'Ведар о нас',
     'туристическая платформа Камчатки',
     'безопасные туры Камчатка',
     'кто мы vedarai',
   ],
   alternates: { canonical: `${SITE}/about` },
   openGraph: {
-    title: 'О платформе TourHab',
+    title: 'О платформе Ведар',
     description: 'Честный проводник по Камчатке: AI, безопасность, проверенные операторы.',
     url: `${SITE}/about`,
-    siteName: 'TourHab',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },
@@ -74,7 +74,7 @@ export default function AboutPage() {
               <span className="text-[var(--accent)] italic">по Камчатке</span>
             </h1>
             <p className="text-[var(--text-secondary)] text-lg md:text-xl font-light max-w-2xl leading-relaxed">
-              TourHab — туристическая платформа Камчатки. Помогаем безопасно спланировать поездку:
+              Ведар — туристическая платформа Камчатки. Помогаем безопасно спланировать поездку:
               AI-помощник, офлайн-карта, проверенные операторы и быстрая связь с МЧС.
             </p>
           </div>

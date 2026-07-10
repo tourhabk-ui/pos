@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import { SafetyDashboardClient } from './SafetyDashboardClient';
 
 export const metadata: Metadata = {
-  title: 'Safety Dashboard | KamchatourHub',
+  title: 'Safety Dashboard',
   description: 'Real-time safety monitoring and alerts',
 };
 

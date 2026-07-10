@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Нет соединения — KamchatourHub',
+  title: 'Нет соединения',
   robots: 'noindex, nofollow',
 };
 
@@ -47,7 +47,7 @@ export default function OfflinePage() {
         </div>
 
         <p className="text-xs text-[var(--text-muted)] mt-6">
-          KamchatourHub — Камчатка в кармане
+          Ведар — Камчатка в кармане
         </p>
       </div>
     </main>

@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import OutreachClient from './_OutreachClient';
 
 export const metadata: Metadata = {
-  title: 'Аутрич-очередь | Admin | TourHab',
+  title: 'Аутрич-очередь | Admin',
   robots: 'noindex, nofollow',
 };
 

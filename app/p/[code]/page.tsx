@@ -6,7 +6,7 @@ interface Props { params: Promise<{ code: string }> }
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { code } = await params;
   return {
-    title: 'Подборка туров | Ведар',
+    title: 'Подборка туров',
     description: 'Персональная подборка туров на Камчатку.',
     robots: { index: false, follow: false },
     alternates: { canonical: `/p/${code}` },

@@ -21,11 +21,11 @@ async function fetchTrip(token: string) {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
   const trip = await fetchTrip(token);
-  if (!trip) return { title: 'Маршрут | KamchatourHub' };
+  if (!trip) return { title: 'Маршрут' };
   const dateRange = trip.arrival_date && trip.departure_date
     ? ` · ${trip.arrival_date} – ${trip.departure_date}` : '';
   return {
-    title: `${trip.title}${dateRange} | KamchatourHub`,
+    title: `${trip.title}${dateRange}`,
     description: `Маршрут по Камчатке на ${Array.isArray(trip.days) ? trip.days.length : 0} дней. Открой и создай свой!`,
     openGraph: {
       title: `${trip.title} — маршрут по Камчатке`,

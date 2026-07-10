@@ -1,5 +1,9 @@
 // Конфигурация приложения Kamchatour Hub
 
+// Публичный бренд-канон. Все siteName/OG/UI используют его.
+// KamchatourHub — только техническое/юридическое имя, TourHab — legacy, публично не используется.
+export const SITE_NAME = 'Ведар';
+
 export const config = {
   // Основные настройки
   app: {

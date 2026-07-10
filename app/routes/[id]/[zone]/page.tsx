@@ -38,7 +38,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description,
       url,
-      siteName: 'TourHab',
+      siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'website',
     },

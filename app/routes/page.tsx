@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     title: 'Места Камчатки',
     description: 'Природные места Камчатки: вулканы, гейзеры, источники, озёра, бухты.',
     url: `${SITE}/routes`,
-    siteName: 'KamchatourHub',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },

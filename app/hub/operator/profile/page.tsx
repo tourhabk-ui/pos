@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import OperatorProfileClient from './_ProfileClient';
 
 export const metadata: Metadata = {
-  title: 'Профиль компании | TourHab',
+  title: 'Профиль компании',
   robots: 'noindex, nofollow',
 };
 

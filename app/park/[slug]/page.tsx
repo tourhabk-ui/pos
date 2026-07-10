@@ -23,7 +23,7 @@ export async function generateMetadata(
   const { slug } = await params;
   const name = await getParkName(slug);
   return {
-    title: `${name} — маршруты, карты офлайн, регистрация МЧС | Ведар`,
+    title: `${name} — маршруты, карты офлайн, регистрация МЧС`,
     description: `Маршруты, офлайн-карты и регистрация в МЧС для ${name}. Скачайте карту до выхода в поле.`,
     alternates: { canonical: `/park/${slug}` },
   };

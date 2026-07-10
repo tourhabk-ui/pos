@@ -36,7 +36,7 @@ export function Footer() {
             <Link href="/" className="flex items-center gap-2.5 mb-4">
               <Image
                 src="/logo-kamchatka.svg"
-                alt="KamchatourHub"
+                alt="Ведар"
                 width={32}
                 height={32}
                 className="shrink-0"
@@ -44,9 +44,7 @@ export function Footer() {
               <span
                 className="text-base font-semibold text-[var(--text-primary)]"
                 style={{ fontFamily: 'var(--font-outfit)' }}
-              >
-                KamchatourHub
-              </span>
+              >Ведар</span>
             </Link>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed max-w-xs">
               Ведар — полевой инструмент Камчатки. Маршруты, опасности, регистрация, SOS.

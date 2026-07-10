@@ -122,7 +122,7 @@ export default function LoyaltyClient() {
     if (!displayRefCode) return;
     const url = `https://vedarai.ru/?ref=${displayRefCode}`;
     if (navigator.share) {
-      navigator.share({ title: 'KamchatourHub', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
+      navigator.share({ title: 'Ведар', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
     } else {
       copyCode();
     }

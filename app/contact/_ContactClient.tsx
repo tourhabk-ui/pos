@@ -107,7 +107,7 @@ export default function ContactClient() {
         {/* Header */}
         <div className="mb-8">
           <Link href="/" className="text-sm text-[var(--ocean)] hover:underline mb-4 inline-block">
-            ← KamchatourHub
+            ← Ведар
           </Link>
           <h1 className="text-3xl font-bold text-[var(--text-primary)] font-[var(--font-playfair)]">
             Оставить заявку

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import TouristsHelpClient from './_TouristsHelpClient';
 
 export const metadata: Metadata = {
-  title: 'Помощь туристам — TourHab Камчатка',
+  title: 'Помощь туристам ',
   description: 'Как найти тур, забронировать, оплатить и подготовиться к путешествию на Камчатку',
 };
 

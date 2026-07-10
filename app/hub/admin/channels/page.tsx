@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { ChannelsDashboardClient } from './_ChannelsDashboardClient';
 
-export const metadata: Metadata = { title: 'Каналы продаж | KamchatourHub' };
+export const metadata: Metadata = { title: 'Каналы продаж' };
 
 export const dynamic = 'force-dynamic';
 

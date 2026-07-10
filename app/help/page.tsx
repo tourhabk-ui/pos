@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { Package, Map, Users, ArrowRight, MessageSquare } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Центр помощи — TourHab Камчатка',
-  description: 'Инструкции для туристов и операторов платформы TourHab',
+  title: 'Центр помощи ',
+  description: 'Инструкции для туристов и операторов платформы Ведар',
 };
 
 export default function HelpPage() {

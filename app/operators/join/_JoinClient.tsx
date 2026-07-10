@@ -108,9 +108,7 @@ export default function JoinClient() {
           <div>
             <Link href="/" className="inline-flex items-center gap-2 mb-8">
               <Mountain className="w-6 h-6" style={{ color: 'var(--accent)' }} />
-              <span className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
-                KamchatourHub
-              </span>
+              <span className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>Ведар</span>
             </Link>
             <h1 className="text-4xl font-bold leading-tight" style={{ fontFamily: 'var(--font-playfair)', color: 'var(--text-primary)' }}>
               Разместите туры<br />
