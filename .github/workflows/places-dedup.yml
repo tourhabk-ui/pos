@@ -1,0 +1,68 @@
+name: Data — Авто-дедуп мест (схлопывание дублей)
+
+# Дёргает POST /api/cron/places-dedup: мягко сливает высоконадёжные дубли
+# places (тот же тип + близкие координаты + похожее имя), напр.
+# «Авачинская сопка» = «Авачинский вулкан». dry_run по умолчанию — сначала
+# смотрим план в логе, потом dry_run:false для боевого схлопывания.
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий
+# .github/triggers/places-dedup.json (нет actions:write у интеграции).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (план без слияния)'
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/places-dedup.json'
+
+jobs:
+  places-dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dedup places
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRY=$(jq -r '.dry_run' .github/triggers/places-dedup.json)
+          else
+            DRY="${{ github.event.inputs.dry_run }}"
+          fi
+          echo "event=${{ github.event_name }} dry_run=$DRY"
+
+          # Ждём деплой: POST-роут на GET отвечает 405 когда задеплоен, 404 если нет.
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/places-dedup" || echo 000)
+            if [ "$CODE" = "405" ] || [ "$CODE" = "401" ]; then echo "endpoint deployed (HTTP $CODE)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"; sleep 60
+          done
+
+          for batch in $(seq 1 50); do
+            RESP=$(curl -s --max-time 90 -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+              -d "{\"limit\": 20, \"dry_run\": $DRY}" \
+              "$BASE/api/cron/places-dedup")
+            echo "=== партия $batch ==="
+            echo "$RESP" | python3 -m json.tool --no-ensure-ascii 2>/dev/null || echo "$RESP"
+
+            OK=$(echo "$RESP" | jq -r '.success' 2>/dev/null || echo "false")
+            if [ "$OK" != "true" ]; then echo "endpoint error — стоп"; exit 1; fi
+
+            if [ "$DRY" = "true" ]; then echo "dry-run: один проход, стоп"; break; fi
+            MERGED=$(echo "$RESP" | jq -r '.merged_count' 2>/dev/null || echo 0)
+            if [ "$MERGED" = "0" ]; then echo "готово: слияний больше нет"; break; fi
+            sleep 2
+          done
