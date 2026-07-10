@@ -7,6 +7,16 @@
  * находит и возвращает для ручного подтверждения через POST /merge.
  *
  * Уже слитые (merged_into_id IS NOT NULL) исключены из обеих сторон пары.
+ *
+ * ВАЖНО про пустые координаты: у части мусорных мест координаты не заданы и
+ * хранятся как 0,0. Раньше расстояние между любыми двумя такими считалось 0 м,
+ * и правило «≤300 м» пейрило вообще не связанные места («Плато Антарктида» и
+ * «Маяк»). Поэтому:
+ *   - дистанция считается ТОЛЬКО для пар с реальными (не 0,0) координатами;
+ *   - «близкая» пара дополнительно требует хоть какого-то совпадения имени
+ *     (name_sim ≥ 0.2) — чтобы соседство по координатам не флагало разные
+ *     объекты в одной точке;
+ *   - ветка по имени (name_sim ≥ 0.5) работает независимо от координат.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -35,18 +45,29 @@ export async function GET(request: NextRequest) {
          p1.id AS id1, p1.name AS name1, p1.lat AS lat1, p1.lng AS lng1, p1.location_type AS type1, p1.ark_id AS ark1,
          p2.id AS id2, p2.name AS name2, p2.lat AS lat2, p2.lng AS lng2, p2.location_type AS type2, p2.ark_id AS ark2,
          similarity(p1.name, p2.name) AS name_sim,
-         6371000 * acos(LEAST(1, GREATEST(-1,
-           cos(radians(p1.lat)) * cos(radians(p2.lat)) * cos(radians(p2.lng) - radians(p1.lng)) +
-           sin(radians(p1.lat)) * sin(radians(p2.lat))
-         ))) AS dist_m
+         -- Расстояние только для пар с реальными (не 0,0) координатами; иначе NULL.
+         CASE
+           WHEN p1.lat IS NOT NULL AND p1.lng IS NOT NULL AND NOT (p1.lat = 0 AND p1.lng = 0)
+            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL AND NOT (p2.lat = 0 AND p2.lng = 0)
+           THEN 6371000 * acos(LEAST(1, GREATEST(-1,
+             cos(radians(p1.lat)) * cos(radians(p2.lat)) * cos(radians(p2.lng) - radians(p1.lng)) +
+             sin(radians(p1.lat)) * sin(radians(p2.lat))
+           )))
+           ELSE NULL
+         END AS dist_m
        FROM places p1
        JOIN places p2
          ON p2.id > p1.id
-        AND p2.lat BETWEEN p1.lat - 0.01 AND p1.lat + 0.01
-        AND p2.lng BETWEEN p1.lng - 0.02 AND p1.lng + 0.02
+        AND (
+          -- ветка близких координат: обе точки с реальными (не 0,0) координатами
+          ( p1.lat IS NOT NULL AND p1.lng IS NOT NULL AND NOT (p1.lat = 0 AND p1.lng = 0)
+            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL AND NOT (p2.lat = 0 AND p2.lng = 0)
+            AND p2.lat BETWEEN p1.lat - 0.01 AND p1.lat + 0.01
+            AND p2.lng BETWEEN p1.lng - 0.02 AND p1.lng + 0.02 )
+          -- ветка похожих имён: триграммное сходство, независимо от координат
+          OR p1.name % p2.name
+        )
        WHERE p1.merged_into_id IS NULL AND p2.merged_into_id IS NULL
-         AND p1.lat IS NOT NULL AND p1.lng IS NOT NULL
-         AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL
      )
      SELECT
        pairs.*,
@@ -59,8 +80,11 @@ export async function GET(request: NextRequest) {
      LEFT JOIN ai_route_images ari2 ON ari2.route_id = pairs.ark2
      LEFT JOIN location_safety_profile lsp1 ON lsp1.agent_route_id = pairs.ark1
      LEFT JOIN location_safety_profile lsp2 ON lsp2.agent_route_id = pairs.ark2
-     WHERE pairs.dist_m <= 300 OR pairs.name_sim >= 0.5
-     ORDER BY pairs.dist_m ASC NULLS LAST
+     -- близкая пара засчитывается только при хоть каком-то совпадении имени (≥0.2),
+     -- иначе соседство по координатам флагало бы разные объекты в одной точке.
+     WHERE (pairs.dist_m IS NOT NULL AND pairs.dist_m <= 300 AND pairs.name_sim >= 0.2)
+        OR pairs.name_sim >= 0.5
+     ORDER BY pairs.dist_m ASC NULLS LAST, pairs.name_sim DESC
      LIMIT $1`,
     [limit],
   );
