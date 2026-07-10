@@ -1,6 +1,6 @@
 {
-  "dry_run": true,
+  "dry_run": false,
   "batch_limit": 3,
   "note": "Маркер запуска ocr-passports-prod.yml: правка этого файла в main запускает OCR-прогон паспортов через прод-эндпоинт. dry_run=true — проверочная партия (PDF скачиваются, Mistral не дёргается); для боевого прогона поставить false.",
-  "run": 1
+  "run": 2
 }
