@@ -1,0 +1,5 @@
+{
+  "dry_run": true,
+  "limit": 5,
+  "note": "Правка этого файла в main запускает Data — OSM Geometry с этими параметрами (см. workflow). Боевой прогон: dry_run=false, limit=999."
+}
