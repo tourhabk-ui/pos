@@ -1,0 +1,6 @@
+{
+  "dry_run": true,
+  "limit": 12,
+  "note": "Маркер запуска places-geocode.yml: правка этого файла в main геокодит плейсхолдер-места по названию через Nominatim. dry_run=true — без записи (смотрим качество в логе). Для боевого — dry_run:false.",
+  "run": 1
+}
