@@ -125,8 +125,9 @@ async function updateEvolutionStrategy(learning: string, input: FeedbackInput): 
   const current = rows[0] ? String(rows[0].value) : '';
   const newSummary = `${current}\n• ${input.outcome}: ${learning}`.slice(-2000);
 
+  // value — JSONB (migration 151): параметр уже JSON.stringify → кастуем в jsonb.
   await pool.query(
-    `UPDATE evo_agent_state SET value = $1, updated_at = NOW() WHERE key = 'learning_summary'`,
+    `UPDATE evo_agent_state SET value = $1::jsonb, updated_at = NOW() WHERE key = 'learning_summary'`,
     [JSON.stringify(newSummary)],
   );
 

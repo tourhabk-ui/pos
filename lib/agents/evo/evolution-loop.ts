@@ -120,9 +120,10 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
     }
   }
 
-  // Atomic increment — growth-agent может делать то же самое параллельно
+  // Atomic increment — growth-agent может делать то же самое параллельно.
+  // value — JSONB (migration 151): извлекаем скаляр (#>>'{}'), +1, обратно в jsonb.
   await pool.query(
-    `UPDATE evo_agent_state SET value = (value::int + 1)::text, updated_at = NOW() WHERE key = 'cycle_count'`,
+    `UPDATE evo_agent_state SET value = to_jsonb((value#>>'{}')::int + 1), updated_at = NOW() WHERE key = 'cycle_count'`,
   );
 
   return { processed, auto_fixes: autoFixes, suggestions, errors, duration_ms: Date.now() - start };
