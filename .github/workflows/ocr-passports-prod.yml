@@ -68,15 +68,23 @@ jobs:
           done
           if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
 
-          TOTAL_OK=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
-          for i in $(seq 1 80); do
+          # Полный прогон ~100 PDF занимает 40-60 мин — за это время Timeweb
+          # может свапнуть контейнер (деплой очередного мержа). Партия, упавшая
+          # на свапе, ретраится на том же offset (уже оцифрованные PDF выпадают
+          # из выборки по строкам route_passport_ocr, дублей не будет).
+          TOTAL_OK=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"; FAILS=0
+          for i in $(seq 1 120); do
             RESP=$(curl -s --max-time 115 \
               -H "Authorization: Bearer $CRON_SECRET" \
               "$BASE?limit=$LIMIT&dry_run=$DRY&offset=$OFFSET" || echo '')
             if ! echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
-              echo "партия $i упала: $RESP"
-              exit 1
+              FAILS=$((FAILS + 1))
+              echo "партия $i не прошла (попытка $FAILS/5): $(echo "$RESP" | head -c 300)"
+              if [ "$FAILS" -ge 5 ]; then echo "5 подряд неудач — стоп"; exit 1; fi
+              sleep 60
+              continue
             fi
+            FAILS=0
             echo "партия $i: $(echo "$RESP" | jq -c '{offset,processed,succeeded,errors,routes_without_ocr}')"
             echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .pages then " (\(.pages) стр, \(.chars) симв)" else "" end)\(if .pdf_kb then " (\(.pdf_kb) КБ)" else "" end)"'
             echo "$RESP" | jq -r '.error_details[]? | "  ! \(.)"'
