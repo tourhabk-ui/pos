@@ -1,0 +1,4 @@
+{
+  "note": "Маркер запуска diag-prod.yml: правка этого файла в main запускает диагностику прода (аудит P0: catalog/routes/operators/api-routes/health + SSR-пробы + fingerprint-стабилизация).",
+  "run": 1
+}

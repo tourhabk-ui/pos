@@ -1,0 +1,106 @@
+name: Diag — прод-диагностика (аудит P0)
+
+# Одноразовая диагностика прода с раннера (аудит 11.07: /catalog 404, /routes
+# «0 мест», /operators пусто). Раннер свободно ходит на vedarai.ru.
+#
+# Методика чистого замера (по решению владельца): fingerprint фронтовых чанков
+# главной снимается в начале и в конце — совпал, значит прод не менялся во
+# время диагностики и результату можно верить; разошёлся — гоняли по движущейся
+# мишени, перезапустить.
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий .github/triggers/diag-prod.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/diag-prod.json'
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Diagnose prod
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          fp() { curl -s --max-time 30 "$BASE/" | grep -o 'src="/_next/static/[^"]*"' | sort | md5sum | cut -d' ' -f1; }
+
+          # Ждём, пока деплой доедет минимум до #452: /api/agents/rescue-briefing
+          # существует только с 3dba856 (не-404 = задеплоен).
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/agents/rescue-briefing" || echo 000)
+            if [ "$CODE" != "404" ] && [ "$CODE" != "000" ]; then echo "маркер #452 задеплоен (rescue-briefing HTTP $CODE)"; break; fi
+            echo "деплой ещё не доехал (rescue-briefing HTTP $CODE), жду 60с ($i/30)"; sleep 60
+          done
+
+          # Стабилизация: два fingerprint с интервалом 60с.
+          FP1=$(fp); echo "fingerprint#1: $FP1"
+          sleep 60
+          FP2=$(fp); echo "fingerprint#2: $FP2"
+          if [ "$FP1" != "$FP2" ]; then
+            echo "ВНИМАНИЕ: прод менялся между замерами — жду ещё 3 мин"; sleep 180
+            FP1=$(fp); echo "fingerprint#1' (повтор): $FP1"
+          fi
+
+          echo ""
+          echo "=== Версия прода: пробы недавних эндпоинтов (не-404 = коммит задеплоен) ==="
+          probe() { echo "$1 ($2): HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE$1" || echo 000)"; }
+          probe /api/cron/places-audit "с #443"
+          probe /api/cron/places-dedup "с #448"
+          probe /api/cron/places-unmerge "с #450"
+          probe /api/agents/rescue-briefing "с #452"
+
+          echo ""
+          echo "=== HTTP-коды ключевых страниц (без редиректов | с редиректами -> итоговый URL) ==="
+          for p in /catalog /catalog/tours/30 /marketplace/tours/30 /operators /routes /sos; do
+            RAW=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE$p" || echo 000)
+            EFF=$(curl -s -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 30 "$BASE$p" || echo 000)
+            echo "$p -> $RAW | -L: $EFF"
+          done
+
+          echo ""
+          echo "=== /api/health (тело целиком; uptime мал = свежий деплой) ==="
+          curl -s --max-time 30 "$BASE/api/health" | head -c 4000; echo ""
+
+          echo ""
+          echo "=== /api/routes?kind=place&limit=5 (полный JSON) ==="
+          curl -s --max-time 60 "$BASE/api/routes?kind=place&limit=5" | python3 -m json.tool --no-ensure-ascii 2>/dev/null | head -200 \
+            || curl -s --max-time 60 "$BASE/api/routes?kind=place&limit=5" | head -c 4000
+
+          echo ""
+          echo "=== /api/routes?kind=route&limit=5 (полный JSON) ==="
+          curl -s --max-time 60 "$BASE/api/routes?kind=route&limit=5" | python3 -m json.tool --no-ensure-ascii 2>/dev/null | head -200 \
+            || curl -s --max-time 60 "$BASE/api/routes?kind=route&limit=5" | head -c 4000
+
+          echo ""
+          echo "=== SSR-проба /routes: контент в ПЕРВОМ HTML (до гидрации) — прямой замер SEO-дыры ==="
+          HTML=$(curl -s --max-time 30 "$BASE/routes" || true)
+          echo "байт HTML: $(printf %s "$HTML" | wc -c)"
+          echo "вхождений «0 природных мест»: $(printf %s "$HTML" | grep -c '0 природных мест' || true)"
+          for name in Авачинск Мутновск Курильское Толбачик Налычево Вилючинск; do
+            echo "  «$name» в первом HTML: $(printf %s "$HTML" | grep -c "$name" || true)"
+          done
+
+          echo ""
+          echo "=== SSR-проба /operators ==="
+          OH=$(curl -s --max-time 30 "$BASE/operators" || true)
+          echo "байт HTML: $(printf %s "$OH" | wc -c)"
+          echo "ссылок на карточки операторов в первом HTML: $(printf %s "$OH" | grep -o 'href="/operators/[^"]*"' | wc -l)"
+
+          echo ""
+          echo "=== SSR-проба /catalog ==="
+          CH=$(curl -s --max-time 30 "$BASE/catalog" || true)
+          echo "байт HTML: $(printf %s "$CH" | wc -c)"
+          echo "ссылок на туры в первом HTML: $(printf %s "$CH" | grep -oE 'href="/(marketplace|catalog)/tours/[^"]*"' | wc -l)"
+
+          echo ""
+          FP3=$(fp); echo "fingerprint#final: $FP3"
+          if [ "$FP1" = "$FP3" ]; then
+            echo "СТАБИЛЬНО: прод не менялся за время диагностики — результатам можно верить"
+          else
+            echo "НЕСТАБИЛЬНО: прод изменился во время диагностики ($FP1 -> $FP3) — ПЕРЕЗАПУСТИТЬ diag"
+          fi
