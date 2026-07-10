@@ -3,7 +3,7 @@ import { Header } from '@/components/layout/Header';
 import ContactClient from './_ContactClient';
 
 export const metadata: Metadata = {
-  title: 'Оставить заявку — KamchatourHub',
+  title: 'Оставить заявку',
   description: 'Оставьте заявку на тур по Камчатке. Наши специалисты подберут маршрут под ваши пожелания.',
   keywords: [
     'туры Камчатка',
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     url: 'https://tourhab.ru/contact',
     type: 'website',
     locale: 'ru_RU',
-    siteName: 'TourHab',
+    siteName: 'Ведар',
   },
   twitter: {
     card: 'summary_large_image',
@@ -32,7 +32,7 @@ export default function ContactPage() {
   const localBusinessSchema = {
     '@context': 'https://schema.org',
     '@type': 'LocalBusiness',
-    name: 'TourHab',
+    name: 'Ведар',
     url: 'https://tourhab.ru/contact',
     image: 'https://tourhab.ru/og-image.jpg',
     telephone: '+7 (914) 782-22-22',

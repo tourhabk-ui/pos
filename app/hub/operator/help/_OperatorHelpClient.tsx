@@ -153,7 +153,7 @@ export default function OperatorHelpClient() {
       desc: 'OCTO API для подключения к OTA (Tiqets, Headout)',
       tips: [
         'Ваши туры уже доступны через OCTO API',
-        'API-ключи создаёт администратор TourHab',
+        'API-ключи создаёт администратор Ведара',
         'Webhook URL — для получения уведомлений о бронированиях из OTA',
       ],
     },
@@ -266,7 +266,7 @@ export default function OperatorHelpClient() {
             <div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Зарегистрируйтесь как оператор</p>
               <p className="text-sm text-[var(--text-secondary)] mb-2">
-                Отправьте боту команду с вашим email от аккаунта на TourHab:
+                Отправьте боту команду с вашим email от аккаунта на Ведаре:
               </p>
               <div className="space-y-2">
                 <div className="bg-[var(--bg-hover)] rounded-md px-3 py-2 font-mono text-sm text-[var(--text-primary)] flex items-center justify-between">

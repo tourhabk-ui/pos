@@ -264,7 +264,7 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
             <div className="flex items-center gap-3">
               <Bot size={24} className="text-[var(--accent)]" aria-hidden="true" />
               <div>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">AI-помощник TourHab</h3>
+                <h3 className="text-lg font-semibold text-[var(--text-primary)]">AI-помощник Ведар</h3>
                 <p className="text-sm text-[var(--text-muted)]">
                   {aiRole === 'tourist' ? 'Туры и маршруты Камчатки' :
                    aiRole === 'operator' ? 'Управление турами и бронированиями' :

@@ -3,7 +3,7 @@ import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Ey
 import { Header } from '@/components/layout/Header';
 
 export const metadata: Metadata = {
-  title: 'Выживание на Камчатке — офлайн-инструкции | Ведар',
+  title: 'Выживание на Камчатке — офлайн-инструкции',
   description: 'Экстренные инструкции для туристов на Камчатке. Медведи, вулканы, гипотермия, потерялся в тайге. Работает без интернета.',
 };
 

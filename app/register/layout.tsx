@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Регистрация маршрута в МЧС | Ведар',
+  title: 'Регистрация маршрута в МЧС',
   description: 'Зарегистрируйте туристический маршрут перед выходом в поле. Ведар — безопасность на Камчатке.',
   alternates: { canonical: '/register' },
 };

@@ -16,7 +16,7 @@ export function AgentModelSection() {
             Мы приводим и доводим лиды, вы закрываете туры
           </h2>
           <p className="text-lg text-[var(--text-secondary)] max-w-2xl mx-auto">
-            TourHab даёт Кузьмича как входную точку для туриста, operator tools для менеджера и автоматизации фона.
+            Ведар даёт Кузьмича как входную точку для туриста, operator tools для менеджера и автоматизации фона.
             Вы концентрируетесь на подтверждении, исполнении и качестве тура.
           </p>
         </div>
@@ -44,7 +44,7 @@ export function AgentModelSection() {
         <div className="grid md:grid-cols-2 gap-8 mb-16">
           <div className="p-8 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
             <h3 className="text-xl font-bold text-[var(--text-primary)] mb-6">
-              Без TourHab
+              Без Ведара
             </h3>
             <ul className="space-y-3">
               {[
@@ -64,7 +64,7 @@ export function AgentModelSection() {
 
           <div className="p-8 rounded-lg border-2 border-[var(--accent)] bg-[var(--bg-primary)]">
             <h3 className="text-xl font-bold text-[var(--text-primary)] mb-6">
-              С TourHab
+              С Ведаром
             </h3>
             <ul className="space-y-3">
               {[

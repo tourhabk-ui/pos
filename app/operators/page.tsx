@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     title: 'Операторы Камчатки',
     description: 'Проверенные туроператоры Камчатки — от рыбалки до вулканов.',
     url: `${SITE}/operators`,
-    siteName: 'KamchatourHub',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },

@@ -96,13 +96,13 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           )}
         </div>
 
-        {/* TourHab brand top-right */}
+        {/* Ведар brand top-right */}
         <div style={{
           position: 'absolute', top: '48px', right: '64px',
           color: 'rgba(255,255,255,0.3)', fontSize: '14px', fontWeight: 600,
           letterSpacing: '0.05em',
         }}>
-          TourHab
+          Ведар
         </div>
 
         {/* Main content */}

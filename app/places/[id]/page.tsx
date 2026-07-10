@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       [id]
     );
     const r = result.rows[0];
-    if (!r) return { title: 'Место не найдено | TourHab' };
+    if (!r) return { title: 'Место не найдено' };
 
     const desc = (r.essence as string | null) ??
       ((r.description as string | null)?.slice(0, 150) ?? 'Место на Камчатке');
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const imgUrl = (r.photo_url ?? imagesFirst ?? r.ai_photo) as string | null;
 
     return {
-      title: `${r.name} — место на Камчатке | TourHab`,
+      title: `${r.name} — место на Камчатке`,
       description: desc,
       openGraph: {
         title: r.name as string,
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       },
     };
   } catch {
-    return { title: 'Место на Камчатке | TourHab' };
+    return { title: 'Место на Камчатке' };
   }
 }
 
@@ -103,7 +103,7 @@ export default async function PlaceDetailPage({ params }: Props) {
         touristType: typeLabel,
         provider: {
           '@type': 'TravelAgency',
-          name: 'TourHab',
+          name: 'Ведар',
           url: BASE,
         },
         breadcrumb: {

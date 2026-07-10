@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import GuideToursClient from './_GuideToursClient';
 
 export const metadata: Metadata = {
-  title: 'Мои туры | Кабинет гида | TourHab',
+  title: 'Мои туры | Кабинет гида',
 };
 
 export default function GuideTourPage() {

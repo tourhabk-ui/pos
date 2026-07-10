@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const species = FISH_BY_ID[id];
   if (!species) return { title: 'Вид не найден' };
 
-  const title = `${species.name} на Камчатке — ${species.nameLatin} | TourHab`;
+  const title = `${species.name} на Камчатке — ${species.nameLatin}`;
   const desc = `${species.shortDesc} Сезон: ${species.season}. Рекорд: ${species.recordKg}. Место: ${species.habitat}.`;
 
   return {
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description: desc,
       url: `https://tourhab.ru/fish/${id}`,
-      siteName: 'TourHab',
+      siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
     },

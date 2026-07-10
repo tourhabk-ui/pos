@@ -179,7 +179,7 @@ export async function generateMetadata(
   const title = `${profile.name} - оператор Камчатки`;
   const description = profile.short_description
     ?? profile.description
-    ?? 'Публичный профиль проверенного оператора на TourHab.';
+    ?? 'Публичный профиль проверенного оператора на Ведаре.';
 
   return {
     title,
@@ -189,7 +189,7 @@ export async function generateMetadata(
       title,
       description,
       url: `${SITE}/operators/${profile.slug}`,
-      siteName: 'KamchatourHub',
+      siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'website',
       images: profile.hero_image ? [{ url: profile.hero_image }] : undefined,

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'SOS — Экстренная помощь | Ведар',
+  title: 'SOS — Экстренная помощь',
   description: 'Экстренная помощь на Камчатке: отправить координаты, позвонить 112, МЧС, офлайн-сигнал.',
   alternates: { canonical: '/sos' },
 };

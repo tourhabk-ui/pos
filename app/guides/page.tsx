@@ -3,13 +3,13 @@ import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star, Phone } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Сертифицированные гиды Камчатки | TourHab',
+  title: 'Сертифицированные гиды Камчатки',
   description: '112 аттестованных гидов. Лицензии, специализации, отзывы туристов. Выбирайте проверенного гида для безопасного путешествия по Камчатке.',
   openGraph: {
     title: 'Сертифицированные гиды Камчатки',
     description: '112 аттестованных гидов с лицензиями и отзывами туристов.',
     url: 'https://tourhab.ru/guides',
-    siteName: 'TourHab',
+    siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
   },
@@ -76,7 +76,7 @@ export default async function GuidesPage() {
         address: { '@type': 'PostalAddress', addressRegion: 'Камчатский край', addressCountry: 'RU' },
       },
     })),
-    provider: { '@type': 'TravelAgency', name: 'TourHab', url: 'https://tourhab.ru' },
+    provider: { '@type': 'TravelAgency', name: 'Ведар', url: 'https://tourhab.ru' },
   };
 
   return (
@@ -91,7 +91,7 @@ export default async function GuidesPage() {
           </p>
           <h1 className="ds-h1 mb-4">Сертифицированные гиды Камчатки</h1>
           <p className="text-[var(--text-secondary)] text-lg max-w-2xl">
-            Только гиды с подтверждёнными лицензиями и аттестатами. Каждый проверен командой TourHab.
+            Только гиды с подтверждёнными лицензиями и аттестатами. Каждый проверен командой Ведара.
           </p>
 
           {/* Trust stats */}
@@ -188,7 +188,7 @@ export default async function GuidesPage() {
             Вы гид на Камчатке?
           </h2>
           <p className="text-[var(--text-secondary)] mb-6 max-w-md mx-auto">
-            Присоединяйтесь к реестру TourHab. Верификация лицензий, выход к туристам, управление бронированиями.
+            Присоединяйтесь к реестру Ведара. Верификация лицензий, выход к туристам, управление бронированиями.
           </p>
           <a href="/for-operators" className="ds-btn ds-btn-primary inline-flex">
             Стать гидом на платформе

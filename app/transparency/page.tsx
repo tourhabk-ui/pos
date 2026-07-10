@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth/jwt';
 import TransparencyClient from './_TransparencyClient';
 
 export const metadata: Metadata = {
-  title: 'Transparency Hub (Admin) — TourHab',
+  title: 'Transparency Hub (Admin)',
   description:
     'Внутренний отчёт для администратора: AI-инициативы, статусы review и факт исполнения.',
   openGraph: {
