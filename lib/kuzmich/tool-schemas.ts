@@ -88,6 +88,14 @@ const searchGearSchema = z.object({
   price_max: looseString(20).optional(),
 });
 
+// ── search_transfers ────────────────────────────────────────────────────────
+// Трансферы (маршруты откуда→куда с ценами). Все фильтры необязательны.
+const searchTransfersSchema = z.object({
+  from: looseString(100).optional(),
+  to: looseString(100).optional(),
+  price_max: looseString(20).optional(),
+});
+
 interface ToolSpec {
   definition: ToolDefinition;
   schema: z.ZodTypeAny;
@@ -186,6 +194,25 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: searchGearSchema,
+  },
+  search_transfers: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'search_transfers',
+        description: 'Найти трансфер на Камчатке (маршруты откуда-куда с ценами): аэропорт, Петропавловск, Паратунка, Эссо и т.д. Используй когда турист спрашивает как добраться, сколько стоит доехать, есть ли трансфер.',
+        parameters: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Откуда (например: аэропорт, Петропавловск-Камчатский)' },
+            to: { type: 'string', description: 'Куда (например: Паратунка, Эссо, Мильково)' },
+            price_max: { type: 'string', description: 'Максимальная цена в рублях' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: searchTransfersSchema,
   },
   search_taaft: {
     definition: {

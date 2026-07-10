@@ -2,12 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 describe('KUZMICH_TOOLS (generated from the registry)', () => {
-  it('exposes exactly the 8 known tools with their JSON-schema definitions intact', () => {
+  it('exposes exactly the 9 known tools with their JSON-schema definitions intact', () => {
     const names = KUZMICH_TOOLS.map(t => t.function.name).sort();
     expect(names).toEqual([
       'get_guardian_context', 'get_place_info', 'get_tours', 'get_weather',
       'search_accommodations', 'search_gear', 'search_kamchatka', 'search_taaft',
+      'search_transfers',
     ]);
+  });
+
+  it('registers search_transfers with all filters optional (no required params)', () => {
+    const def = KUZMICH_TOOLS.find(t => t.function.name === 'search_transfers')!;
+    expect(def.function.parameters.required).toEqual([]);
+    expect(Object.keys(def.function.parameters.properties)).toEqual(
+      expect.arrayContaining(['from', 'to', 'price_max']),
+    );
   });
 
   it('registers search_gear with all filters optional (no required params)', () => {
