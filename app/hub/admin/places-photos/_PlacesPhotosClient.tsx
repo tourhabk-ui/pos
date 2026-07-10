@@ -53,6 +53,7 @@ export default function PlacesPhotosClient() {
   const [query, setQuery] = useState('');
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [filter, setFilter] = useState<'all' | 'no-photo' | 'with-photo'>('all');
@@ -195,13 +196,20 @@ export default function PlacesPhotosClient() {
 
   const fetchPlaces = useCallback(async (q: string) => {
     setLoading(true);
+    setSearchError(null);
     try {
       const res = await fetch(`/api/admin/places/search?q=${encodeURIComponent(q)}&limit=200`);
-      if (!res.ok) throw new Error('Не удалось загрузить список');
+      if (!res.ok) {
+        // Тело ошибки — в сообщение: упавший API раньше выглядел как
+        // «Ничего не найдено», причину нельзя было увидеть без DevTools.
+        const body = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
+      }
       const data = await res.json() as { items: Place[] };
       setPlaces(data.items);
     } catch (err) {
-      console.error(err);
+      setSearchError(err instanceof Error ? err.message : 'Не удалось загрузить список мест');
+      setPlaces([]);
     } finally {
       setLoading(false);
     }
@@ -487,6 +495,12 @@ export default function PlacesPhotosClient() {
       <p className="text-xs text-[var(--text-muted)] mb-3">
         {loading ? 'Загрузка…' : `Показано: ${filtered.length}`}
       </p>
+
+      {searchError && (
+        <div className="mb-3 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 p-3 text-sm text-[var(--danger)]">
+          Список мест не загрузился: {searchError}
+        </div>
+      )}
 
       {/* Places grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
