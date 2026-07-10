@@ -1,0 +1,77 @@
+name: Data — Геокодинг плейсхолдер-мест (Nominatim)
+
+# Дёргает POST /api/cron/places-geocode на проде: поднимает места без GPS
+# (0,0 / плейсхолдер ПКЦ) в реальные координаты по названию через Nominatim.
+# Прод (РФ-IP) сам ходит в Nominatim. dry_run по умолчанию — сначала смотрим
+# качество в логе, потом ставим dry_run=false для записи.
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий
+# .github/triggers/places-geocode.json (нет actions:write у интеграции).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (геокод без записи)'
+        required: false
+        default: true
+        type: boolean
+      limit:
+        description: 'Мест на партию (1-30)'
+        required: false
+        default: '12'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/places-geocode.json'
+
+jobs:
+  places-geocode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Geocode placeholder places
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRY=$(jq -r '.dry_run' .github/triggers/places-geocode.json)
+            LIMIT=$(jq -r '.limit' .github/triggers/places-geocode.json)
+          else
+            DRY="${{ github.event.inputs.dry_run }}"
+            LIMIT="${{ github.event.inputs.limit }}"
+          fi
+          echo "event=${{ github.event_name }} dry_run=$DRY limit=$LIMIT"
+
+          # Ждём деплой: POST-роут на GET отвечает 405 когда задеплоен, 404 если нет.
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/places-geocode" || echo 000)
+            if [ "$CODE" = "405" ] || [ "$CODE" = "401" ]; then echo "endpoint deployed (HTTP $CODE)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"; sleep 60
+          done
+
+          for batch in $(seq 1 100); do
+            RESP=$(curl -s --max-time 90 -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" \
+              -d "{\"limit\": $LIMIT, \"dry_run\": $DRY}" \
+              "$BASE/api/cron/places-geocode")
+            echo "=== партия $batch ==="
+            echo "$RESP" | python3 -m json.tool --no-ensure-ascii 2>/dev/null || echo "$RESP"
+
+            OK=$(echo "$RESP" | jq -r '.success' 2>/dev/null || echo "false")
+            if [ "$OK" != "true" ]; then echo "endpoint error — стоп"; exit 1; fi
+
+            PENDING=$(echo "$RESP" | jq -r '.pending_total' 2>/dev/null || echo 0)
+            PROCESSED=$(echo "$RESP" | jq -r '.processed' 2>/dev/null || echo 0)
+
+            if [ "$DRY" = "true" ]; then echo "dry-run: одна партия, стоп"; break; fi
+            if [ "$PROCESSED" = "0" ] || [ "$PENDING" = "0" ]; then echo "готово: pending=$PENDING"; break; fi
+            sleep 2
+          done
