@@ -35,6 +35,9 @@ export async function GET(request: NextRequest) {
         FUGU_API_KEY: !!process.env.FUGU_API_KEY,
         GLM_API_KEY: !!process.env.GLM_API_KEY,
         NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
+        GROQ_API_KEY: !!process.env.GROQ_API_KEY,
+        CEREBRAS_API_KEY: !!process.env.CEREBRAS_API_KEY,
+        MISTRAL_API_KEY: !!process.env.MISTRAL_API_KEY,
         CRON_SECRET: !!process.env.CRON_SECRET,
       },
       node_env: process.env.NODE_ENV,
@@ -89,6 +92,9 @@ export async function GET(request: NextRequest) {
       FUGU_API_KEY: !!process.env.FUGU_API_KEY,
       GLM_API_KEY: !!process.env.GLM_API_KEY,
       NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY,
+      GROQ_API_KEY: !!process.env.GROQ_API_KEY,
+      CEREBRAS_API_KEY: !!process.env.CEREBRAS_API_KEY,
+      MISTRAL_API_KEY: !!process.env.MISTRAL_API_KEY,
     },
   });
 }
