@@ -1,0 +1,40 @@
+name: Data — Аудит качества мест (печать в лог)
+
+# Дёргает GET /api/cron/places-audit (Bearer CRON_SECRET) на проде и печатает
+# JSON-диагностику качества places в лог Actions. Так агент видит реальные
+# цифры прода, не имея прямого доступа к БД (файрвол managed-PostgreSQL).
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий
+# .github/triggers/places-audit.json (нет actions:write у интеграции).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/places-audit.json'
+
+jobs:
+  places-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch audit
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          # Ждём деплой: без ключа новый билд отвечает 401.
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/cron/places-audit" || echo 000)
+            if [ "$CODE" = "401" ]; then echo "endpoint deployed"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"; sleep 60
+          done
+
+          echo "=== places audit ==="
+          curl -s --max-time 60 -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE/api/cron/places-audit" | python3 -m json.tool --no-ensure-ascii 2>/dev/null \
+            || curl -s --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/cron/places-audit"

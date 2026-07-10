@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2 } from 'lucide-react';
+import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2, ClipboardList } from 'lucide-react';
 
 interface Place {
   id: string;
@@ -41,6 +41,21 @@ interface MergedPlace {
   hasSafetyProfile: boolean;
 }
 
+interface AuditCategory {
+  key: string;
+  label: string;
+  count: number;
+  visibleCount: number;
+  samples: Array<{ id: string; name: string; is_visible: boolean }>;
+}
+
+interface AuditData {
+  total: number;
+  visible: number;
+  hidden: number;
+  categories: AuditCategory[];
+}
+
 const LOCATION_LABELS: Record<string, string> = {
   volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Источник', mountain: 'Гора',
   river: 'Река', bay: 'Бухта', cape: 'Мыс', island: 'Остров',
@@ -76,6 +91,31 @@ export default function PlacesPhotosClient() {
   const [deleteFeedback, setDeleteFeedback] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+
+  const [showAudit, setShowAudit] = useState(false);
+  const [auditLoaded, setAuditLoaded] = useState(false);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [audit, setAudit] = useState<AuditData | null>(null);
+
+  const fetchAudit = useCallback(async () => {
+    setLoadingAudit(true);
+    try {
+      const res = await fetch('/api/admin/places/audit');
+      if (!res.ok) throw new Error('Не удалось загрузить аудит мест');
+      setAudit(await res.json() as AuditData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAudit(false);
+      setAuditLoaded(true);
+    }
+  }, []);
+
+  const toggleAuditPanel = () => {
+    const next = !showAudit;
+    setShowAudit(next);
+    if (next && !auditLoaded) void fetchAudit();
+  };
 
   const fetchMergedPlaces = useCallback(async () => {
     setLoadingMerged(true);
@@ -281,6 +321,50 @@ export default function PlacesPhotosClient() {
           Загрузи фото — оно будет автоматически обрезано до 1280×720 (16:9) и сохранено для карточки места.
         </p>
       </header>
+
+      {/* Audit panel — качество данных мест */}
+      <div className="mb-6 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        <button
+          onClick={toggleAuditPanel}
+          className="w-full flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium bg-[var(--bg-card)]"
+        >
+          <span className="flex items-center gap-2 text-[var(--text-primary)]">
+            <ClipboardList className="w-4 h-4" />
+            Аудит качества мест
+            {auditLoaded && audit && (
+              <span className="text-[var(--text-muted)] font-normal">
+                ({audit.visible} видимо · {audit.hidden} скрыто из {audit.total})
+              </span>
+            )}
+          </span>
+          {loadingAudit && <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
+        </button>
+
+        {showAudit && (
+          <div className="p-4 border-t space-y-3" style={{ borderColor: 'var(--border)' }}>
+            {loadingAudit && <p className="text-sm text-[var(--text-muted)]">Считаю категории…</p>}
+            {!loadingAudit && auditLoaded && !audit && (
+              <p className="text-sm text-[var(--danger)]">Не удалось загрузить аудит.</p>
+            )}
+            {audit?.categories.map((cat) => (
+              <div key={cat.key} className="rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-sm font-medium text-[var(--text-primary)]">{cat.label}</span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {cat.count} шт{cat.visibleCount > 0 && ` · ${cat.visibleCount} ещё видимо`}
+                  </span>
+                </div>
+                {cat.samples.length > 0 && (
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    {cat.samples.map((s) => s.name).slice(0, 12).join(' · ')}
+                    {cat.count > cat.samples.length && ' …'}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Duplicates panel */}
       <div className="mb-6 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
