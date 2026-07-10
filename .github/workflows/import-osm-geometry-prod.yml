@@ -87,6 +87,7 @@ jobs:
             fi
             echo "партия $i: $(echo "$RESP" | jq -c '{offset,imported,skipped,errors,processed,routes_without_geometry}')"
             echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .pts then " (\(.pts) точек)" else "" end)"'
+            echo "$RESP" | jq -r '.error_details[]? | "  ! \(.)"'
 
             IMP=$(echo "$RESP" | jq -r '.imported')
             SKIP=$(echo "$RESP" | jq -r '.skipped')
