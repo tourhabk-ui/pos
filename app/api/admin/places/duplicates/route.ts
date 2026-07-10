@@ -8,10 +8,11 @@
  *
  * Уже слитые (merged_into_id IS NOT NULL) исключены из обеих сторон пары.
  *
- * ВАЖНО про пустые координаты: у части мусорных мест координаты не заданы и
- * хранятся как 0,0. Раньше расстояние между любыми двумя такими считалось 0 м,
- * и правило «≤300 м» пейрило вообще не связанные места («Плато Антарктида» и
- * «Маяк»). Поэтому:
+ * ВАЖНО про пустые координаты: у части мусорных мест GPS не заданы и хранятся
+ * как 0,0 ЛИБО как плейсхолдер 53.0444/158.6483 (центр Петропавловска, куда
+ * сажали места без известных координат — migration 660). Раньше расстояние
+ * между любыми двумя такими считалось 0 м, и правило «≤300 м» пейрило вообще
+ * не связанные места («Плато Антарктида» и «Маяк»). Поэтому:
  *   - дистанция считается ТОЛЬКО для пар с реальными (не 0,0) координатами;
  *   - «близкая» пара дополнительно требует хоть какого-то совпадения имени
  *     (name_sim ≥ 0.2) — чтобы соседство по координатам не флагало разные
@@ -45,10 +46,17 @@ export async function GET(request: NextRequest) {
          p1.id AS id1, p1.name AS name1, p1.lat AS lat1, p1.lng AS lng1, p1.location_type AS type1, p1.ark_id AS ark1,
          p2.id AS id2, p2.name AS name2, p2.lat AS lat2, p2.lng AS lng2, p2.location_type AS type2, p2.ark_id AS ark2,
          similarity(p1.name, p2.name) AS name_sim,
-         -- Расстояние только для пар с реальными (не 0,0) координатами; иначе NULL.
+         -- Расстояние только для пар с реальными координатами; иначе NULL.
+         -- «Реальные» = не NULL, не 0,0 и не плейсхолдер 53.0444/158.6483 (центр
+         -- Петропавловска, куда сажали места без известного GPS — migration 660).
+         -- Иначе десятки несвязанных мест в одной точке считались бы «0 м».
          CASE
-           WHEN p1.lat IS NOT NULL AND p1.lng IS NOT NULL AND NOT (p1.lat = 0 AND p1.lng = 0)
-            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL AND NOT (p2.lat = 0 AND p2.lng = 0)
+           WHEN p1.lat IS NOT NULL AND p1.lng IS NOT NULL
+            AND NOT (p1.lat = 0 AND p1.lng = 0)
+            AND NOT (ROUND(p1.lat::numeric, 4) = 53.0444 AND ROUND(p1.lng::numeric, 4) = 158.6483)
+            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL
+            AND NOT (p2.lat = 0 AND p2.lng = 0)
+            AND NOT (ROUND(p2.lat::numeric, 4) = 53.0444 AND ROUND(p2.lng::numeric, 4) = 158.6483)
            THEN 6371000 * acos(LEAST(1, GREATEST(-1,
              cos(radians(p1.lat)) * cos(radians(p2.lat)) * cos(radians(p2.lng) - radians(p1.lng)) +
              sin(radians(p1.lat)) * sin(radians(p2.lat))
@@ -59,9 +67,13 @@ export async function GET(request: NextRequest) {
        JOIN places p2
          ON p2.id > p1.id
         AND (
-          -- ветка близких координат: обе точки с реальными (не 0,0) координатами
-          ( p1.lat IS NOT NULL AND p1.lng IS NOT NULL AND NOT (p1.lat = 0 AND p1.lng = 0)
-            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL AND NOT (p2.lat = 0 AND p2.lng = 0)
+          -- ветка близких координат: обе точки с реальными (не 0,0 и не плейсхолдер) координатами
+          ( p1.lat IS NOT NULL AND p1.lng IS NOT NULL
+            AND NOT (p1.lat = 0 AND p1.lng = 0)
+            AND NOT (ROUND(p1.lat::numeric, 4) = 53.0444 AND ROUND(p1.lng::numeric, 4) = 158.6483)
+            AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL
+            AND NOT (p2.lat = 0 AND p2.lng = 0)
+            AND NOT (ROUND(p2.lat::numeric, 4) = 53.0444 AND ROUND(p2.lng::numeric, 4) = 158.6483)
             AND p2.lat BETWEEN p1.lat - 0.01 AND p1.lat + 0.01
             AND p2.lng BETWEEN p1.lng - 0.02 AND p1.lng + 0.02 )
           -- ветка похожих имён: триграммное сходство, независимо от координат
