@@ -1,4 +1,5 @@
 import { pool } from '@/lib/db-pool';
+import { ACC_META, type AccColor } from '@/lib/services/kvert-vona';
 
 interface GuardianPlaceRow {
   name: string;
@@ -21,6 +22,24 @@ interface GuardianPlaceRow {
   alert_message: string | null;
   alert_severity: number | null;
   tourists_today: number | null;
+  volcano_acc: string | null;
+  volcano_ash_height_m: number | null;
+  volcano_observed_at: string | null;
+}
+
+/** Наблюдённый ACC вулкана (unassigned/отсутствие → null — без ложного «спокоен»). */
+function accOf(p: GuardianPlaceRow): AccColor | null {
+  const c = p.volcano_acc;
+  return c === 'green' || c === 'yellow' || c === 'orange' || c === 'red' ? c : null;
+}
+
+function accLine(color: AccColor, p: GuardianPlaceRow): string {
+  const meta = ACC_META[color];
+  const ash = p.volcano_ash_height_m ? ` Пепел до ${(p.volcano_ash_height_m / 1000).toFixed(1)} км.` : '';
+  const seen = p.volcano_observed_at
+    ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU')})`
+    : '';
+  return `Авиационный цветовой код KVERT: ${meta.short.toUpperCase()} — ${meta.label.toLowerCase()}.${ash}${seen}`;
 }
 
 interface AlertRow {
@@ -95,10 +114,14 @@ export async function getGuardianContext(placeName: string): Promise<string> {
          lsp.capacity_per_day, lsp.open_from_date, lsp.open_to_date,
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
          lrs.recommender_status, lrs.alert_message, lrs.alert_severity,
-         lrs.tourists_today
+         lrs.tourists_today,
+         vs.aviation_color_code AS volcano_acc,
+         vs.ash_height_m        AS volcano_ash_height_m,
+         vs.observed_at         AS volcano_observed_at
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
+       LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
        WHERE p.merged_into_id IS NULL AND p.name ILIKE $1
        ORDER BY char_length(p.name) ASC
        LIMIT 3`,
@@ -161,6 +184,12 @@ export async function getGuardianContext(placeName: string): Promise<string> {
       } else {
         parts.push(hedge);
       }
+      // Оранжевый/красный ACC — как и алерт, нельзя молча уронить при слабом
+      // совпадении: отдаём с рамкой неуверенности.
+      const lowAcc = accOf(p);
+      if (lowAcc === 'orange' || lowAcc === 'red') {
+        parts.push(`Но по похожему названию вулкан под кодом KVERT ${ACC_META[lowAcc].short.toUpperCase()} (${ACC_META[lowAcc].label.toLowerCase()}) — уточни, тот ли это вулкан.`);
+      }
       continue;
     }
 
@@ -170,6 +199,11 @@ export async function getGuardianContext(placeName: string): Promise<string> {
     } else if (p.active_alerts?.length) {
       parts.push(`Активные алерты: ${p.active_alerts.join(', ')}.`);
     }
+
+    // Авиационный цветовой код вулкана (KVERT, migration 728) — сразу после
+    // алертов: прямой safety-сигнал. Наблюдённого кода нет → молчим (не «зелёный»).
+    const acc = accOf(p);
+    if (acc) parts.push(accLine(acc, p));
 
     if (p.tourists_today !== null && p.capacity_per_day) {
       parts.push(`Сегодня посетило: ${p.tourists_today} чел. (норма ${p.capacity_per_day}/день).`);

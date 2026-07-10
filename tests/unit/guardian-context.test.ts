@@ -123,3 +123,58 @@ describe('getGuardianContext low-confidence handling', () => {
     expect(ctx).toContain('200 км');
   });
 });
+
+describe('getGuardianContext — авиационный цветовой код (KVERT, migration 728)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const base = {
+    name: 'Ключевской', description: 'Вулкан', location_type: 'volcano',
+    lat: 56.05, lng: 160.64, hazard_types: null, difficulty_level: null, altitude_m: 4750,
+    nearest_medical_km: null, sat_communicator_required: null, capacity_per_day: null,
+    open_from_date: null, open_to_date: null, is_open: true, current_crowds: null,
+    active_alerts: null, recommender_status: null, alert_message: null, alert_severity: null,
+    tourists_today: null,
+  };
+
+  function mockDbFor(placeRow: Record<string, unknown>) {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: [placeRow] });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('красный код с пеплом выдаётся сразу после алертов при точном совпадении', async () => {
+    mockDbFor({ ...base, volcano_acc: 'red', volcano_ash_height_m: 8000, volcano_observed_at: '2025-08-07T23:40:00Z' });
+    const ctx = await getGuardianContext('Ключевской');
+    expect(ctx).toContain('KVERT: КРАСНЫЙ');
+    expect(ctx).toContain('Пепел до 8.0 км');
+  });
+
+  it('без наблюдённого кода (null/unassigned) — молчим, без ложного «зелёный»', async () => {
+    mockDbFor({ ...base, volcano_acc: null, volcano_ash_height_m: null, volcano_observed_at: null });
+    expect(await getGuardianContext('Ключевской')).not.toContain('KVERT');
+    mockDbFor({ ...base, volcano_acc: 'unassigned', volcano_ash_height_m: null, volcano_observed_at: null });
+    expect(await getGuardianContext('Ключевской')).not.toContain('KVERT');
+  });
+
+  it('оранжевый/красный код НЕ теряется при слабом совпадении — рамка неуверенности', async () => {
+    mockDbFor({
+      ...base, name: 'Ключевская группа вулканов дальний сектор',
+      volcano_acc: 'orange', volcano_ash_height_m: null, volcano_observed_at: null,
+    });
+    const ctx = await getGuardianContext('Ключевской');
+    expect(ctx).toContain('неточное совпадение');
+    expect(ctx).toContain('ОРАНЖЕВЫЙ');
+    expect(ctx).toContain('тот ли это вулкан');
+  });
+
+  it('жёлтый код при слабом совпадении не добавляет шума (только orange/red)', async () => {
+    mockDbFor({
+      ...base, name: 'Ключевская группа вулканов дальний сектор',
+      volcano_acc: 'yellow', volcano_ash_height_m: null, volcano_observed_at: null,
+    });
+    const ctx = await getGuardianContext('Ключевской');
+    expect(ctx).toContain('неточное совпадение');
+    expect(ctx).not.toContain('KVERT');
+  });
+});
