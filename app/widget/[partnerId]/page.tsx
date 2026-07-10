@@ -89,7 +89,7 @@ export default function WidgetPage() {
 
   if (error) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#6B6560' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
         {error}
       </div>
     );
@@ -97,28 +97,34 @@ export default function WidgetPage() {
 
   if (!config) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#6B6560' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: 'var(--text-secondary)' }}>
         Загрузка...
       </div>
     );
   }
 
-  const accent = config.accentColor || '#D44A0C';
+  const accent = config.accentColor || 'var(--accent)';
 
+  // Цвета — DS-токены (globals.css резолвится внутри iframe с нашего домена).
+  // data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
+  // и не должен темнеть от сохранённой темы посетителя на tourhab.ru.
+  // Литеральный #FFFFFF — только текст на партнёрском акценте (accentColor
+  // задаёт партнёр произвольным цветом, токены его не покрывают).
   return (
-    <div style={{
+    <div data-theme="light" style={{
       display: 'flex',
       flexDirection: 'column',
       height: '100vh',
       fontFamily: "'Outfit', system-ui, sans-serif",
-      background: '#F5F0EB',
-      color: '#1A1714',
+      background: 'var(--bg-primary)',
+      color: 'var(--text-primary)',
     }}>
+
       {/* Header */}
       <div style={{
         padding: '12px 16px',
-        borderBottom: '1px solid rgba(0,0,0,0.07)',
-        background: '#FFFFFF',
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--bg-card)',
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
@@ -135,7 +141,7 @@ export default function WidgetPage() {
           <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.2 }}>
             {config.name}
           </div>
-          <div style={{ fontSize: 11, color: '#6B6560' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
             AI-помощник TourHub
           </div>
         </div>
@@ -162,8 +168,8 @@ export default function WidgetPage() {
               maxWidth: '80%',
               padding: '10px 14px',
               borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-              background: msg.role === 'user' ? accent : '#FFFFFF',
-              color: msg.role === 'user' ? '#FFFFFF' : '#1A1714',
+              background: msg.role === 'user' ? accent : 'var(--bg-card)',
+              color: msg.role === 'user' ? '#FFFFFF' : 'var(--text-primary)', // белый — на партнёрском акценте
               fontSize: 14,
               lineHeight: 1.5,
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
@@ -180,9 +186,9 @@ export default function WidgetPage() {
             <div style={{
               padding: '10px 14px',
               borderRadius: '16px 16px 16px 4px',
-              background: '#FFFFFF',
+              background: 'var(--bg-card)',
               fontSize: 14,
-              color: '#9A9590',
+              color: 'var(--text-muted)',
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             }}>
               Печатает...
@@ -196,8 +202,8 @@ export default function WidgetPage() {
       {/* Input */}
       <div style={{
         padding: '12px 16px',
-        borderTop: '1px solid rgba(0,0,0,0.07)',
-        background: '#FFFFFF',
+        borderTop: '1px solid var(--border)',
+        background: 'var(--bg-card)',
         display: 'flex',
         gap: '8px',
         alignItems: 'center',
@@ -213,12 +219,12 @@ export default function WidgetPage() {
           style={{
             flex: 1,
             padding: '10px 14px',
-            border: '1px solid rgba(0,0,0,0.07)',
+            border: '1px solid var(--border)',
             borderRadius: 20,
             outline: 'none',
             fontSize: 14,
             fontFamily: 'inherit',
-            background: '#F5F0EB',
+            background: 'var(--bg-primary)',
           }}
         />
         <button
@@ -230,7 +236,7 @@ export default function WidgetPage() {
             height: 38,
             borderRadius: '50%',
             border: 'none',
-            background: input.trim() ? accent : '#E0DBD5',
+            background: input.trim() ? accent : 'var(--bg-secondary)',
             color: '#FFFFFF',
             cursor: input.trim() ? 'pointer' : 'default',
             display: 'flex',
@@ -249,8 +255,8 @@ export default function WidgetPage() {
         textAlign: 'center',
         padding: '6px',
         fontSize: 10,
-        color: '#9A9590',
-        background: '#FFFFFF',
+        color: 'var(--text-muted)',
+        background: 'var(--bg-card)',
         borderTop: '1px solid rgba(0,0,0,0.04)',
       }}>
         Powered by <a href="https://tourhab.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
