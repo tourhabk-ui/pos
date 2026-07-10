@@ -1,0 +1,6 @@
+{
+  "dry_run": true,
+  "batch_limit": 8,
+  "note": "Маркер запуска import-osm-geometry-prod.yml: правка этого файла в main запускает импорт через прод-эндпоинт. dry_run=true — одна проверочная партия; для боевого прогона поставить false.",
+  "run": 1
+}
