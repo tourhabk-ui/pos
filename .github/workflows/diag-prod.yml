@@ -98,6 +98,28 @@ jobs:
           echo "ссылок на туры в первом HTML: $(printf %s "$CH" | grep -oE 'href="/(marketplace|catalog)/tours/[^"]*"' | wc -l)"
 
           echo ""
+          echo "=== SSR-проба ДЕТАЛЬНЫХ страниц (периметр шага 3: листинги или листинги+детальные) ==="
+          # Реальные id из diag run#1: место «Авачинская сопка», маршрут «5 стройка–Центральный»
+          DP=$(curl -s --max-time 30 "$BASE/routes/c0dc11a3-ff21-4e7c-af9d-79163d19a220" || true)
+          echo "/routes/<place-id> байт: $(printf %s "$DP" | wc -c); «Авачинск»: $(printf %s "$DP" | grep -c 'Авачинск' || true); «стратовулкан»: $(printf %s "$DP" | grep -c 'стратовулкан' || true)"
+          DR=$(curl -s --max-time 30 "$BASE/routes/1f7a560d-c25d-4403-a889-34ebbda70f59" || true)
+          echo "/routes/<route-id> байт: $(printf %s "$DR" | wc -c); «стройка»: $(printf %s "$DR" | grep -c 'стройка' || true); «Центральн»: $(printf %s "$DR" | grep -c 'Центральн' || true)"
+          PP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/places/c0dc11a3-ff21-4e7c-af9d-79163d19a220" || echo 000)
+          echo "/places/<place-id> HTTP: $PP"
+          if [ "$PP" = "200" ]; then
+            PH=$(curl -s --max-time 30 "$BASE/places/c0dc11a3-ff21-4e7c-af9d-79163d19a220" || true)
+            echo "/places/<place-id> байт: $(printf %s "$PH" | wc -c); «Авачинск»: $(printf %s "$PH" | grep -c 'Авачинск' || true)"
+          fi
+
+          echo ""
+          echo "=== Проба tourhab.ru (судьба SOS-SMS-строк «TourHab.ru») ==="
+          for u in https://tourhab.ru https://tourhab.ru/routes https://www.tourhab.ru; do
+            R=$(curl -s -o /dev/null -w '%{http_code} loc=%{redirect_url}' --max-time 20 "$u" || echo 000)
+            E=$(curl -s -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 20 "$u" || echo 000)
+            echo "$u -> $R | -L: $E"
+          done
+
+          echo ""
           FP3=$(fp); echo "fingerprint#final: $FP3"
           if [ "$FP1" = "$FP3" ]; then
             echo "СТАБИЛЬНО: прод не менялся за время диагностики — результатам можно верить"
