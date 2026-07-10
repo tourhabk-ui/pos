@@ -1,0 +1,98 @@
+name: Data — OCR паспортов маршрутов (Mistral OCR через прод)
+
+# Прогон ~100 PDF-паспортов маршрутов (kamchatka_routes.official_passport_url /
+# pdf_url) через Mistral OCR: markdown складывается в route_passport_ocr
+# (migration 730). Исполнение на прод-сервере через /api/cron/ocr-passports —
+# файрвол БД Timeweb не пускает внешние IP (паттерн import-osm-geometry-prod).
+#
+# Запуск: workflow_dispatch ИЛИ push в main, меняющий
+# .github/triggers/ocr-passports.json (у Claude-интеграции нет actions:write).
+#
+# dry_run=true — одна партия: скачивание PDF без похода в Mistral (бесплатно).
+# dry_run=false — партии до remaining=0; offset двигается на (processed -
+# succeeded), чтобы не зациклиться на упавших.
+#
+# Требует secrets: CRON_SECRET. MISTRAL_API_KEY живёт в env прода (Timeweb).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run (скачать PDF, без Mistral и записи)'
+        required: false
+        default: true
+        type: boolean
+      batch_limit:
+        description: 'PDF на партию (1-5)'
+        required: false
+        default: '3'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/ocr-passports.json'
+
+jobs:
+  ocr-passports-via-prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OCR through prod endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            DRY=$(jq -r '.dry_run' .github/triggers/ocr-passports.json)
+            LIMIT=$(jq -r '.batch_limit' .github/triggers/ocr-passports.json)
+          else
+            DRY="${{ github.event.inputs.dry_run }}"
+            LIMIT="${{ github.event.inputs.batch_limit }}"
+          fi
+          echo "event=${{ github.event_name }} dry_run=$DRY batch_limit=$LIMIT"
+
+          BASE="https://vedarai.ru/api/cron/ocr-passports"
+
+          # Ждём деплой эндпоинта: без авторизации новый билд отвечает 401,
+          # старый — 404 (Docker-сборка Timeweb ~10 мин).
+          READY=""
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE" || echo 000)
+            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+
+          TOTAL_OK=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
+          for i in $(seq 1 80); do
+            RESP=$(curl -s --max-time 115 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$BASE?limit=$LIMIT&dry_run=$DRY&offset=$OFFSET" || echo '')
+            if ! echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
+              echo "партия $i упала: $RESP"
+              exit 1
+            fi
+            echo "партия $i: $(echo "$RESP" | jq -c '{offset,processed,succeeded,errors,routes_without_ocr}')"
+            echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .pages then " (\(.pages) стр, \(.chars) симв)" else "" end)\(if .pdf_kb then " (\(.pdf_kb) КБ)" else "" end)"'
+            echo "$RESP" | jq -r '.error_details[]? | "  ! \(.)"'
+
+            OK=$(echo "$RESP" | jq -r '.succeeded')
+            ERRS=$(echo "$RESP" | jq -r '.errors')
+            PROC=$(echo "$RESP" | jq -r '.processed')
+            REMAIN=$(echo "$RESP" | jq -r '.routes_without_ocr')
+            TOTAL_OK=$((TOTAL_OK + OK))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + ERRS))
+
+            if [ "$DRY" = "true" ]; then echo "dry-run: одна партия, выходим"; break; fi
+            if [ "$PROC" = "0" ] || [ "$REMAIN" = "0" ]; then break; fi
+            OFFSET=$((OFFSET + PROC - OK))
+            sleep 4
+          done
+
+          echo "=================================================="
+          echo "ИТОГО: succeeded=$TOTAL_OK errors=$TOTAL_ERRORS remaining_without_ocr=$REMAIN dry_run=$DRY"
