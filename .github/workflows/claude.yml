@@ -88,4 +88,5 @@ jobs:
             - Всегда создавай ветку: git checkout -b claude/issue-${{ github.event.issue.number }}
             - После реализации: git push origin claude/issue-${{ github.event.issue.number }}
             - Открой PR в main через gh pr create с описанием что сделано
+            - В body PR укажи «Closes #${{ github.event.issue.number }}» — GitHub закроет issue при мерже
             - PR создаётся как draft: gh pr create --draft
