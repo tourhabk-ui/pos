@@ -107,7 +107,7 @@ export default function WidgetPage() {
 
   // Цвета — DS-токены (globals.css резолвится внутри iframe с нашего домена).
   // data-theme="light" пинит светлую тему: виджет живёт на партнёрских сайтах
-  // и не должен темнеть от сохранённой темы посетителя на tourhab.ru.
+  // и не должен темнеть от сохранённой темы посетителя на vedarai.ru.
   // Литеральный #FFFFFF — только текст на партнёрском акценте (accentColor
   // задаёт партнёр произвольным цветом, токены его не покрывают).
   return (
@@ -259,7 +259,7 @@ export default function WidgetPage() {
         background: 'var(--bg-card)',
         borderTop: '1px solid rgba(0,0,0,0.04)',
       }}>
-        Powered by <a href="https://tourhab.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
+        Powered by <a href="https://vedarai.ru" target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: 'none' }}>TourHub</a>
       </div>
     </div>
   );

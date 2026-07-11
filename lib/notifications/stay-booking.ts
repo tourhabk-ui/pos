@@ -56,7 +56,7 @@ export async function notifyNewStayBooking(p: StayBookingNotifyPayload): Promise
     p.guestName ? `Гость: ${esc(p.guestName)}` : null,
     p.guestPhone ? `Телефон: ${esc(p.guestPhone)}` : null,
     `Сумма: ${money(p.totalPrice)}`,
-    `<a href="https://tourhab.ru/hub/stay/bookings">Открыть брони</a>`,
+    `<a href="https://vedarai.ru/hub/stay/bookings">Открыть брони</a>`,
   ].filter(Boolean).join('\n');
 
   const adminChatId = process.env.TELEGRAM_CHAT_ID;

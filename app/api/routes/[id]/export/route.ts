@@ -88,7 +88,7 @@ export async function GET(
     // Генерация GPX
     const lines: string[] = [];
     lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-    lines.push('<gpx version="1.1" creator="TourHab" xmlns="http://www.topografix.com/GPX/1/1">');
+    lines.push('<gpx version="1.1" creator="Ведар" xmlns="http://www.topografix.com/GPX/1/1">');
     lines.push('  <metadata>');
     lines.push(`    <name>${escapeXml(r.title as string)}</name>`);
     const desc = (r.description as string || '').replace(/<[^>]+>/g, '').slice(0, 200);
@@ -96,7 +96,7 @@ export async function GET(
       lines.push(`    <desc>${escapeXml(desc)}</desc>`);
     }
     lines.push('    <author>');
-    lines.push('      <name>TourHab — tourhab.ru</name>');
+    lines.push('      <name>Ведар — vedarai.ru</name>');
     lines.push('    </author>');
     lines.push('  </metadata>');
 

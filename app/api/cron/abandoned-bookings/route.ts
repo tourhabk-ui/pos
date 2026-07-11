@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
           `Сумма: ${Number(row.final_price).toLocaleString('ru-RU')} ₽`,
           '',
           'Автоматически отменится через 22 ч.',
-          `<a href="https://tourhab.ru/hub/operator/bookings">Открыть бронирования</a>`,
+          `<a href="https://vedarai.ru/hub/operator/bookings">Открыть бронирования</a>`,
         ].join('\n');
 
         await notifyTelegram(row.telegram_id, text);

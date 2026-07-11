@@ -22,10 +22,10 @@
 
 ### Шаг 1.1: Перейти на страницу регистрации
 
-1. Откройте https://tourhab.ru
+1. Откройте https://vedarai.ru
 2. В правом верхнем углу: **"Войти"** или **"Регистрация"**
 3. Выберите: **"Для туроператоров"** или роль **"Оператор"**
-4. Вас перенаправит на https://tourhab.ru/auth/register?role=operator
+4. Вас перенаправит на https://vedarai.ru/auth/register?role=operator
 
 ✅ **Вы должны увидеть форму регистрации с полями:**
 - Email
@@ -41,7 +41,7 @@ Email:               your@company.ru
 Согласие с договором: ☑️ Я согласен
 ```
 
-**Если договора нет на экране** → перейти сюда: https://tourhab.ru/legal/operator-agreement
+**Если договора нет на экране** → перейти сюда: https://vedarai.ru/legal/operator-agreement
 
 ⚠️ **ВАЖНО:** Прочитайте договор, особенно:
 - Пункт 3: Комиссия 12% от бронирования
@@ -54,7 +54,7 @@ Email:               your@company.ru
 
 ```
 Тема: Подтвердите ваш email на TourHab
-Текст: Перейдите по ссылке: https://tourhab.ru/auth/confirm?token=...
+Текст: Перейдите по ссылке: https://vedarai.ru/auth/confirm?token=...
 ```
 
 **Клик по ссылке** → Email подтвержден ✅
@@ -67,7 +67,7 @@ Email:               your@company.ru
 
 После подтверждения email вы попадёте в **Hub** → Нужно заполнить профиль:
 
-1. Переходите на https://tourhab.ru/hub/operator/profile
+1. Переходите на https://vedarai.ru/hub/operator/profile
 2. Или нажмите **"Заполнить профиль"** (если есть оповещение)
 
 ### Шаг 2.2: Основная информация
@@ -158,7 +158,7 @@ ID вашего чата: 123456789
 
 ### Шаг 3.3: Проверить на сайте
 
-В профиле (https://tourhab.ru/hub/operator/profile):
+В профиле (https://vedarai.ru/hub/operator/profile):
 - Должно появиться поле **"Telegram Chat ID"** (автозаполняется)
 - Если нету → вернитесь к боту и нажмите /start ещё раз
 
@@ -168,7 +168,7 @@ ID вашего чата: 123456789
 
 ### Шаг 4.1: Способ 1 — Ручной ввод (быстро для первых туров)
 
-1. Перешли на https://tourhab.ru/hub/operator/tours
+1. Перешли на https://vedarai.ru/hub/operator/tours
 2. Нажмите **"+ Добавить тур"**
 3. **Заполните обязательные поля:**
 
@@ -231,7 +231,7 @@ ID вашего чата: 123456789
 
 ### Шаг 5.1: Открыть календарь тура
 
-1. Переходите на https://tourhab.ru/hub/operator/calendar
+1. Переходите на https://vedarai.ru/hub/operator/calendar
 2. Выберите тур из списка
 3. Вы увидите календарь на 3 месяца
 
@@ -285,7 +285,7 @@ ID вашего чата: 123456789
 
 ### Шаг 6.3: Открыть лид в Hub
 
-Нажимаете ссылку → перужидёте на https://tourhab.ru/hub/operator/leads
+Нажимаете ссылку → перужидёте на https://vedarai.ru/hub/operator/leads
 
 Видите **список ваших лидов**:
 
@@ -339,7 +339,7 @@ ID вашего чата: 123456789
 
 ### Шаг 7.1: Dашборд оператора
 
-Переслидите на https://tourhab.ru/hub/operator
+Переслидите на https://vedarai.ru/hub/operator
 
 Видите карточки:
 - **Новые лиды**: X шт. сегодня
@@ -349,7 +349,7 @@ ID вашего чата: 123456789
 
 ### Шаг 7.2: Аналитика лидов
 
-https://tourhab.ru/hub/operator/analytics/leads
+https://vedarai.ru/hub/operator/analytics/leads
 
 Видите графики и таблицы:
 - Количество лидов по дням/неделям

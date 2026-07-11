@@ -47,7 +47,7 @@ export interface PassportOcrResult {
 
 async function downloadPdf(url: string): Promise<Buffer> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'KamchatourHub-PassportOCR/1.0 (+https://tourhab.ru)' },
+    headers: { 'User-Agent': 'KamchatourHub-PassportOCR/1.0 (+https://vedarai.ru)' },
     signal: AbortSignal.timeout(45_000),
   });
   if (!res.ok) throw new Error(`PDF HTTP ${res.status}`);

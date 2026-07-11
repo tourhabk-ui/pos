@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: `${acc.name} — жильё на Камчатке | Tourhab`,
       description: acc.short_description ?? `${acc.name}: описание, номера, цены и бронирование`,
-      alternates: { canonical: `https://tourhab.ru/accommodations/${id}` },
+      alternates: { canonical: `https://vedarai.ru/accommodations/${id}` },
     };
   } catch {
     return { title: 'Жильё на Камчатке | Tourhab' };

@@ -314,7 +314,7 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
             <p><strong>Сумма:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
             <p><strong>ID транзакции:</strong> ${transactionId}</p>
             <p>Оператор свяжется с вами для уточнения деталей тура.</p>
-            <p>Ваше бронирование: <a href="https://tourhab.ru/hub/tourist/bookings">Мои бронирования</a></p>
+            <p>Ваше бронирование: <a href="https://vedarai.ru/hub/tourist/bookings">Мои бронирования</a></p>
           `,
         });
       } catch { /* email не блокирует платёжный flow */ }

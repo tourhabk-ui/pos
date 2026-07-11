@@ -130,7 +130,7 @@ export async function PATCH(
         : `<h2>Бронирование отменено</h2>
            <p><strong>Тур:</strong> ${row.tour_title ?? ''}</p>
            ${input.cancellation_reason ? `<p><strong>Причина:</strong> ${input.cancellation_reason}</p>` : ''}
-           <p>Свяжитесь с оператором или выберите другой тур на <a href="https://tourhab.ru/marketplace">tourhab.ru</a>.</p>`;
+           <p>Свяжитесь с оператором или выберите другой тур на <a href="https://vedarai.ru/marketplace">vedarai.ru</a>.</p>`;
       emailService.sendEmail({ to: row.tourist_email, subject, html }).catch(() => {});
 
       // Push notification to tourist

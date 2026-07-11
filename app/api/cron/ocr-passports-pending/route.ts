@@ -32,7 +32,7 @@ function intParam(raw: string | null, fallback: number, min: number, max: number
 async function downloadPdfB64(url: string): Promise<{ b64: string; bytes: number } | { error: string }> {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'KamchatourHub-PassportOCR/1.0 (+https://tourhab.ru)' },
+      headers: { 'User-Agent': 'KamchatourHub-PassportOCR/1.0 (+https://vedarai.ru)' },
       signal: AbortSignal.timeout(45_000),
     });
     if (!res.ok) return { error: `PDF HTTP ${res.status}` };

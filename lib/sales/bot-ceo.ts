@@ -106,7 +106,7 @@ export class SalesBotCEO {
 
 Первый месяц: 0% комиссия (проверяем).
 
-Попробуешь? → https://tourhab.ru/operator/join
+Попробуешь? → https://vedarai.ru/operator/join
 
 Ждём,
 Claude AI, CEO KamchatourHub`;

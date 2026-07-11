@@ -89,7 +89,7 @@ describe('зонная страница — метаданные', () => {
       params: Promise.resolve({ id: 'vulkani', zone: 'avachinsky' }),
     });
 
-    expect(meta.alternates?.canonical).toBe('https://tourhab.ru/routes/vulkani/avachinsky');
+    expect(meta.alternates?.canonical).toBe('https://vedarai.ru/routes/vulkani/avachinsky');
     expect(String(meta.title)).toContain('Авачинская зона');
     expect(String(meta.title)).toContain('Вулканы');
   });

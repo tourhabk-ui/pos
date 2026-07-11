@@ -5,7 +5,9 @@
  * Вне scope (осознанно НЕ проверяется):
  *  - app/api/**            — email/telegram/gpx/ical шаблоны (отдельная задача)
  *  - app/legal/**          — тела юрдокументов (правовое решение, не косметика)
- *  - строки с tourhab.ru   — живые URL, миграция домена — отдельная задача
+ *  - домены: миграция tourhab.ru → vedarai.ru выполнена (июль 2026);
+ *    остаточные tourhab.ru — только email-адреса (@tourhab.ru, почтовый домен),
+ *    affiliate-аккаунты и app/api/payments (§7)
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'fs';

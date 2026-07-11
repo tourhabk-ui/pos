@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://tourhab.ru',
+            'HTTP-Referer': 'https://vedarai.ru',
           },
           body: JSON.stringify({
             model:      'openai/gpt-4o-mini',

@@ -81,7 +81,7 @@ export async function PATCH(
       subject: 'Ваша заявка одобрена — TourHub',
       html: `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
              <p>Заявка компании <b>${partner.company_name}</b> одобрена. Теперь вы можете публиковать туры.</p>
-             <p><a href="https://tourhab.ru/hub/operator">Перейти в кабинет →</a></p>`,
+             <p><a href="https://vedarai.ru/hub/operator">Перейти в кабинет →</a></p>`,
     }).catch(() => {});
 
     // Telegram уведомление оператору если есть chat_id
@@ -98,7 +98,7 @@ export async function PATCH(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `Ваша заявка одобрена! Теперь вы можете публиковать туры на TourHub.\nhttps://tourhab.ru/hub/operator`,
+            text: `Ваша заявка одобрена! Теперь вы можете публиковать туры на TourHub.\nhttps://vedarai.ru/hub/operator`,
           }),
         }).catch(() => {});
       }

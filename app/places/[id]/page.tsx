@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tourhab.ru';
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 const PLACE_TYPE_LABEL: Record<string, string> = {
   volcano: 'Вулкан', geyser: 'Гейзер', hot_spring: 'Термальный источник',

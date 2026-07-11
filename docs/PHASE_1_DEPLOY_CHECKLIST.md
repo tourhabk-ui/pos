@@ -77,7 +77,7 @@ npm run dev
 - [ ] При регистрации оператора → требуется согласие с договором (чекбокс)
 
 **Где проверить:**
-- https://tourhab.ru/legal/operator-agreement (должна быть страница)
+- https://vedarai.ru/legal/operator-agreement (должна быть страница)
 - При регистрации `/auth/register?role=operator` — должен быть чекбокс согласия
 
 ---
@@ -198,7 +198,7 @@ curl https://vedarai.ru/api/health/lead-processor
 **Проверка на production:**
 
 ```
-1. Открыть https://tourhab.ru → видна OperatorPromo секция ✅
+1. Открыть https://vedarai.ru → видна OperatorPromo секция ✅
 2. Кликнуть "Зарегистрироваться" → редирект на /auth/register?role=operator ✅
 3. Заполнить форму → создан аккаунт оператора ✅
 4. Залогиниться → Hub работает, видна "Лиды" в меню ✅

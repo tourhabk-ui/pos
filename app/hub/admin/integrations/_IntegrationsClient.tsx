@@ -350,7 +350,7 @@ export default function IntegrationsClient() {
           <div className="text-sm">
             <p className="font-medium text-[var(--text-primary)] mb-0.5">OCTO Standard API</p>
             <p className="text-[var(--text-secondary)]">
-              Базовый URL: <code className="text-[var(--ocean)] font-mono">https://tourhab.ru/api/octo</code>
+              Базовый URL: <code className="text-[var(--ocean)] font-mono">https://vedarai.ru/api/octo</code>
               {' · '}Авторизация: <code className="text-[var(--ocean)] font-mono">Authorization: Bearer &lt;api_key&gt;</code>
             </p>
           </div>

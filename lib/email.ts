@@ -82,7 +82,7 @@ export async function sendEmail(opts: EmailOptions): Promise<{ success: boolean;
 
         if (code === 220 && !state['_ehlo_sent']) {
           state['_ehlo_sent'] = true;
-          socket.write('EHLO tourhab.ru\r\n');
+          socket.write('EHLO vedarai.ru\r\n');
         } else if (code === 250 && !state['_auth_sent']) {
           state['_auth_sent'] = true;
           socket.write('AUTH LOGIN\r\n');

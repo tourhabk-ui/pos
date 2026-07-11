@@ -3,7 +3,7 @@
  * Точка Bank вызывает этот endpoint при успешной оплате по QR.
  *
  * Настройка вебхука: ЛК Точки → Интеграции → Уведомления →
- *   URL: https://tourhab.ru/api/payments/tochka/webhook
+ *   URL: https://vedarai.ru/api/payments/tochka/webhook
  *   События: payment.completed
  */
 

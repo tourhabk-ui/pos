@@ -226,12 +226,12 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
     doc.fillColor('#FFFFFF')
        .fontSize(10)
        .font('Helvetica-Bold')
-       .text('TourHab — Туризм на Камчатке', 60, footerY);
+       .text('Ведар — Туризм на Камчатке', 60, footerY);
 
     doc.fillColor('#9A9590')
        .fontSize(9)
        .font('Helvetica')
-       .text('tourhab.ru · Предложение действительно 7 дней', 60, footerY + 18);
+       .text('vedarai.ru · Предложение действительно 7 дней', 60, footerY + 18);
 
     doc.fillColor('#9A9590')
        .fontSize(8)

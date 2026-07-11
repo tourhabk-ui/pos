@@ -132,7 +132,7 @@ GitHub Actions передаёт его через header `X-Cron-Secret` или 
 ```env
 TELEGRAM_BOT_TOKEN=<токен бота>
 TELEGRAM_CHAT_ID=<ID чата администратора>
-NEXT_PUBLIC_APP_URL=https://tourhab.ru
+NEXT_PUBLIC_APP_URL=https://vedarai.ru
 CRON_SECRET=<секрет>
 ```
 
@@ -151,7 +151,7 @@ CRON_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, NEXT_PUBLIC_APP_URL
 
 #### Как проверить работу
 
-- **Прямая проверка:** `GET https://tourhab.ru/api/cron/watchdog?secret=<CRON_SECRET>` → `{"ok": true}`
+- **Прямая проверка:** `GET https://vedarai.ru/api/cron/watchdog?secret=<CRON_SECRET>` → `{"ok": true}`
 - **Через логи:** таблица `agent_run_history` WHERE `agent_id = 'watchdog'` — смотреть `status`, `started_at`
 - **Живой тест:** создай тестовое бронирование, переведи в `pending_payment`, подожди >24ч → должен прийти алерт
 
@@ -1279,7 +1279,7 @@ ANTHROPIC_API_KEY=<Claude для диалогов>
 
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
-  -d "url=https://tourhab.ru/api/telegram-webhook"
+  -d "url=https://vedarai.ru/api/telegram-webhook"
 ```
 
 ---
@@ -1334,7 +1334,7 @@ operator_tours ──► [adapter] ──► Tripster / Avito
 1. Зарегистрировать аккаунт Avito для бизнеса
 2. Получить Client ID и Secret в авторизованных приложениях Avito
 3. Добавить в env: `AVITO_CLIENT_ID`, `AVITO_CLIENT_SECRET`
-4. Зарегистрировать XML-фид: `https://tourhab.ru/api/channels/avito/feed.xml`
+4. Зарегистрировать XML-фид: `https://vedarai.ru/api/channels/avito/feed.xml`
 5. В Avito dashboard: Профессиональный кабинет → Управление объявлениями → Загрузить фид
 
 **Шаг 3: Создать GitHub Actions workflow**
@@ -1377,7 +1377,7 @@ GROUP BY channel, status;
 DATABASE_URL=postgresql://...
 JWT_SECRET=<случайная строка 64+ символа>
 CRON_SECRET=<случайная строка>
-NEXT_PUBLIC_APP_URL=https://tourhab.ru
+NEXT_PUBLIC_APP_URL=https://vedarai.ru
 ```
 
 ### Telegram (большинство агентов)
@@ -1523,7 +1523,7 @@ CLOUDPAYMENTS_SECRET=
 
 - [ ] `CRON_SECRET` установлен в Timeweb env vars
 - [ ] `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` установлены
-- [ ] `NEXT_PUBLIC_APP_URL=https://tourhab.ru` установлен
+- [ ] `NEXT_PUBLIC_APP_URL=https://vedarai.ru` установлен
 - [ ] В GitHub Secrets: `CRON_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_URL`
 - [ ] `cron-watchdog.yml` — активен, проверить логи Actions
 - [ ] `cron-safety-ingest.yml` — активен, запустить вручную → проверить `agent_run_history`

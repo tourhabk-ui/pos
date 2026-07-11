@@ -199,7 +199,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedarai.ru',
           'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({
@@ -1235,7 +1235,7 @@ export async function preflightProviders(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedarai.ru',
           'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({ model: 'openai/gpt-4o-mini', max_tokens: 5, messages: testMsg }),
@@ -1571,7 +1571,7 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://tourhab.ru',
+          'HTTP-Referer': 'https://vedarai.ru',
           'X-Title': 'TourHab Kamchatka',
         },
         body: JSON.stringify({

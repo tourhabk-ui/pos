@@ -6,6 +6,7 @@
  * Использует TELEGRAM_KUZMICH_BOT_TOKEN, fallback → TELEGRAM_BOT_TOKEN.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { getPublicBaseUrl } from '@/lib/config';
 export const dynamic = 'force-dynamic';
 
 async function registerWebhook(token: string, appUrl: string) {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
   const result = await registerWebhook(token, appUrl);
   return NextResponse.json(result);
 }
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN не задан', hint: 'Задай на Timeweb' }, { status: 500 });
   }
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
   const result = await registerWebhook(token, appUrl);
   return NextResponse.json(result);
 }

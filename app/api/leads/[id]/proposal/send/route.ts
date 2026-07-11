@@ -11,6 +11,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/lead-processor.service';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const Schema = z.object({
   channel: z.enum(['telegram', 'email', 'both']).optional().default('both'),
@@ -88,7 +89,7 @@ export async function POST(
     return NextResponse.json({ error: 'Данные предложения не найдены.' }, { status: 404 });
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL ?? (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const baseUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrl();
   const pdfUrl  = `${baseUrl}/api/leads/${id}/proposal/pdf`;
 
   const sent: string[] = [];

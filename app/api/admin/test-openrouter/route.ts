@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedarai.ru',
         'X-Title': 'TourHab Kamchatka',
       },
       body: JSON.stringify({

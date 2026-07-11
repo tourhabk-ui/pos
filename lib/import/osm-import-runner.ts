@@ -30,7 +30,7 @@ const OVERPASS_ENDPOINTS = [
 const OSM_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded',
   'Accept': 'application/json',
-  'User-Agent': 'KamchatourHub-OSM-Import/1.0 (+https://tourhab.ru)',
+  'User-Agent': 'KamchatourHub-OSM-Import/1.0 (+https://vedarai.ru)',
 };
 const DEFAULT_DELAY_MS = 1300; // пауза между запросами — щадим rate-limit Overpass
 

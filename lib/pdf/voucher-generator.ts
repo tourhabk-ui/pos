@@ -63,7 +63,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     doc.fontSize(18).font('Helvetica-Bold').fillColor(ACCENT)
        .text('TourHab', 65, 52, { continued: true })
        .fontSize(9).font('Helvetica').fillColor(MUTED)
-       .text('  Туристическая платформа Камчатки · tourhab.ru');
+       .text('  Туристическая платформа Камчатки · vedarai.ru');
     doc.fontSize(9).font('Helvetica').fillColor(MUTED)
        .text('МАРШРУТНАЯ КВИТАНЦИЯ / ТУРИСТИЧЕСКИЙ ВАУЧЕР', 65, 74);
     doc.y = 100;
@@ -168,7 +168,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
 
     // ── Подвал ─────────────────────────────────────────────────────────────────
     doc.fontSize(8).fillColor(MUTED).text(
-      `Ваучер №${data.bookingId} · TourHab (tourhab.ru) · support@tourhab.ru · ${fmt(data.issueDate)}`,
+      `Ваучер №${data.bookingId} · Ведар (vedarai.ru) · support@tourhab.ru · ${fmt(data.issueDate)}`,
       { align: 'center', width: W }
     );
 

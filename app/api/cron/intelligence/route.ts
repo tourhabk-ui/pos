@@ -5,7 +5,7 @@
  * Scans 3 domains: AI/Tech, Travel Industry, Competitors.
  * Stores findings in agent_memory, sends critical to Telegram.
  *
- * URL: https://tourhab.ru/api/cron/intelligence?secret=<CRON_SECRET>
+ * URL: https://vedarai.ru/api/cron/intelligence?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

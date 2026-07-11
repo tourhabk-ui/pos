@@ -17,7 +17,7 @@ async function notifyArtemWish(message: string, category: string, priority: stri
     `${PRIORITY_EMOJI[priority] ?? '⚪'} <b>${CATEGORY_LABEL[category] ?? category}</b>`,
     `${message.slice(0, 400)}${message.length > 400 ? '...' : ''}`,
     ``,
-    `<a href="https://tourhab.ru/hub/admin/safety">Открыть дашборд</a>`,
+    `<a href="https://vedarai.ru/hub/admin/safety">Открыть дашборд</a>`,
   ].join('\n');
   try {
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
