@@ -1,0 +1,104 @@
+name: CI Sweeper
+
+# Петля loop engineering: красный CI чинится сам, без ручного дежурства.
+#
+# - Упал CI на PR-ветке → агент читает лог упавшего рана, чинит и коммитит
+#   в ту же ветку с маркером [ci-sweep]. PR остаётся draft — мержит человек.
+# - Упал CI на main (кандидат в сломанный автодеплой Timeweb) → в main НИКТО
+#   не пушит: hotfix-ветка claude/ci-hotfix-<run_id> + draft-PR с заголовком
+#   «ГОРЯЧО» — GitHub-нотификация владельцу и есть алерт.
+#
+# Защита от зацикливания: одна попытка на красный ран. Если упавший коммит
+# уже содержит [ci-sweep] — свипер не запускается (иначе фикс, ломающий CI,
+# порождал бы бесконечную рекурсию workflow_run).
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+concurrency:
+  group: ci-sweep-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      !contains(github.event.workflow_run.head_commit.message, '[ci-sweep]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write # read — логи упавшего рана; write — gh run rerun при флаки
+      id-token: write
+    steps:
+      - name: Checkout failing branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 1
+
+      - name: Read codebase rules
+        id: ctx
+        run: |
+          {
+            echo 'RULES<<HEREDOC'
+            grep -A 200 '## 4. КОД' CLAUDE.md | head -80 || true
+            echo ''
+            grep -A 50 '## 7. НЕ ТРОГАТЬ' CLAUDE.md | head -30 || true
+            echo 'HEREDOC'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude sweeper
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+            --max-turns 80
+          show_full_output: true
+          prompt: |
+            Ты — CI Sweeper кодовой базы Ведар (Next.js 15, TypeScript strict,
+            PostgreSQL). Упал CI, твоя задача — починить его за одну попытку.
+
+            ══ КОНТЕКСТ ПАДЕНИЯ ══
+            Ветка: ${{ github.event.workflow_run.head_branch }}
+            Ран: ${{ github.event.workflow_run.id }}
+            Коммит: ${{ github.event.workflow_run.head_sha }}
+
+            ПЕРВЫМ ДЕЛОМ получи лог падения:
+            gh run view ${{ github.event.workflow_run.id }} --log-failed
+
+            Затем прочитай CLAUDE.md и файлы вокруг места падения — не угадывай
+            паттерны. Почини корень падения минимальным диффом. Перед пушем
+            обязательно прогони локально: npx tsc --noEmit и npx vitest run.
+
+            ══ КУДА КОММИТИТЬ ══
+            ЕСЛИ ветка НЕ main:
+              коммить прямо в текущую ветку (${{ github.event.workflow_run.head_branch }}).
+              Сообщение коммита ОБЯЗАНО содержать маркер [ci-sweep] — это защита
+              от зацикливания. После пуша оставь один короткий комментарий в
+              связанный PR: gh pr comment --body "CI починен: <причина падения одной строкой>"
+
+            ЕСЛИ ветка main:
+              НИКОГДА не пушь в main. Создай ветку:
+              git checkout -b claude/ci-hotfix-${{ github.event.workflow_run.id }}
+              Запушь её и открой draft-PR:
+              gh pr create --draft --title "ГОРЯЧО: CI на main красный — hotfix" --body "<что упало и что починено>"
+              Сообщение коммита также обязано содержать [ci-sweep].
+
+            ══ ГРАНИЦЫ (нарушение = остановись и позови человека) ══
+            Если для починки нужно менять app/api/payments/, app/api/safety/sos,
+            middleware.ts или lib/auth.ts — НЕ чини. Вместо этого оставь
+            комментарий в PR (или создай issue для main) с диагнозом и стоп.
+            Если падение флаки (сеть, таймаут раннера) и код не виноват —
+            перезапусти ран: gh run rerun ${{ github.event.workflow_run.id }} --failed
+            и больше ничего не делай.
+
+            ЗАПРЕЩЕНО В КОДЕ (правила репозитория):
+            ${{ steps.ctx.outputs.RULES }}
