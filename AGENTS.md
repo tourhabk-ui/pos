@@ -36,6 +36,7 @@ LLM-петля готовит изменения draft-PR'ом, мержит ч�
 | Петля | Workflow | Триггер | Что делает |
 |-------|----------|---------|------------|
 | **CI Sweeper** | `.github/workflows/ci-sweeper.yml` | CI завершился с failure | Читает лог падения, чинит: PR-ветка → коммит в неё с маркером `[ci-sweep]`; main → hotfix draft-PR «ГОРЯЧО». Одна попытка на ран (маркер в коммите глушит рекурсию), флаки → rerun. |
+| **Issue Triage** | `.github/workflows/issue-triage.yml` | 21:00 UTC ежедневно + маркер | Размечает открытые issues без `triaged`: тип/объём, safety/money/L → `needs-owner` (бота не запускать), тривиальные S/M → `agent-proposal` (запуск конвейера claude.yml). Кода не касается: permissions только issues. |
 
 ### Ежедневный брифинг (общая память агентов)
 
