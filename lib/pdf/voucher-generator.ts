@@ -4,6 +4,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export interface VoucherData {
   bookingId: number;
@@ -160,7 +161,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
     divider(doc, LINE, W);
     doc.moveDown(0.4);
     doc.fontSize(9).font('Helvetica').fillColor(MUTED).text(
-      `Детали бронирования: tourhab.ru/booking-success/${data.bookingId}`,
+      `Детали бронирования: ${getPublicBaseUrl().replace(/^https?:\/\//, '')}/booking-success/${data.bookingId}`,
       { align: 'center', width: W }
     );
     doc.moveDown(0.3);

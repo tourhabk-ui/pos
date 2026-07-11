@@ -20,6 +20,8 @@ export interface GrowthIssue {
 
 export interface GrowthScanResult {
   issues: GrowthIssue[];
+  /** Сколько из найденных проблем НОВЫЕ (впервые записаны в БД этим сканом). */
+  new_issues: number;
   scan_id: string;
   duration_ms: number;
 }
@@ -43,24 +45,19 @@ const ACCEPTED_RISKS = new Set([
   'app/api/webhook/route.ts',         // exec() защищён HMAC-SHA256, команда захардкожена
 ]);
 
-// Known dead modules (0 imports, confirmed in audit 2026-04-24)
-const DEAD_MODULES = [
-  'lib/agents/learning/experiment-tracker.ts',
-  'lib/agents/learning/feedback-loop.ts',
-  'lib/agents/learning/pattern-recognition.ts',
-  'lib/agents/evolution/optimized-runner.ts',
-  'lib/agents/execution/evolution-loop.ts',
-  'lib/agents/execution/vibe-coder-executor.ts',
-  'lib/agents/sdk/evo-sdk-agent.ts',
-  'lib/agents/sdk/hacker-sdk-agent.ts',
-  'lib/agents/sdk/rescue-sdk-agent.ts',
-  'lib/agents/context-hub.ts',
-  'lib/agents/observation-logger.ts',
-  'lib/agents/validation/director-standards.ts',
-  // lib/events/subscribers.ts — активно используется (шина событий)
-  // lib/analytics/lead-tracking.ts — активно используется (StickyLeadButton, YandexTravelBlock, RouteAffiliateBlock)
-  'lib/legal/ai-legal-review.ts',
-];
+/**
+ * Подтверждённые мёртвые модули (0 импортов). Список — ручной, поэтому
+ * каждая запись обязана существовать в репо: тест evo-scan-honesty
+ * проверяет existsSync по каждому пути. Прод исполняет standalone-бандл
+ * без исходников, так что проверить existsSync в рантайме нельзя —
+ * актуальность держится на этом тесте.
+ *
+ * История: аудит 2026-04-24 нашёл 13 модулей; к июлю 2026 десять удалены,
+ * а experiment-tracker (wilsonInterval в eval), context-hub и
+ * observation-logger (platform-agent) снова используются. Список пуст —
+ * новые записи добавлять только после ручной проверки «grep = 0 импортов».
+ */
+export const DEAD_MODULES: string[] = [];
 
 async function scanDeadCode(): Promise<GrowthIssue[]> {
   return DEAD_MODULES.map(f => ({
@@ -82,29 +79,20 @@ async function scanSecurity(): Promise<GrowthIssue[]> {
   return issues;
 }
 
+/**
+ * Известный tech debt. Как и DEAD_MODULES — ручной список, каждая запись
+ * обязана указывать на существующий файл (тест evo-scan-honesty).
+ * run-089/run-115 удалены из репо — записи сняты, фантомы в БД закрывает
+ * миграция 743.
+ */
+export const TECH_DEBT_FILES: Array<Pick<GrowthIssue, 'file_path' | 'title' | 'description' | 'suggestion'>> = [];
+
 async function scanTechDebt(): Promise<GrowthIssue[]> {
-  const issues: GrowthIssue[] = [];
-
-  // Temporary endpoints still in codebase
-  issues.push({
-    category: 'tech_debt',
-    severity: 'medium',
-    file_path: 'app/api/admin/run-089/route.ts',
-    title: 'Временный эндпоинт run-089 не удалён',
-    description: 'Миграция фото применена, но эндпоинт остался в коде.',
-    suggestion: 'Удалить файл app/api/admin/run-089/route.ts.',
-  });
-
-  issues.push({
-    category: 'tech_debt',
-    severity: 'medium',
-    file_path: 'app/api/admin/run-115/route.ts',
-    title: 'Временный эндпоинт run-115 не удалён',
-    description: 'Миграция outreach_queue применена, но эндпоинт остался.',
-    suggestion: 'Удалить файл app/api/admin/run-115/route.ts.',
-  });
-
-  return issues;
+  return TECH_DEBT_FILES.map(t => ({
+    category: 'tech_debt' as const,
+    severity: 'medium' as const,
+    ...t,
+  }));
 }
 
 async function scanPerformance(): Promise<GrowthIssue[]> {
@@ -242,6 +230,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   const scanId = rows[0]?.id ?? '';
 
   // Save individual issues — deduplicate by file_path+title
+  let newIssues = 0;
   for (const issue of issues) {
     // Check if this exact issue already exists (any active status — not just 'open').
     // Without this, issues re-appear every scan after Evolution Loop moves them to 'accepted'.
@@ -264,6 +253,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion],
     );
+    newIssues++;
   }
 
   // Atomic increment — safe under parallel execution with evolution-loop.
@@ -277,6 +267,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, scan_id: scanId, duration_ms: Date.now() - start };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start };
 }
 
