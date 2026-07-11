@@ -1,0 +1,40 @@
+name: Post-Merge Cleanup
+
+# Петля loop engineering, детерминированная часть (без LLM, уровень L3):
+# после мержа PR смерженная claude/* ветка удаляется. Мусор веток копился
+# с апреля — GitHub их не чистит сам, а cleanup не требует суждения.
+#
+# Ветки вне claude/* (ручные ветки владельца) не трогаются.
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'claude/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete merged branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # Ветка могла быть удалена вручную или переиспользована новым
+          # коммитом после мержа — оба случая не ошибка петли.
+          HEAD_NOW=$(gh api "repos/${{ github.repository }}/branches/$BRANCH" --jq .commit.sha 2>/dev/null || echo "gone")
+          if [ "$HEAD_NOW" = "gone" ]; then
+            echo "Ветка $BRANCH уже удалена"
+            exit 0
+          fi
+          if [ "$HEAD_NOW" != "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "На $BRANCH появились новые коммиты после мержа — не трогаем"
+            exit 0
+          fi
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$BRANCH"
+          echo "Удалена смерженная ветка $BRANCH"

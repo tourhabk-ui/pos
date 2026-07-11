@@ -1,0 +1,86 @@
+name: Weekly Chronicle
+
+# Петля loop engineering, блок Memory/State: воскресный цикл собирает
+# смерженные за неделю PR и дописывает «Хронику недели» в .claude/MEMORY.md
+# draft-PR'ом (уровень L2 — мержит человек). Межсессионная память агента
+# перестаёт зависеть только от compaction-саммари: следующая сессия читает
+# хронику из репозитория.
+
+on:
+  schedule:
+    - cron: '0 20 * * 0'  # воскресенье 20:00 UTC ≈ утро понедельника Камчатки
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/weekly-chronicle.json'
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-chronicle
+  cancel-in-progress: false
+
+jobs:
+  chronicle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Collect merged PRs of the week
+        id: merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SINCE=$(date -u -d '7 days ago' +%Y-%m-%d)
+          gh pr list --state merged --search "merged:>=$SINCE" --limit 100 \
+            --json number,title,mergedAt --jq 'sort_by(.mergedAt) | .[] | "#\(.number) \(.title)"' > /tmp/merged.txt
+          COUNT=$(wc -l < /tmp/merged.txt)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          {
+            echo 'LIST<<HEREDOC'
+            cat /tmp/merged.txt
+            echo 'HEREDOC'
+          } >> "$GITHUB_OUTPUT"
+          echo "Смержено за неделю: $COUNT PR"
+
+      - name: Run Claude chronicler
+        if: steps.merged.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+            --max-turns 40
+          show_full_output: true
+          prompt: |
+            Ты — летописец кодовой базы Ведар. Раз в неделю ты дописываешь
+            короткую «Хронику недели» в .claude/MEMORY.md, чтобы следующие
+            рабочие сессии агентов начинали с актуального контекста.
+
+            ══ СМЕРЖЕНО ЗА НЕДЕЛЮ ══
+            ${{ steps.merged.outputs.LIST }}
+
+            Задача:
+            1. Прочитай .claude/MEMORY.md — пойми его структуру и стиль.
+            2. Добавь (или дополни, если раздел уже есть) раздел
+               «## Хроника» с подразделом за эту неделю (дата — сегодня):
+               3-6 строк СУТИ — что уехало на прод, какие новые конвенции,
+               модули или петли появились, что владельцу стоит помнить.
+               Группируй по смыслу, не перечисляй PR механически.
+               Ссылки на PR — формой #N. Никаких эмодзи.
+            3. Старые недели не переписывай. Если хроника длиннее ~10 недель —
+               сожми самые старые недели до одной строки каждая.
+            4. Ветка + draft-PR:
+               git checkout -b claude/chronicle-$(date -u +%Y%m%d)
+               git push и gh pr create --draft --title "Хроника недели в MEMORY.md" --body "<1-2 предложения>"
+
+            НИКОГДА не пушь в main. Меняй ТОЛЬКО .claude/MEMORY.md.

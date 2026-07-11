@@ -37,6 +37,8 @@ LLM-петля готовит изменения draft-PR'ом, мержит ч�
 |-------|----------|---------|------------|
 | **CI Sweeper** | `.github/workflows/ci-sweeper.yml` | CI завершился с failure | Читает лог падения, чинит: PR-ветка → коммит в неё с маркером `[ci-sweep]`; main → hotfix draft-PR «ГОРЯЧО». Одна попытка на ран (маркер в коммите глушит рекурсию), флаки → rerun. |
 | **Issue Triage** | `.github/workflows/issue-triage.yml` | 21:00 UTC ежедневно + маркер | Размечает открытые issues без `triaged`: тип/объём, safety/money/L → `needs-owner` (бота не запускать), тривиальные S/M → `agent-proposal` (запуск конвейера claude.yml). Кода не касается: permissions только issues. |
+| **Post-Merge Cleanup** | `.github/workflows/post-merge.yml` | PR смержен | Детерминированно (без LLM, L3) удаляет смерженную `claude/*` ветку; ветки с новыми коммитами после мержа и ручные ветки не трогает. |
+| **Weekly Chronicle** | `.github/workflows/weekly-chronicle.yml` | вс 20:00 UTC + маркер | Собирает смерженные за неделю PR → дописывает «Хронику недели» в `.claude/MEMORY.md` draft-PR'ом. Межсессионная память агентов живёт в репо, а не только в compaction-саммари. |
 
 ### Ежедневный брифинг (общая память агентов)
 
