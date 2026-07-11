@@ -218,7 +218,9 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   useEffect(() => {
     if (messages.length === 0) return;
     try {
-      const toSave = messages.slice(-50);
+      // Ошибки конвейера показываем в сессии, но не переносим между визитами —
+      // иначе человек открывает чат и видит стену «сервис недоступен».
+      const toSave = messages.filter(m => m.role !== 'assistant' || !isAiErrorReply(m.content)).slice(-50);
       localStorage.setItem('th_ai_chat_history', JSON.stringify(toSave));
     } catch { /* ignore localStorage errors */ }
   }, [messages]);

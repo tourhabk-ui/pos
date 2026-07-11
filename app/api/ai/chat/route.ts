@@ -34,7 +34,7 @@ import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
-import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
 
 export const dynamic = 'force-dynamic';
 
@@ -336,11 +336,18 @@ export async function POST(request: NextRequest) {
     const bookingTriggered = safeRole === 'tourist' && BOOKING_TRIGGERS_CHAT.some(t => rawMessage.toLowerCase().includes(t));
     const bookingFormTour = bookingTriggered && tourSuggestions.length > 0 ? tourSuggestions[0] : null;
 
-    const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now() };
-    history.push(assistantMsg);
+    // Фолбэк-ошибки конвейера («Извините, сервис временно недоступен») не
+    // сохраняем в историю — они отравляют контекст следующих ответов (модель
+    // начинает подражать «недоступности»). Telegram-путь (lib/kuzmich/core.ts)
+    // делает так же. И не списываем за ошибку бесплатное сообщение анонима.
+    const answerIsError = isAIErrorResponse(answer);
+    if (!answerIsError) {
+      const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now() };
+      history.push(assistantMsg);
+    }
 
     // Increment count and extract interests
-    const newCount = currentCount + 1;
+    const newCount = answerIsError ? currentCount : currentCount + 1;
     const interestsEncrypted = extractAndEncryptInterests(message, session?.interests_encrypted ?? null);
 
     // Обновить долгосрочную память пользователя (fire-and-forget, не блокирует ответ)
