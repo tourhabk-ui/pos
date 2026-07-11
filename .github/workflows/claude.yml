@@ -12,9 +12,15 @@ on:
 
 jobs:
   claude:
+    # Issues от владельца/коллабораторов обрабатываются БЕЗ маркеров — раньше
+    # 144 из 148 ранов скипались, потому что issues создавались без «@claude»
+    # и без лейбла agent-proposal, и владелец ждал автоматику впустую.
+    # Репо публичный, поэтому чужие issues — по-прежнему только через лейбл
+    # (его вешает владелец) или @claude-упоминание в комментарии владельца.
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
+      (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)) ||
       (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
