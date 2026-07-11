@@ -26,6 +26,17 @@
 GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-scout.yml`, `cron-kuzmich-places.yml`
 Новые croны (Industry Intel, Legislation Sync, Memory Reflector, Contradiction Scanner, Editor Eval) — через cron-job.org; настройка в [`docs/ACTIVATION_CHECKLIST.md`](./docs/ACTIVATION_CHECKLIST.md).
 
+### Loop-агенты (GitHub Actions, loop engineering)
+
+Петли, работающие с репозиторием, а не с БД платформы. Уровень автономии L2:
+LLM-петля готовит изменения draft-PR'ом, мержит человек. Детерминированные
+шаги (удаление веток) — L3. §7-границы (payments, SOS, middleware, auth)
+вшиты в промпты: петля останавливается и зовёт человека.
+
+| Петля | Workflow | Триггер | Что делает |
+|-------|----------|---------|------------|
+| **CI Sweeper** | `.github/workflows/ci-sweeper.yml` | CI завершился с failure | Читает лог падения, чинит: PR-ветка → коммит в неё с маркером `[ci-sweep]`; main → hotfix draft-PR «ГОРЯЧО». Одна попытка на ран (маркер в коммите глушит рекурсию), флаки → rerun. |
+
 ### Ежедневный брифинг (общая память агентов)
 
 Каждый cron-агент на старте вызывает `readAgentBriefing(agentId)` из `lib/agents/warmup.ts`.
