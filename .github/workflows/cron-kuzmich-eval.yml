@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Kuzmich Eval — faithfulness-регрессия ответов
+      - name: Kuzmich Eval — faithfulness-регрессия ответов (фикстура)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -19,4 +19,20 @@ jobs:
             "https://vedarai.ru/api/cron/kuzmich-eval" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+
+      # Живой сэмпл: реальные вопросы туристов из chat_sessions за 7 дней
+      # (PII маскируется на сервере). Модели различают тестовый и живой
+      # контекст (J-Lens) — фикстурный прогон может быть систематически
+      # оптимистичнее реального трафика.
+      - name: Kuzmich Eval — живые вопросы из chat_sessions
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/live.json -w "%{http_code}" --max-time 280 \
+            "https://vedarai.ru/api/cron/kuzmich-eval?source=live&limit=10" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP" && cat /tmp/live.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

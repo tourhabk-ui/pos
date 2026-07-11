@@ -27,7 +27,10 @@ import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
 
 export interface EvalQuestion {
   id: string;
-  category: 'route' | 'safety' | 'season' | 'logistics';
+  // 'live' — вопрос, сэмплированный из реальных chat_sessions (см.
+  // lib/agents/eval/live-questions.ts): модели различают тестовый и живой
+  // контекст, фикстура может систематически получать более аккуратные ответы.
+  category: 'route' | 'safety' | 'season' | 'logistics' | 'live';
   question: string;
 }
 
