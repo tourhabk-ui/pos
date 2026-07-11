@@ -3,7 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap } from 'lucide-react';
 
-type LeadStatus = 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+// Полный набор статусов из API (включая те, что ставит AI Lead Processor) —
+// раньше карточка падала на ai_qualified/proposal_sent: STATUS_META[status]
+// был undefined, и .color крашил рендер вкладки «Все».
+type LeadStatus =
+  | 'new' | 'contacted' | 'qualified' | 'converted' | 'lost'
+  | 'ai_processing' | 'ai_qualified' | 'proposal_sent' | 'awaiting_confirm';
 
 interface LeadSourceData {
   source?: string;
@@ -60,12 +65,23 @@ function ScoreBadge({ score }: { score: number | null }) {
 }
 
 const STATUS_META: Record<LeadStatus, { label: string; color: string }> = {
-  new:        { label: 'Новый',          color: 'bg-[var(--ocean)]/10 text-[var(--ocean)]' },
-  contacted:  { label: 'Позвонили',      color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
-  qualified:  { label: 'Квалифицирован', color: 'bg-[var(--accent)]/10 text-[var(--accent)]' },
-  converted:  { label: 'Сделка',         color: 'bg-[var(--success)]/10 text-[var(--success)]' },
-  lost:       { label: 'Отказ',          color: 'bg-[var(--danger)]/10 text-[var(--danger)]' },
+  new:             { label: 'Новый',              color: 'bg-[var(--ocean)]/10 text-[var(--ocean)]' },
+  contacted:       { label: 'Позвонили',          color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
+  qualified:       { label: 'Квалифицирован',     color: 'bg-[var(--accent)]/10 text-[var(--accent)]' },
+  converted:       { label: 'Сделка',             color: 'bg-[var(--success)]/10 text-[var(--success)]' },
+  lost:            { label: 'Отказ',              color: 'bg-[var(--danger)]/10 text-[var(--danger)]' },
+  ai_processing:   { label: 'AI обрабатывает',    color: 'bg-[var(--ocean)]/10 text-[var(--ocean)]' },
+  ai_qualified:    { label: 'AI-квалифицирован',  color: 'bg-[var(--accent)]/10 text-[var(--accent)]' },
+  proposal_sent:   { label: 'КП отправлено',      color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
+  awaiting_confirm:{ label: 'Ждёт подтверждения', color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
 };
+
+// На случай статуса, которого нет в карте (новые значения в БД) — не крашимся.
+const STATUS_FALLBACK = { label: 'Без статуса', color: 'bg-[var(--bg-hover)] text-[var(--text-muted)]' };
+
+// Руками админ переключает только «человеческие» статусы —
+// AI-статусы ставит конвейер Lead Processor, вручную их не назначают.
+const MANUAL_STATUSES: LeadStatus[] = ['new', 'contacted', 'qualified', 'converted', 'lost'];
 
 const SOURCE_LABELS: Record<string, string> = {
   telegram_bot:  'Телеграм-бот',
@@ -260,7 +276,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
     }
   };
 
-  const sm        = STATUS_META[localStatus];
+  const sm        = STATUS_META[localStatus] ?? STATUS_FALLBACK;
   const interests = lead.source_data?.interests ?? [];
   const sourceLabel = lead.source_data?.source
     ? (SOURCE_LABELS[lead.source_data.source] ?? lead.source_data.source)
@@ -364,7 +380,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
           <div>
             <p className="text-xs text-[var(--text-muted)] mb-2">Статус</p>
             <div className="flex flex-wrap gap-2">
-              {(Object.keys(STATUS_META) as LeadStatus[]).map(s => (
+              {MANUAL_STATUSES.map(s => (
                 <button
                   key={s}
                   onClick={() => handleStatusClick(s)}

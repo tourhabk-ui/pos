@@ -4,20 +4,25 @@ import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { Calendar, Loader2, Search, Download, AlertCircle } from 'lucide-react';
 
-type BStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+// Реальные значения operator_bookings.booking_status (статуса «pending» в БД
+// нет — раньше фильтр «Ожидает» всегда был пуст, а брони «new» шли без лейбла).
+type BStatus = 'new' | 'confirmed' | 'pending_payment' | 'completed' | 'cancelled' | 'rejected';
 interface Booking {
   id: string; tourName: string; touristName: string; touristEmail: string;
   date: string; price: number; status: BStatus;
 }
 
 const ST_CLS: Record<BStatus, string> = {
-  pending:   'bg-[var(--warning)]/15 text-[var(--warning)]',
-  confirmed: 'bg-[var(--accent)]/15 text-[var(--accent)]',
-  completed: 'bg-[var(--success)]/15 text-[var(--success)]',
-  cancelled: 'bg-[var(--danger)]/15 text-[var(--danger)]',
+  new:             'bg-[var(--warning)]/15 text-[var(--warning)]',
+  confirmed:       'bg-[var(--accent)]/15 text-[var(--accent)]',
+  pending_payment: 'bg-[var(--ocean)]/15 text-[var(--ocean)]',
+  completed:       'bg-[var(--success)]/15 text-[var(--success)]',
+  cancelled:       'bg-[var(--danger)]/15 text-[var(--danger)]',
+  rejected:        'bg-[var(--danger)]/15 text-[var(--danger)]',
 };
 const ST_LBL: Record<BStatus, string> = {
-  pending: 'Ожидает', confirmed: 'Подтверждён', completed: 'Завершён', cancelled: 'Отменён',
+  new: 'Новая', confirmed: 'Подтверждён', pending_payment: 'Ждёт оплаты',
+  completed: 'Завершён', cancelled: 'Отменён', rejected: 'Отклонён',
 };
 
 export default function AdminBookingsClient() {
@@ -39,7 +44,7 @@ export default function AdminBookingsClient() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? 'Ошибка загрузки');
       const rows = json.data?.bookings ?? [];
-      setTotal(json.data?.total ?? rows.length);
+      setTotal(json.data?.pagination?.total ?? rows.length);
       setBookings(rows.map((b: {
         id: string; tourName: string; userName: string; userEmail: string;
         createdAt: string; totalPrice: number; status: string;
@@ -62,9 +67,9 @@ export default function AdminBookingsClient() {
   useEffect(() => { load(); }, [load]);
 
   const filtered = bookings.filter(b =>
-    b.tourName.toLowerCase().includes(search.toLowerCase()) ||
-    b.touristName.toLowerCase().includes(search.toLowerCase()) ||
-    b.touristEmail.toLowerCase().includes(search.toLowerCase())
+    (b.tourName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.touristName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.touristEmail ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -104,7 +109,7 @@ export default function AdminBookingsClient() {
             />
           </div>
           <div className="flex gap-2 overflow-x-auto">
-            {(['all', 'pending', 'confirmed', 'completed', 'cancelled'] as const).map(s => (
+            {(['all', 'new', 'confirmed', 'pending_payment', 'completed', 'cancelled', 'rejected'] as const).map(s => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
