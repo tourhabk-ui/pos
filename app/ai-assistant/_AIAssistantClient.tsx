@@ -42,7 +42,13 @@ interface ChatMessage {
   tours?: TourSuggestion[];
   routes?: RouteRec[];
   warning?: string | null;
+  /** Запрос пользователя для фолбэк-ссылки в каталог, когда AI недоступен. */
+  searchFallback?: string;
 }
+
+// Фолбэк-ответы AI-конвейера: чат не смог — даём человеку прямой путь в каталог.
+const AI_ERROR_PREFIXES = ['Извините, сервис временно недоступен', 'Сервис временно недоступен', 'Извините, не удалось получить ответ', 'Сервер недоступен'];
+const isAiErrorReply = (text: string) => AI_ERROR_PREFIXES.some(p => text.startsWith(p));
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -195,6 +201,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   });
   const [limitReached, setLimitReached] = useState(false);
   const [remainingFree, setRemainingFree] = useState<number | null>(null);
+  const [routeSaveState, setRouteSaveState] = useState<'idle' | 'saving' | 'saved' | 'auth' | 'error'>('idle');
   const endRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<{ stop(): void } | null>(null);
   const { isDark, toggleTheme } = useTheme();
@@ -215,6 +222,14 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
       localStorage.setItem('th_ai_chat_history', JSON.stringify(toSave));
     } catch { /* ignore localStorage errors */ }
   }, [messages]);
+
+  // История восстанавливается из localStorage — без прокрутки вниз на маунте
+  // человек попадал в НАЧАЛО старой переписки, а свежий автоотправленный
+  // запрос уезжал за экран («чат открылся сверху, запрос не попал»).
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!initialQuery) return;
@@ -294,11 +309,17 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
         if (typeof data.data.remainingFree === 'number') setRemainingFree(data.data.remainingFree);
       }
 
-      setMessages(prev => [...prev, { role: 'assistant', content: reply, tours, routes, warning }]);
+      setMessages(prev => [...prev, {
+        role: 'assistant', content: reply, tours, routes, warning,
+        // AI лёг — не оставляем человека в тупике: прямая ссылка в каталог.
+        searchFallback: isAiErrorReply(reply) ? text : undefined,
+      }]);
+      if (routes?.length) setRouteSaveState('idle');
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Сервер недоступен. При опасности звоните 112 (МЧС).',
+        searchFallback: text,
       }]);
     } finally {
       setLoading(false);
@@ -382,6 +403,19 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                 </div>
               )}
 
+              {/* AI недоступен — прямой путь в каталог вместо тупика */}
+              {msg.role === 'assistant' && msg.searchFallback && (
+                <div className="ml-9 mt-1">
+                  <Link
+                    href={`/routes?q=${encodeURIComponent(msg.searchFallback)}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-[var(--ocean)]/40 text-xs text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors min-h-[36px]"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    Найти «{msg.searchFallback.length > 40 ? msg.searchFallback.slice(0, 40) + '…' : msg.searchFallback}» в каталоге
+                  </Link>
+                </div>
+              )}
+
               {/* Warning card */}
               {msg.role === 'assistant' && msg.warning && (
                 <div className="ml-9 w-full max-w-[80%]">
@@ -410,15 +444,33 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                     <Car className="w-3.5 h-3.5" /> Заказать трансфер
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      // Раньше кнопка писала saved_route_id в localStorage,
+                      // который никто не читал — сохранение было фикцией.
                       const lastRouteMsg = [...messages].reverse().find(m => m.routes?.length);
-                      if (lastRouteMsg?.routes?.[0]) {
-                        localStorage.setItem('saved_route_id', lastRouteMsg.routes[0].id);
+                      const route = lastRouteMsg?.routes?.[0];
+                      if (!route || routeSaveState === 'saving' || routeSaveState === 'saved') return;
+                      setRouteSaveState('saving');
+                      try {
+                        const res = await fetch('/api/tourist/wishlist', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ itemType: 'destination', itemId: route.id }),
+                        });
+                        if (res.status === 401 || res.status === 403) { setRouteSaveState('auth'); return; }
+                        setRouteSaveState(res.ok ? 'saved' : 'error');
+                      } catch {
+                        setRouteSaveState('error');
                       }
                     }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-card)] text-xs text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors min-h-[36px]"
+                    disabled={routeSaveState === 'saving'}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-card)] text-xs text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors min-h-[36px] disabled:opacity-50"
                   >
-                    <Bookmark className="w-3.5 h-3.5" /> Сохранить маршрут
+                    {routeSaveState === 'saving' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bookmark className="w-3.5 h-3.5" />}
+                    {routeSaveState === 'saved' ? 'Сохранено в избранное'
+                      : routeSaveState === 'auth' ? 'Войдите, чтобы сохранять'
+                      : routeSaveState === 'error' ? 'Не удалось — ещё раз'
+                      : 'Сохранить маршрут'}
                   </button>
                   <button
                     onClick={() => void sendMessage('Покажи другие варианты')}
