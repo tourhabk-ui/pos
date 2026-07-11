@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ChevronRight, MapPin, ShieldCheck, Fish, Home, Calendar, Users, Star, Shield, Phone } from 'lucide-react';
+import { ChevronRight, MapPin, ShieldCheck, BadgeCheck, Fish, Home, Calendar, Users, Star, Shield, Phone } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
@@ -147,7 +147,8 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
     `SELECT id, slug, name, category, description, short_description,
             hero_image, gallery, services, features, faq, season_info,
             reviews_data, contacts, location, legal_info, contact,
-            rating::text, review_count::text, is_verified, created_at::text
+            rating::text, review_count::text, is_verified,
+            registry_status, registry_number, created_at::text
      FROM partners
      WHERE slug = ANY($1) AND is_public = TRUE
      ORDER BY CASE
@@ -247,6 +248,18 @@ export default async function OperatorProfilePage(
                   {profile.is_verified && (
                     <span className="inline-flex items-center gap-1 text-sm text-[var(--success)]">
                       <ShieldCheck className="w-4 h-4" /> Проверенный оператор
+                    </span>
+                  )}
+                  {profile.registry_status === 'verified' && (
+                    <span
+                      className="inline-flex items-center gap-1 text-sm text-[var(--ocean)]"
+                      title={
+                        profile.registry_number
+                          ? `Реестровый номер: ${profile.registry_number}`
+                          : 'Найден в официальном реестре туроператоров visitkamchatka.ru'
+                      }
+                    >
+                      <BadgeCheck className="w-4 h-4" /> В официальном реестре
                     </span>
                   )}
                 </div>
