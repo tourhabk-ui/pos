@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import OperatorsPageClient from './_OperatorsClient';
 
 export const metadata: Metadata = {
@@ -7,5 +8,11 @@ export const metadata: Metadata = {
 };
 
 export default function OperatorsMarketplacePage() {
-  return <OperatorsPageClient />;
+  // Suspense обязателен: клиент читает useSearchParams (deep-link фильтры),
+  // без границы статический prerender этой страницы падает.
+  return (
+    <Suspense>
+      <OperatorsPageClient />
+    </Suspense>
+  );
 }
