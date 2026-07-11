@@ -15,6 +15,7 @@ import {
   getRoomPeers,
 } from '@/lib/mesh/signaling-store';
 import { POST as relayPost } from '@/app/api/mesh/sos-relay/route';
+import { syntheticVictimIp } from '@/lib/mesh/victim-ip';
 
 // ── Геокомнаты ─────────────────────────────────────────────────────────────
 
@@ -135,6 +136,14 @@ describe('POST /api/mesh/sos-relay', () => {
     expect(forwarded.tourist_phone).toBe('+79990000000');
   });
 
+  it('форвард идёт от имени ЖЕРТВЫ: x-forwarded-for — синтетический IP из её device id, не IP ретранслятора', async () => {
+    await relayPost(relayReq(validBody(crypto.randomUUID()), '10.9.9.9'));
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers['x-forwarded-for']).toBe(syntheticVictimIp('victim-device'));
+    expect(headers['x-forwarded-for']).not.toBe('10.9.9.9');
+  });
+
   it('вторая копия того же sos_id дедуплицируется и не форвардится', async () => {
     const sosId = crypto.randomUUID();
     await relayPost(relayReq(validBody(sosId, 'relay-1'), '10.0.0.1'));
@@ -158,23 +167,64 @@ describe('POST /api/mesh/sos-relay', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('упавший форвард снимает дедуп-метку — другой сосед может доставить', async () => {
+  it('транзиентный сбой форварда ретраится и доставляет', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('flaky'));
+    fetchMock.mockRejectedValueOnce(new Error('flaky'));
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+    const res = await relayPost(relayReq(validBody(crypto.randomUUID()), '10.0.4.1'));
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('полностью упавший форвард снимает дедуп-метку — другой сосед может доставить', async () => {
     const sosId = crypto.randomUUID();
-    fetchMock.mockRejectedValueOnce(new Error('network down'));
+    fetchMock.mockRejectedValue(new Error('network down'));
     const res1 = await relayPost(relayReq(validBody(sosId, 'relay-1'), '10.0.2.1'));
     expect(res1.status).toBe(502);
 
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: true, status: 200 });
     const res2 = await relayPost(relayReq(validBody(sosId, 'relay-2'), '10.0.2.2'));
     expect(res2.status).toBe(200);
     expect((await res2.json()).deduped).toBe(false);
   });
 
-  it('429 канонического роута считается доставкой (SOS уже был принят)', async () => {
+  it('дубли одного sos_id не жгут бюджет лимитера ретранслятора', async () => {
+    const ip = '10.0.5.1';
+    const sosId = crypto.randomUUID();
+    await relayPost(relayReq(validBody(sosId, 'relay-b'), ip));
+    // 40 повторных копий того же сигнала — все дедуп, лимитер не трогают
+    for (let i = 0; i < 40; i++) {
+      const r = await relayPost(relayReq(validBody(sosId, 'relay-b'), ip));
+      expect((await r.json()).deduped).toBe(true);
+    }
+    // Новый пострадавший через тот же узел — проходит
+    const fresh = await relayPost(relayReq(validBody(crypto.randomUUID(), 'relay-b'), ip));
+    expect(fresh.status).toBe(200);
+    expect((await fresh.json()).deduped).toBe(false);
+  });
+
+  it('429 канонического роута считается доставкой (ключ per-жертва: она уже доставлена)', async () => {
     const sosId = crypto.randomUUID();
     fetchMock.mockResolvedValueOnce({ ok: false, status: 429 });
     const res = await relayPost(relayReq(validBody(sosId), '10.0.3.1'));
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
+  });
+});
+
+describe('syntheticVictimIp: детерминированный валидный IPv6 per-жертва', () => {
+  it('форма ULA fd..:xxxx x8 групп, детерминирован, различает устройства', () => {
+    const a1 = syntheticVictimIp('0e37a1c2-4b5d-4e6f-8a9b-0c1d2e3f4a5b');
+    const a2 = syntheticVictimIp('0e37a1c2-4b5d-4e6f-8a9b-0c1d2e3f4a5b');
+    const b  = syntheticVictimIp('ffffffff-0000-1111-2222-333344445555');
+    expect(a1).toBe(a2);
+    expect(a1).not.toBe(b);
+    expect(a1).toMatch(/^fd[0-9a-f]{2}(:[0-9a-f]{4}){7}$/);
+  });
+
+  it('не-UUID и пустой id не ломают формат', () => {
+    expect(syntheticVictimIp('short')).toMatch(/^fd[0-9a-f]{2}(:[0-9a-f]{4}){7}$/);
+    expect(syntheticVictimIp('')).toMatch(/^fd[0-9a-f]{2}(:[0-9a-f]{4}){7}$/);
   });
 });

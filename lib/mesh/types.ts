@@ -17,12 +17,21 @@ export interface MeshMessage {
 
 export type MeshStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'no-gps';
 
-/** Полезная нагрузка SOS-сообщения в меше (payload при type='sos'). */
+/**
+ * Полезная нагрузка SOS-сообщения в меше (payload при type='sos').
+ * Поля СОЗНАТЕЛЬНО продублированы плоско и в sos: старые закэшированные
+ * PWA-ретрансляторы спредят payload в /api/safety/sos как есть — плоские
+ * lat/lng/имя проходят Zod канона; новые ретрансляторы читают sos.
+ */
 export interface SosBroadcastPayload {
   /** UUID сигнала — по нему сервер дедуплицирует копии от разных ретрансляторов. */
   sos_id: string;
-  deviceId: string;
-  position: { lat: number; lng: number; accuracy: number; timestamp: number } | null;
+  lat?: number | null;
+  lng?: number | null;
+  accuracy?: number | null;
+  message?: string | null;
+  tourist_name?: string | null;
+  tourist_phone?: string | null;
   sos: {
     lat?: number | null;
     lng?: number | null;

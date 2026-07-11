@@ -79,12 +79,6 @@ export default function SosPage() {
       tourist_phone: phone.trim() || null,
     };
 
-    // Дублируем SOS в меш ВСЕГДА, до попытки прямой отправки: если наш
-    // интернет умрёт на середине запроса, сосед с сетью уже ретранслирует.
-    try {
-      meshSendSOS(sosPayload);
-    } catch { /* меш не должен ломать основной путь */ }
-
     try {
       const res = await fetch('/api/safety/sos', {
         method: 'POST',
@@ -94,7 +88,14 @@ export default function SosPage() {
       if (res.status === 429) { setSendStatus('error'); return; }
       setSendStatus('sent');
     } catch {
-      // Офлайн: сохранить в очередь и отправить при появлении сети
+      // Прямой путь мёртв (офлайн/обрыв). Две страховки параллельно:
+      // 1) меш — сосед с живой сетью ретранслирует немедленно;
+      // 2) офлайн-очередь — отправка при появлении своей сети.
+      // Меш НЕ зовём при успехе прямого пути — иначе каждый онлайн-SOS
+      // приходил бы спасателям дважды (прямой + через соседа).
+      try {
+        meshSendSOS(sosPayload);
+      } catch { /* меш не должен ломать офлайн-очередь */ }
       try {
         await queueSOS(sosPayload);
         const synced = await registerSOSSync();

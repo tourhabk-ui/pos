@@ -32,7 +32,18 @@ export function neighborRooms(room: string): string[] {
   return rooms;
 }
 
-/** Комнаты смежны, если входят в 3x3 блок друг друга. */
+/**
+ * Комнаты смежны, если входят в 3x3 блок друг друга (расстояние Чебышёва <=1).
+ * Без аллокаций — вызывается в цикле по всем соединениям на каждый broadcast.
+ * Нераспознанные имена смежны только сами с собой.
+ */
 export function roomsAreNeighbors(a: string, b: string): boolean {
-  return neighborRooms(a).includes(b);
+  if (a === b) return true;
+  const ma = ROOM_RE.exec(a);
+  const mb = ROOM_RE.exec(b);
+  if (!ma || !mb) return false;
+  return (
+    Math.abs(parseInt(ma[1]!, 10) - parseInt(mb[1]!, 10)) <= 1 &&
+    Math.abs(parseInt(ma[2]!, 10) - parseInt(mb[2]!, 10)) <= 1
+  );
 }
