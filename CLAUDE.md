@@ -286,6 +286,8 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`
 GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`
 
+**Правки промптов агентов** — добавлять принципы, а не перечни кейсов. Разрастающийся список исключений в промпте — признак того, что нужен инструмент или серверный guard (пример: `lib/safety/sos-detector.ts` — детерминированная SOS-страховка вместо новых абзацев в KUZMICH_SYSTEM). Критичные факты (безопасность, цены, телефоны, наличие мест) — только из инструментов/БД, самоотчётам модели не верить.
+
 > Совет директоров (13 AI-агентов, board meeting, 5 раундов) — **удалён апрель 2026** как неэффективный. 10,318 строк. Коммиты: `9da9e8d2`, `5d4d83f9`. Подробности: `AGENTS.md`
 
 **Полный реестр агентов:** `AGENTS.md`

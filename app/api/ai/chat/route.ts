@@ -35,6 +35,7 @@ import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 
 export const dynamic = 'force-dynamic';
 
@@ -340,7 +341,15 @@ export async function POST(request: NextRequest) {
     // сохраняем в историю — они отравляют контекст следующих ответов (модель
     // начинает подражать «недоступности»). Telegram-путь (lib/kuzmich/core.ts)
     // делает так же. И не списываем за ошибку бесплатное сообщение анонима.
+    // Проверка — по ответу ДО SOS-префикса.
     const answerIsError = isAIErrorResponse(answer);
+
+    // Серверная SOS-страховка: при признаках ЧП в вопросе телефоны 112/МЧС
+    // добавляются к ответу независимо от модели — в том числе когда весь
+    // AI-конвейер лежит и answer — фолбэк-ошибка.
+    const sos = withSosBlock(answer, rawMessage);
+    answer = sos.text;
+
     if (!answerIsError) {
       const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now() };
       history.push(assistantMsg);
@@ -398,6 +407,7 @@ export async function POST(request: NextRequest) {
         remainingFree: remaining,
         isAuthenticated,
         ...(tourSuggestions.length > 0 ? { tours: tourSuggestions } : {}),
+        ...(sos.emergency ? { emergency: true } : {}),
         ...(visionDescription ? { visionDescription } : {}),
         ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name } } : {}),
       },

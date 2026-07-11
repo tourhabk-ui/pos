@@ -44,6 +44,8 @@ interface ChatMessage {
   warning?: string | null;
   /** Запрос пользователя для фолбэк-ссылки в каталог, когда AI недоступен. */
   searchFallback?: string;
+  /** Сервер распознал признаки ЧП — ответ содержит SOS-блок, рендерим заметно. */
+  emergency?: boolean;
 }
 
 // Фолбэк-ответы AI-конвейера: чат не смог — даём человеку прямой путь в каталог.
@@ -296,6 +298,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
       let tours: TourSuggestion[] | undefined;
       let routes: RouteRec[] | undefined;
       let warning: string | undefined;
+      let emergency = false;
 
       if (isRecord(data) && isRecord(data.data)) {
         const answer = data.data.answer;
@@ -309,10 +312,11 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
 
         if (typeof data.data.warning === 'string') warning = data.data.warning;
         if (typeof data.data.remainingFree === 'number') setRemainingFree(data.data.remainingFree);
+        if (data.data.emergency === true) emergency = true;
       }
 
       setMessages(prev => [...prev, {
-        role: 'assistant', content: reply, tours, routes, warning,
+        role: 'assistant', content: reply, tours, routes, warning, emergency,
         // AI лёг — не оставляем человека в тупике: прямая ссылка в каталог.
         searchFallback: isAiErrorReply(reply) ? text : undefined,
       }]);
@@ -387,9 +391,17 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                 <div className={`max-w-[80%] px-4 py-3 text-sm whitespace-pre-wrap ${
                   msg.role === 'user'
                     ? 'bg-[var(--accent)] text-white rounded-lg rounded-br-md'
-                    : 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border border-[var(--border)]'
+                    : msg.emergency
+                      ? 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border-2 border-[var(--danger)]'
+                      : 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border border-[var(--border)]'
                 }`}>
                   {msg.content}
+                  {msg.emergency && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a href="tel:112" className="ds-btn ds-btn-danger text-xs">Позвонить 112</a>
+                      <Link href="/sos" className="ds-btn ds-btn-secondary text-xs">Открыть SOS</Link>
+                    </div>
+                  )}
                 </div>
                 {msg.role === 'user' && (
                   <div className="w-7 h-7 rounded-full bg-[var(--bg-hover)] flex items-center justify-center shrink-0 mt-0.5">

@@ -22,6 +22,7 @@ import { searchLegislation } from '@/lib/services/legislation-importer';
 import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
+import { withSosBlock } from '@/lib/safety/sos-detector';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
 
@@ -1749,7 +1750,14 @@ export async function aiChat(opts: {
   }
 
   // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
-  if (!isAIErrorResponse(answer)) {
+  // (проверка — по ответу ДО SOS-префикса).
+  const answerIsError = isAIErrorResponse(answer);
+
+  // Серверная SOS-страховка: при признаках ЧП телефоны 112/МЧС добавляются
+  // к ответу независимо от модели — даже когда AI-конвейер лежит целиком.
+  answer = withSosBlock(answer, userContent).text;
+
+  if (!answerIsError) {
     await saveMsg(chatId, mode, 'assistant', answer, userId, userName);
   }
   await reply(chatId, answer);
