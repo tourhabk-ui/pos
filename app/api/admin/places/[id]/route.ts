@@ -49,7 +49,11 @@ export async function GET(request: NextRequest, { params }: Props) {
   const p = rows[0]!;
   return NextResponse.json({
     id: p.id, arkId: p.ark_id, name: p.name, description: p.description,
-    lat: p.lat, lng: p.lng, locationType: p.location_type, isVisible: p.is_visible,
+    // NUMERIC приходит из pg строкой — без Number() редактор отправлял её
+    // обратно в PATCH и валился на Zod «Expected number, received string».
+    lat: p.lat === null ? null : Number(p.lat),
+    lng: p.lng === null ? null : Number(p.lng),
+    locationType: p.location_type, isVisible: p.is_visible,
     sourceName: p.source_name, sourceUrl: p.source_url, mergedIntoId: p.merged_into_id,
     hasPhoto: p.has_photo,
   });

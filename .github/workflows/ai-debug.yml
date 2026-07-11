@@ -1,0 +1,26 @@
+name: Diag — AI waterfall
+
+# Диагностика AI-конвейера с раннера: /api/ai/debug-waterfall показывает,
+# какой провайдер отвечает с IP Timeweb, а какой падает (ключ/geo/лимит).
+# Запуск: правка .github/triggers/ai-debug.json в main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/ai-debug.json'
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Debug waterfall
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          curl -s --max-time 240 "$BASE/api/ai/debug-waterfall?secret=$CRON_SECRET" \
+            | python3 -m json.tool --no-ensure-ascii || true

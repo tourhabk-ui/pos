@@ -17,8 +17,10 @@ interface PlaceEdit {
   id: string;
   name: string;
   description: string | null;
-  lat: number | null;
-  lng: number | null;
+  // string — честный тип: NUMERIC из pg и ввод с мобильной клавиатуры
+  // приходят строками; в PATCH уходит уже нормализованное число (toCoord).
+  lat: number | string | null;
+  lng: number | string | null;
   locationType: string | null;
   isVisible: boolean | null;
   mergedIntoId: string | null;
@@ -161,6 +163,14 @@ export default function PlacesPhotosClient() {
 
   const closeEditor = () => { setEditId(null); setEditData(null); setEditError(null); };
 
+  // Координата может оказаться строкой (NUMERIC из pg до фикса API; ввод с
+  // запятой на мобильной клавиатуре) — нормализуем перед отправкой в Zod.
+  const toCoord = (v: number | string | null): number | null => {
+    if (v === null || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
+
   const saveEditor = async () => {
     if (!editData || !editId) return;
     setEditSaving(true);
@@ -172,8 +182,8 @@ export default function PlacesPhotosClient() {
         body: JSON.stringify({
           name: editData.name,
           description: editData.description,
-          lat: editData.lat,
-          lng: editData.lng,
+          lat: toCoord(editData.lat),
+          lng: toCoord(editData.lng),
           locationType: editData.locationType,
           isVisible: editData.isVisible ?? undefined,
         }),
