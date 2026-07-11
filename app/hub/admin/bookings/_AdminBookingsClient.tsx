@@ -4,9 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { Calendar, Loader2, Search, Download, AlertCircle } from 'lucide-react';
 
-// Реальные значения operator_bookings.booking_status (статуса «pending» в БД
-// нет — раньше фильтр «Ожидает» всегда был пуст, а брони «new» шли без лейбла).
-type BStatus = 'new' | 'confirmed' | 'pending_payment' | 'completed' | 'cancelled' | 'rejected';
+import { BOOKING_STATUSES, type BookingStatus as BStatus } from '@/lib/types/statuses';
 interface Booking {
   id: string; tourName: string; touristName: string; touristEmail: string;
   date: string; price: number; status: BStatus;
@@ -109,7 +107,7 @@ export default function AdminBookingsClient() {
             />
           </div>
           <div className="flex gap-2 overflow-x-auto">
-            {(['all', 'new', 'confirmed', 'pending_payment', 'completed', 'cancelled', 'rejected'] as const).map(s => (
+            {(['all', ...BOOKING_STATUSES] as const).map(s => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}

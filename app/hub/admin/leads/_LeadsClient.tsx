@@ -3,12 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Phone, MessageSquare, Clock, ChevronDown, ChevronUp, Copy, Check, RefreshCw, Search, MapPin, Calendar, Trash2, AlertTriangle, Zap } from 'lucide-react';
 
-// Полный набор статусов из API (включая те, что ставит AI Lead Processor) —
-// раньше карточка падала на ai_qualified/proposal_sent: STATUS_META[status]
-// был undefined, и .color крашил рендер вкладки «Все».
-type LeadStatus =
-  | 'new' | 'contacted' | 'qualified' | 'converted' | 'lost'
-  | 'ai_processing' | 'ai_qualified' | 'proposal_sent' | 'awaiting_confirm';
+import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
 
 interface LeadSourceData {
   source?: string;
@@ -79,9 +74,7 @@ const STATUS_META: Record<LeadStatus, { label: string; color: string }> = {
 // На случай статуса, которого нет в карте (новые значения в БД) — не крашимся.
 const STATUS_FALLBACK = { label: 'Без статуса', color: 'bg-[var(--bg-hover)] text-[var(--text-muted)]' };
 
-// Руками админ переключает только «человеческие» статусы —
-// AI-статусы ставит конвейер Lead Processor, вручную их не назначают.
-const MANUAL_STATUSES: LeadStatus[] = ['new', 'contacted', 'qualified', 'converted', 'lost'];
+
 
 const SOURCE_LABELS: Record<string, string> = {
   telegram_bot:  'Телеграм-бот',
@@ -380,7 +373,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
           <div>
             <p className="text-xs text-[var(--text-muted)] mb-2">Статус</p>
             <div className="flex flex-wrap gap-2">
-              {MANUAL_STATUSES.map(s => (
+              {MANUAL_LEAD_STATUSES.map(s => (
                 <button
                   key={s}
                   onClick={() => handleStatusClick(s)}
