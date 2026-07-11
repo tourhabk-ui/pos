@@ -312,7 +312,7 @@ export interface EmailTemplateRow {
   type: string;
   html_content: string;
   text_content: string;
-  variables: string; // JSON string → parse to string[]
+  variables: string[] | string; // JSONB: node-postgres отдаёт массив; string — legacy TEXT
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
