@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Сертифицированные гиды Камчатки',
     description: '112 аттестованных гидов с лицензиями и отзывами туристов.',
-    url: 'https://tourhab.ru/guides',
+    url: 'https://vedarai.ru/guides',
     siteName: 'Ведар',
     locale: 'ru_RU',
     type: 'website',
@@ -76,7 +76,7 @@ export default async function GuidesPage() {
         address: { '@type': 'PostalAddress', addressRegion: 'Камчатский край', addressCountry: 'RU' },
       },
     })),
-    provider: { '@type': 'TravelAgency', name: 'Ведар', url: 'https://tourhab.ru' },
+    provider: { '@type': 'TravelAgency', name: 'Ведар', url: 'https://vedarai.ru' },
   };
 
   return (

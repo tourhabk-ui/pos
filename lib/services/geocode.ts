@@ -9,7 +9,7 @@
  */
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
-const USER_AGENT = 'KamchatourHub/1.0 (https://tourhab.ru; admin geocoding tool)';
+const USER_AGENT = 'KamchatourHub/1.0 (https://vedarai.ru; admin geocoding tool)';
 
 export interface GeocodeResult {
   lat: number;

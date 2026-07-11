@@ -129,7 +129,7 @@ async function streamViaOpenRouter(messages: ChatMessage[]): Promise<Response | 
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://tourhab.ru',
+        'HTTP-Referer': 'https://vedarai.ru',
         'X-Title': 'TourHab Chat Stream',
       },
       body: JSON.stringify({

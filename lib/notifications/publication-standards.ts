@@ -16,6 +16,7 @@
 import { query } from '@/lib/database';
 import { callAIFast } from '@/lib/ai/providers';
 import { generateAndStoreRouteImage } from '@/lib/services/ai-image-generator';
+import { getPublicBaseUrl } from '@/lib/config';
 
 // ── Стандарты качества ────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ ${context?.locationType ? `Тип локации: ${context.locationType}` : ''}
  * Возвращает URL для Telegram sendPhoto.
  */
 export async function getRouteImageUrl(routeId: string): Promise<string | null> {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
 
   // Проверяем есть ли уже сгенерированная картинка
   try {
@@ -233,9 +234,9 @@ export async function checkPublicationStandards(
 
   // 2. Ссылка на сайт
   if (standard.linkRequired) {
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
-    if (!text.includes(appUrl) && !text.includes('tourhab.ru')) {
-      errors.push('Отсутствует ссылка на tourhab.ru');
+    const appUrl = getPublicBaseUrl();
+    if (!text.includes(appUrl) && !text.includes('vedarai.ru')) {
+      errors.push('Отсутствует ссылка на vedarai.ru');
     }
   }
 

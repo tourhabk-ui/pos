@@ -186,7 +186,7 @@ export default function OperatorHelpClient() {
           Быстрый доступ к инструкциям по каждому разделу кабинета.
           Полная инструкция:{' '}
           <Link href="/help/operators" className="text-[var(--ocean)] hover:underline inline-flex items-center gap-1">
-            tourhab.ru/help/operators <ExternalLink size={12} />
+            vedarai.ru/help/operators <ExternalLink size={12} />
           </Link>
         </p>
       </div>

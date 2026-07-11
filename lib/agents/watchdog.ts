@@ -15,6 +15,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export interface WatchdogAlert {
   type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking';
@@ -80,7 +81,7 @@ async function notifyOperatorDirectly(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
   const text = [
     `<b>Привет, ${partnerName}!</b>`,
     '',
@@ -168,7 +169,7 @@ async function notifyStayOwnerDirectly(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
   const text = [
     `<b>Привет, ${ownerName}!</b>`,
     '',
@@ -329,7 +330,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
       const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
-    const adminUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
+    const adminUrl = getPublicBaseUrl();
     lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
     await tgSend(lines.join('\n'));
   }

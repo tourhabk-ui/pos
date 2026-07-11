@@ -7,7 +7,7 @@
  * Запускать: каждые 6 часов
  *
  * cron-job.org:
- *   https://tourhab.ru/api/cron/support-escalate?secret=SECRET
+ *   https://vedarai.ru/api/cron/support-escalate?secret=SECRET
  *   → каждые 6 часов
  */
 

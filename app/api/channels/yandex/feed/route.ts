@@ -4,11 +4,11 @@
  *
  * Как подключить:
  *   Яндекс.Услуги → бизнес.яндекс.ру → XML-импорт
- *   URL: https://tourhab.ru/api/channels/yandex/feed
+ *   URL: https://vedarai.ru/api/channels/yandex/feed
  *
  *   Яндекс.Путешествия (партнёрка):
  *   partner.yandex.ru/travel → Тип: экскурсии
- *   URL: https://tourhab.ru/api/channels/yandex/feed
+ *   URL: https://vedarai.ru/api/channels/yandex/feed
  *
  * Яндекс перечитывает фид раз в 24 часа автоматически.
  */

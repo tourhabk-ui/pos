@@ -107,7 +107,7 @@ export default function OperatorsHelpClient() {
           <h2 className="ds-h2 mb-6">Как начать работу</h2>
           <div className="ds-card p-6 space-y-0">
             <Step num={1} icon={UserPlus} title="Регистрация"
-              desc="Перейдите на tourhab.ru/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
+              desc="Перейдите на vedarai.ru/auth/register-operator. Заполните форму: название компании, контактное лицо, телефон, email, краткое описание деятельности. Регистрация занимает 2 минуты." />
             <Step num={2} icon={Shield} title="Проверка и одобрение"
               desc="После регистрации заявка поступает в очередь администраторов. Среднее время проверки — 1 рабочий день. Вы получите уведомление на email и в Telegram о статусе заявки." />
             <Step num={3} icon={Package} title="Заполнение профиля"

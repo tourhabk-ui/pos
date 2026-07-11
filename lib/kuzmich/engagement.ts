@@ -158,7 +158,7 @@ function buildReminderText(row: EngagementRow): string {
     '',
     `Места ещё есть. Если остались вопросы — напиши мне, помогу с выбором и бронированием.`,
     '',
-    `tourhab.ru/routes/${row.tour_id}`,
+    `vedarai.ru/routes/${row.tour_id}`,
   ];
 
   return lines.join('\n');

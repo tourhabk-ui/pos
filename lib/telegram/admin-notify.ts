@@ -40,7 +40,7 @@ async function sendAdminMessage(text: string): Promise<void> {
 export function notifyAdminNewTicket(ticket: SupportTicket): void {
   void (async () => {
     try {
-      const site     = 'https://tourhab.ru';
+      const site     = 'https://vedarai.ru';
       const category = CATEGORY_LABELS[ticket.category] ?? ticket.category;
       const user     = ticket.userName
         ? `${ticket.userName}${ticket.userEmail ? ` (${ticket.userEmail})` : ''}`
@@ -76,7 +76,7 @@ export function notifyBudgetAlert(spentUsd: number, limitUsd: number): void {
         `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
         `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
         '',
-        'Проверь <a href="https://tourhab.ru/hub/admin">панель</a> → Статистика LLM.',
+        'Проверь <a href="https://vedarai.ru/hub/admin">панель</a> → Статистика LLM.',
       ].join('\n'));
     } catch { /* silent */ }
   })();
@@ -88,7 +88,7 @@ export function notifyBudgetAlert(spentUsd: number, limitUsd: number): void {
 export function notifyAdminEscalated(ticket: SupportTicket, reason: string): void {
   void (async () => {
     try {
-      const site = 'https://tourhab.ru';
+      const site = 'https://vedarai.ru';
       await sendAdminMessage([
         '<b>ЭСКАЛАЦИЯ тикета</b>',
         '',

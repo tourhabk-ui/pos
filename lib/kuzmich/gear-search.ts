@@ -26,8 +26,8 @@ interface GearRow {
 
 function appBase(): string {
   return (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net')
-    ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://tourhab.ru')
-    : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+    ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru')
+    : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru';
 }
 
 export async function searchGearForKuzmich(args: GearSearchArgs): Promise<string> {

@@ -22,7 +22,7 @@
 | `TG_USER_SESSION` | запустить `npx tsx scripts/tg-auth.ts` (введёт код из SMS → выдаст строку сессии) |
 | `INDUSTRY_TG_CHANNELS` | *(опц.)* свой список каналов через запятую |
 
-**Расписание (cron-job.org):** `GET https://tourhab.ru/api/cron/industry-intel` (Bearer `CRON_SECRET`), 1–2 раза в сутки.
+**Расписание (cron-job.org):** `GET https://vedarai.ru/api/cron/industry-intel` (Bearer `CRON_SECRET`), 1–2 раза в сутки.
 
 **Проверка:** ответ `{ ok: true, channels: N, ... }`; без env — `reason: "mtproto_not_configured"`.
 

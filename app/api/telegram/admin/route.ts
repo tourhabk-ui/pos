@@ -12,7 +12,7 @@
  * POST: Webhook для получения команд из Telegram
  *       Требует регистрации webhook:
  *       curl -X POST ${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/botTOKEN/setWebhook \
- *         -d url=https://tourhab.ru/api/telegram/admin \
+ *         -d url=https://vedarai.ru/api/telegram/admin \
  *         -d secret_token=SECRET
  *
  * Env vars (Timeweb):
@@ -176,7 +176,7 @@ async function checkHealth(): Promise<string> {
   return [
     `AI: OpenRouter=${orOk ? 'OK' : 'X'}`,
     `БД: ${issues.length === 0 ? 'OK' : issues.join('; ')}`,
-    `Сайт: https://tourhab.ru`,
+    `Сайт: https://vedarai.ru`,
   ].join('\n');
 }
 
@@ -367,7 +367,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
       '<i>Есть вопросы — пишите Кузьмичу.</i>',
     ].join('\n');
     const r = await tgChannel(kamChannel, text, [
-      [{ text: 'Маршруты на карте →', url: 'https://tourhab.ru/routes' }],
+      [{ text: 'Маршруты на карте →', url: 'https://vedarai.ru/routes' }],
       [{ text: 'Спросить Кузьмича', url: 'https://t.me/KuzmichKam_bot' }],
     ]);
     results.push(`@kamchatka_real: ${r.ok ? 'OK' : (r.description ?? 'err')}`);

@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
       ``,
       row.message_text ? `<i>${escHtml(row.message_text)}</i>` : '',
       ``,
-      `<a href="https://tourhab.ru/hub/admin/leads">Открыть лиды →</a>`,
+      `<a href="https://vedarai.ru/hub/admin/leads">Открыть лиды →</a>`,
     ].filter(Boolean).join('\n');
 
     if (token && chatId) {

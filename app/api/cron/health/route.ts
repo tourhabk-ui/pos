@@ -4,7 +4,7 @@
  * При проблемах — алерт в Telegram admin.
  *
  * Запуск: cron-job.org каждый час
- *   URL: https://tourhab.ru/api/cron/health?secret=<CRON_SECRET>
+ *   URL: https://vedarai.ru/api/cron/health?secret=<CRON_SECRET>
  */
 
 import { NextRequest, NextResponse } from 'next/server';

@@ -211,7 +211,7 @@ async function autoProcessLead(leadId: string, leadName: string): Promise<void> 
       ``,
       `<i>${escHtml(proposal.intent.qualification_notes)}</i>`,
       ``,
-      `<a href="https://tourhab.ru/hub/admin/leads">Открыть лиды →</a>  <code>${leadId}</code>`,
+      `<a href="https://vedarai.ru/hub/admin/leads">Открыть лиды →</a>  <code>${leadId}</code>`,
     ].filter(Boolean);
 
     await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {

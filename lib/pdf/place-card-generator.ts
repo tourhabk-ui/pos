@@ -9,6 +9,7 @@
 
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+import { getPublicBaseUrl } from '@/lib/config';
 
 const HAZARD_LABELS: Record<string, string> = {
   avalanche:        'Лавины',
@@ -73,7 +74,7 @@ async function buildQRCodeBuffer(url: string): Promise<Buffer> {
 }
 
 export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer> {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://tourhab.ru';
+  const appUrl = getPublicBaseUrl();
   const pageUrl = `${appUrl}/places/${place.id}`;
   const qrBuffer = await buildQRCodeBuffer(pageUrl);
 
@@ -319,7 +320,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
 
     doc.fontSize(7).font('Helvetica').fillColor('#888888')
        .text(
-         `Сгенерировано: ${new Date().toLocaleDateString('ru-RU')} · tourhab.ru · ${pageUrl}`,
+         `Сгенерировано: ${new Date().toLocaleDateString('ru-RU')} · vedarai.ru · ${pageUrl}`,
          52, footerY,
          { width: W - qrSize - 20 },
        );

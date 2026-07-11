@@ -123,7 +123,7 @@ async function sendOperatorToTelegram(op: FoundOperator, outreachId: string): Pr
     '- Уведомления и учёт бронирований в едином кабинете',
     '- Размещение туров — бесплатно',
     '',
-    'Если интересно, регистрация здесь: https://tourhab.ru/register',
+    'Если интересно, регистрация здесь: https://vedarai.ru/register',
     'Готовы ответить на любые вопросы.',
     '',
     'С уважением, команда KamchatourHub',
