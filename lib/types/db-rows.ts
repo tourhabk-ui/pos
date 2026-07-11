@@ -1373,7 +1373,27 @@ export interface OperatorProfileRow {
   rating: string;
   review_count: string;
   is_verified: boolean;
+  registry_status: string | null;
+  registry_number: string | null;
   created_at: string;
+}
+
+/** Строка снимка официального реестра (official_registry_operators, migration 742) */
+export interface OfficialRegistryOperatorRow {
+  id: string;
+  name: string;
+  name_normalized: string;
+  inn: string | null;
+  ogrn: string | null;
+  registry_number: string | null;
+  region: string | null;
+  registry_status: string | null;
+  contacts: Record<string, unknown> | null;
+  source_url: string | null;
+  registry_date: string | null;
+  matched_partner_id: string | null; // partners.id — UUID
+  match_method: string | null;
+  scraped_at: string;
 }
 
 /** Used by GET /api/operators (list) */

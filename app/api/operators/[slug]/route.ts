@@ -30,7 +30,8 @@ export async function GET(
       `SELECT id, slug, name, category, description, short_description,
               hero_image, gallery, services, features, faq, season_info,
               reviews_data, contacts, location, legal_info, contact,
-              rating::text, review_count::text, is_verified, created_at::text
+              rating::text, review_count::text, is_verified,
+              registry_status, registry_number, created_at::text
        FROM partners
        WHERE slug = ANY($1) AND is_public = TRUE
        ORDER BY CASE
@@ -72,6 +73,8 @@ export async function GET(
         rating:           parseFloat(r.rating ?? '0'),
         reviewCount:      parseInt(r.review_count ?? '0'),
         isVerified:       r.is_verified,
+        registryStatus:   r.registry_status,
+        registryNumber:   r.registry_number,
         createdAt:        r.created_at,
       },
     });
