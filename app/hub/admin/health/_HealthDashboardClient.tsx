@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Activity, FileCheck, PhoneCall, Map, Wind, LifeBuoy, AlertTriangle, CheckCircle2, Bot } from 'lucide-react';
 
 /**
  * Сводный health-дашборд данных: все /api/admin/health/* метрики на одной
@@ -40,6 +40,15 @@ interface AirCoverage {
   zones_with_fresh_data: number;
   coverage_pct: number;
   stale_zones: string[];
+}
+
+interface GroundingHealth {
+  total_graded: number;
+  avg_score: number;
+  low_quality_count: number;
+  ungrounded_count: number;
+  recent_issues: string[];
+  ok: boolean;
 }
 
 interface PhonesHealth {
@@ -139,6 +148,7 @@ export default function HealthDashboardClient() {
   const rescue = useHealth<RescueCoverage>('/api/admin/health/rescue-coverage');
   const geometry = useHealth<GeometryHealth>('/api/admin/health/routes-geometry');
   const air = useHealth<AirCoverage>('/api/admin/health/air-quality-coverage');
+  const grounding = useHealth<GroundingHealth>('/api/admin/health/kuzmich-grounding');
   const phones = useHealth<{ success: boolean; data: PhonesHealth }>('/api/admin/health/emergency-contacts');
 
   const phonesData = phones.data?.data ?? null;
@@ -190,6 +200,21 @@ export default function HealthDashboardClient() {
                 <p className="text-xs text-[var(--warning)] mt-2">{air.data.reason}</p>
               )}
             </>
+          )}
+        </MetricCard>
+
+        <MetricCard title="Заземление Кузьмича" icon={Bot}
+          ok={grounding.data?.ok} error={grounding.error} loading={!grounding.data}>
+          {grounding.data && (
+            <div>
+              <p className="text-2xl font-bold text-[var(--text-primary)]">{grounding.data.ungrounded_count}</p>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Ответов с фактами без инструментов за 7 дней (оценено {grounding.data.total_graded}, средний балл {grounding.data.avg_score || '—'})
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-2">
+                Цены, телефоны и наличие мест должны приходить из БД, а не «из головы» модели.
+              </p>
+            </div>
           )}
         </MetricCard>
       </div>

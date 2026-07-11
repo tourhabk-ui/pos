@@ -1616,6 +1616,10 @@ export async function aiChatAgentLoop(
   systemContent: string,
   history: ChatMessage[],
   extraUserMsg: ChatMessage[],
+  // Наружный аккумулятор реально ВЫПОЛНЕННЫХ инструментов хода — для метрики
+  // заземления (grounding.ts): ответ с ценами/наличием без вызова инструментов
+  // данных означает, что факты взяты не из БД. Опционален, callers не ломаются.
+  usedTools?: Set<string>,
 ): Promise<string | null> {
   const msgs: ToolMsg[] = [
     { role: 'system', content: systemContent },
@@ -1638,6 +1642,7 @@ export async function aiChatAgentLoop(
     // Параллельное исполнение инструментов хода + дедуп; порядок сохраняется
     const outcomes = await runTurnTools(result.tool_calls, seenToolSigs, executeTool, validateToolArgs);
     for (const o of outcomes) {
+      if (o.executed) usedTools?.add(o.name);
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
       // short-circuit дублей не оборачиваем. В KB ниже идёт СЫРОЙ результат.
       const msgContent = o.executed ? wrapToolOutput(o.name, o.content) : o.content;
@@ -1711,7 +1716,8 @@ export async function aiChat(opts: {
     : [];
 
   // ── Level 2: Agent loop with tools (primary path) ────────────────────────
-  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg)
+  const usedTools = new Set<string>();
+  let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, usedTools)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
     .catch(() => '');
 
@@ -1764,8 +1770,9 @@ export async function aiChat(opts: {
 
   if (afterReply) await afterReply(chatId, finalAnswer);
 
-  // Fire-and-forget: Outcomes grader — оцениваем качество ответа асинхронно
-  void gradeKuzmichResponse(text, answer, chatId);
+  // Fire-and-forget: Outcomes grader — оцениваем качество ответа асинхронно.
+  // toolsRan — для метрики заземления: конкретика без инструментов = выдумка.
+  void gradeKuzmichResponse(text, answer, chatId, { toolsRan: [...usedTools] });
 
   // Fire-and-forget: обновляем долгосрочную память бота
   if (platform) {
