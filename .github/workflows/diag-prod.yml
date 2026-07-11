@@ -29,14 +29,13 @@ jobs:
           set -uo pipefail
           fp() { curl -s --max-time 30 "$BASE/" | grep -o 'src="/_next/static/[^"]*"' | sort | md5sum | cut -d' ' -f1; }
 
-          # v3: ждём деплой SSR-листинга (#457) — признак нового кода: в первом
-          # HTML /routes появился ItemList JSON-LD. Если SSR на проде упал
-          # (initial=null), признак не появится — тогда после 25 попыток
-          # снимаем замер как есть: провал тоже результат.
+          # v4: ждём деплой SSR-листинга операторов (#460) — признак нового кода:
+          # карточки href="/operators/<slug>" в первом HTML /operators. Не
+          # появился за 25 попыток — снимаем замер как есть: провал тоже результат.
           for i in $(seq 1 25); do
-            N=$(curl -s --max-time 30 "$BASE/routes" | grep -c 'ItemList' || true)
-            if [ "${N:-0}" -ge 1 ]; then echo "SSR-деплой доехал (ItemList в /routes, попытка $i)"; break; fi
-            echo "деплой ещё не доехал (ItemList=0), жду 60с ($i/25)"; sleep 60
+            N=$(curl -s --max-time 30 "$BASE/operators" | grep -c 'href="/operators/' || true)
+            if [ "${N:-0}" -ge 1 ]; then echo "SSR-деплой доехал (карточки в /operators, попытка $i)"; break; fi
+            echo "деплой ещё не доехал (карточек 0), жду 60с ($i/25)"; sleep 60
           done
 
           # Стабилизация: два fingerprint с интервалом 60с.
