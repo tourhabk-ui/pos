@@ -24,6 +24,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const tab = searchParams.get('tab') || 'overview';
+    // Селектор периода в UI (7/30/90/365) раньше игнорировался — метрики шли
+    // за всё время, график всегда за 30 дней. Только допустимые значения.
+    const periodRaw = searchParams.get('period') ?? '30';
+    const periodDays = ['7', '30', '90', '365'].includes(periodRaw) ? parseInt(periodRaw, 10) : 30;
 
     if (tab === 'payouts') {
       const [payoutsResult, statsResult] = await Promise.all([
@@ -79,7 +83,8 @@ export async function GET(request: NextRequest) {
             COUNT(DISTINCT user_id)::text as unique_customers
           FROM payments
           WHERE status = 'completed'
-        `),
+            AND created_at >= NOW() - ($1 || ' days')::interval
+        `, [periodDays]),
         query<DailyFinanceRow>(`
           SELECT
             DATE(created_at) as date,
@@ -87,10 +92,10 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(amount), 0)::text as revenue
           FROM payments
           WHERE status = 'completed'
-            AND created_at >= NOW() - INTERVAL '30 days'
+            AND created_at >= NOW() - ($1 || ' days')::interval
           GROUP BY DATE(created_at)
           ORDER BY date ASC
-        `),
+        `, [periodDays]),
         query<RevenueByTypeRow>(`
           SELECT
             booking_type,
@@ -98,8 +103,9 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(amount), 0)::text as revenue
           FROM payments
           WHERE status = 'completed'
+            AND created_at >= NOW() - ($1 || ' days')::interval
           GROUP BY booking_type
-        `),
+        `, [periodDays]),
         query<PendingPayoutsRow>(`
           SELECT
             COUNT(*)::text as pending_count,

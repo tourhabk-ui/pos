@@ -18,7 +18,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
 
-    const conditions: string[] = [];
+    // Мягко удалённые брони в админ-листинге не показываем.
+    const conditions: string[] = ['b.deleted_at IS NULL'];
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
       paramIndex++;
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const countResult = await query<CountRow>(
       `SELECT COUNT(*) as count
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
          b.special_requests,
          b.created_at,
          b.updated_at,
-         t.title AS tour_name,
+         COALESCE(t.title, 'Тур удалён') AS tour_name,
          COALESCE(u.name, 'Гость') AS user_name,
          COALESCE(u.email, '') AS user_email
        FROM operator_bookings b
