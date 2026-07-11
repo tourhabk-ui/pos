@@ -53,6 +53,11 @@ const nextConfig = {
     return [
       { source: '/emergency.html',      destination: '/emergency',                       permanent: true },
       { source: '/fishingkam',          destination: '/operators/kamchatskaya-rybalka',  permanent: true },
+      // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
+      // дубли отдавали идентичный контент и каннибалили бы друг друга в индексе.
+      // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.
+      { source: '/marketplace/operators', destination: '/operators',                    permanent: true },
+      { source: '/catalog/operators',  destination: '/operators',                      permanent: true },
       { source: '/marketplace/:path*', destination: '/catalog/:path*',                 permanent: true },
       { source: '/marketplace',        destination: '/catalog',                        permanent: true },
       { source: '/tours',              destination: '/catalog',                        permanent: true },
@@ -87,6 +92,13 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // ЗАФИКСИРОВАННЫЙ КОМПРОМИСС (аудит 11.07, P2): 'unsafe-inline' в
+          // script-src/style-src оставлен сознательно. Next.js App Router
+          // инлайнит бутстрап-скрипты и RSC-payload, Tailwind/next/font — инлайн
+          // стили; убрать 'unsafe-inline' без nonce-конвейера = сломать гидрацию.
+          // Честный апгрейд — nonce через middleware (next docs: CSP with nonces),
+          // но middleware у нас Edge JWT + rate-limit (§7 CLAUDE.md, не трогать
+          // без отдельного решения). Ужесточать только вместе с этим решением.
           { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://emrldco.com; font-src 'self' data: https://*.yandex.ru;" },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         ],
