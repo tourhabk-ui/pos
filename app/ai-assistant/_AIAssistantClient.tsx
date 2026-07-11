@@ -49,8 +49,10 @@ interface ChatMessage {
 }
 
 // Фолбэк-ответы AI-конвейера: чат не смог — даём человеку прямой путь в каталог.
+// Ошибка может прятаться за SOS-префиксом (ЧП + мёртвый конвейер) — поэтому
+// проверяем и начало строки, и начало абзаца после блока.
 const AI_ERROR_PREFIXES = ['Извините, сервис временно недоступен', 'Сервис временно недоступен', 'Извините, не удалось получить ответ', 'Сервер недоступен'];
-const isAiErrorReply = (text: string) => AI_ERROR_PREFIXES.some(p => text.startsWith(p));
+const isAiErrorReply = (text: string) => AI_ERROR_PREFIXES.some(p => text.startsWith(p) || text.includes(`\n${p}`));
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

@@ -57,7 +57,8 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re(`(рядом|близко|напал|атаковал|преследует)${PHRASE}медвед[а-яё]*`),
   ],
   ice: [
-    re('провалил(ся|ась|ись)'),
+    // «провалился» без контекста воды/льда — частая метафора (план, экзамен)
+    re(`провалил(ся|ась|ись)${PHRASE}(л(ё|е)д|льду|полынь[а-яё]*|воду|наледь|трещину|болото|снег)`),
     re('под л(ё|е)д'),
     re(`л(ё|е)д${PHRASE}(трещит|треснул|проваливается|тонк[а-яё]*)`),
   ],
@@ -101,7 +102,8 @@ const CATEGORY_ADVICE: Record<EmergencyCategory, string> = {
 
 /** Ищет признаки чрезвычайной ситуации в тексте пользователя. */
 export function detectEmergency(text: string): EmergencyDetection {
-  if (!text || text.length < 4) return { detected: false, categories: [] };
+  // Порог 3 — голое «SOS» (3 символа) обязано проходить
+  if (!text || text.length < 3) return { detected: false, categories: [] };
   const categories: EmergencyCategory[] = [];
   for (const [category, patterns] of Object.entries(CATEGORY_PATTERNS) as [EmergencyCategory, RegExp[]][]) {
     if (patterns.some((re) => re.test(text))) categories.push(category);
@@ -117,13 +119,19 @@ export function buildSosBlock(categories: EmergencyCategory[]): string {
   const lines = [
     'ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ:',
     'Звоните 112 — работает без SIM-карты при наличии любой сети.',
-    'МЧС Камчатки: 8-415-2-11-05-05. Кнопка SOS: vedarai.ru/sos',
+    // Номер — канонический для платформы (app/sos, реестр emergency-contacts)
+    'ГУ МЧС по Камчатскому краю: +7 (4152) 23-53-62. Кнопка SOS: vedarai.ru/sos',
   ];
   for (const category of categories.slice(0, 3)) {
     lines.push(CATEGORY_ADVICE[category]);
   }
   return lines.join('\n');
 }
+
+// Ответ уже содержит экстренные телефоны, только если в нём есть
+// самостоятельное «112» (не кусок цены «11200 ₽») И упоминание МЧС.
+// При сомнении — дублируем блок: лишние телефоны безвредны, пропавшие — нет.
+const HAS_EMERGENCY_PHONES = [/(?<!\d)112(?!\d)/, /мчс/i];
 
 /**
  * Добавляет SOS-блок к ответу, если в вопросе есть признаки ЧП, а ответ
@@ -132,6 +140,6 @@ export function buildSosBlock(categories: EmergencyCategory[]): string {
 export function withSosBlock(answer: string, userText: string): { text: string; emergency: boolean } {
   const detection = detectEmergency(userText);
   if (!detection.detected) return { text: answer, emergency: false };
-  if (answer.includes('112')) return { text: answer, emergency: true };
+  if (HAS_EMERGENCY_PHONES.every((re) => re.test(answer))) return { text: answer, emergency: true };
   return { text: `${buildSosBlock(detection.categories)}\n\n${answer}`, emergency: true };
 }

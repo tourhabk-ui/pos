@@ -12,6 +12,7 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { withSosBlock, buildSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,8 +65,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const reply = await callAIWithModelDirect(messages, getModelForAgent('planner'));
-    return NextResponse.json({ success: true, reply });
+    // Серверная SOS-страховка (общая с чатом Кузьмича): признаки ЧП в вопросе
+    // — телефоны 112/МЧС добавляются к ответу независимо от модели
+    const sos = withSosBlock(reply, message);
+    return NextResponse.json({ success: true, reply: sos.text, ...(sos.emergency ? { emergency: true } : {}) });
   } catch {
+    // Даже при мёртвом конвейере человек в ЧП получает телефоны
+    const detection = detectEmergency(message);
+    if (detection.detected) {
+      return NextResponse.json({ success: true, reply: buildSosBlock(detection.categories), emergency: true });
+    }
     return NextResponse.json(
       { success: false, error: 'Сервис временно недоступен' },
       { status: 503 },

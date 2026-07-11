@@ -40,6 +40,7 @@ import {
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -224,6 +225,12 @@ export async function POST(request: NextRequest) {
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + живые контексты
     const kuzmichSystem = KUZMICH_SYSTEM + geoContext + ragContext + memContext + agentInsights;
 
+    // Серверная SOS-страховка (как в /api/ai/chat): признаки ЧП известны из
+    // вопроса ДО генерации — блок 112/МЧС уходит первыми токенами стрима,
+    // независимо от того, что ответит (или не ответит) модель.
+    const sosDetection = detectEmergency(message.trim());
+    const sosHead = sosDetection.detected ? `${buildSosBlock(sosDetection.categories)}\n\n` : '';
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -242,7 +249,8 @@ export async function POST(request: NextRequest) {
           }
         };
         const persistState = async () => {
-          const assistantMsg: ChatMessage = { role: 'assistant', content: fullAnswer, timestamp: Date.now() };
+          // В историю — то, что реально видел пользователь (с SOS-блоком)
+          const assistantMsg: ChatMessage = { role: 'assistant', content: sosHead + fullAnswer, timestamp: Date.now() };
           history.push(assistantMsg);
           const newCount = currentCount + 1;
           const interestsEncrypted = extractAndEncryptInterests(message, session?.interests_encrypted ?? null);
@@ -269,6 +277,9 @@ export async function POST(request: NextRequest) {
         };
 
         try {
+          // SOS-блок — первыми токенами, до любой генерации
+          if (sosHead) flushWords(sosHead);
+
           // Туристы (включая анонимов) — через agent loop core.ts:
           // get_guardian_context и персона Хранителя, как в Telegram/MAX и
           // /api/ai/chat (PR #333). Ответ приходит целиком — отдаём по словам.
@@ -329,10 +340,12 @@ export async function POST(request: NextRequest) {
 
           await persistState();
           controller.enqueue(encoder.encode(
-            `data: ${JSON.stringify({ type: 'end', finalResponse: fullAnswer })}\n\n`,
+            `data: ${JSON.stringify({ type: 'end', finalResponse: sosHead + fullAnswer, ...(sosDetection.detected ? { emergency: true } : {}) })}\n\n`,
           ));
           controller.close();
         } catch {
+          // Даже при полном отказе генерации человек в ЧП уже получил
+          // SOS-блок первыми токенами — теряется только ответ модели
           controller.enqueue(encoder.encode(
             `data: ${JSON.stringify({ type: 'error', message: 'Ошибка генерации ответа' })}\n\n`,
           ));

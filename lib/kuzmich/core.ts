@@ -1749,20 +1749,20 @@ export async function aiChat(opts: {
     }
   }
 
-  // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
-  // (проверка — по ответу ДО SOS-префикса).
-  const answerIsError = isAIErrorResponse(answer);
-
   // Серверная SOS-страховка: при признаках ЧП телефоны 112/МЧС добавляются
   // к ответу независимо от модели — даже когда AI-конвейер лежит целиком.
-  answer = withSosBlock(answer, userContent).text;
+  // Пользователю и в историю уходит finalAnswer; грейдер и синтез заметок
+  // получают ОРИГИНАЛЬНЫЙ ответ модели — иначе boilerplate SOS-блока
+  // портит оценку faithfulness и утекает в долгосрочную память бота.
+  const finalAnswer = withSosBlock(answer, userContent).text;
 
-  if (!answerIsError) {
-    await saveMsg(chatId, mode, 'assistant', answer, userId, userName);
+  // Не сохраняем системные ошибки в историю — иначе они отравляют контекст следующих сообщений
+  if (!isAIErrorResponse(answer)) {
+    await saveMsg(chatId, mode, 'assistant', finalAnswer, userId, userName);
   }
-  await reply(chatId, answer);
+  await reply(chatId, finalAnswer);
 
-  if (afterReply) await afterReply(chatId, answer);
+  if (afterReply) await afterReply(chatId, finalAnswer);
 
   // Fire-and-forget: Outcomes grader — оцениваем качество ответа асинхронно
   void gradeKuzmichResponse(text, answer, chatId);

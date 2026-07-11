@@ -31,6 +31,7 @@ describe('detectEmergency — позитивные случаи (по катег
     ['freezing', 'мы замерзаем, застигла пурга'],
     ['distress', 'спасите, нужна срочная помощь'],
     ['distress', 'SOS мы на перевале'],
+    ['distress', 'SOS'],
     ['distress', 'вызовите спасателей, случилось ЧП'],
   ];
 
@@ -54,6 +55,8 @@ describe('detectEmergency — негативные случаи (информа�
     'Помогите выбрать тур на вулкан',
     'Какие опасности на этом маршруте?',
     'Привет! Что посмотреть за 3 дня?',
+    'Наш план поездки провалился, посоветуй что-то на замену',
+    'Я провалился на экзамене, хочу развеяться в горах',
     '',
   ];
 
@@ -68,10 +71,10 @@ describe('detectEmergency — негативные случаи (информа�
 });
 
 describe('buildSosBlock', () => {
-  it('всегда содержит 112, телефон МЧС и ссылку на SOS', () => {
+  it('всегда содержит 112, канонический телефон МЧС (как на /sos) и ссылку на SOS', () => {
     const block = buildSosBlock(['lost']);
     expect(block).toContain('112');
-    expect(block).toContain('8-415-2-11-05-05');
+    expect(block).toContain('+7 (4152) 23-53-62');
     expect(block).toContain('vedarai.ru/sos');
   });
 
@@ -98,14 +101,28 @@ describe('withSosBlock', () => {
     );
     expect(emergency).toBe(true);
     expect(text).toContain('112');
-    expect(text).toContain('8-415-2-11-05-05');
+    expect(text).toContain('+7 (4152) 23-53-62');
     expect(text.indexOf('112')).toBeLessThan(text.indexOf('Извините'));
   });
 
-  it('модель сама дала 112 — не дублируем блок', () => {
-    const answer = 'Срочно звоните 112 и не двигайтесь с места.';
+  it('модель сама дала 112 и МЧС — не дублируем блок', () => {
+    const answer = 'Срочно звоните 112, дежурная часть МЧС уже предупреждена. Не двигайтесь с места.';
     const { text, emergency } = withSosBlock(answer, 'я заблудился в лесу');
     expect(emergency).toBe(true);
     expect(text).toBe(answer);
+  });
+
+  it('«112» как кусок цены не глушит блок', () => {
+    const answer = 'Тур на Толбачик стоит 11200 рублей с человека.';
+    const { text, emergency } = withSosBlock(answer, 'я заблудился, сколько стоит эвакуация');
+    expect(emergency).toBe(true);
+    expect(text).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+    expect(text).toContain('+7 (4152) 23-53-62');
+  });
+
+  it('голое «112» без МЧС в ответе — блок всё равно добавляется (перестраховка)', () => {
+    const answer = 'Звоните 112.';
+    const { text } = withSosBlock(answer, 'спасите, замерзаю');
+    expect(text).toContain('+7 (4152) 23-53-62');
   });
 });
