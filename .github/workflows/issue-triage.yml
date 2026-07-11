@@ -1,0 +1,114 @@
+name: Issue Triage
+
+# Петля loop engineering: ночной триаж issues. Владелец пишет тикет как
+# думает — утром он либо размечен и ждёт решения, либо тривиальный уже
+# ушёл в существующий конвейер claude.yml через лейбл agent-proposal
+# и превратился в draft-PR.
+#
+# Кода петля не касается вовсе: permissions только issues. Идемпотентность —
+# лейбл triaged: размеченный тикет второй раз не трогается.
+#
+# Маршрутизация:
+#   safety / money / большой объём (L) → needs-owner, бота НЕ запускать
+#   тривиальные S/M не-safety           → agent-proposal (триггер claude.yml)
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # 21:00 UTC ≈ 09:00 утра Камчатки
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/issue-triage.json'
+  workflow_dispatch:
+
+concurrency:
+  group: issue-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          gh label create triaged        --color BFD4F2 --description "Размечен ночным триажем" 2>/dev/null
+          gh label create needs-owner    --color D93F0B --description "Решение за владельцем (safety/деньги/крупное)" 2>/dev/null
+          gh label create size-S         --color C2E0C6 --description "Мелкая задача" 2>/dev/null
+          gh label create size-M         --color FBCA04 --description "Средняя задача" 2>/dev/null
+          gh label create size-L         --color B60205 --description "Крупная задача" 2>/dev/null
+          gh label create type-bug       --color D73A4A --description "Баг" 2>/dev/null
+          gh label create type-feature   --color A2EEEF --description "Фича" 2>/dev/null
+          gh label create type-content   --color 0E8A16 --description "Контент/данные" 2>/dev/null
+          gh label create type-infra     --color 5319E7 --description "Инфраструктура/CI" 2>/dev/null
+          gh label create type-safety    --color B60205 --description "Безопасность туристов" 2>/dev/null
+          gh label create type-money     --color 006B75 --description "Платежи/деньги" 2>/dev/null
+          exit 0
+
+      - name: Collect untriaged issues
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          COUNT=$(gh issue list --state open --search '-label:triaged' --limit 100 --json number --jq 'length')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Непроразмеченных issues: $COUNT"
+
+      - name: Run Claude triage
+        if: steps.pending.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --allowedTools "Bash,Read,Glob,Grep"
+            --max-turns 60
+          show_full_output: true
+          prompt: |
+            Ты — ночной триаж issues платформы Ведар (туристическая
+            safety-платформа Камчатки; Next.js 15, TypeScript, PostgreSQL).
+            Кода ты НЕ меняешь — только читаешь и размечаешь тикеты.
+
+            Прочитай CLAUDE.md (корень репозитория) — особенно §7 «НЕ ТРОГАТЬ»,
+            чтобы понимать, что относится к safety и деньгам.
+
+            Получи список неразмеченных тикетов:
+            gh issue list --state open --search '-label:triaged' --limit 100 --json number,title,body,author
+
+            Для КАЖДОГО тикета:
+            1. Тип — один лейбл: type-bug / type-feature / type-content /
+               type-infra / type-safety / type-money. Safety — всё, что
+               касается SOS, МЧС, статусов опасности, экстренных телефонов.
+               Money — платежи, возвраты, цены, брони с оплатой.
+            2. Объём — один лейбл: size-S (до пары файлов), size-M (несколько
+               файлов, без миграций схемы), size-L (миграции БД, авторизация,
+               архитектура, много файлов). При сомнении — больший размер.
+            3. Маршрутизация:
+               - type-safety ИЛИ type-money ИЛИ size-L → добавь лейбл needs-owner.
+                 Конвейер НЕ запускать.
+               - Иначе (S/M, не safety, не money) → добавь лейбл agent-proposal —
+                 это запустит существующий конвейер claude.yml, и по тикету
+                 родится draft-PR.
+            4. Один короткий комментарий (2-3 предложения, по-русски): как
+               разметил и почему; если needs-owner — что именно требует
+               решения владельца.
+            5. ВСЕГДА в конце добавь лейбл triaged — идемпотентность петли.
+
+            Команды: gh issue edit N --add-label "...", gh issue comment N --body "..."
+
+            Если тикет непонятен настолько, что тип не определить — лейблы
+            triaged + needs-owner и комментарий с уточняющим вопросом.
+            Не закрывай тикеты и не меняй их заголовки/тексты.
