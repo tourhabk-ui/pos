@@ -54,8 +54,26 @@ jobs:
           claude_args: |
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
           show_full_output: true
+          # ВАЖНО: кастомный prompt ЗАМЕНЯЕТ дефолтный контекст action —
+          # без явной вставки текста issue агент получал одни правила,
+          # отвечал «чем помочь?» и завершался (все старые success-раны
+          # были такими пустышками). Текст задачи обязан быть в prompt.
           prompt: |
             Ты работаешь с кодовой базой Ведар (Next.js 15, TypeScript strict, PostgreSQL).
+
+            ══ ЗАДАЧА ══
+            Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+
+            ${{ github.event.issue.body }}
+
+            Комментарий-триггер (если есть):
+            ${{ github.event.comment.body || github.event.review.body || '—' }}
+
+            Выполни эту задачу до конца — от чтения кода до draft-PR. Не
+            спрашивай уточнений: если что-то неоднозначно, выбери разумный
+            вариант и опиши выбор в PR. Если задача не требует изменений кода
+            (анализ/разведка) — оставь развёрнутый результат комментарием:
+            gh issue comment ${{ github.event.issue.number }} --body "..."
 
             ОБЯЗАТЕЛЬНО ПЕРЕД ЛЮБЫМИ ИЗМЕНЕНИЯМИ:
             1. Прочитай CLAUDE.md полностью (он есть в корне репозитория)
