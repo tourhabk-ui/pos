@@ -29,12 +29,14 @@ jobs:
           set -uo pipefail
           fp() { curl -s --max-time 30 "$BASE/" | grep -o 'src="/_next/static/[^"]*"' | sort | md5sum | cut -d' ' -f1; }
 
-          # Ждём, пока деплой доедет минимум до #452: /api/agents/rescue-briefing
-          # существует только с 3dba856 (не-404 = задеплоен).
-          for i in $(seq 1 30); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE/api/agents/rescue-briefing" || echo 000)
-            if [ "$CODE" != "404" ] && [ "$CODE" != "000" ]; then echo "маркер #452 задеплоен (rescue-briefing HTTP $CODE)"; break; fi
-            echo "деплой ещё не доехал (rescue-briefing HTTP $CODE), жду 60с ($i/30)"; sleep 60
+          # v3: ждём деплой SSR-листинга (#457) — признак нового кода: в первом
+          # HTML /routes появился ItemList JSON-LD. Если SSR на проде упал
+          # (initial=null), признак не появится — тогда после 25 попыток
+          # снимаем замер как есть: провал тоже результат.
+          for i in $(seq 1 25); do
+            N=$(curl -s --max-time 30 "$BASE/routes" | grep -c 'ItemList' || true)
+            if [ "${N:-0}" -ge 1 ]; then echo "SSR-деплой доехал (ItemList в /routes, попытка $i)"; break; fi
+            echo "деплой ещё не доехал (ItemList=0), жду 60с ($i/25)"; sleep 60
           done
 
           # Стабилизация: два fingerprint с интервалом 60с.
@@ -77,13 +79,28 @@ jobs:
             || curl -s --max-time 60 "$BASE/api/routes?kind=route&limit=5" | head -c 4000
 
           echo ""
-          echo "=== SSR-проба /routes: контент в ПЕРВОМ HTML (до гидрации) — прямой замер SEO-дыры ==="
+          echo "=== SSR-проба /routes: контент в ПЕРВОМ HTML (до гидрации) — замер ПОСЛЕ #457 ==="
           HTML=$(curl -s --max-time 30 "$BASE/routes" || true)
           echo "байт HTML: $(printf %s "$HTML" | wc -c)"
           echo "вхождений «0 природных мест»: $(printf %s "$HTML" | grep -c '0 природных мест' || true)"
+          echo "ItemList JSON-LD: $(printf %s "$HTML" | grep -c 'ItemList' || true)"
+          echo "ссылок пагинации ?page=: $(printf %s "$HTML" | grep -o 'href="/routes?[^"]*page=[^"]*"' | wc -l)"
           for name in Авачинск Мутновск Курильское Толбачик Налычево Вилючинск; do
             echo "  «$name» в первом HTML: $(printf %s "$HTML" | grep -c "$name" || true)"
           done
+
+          echo ""
+          echo "=== SSR-проба deep-link /routes?kind=place&location_type=volcano&page=2 ==="
+          DL=$(curl -s --max-time 30 "$BASE/routes?kind=place&location_type=volcano&page=2" || true)
+          echo "байт HTML: $(printf %s "$DL" | wc -c); ItemList: $(printf %s "$DL" | grep -c 'ItemList' || true); «вулкан»: $(printf %s "$DL" | grep -ci 'вулкан' || true)"
+
+          echo ""
+          echo "=== Проба главной: честные цифры StatsBand (после #458) ==="
+          HP=$(curl -s --max-time 30 "$BASE/" || true)
+          echo "старый хардкод «778»: $(printf %s "$HP" | grep -c '778' || true) (0 = хардкод умер)"
+          echo "старый лейбл «маршрута в базе»: $(printf %s "$HP" | grep -c 'маршрута в базе' || true)"
+          echo "новый лейбл «маршрутов в базе»: $(printf %s "$HP" | grep -c 'маршрутов в базе' || true)"
+          echo "лейбл «локаций с координатами»: $(printf %s "$HP" | grep -c 'локаций с координатами' || true)"
 
           echo ""
           echo "=== SSR-проба /operators ==="
