@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Search, ShieldCheck, ChevronRight, MapPin } from 'lucide-react';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 
-interface Operator {
+export interface Operator {
   id: string;
   slug: string;
   name: string;
@@ -18,7 +19,7 @@ interface Operator {
   isVerified: boolean;
 }
 
-interface ApiMeta {
+export interface ApiMeta {
   total: number;
   page: number;
   limit: number;
@@ -34,13 +35,37 @@ const CATEGORIES = [
   { value: 'trekking', label: 'Треккинг' },
 ];
 
-export default function OperatorsPageClient() {
-  const [operators, setOperators] = useState<Operator[]>([]);
-  const [meta, setMeta] = useState<ApiMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
-  const [page, setPage] = useState(1);
+interface OperatorsPageClientProps {
+  /** Первый рендер с сервера (SEO): данные, снятые RSC-страницей /operators. */
+  initialItems?: Operator[];
+  initialMeta?: ApiMeta | null;
+  /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
+  initialKey?: string | null;
+}
+
+export default function OperatorsPageClient({
+  initialItems,
+  initialMeta = null,
+  initialKey = null,
+}: OperatorsPageClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Deep-link фильтры должны работать одинаково для SSR и клиента.
+  const [operators, setOperators] = useState<Operator[]>(initialItems ?? []);
+  const [meta, setMeta] = useState<ApiMeta | null>(initialMeta);
+  const [loading, setLoading] = useState(initialKey === null);
+  const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const [category, setCategory] = useState(searchParams.get('category') ?? '');
+  const [page, setPage] = useState(() => {
+    const p = parseInt(searchParams.get('page') ?? '1', 10);
+    return Number.isFinite(p) && p >= 1 ? p : 1;
+  });
+
+  // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
+  // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
+  const initialKeyRef = useRef<string | null>(initialKey);
 
   const fetchOperators = useCallback(async () => {
     setLoading(true);
@@ -62,9 +87,31 @@ export default function OperatorsPageClient() {
   }, [search, category, page]);
 
   useEffect(() => {
+    if (initialKeyRef.current !== null) {
+      // Тот же формат ключа, что собирает RSC-страница.
+      const currentKey = JSON.stringify({ search, category, page });
+      const matched = initialKeyRef.current === currentKey;
+      initialKeyRef.current = null;
+      if (matched) return;
+    }
     const timer = setTimeout(() => void fetchOperators(), search ? 400 : 0);
     return () => clearTimeout(timer);
-  }, [fetchOperators, search]);
+  }, [fetchOperators, search, category, page]);
+
+  // Href с фильтрами — реальные ссылки нужны ботам (Google не кликает JS);
+  // клик человека перехватываем и остаёмся в SPA-режиме.
+  const filterHref = useCallback((s: string, cat: string, pg: number) => {
+    const p = new URLSearchParams();
+    if (s) p.set('search', s);
+    if (cat) p.set('category', cat);
+    if (pg > 1) p.set('page', String(pg));
+    return `${pathname}${p.size ? '?' + p : ''}`;
+  }, [pathname]);
+
+  // Sync URL — deep-link на текущие фильтры всегда актуален.
+  useEffect(() => {
+    router.replace(filterHref(search, category, page), { scroll: false });
+  }, [search, category, page, filterHref, router]);
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
@@ -100,9 +147,10 @@ export default function OperatorsPageClient() {
           </div>
           <div className="flex gap-2 flex-wrap">
             {CATEGORIES.map(cat => (
-              <button
+              <Link
                 key={cat.value}
-                onClick={() => { setCategory(cat.value); setPage(1); }}
+                href={filterHref(search, cat.value, 1)}
+                onClick={e => { e.preventDefault(); setCategory(cat.value); setPage(1); }}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                   category === cat.value
                     ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
@@ -110,7 +158,7 @@ export default function OperatorsPageClient() {
                 }`}
               >
                 {cat.label}
-              </button>
+              </Link>
             ))}
           </div>
         </div>
@@ -180,21 +228,22 @@ export default function OperatorsPageClient() {
           </div>
         )}
 
-        {/* Pagination */}
+        {/* Pagination (ссылки, не кнопки — SEO-обход) */}
         {meta && meta.pages > 1 && (
           <div className="flex justify-center gap-2 mt-10">
             {Array.from({ length: meta.pages }, (_, i) => i + 1).map(p => (
-              <button
+              <Link
                 key={p}
-                onClick={() => setPage(p)}
-                className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                href={filterHref(search, category, p)}
+                onClick={e => { e.preventDefault(); setPage(p); }}
+                className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors flex items-center justify-center ${
                   p === page
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border)] hover:border-[var(--accent)]'
                 }`}
               >
                 {p}
-              </button>
+              </Link>
             ))}
           </div>
         )}
