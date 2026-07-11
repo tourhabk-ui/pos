@@ -1,15 +1,12 @@
 'use client';
 
-import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus } from './types';
+import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPayload } from './types';
+import { roomOf } from './rooms';
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
-
-function geoRoom(lat: number, lng: number): string {
-  return `vol-${Math.floor(lat * 10)}-${Math.floor(lng * 10)}`;
-}
 
 function genDeviceId(): string {
   return crypto.randomUUID();
@@ -67,7 +64,7 @@ export class VolcanoMesh {
     this.currentLat = lat;
     this.currentLng = lng;
     this.currentPosition = { lat, lng, accuracy: 10, timestamp: Date.now() };
-    this.room = geoRoom(lat, lng);
+    this.room = roomOf(lat, lng);
     this.onStatusChange?.('connecting');
 
     const url = `/api/mesh/signal?deviceId=${encodeURIComponent(this.deviceId)}&room=${encodeURIComponent(this.room)}`;
@@ -286,13 +283,25 @@ export class VolcanoMesh {
         timestamp: Date.now(),
       });
     } else if (msg.type === 'sos' && typeof navigator !== 'undefined' && navigator.onLine) {
-      void fetch('/api/safety/sos', {
+      // Я онлайн — ретранслирую SOS соседа на сервер. Дедуп копий от
+      // нескольких ретрансляторов — на /api/mesh/sos-relay (по sos_id).
+      const p = (typeof msg.payload === 'object' && msg.payload !== null
+        ? msg.payload
+        : {}) as Partial<SosBroadcastPayload> & { position?: PeerPosition };
+      const sos = p.sos ?? {
+        // Обратная совместимость со старым форматом {position, deviceId}
+        lat: p.position?.lat ?? null,
+        lng: p.position?.lng ?? null,
+        accuracy: p.position?.accuracy ?? null,
+      };
+      void fetch('/api/mesh/sos-relay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}),
+          sos_id: p.sos_id ?? `${msg.from}-${msg.timestamp}`,
           relayed_by: this.deviceId,
-          source: 'mesh_relay',
+          origin_device: msg.from,
+          sos,
         }),
       }).catch(() => {});
     }
@@ -323,15 +332,29 @@ export class VolcanoMesh {
     this.broadcast({ type: 'position', payload: this.currentPosition, timestamp: Date.now() });
   }
 
-  sendSOS(): void {
-    this.broadcast({
-      type: 'sos',
-      payload: {
-        position: this.currentPosition,
-        deviceId: this.deviceId,
+  /**
+   * Разослать SOS всем соседям по мешу. sos_id генерируется здесь —
+   * по нему сервер дедуплицирует копии от нескольких ретрансляторов.
+   * Данные формы (имя/телефон) едут вместе с сигналом, чтобы спасатели
+   * получили тот же состав полей, что и при прямой отправке.
+   */
+  sendSOS(sos?: SosBroadcastPayload['sos']): string {
+    const sosId = crypto.randomUUID();
+    const payload: SosBroadcastPayload = {
+      sos_id: sosId,
+      deviceId: this.deviceId,
+      position: this.currentPosition ?? null,
+      sos: {
+        lat: sos?.lat ?? this.currentPosition?.lat ?? null,
+        lng: sos?.lng ?? this.currentPosition?.lng ?? null,
+        accuracy: sos?.accuracy ?? this.currentPosition?.accuracy ?? null,
+        message: sos?.message ?? null,
+        tourist_name: sos?.tourist_name ?? null,
+        tourist_phone: sos?.tourist_phone ?? null,
       },
-      timestamp: Date.now(),
-    });
+    };
+    this.broadcast({ type: 'sos', payload, timestamp: Date.now() });
+    return sosId;
   }
 
   getPeers(): MeshPeer[] {

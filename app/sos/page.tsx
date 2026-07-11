@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
+import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
+import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
@@ -23,6 +25,15 @@ export default function SosPage() {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  // VolcanoMesh: соседние устройства группы. Включается при появлении
+  // координат. Если сеть есть у соседа, а не у нас — SOS уйдёт через него.
+  const {
+    status: meshStatus,
+    peers: meshPeers,
+    relayedCount: meshRelayedCount,
+    sendSOS: meshSendSOS,
+  } = useMesh(!!coords, coords);
 
   // Геолокация при загрузке
   useEffect(() => {
@@ -67,6 +78,12 @@ export default function SosPage() {
       tourist_name: name.trim() || null,
       tourist_phone: phone.trim() || null,
     };
+
+    // Дублируем SOS в меш ВСЕГДА, до попытки прямой отправки: если наш
+    // интернет умрёт на середине запроса, сосед с сетью уже ретранслирует.
+    try {
+      meshSendSOS(sosPayload);
+    } catch { /* меш не должен ломать основной путь */ }
 
     try {
       const res = await fetch('/api/safety/sos', {
@@ -156,6 +173,9 @@ export default function SosPage() {
             </p>
           </div>
         </div>
+
+        {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
+        <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
 
         {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
         <div style={{

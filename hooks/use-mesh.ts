@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { VolcanoMesh } from '@/lib/mesh/volcano-mesh';
-import type { MeshMessage, MeshPeer, MeshStatus } from '@/lib/mesh/types';
+import type { MeshMessage, MeshPeer, MeshStatus, SosBroadcastPayload } from '@/lib/mesh/types';
 
 export function useMesh(
   enabled: boolean,
@@ -53,8 +53,8 @@ export function useMesh(
     }
   }, [position?.lat, position?.lng]);
 
-  const sendSOS = useCallback(() => {
-    meshRef.current?.sendSOS();
+  const sendSOS = useCallback((sos?: SosBroadcastPayload['sos']) => {
+    return meshRef.current?.sendSOS(sos) ?? null;
   }, []);
 
   return {
