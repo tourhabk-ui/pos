@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import RoutesPageClient from './_RoutesPageClient';
+import { queryCatalogForPage, type CatalogFilters, type CatalogResult } from '@/lib/routes/catalog-query';
 
-export const dynamic = 'force-dynamic';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+const LIMIT = 24;
 
 export const metadata: Metadata = {
   title: 'Места Камчатки — вулканы, источники, озёра, бухты',
@@ -32,10 +33,92 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RoutesPage() {
+interface PageProps {
+  // Next 15: searchParams — Promise, обязателен await.
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+function first(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+}
+
+/**
+ * SSR первого рендера (шаг 3 аудита 11.07): до этого листинг рендерился
+ * только клиентским fetch — Google видел пустой каркас (diag: «Авачинск» 0
+ * вхождений в первом HTML при 541 месте в БД). Сервер применяет к первому
+ * рендеру те же deep-link-параметры, что читает клиент (kind/q/location_type/
+ * activity_type/page), данные кэшируются на 600с в queryCatalogForPage.
+ */
+export default async function RoutesPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+
+  const kindRaw = first(sp.kind);
+  const kind: 'place' | 'route' = kindRaw === 'route' ? 'route' : 'place';
+  const q = first(sp.q).slice(0, 200);
+  const activityType = kind === 'route' ? first(sp.activity_type).slice(0, 60) : '';
+  const locationType = kind === 'place' ? first(sp.location_type).slice(0, 60) : '';
+  const pageNumRaw = parseInt(first(sp.page) || '1', 10);
+  const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
+
+  // Зеркало initial-состояния клиента: sort/difficulty/цена в URL не живут.
+  const filters: CatalogFilters = {
+    ...(q ? { q } : {}),
+    kind,
+    ...(activityType ? { activity_type: activityType } : {}),
+    ...(locationType ? { location_type: locationType } : {}),
+    page,
+    limit: LIMIT,
+    sort: 'recommended',
+  };
+
+  let initial: CatalogResult | null = null;
+  try {
+    initial = await queryCatalogForPage(filters);
+  } catch {
+    // Честно отдаём клиенту флаг ошибки — он покажет состояние и даст повторить.
+    initial = null;
+  }
+
+  const initialKey = JSON.stringify({
+    kind,
+    q,
+    activityType,
+    locationType,
+    page,
+    sort: 'recommended',
+    difficulty: '',
+    priceRange: '',
+  });
+
+  const itemListJsonLd = initial && initial.items.length > 0
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        itemListElement: initial.items.map((it, i) => ({
+          '@type': 'ListItem',
+          position: (page - 1) * LIMIT + i + 1,
+          name: it.title,
+          url: `${SITE}${it.kind === 'place' ? '/places/' : '/routes/'}${it.id}`,
+        })),
+      }
+    : null;
+
   return (
-    <Suspense>
-      <RoutesPageClient />
-    </Suspense>
+    <>
+      {itemListJsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+        />
+      )}
+      <Suspense>
+        <RoutesPageClient
+          initialItems={initial?.items ?? []}
+          initialMeta={initial ? { total: initial.meta.total, pages: initial.meta.pages } : { total: 0, pages: 1 }}
+          initialError={initial === null}
+          initialKey={initialKey}
+        />
+      </Suspense>
+    </>
   );
 }

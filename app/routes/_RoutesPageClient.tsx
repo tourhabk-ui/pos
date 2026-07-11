@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Search, Map, LayoutGrid, SlidersHorizontal, X,
@@ -116,7 +117,16 @@ const KIND_TABS: { value: KindValue; label: string; desc: string }[] = [
   { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов' },
 ];
 
-export default function RoutesPageClient() {
+interface RoutesPageClientProps {
+  /** Первый рендер приходит с сервера (SEO): данные, снятые RSC-страницей. */
+  initialItems: RouteItem[];
+  initialMeta: { total: number; pages: number };
+  initialError: boolean;
+  /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
+  initialKey: string;
+}
+
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -131,17 +141,24 @@ export default function RoutesPageClient() {
   const [sort,         setSort]         = useState<SortValue>('recommended');
   const [difficulty,   setDifficulty]   = useState<DifficultyValue>('');
   const [priceRange,   setPriceRange]   = useState('');
-  const [page,         setPage]         = useState(1);
+  const [page,         setPage]         = useState(() => {
+    // Deep-link на страницу пагинации должен работать и для SSR, и для клиента.
+    const p = parseInt(searchParams.get('page') ?? '1', 10);
+    return Number.isFinite(p) && p >= 1 ? p : 1;
+  });
   const [showFilters,  setShowFilters]  = useState(false);
 
-  const [routes,    setRoutes]    = useState<RouteItem[]>([]);
-  const [meta,      setMeta]      = useState({ total: 0, pages: 1 });
-  const [loading,   setLoading]   = useState(true);
-  const [dbError,   setDbError]   = useState(false);
+  const [routes,    setRoutes]    = useState<RouteItem[]>(initialItems);
+  const [meta,      setMeta]      = useState(initialMeta);
+  const [loading,   setLoading]   = useState(false);
+  const [dbError,   setDbError]   = useState(initialError);
   const [mapRoutes, setMapRoutes] = useState<MapRoute[]>([]);
   const [mapLoading, setMapLoading] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
+  // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
+  const initialKeyRef = useRef<string | null>(initialError ? null : initialKey);
 
   // For routes: difficulty + price filters; for places: only difficulty
   const activeFiltersCount = kind === 'place'
@@ -208,6 +225,23 @@ export default function RoutesPageClient() {
 
   // ── Trigger grid fetch ───────────────────────────────────────
   useEffect(() => {
+    // Тот же формат ключа, что собирает RSC-страница: если фильтры не менялись
+    // с серверного рендера — данные уже на экране, рефетч не нужен.
+    if (initialKeyRef.current !== null) {
+      const currentKey = JSON.stringify({
+        kind,
+        q: query,
+        activityType: kind === 'route' ? activityType : '',
+        locationType: kind === 'place' ? locationType : '',
+        page,
+        sort,
+        difficulty,
+        priceRange,
+      });
+      const matched = initialKeyRef.current === currentKey;
+      initialKeyRef.current = null;
+      if (matched) return;
+    }
     const { price_min, price_max } = getPriceParams();
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -231,6 +265,24 @@ export default function RoutesPageClient() {
   }, [query, activityType, locationType, page, kind, router]);
 
   const resetFilters = () => { setDifficulty(''); setPriceRange(''); setPage(1); };
+
+  const retryFetch = () => {
+    const { price_min, price_max } = getPriceParams();
+    fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, price_min, price_max);
+  };
+
+  // Href страницы пагинации — зеркало URL-sync выше. Реальные ссылки нужны
+  // ботам (Google не кликает JS-кнопки); клик человека перехватываем и
+  // остаёмся в SPA-режиме без перезагрузки.
+  const pageHref = (pg: number) => {
+    const p = new URLSearchParams();
+    if (kind !== 'place')  p.set('kind', kind);
+    if (query)             p.set('q', query);
+    if (kind === 'route' && activityType) p.set('activity_type', activityType);
+    if (kind === 'place' && locationType) p.set('location_type', locationType);
+    if (pg > 1)            p.set('page', String(pg));
+    return `/routes${p.size ? '?' + p : ''}`;
+  };
 
   const handleKindChange = (k: KindValue) => {
     setKind(k);
@@ -475,8 +527,11 @@ export default function RoutesPageClient() {
               </div>
             ) : dbError ? (
               <div className="py-24 text-center">
-                <p className="text-[var(--danger)] font-semibold mb-2">Ошибка загрузки данных</p>
-                <p className="text-sm text-[var(--text-muted)]">Проверьте DATABASE_URL в настройках приложения</p>
+                <p className="text-[var(--danger)] font-semibold mb-2">Не удалось загрузить данные</p>
+                <p className="text-sm text-[var(--text-muted)] mb-4">Проблема на нашей стороне или с сетью. Попробуйте ещё раз.</p>
+                <button onClick={retryFetch} className="ds-btn ds-btn-secondary text-sm">
+                  Повторить
+                </button>
               </div>
             ) : routes.length === 0 ? (
               <div className="py-24 text-center">
@@ -497,26 +552,40 @@ export default function RoutesPageClient() {
               </div>
             )}
 
-            {/* ── Pagination ──────────────────────────────── */}
+            {/* ── Pagination (ссылки, не кнопки — SEO-обход) ── */}
             {!loading && meta.pages > 1 && (
               <div className="flex items-center justify-center gap-2 mt-8">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setPage(p => p - 1)}
-                  className="ds-btn ds-btn-secondary px-3 py-2 disabled:opacity-40"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+                {page > 1 ? (
+                  <Link
+                    href={pageHref(page - 1)}
+                    onClick={e => { e.preventDefault(); setPage(p => p - 1); }}
+                    className="ds-btn ds-btn-secondary px-3 py-2"
+                    aria-label="Предыдущая страница"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Link>
+                ) : (
+                  <span className="ds-btn ds-btn-secondary px-3 py-2 opacity-40 pointer-events-none">
+                    <ChevronLeft className="w-4 h-4" />
+                  </span>
+                )}
                 <span className="text-sm text-[var(--text-secondary)] px-2">
                   {page} / {meta.pages}
                 </span>
-                <button
-                  disabled={page >= meta.pages}
-                  onClick={() => setPage(p => p + 1)}
-                  className="ds-btn ds-btn-secondary px-3 py-2 disabled:opacity-40"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                {page < meta.pages ? (
+                  <Link
+                    href={pageHref(page + 1)}
+                    onClick={e => { e.preventDefault(); setPage(p => p + 1); }}
+                    className="ds-btn ds-btn-secondary px-3 py-2"
+                    aria-label="Следующая страница"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                ) : (
+                  <span className="ds-btn ds-btn-secondary px-3 py-2 opacity-40 pointer-events-none">
+                    <ChevronRight className="w-4 h-4" />
+                  </span>
+                )}
               </div>
             )}
           </>
