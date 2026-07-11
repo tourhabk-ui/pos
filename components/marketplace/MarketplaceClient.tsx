@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
 import {
   MapPin, Users, ChevronRight, Heart, ShoppingCart, Check,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
@@ -96,14 +98,6 @@ const SORT_OPTIONS = [
   { value: 'price_asc',   label: 'Цена: дешевле' },
   { value: 'price_desc',  label: 'Цена: дороже' },
   { value: 'recent',      label: 'Новые' },
-];
-
-const PRICE_RANGES = [
-  { value: '',              label: 'Любая цена',         min: undefined, max: undefined },
-  { value: '0-25000',       label: 'до 25 000 ₽',        min: 0,         max: 25000 },
-  { value: '25000-60000',   label: '25 000 — 60 000 ₽',  min: 25000,     max: 60000 },
-  { value: '60000-150000',  label: '60 000 — 150 000 ₽', min: 60000,     max: 150000 },
-  { value: '150000',        label: 'от 150 000 ₽',       min: 150000,    max: undefined },
 ];
 
 const DIFFICULTY_OPTIONS = [
@@ -461,24 +455,48 @@ function TourCard({
 
 /* ─── Marketplace Client ─── */
 
-export default function MarketplaceClient() {
-  const [tours, setTours] = useState<Tour[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+interface MarketplaceClientProps {
+  /** Первый рендер с сервера (SEO): данные, снятые RSC-страницей каталога. */
+  initialTours?: Tour[];
+  initialTotal?: number;
+  /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
+  initialKey?: string | null;
+}
+
+export default function MarketplaceClient({
+  initialTours,
+  initialTotal = 0,
+  initialKey = null,
+}: MarketplaceClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const urlParams = useSearchParams();
+
+  const [tours, setTours] = useState<Tour[]>(initialTours ?? []);
+  const [total, setTotal] = useState(initialTotal);
+  const [loading, setLoading] = useState(initialKey === null);
   const [error, setError] = useState('');
 
-  // Search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Search (deep-link параметры должны работать одинаково для SSR и клиента)
+  const initialSearch = urlParams.get('search') ?? '';
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Filters
-  const [activityFilter, setActivityFilter] = useState('');
-  const [sort, setSort] = useState('recommended');
-  const [difficulty, setDifficulty] = useState('');
-  const [priceRange, setPriceRange] = useState('');
-  const [durationType, setDurationType] = useState('');
+  const [activityFilter, setActivityFilter] = useState(urlParams.get('activity_type') ?? '');
+  const [sort, setSort] = useState(urlParams.get('sort') ?? 'recommended');
+  const [difficulty, setDifficulty] = useState(urlParams.get('difficulty') ?? '');
+  const [priceRange, setPriceRange] = useState(() => {
+    const p = urlParams.get('price') ?? '';
+    return PRICE_RANGES.some(r => r.value === p) ? p : '';
+  });
+  const [durationType, setDurationType] = useState(urlParams.get('duration_type') ?? '');
   const [showFilters, setShowFilters] = useState(false);
+
+  // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
+  // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
+  const initialKeyRef = useRef<string | null>(initialKey);
 
   // Wishlist
   const [likedMap, setLikedMap] = useState<Map<number, string>>(new Map());
@@ -518,6 +536,20 @@ export default function MarketplaceClient() {
 
   // Fetch tours
   useEffect(() => {
+    if (initialKeyRef.current !== null) {
+      // Тот же формат ключа, что собирает RSC-страница.
+      const currentKey = JSON.stringify({
+        search: debouncedSearch,
+        activityFilter,
+        sort,
+        difficulty,
+        priceRange,
+        durationType,
+      });
+      const matched = initialKeyRef.current === currentKey;
+      initialKeyRef.current = null;
+      if (matched) return;
+    }
     const params = new URLSearchParams();
     if (debouncedSearch) params.append('search', debouncedSearch);
     if (activityFilter) params.append('activity_type', activityFilter);
@@ -542,6 +574,18 @@ export default function MarketplaceClient() {
       .catch(() => setError('Не удалось загрузить туры. Попробуйте обновить страницу.'))
       .finally(() => setLoading(false));
   }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, getPriceParams]);
+
+  // Sync URL — deep-link на текущие фильтры всегда актуален.
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (debouncedSearch) p.set('search', debouncedSearch);
+    if (activityFilter) p.set('activity_type', activityFilter);
+    if (sort !== 'recommended') p.set('sort', sort);
+    if (difficulty) p.set('difficulty', difficulty);
+    if (priceRange) p.set('price', priceRange);
+    if (durationType) p.set('duration_type', durationType);
+    router.replace(`${pathname}${p.size ? '?' + p : ''}`, { scroll: false });
+  }, [debouncedSearch, activityFilter, sort, difficulty, priceRange, durationType, pathname, router]);
 
   const handleToggleLike = useCallback(async (tourId: number) => {
     const wishlistRowId = likedMap.get(tourId);
