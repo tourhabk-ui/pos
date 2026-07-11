@@ -24,3 +24,30 @@ jobs:
           if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
           curl -s --max-time 240 "$BASE/api/ai/debug-waterfall?secret=$CRON_SECRET" \
             | python3 -m json.tool --no-ensure-ascii || true
+
+      # E2E: живой путь пользователя (виджет → /api/ai/chat → waterfall).
+      # Пробы провайдеров выше ходят коротким промптом; этот шаг проверяет
+      # полный конвейер с реальным Кузьмич-промптом и RAG-контекстом.
+      - name: E2E chat probe
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          RESP=$(curl -s --max-time 120 -X POST "$BASE/api/ai/chat" \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"Расскажи коротко про гору Замок на Камчатке","role":"tourist"}') || true
+          echo "$RESP" | python3 -c '
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception as e:
+              print("RAW (not JSON):", sys.stdin.read()[:500]); raise SystemExit(0)
+          answer = (d.get("data") or {}).get("answer") or ""
+          print("success:", d.get("success"))
+          print("answer:", answer[:600])
+          if answer.startswith("Извините, сервис временно недоступен"):
+              print("VERDICT: FALLBACK — весь waterfall упал на живом запросе")
+          elif answer:
+              print("VERDICT: OK — конвейер отвечает")
+          else:
+              print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
+          '

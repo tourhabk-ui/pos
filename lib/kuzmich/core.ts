@@ -50,14 +50,16 @@ export interface PendingBooking {
 // ── Системный промпт ──────────────────────────────────────────────────────────
 
 /** Strip emoji + markdown leftovers from AI response */
-// Список известных строк AI-ошибок — не сохранять в историю
+// Список известных строк AI-ошибок — не сохранять в историю.
+// Используется и веб-роутом /api/ai/chat: фолбэк waterfall, попавший в
+// историю сессии, отравляет контекст всех следующих ответов.
 const AI_ERROR_STRINGS = [
   'Извините, сервис временно недоступен',
   'Сервис временно недоступен',
   'Что-то с сигналом',
 ];
 
-function isAIErrorResponse(text: string): boolean {
+export function isAIErrorResponse(text: string): boolean {
   return AI_ERROR_STRINGS.some(s => text.startsWith(s));
 }
 

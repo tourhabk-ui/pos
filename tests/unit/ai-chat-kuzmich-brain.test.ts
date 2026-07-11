@@ -61,6 +61,7 @@ const aiChatAgentLoopMock = vi.fn();
 vi.mock('@/lib/kuzmich/core', () => ({
   aiChatAgentLoop: (...a: unknown[]) => aiChatAgentLoopMock(...a),
   KUZMICH_SYSTEM: 'KUZMICH_PERSONA',
+  isAIErrorResponse: (text: string) => text.startsWith('Извините, сервис временно недоступен'),
 }));
 
 import { POST } from '@/app/api/ai/chat/route';
@@ -126,5 +127,29 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     expect(json.data.answer).toBe('LEGACY_ANSWER');
     expect(aiChatAgentLoopMock).not.toHaveBeenCalled();
     expect(callAIWithModelDirectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('фолбэк-ошибка конвейера → не пишется в историю сессии и не списывает бесплатное сообщение', async () => {
+    aiChatAgentLoopMock.mockResolvedValue(null);
+    callAIWithModelDirectMock.mockResolvedValue('Извините, сервис временно недоступен. Попробуйте позже.');
+
+    const res = await POST(postReq({ message: 'Привет', sessionId: 's-err-1' }));
+    const json = await res.json();
+
+    // Ответ пользователю уходит как есть (клиент показывает ссылку в каталог)
+    expect(json.data.answer).toContain('временно недоступен');
+    // Аноним не платит бесплатным сообщением за ошибку сервиса
+    expect(json.data.remainingFree).toBe(10);
+
+    // saveSession: в messages нет assistant-ошибки, счётчик не инкрементирован
+    const saveCall = queryMock.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('INSERT INTO chat_sessions'),
+    );
+    expect(saveCall).toBeDefined();
+    const [, params] = saveCall as [string, unknown[]];
+    const savedMessages = JSON.parse(params[3] as string) as Array<{ role: string; content: string }>;
+    expect(savedMessages.some((m) => m.role === 'assistant' && m.content.includes('временно недоступен'))).toBe(false);
+    expect(savedMessages[savedMessages.length - 1]).toMatchObject({ role: 'user', content: 'Привет' });
+    expect(params[4]).toBe(0); // user_message_count не вырос
   });
 });
