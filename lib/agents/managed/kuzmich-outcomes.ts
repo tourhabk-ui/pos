@@ -8,6 +8,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
+import { assessGrounding } from '@/lib/agents/eval/grounding';
 
 interface OutcomeResult {
   score: number;       // 0–10
@@ -38,11 +39,19 @@ export async function gradeKuzmichResponse(
   userText: string,
   botResponse: string,
   chatId: number,
+  opts?: { toolsRan?: string[] },
 ): Promise<void> {
   // Грейдим только содержательные вопросы о Камчатке
   if (!isGradableQuestion(userText)) return;
   // Пропускаем очень короткие ответы (ошибки, перебои)
   if (botResponse.length < 50) return;
+
+  // Детерминированная метрика заземления (grounding.ts): конкретика
+  // (цены/телефоны/наличие мест) без вызова инструментов данных — факты
+  // взяты не из БД. Не зависит от AI-судьи, считается всегда.
+  const grounding = opts?.toolsRan
+    ? assessGrounding(botResponse, opts.toolsRan)
+    : { ungrounded: false, signals: [] as string[] };
 
   try {
     const raw = await callAIFast([{
@@ -58,9 +67,13 @@ export async function gradeKuzmichResponse(
 
     if (typeof result.score !== 'number') return;
 
-    // Сохраняем только проблемные ответы (score < 7) и случайные выборки (каждый 10-й)
-    const shouldSave = result.score < 7 || Math.random() < 0.1;
+    // Сохраняем проблемные (score < 7), незаземлённые и случайные выборки (каждый 10-й)
+    const shouldSave = result.score < 7 || grounding.ungrounded || Math.random() < 0.1;
     if (!shouldSave) return;
+
+    if (grounding.ungrounded) {
+      result.issues.push(`НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (${grounding.signals.join(', ')}): конкретика без вызова инструментов данных`);
+    }
 
     const slug = `outcome_kuz_${chatId}_${Date.now() % 1000000}`;
     const summary = result.issues.length > 0
@@ -86,6 +99,8 @@ export interface OutcomeSummary {
   total_graded: number;
   avg_score: number;
   low_quality_count: number;
+  /** Ответы с конкретикой (цены/телефоны/наличие) без вызова инструментов данных. */
+  ungrounded_count: number;
   recent_issues: string[];
 }
 
@@ -94,6 +109,7 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
     total: string;
     avg_score: string;
     low_count: string;
+    ungrounded_count: string;
     issues: string[];
   }>(
     `SELECT
@@ -107,6 +123,9 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
        COUNT(*) FILTER (
          WHERE compiled_truth ~ 'Оценка [0-6]/10'
        ) AS low_count,
+       COUNT(*) FILTER (
+         WHERE compiled_truth LIKE '%НЕЗАЗЕМЛЁННЫЕ ФАКТЫ%'
+       ) AS ungrounded_count,
        ARRAY_AGG(
          CASE
            WHEN compiled_truth LIKE '%Проблемы:%'
@@ -126,6 +145,7 @@ export async function getOutcomesSummary(days = 7): Promise<OutcomeSummary> {
     total_graded: parseInt(row?.total ?? '0'),
     avg_score: parseFloat(row?.avg_score ?? '0'),
     low_quality_count: parseInt(row?.low_count ?? '0'),
+    ungrounded_count: parseInt(row?.ungrounded_count ?? '0'),
     recent_issues: (row?.issues ?? []).filter(Boolean).slice(0, 5),
   };
 }
