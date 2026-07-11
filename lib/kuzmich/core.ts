@@ -25,6 +25,7 @@ import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
+import { getPublicBaseUrl } from '@/lib/config';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -1112,7 +1113,7 @@ async function notifyOperatorNewBooking(
       ? new Date(b.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
       : 'не указана';
     const priceStr = total.toLocaleString('ru-RU') + ' ₽';
-    const payLink  = `https://tourhab.ru/booking-success/${bookingId}`;
+    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}`;
 
     const text = [
       `<b>Новое бронирование #${bookingId}</b>`,
@@ -1396,7 +1397,7 @@ export async function handleBookingStep(
 
     const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const totalStr = (b.tour!.base_price * b.participants!).toLocaleString('ru-RU');
-    const payLink  = `https://tourhab.ru/booking-success/${bookingId}`;
+    const payLink  = `${getPublicBaseUrl()}/booking-success/${bookingId}`;
     await reply(chatId, [
       `Бронирование принято! Номер: <b>#${bookingId}</b>`,
       '',

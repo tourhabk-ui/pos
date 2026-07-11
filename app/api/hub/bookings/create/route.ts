@@ -12,6 +12,7 @@ import { notifyNewBooking } from '@/lib/notifications/operator-booking';
 import { emailService } from '@/lib/notifications/email-service';
 import { createUonRequest } from '@/lib/integrations/uon';
 import { verifyToken, extractToken } from '@/lib/auth/jwt';
+import { getPublicBaseUrl } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,7 +231,7 @@ export async function POST(req: NextRequest) {
     if (data.tourist_email) {
       void emailService.sendEmail({
         to: data.tourist_email,
-        subject: `Заявка принята: ${result.tour.title} — TourHab`,
+        subject: `Заявка принята: ${result.tour.title} — Ведар`,
         html: `
           <h2>Ваша заявка принята!</h2>
           <p><strong>Тур:</strong> ${result.tour.title}</p>
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
           <p><strong>Сумма к оплате:</strong> ${result.total_price.toLocaleString('ru-RU')} ₽</p>
           <p><strong>Номер заявки:</strong> ${result.bookingId}</p>
           <p>Для завершения бронирования перейдите по ссылке ниже и оплатите тур:</p>
-          <p><a href="https://tourhab.ru/booking-success/${result.bookingId}">Оплатить тур</a></p>
+          <p><a href="${getPublicBaseUrl()}/booking-success/${result.bookingId}">Оплатить тур</a></p>
           <p>Оператор также получил уведомление о вашей заявке и может связаться с вами.</p>
         `,
       }).catch(() => { /* non-fatal */ });

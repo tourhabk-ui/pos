@@ -4,6 +4,20 @@
 // KamchatourHub — только техническое/юридическое имя, TourHab — legacy, публично не используется.
 export const SITE_NAME = 'Ведар';
 
+/**
+ * Публичный базовый URL платформы для ссылок, уходящих наружу
+ * (письма, Telegram, PDF). На Timeweb NEXT_PUBLIC_APP_URL указывает на
+ * технический twc1.net-домен — тогда берём NEXT_PUBLIC_SITE_URL или канон.
+ * Не использовать захардкоженные домены в исходящих ссылках.
+ */
+export function getPublicBaseUrl(): string {
+  return (
+    (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net')
+      ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru')
+      : process.env.NEXT_PUBLIC_APP_URL) ?? 'https://vedarai.ru'
+  );
+}
+
 export const config = {
   // Основные настройки
   app: {
