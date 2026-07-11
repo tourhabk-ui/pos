@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { unstable_cache } from 'next/cache'
 import loadDynamic from 'next/dynamic'
 import { pool } from '@/lib/db-pool'
 import { Header } from '@/components/layout/Header'
@@ -6,7 +7,7 @@ import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroSta
 import { StoriesRail } from '@/components/homepage/StoriesRail'
 import { TravelerCard } from '@/components/homepage/TravelerCard'
 import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
-import { StatsBand } from '@/components/homepage/StatsBand'
+import { StatsBand, type PlatformStats } from '@/components/homepage/StatsBand'
 import { KuzmichBriefing } from '@/components/homepage/KuzmichBriefing'
 import { BentoSection } from '@/components/homepage/BentoSection'
 import { EditorialSection } from '@/components/homepage/EditorialSection'
@@ -78,6 +79,45 @@ async function getSafetyStatus(): Promise<SafetyStatusData | null> {
   }
 }
 
+// Живые цифры платформы для StatsBand — хардкод врал (294/778 при реальных
+// ~233/541 в БД). Условия видимости — те же, что в публичном каталоге
+// (is_visible = TRUE). Кэш 1 час: цифры меняются импортами, не по минутам.
+const getPlatformStats = unstable_cache(
+  async (): Promise<PlatformStats | null> => {
+    try {
+      const res = await pool.query<{
+        routes: string;
+        places: string;
+        mchs_routes: string;
+        safety_profiles: string;
+      }>(`
+        SELECT
+          (SELECT COUNT(*) FROM kamchatka_routes
+           WHERE is_visible = TRUE)                          AS routes,
+          (SELECT COUNT(*) FROM places
+           WHERE is_visible = TRUE
+             AND lat IS NOT NULL AND lng IS NOT NULL)        AS places,
+          (SELECT COUNT(*) FROM kamchatka_routes
+           WHERE is_visible = TRUE
+             AND mchs_registration_required = TRUE)          AS mchs_routes,
+          (SELECT COUNT(*) FROM location_safety_profile)     AS safety_profiles
+      `);
+      const row = res.rows[0];
+      if (!row) return null;
+      return {
+        routes:         parseInt(row.routes, 10),
+        places:         parseInt(row.places, 10),
+        mchsRoutes:     parseInt(row.mchs_routes, 10),
+        safetyProfiles: parseInt(row.safety_profiles, 10),
+      };
+    } catch {
+      return null;
+    }
+  },
+  ['homepage-platform-stats'],
+  { revalidate: 3600 }
+);
+
 export const metadata: Metadata = {
   title: 'Ведар — помощник и планировщик путешествия по Камчатке',
   description: 'Ведар помогает спланировать честное и безопасное путешествие по Камчатке.',
@@ -93,7 +133,7 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  const safety = await getSafetyStatus();
+  const [safety, platformStats] = await Promise.all([getSafetyStatus(), getPlatformStats()]);
   const fetchedAt = new Date().toISOString();
 
   return (
@@ -146,7 +186,7 @@ export default async function Page() {
         </SectionErrorBoundary>
 
         {/* Stats marquee */}
-        <StatsBand />
+        <StatsBand stats={platformStats} />
 
         {/* Mood/vibe entry — emotional starting point */}
         <MoodEntry />
