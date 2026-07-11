@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
           name: row.name,
           subject: row.subject,
           type: row.type,
-          variables: JSON.parse(row.variables || '[]'),
+          variables: Array.isArray(row.variables) ? row.variables : JSON.parse(row.variables || '[]'),
           isActive: row.is_active,
           updatedAt: row.updated_at
         }))

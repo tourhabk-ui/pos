@@ -19,21 +19,24 @@ export default function ModerationClient() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/admin/content/reviews?verified=false&limit=50');
+      // Контракт API: фильтр — status=unverified, список — data.reviews,
+      // поля snake_case. Раньше клиент слал verified=false и читал data.data —
+      // очередь модерации всегда выглядела пустой.
+      const res = await fetch('/api/admin/content/reviews?status=unverified&limit=50');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? 'Ошибка загрузки');
-      const rows = json.data?.data ?? [];
+      const rows = json.data?.reviews ?? [];
       setReviews(rows.map((r: {
-        id: string; userName: string; tourName: string;
-        rating: number; comment: string; createdAt: string;
+        id: string; user_name: string | null; tour_name: string | null;
+        rating: number; comment: string | null; created_at: string;
       }) => ({
         id: r.id,
-        touristName: r.userName,
-        tourName: r.tourName,
+        touristName: r.user_name ?? 'Гость',
+        tourName: r.tour_name ?? 'Тур удалён',
         rating: r.rating,
-        text: r.comment,
-        date: r.createdAt,
+        text: r.comment ?? '',
+        date: r.created_at,
       })));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки данных');

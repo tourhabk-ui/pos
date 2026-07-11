@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
           type: row.type,
           htmlContent: row.html_content,
           textContent: row.text_content,
-          variables: JSON.parse(row.variables || '[]'),
+          variables: Array.isArray(row.variables) ? row.variables : JSON.parse(row.variables || '[]'),
           isActive: row.is_active,
           createdAt: row.created_at,
           updatedAt: row.updated_at
