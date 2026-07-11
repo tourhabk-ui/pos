@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS official_registry_operators (
   contacts          JSONB,                       -- {phone, email, website, address}
   source_url        TEXT,
   registry_date     DATE,                         -- дата записи в реестре (проверка актуальности)
-  matched_partner_id INTEGER REFERENCES partners(id) ON DELETE SET NULL,
+  matched_partner_id UUID REFERENCES partners(id) ON DELETE SET NULL,
   match_method      VARCHAR(20),                 -- inn / ogrn / name / null
   raw               JSONB,                       -- сырые распарсенные поля
   first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),

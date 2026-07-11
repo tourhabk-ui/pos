@@ -1391,7 +1391,7 @@ export interface OfficialRegistryOperatorRow {
   contacts: Record<string, unknown> | null;
   source_url: string | null;
   registry_date: string | null;
-  matched_partner_id: number | null;
+  matched_partner_id: string | null; // partners.id — UUID
   match_method: string | null;
   scraped_at: string;
 }

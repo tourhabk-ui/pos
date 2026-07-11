@@ -32,7 +32,7 @@ export interface RegistryEntry {
 
 /** Наш оператор (подмножество partners) для сверки. */
 export interface PartnerForMatch {
-  id: number;
+  id: string; // partners.id — UUID
   name: string;
   inn: string | null;
   ogrn: string | null;
@@ -44,7 +44,7 @@ export interface MatchResult {
 }
 
 export interface PartnerReconcileResult {
-  partnerId: number;
+  partnerId: string; // partners.id — UUID
   status: RegistryStatus;
   registryNumber: string | null;
   matchedEntryId: string | null;
@@ -181,7 +181,7 @@ export function summarizeStatuses(statuses: RegistryStatus[]): {
 // ── Работа с БД ──────────────────────────────────────────────────────────────
 
 interface PartnerDbRow {
-  id: number;
+  id: string; // partners.id — UUID
   name: string;
   inn: string | null;
   ogrn: string | null;

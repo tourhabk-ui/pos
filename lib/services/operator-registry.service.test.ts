@@ -72,34 +72,34 @@ describe('matchPartner', () => {
   ];
 
   it('матч по ИНН имеет приоритет', () => {
-    const partner: PartnerForMatch = { id: 1, name: 'Другое имя', inn: '4100000001', ogrn: null };
+    const partner: PartnerForMatch = { id: 'p-1', name: 'Другое имя', inn: '4100000001', ogrn: null };
     const m = matchPartner(partner, entries);
     expect(m?.method).toBe('inn');
     expect(m?.entry.id).toBe('a');
   });
 
   it('матч по ОГРН когда ИНН нет', () => {
-    const partner: PartnerForMatch = { id: 2, name: 'Другое', inn: null, ogrn: '1234567890123' };
+    const partner: PartnerForMatch = { id: 'p-2', name: 'Другое', inn: null, ogrn: '1234567890123' };
     const m = matchPartner(partner, entries);
     expect(m?.method).toBe('ogrn');
     expect(m?.entry.id).toBe('b');
   });
 
   it('матч по названию когда нет реквизитов', () => {
-    const partner: PartnerForMatch = { id: 3, name: 'ООО «Медвежий угол»', inn: null, ogrn: null };
+    const partner: PartnerForMatch = { id: 'p-3', name: 'ООО «Медвежий угол»', inn: null, ogrn: null };
     const m = matchPartner(partner, entries);
     expect(m?.method).toBe('name');
     expect(m?.entry.id).toBe('c');
   });
 
   it('нет матча → null', () => {
-    const partner: PartnerForMatch = { id: 4, name: 'Неизвестный', inn: '9999999999', ogrn: null };
+    const partner: PartnerForMatch = { id: 'p-4', name: 'Неизвестный', inn: '9999999999', ogrn: null };
     expect(matchPartner(partner, entries)).toBeNull();
   });
 });
 
 describe('classifyStatus', () => {
-  const partner: PartnerForMatch = { id: 1, name: 'Камчатка-Тур', inn: '4100000001', ogrn: null };
+  const partner: PartnerForMatch = { id: 'p-1', name: 'Камчатка-Тур', inn: '4100000001', ogrn: null };
 
   it('нет матча → not_found', () => {
     expect(classifyStatus(partner, null)).toBe('not_found');
@@ -121,7 +121,7 @@ describe('classifyStatus', () => {
   });
 
   it('матч по названию без ИНН у нас → verified (best-effort)', () => {
-    const noInn: PartnerForMatch = { id: 2, name: 'Медвежий угол', inn: null, ogrn: null };
+    const noInn: PartnerForMatch = { id: 'p-2', name: 'Медвежий угол', inn: null, ogrn: null };
     const m = { entry: entry({ name: 'Медвежий угол' }), method: 'name' as const };
     expect(classifyStatus(noInn, m)).toBe('verified');
   });
