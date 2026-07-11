@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
+import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
+import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
@@ -23,6 +25,15 @@ export default function SosPage() {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+
+  // VolcanoMesh: соседние устройства группы. Включается при появлении
+  // координат. Если сеть есть у соседа, а не у нас — SOS уйдёт через него.
+  const {
+    status: meshStatus,
+    peers: meshPeers,
+    relayedCount: meshRelayedCount,
+    sendSOS: meshSendSOS,
+  } = useMesh(!!coords, coords);
 
   // Геолокация при загрузке
   useEffect(() => {
@@ -77,7 +88,14 @@ export default function SosPage() {
       if (res.status === 429) { setSendStatus('error'); return; }
       setSendStatus('sent');
     } catch {
-      // Офлайн: сохранить в очередь и отправить при появлении сети
+      // Прямой путь мёртв (офлайн/обрыв). Две страховки параллельно:
+      // 1) меш — сосед с живой сетью ретранслирует немедленно;
+      // 2) офлайн-очередь — отправка при появлении своей сети.
+      // Меш НЕ зовём при успехе прямого пути — иначе каждый онлайн-SOS
+      // приходил бы спасателям дважды (прямой + через соседа).
+      try {
+        meshSendSOS(sosPayload);
+      } catch { /* меш не должен ломать офлайн-очередь */ }
       try {
         await queueSOS(sosPayload);
         const synced = await registerSOSSync();
@@ -156,6 +174,9 @@ export default function SosPage() {
             </p>
           </div>
         </div>
+
+        {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
+        <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
 
         {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
         <div style={{

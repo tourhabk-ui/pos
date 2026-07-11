@@ -1,5 +1,7 @@
 // Used ONLY via app/api/mesh/signal/route.ts — never import in client code
 
+import { roomsAreNeighbors } from './rooms';
+
 const encoder = new TextEncoder();
 
 interface SignalingConn {
@@ -46,17 +48,21 @@ export function sendToDevice(targetId: string, message: unknown): boolean {
   }
 }
 
+// Соседство 3x3 (lib/mesh/rooms.ts): устройства из смежных ячеек видят
+// друг друга — иначе граница ячейки разрезала бы группу на маршруте.
 export function getRoomPeers(room: string, excludeId?: string): string[] {
   return Array.from(connections.values())
-    .filter((c) => c.room === room && c.deviceId !== excludeId)
+    .filter((c) => roomsAreNeighbors(room, c.room) && c.deviceId !== excludeId)
     .map((c) => c.deviceId);
 }
 
 function broadcastToRoom(room: string, message: unknown, excludeId?: string): void {
+  // Кадр одинаков для всех получателей — кодируем один раз
+  const frame = encoder.encode(`data: ${JSON.stringify(message)}\n\n`);
   for (const conn of connections.values()) {
-    if (conn.room === room && conn.deviceId !== excludeId) {
+    if (roomsAreNeighbors(room, conn.room) && conn.deviceId !== excludeId) {
       try {
-        conn.controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+        conn.controller.enqueue(frame);
       } catch {
         connections.delete(conn.deviceId);
       }

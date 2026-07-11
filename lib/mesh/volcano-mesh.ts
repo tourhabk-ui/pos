@@ -1,15 +1,12 @@
 'use client';
 
-import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus } from './types';
+import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPayload } from './types';
+import { roomOf } from './rooms';
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
-
-function geoRoom(lat: number, lng: number): string {
-  return `vol-${Math.floor(lat * 10)}-${Math.floor(lng * 10)}`;
-}
 
 function genDeviceId(): string {
   return crypto.randomUUID();
@@ -67,7 +64,7 @@ export class VolcanoMesh {
     this.currentLat = lat;
     this.currentLng = lng;
     this.currentPosition = { lat, lng, accuracy: 10, timestamp: Date.now() };
-    this.room = geoRoom(lat, lng);
+    this.room = roomOf(lat, lng);
     this.onStatusChange?.('connecting');
 
     const url = `/api/mesh/signal?deviceId=${encodeURIComponent(this.deviceId)}&room=${encodeURIComponent(this.room)}`;
@@ -210,6 +207,8 @@ export class VolcanoMesh {
         payload: this.currentPosition,
         timestamp: Date.now(),
       });
+      // SOS, нажатый до установления связи, уходит первым же каналом
+      this.flushPendingSos();
     };
 
     channel.onmessage = ({ data }: MessageEvent<string>) => {
@@ -286,15 +285,40 @@ export class VolcanoMesh {
         timestamp: Date.now(),
       });
     } else if (msg.type === 'sos' && typeof navigator !== 'undefined' && navigator.onLine) {
-      void fetch('/api/safety/sos', {
+      // Я онлайн — ретранслирую SOS соседа на сервер. Дедуп копий от
+      // нескольких ретрансляторов — на /api/mesh/sos-relay (по sos_id).
+      const p = (typeof msg.payload === 'object' && msg.payload !== null
+        ? msg.payload
+        : {}) as Partial<SosBroadcastPayload> & { position?: PeerPosition };
+      const sos = p.sos ?? {
+        // Обратная совместимость со старым форматом {position, deviceId}
+        lat: p.position?.lat ?? null,
+        lng: p.position?.lng ?? null,
+        accuracy: p.position?.accuracy ?? null,
+      };
+      // Фолбэк sos_id для старого формата: from+timestamp дедуплицирует
+      // копии одного сообщения; без timestamp — случайный (дубль лучше потери)
+      const sosId = p.sos_id
+        ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : crypto.randomUUID());
+      const relayDirect = () => fetch('/api/safety/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...sos, relayed_by: this.deviceId, source: 'mesh_relay' }),
+      }).catch(() => {});
+      void fetch('/api/mesh/sos-relay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(typeof msg.payload === 'object' && msg.payload !== null ? msg.payload : {}),
+          sos_id: sosId,
           relayed_by: this.deviceId,
-          source: 'mesh_relay',
+          origin_device: msg.from,
+          sos,
         }),
-      }).catch(() => {});
+      }).then((res) => {
+        // Релей-эндпоинт недоступен (откат деплоя, 5xx) — доставляем
+        // напрямую в канонический роут: дубль лучше потерянного SOS
+        if (res.status === 404 || res.status >= 500) void relayDirect();
+      }).catch(() => { void relayDirect(); });
     }
 
     this.onMessage?.(msg);
@@ -323,15 +347,56 @@ export class VolcanoMesh {
     this.broadcast({ type: 'position', payload: this.currentPosition, timestamp: Date.now() });
   }
 
-  sendSOS(): void {
-    this.broadcast({
-      type: 'sos',
-      payload: {
-        position: this.currentPosition,
-        deviceId: this.deviceId,
-      },
-      timestamp: Date.now(),
-    });
+  /**
+   * Разослать SOS всем соседям по мешу. sos_id генерируется здесь —
+   * по нему сервер дедуплицирует копии от нескольких ретрансляторов.
+   *
+   * Надёжность поверх ненадёжного канала (maxRetransmits: 2):
+   * - если открытых каналов нет — сигнал ждёт в pendingSos и уходит,
+   *   как только первый канал откроется (паника: жмут SOS раньше,
+   *   чем WebRTC успел договориться);
+   * - повторная рассылка через 2с и 6с — дубли бесплатны, сервер
+   *   дедуплицирует по sos_id.
+   */
+  private pendingSos: SosBroadcastPayload | null = null;
+
+  sendSOS(sos?: Partial<SosBroadcastPayload['sos']>): string {
+    const sosId = crypto.randomUUID();
+    const fields = {
+      // Координаты формы; фолбэк — последняя известная позиция меша
+      // (для спасателей устаревший фикс лучше, чем никакого)
+      lat: sos?.lat ?? this.currentPosition?.lat ?? null,
+      lng: sos?.lng ?? this.currentPosition?.lng ?? null,
+      accuracy: sos?.accuracy ?? this.currentPosition?.accuracy ?? null,
+      message: sos?.message ?? null,
+      tourist_name: sos?.tourist_name ?? null,
+      tourist_phone: sos?.tourist_phone ?? null,
+    };
+    // Поля продублированы на верхнем уровне НАМЕРЕННО: старые
+    // закэшированные PWA-ретрансляторы спредят payload прямо в
+    // /api/safety/sos — без плоских lat/lng они бы доставили SOS
+    // без координат и имени.
+    const payload: SosBroadcastPayload = { sos_id: sosId, ...fields, sos: fields };
+
+    this.broadcastSos(payload);
+    setTimeout(() => this.broadcastSos(payload), 2000);
+    setTimeout(() => this.broadcastSos(payload), 6000);
+    return sosId;
+  }
+
+  private broadcastSos(payload: SosBroadcastPayload): void {
+    if (this.connectedCount === 0) {
+      this.pendingSos = payload;
+      return;
+    }
+    this.broadcast({ type: 'sos', payload, timestamp: Date.now() });
+  }
+
+  private flushPendingSos(): void {
+    if (!this.pendingSos) return;
+    const payload = this.pendingSos;
+    this.pendingSos = null;
+    this.broadcast({ type: 'sos', payload, timestamp: Date.now() });
   }
 
   getPeers(): MeshPeer[] {
