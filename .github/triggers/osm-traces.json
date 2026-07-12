@@ -1,4 +1,4 @@
 {
   "note": "Маркер запуска cron-osm-traces.yml: правка этого файла в main запускает OSM Traces Scout прямо сейчас.",
-  "run": 4
+  "run": 5
 }
