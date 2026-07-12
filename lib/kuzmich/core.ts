@@ -10,7 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
-import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER } from '@/lib/ai/providers';
+import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
@@ -55,14 +55,12 @@ export interface PendingBooking {
 // Список известных строк AI-ошибок — не сохранять в историю.
 // Используется и веб-роутом /api/ai/chat: фолбэк waterfall, попавший в
 // историю сессии, отравляет контекст всех следующих ответов.
-const AI_ERROR_STRINGS = [
-  'Извините, сервис временно недоступен',
-  'Сервис временно недоступен',
-  'Что-то с сигналом',
-];
+// Sentinel-строки провайдеров живут в providers.ts (isWaterfallErrorResponse),
+// здесь — только кузьмич-специфичная («Что-то с сигналом»).
+const AI_ERROR_STRINGS = ['Что-то с сигналом'];
 
 export function isAIErrorResponse(text: string): boolean {
-  return AI_ERROR_STRINGS.some(s => text.startsWith(s));
+  return isWaterfallErrorResponse(text) || AI_ERROR_STRINGS.some(s => text.startsWith(s));
 }
 
 function cleanAIResponse(raw: string): string {

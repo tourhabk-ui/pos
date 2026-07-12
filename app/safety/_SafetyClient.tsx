@@ -167,6 +167,14 @@ export default function SafetyClient() {
         body: JSON.stringify({ message: text, history, stream: true }),
       });
       if (!res.ok || !res.body) throw new Error('no stream');
+      // Роут мог ответить JSON-фолбэком вместо SSE — чтение его как стрима
+      // давало пустой пузырь. Разбираем по content-type.
+      if (!(res.headers.get('content-type') ?? '').includes('text/event-stream')) {
+        const data = await res.json() as { reply?: string; error?: string };
+        if (!data.reply) throw new Error('ai unavailable');
+        setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply as string }]);
+        return;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantContent = '';
