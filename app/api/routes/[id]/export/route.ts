@@ -39,9 +39,19 @@ export async function GET(
          ark.activity_type,
          ark.category,
          ark.payload,
-         kr.geometry
+         COALESCE(kr.geometry, krs.geometry) AS geometry
        FROM agent_route_knowledge ark
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       LEFT JOIN LATERAL (
+         -- Трек места может жить отдельной строкой kamchatka_routes с тем же
+         -- source_url (idilesom-backfill): «Гора Замок» — точка, её трек — маршрут
+         SELECT geometry FROM kamchatka_routes k2
+         WHERE ark.source_url IS NOT NULL
+           AND k2.source_url = ark.source_url
+           AND k2.id <> ark.id
+           AND k2.geometry IS NOT NULL
+         LIMIT 1
+       ) krs ON TRUE
        WHERE ark.id = $1 AND ark.is_visible = TRUE`,
       [id]
     );
