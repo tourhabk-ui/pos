@@ -20,6 +20,7 @@ import { gunzipSync } from 'zlib';
 import { pool } from '@/lib/db-pool';
 import { parseGpx } from '@/lib/services/visitkamchatka-gpx-importer';
 import { matchTrackToPlace, type PlaceRef } from '@/lib/services/idilesom-importer';
+import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const HEADERS = {
   'User-Agent': 'VedarBot/1.0 (+https://vedarai.ru; туристическая платформа Камчатки)',
@@ -74,36 +75,50 @@ export function parseTracesRss(xml: string): OsmTraceItem[] {
   return items;
 }
 
-async function fetchText(url: string): Promise<string | null> {
+// Первый прогон с прода (июль 2026): openstreetmap.org не отвечает с IP
+// Timeweb — все ленты падают мгновенно. Фоллбэк — BrightData Web Unlocker,
+// ровно как у idilesom-импортёра. Ошибку прямого запроса возвращаем для
+// диагностики (feed_errors в результате).
+type FetchedText = { text: string; via: 'direct' | 'brightdata' } | { text: null; error: string };
+
+async function fetchText(url: string): Promise<FetchedText> {
+  let directError: string;
   try {
     const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
+    if (res.ok) return { text: await res.text(), via: 'direct' };
+    directError = `HTTP ${res.status}`;
+  } catch (e) {
+    directError = e instanceof Error ? e.message : String(e);
   }
+  const viaBd = await fetchViaBrightData(url);
+  if (viaBd) return { text: viaBd, via: 'brightdata' };
+  return { text: null, error: directError };
 }
 
 /** GPX трейса: /trace/{id}/data отдаёт файл как загружен — бывает gzip. */
 async function fetchTraceGpx(id: string): Promise<string | null> {
+  const url = `https://www.openstreetmap.org/trace/${id}/data`;
   try {
-    const res = await fetch(`https://www.openstreetmap.org/trace/${id}/data`, {
+    const res = await fetch(url, {
       headers: HEADERS,
       signal: AbortSignal.timeout(30_000),
     });
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-      try {
-        return gunzipSync(buf).toString('utf8');
-      } catch {
-        return null;
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+        try {
+          return gunzipSync(buf).toString('utf8');
+        } catch {
+          return null;
+        }
       }
+      return buf.toString('utf8');
     }
-    return buf.toString('utf8');
-  } catch {
-    return null;
-  }
+  } catch { /* фоллбэк ниже */ }
+  // BrightData отдаёт тело текстом: обычный .gpx пройдёт, gzip-архив — нет
+  // (побьётся при декодировании); такие трейсы честно лягут в no_gpx/too_short
+  const viaBd = await fetchViaBrightData(url);
+  return viaBd && viaBd.includes('<gpx') ? viaBd : null;
 }
 
 async function tgSend(text: string): Promise<boolean> {
@@ -133,6 +148,7 @@ function esc(s: string): string {
 
 export interface OsmTracesScoutResult {
   feeds_ok: number;
+  feed_errors: string[];
   seen: number;
   in_bbox: number;
   new_traces: number;
@@ -157,11 +173,15 @@ export async function scoutOsmTraces(): Promise<OsmTracesScoutResult> {
   const byId = new Map<string, OsmTraceItem>();
   let feedsOk = 0;
   let seen = 0;
+  const feedErrors: string[] = [];
   for (const feed of RSS_FEEDS) {
-    const xml = await fetchText(feed);
-    if (!xml) continue;
+    const fetched = await fetchText(feed);
+    if (fetched.text === null) {
+      feedErrors.push(`${feed}: ${fetched.error.slice(0, 120)}`);
+      continue;
+    }
     feedsOk++;
-    const parsed = parseTracesRss(xml);
+    const parsed = parseTracesRss(fetched.text);
     seen += parsed.length;
     for (const it of parsed) {
       if (isInKamchatka(it.lat, it.lng)) byId.set(it.id, it);
@@ -266,6 +286,7 @@ export async function scoutOsmTraces(): Promise<OsmTracesScoutResult> {
 
   return {
     feeds_ok: feedsOk,
+    feed_errors: feedErrors,
     seen,
     in_bbox: candidates.length,
     new_traces: todo.length,

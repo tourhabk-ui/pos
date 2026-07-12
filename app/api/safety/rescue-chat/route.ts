@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { callAIWaterfall } from '@/lib/ai/providers';
+import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
@@ -187,6 +187,15 @@ export async function POST(req: NextRequest) {
   // ── NON-STREAMING FALLBACK ──────────────────────────────────────────────────
   try {
     const reply = await callAIWaterfall(messages);
+    // Waterfall при отказе всех провайдеров возвращает sentinel-строку, а не
+    // исключение. Отдать её с 200 = спрятать от клиента локальный протокол
+    // выживания (регрессия issue #27) — поэтому явный 503.
+    if (isWaterfallErrorResponse(reply)) {
+      return NextResponse.json(
+        { error: 'AI Спасатель временно недоступен. Звоните 112 или 8 (4152) 41-03-03 (ПАСС).' },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ reply });
   } catch {
     return NextResponse.json(

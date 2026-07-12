@@ -1550,6 +1550,19 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
   return 'Извините, сервис временно недоступен. Попробуйте позже.';
 }
 
+// Sentinel-строки фолбэков waterfall/fast: при отказе всех провайдеров
+// возвращается строка, а не исключение. Роуты ОБЯЗАНЫ проверять ответ этим
+// хелпером, иначе ошибка уедет клиенту как обычный текст со статусом 200 —
+// у AI Спасателя это прятало локальный протокол выживания (issue #27).
+const WATERFALL_ERROR_PREFIXES = [
+  'Извините, сервис временно недоступен',
+  'Сервис временно недоступен',
+];
+
+export function isWaterfallErrorResponse(text: string): boolean {
+  return WATERFALL_ERROR_PREFIXES.some(p => text.startsWith(p));
+}
+
 // ── Fast Waterfall — race cheap providers ────────────────────
 // Для структурированных задач (JSON, бинарные ответы, голосование).
 // Races DeepSeek + MiMo + Gemini simultaneously.

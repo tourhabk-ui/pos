@@ -281,10 +281,17 @@ export default function SafetyHubClient() {
       // ── NON-STREAMING FALLBACK ─────────────────────────────────
       } else {
         const data = await res.json() as { reply?: string; error?: string };
-        setRescueMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.reply ?? data.error ?? 'Нет ответа. При угрозе — 112.',
-        }]);
+        if (!res.ok || data.error || !data.reply) {
+          // AI недоступен — локальный протокол выживания вместо текста ошибки
+          const local = getLocalProtocol(text);
+          const footer = 'AI-связь недоступна. При угрозе жизни: 112 | 8 (4152) 41-03-03 (ПАСС Камчатки)';
+          setRescueMessages(prev => [...prev, {
+            role: 'assistant',
+            content: local ? `${local}\n\n───\n${footer}` : footer,
+          }]);
+        } else {
+          setRescueMessages(prev => [...prev, { role: 'assistant', content: data.reply as string }]);
+        }
       }
 
     } catch {

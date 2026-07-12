@@ -1,4 +1,4 @@
 {
   "note": "Маркер запуска import-idilesom-tracks.yml: правка этого файла в main запускает backfill GPS-треков из idilesom прямо сейчас.",
-  "run": 7
+  "run": 8
 }
