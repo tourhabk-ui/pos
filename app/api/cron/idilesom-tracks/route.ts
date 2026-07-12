@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { backfillIdilesomTracks } from '@/lib/services/idilesom-importer';
+import { backfillIdilesomTracks, linkIdilesomTracksToPlaces } from '@/lib/services/idilesom-importer';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,36 @@ export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // mode=link: пост-проход — привязка уже записанных треков к местам по имени
+  // и близости места к любой точке трека (backfill матчит только старт трека)
+  if (request.nextUrl.searchParams.get('mode') === 'link') {
+    const startedLink = new Date();
+    try {
+      const result = await linkIdilesomTracksToPlaces();
+      void logAgentRun({
+        agent_id: 'idilesom-tracks-link',
+        status: 'success',
+        started_at: startedLink,
+        duration_ms: result.duration_ms,
+        metadata: result as unknown as Record<string, unknown>,
+      });
+      return NextResponse.json({ success: true, mode: 'link', ...result });
+    } catch (err) {
+      void logAgentRun({
+        agent_id: 'idilesom-tracks-link',
+        status: 'failed',
+        started_at: startedLink,
+        duration_ms: Date.now() - startedLink.getTime(),
+        errors_count: 1,
+        error_msg: err instanceof Error ? err.message : String(err),
+      });
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'Ошибка привязки треков' },
+        { status: 500 },
+      );
+    }
   }
 
   const limitRaw = parseInt(request.nextUrl.searchParams.get('limit') ?? '10', 10);
