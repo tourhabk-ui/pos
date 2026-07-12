@@ -89,7 +89,7 @@ export async function POST(
     return NextResponse.json({ error: 'Данные предложения не найдены.' }, { status: 404 });
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrl();
+  const baseUrl = getPublicBaseUrl();
   const pdfUrl  = `${baseUrl}/api/leads/${id}/proposal/pdf`;
 
   const sent: string[] = [];
