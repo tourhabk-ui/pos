@@ -1,0 +1,48 @@
+name: CodeQL — статический анализ (security-extended)
+
+# Сканирование JS/TS, включая новый квери js/system-prompt-injection
+# (CodeQL 2.26.0, июль 2026): непроверенный пользовательский ввод в
+# system-промпте AI-модели. У платформы большой AI-стек (Кузьмич, AI
+# Спасатель, lead-processor) — это наш профильный класс уязвимостей.
+#
+# Результаты: вкладка Security -> Code scanning alerts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.js'
+      - '**/*.mjs'
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
