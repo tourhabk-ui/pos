@@ -29,19 +29,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Scout (ждём деплой эндпоинта при первом запуске)
+      - name: Scout (ждём деплой билда с feed_errors)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # Билд с BrightData-фоллбэком отвечает полем feed_errors —
+          # по нему отличаем свежий деплой от старого (эндпоинт 401 у обоих)
+          RESP=""
           for i in $(seq 1 30); do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/osm-traces")
-            if [ "$CODE" = "401" ]; then
+            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/osm-traces?secret=${CRON_SECRET}")
+            HAS_NEW=$(echo "$RESP" | python3 -c "import json,sys; print('yes' if 'feed_errors' in json.load(sys.stdin) else 'no')" 2>/dev/null || echo "no")
+            if [ "$HAS_NEW" = "yes" ]; then
               break
             fi
-            echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
+            echo "probe $i: свежий билд ещё не задеплоен — ждём 60с"
             sleep 60
           done
-          RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/osm-traces?secret=${CRON_SECRET}")
-          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','feeds_ok','seen','in_bbox','new_traces','written','linked','errors','duration_ms')}, ensure_ascii=False))" || { echo "$RESP" | head -c 400; exit 1; }
+          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','feeds_ok','feed_errors','seen','in_bbox','new_traces','written','linked','errors','duration_ms')}, ensure_ascii=False))" || { echo "$RESP" | head -c 400; exit 1; }
           echo "── Новые треки ──"
           echo "$RESP" | python3 -c "import json,sys; [print(it.get('id'), it.get('title'), f\"{it.get('points')} тчк\", it.get('place') or '') for it in json.load(sys.stdin).get('items', []) if it.get('status') == 'written']"

@@ -86,6 +86,8 @@ jobs:
               echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('considered','linked','no_match','duration_ms')}, ensure_ascii=False))"
               echo "── Привязано ──"
               echo "$RESP" | python3 -c "import json,sys; [print(it.get('track'), '->', it.get('place'), f\"({it.get('min_km')} km)\") for it in json.load(sys.stdin).get('items', []) if it.get('status') == 'linked']"
+              echo "── Без привязки (нет похожего места в 5 км от трека) ──"
+              echo "$RESP" | python3 -c "import json,sys; [print(it.get('track'), f\"[{it.get('status')}]\") for it in json.load(sys.stdin).get('items', []) if it.get('status') != 'linked']"
               exit 0
             fi
             echo "probe $i: link-режим ещё не задеплоен — ждём 60с"
