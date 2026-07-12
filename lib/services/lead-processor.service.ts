@@ -305,7 +305,7 @@ export class LeadProcessorService {
     }
 
     const { rows } = await pool.query<TourRow>(
-      `SELECT id::text, title, base_price AS price,
+      `SELECT id::text, title, ROUND(base_price)::int AS price,
               CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
               activity_type, description
        FROM operator_tours
@@ -320,7 +320,7 @@ export class LeadProcessorService {
     if (rows.length === 0) {
       // Fallback — любые активные туры
       const { rows: fallback } = await pool.query<TourRow>(
-        `SELECT id::text, title, base_price AS price,
+        `SELECT id::text, title, ROUND(base_price)::int AS price,
                 CEIL(COALESCE(duration_hours, 8) / 8.0)::int AS duration_days,
                 activity_type, description
          FROM operator_tours WHERE is_active = true AND deleted_at IS NULL ORDER BY RANDOM() LIMIT 5`
@@ -602,8 +602,9 @@ ${toursText}
         data.headline,
         data.summary,
         JSON.stringify(data.highlights),
-        data.priceFrom,
-        data.priceTo,
+        // price_* — INTEGER: округляем на случай NUMERIC-источника («5000.00»)
+        data.priceFrom == null ? null : Math.round(Number(data.priceFrom)),
+        data.priceTo == null ? null : Math.round(Number(data.priceTo)),
         data.durationDays,
         data.generationMs,
         JSON.stringify(data.verdict?.bullSignals ?? []),

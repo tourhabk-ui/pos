@@ -57,7 +57,7 @@ document.getElementById('sms-btn').style.display = '';
 
 ## Telegram-бот Кузьмич
 
-Актуальное имя бота: **@kuzmihai_bot** (был @KuzmichKam_bot, заменён коммитом `2a868c3`).
-Ссылки в коде: `t.me/kuzmihai_bot`, webhook в `app/api/telegram/webhook/route.ts`.
+Актуальное имя бота: **@kuzmichai_bot** (был @KuzmichKam_bot, заменён коммитом `2a868c3`).
+Ссылки в коде: `t.me/kuzmichai_bot`, webhook в `app/api/telegram/webhook/route.ts`.
 
 ---

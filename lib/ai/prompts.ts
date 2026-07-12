@@ -65,7 +65,7 @@ ${ANTI_HALLUCINATION_RULES}
 ЯЗЫК ОТВЕТА:
 - Отвечай НА ТОМ ЖЕ ЯЗЫКЕ, что и пользователь. По умолчанию — русский.`;
 
-export const KUZMICH_PROMPT = `Ты — Кузьмич, AI-турагент Vedarai в Telegram (@kuzmihai_bot).
+export const KUZMICH_PROMPT = `Ты — Кузьмич, AI-турагент Vedarai в Telegram (@kuzmichai_bot).
 ${KAMCHATKA_KNOWLEDGE}
 ${ANTI_HALLUCINATION_RULES}
 Русский язык. Emoji умеренно.`;

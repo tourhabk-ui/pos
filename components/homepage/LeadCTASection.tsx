@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Phone, User, Send, CheckCircle, MessageCircle } from 'lucide-react';
 
-const BOT_URL = 'https://t.me/kuzmihai_bot?start=lead';
+const BOT_URL = 'https://t.me/kuzmichai_bot?start=lead';
 
 type State = 'idle' | 'sending' | 'done' | 'error';
 

@@ -1,7 +1,7 @@
 /**
  * POST /api/telegram/webhook
  *
- * Обработчик @kuzmihai_bot.
+ * Обработчик @kuzmichai_bot.
  *
  * Команды (публичные):
  *   /start     — приветствие
@@ -440,7 +440,7 @@ async function createLeadFromBot(
       name: 'Турист',
       phone,
       comment,
-      source_url: 'https://t.me/kuzmihai_bot',
+      source_url: 'https://t.me/kuzmichai_bot',
       source_data: {
         source: 'telegram_bot',
         interests: interestList,
@@ -533,7 +533,7 @@ async function createLeadFromTelegramFlow(
       name: firstName,
       phone: telegramUsername ? `@${telegramUsername}` : `tg:${telegramUserId}`,
       comment: message,
-      source_url: 'https://t.me/kuzmihai_bot',
+      source_url: 'https://t.me/kuzmichai_bot',
       source_data: {
         source: 'telegram_lead_flow',
         telegram_user_id: telegramUserId,
@@ -611,7 +611,7 @@ export async function POST(request: NextRequest) {
       groupMonitor.processMessage(chatId, groupTitle, fromName, text);
 
       // Отвечаем только если прямо @упомянули бота
-      const botUser = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmihai_bot';
+      const botUser = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? 'kuzmichai_bot';
       const mentioned = text.toLowerCase().includes(`@${botUser.toLowerCase()}`);
       if (mentioned) {
         const cleanQ = text.replace(new RegExp(`@${botUser}`, 'gi'), '').trim();
