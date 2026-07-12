@@ -100,17 +100,29 @@ function normalizeName(s: string): string {
 }
 
 function nameSimilarity(a: string, b: string): boolean {
+  return nameMatchStrength(a, b) !== null;
+}
+
+/**
+ * Сила совпадения имён:
+ *   strong — равенство/вхождение после нормализации («Озеро Курильское» ~
+ *            «Курильское озеро») — можно доверять на большей дистанции;
+ *   weak   — пересечение слов (ловит и типовые «термальные источники») —
+ *            только рядом с треком.
+ */
+function nameMatchStrength(a: string, b: string): 'strong' | 'weak' | null {
   const na = normalizeName(a);
   const nb = normalizeName(b);
-  if (na === nb) return true;
+  if (na === nb) return 'strong';
   // Short exact containment: "Авача" inside "Авачинский" or vice-versa
-  if (na.length >= 5 && nb.startsWith(na.slice(0, 5))) return true;
-  if (nb.length >= 5 && na.startsWith(nb.slice(0, 5))) return true;
+  if (na.length >= 5 && nb.startsWith(na.slice(0, 5))) return 'strong';
+  if (nb.length >= 5 && na.startsWith(nb.slice(0, 5))) return 'strong';
   // Word overlap: ≥2 meaningful words in common
   const wordsA = na.split(' ').filter(w => w.length >= 4);
   const wordsB = new Set(nb.split(' ').filter(w => w.length >= 4));
   const overlap = wordsA.filter(w => wordsB.has(w)).length;
-  return overlap >= 2 || (wordsA.length === 1 && wordsB.size === 1 && wordsB.has(wordsA[0]));
+  if (overlap >= 2 || (wordsA.length === 1 && wordsB.size === 1 && wordsB.has(wordsA[0]))) return 'weak';
+  return null;
 }
 
 // ── Fetch с фоллбэком на BrightData Web Unlocker ─────────────────────────────
@@ -677,21 +689,27 @@ export interface PlaceRef {
   lng: number;
 }
 
-const LINK_MAX_KM = 5;
+// Порог дистанции зависит от силы совпадения имён: сильное («Озеро
+// Курильское» ~ «Курильское озеро») доверяем до 12 км — у крупных объектов
+// точка места (центр озера, вершина) легко дальше 5 км от берегового трека;
+// слабое (пересечение слов, ловит типовые «термальные источники») — только 5.
+const LINK_MAX_KM_WEAK = 5;
+const LINK_MAX_KM_STRONG = 12;
 
-/** Ближайшее по треку место с похожим именем; null если нет в пределах LINK_MAX_KM. */
+/** Ближайшее по треку место с похожим именем; null если нет в пределах порога. */
 export function matchTrackToPlace(
   track: { title: string; coordinates: number[][] },
   places: PlaceRef[],
-  maxKm = LINK_MAX_KM,
 ): { place: PlaceRef; minKm: number } | null {
   const coords = track.coordinates.filter(c => Array.isArray(c) && c.length >= 2);
   if (coords.length === 0) return null;
-  // Длинные треки сэмплируем: точность в сотни метров достаточна при пороге 5 км
+  // Длинные треки сэмплируем: точность в сотни метров достаточна при км-порогах
   const step = Math.max(1, Math.floor(coords.length / 200));
   let best: { place: PlaceRef; minKm: number } | null = null;
   for (const pl of places) {
-    if (!nameSimilarity(pl.name, track.title)) continue;
+    const strength = nameMatchStrength(pl.name, track.title);
+    if (!strength) continue;
+    const maxKm = strength === 'strong' ? LINK_MAX_KM_STRONG : LINK_MAX_KM_WEAK;
     let minKm = Infinity;
     for (let i = 0; i < coords.length; i += step) {
       const d = haversineKm(pl.lat, pl.lng, coords[i][1], coords[i][0]);

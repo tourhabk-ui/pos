@@ -1,0 +1,58 @@
+name: Data — инвентаризация мест и маршрутов
+
+# Полный срез качества географических данных с прода: дубли мест,
+# имена-статьи из idilesom, происхождение треков, привязки трек->место.
+# READ-ONLY. Отчёт печатается в лог джобы.
+#
+# Способы запуска:
+#   1. workflow_dispatch — кнопка Run workflow
+#   2. push в main, меняющий .github/triggers/data-inventory.json
+#
+# Требует secret CRON_SECRET.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/data-inventory.json'
+
+concurrency:
+  group: data-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Inventory (ждём деплой эндпоинта при первом запуске)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/data-inventory")
+            if [ "$CODE" = "401" ]; then
+              break
+            fi
+            echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
+            sleep 60
+          done
+          curl -s --max-time 180 "https://vedarai.ru/api/cron/data-inventory?secret=${CRON_SECRET}" > /tmp/inv.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/inv.json'))
+          if not d.get('success'):
+              print(json.dumps(d, ensure_ascii=False)[:600])
+              raise SystemExit(1)
+          for s in d['sections']:
+              print(f"\n════ {s['title']} ════")
+              if s.get('error'):
+                  print(f"ERROR: {s['error']}")
+                  continue
+              if not s['rows']:
+                  print("(пусто)")
+                  continue
+              for row in s['rows']:
+                  print('  ' + ' | '.join(f"{k}={v}" for k, v in row.items()))
+          PY
