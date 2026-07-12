@@ -1,0 +1,70 @@
+name: Data — ремонт мест и треков
+
+# Ремонт данных по итогам инвентаризации: фейковые координаты-заглушки,
+# дубли мест, привязка треков всех источников, нормализация source_name,
+# места-статьи. Сначала dry-run с полной диагностикой, затем боевой apply.
+#
+# Способы запуска:
+#   1. workflow_dispatch — кнопка Run workflow
+#   2. push в main, меняющий .github/triggers/data-repair.json
+#
+# Требует secret CRON_SECRET.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/data-repair.json'
+
+concurrency:
+  group: data-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Dry-run (ждём деплой эндпоинта при первом запуске)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/data-repair")
+            if [ "$CODE" = "401" ]; then
+              break
+            fi
+            echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
+            sleep 60
+          done
+          curl -s --max-time 280 "https://vedarai.ru/api/cron/data-repair?secret=${CRON_SECRET}" > /tmp/dry.json
+          python3 -c "import json; d=json.load(open('/tmp/dry.json')); print(json.dumps({k:v for k,v in d.items() if k != 'items'}, ensure_ascii=False))" || { head -c 400 /tmp/dry.json; exit 1; }
+          echo "── Диагностика (dry-run) ──"
+          python3 -c "import json; [print(f\"[{it['step']}] {it.get('place','')}: {it['detail']}\") for it in json.load(open('/tmp/dry.json')).get('items', [])]"
+
+      - name: Apply (боевой прогон)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -s --max-time 280 "https://vedarai.ru/api/cron/data-repair?secret=${CRON_SECRET}&apply=1" > /tmp/apply.json
+          python3 -c "import json; d=json.load(open('/tmp/apply.json')); print(json.dumps({k:v for k,v in d.items() if k != 'items'}, ensure_ascii=False))" || { head -c 400 /tmp/apply.json; exit 1; }
+          echo "── Применено ──"
+          python3 -c "import json; [print(f\"[{it['step']}] {it.get('place','')}: {it['detail']}\") for it in json.load(open('/tmp/apply.json')).get('items', [])]"
+
+      - name: Контрольная инвентаризация после ремонта
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -s --max-time 180 "https://vedarai.ru/api/cron/data-inventory?secret=${CRON_SECRET}" > /tmp/inv.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/inv.json'))
+          for s in d.get('sections', []):
+              if s['id'] in ('places_total', 'places_coord_dupes', 'places_name_dupes', 'routes_place_links', 'routes_by_source'):
+                  print(f"\n════ {s['title']} ════")
+                  for row in s['rows'][:20]:
+                      print('  ' + ' | '.join(f"{k}={v}" for k, v in row.items()))
+                  if not s['rows']:
+                      print('  (пусто)')
+          PY

@@ -110,7 +110,7 @@ function nameSimilarity(a: string, b: string): boolean {
  *   weak   — пересечение слов (ловит и типовые «термальные источники») —
  *            только рядом с треком.
  */
-function nameMatchStrength(a: string, b: string): 'strong' | 'weak' | null {
+export function nameMatchStrength(a: string, b: string): 'strong' | 'weak' | null {
   const na = normalizeName(a);
   const nb = normalizeName(b);
   if (na === nb) return 'strong';
