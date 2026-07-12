@@ -1,0 +1,75 @@
+name: Data — idilesom GPS-треки (backfill через прод)
+
+# Дозапись GPS-треков из idilesom.com для уже импортированных мест.
+# Первичный импорт клал трек только для НОВЫХ мест — задедупленные
+# остались без geometry (кейс «Гора Замок», июль 2026).
+#
+# Запуск через прод-эндпоинт /api/cron/idilesom-tracks (паттерн
+# import-osm-geometry-prod.yml): idilesom доступен с IP Timeweb,
+# БД видна только проду.
+#
+# Два способа запуска:
+#   1. workflow_dispatch — кнопка Run workflow.
+#   2. push в main, меняющий .github/triggers/idilesom-tracks.json.
+#
+# Требует secret CRON_SECRET.
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_limit:
+        description: 'Мест на партию (1-50)'
+        required: false
+        default: '20'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/idilesom-tracks.json'
+
+concurrency:
+  group: idilesom-tracks
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for deploy (probe endpoint)
+        run: |
+          for i in $(seq 1 40); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/idilesom-tracks")
+            if [ "$CODE" = "401" ]; then
+              echo "Эндпоинт задеплоен (401 без секрета)"
+              exit 0
+            fi
+            echo "probe $i: HTTP $CODE — ждём деплой (30с)"
+            sleep 30
+          done
+          echo "Эндпоинт не появился за 20 минут"
+          exit 1
+
+      - name: Backfill loop
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ github.event.inputs.batch_limit || '20' }}
+        run: |
+          for i in $(seq 1 30); do
+            echo "── Партия $i ──"
+            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&limit=${LIMIT}")
+            echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','scanned','tracks_written','no_track','errors','remaining')}, ensure_ascii=False))"
+            SCANNED=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scanned',0))")
+            REMAINING=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('remaining',0))")
+            WRITTEN=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tracks_written',0))")
+            if [ "$REMAINING" = "0" ] || [ "$SCANNED" = "0" ]; then
+              echo "Готово: remaining=$REMAINING"
+              exit 0
+            fi
+            if [ "$WRITTEN" = "0" ]; then
+              echo "Партия без записей (у оставшихся мест нет треков на idilesom) — стоп"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "30 партий исчерпаны — остаток добьёт следующий запуск"
