@@ -522,108 +522,138 @@ export async function importIdilesomPlaces(opts: {
 }
 
 // ── Track backfill ────────────────────────────────────────────────────────────
-// Первичный импорт клал GPS-трек в kamchatka_routes только для НОВЫХ мест:
-// задедупленные (уже существующие) места оставались без трека, хотя на
-// idilesom он есть (кейс владельца: «Гора Замок»). Backfill перечитывает
-// страницы idilesom-мест без трека и дозаписывает geometry.
+// Первичный импорт клал GPS-трек только для НОВЫХ мест: задедупленные
+// (существующие в БД из других источников) оставались без трека, хотя на
+// idilesom он есть (кейс владельца: «Гора Замок»). Backfill обходит ЛИСТИНГ
+// idilesom (а не только idilesom-помеченные места!), скрейпит страницы,
+// матчит к нашим местам по близости+имени (та же логика, что dedupe) и
+// пишет трек в kamchatka_routes с ссылкой metadata.place_ark_id — по ней
+// GPX-экспорт точки находит её маршрут.
 
 export interface IdilesomTrackBackfillResult {
-  scanned: number;
+  listing_total: number;
+  offset: number;
+  processed: number;
   tracks_written: number;
+  matched_places: number;
   no_track: number;
+  skipped_existing: number;
   errors: number;
-  remaining: number;
+  has_more: boolean;
+  listing_errors: string[];
   duration_ms: number;
-  items: Array<{ title: string; status: 'track_written' | 'no_track' | 'error'; points?: number }>;
+  items: Array<{ idilesom_id: string; title?: string; status: string; place?: string; points?: number }>;
 }
 
-export async function backfillIdilesomTracks(limit = 20): Promise<IdilesomTrackBackfillResult> {
+export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<IdilesomTrackBackfillResult> {
   const t0 = Date.now();
 
-  // idilesom-места, у которых ещё нет маршрута с треком по тому же source_url
-  const { rows: candidates } = await pool.query<{ source_url: string; name: string }>(
-    `SELECT p.source_url, p.name
-     FROM places p
-     WHERE p.source_name = 'idilesom.com'
-       AND p.source_url IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM kamchatka_routes kr
-         WHERE kr.source_url = p.source_url AND kr.geometry IS NOT NULL
-       )
-     ORDER BY p.name
-     LIMIT $1`,
-    [limit],
-  );
-
-  const { rows: totalRows } = await pool.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt
-     FROM places p
-     WHERE p.source_name = 'idilesom.com'
-       AND p.source_url IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM kamchatka_routes kr
-         WHERE kr.source_url = p.source_url AND kr.geometry IS NOT NULL
-       )`,
-  );
+  // targetIds — ранний стоп листинга: не тянем все страницы ради одной партии
+  const listing = await fetchAllIds(50, offset + limit + 1);
+  const batchIds = listing.ids.slice(offset, offset + limit);
+  const hasMore = listing.ids.length > offset + limit;
 
   const items: IdilesomTrackBackfillResult['items'] = [];
   let tracksWritten = 0;
+  let matchedPlaces = 0;
   let noTrack = 0;
+  let skippedExisting = 0;
   let errors = 0;
 
-  const settled = await runChunked(candidates, async (cand) => {
-    const idMatch = cand.source_url.match(/\/places\/([^/?#]+)/);
-    if (!idMatch) throw new Error('bad source_url');
-    const scraped = await scrapePage(idMatch[1]);
-    return { cand, scraped };
-  }, 5);
+  // Уже готовые треки этой партии — не скрейпим повторно
+  const keys = batchIds.map(id => `idilesom:${id}`);
+  const { rows: doneRows } = await pool.query<{ dedupe_key: string }>(
+    `SELECT dedupe_key FROM kamchatka_routes
+     WHERE dedupe_key = ANY($1) AND geometry IS NOT NULL`,
+    [keys],
+  );
+  const done = new Set(doneRows.map(r => r.dedupe_key));
+  const todo = batchIds.filter(id => !done.has(`idilesom:${id}`));
+  skippedExisting = batchIds.length - todo.length;
+
+  const settled = await runChunked(todo, async (id) => ({ id, scraped: await scrapePage(id) }), 5);
 
   for (const s of settled) {
     if (s.status === 'rejected') {
       errors++;
-      items.push({ title: 'unknown', status: 'error' });
+      items.push({ idilesom_id: 'unknown', status: 'error' });
       continue;
     }
-    const { cand, scraped } = s.value;
-    if (!scraped || scraped.coordinates.length < 3) {
+    const { id, scraped } = s.value;
+    if (!scraped) {
       noTrack++;
-      items.push({ title: cand.name, status: 'no_track' });
+      items.push({ idilesom_id: id, status: 'no_page' });
       continue;
     }
+    if (scraped.coordinates.length < 3) {
+      noTrack++;
+      items.push({ idilesom_id: id, title: scraped.title, status: 'no_track' });
+      continue;
+    }
+
     try {
+      // Матчим к НАШЕМУ месту: близость ≤ 700 м + похожее имя (логика dedupe)
+      const { rows: nearby } = await pool.query<{ ark_id: string; name: string; lat: number; lng: number }>(
+        `SELECT ark_id, name, lat, lng FROM places
+         WHERE is_visible = true
+           AND lat BETWEEN $1 - 0.01 AND $1 + 0.01
+           AND lng BETWEEN $2 - 0.02 AND $2 + 0.02`,
+        [scraped.lat, scraped.lng],
+      );
+      const match = nearby.find(pl =>
+        haversineKm(pl.lat, pl.lng, scraped.lat, scraped.lng) <= 0.7 &&
+        nameSimilarity(pl.name, scraped.title),
+      ) ?? nearby.find(pl => nameSimilarity(pl.name, scraped.title)) ?? null;
+
+      const metadata = JSON.stringify(match ? { place_ark_id: match.ark_id } : {});
       const geojson = JSON.stringify({
         type: 'LineString',
         coordinates: scraped.coordinates,
         source: 'idilesom',
       });
-      // UPSERT по dedupe_key: обновляем geometry только если её нет
-      // или прежний трек тоже idilesom (OSM-треки не перетираем)
+
+      // UPSERT по dedupe_key: обновляем geometry, только если её нет или
+      // прежний трек тоже idilesom (OSM-треки не перетираем)
       await pool.query(
         `INSERT INTO kamchatka_routes (
-           title, description, lat, lng, geometry,
+           title, description, lat, lng, geometry, metadata,
            source_url, source_name, is_visible, dedupe_key
-         ) VALUES ($1,$2,$3,$4,$5,$6,'idilesom.com',true,$7)
+         ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,'idilesom.com',true,$8)
          ON CONFLICT (dedupe_key) DO UPDATE
-           SET geometry = EXCLUDED.geometry
+           SET geometry = EXCLUDED.geometry,
+               metadata = COALESCE(kamchatka_routes.metadata, '{}'::jsonb) || EXCLUDED.metadata
            WHERE kamchatka_routes.geometry IS NULL
               OR kamchatka_routes.geometry->>'source' = 'idilesom'`,
         [scraped.title, scraped.description || null, scraped.lat, scraped.lng,
-         geojson, scraped.sourceUrl, `idilesom:${scraped.id}`],
+         geojson, metadata, scraped.sourceUrl, `idilesom:${id}`],
       );
+
       tracksWritten++;
-      items.push({ title: cand.name, status: 'track_written', points: scraped.coordinates.length });
+      if (match) matchedPlaces++;
+      items.push({
+        idilesom_id: id,
+        title: scraped.title,
+        status: 'track_written',
+        place: match?.name,
+        points: scraped.coordinates.length,
+      });
     } catch {
       errors++;
-      items.push({ title: cand.name, status: 'error' });
+      items.push({ idilesom_id: id, title: scraped.title, status: 'error' });
     }
   }
 
   return {
-    scanned: candidates.length,
+    listing_total: listing.ids.length,
+    offset,
+    processed: todo.length,
     tracks_written: tracksWritten,
+    matched_places: matchedPlaces,
     no_track: noTrack,
+    skipped_existing: skippedExisting,
     errors,
-    remaining: Math.max(0, parseInt(totalRows[0]?.cnt ?? '0', 10) - tracksWritten),
+    has_more: hasMore,
+    listing_errors: listing.listingErrors,
     duration_ms: Date.now() - t0,
     items,
   };

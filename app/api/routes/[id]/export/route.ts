@@ -43,13 +43,16 @@ export async function GET(
        FROM agent_route_knowledge ark
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
        LEFT JOIN LATERAL (
-         -- Трек места может жить отдельной строкой kamchatka_routes с тем же
-         -- source_url (idilesom-backfill): «Гора Замок» — точка, её трек — маршрут
+         -- Трек места может жить отдельной строкой kamchatka_routes:
+         -- «Гора Замок» — точка, её трек — маршрут. Связь: metadata.place_ark_id
+         -- (idilesom-backfill) или общий source_url
          SELECT geometry FROM kamchatka_routes k2
-         WHERE ark.source_url IS NOT NULL
-           AND k2.source_url = ark.source_url
+         WHERE k2.geometry IS NOT NULL
            AND k2.id <> ark.id
-           AND k2.geometry IS NOT NULL
+           AND (
+             k2.metadata->>'place_ark_id' = ark.id::text
+             OR (ark.source_url IS NOT NULL AND k2.source_url = ark.source_url)
+           )
          LIMIT 1
        ) krs ON TRUE
        WHERE ark.id = $1 AND ark.is_visible = TRUE`,
