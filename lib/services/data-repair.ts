@@ -178,9 +178,12 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           items.push({ step: 'coords', place: place.name, detail: `геокод (${geo.source}) -> ${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}` });
           fixed = true;
         }
-        if (geo?.source === 'nominatim') await sleep(1100);
+        // Nominatim: 1 зап/сек — пауза после ЛЮБОГО сетевого похода,
+        // включая неуспешный (null); без паузы только кэш-попадания
+        if (geo?.source !== 'cache') await sleep(1100);
       } catch {
         res.errors++;
+        await sleep(1100);
       }
       if (!fixed) {
         if (!dryRun) {
