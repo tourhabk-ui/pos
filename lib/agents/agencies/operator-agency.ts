@@ -13,6 +13,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { getPublicBaseUrl } from '@/lib/config';
 import { approvalRequired } from '../safeguards/approval-required';
 import type { AgentContext } from '../context-hub';
 
@@ -257,7 +258,8 @@ export class OperatorAgency {
     // Вызываем существующий AI-fill endpoint как внутренний fetch
     // (мы в Node.js runtime, вне Edge — прямой pool-вызов недоступен для auto-fill логики)
     try {
-      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+      // NEXTAUTH_URL на Timeweb указывает на мёртвый twc1-домен — не использовать
+      const baseUrl = process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : getPublicBaseUrl();
       const res = await fetch(`${baseUrl}/api/operator/tours/auto-fill-ai`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },

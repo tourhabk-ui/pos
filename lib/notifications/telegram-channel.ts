@@ -895,8 +895,9 @@ export async function notifyAdminNewLead(lead: {
   if (lead.routeTitle) lines.push(`<b>Маршрут:</b> ${esc(lead.routeTitle)}`);
   if (lead.sourceUrl) lines.push(`<b>Страница:</b> ${esc(lead.sourceUrl)}`);
 
-  // Ссылка на CRM
-  lines.push('', `<a href="${baseUrl}/hub/admin/leads/${lead.id}">Открыть в CRM →</a>`, `<code>${lead.id}</code>`);
+  // Ссылка на CRM: детальная страница лида живёт в /hub/operator/leads/[id];
+  // /hub/admin/leads/[id] — редирект для старых уже отправленных сообщений
+  lines.push('', `<a href="${baseUrl}/hub/operator/leads/${lead.id}">Открыть в CRM →</a>`, `<code>${lead.id}</code>`);
 
   const replyMarkup = {
     inline_keyboard: [

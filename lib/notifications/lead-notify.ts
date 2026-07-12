@@ -37,7 +37,7 @@ async function tgSend(chatId: string, text: string): Promise<void> {
  */
 export async function notifyOperatorProposal(proposal: LeadProposalData): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID ?? '';
-  const baseUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrl();
+  const baseUrl = getPublicBaseUrl();
 
   const scoreTag = proposal.ai_score >= 80 ? ' [HOT]' : proposal.ai_score >= 50 ? ' [OK]' : '';
   const toursText = proposal.primary_tour
@@ -73,7 +73,7 @@ export async function notifyOperatorNewLead(params: {
   routeTitle?: string;
 }): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID ?? '';
-  const baseUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrl();
+  const baseUrl = getPublicBaseUrl();
 
   const text = [
     '<b>Новая заявка</b>',
