@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { generateAndStoreRouteImage } from '@/lib/services/ai-image-generator';
+import { validateRoutePost } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -449,34 +450,41 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  // Берём маршрут, который не постили последние 30 дней
-  const pickResult = await query<KuzmichRouteRow>(`
-    SELECT id, title, description, location_type, activity_type, zone, kuzmich_review, lat, lng
-    FROM agent_route_knowledge
-    WHERE is_visible = TRUE
-      AND id::text NOT IN (
-        SELECT metadata->>'route_id'
-        FROM ai_actions_log
-        WHERE action_type = 'kuzmich_post'
-          AND created_at > NOW() - INTERVAL '30 days'
-          AND metadata->>'route_id' IS NOT NULL
-      )
-    ORDER BY RANDOM()
-    LIMIT 1
-  `, []);
+  // Пост ОБЯЗАН пройти validateRoutePost (12.07: канал опубликовал ссылку на
+  // мёртвую страницу — валидатор существовал, но не был подключён). Невалидный
+  // кандидат логируется и заменяется следующим, до 3 попыток.
+  const rejectedIds: string[] = [];
 
-  if (!pickResult.rows[0]) return { ok: false, error: 'Нет маршрутов для поста (все опубликованы в последние 30 дней)' };
-  const r = pickResult.rows[0];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Берём маршрут, который не постили последние 30 дней
+    const pickResult = await query<KuzmichRouteRow>(`
+      SELECT id, title, description, location_type, activity_type, zone, kuzmich_review, lat, lng
+      FROM agent_route_knowledge
+      WHERE is_visible = TRUE
+        AND id::text <> ALL($1)
+        AND id::text NOT IN (
+          SELECT metadata->>'route_id'
+          FROM ai_actions_log
+          WHERE action_type = 'kuzmich_post'
+            AND created_at > NOW() - INTERVAL '30 days'
+            AND metadata->>'route_id' IS NOT NULL
+        )
+      ORDER BY RANDOM()
+      LIMIT 1
+    `, [rejectedIds]);
 
-  const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
-  const actLabel = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
-  const appUrl   = getPublicBaseUrl();
+    if (!pickResult.rows[0]) return { ok: false, error: 'Нет маршрутов для поста (все опубликованы в последние 30 дней)' };
+    const r = pickResult.rows[0];
 
-  const reviewCtx = r.kuzmich_review
-    ? `\nМои заметки об этом месте: "${r.kuzmich_review.slice(0, 280)}"`
-    : '';
+    const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
+    const actLabel = ACTIVITY_LABELS[r.activity_type ?? ''] ?? r.activity_type ?? '';
+    const appUrl   = getPublicBaseUrl();
 
-  const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши короткий пост для Telegram-канала о конкретном месте.
+    const reviewCtx = r.kuzmich_review
+      ? `\nМои заметки об этом месте: "${r.kuzmich_review.slice(0, 280)}"`
+      : '';
+
+    const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши короткий пост для Telegram-канала о конкретном месте.
 
 Место: ${r.title}
 Тип: ${locLabel || 'природный объект'}${actLabel ? ', ' + actLabel : ''}
@@ -490,20 +498,36 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - Не начинай с "Привет" или своего имени`;
 
-  const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-  const photoUrl = await resolvePostPhotoUrl(r);
-  const result = await postToAllChannels(channelId, text, photoUrl);
+    const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
 
-  if (result.ok) {
-    try {
-      await query(
-        `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title })]
-      );
-    } catch { /* таблица ещё не создана — не блокируем пост */ }
+    const validation = await validateRoutePost(r.id, text);
+    if (!validation.valid) {
+      rejectedIds.push(r.id);
+      try {
+        await query(
+          `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+          ['kuzmich_post_rejected', JSON.stringify({ route_id: r.id, route_title: r.title, errors: validation.errors })]
+        );
+      } catch { /* не блокируем перевыбор */ }
+      continue;
+    }
+
+    const photoUrl = await resolvePostPhotoUrl(r);
+    const result = await postToAllChannels(channelId, text, photoUrl);
+
+    if (result.ok) {
+      try {
+        await query(
+          `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+          ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title })]
+        );
+      } catch { /* таблица ещё не создана — не блокируем пост */ }
+    }
+
+    return { ...result, routeId: r.id };
   }
 
-  return { ...result, routeId: r.id };
+  return { ok: false, error: `Все кандидаты не прошли валидацию поста: ${rejectedIds.join(', ')}` };
 }
 
 const KUZMICH_TIP_TOPICS = [

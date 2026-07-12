@@ -1,0 +1,9 @@
+{
+  "note": "Маркер запуска prod-check.yml: правка этого файла в main проверяет перечисленные URL прода и печатает статус и фрагмент тела.",
+  "run": 1,
+  "urls": [
+    "https://vedarai.ru/api/routes/4526b1d5-35ed-41c1-9c5a-5d680a8972e6",
+    "https://vedarai.ru/api/routes/4526b1d5-35ed-41c1-9c5a-5d680a8972e6/export?format=gpx",
+    "https://vedarai.ru/routes/4526b1d5-35ed-41c1-9c5a-5d680a8972e6"
+  ]
+}
