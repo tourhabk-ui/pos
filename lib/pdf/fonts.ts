@@ -1,16 +1,17 @@
 /**
  * Кириллические шрифты для PDFKit.
  *
- * Встроенные Helvetica/Helvetica-Bold — это AFM-шрифты с WinAnsi-кодировкой,
- * кириллицу они НЕ содержат: русский текст в PDF превращался в кракозябры
- * («pdf нет» — скриншот владельца 2026-07-12). Регистрируем DejaVu Sans
- * (свободная лицензия, public/fonts/DejaVu-LICENSE.txt) ПОД ИМЕНАМИ
- * встроенных шрифтов: зарегистрированные шрифты в PDFKit перекрывают
- * стандартные, поэтому все .font('Helvetica') в генераторах начинают
- * отдавать кириллицу без правок.
+ * Встроенные Helvetica/Helvetica-Bold — AFM-шрифты с WinAnsi-кодировкой,
+ * кириллицу они НЕ содержат: русский текст в PDF превращался в кракозябры.
+ * Регистрируем DejaVu Sans (свободная лицензия,
+ * public/fonts/DejaVu-LICENSE.txt) ПОД ИМЕНАМИ встроенных шрифтов:
+ * зарегистрированные перекрывают стандартные, все .font('Helvetica')
+ * в генераторах отдают кириллицу без правок.
  *
- * public/ копируется в standalone-образ (Dockerfile) — файлы доступны
- * по process.cwd()/public/fonts и в дев-режиме, и на проде.
+ * ВАЖНО: только БУФЕРАМИ, не путями. Бандл pdfkit (js/pdfkit.js) собран
+ * с виртуальной файловой системой и не умеет открывать реальные пути —
+ * registerFont(<path>) падает «Not a supported font format». Файл читаем
+ * сами настоящим fs и отдаём pdfkit готовый Buffer.
  */
 
 import path from 'path';
@@ -18,12 +19,26 @@ import fs from 'fs';
 
 const FONTS_DIR = path.join(process.cwd(), 'public', 'fonts');
 
+function readFont(file: string): Buffer | null {
+  try {
+    const p = path.join(FONTS_DIR, file);
+    return fs.existsSync(p) ? fs.readFileSync(p) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Читаются один раз на процесс (~1.4 МБ суммарно)
+const REGULAR = readFont('DejaVuSans.ttf');
+const BOLD = readFont('DejaVuSans-Bold.ttf');
+
+/** Есть ли кириллический шрифт (для smoke-тестов и health-проверок). */
+export const DEFAULT_PDF_FONT: Buffer | null = REGULAR;
+
 export function registerCyrillicFonts(doc: PDFKit.PDFDocument): void {
   try {
-    const regular = path.join(FONTS_DIR, 'DejaVuSans.ttf');
-    const bold = path.join(FONTS_DIR, 'DejaVuSans-Bold.ttf');
-    if (fs.existsSync(regular)) doc.registerFont('Helvetica', regular);
-    if (fs.existsSync(bold)) doc.registerFont('Helvetica-Bold', bold);
+    if (REGULAR) doc.registerFont('Helvetica', REGULAR);
+    if (BOLD) doc.registerFont('Helvetica-Bold', BOLD);
   } catch {
     // Файлы шрифтов недоступны — остаются встроенные (латиница)
   }

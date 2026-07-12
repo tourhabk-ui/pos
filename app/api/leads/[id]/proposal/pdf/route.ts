@@ -38,10 +38,22 @@ export async function GET(
     return NextResponse.json({ error: 'Предложение не найдено' }, { status: 404 });
   }
 
-  const pdfBytes = await generateProposalPDF({
-    clientName: rows[0].name,
-    proposal,
-  });
+  let pdfBytes: Buffer;
+  try {
+    pdfBytes = await generateProposalPDF({
+      clientName: rows[0].name,
+      proposal,
+    });
+  } catch (err) {
+    // Голый 500 без текста уже стоил нескольких итераций диагностики — отдаём причину
+    return NextResponse.json(
+      {
+        error: 'Не удалось сгенерировать PDF',
+        details: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+      },
+      { status: 500 },
+    );
+  }
 
   const safeName = rows[0].name.replace(/[^\w\u0400-\u04FF -]/g, '').replace(/\s+/g, '-').slice(0, 50);
   const filename = `proposal-${safeName}-${Date.now()}.pdf`;
