@@ -45,8 +45,26 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ),
   ]);
 
-  if (!routeRes.rows[0]) return Response.json({ error: 'Not found' }, { status: 404 });
-  const r = routeRes.rows[0];
+  let r = routeRes.rows[0];
+
+  // Страница /routes/[id] показывает и точки-сущности из agent_route_knowledge
+  // (горные массивы, озёра и т.п.), которых нет в v_kamchatka_routes_api.
+  // Для них офлайн-пакет — тайлы вокруг координат точки, без waypoints.
+  if (!r) {
+    const arkRes = await query(
+      `SELECT id, title, description, lat, lng,
+              NULL AS difficulty, NULL AS distance_km, NULL AS elevation_gain_m,
+              NULL AS duration_hours, NULL AS season,
+              NULL AS hazards, NULL AS equipment,
+              FALSE AS mchs_registration_required, NULL AS mchs_phone, NULL AS park_name
+       FROM agent_route_knowledge
+       WHERE id = $1 AND is_visible = TRUE AND lat IS NOT NULL AND lng IS NOT NULL`,
+      [id],
+    );
+    r = arkRes.rows[0];
+  }
+
+  if (!r) return Response.json({ error: 'Not found' }, { status: 404 });
 
   const lats: number[] = [];
   const lngs: number[] = [];

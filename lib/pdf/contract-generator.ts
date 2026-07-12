@@ -5,6 +5,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 
 export interface ContractData {
   bookingId: number;
@@ -38,6 +39,7 @@ export async function generateContractPDF(data: ContractData): Promise<Buffer> {
         CreationDate: new Date(),
       },
     });
+    registerCyrillicFonts(doc);
 
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
