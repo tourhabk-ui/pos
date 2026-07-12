@@ -13,6 +13,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 import type { LeadProposalData } from '@/lib/services/lead-processor.service';
 
 interface GenerateOptions {
@@ -34,6 +35,7 @@ export async function generateProposalPDF(opts: GenerateOptions): Promise<Buffer
         CreationDate: new Date(),
       },
     });
+    registerCyrillicFonts(doc);
 
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));

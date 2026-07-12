@@ -4,6 +4,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 import { getPublicBaseUrl } from '@/lib/config';
 
 export interface VoucherData {
@@ -40,6 +41,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
         CreationDate: new Date(),
       },
     });
+    registerCyrillicFonts(doc);
 
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
@@ -151,7 +153,7 @@ export async function generateVoucherPDF(data: VoucherData): Promise<Buffer> {
        .text('ЭКСТРЕННЫЕ КОНТАКТЫ', 65, doc.y + 6);
     doc.font('Helvetica').fillColor(MUTED).fontSize(9)
        .text(
-         `Единая служба спасения: 112   ·   МЧС Камчатки: +7 (4152) 41-00-01   ·   Оператор: ${data.operatorPhone ?? '—'}`,
+         `Единая служба спасения: 112   ·   МЧС Камчатки: +7 (4152) 23-53-62   ·   Оператор: ${data.operatorPhone ?? '—'}`,
          65, doc.y + 20, { width: W - 20 }
        );
     doc.y += 52;

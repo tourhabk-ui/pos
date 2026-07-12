@@ -8,6 +8,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import { registerCyrillicFonts } from '@/lib/pdf/fonts';
 import QRCode from 'qrcode';
 import { getPublicBaseUrl } from '@/lib/config';
 
@@ -89,6 +90,7 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
         CreationDate: new Date(),
       },
     });
+    registerCyrillicFonts(doc);
 
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
