@@ -72,3 +72,24 @@ jobs:
             sleep 3
           done
           echo "60 партий исчерпаны (записано $TOTAL_WRITTEN) — остаток добьёт следующий запуск"
+
+      - name: Link треков к местам (mode=link)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # Старый билд игнорирует mode=link и отвечает backfill-джейсоном без
+          # поля mode — ждём деплой новой версии (~10-13 мин) и повторяем
+          for i in $(seq 1 30); do
+            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&mode=link")
+            MODE=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('mode',''))" 2>/dev/null || echo "")
+            if [ "$MODE" = "link" ]; then
+              echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('considered','linked','no_match','duration_ms')}, ensure_ascii=False))"
+              echo "── Привязано ──"
+              echo "$RESP" | python3 -c "import json,sys; [print(it.get('track'), '->', it.get('place'), f\"({it.get('min_km')} km)\") for it in json.load(sys.stdin).get('items', []) if it.get('status') == 'linked']"
+              exit 0
+            fi
+            echo "probe $i: link-режим ещё не задеплоен — ждём 60с"
+            sleep 60
+          done
+          echo "link-режим не появился за 30 минут"
+          exit 1

@@ -662,3 +662,114 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
     items,
   };
 }
+
+// ── Привязка уже записанных треков к местам (post-pass) ──────────────────────
+//
+// Backfill матчит по bbox вокруг СТАРТА трека (±~1 км) — но тропа к озеру
+// начинается за километры от самого озера, поэтому большинство треков легло
+// без metadata.place_ark_id и карточки мест их не видят (кейс «Тёплое озеро»).
+// Здесь матчим по имени + близости места к ЛЮБОЙ точке трека.
+
+export interface PlaceRef {
+  ark_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+const LINK_MAX_KM = 5;
+
+/** Ближайшее по треку место с похожим именем; null если нет в пределах LINK_MAX_KM. */
+export function matchTrackToPlace(
+  track: { title: string; coordinates: number[][] },
+  places: PlaceRef[],
+  maxKm = LINK_MAX_KM,
+): { place: PlaceRef; minKm: number } | null {
+  const coords = track.coordinates.filter(c => Array.isArray(c) && c.length >= 2);
+  if (coords.length === 0) return null;
+  // Длинные треки сэмплируем: точность в сотни метров достаточна при пороге 5 км
+  const step = Math.max(1, Math.floor(coords.length / 200));
+  let best: { place: PlaceRef; minKm: number } | null = null;
+  for (const pl of places) {
+    if (!nameSimilarity(pl.name, track.title)) continue;
+    let minKm = Infinity;
+    for (let i = 0; i < coords.length; i += step) {
+      const d = haversineKm(pl.lat, pl.lng, coords[i][1], coords[i][0]);
+      if (d < minKm) minKm = d;
+    }
+    const dLast = haversineKm(pl.lat, pl.lng, coords[coords.length - 1][1], coords[coords.length - 1][0]);
+    if (dLast < minKm) minKm = dLast;
+    if (minKm > maxKm) continue;
+    if (!best || minKm < best.minKm) best = { place: pl, minKm };
+  }
+  return best;
+}
+
+export interface IdilesomLinkResult {
+  considered: number;
+  linked: number;
+  no_match: number;
+  duration_ms: number;
+  items: Array<{ track: string; place?: string; min_km?: number; status: 'linked' | 'no_match' | 'no_geometry' }>;
+}
+
+export async function linkIdilesomTracksToPlaces(): Promise<IdilesomLinkResult> {
+  const t0 = Date.now();
+
+  const { rows: tracks } = await pool.query<{
+    id: string;
+    title: string;
+    geometry: { coordinates?: number[][] } | null;
+  }>(
+    `SELECT id, title, geometry FROM kamchatka_routes
+     WHERE dedupe_key LIKE 'idilesom:%'
+       AND geometry IS NOT NULL
+       AND (metadata->>'place_ark_id') IS NULL`,
+  );
+
+  const { rows: places } = await pool.query<PlaceRef>(
+    `SELECT ark_id, name, lat::float AS lat, lng::float AS lng
+     FROM places
+     WHERE is_visible = true AND ark_id IS NOT NULL
+       AND lat IS NOT NULL AND lng IS NOT NULL`,
+  );
+
+  const items: IdilesomLinkResult['items'] = [];
+  let linked = 0;
+  let noMatch = 0;
+
+  for (const track of tracks) {
+    const coordinates = track.geometry?.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 3) {
+      items.push({ track: track.title, status: 'no_geometry' });
+      continue;
+    }
+    const match = matchTrackToPlace({ title: track.title, coordinates }, places);
+    if (!match) {
+      noMatch++;
+      items.push({ track: track.title, status: 'no_match' });
+      continue;
+    }
+    await pool.query(
+      `UPDATE kamchatka_routes
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('place_ark_id', $1::text)
+       WHERE id = $2`,
+      [match.place.ark_id, track.id],
+    );
+    linked++;
+    items.push({
+      track: track.title,
+      place: match.place.name,
+      min_km: Math.round(match.minKm * 100) / 100,
+      status: 'linked',
+    });
+  }
+
+  return {
+    considered: tracks.length,
+    linked,
+    no_match: noMatch,
+    duration_ms: Date.now() - t0,
+    items,
+  };
+}

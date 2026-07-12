@@ -44,7 +44,8 @@ export interface GpxImportResult {
   duration_ms: number;
 }
 
-function parseGpx(xml: string): number[][] {
+/** Координаты GPX ([lng, lat, ele?]) — используется и OSM Traces Scout. */
+export function parseGpx(xml: string): number[][] {
   const re = /<(?:trkpt|rtept|wpt)\s+lat="([\d.]+)"\s+lon="([\d.]+)"[^>]*>(?:[\s\S]*?<ele>([\d.]+)<\/ele>)?/g;
   const coords: number[][] = [];
   let m: RegExpExecArray | null;

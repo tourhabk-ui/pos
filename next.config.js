@@ -13,6 +13,13 @@ const nextConfig = {
 
   // outputFileTracingRoot removed — may prevent standalone output
 
+  // pdfkit читает AFM-шрифты своего пакета при создании документа —
+  // без include standalone-трассировка может их потерять, и любой PDF
+  // падает с ENOENT (~1 МБ данных, лимит 50 МБ не задевает)
+  outputFileTracingIncludes: {
+    '/api/**': ['./node_modules/pdfkit/js/data/**'],
+  },
+
   // ESLint: skip during build (saves ~500MB RAM) — checks run locally via CI
   // TypeScript: keep strict — fast and catches real errors
   eslint: {
