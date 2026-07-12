@@ -45,6 +45,7 @@ export interface DataRepairResult {
   coords_from_geocode: number;
   hidden_unfixable: number;
   merged_dupes: number;
+  merged_routes: number;
   linked_tracks: number;
   normalized_sources: number;
   hidden_articles: number;
@@ -105,6 +106,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     coords_from_geocode: 0,
     hidden_unfixable: 0,
     merged_dupes: 0,
+    merged_routes: 0,
     linked_tracks: 0,
     normalized_sources: 0,
     hidden_articles: 0,
@@ -299,6 +301,79 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       [ARTICLE_PLACE_NAMES],
     );
     res.hidden_articles = upd.rowCount ?? 0;
+  }
+
+  // ── Шаг 6: дубли МАРШРУТОВ (kamchatka_routes) ───────────────────────────
+  // Одно название из разных источников лежит отдельными строками
+  // («Вилючинский водопад» ×9). Критерий СТРОЖЕ мест: набор слов имени +
+  // совпадающий activity_type (или оба NULL) + координаты < 1 км. Разный
+  // activity_type = разный продукт (лыжный/снегоходный Вачкажец), не дубль.
+  // Keeper: с треком (geometry) > длиннее описание > стабильный id.
+  // Туры дубля перевешиваются на keeper — не осиротеют.
+  const { rows: allRoutes } = await pool.query<{
+    id: string; title: string; activity_type: string | null;
+    lat: number | null; lng: number | null;
+    desc_len: number; has_geometry: boolean; is_visible: boolean;
+  }>(
+    `SELECT id, title, activity_type, lat::float AS lat, lng::float AS lng,
+            length(COALESCE(description,''))::int AS desc_len,
+            (geometry IS NOT NULL) AS has_geometry,
+            is_visible
+     FROM kamchatka_routes`,
+  );
+
+  const routesByKey = new Map<string, typeof allRoutes>();
+  for (const r of allRoutes) {
+    if (!r.is_visible) continue;
+    const wordSet = nameWordSet(r.title);
+    if (!wordSet) continue;
+    const key = `${wordSet}|${r.activity_type ?? ''}`;
+    const arr = routesByKey.get(key) ?? [];
+    arr.push(r);
+    routesByKey.set(key, arr);
+  }
+
+  for (const [, group] of routesByKey) {
+    if (group.length < 2) continue;
+    // Keeper: с треком (geometry) > длиннее описание > стабильный id (tie-break
+    // по id делает выбор keeper детерминированным между прогонами)
+    const sorted = [...group].sort((a, b) =>
+      Number(b.has_geometry) - Number(a.has_geometry)
+      || b.desc_len - a.desc_len
+      || a.id.localeCompare(b.id),
+    );
+    const keeper = sorted[0];
+    for (const dupe of sorted.slice(1)) {
+      // Координатная сверка: если у обоих есть координаты — < 1 км; если у
+      // одного нет — доверяем совпадению имени+activity (idilesom без lat/lng)
+      if (dupe.lat != null && dupe.lng != null && keeper.lat != null && keeper.lng != null
+          && haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
+      try {
+        if (!dryRun) {
+          // Атомарно: туры дубля -> keeper (критично: не осиротить
+          // operator_tours) И скрытие дубля должны примениться вместе или никак.
+          // waypoints дубля НЕ трогаем: скрытый маршрут не рендерится, а перенос
+          // на keeper ломает его порядок точек и нарушает UNIQUE(route_id,place_id).
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await client.query(`UPDATE operator_tours SET route_id = $1 WHERE route_id = $2`, [keeper.id, dupe.id]);
+            await client.query(`UPDATE kamchatka_routes SET is_visible = false WHERE id = $1`, [dupe.id]);
+            await client.query('COMMIT');
+          } catch (txErr) {
+            await client.query('ROLLBACK');
+            throw txErr;
+          } finally {
+            client.release();
+          }
+        }
+        res.merged_routes++;
+        items.push({ step: 'route_dupes', place: dupe.title, detail: `дубль-маршрут скрыт, туры -> «${keeper.title}»` });
+      } catch (err) {
+        res.errors++;
+        items.push({ step: 'route_dupes', place: dupe.title, detail: `ошибка слияния: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+      }
+    }
   }
 
   res.duration_ms = Date.now() - t0;
