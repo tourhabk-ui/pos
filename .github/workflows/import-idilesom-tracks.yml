@@ -53,23 +53,22 @@ jobs:
       - name: Backfill loop
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          LIMIT: ${{ github.event.inputs.batch_limit || '20' }}
+          LIMIT: ${{ github.event.inputs.batch_limit || '10' }}
         run: |
-          for i in $(seq 1 30); do
-            echo "── Партия $i ──"
-            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&limit=${LIMIT}")
-            echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','scanned','tracks_written','no_track','errors','remaining')}, ensure_ascii=False))"
-            SCANNED=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scanned',0))")
-            REMAINING=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('remaining',0))")
+          OFFSET=0
+          TOTAL_WRITTEN=0
+          for i in $(seq 1 60); do
+            echo "── Партия $i (offset=$OFFSET) ──"
+            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&limit=${LIMIT}&offset=${OFFSET}")
+            echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','listing_total','offset','processed','tracks_written','matched_places','no_track','skipped_existing','errors','has_more','listing_errors')}, ensure_ascii=False))" || { echo "$RESP" | head -c 400; exit 1; }
+            HAS_MORE=$(echo "$RESP" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('has_more', False)).lower())")
             WRITTEN=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tracks_written',0))")
-            if [ "$REMAINING" = "0" ] || [ "$SCANNED" = "0" ]; then
-              echo "Готово: remaining=$REMAINING"
+            TOTAL_WRITTEN=$((TOTAL_WRITTEN + WRITTEN))
+            OFFSET=$((OFFSET + LIMIT))
+            if [ "$HAS_MORE" != "true" ]; then
+              echo "Листинг пройден. Всего треков записано: $TOTAL_WRITTEN"
               exit 0
             fi
-            if [ "$WRITTEN" = "0" ]; then
-              echo "Партия без записей (у оставшихся мест нет треков на idilesom) — стоп"
-              exit 0
-            fi
-            sleep 5
+            sleep 3
           done
-          echo "30 партий исчерпаны — остаток добьёт следующий запуск"
+          echo "60 партий исчерпаны (записано $TOTAL_WRITTEN) — остаток добьёт следующий запуск"

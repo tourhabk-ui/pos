@@ -23,12 +23,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const limitRaw = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);
-  const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 20, 1), 50);
+  const limitRaw = parseInt(request.nextUrl.searchParams.get('limit') ?? '10', 10);
+  const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 10, 1), 25);
+  const offsetRaw = parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10);
+  const offset = Math.max(Number.isFinite(offsetRaw) ? offsetRaw : 0, 0);
   const startedAt = new Date();
 
   try {
-    const result = await backfillIdilesomTracks(limit);
+    const result = await backfillIdilesomTracks(limit, offset);
 
     void logAgentRun({
       agent_id: 'idilesom-tracks',
