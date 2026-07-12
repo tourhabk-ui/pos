@@ -94,4 +94,58 @@ describe('runDataRepair (dry-run)', () => {
     expect(updates.some(u => u.includes('UPDATE places SET lat') && u.includes('52.35'))).toBe(true);
     expect(updates.some(u => u.includes(`place_ark_id`) && u.includes('"a1"'))).toBe(true);
   });
+
+  it('apply: дубли-маршруты сливаются, туры перевешены на keeper с треком; разный activity не сливается', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.includes('FROM kamchatka_routes') && s.includes('has_geometry')) {
+        return Promise.resolve({
+          rows: [
+            // Дубль-пара: одинаковый title+activity+координаты; keeper — с треком
+            { id: 'r1', title: 'Вилючинский водопад', activity_type: 'trekking', lat: 52.7, lng: 158.3, desc_len: 500, has_geometry: true, is_visible: true },
+            { id: 'r2', title: 'Водопад Вилючинский', activity_type: 'trekking', lat: 52.7, lng: 158.3, desc_len: 100, has_geometry: false, is_visible: true },
+            // Тот же word-set, но другой activity_type — НЕ дубль
+            { id: 'r3', title: 'Вачкажец горный массив', activity_type: 'ski', lat: 53.0, lng: 158.0, desc_len: 200, has_geometry: false, is_visible: true },
+            { id: 'r4', title: 'Горный массив Вачкажец', activity_type: 'snowmobile', lat: 53.0, lng: 158.0, desc_len: 200, has_geometry: false, is_visible: true },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false);
+    // Слит ровно один дубль (r2 -> r1); r3/r4 разошлись по activity_type
+    expect(result.merged_routes).toBe(1);
+    // Туры дубля перевешены на keeper r1, дубль r2 скрыт
+    expect(updates.some(u => u.includes('UPDATE operator_tours SET route_id') && u.includes('["r1","r2"]'))).toBe(true);
+    expect(updates.some(u => u.includes('UPDATE kamchatka_routes SET is_visible = false') && u.includes('"r2"'))).toBe(true);
+    // r1 (keeper) НЕ скрывается
+    expect(updates.some(u => u.includes('is_visible = false') && u.includes('"r1"'))).toBe(false);
+  });
+
+  it('dry-run по маршрутам: считает merged_routes, но не шлёт UPDATE', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes('FROM kamchatka_routes') && s.includes('has_geometry')) {
+        return Promise.resolve({
+          rows: [
+            { id: 'r1', title: 'Вулкан Горелый', activity_type: 'trekking', lat: 52.5, lng: 158.0, desc_len: 300, has_geometry: true, is_visible: true },
+            { id: 'r2', title: 'Горелый вулкан', activity_type: 'trekking', lat: 52.5, lng: 158.0, desc_len: 100, has_geometry: false, is_visible: true },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(true);
+    expect(result.merged_routes).toBe(1);
+    for (const call of queryMock.mock.calls) {
+      expect(String(call[0]).trim().toUpperCase().startsWith('UPDATE')).toBe(false);
+    }
+  });
 });
