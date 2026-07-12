@@ -1,0 +1,66 @@
+name: Evo — отчёт по открытым проблемам
+
+# Детали к Telegram-алерту «Evo Scan: N проблем»: печатает открытые
+# проблемы (severity, файл, описание, предложение фикса) в лог джобы.
+#
+# Способы запуска:
+#   1. workflow_dispatch — кнопка Run workflow
+#   2. push в main, меняющий .github/triggers/evo-issues-report.json
+#
+# Требует secret CRON_SECRET.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'За сколько дней (1-90)'
+        required: false
+        default: '7'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/evo-issues-report.json'
+
+concurrency:
+  group: evo-issues-report
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Report (ждём деплой эндпоинта при первом запуске)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DAYS: ${{ github.event.inputs.days || '7' }}
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/evo-issues")
+            if [ "$CODE" = "401" ]; then
+              break
+            fi
+            echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
+            sleep 60
+          done
+          curl -s --max-time 60 "https://vedarai.ru/api/cron/evo-issues?secret=${CRON_SECRET}&days=${DAYS}" > /tmp/evo.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/evo.json'))
+          if not d.get('success'):
+              print(json.dumps(d, ensure_ascii=False)[:400])
+              raise SystemExit(1)
+          print(f"Открытых проблем за {d['days']} дн.: {d['count']}\n")
+          for it in d['issues']:
+              loc = it.get('file_path') or '?'
+              if it.get('line_number'):
+                  loc += f":{it['line_number']}"
+              print(f"[{it['severity'].upper()}] {it['title']}")
+              print(f"  {loc} · {it['category']} · {it['status']} · {it['created_at'][:10]}")
+              if it.get('description'):
+                  print(f"  Что: {it['description']}")
+              if it.get('suggestion'):
+                  print(f"  Фикс: {it['suggestion']}")
+              print()
+          PY
