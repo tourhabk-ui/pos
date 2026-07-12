@@ -181,15 +181,19 @@ export async function scoutOsmTraces(): Promise<OsmTracesScoutResult> {
       continue;
     }
     let parsed = parseTracesRss(fetched.text);
-    // Прямой запрос может получить заглушку с кодом 200 (глобальная лента OSM
-    // никогда не бывает без <item>) — перечитываем через BrightData
-    if (parsed.length === 0 && fetched.via === 'direct') {
-      const viaBd = await fetchViaBrightData(feed);
-      const reparsed = viaBd ? parseTracesRss(viaBd) : [];
-      if (reparsed.length > 0) {
-        parsed = reparsed;
-      } else {
-        feedErrors.push(`${feed}: 200 без <item> (заглушка?), BrightData тоже пусто`);
+    // Заглушка с кодом 200: глобальная лента OSM никогда не бывает без <item>.
+    // С прод-IP Timeweb (и через BrightData) OSM периодически отдаёт rate-limit
+    // страницу 200 без треков — перечитываем через прокси, а если и там пусто,
+    // это НЕ успех: feed_errors + не инкрементим feeds_ok (метрика честная —
+    // feeds_ok считает только ленты с реальными треками)
+    if (parsed.length === 0) {
+      if (fetched.via === 'direct') {
+        const viaBd = await fetchViaBrightData(feed);
+        parsed = viaBd ? parseTracesRss(viaBd) : [];
+      }
+      if (parsed.length === 0) {
+        feedErrors.push(`${feed}: 200 без <item> (заглушка/rate-limit OSM), via=${fetched.via}`);
+        continue;
       }
     }
     feedsOk++;
