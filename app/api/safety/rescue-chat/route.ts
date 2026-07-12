@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { sanitizePromptInput } from '@/lib/kuzmich/guardian-context';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
@@ -116,8 +117,11 @@ function buildMessages(
 ): ChatMessage[] {
   let systemContent = SYSTEM_PROMPT;
   const ctx: string[] = [];
-  if (tourist_name)  ctx.push(`Имя: ${tourist_name}`);
-  if (tourist_phone) ctx.push(`Тел: ${tourist_phone}`);
+  // Имя/телефон — пользовательский ввод, уходящий в SYSTEM-промпт: маркеры
+  // ролей и «забудь инструкции» обезвреживаются до подстановки (issue #328,
+  // паттерн CodeQL js/system-prompt-injection)
+  if (tourist_name)  ctx.push(`Имя: ${sanitizePromptInput(tourist_name).text}`);
+  if (tourist_phone) ctx.push(`Тел: ${sanitizePromptInput(tourist_phone).text}`);
   if (lat && lng)    ctx.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   if (ctx.length)    systemContent += `\n\nСОБЕСЕДНИК:\n${ctx.join('\n')}`;
 
