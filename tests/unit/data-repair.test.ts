@@ -5,8 +5,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const queryMock = vi.fn();
+// Транзакционные шаги (дедуп маршрутов) идут через pool.connect() -> client.query;
+// направляем client.query в тот же queryMock, чтобы BEGIN/COMMIT/UPDATE ловились.
 vi.mock('@/lib/db-pool', () => ({
-  pool: { query: (...args: unknown[]) => queryMock(...args) },
+  pool: {
+    query: (...args: unknown[]) => queryMock(...args),
+    connect: () =>
+      Promise.resolve({
+        query: (...args: unknown[]) => queryMock(...args),
+        release: () => {},
+      }),
+  },
 }));
 vi.mock('@/lib/services/geocode', () => ({
   geocodeAddress: vi.fn().mockResolvedValue(null),

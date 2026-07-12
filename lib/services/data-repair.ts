@@ -325,8 +325,9 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
   const routesByKey = new Map<string, typeof allRoutes>();
   for (const r of allRoutes) {
     if (!r.is_visible) continue;
-    const key = `${nameWordSet(r.title)}|${r.activity_type ?? ''}`;
-    if (!nameWordSet(r.title)) continue;
+    const wordSet = nameWordSet(r.title);
+    if (!wordSet) continue;
+    const key = `${wordSet}|${r.activity_type ?? ''}`;
     const arr = routesByKey.get(key) ?? [];
     arr.push(r);
     routesByKey.set(key, arr);
@@ -334,8 +335,12 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
 
   for (const [, group] of routesByKey) {
     if (group.length < 2) continue;
+    // Keeper: с треком (geometry) > длиннее описание > стабильный id (tie-break
+    // по id делает выбор keeper детерминированным между прогонами)
     const sorted = [...group].sort((a, b) =>
-      Number(b.has_geometry) - Number(a.has_geometry) || b.desc_len - a.desc_len,
+      Number(b.has_geometry) - Number(a.has_geometry)
+      || b.desc_len - a.desc_len
+      || a.id.localeCompare(b.id),
     );
     const keeper = sorted[0];
     for (const dupe of sorted.slice(1)) {
@@ -345,13 +350,25 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           && haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
       try {
         if (!dryRun) {
-          // Туры дубля -> keeper (критично: не осиротить operator_tours)
-          await pool.query(`UPDATE operator_tours SET route_id = $1 WHERE route_id = $2`, [keeper.id, dupe.id]);
-          await pool.query(`UPDATE route_waypoints SET route_id = $1 WHERE route_id = $2`, [keeper.id, dupe.id]);
-          await pool.query(`UPDATE kamchatka_routes SET is_visible = false WHERE id = $1`, [dupe.id]);
+          // Атомарно: туры дубля -> keeper (критично: не осиротить
+          // operator_tours) И скрытие дубля должны примениться вместе или никак.
+          // waypoints дубля НЕ трогаем: скрытый маршрут не рендерится, а перенос
+          // на keeper ломает его порядок точек и нарушает UNIQUE(route_id,place_id).
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await client.query(`UPDATE operator_tours SET route_id = $1 WHERE route_id = $2`, [keeper.id, dupe.id]);
+            await client.query(`UPDATE kamchatka_routes SET is_visible = false WHERE id = $1`, [dupe.id]);
+            await client.query('COMMIT');
+          } catch (txErr) {
+            await client.query('ROLLBACK');
+            throw txErr;
+          } finally {
+            client.release();
+          }
         }
         res.merged_routes++;
-        items.push({ step: 'route_dupes', place: dupe.title, detail: `дубль-маршрут скрыт, туры/точки -> «${keeper.title}»` });
+        items.push({ step: 'route_dupes', place: dupe.title, detail: `дубль-маршрут скрыт, туры -> «${keeper.title}»` });
       } catch (err) {
         res.errors++;
         items.push({ step: 'route_dupes', place: dupe.title, detail: `ошибка слияния: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
