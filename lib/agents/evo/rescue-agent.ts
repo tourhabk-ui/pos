@@ -95,7 +95,7 @@ async function checkSOSTimeouts(): Promise<RescueAlert[]> {
       SELECT id, user_id, lat, lng, message, created_at,
              EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
       FROM sos_events
-      WHERE status = 'active'
+      WHERE status NOT IN ('resolved', 'false_alarm')
       ORDER BY created_at ASC
     `);
 
