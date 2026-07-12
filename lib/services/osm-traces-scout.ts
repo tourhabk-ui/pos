@@ -180,8 +180,19 @@ export async function scoutOsmTraces(): Promise<OsmTracesScoutResult> {
       feedErrors.push(`${feed}: ${fetched.error.slice(0, 120)}`);
       continue;
     }
+    let parsed = parseTracesRss(fetched.text);
+    // Прямой запрос может получить заглушку с кодом 200 (глобальная лента OSM
+    // никогда не бывает без <item>) — перечитываем через BrightData
+    if (parsed.length === 0 && fetched.via === 'direct') {
+      const viaBd = await fetchViaBrightData(feed);
+      const reparsed = viaBd ? parseTracesRss(viaBd) : [];
+      if (reparsed.length > 0) {
+        parsed = reparsed;
+      } else {
+        feedErrors.push(`${feed}: 200 без <item> (заглушка?), BrightData тоже пусто`);
+      }
+    }
     feedsOk++;
-    const parsed = parseTracesRss(fetched.text);
     seen += parsed.length;
     for (const it of parsed) {
       if (isInKamchatka(it.lat, it.lng)) byId.set(it.id, it);
