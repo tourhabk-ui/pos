@@ -77,9 +77,17 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          # Старый билд игнорирует mode=link и отвечает backfill-джейсоном без
-          # поля mode — ждём деплой новой версии (~10-13 мин) и повторяем
+          # Ждём деплой билда с адаптивными порогами матчера: у него есть
+          # соседний /api/cron/data-inventory (401 без секрета; старый — 404)
           for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/data-inventory")
+            if [ "$CODE" = "401" ]; then
+              break
+            fi
+            echo "probe $i: свежий билд ещё не задеплоен (data-inventory: HTTP $CODE) — ждём 60с"
+            sleep 60
+          done
+          for i in $(seq 1 5); do
             RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/idilesom-tracks?secret=${CRON_SECRET}&mode=link")
             MODE=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('mode',''))" 2>/dev/null || echo "")
             if [ "$MODE" = "link" ]; then
@@ -90,8 +98,8 @@ jobs:
               echo "$RESP" | python3 -c "import json,sys; [print(it.get('track'), f\"[{it.get('status')}]\") for it in json.load(sys.stdin).get('items', []) if it.get('status') != 'linked']"
               exit 0
             fi
-            echo "probe $i: link-режим ещё не задеплоен — ждём 60с"
-            sleep 60
+            echo "probe $i: link-режим не ответил — повтор через 30с"
+            sleep 30
           done
-          echo "link-режим не появился за 30 минут"
+          echo "link-режим не ответил"
           exit 1

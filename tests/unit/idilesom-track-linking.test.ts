@@ -42,10 +42,31 @@ describe('matchTrackToPlace', () => {
     expect(match?.place.ark_id).toBe('ark-1');
   });
 
-  it('одноимённое место в другом районе (дальше 5 км от всего трека) не привязывается', () => {
+  it('одноимённое место в другом районе (за сотню км от трека) не привязывается', () => {
     const match = matchTrackToPlace(
       { title: 'Озеро Тёплое', coordinates: trackTowards(52.5, 158.2) },
       [FAR_LAKE],
+    );
+    expect(match).toBeNull();
+  });
+
+  it('крупный объект: сильное имя привязывается до 12 км (кейс Курильского озера)', () => {
+    // Центр озера ~7 км от берегового трека
+    const lakeCenter: PlaceRef = { ark_id: 'kuril', name: 'Курильское озеро', lat: 51.45, lng: 157.1 };
+    const match = matchTrackToPlace(
+      { title: 'Озеро Курильское', coordinates: trackTowards(51.513, 157.1) },
+      [lakeCenter],
+    );
+    expect(match?.place.ark_id).toBe('kuril');
+  });
+
+  it('слабое имя (пересечение типовых слов) на 7 км не привязывается', () => {
+    // «термальные источники» пересекаются, но это разные объекты
+    const springs: PlaceRef = { ark_id: 'spr', name: 'Паужетские термальные источники', lat: 51.45, lng: 157.1 };
+    const match = matchTrackToPlace(
+      // Короткий трек целиком в ~7 км от места
+      { title: 'Дачные термальные источники', coordinates: [[157.1, 51.512], [157.1, 51.513], [157.1, 51.514]] },
+      [springs],
     );
     expect(match).toBeNull();
   });
