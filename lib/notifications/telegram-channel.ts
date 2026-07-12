@@ -387,6 +387,7 @@ interface KuzmichRouteRow {
   kuzmich_review: string | null;
   lat: number | null;
   lng: number | null;
+  has_track: boolean;
 }
 
 // Карта activity_type → фото из public/images/activities/ (fallback)
@@ -456,20 +457,35 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
   const rejectedIds: string[] = [];
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    // Берём маршрут, который не постили последние 30 дней
+    // Берём маршрут, который не постили последние 30 дней. Приоритет — местам
+    // с реальным GPS-треком: пост «Гора Красная поляна» вёл на карточку без
+    // маршрута («место есть, трека нет» — владелец, 12.07), обещание в тексте
+    // не совпадало с содержимым страницы
     const pickResult = await query<KuzmichRouteRow>(`
-      SELECT id, title, description, location_type, activity_type, zone, kuzmich_review, lat, lng
-      FROM agent_route_knowledge
-      WHERE is_visible = TRUE
-        AND id::text <> ALL($1)
-        AND id::text NOT IN (
+      SELECT ark.id, ark.title, ark.description, ark.location_type, ark.activity_type,
+             ark.zone, ark.kuzmich_review, ark.lat, ark.lng,
+             EXISTS (
+               SELECT 1 FROM kamchatka_routes k
+               WHERE k.geometry IS NOT NULL
+                 AND (COALESCE(k.ark_id, k.id) = ark.id
+                      OR k.metadata->>'place_ark_id' = ark.id::text)
+             ) AS has_track
+      FROM agent_route_knowledge ark
+      WHERE ark.is_visible = TRUE
+        AND ark.id::text <> ALL($1)
+        AND ark.id::text NOT IN (
           SELECT metadata->>'route_id'
           FROM ai_actions_log
           WHERE action_type = 'kuzmich_post'
             AND created_at > NOW() - INTERVAL '30 days'
             AND metadata->>'route_id' IS NOT NULL
         )
-      ORDER BY RANDOM()
+      ORDER BY EXISTS (
+               SELECT 1 FROM kamchatka_routes k
+               WHERE k.geometry IS NOT NULL
+                 AND (COALESCE(k.ark_id, k.id) = ark.id
+                      OR k.metadata->>'place_ark_id' = ark.id::text)
+             ) DESC, RANDOM()
       LIMIT 1
     `, [rejectedIds]);
 
@@ -495,6 +511,9 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 - Конкретная деталь или секрет этого места, которую знают не все
 - Лёгкая ирония над городскими туристами которые едут и не знают куда
 - В конце обязательно ссылка: ${appUrl}/routes/${r.id}
+${r.has_track
+  ? '- Подпись к ссылке: про маршрут/трек (на странице есть GPS-трек)'
+  : '- Подпись к ссылке: «Подробнее о месте» — НЕ обещай маршрут или трек, на странице их нет, только описание и карта точки'}
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
 - Не начинай с "Привет" или своего имени`;
 
