@@ -476,9 +476,9 @@ export async function importIdilesomPlaces(opts: {
           });
           await pool.query(
             `INSERT INTO kamchatka_routes (
-               title, description, lat, lng, geometry,
+               category, title, description, lat, lng, geometry,
                source_url, source_name, is_visible, dedupe_key
-             ) VALUES ($1,$2,$3,$4,$5,$6,'idilesom.com',true,$7)
+             ) VALUES ('trekking',$1,$2,$3,$4,$5,$6,'idilesom.com',true,$7)
              ON CONFLICT (dedupe_key) DO NOTHING`,
             [place.title, place.description || null, place.lat, place.lng,
              geojson, place.sourceUrl, `idilesom:${place.id}`],
@@ -576,7 +576,7 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
   for (const s of settled) {
     if (s.status === 'rejected') {
       errors++;
-      items.push({ idilesom_id: 'unknown', status: 'error' });
+      items.push({ idilesom_id: 'unknown', status: `error: ${String(s.reason).slice(0, 120)}` });
       continue;
     }
     const { id, scraped } = s.value;
@@ -616,9 +616,9 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
       // прежний трек тоже idilesom (OSM-треки не перетираем)
       await pool.query(
         `INSERT INTO kamchatka_routes (
-           title, description, lat, lng, geometry, metadata,
+           category, title, description, lat, lng, geometry, metadata,
            source_url, source_name, is_visible, dedupe_key
-         ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,'idilesom.com',true,$8)
+         ) VALUES ('trekking',$1,$2,$3,$4,$5,$6::jsonb,$7,'idilesom.com',true,$8)
          ON CONFLICT (dedupe_key) DO UPDATE
            SET geometry = EXCLUDED.geometry,
                metadata = COALESCE(kamchatka_routes.metadata, '{}'::jsonb) || EXCLUDED.metadata
@@ -637,9 +637,13 @@ export async function backfillIdilesomTracks(limit = 10, offset = 0): Promise<Id
         place: match?.name,
         points: scraped.coordinates.length,
       });
-    } catch {
+    } catch (err) {
       errors++;
-      items.push({ idilesom_id: id, title: scraped.title, status: 'error' });
+      items.push({
+        idilesom_id: id,
+        title: scraped.title,
+        status: `error: ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+      });
     }
   }
 
