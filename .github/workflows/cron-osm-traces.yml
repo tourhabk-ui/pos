@@ -1,0 +1,47 @@
+name: Cron — OSM Traces Scout (GPS-записи туристов)
+
+# Ежесуточный сбор публичных GPS-треков с openstreetmap.org/traces
+# по Камчатке через прод-эндпоинт /api/cron/osm-traces (БД видна только
+# проду). Новые треки пишутся скрытыми на ревью, дайджест — в Telegram.
+#
+# Способы запуска:
+#   1. schedule — ежедневно 05:30 UTC (17:30 по Камчатке)
+#   2. workflow_dispatch — кнопка Run workflow
+#   3. push в main, меняющий .github/triggers/osm-traces.json
+#
+# Требует secret CRON_SECRET.
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/osm-traces.json'
+
+concurrency:
+  group: osm-traces
+  cancel-in-progress: false
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Scout (ждём деплой эндпоинта при первом запуске)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/osm-traces")
+            if [ "$CODE" = "401" ]; then
+              break
+            fi
+            echo "probe $i: HTTP $CODE — эндпоинт ещё не задеплоен, ждём 60с"
+            sleep 60
+          done
+          RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/osm-traces?secret=${CRON_SECRET}")
+          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ('success','feeds_ok','seen','in_bbox','new_traces','written','linked','errors','duration_ms')}, ensure_ascii=False))" || { echo "$RESP" | head -c 400; exit 1; }
+          echo "── Новые треки ──"
+          echo "$RESP" | python3 -c "import json,sys; [print(it.get('id'), it.get('title'), f\"{it.get('points')} тчк\", it.get('place') or '') for it in json.load(sys.stdin).get('items', []) if it.get('status') == 'written']"
