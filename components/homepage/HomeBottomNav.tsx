@@ -2,13 +2,14 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { House, BookOpen, Map, User, Bot } from 'lucide-react';
+import { House, BookOpen, Map, User, Bot, Mountain } from 'lucide-react';
 
 const FO = "var(--font-outfit,'Outfit',system-ui,sans-serif)";
 
 const LEFT = [
-  { icon: House,    label: 'Главная',   href: '/'          },
-  { icon: BookOpen, label: 'Маршруты',  href: '/routes'    },
+  { icon: House,    label: 'Главная',  href: '/'       },
+  { icon: Mountain, label: 'Места',    href: '/places' },
+  { icon: BookOpen, label: 'Маршруты', href: '/routes' },
 ];
 const RIGHT = [
   { icon: Map,  label: 'Карта',   href: '/map'     },

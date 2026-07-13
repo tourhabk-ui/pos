@@ -124,14 +124,20 @@ interface RoutesPageClientProps {
   initialError: boolean;
   /** Ключ фильтров серверного рендера — чтобы не дублировать fetch на маунте. */
   initialKey: string;
+  /**
+   * Заблокировать вид (места/маршруты) без переключателя — для отдельных
+   * разделов /places и /routes. Если задан, kind фиксирован и таб скрыт.
+   */
+  lockedKind?: KindValue;
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
   const [view, setView] = useState<'grid' | 'map'>('grid');
   const [kind, setKind] = useState<KindValue>(() => {
+    if (lockedKind) return lockedKind;
     const k = searchParams.get('kind');
     return (k === 'place' || k === 'route') ? k : 'place';
   });
@@ -317,7 +323,8 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </p>
         </div>
 
-        {/* ── Kind tabs ─────────────────────────────────────── */}
+        {/* ── Kind tabs (скрыты в заблокированном разделе /places|/routes) ── */}
+        {!lockedKind && (
         <div className="flex gap-1 mb-5 border-b border-[var(--border)]">
           {KIND_TABS.map(tab => (
             <button
@@ -333,6 +340,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             </button>
           ))}
         </div>
+        )}
 
         {/* ── Природные парки ───────────────────────────────── */}
         <ParksStrip />
