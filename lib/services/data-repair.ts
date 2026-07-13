@@ -31,7 +31,21 @@ const ARTICLE_PLACE_NAMES = [
   'Забег на Аагские (Чистинские) источники',
   'Памятная табличка имени Родыгина Николач Александровича, первого мед. Работника западного побережья Камчатки',
   'Удивительные деревья России: Пущинская хранительница старины - Берёза Эрмана (каменная)',
+  // Тур-маршруты/подборки, попавшие в «места» (у каждой есть реальный аналог-точка) —
+  // из инвентаризации run=4, видны на витрине /places как мусорные карточки.
+  'Долина гейзеров. Курильское озеро. Вулканы Горелый и Авача',
+  'Самые высокие вулканы Камчатки и Долина гейзеров',
+  'Камчатка. Такие места',
+  // Дубль-запись Авачинского перевала со статейным именем (основная переименована ниже
+  // через RENAME_PLACES) — прячем, чтобы на витрине осталась одна чистая карточка перевала.
+  'На Авачинский перевал и Экструзию Верблюд',
 ];
+
+// Реальные места с «статейным» именем (несколько предложений через точку) → чистое имя.
+// Курировано из инвентаризации/скриншота владельца; на витрине имя обрывалось «….».
+const RENAME_PLACES: Record<string, string> = {
+  'Авачинский перевал. Экструзия Верблюд. Евражки. Безопасность.': 'Авачинский перевал',
+};
 
 export interface RepairItem {
   step: string;
@@ -51,8 +65,10 @@ export interface DataRepairResult {
   linked_tracks: number;
   normalized_sources: number;
   hidden_articles: number;
+  renamed_places: number;
   normalized_types: number;
   merged_coord_subset: number;
+  merged_morph: number;
   errors: number;
   duration_ms: number;
   items: RepairItem[];
@@ -105,6 +121,59 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+/**
+ * Конфликт-безопасный перенос ссылок с дубля на основного (keeper) при слиянии
+ * мест. Общий для транзакционных Шагов 8 и 9 (одинаковый SQL, разный executor:
+ * pool или client в BEGIN/COMMIT) — чтобы не держать три копии переноса.
+ * Сперва убираем dupe-точки на маршрутах, где keeper уже есть (иначе
+ * UNIQUE(route_id, place_id) упадёт), затем перевешиваем остальные и метки треков.
+ */
+async function transferPlaceLinks(
+  run: (sql: string, params: unknown[]) => Promise<unknown>,
+  keeper: { id: string; ark_id: string | null },
+  dupe: { id: string; ark_id: string | null },
+): Promise<void> {
+  await run(
+    `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
+    [keeper.id, dupe.id],
+  );
+  await run(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
+  if (dupe.ark_id && keeper.ark_id) {
+    await run(
+      `UPDATE kamchatka_routes SET metadata = metadata || jsonb_build_object('place_ark_id', $1::text) WHERE metadata->>'place_ark_id' = $2`,
+      [keeper.ark_id, dupe.ark_id],
+    );
+  }
+}
+
+interface PlaceLike {
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  location_type: string | null;
+}
+
+/**
+ * Морфологический координатный дубль: та же точка (< 150 м), тот же тип и сильно
+ * похожее имя (падеж/синоним: «Авачинская сопка» ↔ «Авачинский вулкан»).
+ * Ловит то, что пропускают Шаг 2 (равные наборы слов) и Шаг 8 (строгое вложение).
+ * Тип обязателен одинаковый — иначе рискуем слить, напр., бухту с вулканом
+ * (оба «Авачинск*»). Только 'strong' nameMatchStrength — 'weak' недостаточно.
+ */
+export function shouldMergeMorphological(a: PlaceLike, b: PlaceLike): boolean {
+  if (a.location_type !== b.location_type) return false;
+  if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) return false;
+  if (haversineKm(a.lat, a.lng, b.lat, b.lng) > 0.15) return false;
+  return nameMatchStrength(a.name, b.name) === 'strong';
+}
+
+/** Классификация «статейного» имени места: скрыть / переименовать / оставить. */
+export function classifyPlaceName(name: string): { action: 'hide' | 'rename' | 'keep'; to?: string } {
+  if (ARTICLE_PLACE_NAMES.includes(name)) return { action: 'hide' };
+  if (RENAME_PLACES[name]) return { action: 'rename', to: RENAME_PLACES[name] };
+  return { action: 'keep' };
+}
+
 interface TrackRow {
   id: string;
   title: string;
@@ -126,8 +195,10 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     linked_tracks: 0,
     normalized_sources: 0,
     hidden_articles: 0,
+    renamed_places: 0,
     normalized_types: 0,
     merged_coord_subset: 0,
+    merged_morph: 0,
     errors: 0,
     duration_ms: 0,
     items,
@@ -328,6 +399,30 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     res.hidden_articles = upd.rowCount ?? 0;
   }
 
+  // ── Шаг 5b: переименование реальных мест со «статейным» именем ───────────
+  // «Авачинский перевал. Экструзия Верблюд. Евражки. Безопасность.» → чистое имя.
+  // Место реальное (в отличие от Шага 5), поэтому не скрываем, а чистим имя —
+  // на витрине карточка перестаёт обрываться «….».
+  const renameFrom = Object.keys(RENAME_PLACES);
+  if (dryRun) {
+    const { rows } = await pool.query<{ name: string }>(
+      `SELECT name FROM places WHERE name = ANY($1) AND is_visible = true`,
+      [renameFrom],
+    );
+    res.renamed_places = rows.length;
+    for (const r of rows) items.push({ step: 'rename', place: r.name, detail: `-> «${RENAME_PLACES[r.name]}»` });
+  } else {
+    let renamed = 0;
+    for (const [from, to] of Object.entries(RENAME_PLACES)) {
+      const upd = await pool.query(
+        `UPDATE places SET name = $2 WHERE name = $1 AND is_visible = true`,
+        [from, to],
+      );
+      renamed += upd.rowCount ?? 0;
+    }
+    res.renamed_places = renamed;
+  }
+
   // ── Шаг 6: дубли МАРШРУТОВ (kamchatka_routes) ───────────────────────────
   // Одно название из разных источников лежит отдельными строками
   // («Вилючинский водопад» ×9). Критерий СТРОЖЕ мест: набор слов имени +
@@ -452,18 +547,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           const client = await pool.connect();
           try {
             await client.query('BEGIN');
-            // Конфликт-безопасно: сперва убрать dupe-точки на маршрутах, где keeper уже есть.
-            await client.query(
-              `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
-              [keeper.id, dupe.id],
-            );
-            await client.query(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
-            if (dupe.ark_id && keeper.ark_id) {
-              await client.query(
-                `UPDATE kamchatka_routes SET metadata = metadata || jsonb_build_object('place_ark_id', $1::text) WHERE metadata->>'place_ark_id' = $2`,
-                [keeper.ark_id, dupe.ark_id],
-              );
-            }
+            await transferPlaceLinks((s, p) => client.query(s, p), keeper, dupe);
             await client.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
             await client.query('COMMIT');
           } catch (txErr) {
@@ -479,6 +563,52 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       } catch (err) {
         res.errors++;
         items.push({ step: 'coord_subset', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+      }
+    }
+  }
+
+  // ── Шаг 9: морфологические координатные дубли ────────────────────────────
+  // «Авачинская сопка» ↔ «Авачинский вулкан» (50 м, оба volcano): набор слов
+  // разный (Шаг 2 мимо), строгого вложения имён нет (Шаг 8 мимо), но точка та же,
+  // тип совпадает и имена сильно похожи (падеж/синоним). Слитие — в основного
+  // (с фото > длиннее описание > id). Уже скрытые в Шаге 8 (hiddenSubset) и в
+  // этом шаге не трогаем.
+  const morphCand = coordCand.filter(p => !hiddenSubset.has(p.id));
+  const hiddenMorph = new Set<string>();
+  for (let i = 0; i < morphCand.length; i++) {
+    const a = morphCand[i];
+    if (hiddenMorph.has(a.id)) continue;
+    for (let j = i + 1; j < morphCand.length; j++) {
+      const b = morphCand[j];
+      if (hiddenMorph.has(a.id)) break;
+      if (hiddenMorph.has(b.id)) continue;
+      if (!shouldMergeMorphological(a, b)) continue;
+      const [keeper, dupe] = [a, b].sort((x, y) =>
+        Number(y.has_photo) - Number(x.has_photo)
+        || y.desc_len - x.desc_len
+        || x.id.localeCompare(y.id),
+      );
+      try {
+        if (!dryRun) {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await transferPlaceLinks((s, p) => client.query(s, p), keeper, dupe);
+            await client.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
+            await client.query('COMMIT');
+          } catch (txErr) {
+            await client.query('ROLLBACK');
+            throw txErr;
+          } finally {
+            client.release();
+          }
+        }
+        hiddenMorph.add(dupe.id);
+        res.merged_morph++;
+        items.push({ step: 'coord_morph', place: dupe.name, detail: `дубль скрыт -> «${keeper.name}»` });
+      } catch (err) {
+        res.errors++;
+        items.push({ step: 'coord_morph', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
       }
     }
   }
