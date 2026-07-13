@@ -157,4 +157,76 @@ describe('runDataRepair (dry-run)', () => {
       expect(String(call[0]).trim().toUpperCase().startsWith('UPDATE')).toBe(false);
     }
   });
+
+  it('Шаг 8: координатный дубль по подмножеству имени сливается (тот же тип)', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.includes('FROM places p')) {
+        return Promise.resolve({ rows: [
+          { id: 'a1', ark_id: 'ka1', name: 'Опала',        location_type: 'volcano', lat: 52.5, lng: 157.3, desc_len: 100, has_photo: false, is_visible: true },
+          { id: 'a2', ark_id: 'ka2', name: 'Вулкан Опала', location_type: 'volcano', lat: 52.5, lng: 157.3, desc_len: 300, has_photo: false, is_visible: true },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const result = await runDataRepair(false);
+    expect(result.merged_coord_subset).toBe(1);
+    // keeper = «Вулкан Опала» (длиннее описание/полнее имя); скрыт «Опала» (a1)
+    expect(updates.some(u => u.includes('UPDATE places SET is_visible = false') && u.includes('"a1"'))).toBe(true);
+    expect(updates.some(u => u.includes('is_visible = false') && u.includes('"a2"'))).toBe(false);
+    expect(updates.some(u => u.includes('route_waypoints SET place_id') && u.includes('["a2","a1"]'))).toBe(true);
+  });
+
+  it('Шаг 8: разный location_type НЕ сливается (не убираем опасную зону)', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) return Promise.resolve({ rows: [], rowCount: 1 });
+      if (s.includes('FROM places p')) {
+        return Promise.resolve({ rows: [
+          { id: 'b1', ark_id: null, name: 'Асача',        location_type: 'volcano', lat: 52.5, lng: 157.3, desc_len: 100, has_photo: false, is_visible: true },
+          { id: 'b2', ark_id: null, name: 'Вулкан Асача', location_type: 'viewpoint', lat: 52.5, lng: 157.3, desc_len: 100, has_photo: false, is_visible: true },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const result = await runDataRepair(false);
+    expect(result.merged_coord_subset).toBe(0);
+  });
+
+  it('Шаг 8: не подмножество имени (разные слова) НЕ сливается', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) return Promise.resolve({ rows: [], rowCount: 1 });
+      if (s.includes('FROM places p')) {
+        return Promise.resolve({ rows: [
+          { id: 'c1', ark_id: null, name: 'Первая лужа', location_type: 'lake', lat: 52.5, lng: 157.3, desc_len: 100, has_photo: false, is_visible: true },
+          { id: 'c2', ark_id: null, name: 'Вторая лужа', location_type: 'lake', lat: 52.5, lng: 157.3, desc_len: 100, has_photo: false, is_visible: true },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const result = await runDataRepair(false);
+    expect(result.merged_coord_subset).toBe(0);
+  });
+
+  it('Шаг 7: thermal -> hot_spring (dry-run считает, не мутирует)', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes("location_type = 'thermal'") && s.includes('COUNT(*)')) {
+        return Promise.resolve({ rows: [{ n: 1 }] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const result = await runDataRepair(true);
+    expect(result.normalized_types).toBe(1);
+    for (const call of queryMock.mock.calls) {
+      expect(String(call[0]).trim().toUpperCase().startsWith('UPDATE')).toBe(false);
+    }
+  });
+
 });
