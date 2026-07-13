@@ -13,7 +13,7 @@ interface Fact {
 const FACTS: Fact[] = [
   { num: '6',   text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents' },
   { num: '154', text: 'маршрута требуют регистрации в МЧС',     href: '/routes?kind=route' },
-  { num: '763', text: 'точки с профилем безопасности',          href: '/routes?kind=place' },
+  { num: '763', text: 'точки с профилем безопасности',          href: '/places' },
 ];
 
 export function EditorialSection() {

@@ -165,7 +165,7 @@ export function HomeMapPreview() {
       description: r.description,
       color: COLOR_MAP[locType] ?? 'gray',
       category: locType,
-      href: `/routes/${r.id}`,
+      href: kind === 'place' ? `/places/${r.id}` : `/routes/${r.id}`,
       type: MarkerType.POI,
     };
   }), [filteredRoutes, kind]);

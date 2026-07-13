@@ -80,6 +80,7 @@ export function Header() {
       }} className="hidden lg:flex">
         {[
           { href: '/hub/fishing', label: 'Рыбалка' },
+          { href: '/places',      label: 'Места' },
           { href: '/routes',      label: 'Маршруты' },
           { href: '/safety',      label: 'Безопасность' },
           { href: '/collections', label: 'Подборки' },
