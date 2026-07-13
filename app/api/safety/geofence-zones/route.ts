@@ -74,8 +74,10 @@ export async function GET() {
         WHERE location_type IN ('volcano', 'hot_spring', 'geyser')
           AND is_visible = TRUE
           AND lat IS NOT NULL AND lng IS NOT NULL
-        ORDER BY location_type, name
-        LIMIT 200
+        -- Вулканы (высший класс опасности, радиус 3 км) — первыми, чтобы их
+        -- зоны никогда не срезал LIMIT. Лимит с запасом на рост каталога.
+        ORDER BY (location_type <> 'volcano'), location_type, name
+        LIMIT 500
       `),
       pool.query<RouteRow>(`
         SELECT id::text, title, lat, lng, metadata
