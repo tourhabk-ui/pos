@@ -7,6 +7,7 @@ import {
   Search, Map, LayoutGrid, SlidersHorizontal, X,
   ChevronLeft, ChevronRight, ChevronDown,
   Flame, Droplets, Wind, Thermometer, Mountain, Waves, Anchor, TreePine, MapPin,
+  Gem, Droplet, Navigation, Umbrella, Sailboat, Landmark, ScrollText,
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import ParksStrip from '@/components/routes/ParksStrip';
@@ -44,8 +45,15 @@ const PLACE_TYPES: { value: string; label: string; Icon: React.ElementType }[] =
   { value: 'mountain',   label: 'Горы',        Icon: Mountain },
   { value: 'river',      label: 'Реки',        Icon: Waves },
   { value: 'bay',        label: 'Бухты',       Icon: Anchor },
+  { value: 'cape',       label: 'Мысы',        Icon: Navigation },
+  { value: 'waterfall',  label: 'Водопады',    Icon: Droplet },
+  { value: 'rock',       label: 'Скалы',       Icon: Gem },
   { value: 'forest',     label: 'Парки',       Icon: TreePine },
   { value: 'viewpoint',  label: 'Смотровые',   Icon: MapPin },
+  { value: 'beach',      label: 'Пляжи',       Icon: Umbrella },
+  { value: 'island',     label: 'Острова',     Icon: Sailboat },
+  { value: 'museum',     label: 'Музеи',       Icon: Landmark },
+  { value: 'historical', label: 'История',     Icon: ScrollText },
 ];
 
 // Цвета маркеров на карте по location_type
