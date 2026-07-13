@@ -9,7 +9,15 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 # Skip onnxruntime GPU binary download (times out on Timeweb build servers)
 ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
-RUN npm ci
+# Устойчивость к флапу сети на билд-серверах Timeweb: реестр npm иногда
+# отваливается по таймауту (ETIMEDOUT / "Exit handler never called"), и весь
+# деплой падает. Ретраи с бэкоффом + длинные таймауты переживают такой обрыв;
+# --no-audit/--no-fund убирают лишние сетевые походы.
+RUN npm ci --no-audit --no-fund \
+  --fetch-retries=5 \
+  --fetch-retry-factor=3 \
+  --fetch-retry-mintimeout=20000 \
+  --fetch-retry-maxtimeout=120000
 
 # ── 2. Build ─────────────────────────────────────────────────────
 FROM base AS builder
@@ -22,7 +30,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS="--max-old-space-size=3072"
 ENV WEBPACK_PARALLELISM=1
 
-RUN rm -rf .next && npx next build
+# Вызываем локальный бинарь next напрямую, а НЕ через npx: npx при неполном
+# node_modules лезет в реестр за next и виснет по ETIMEDOUT. Локальный путь
+# гарантированно не ходит в сеть на этапе сборки.
+RUN rm -rf .next && node_modules/.bin/next build
 
 # ── 3. Runner ─────────────────────────────────────────────────────
 FROM base AS runner
