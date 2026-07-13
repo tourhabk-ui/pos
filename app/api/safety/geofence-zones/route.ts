@@ -72,6 +72,7 @@ export async function GET() {
         SELECT id::text, name, lat, lng, location_type
         FROM places
         WHERE location_type IN ('volcano', 'hot_spring', 'geyser')
+          AND is_visible = TRUE
           AND lat IS NOT NULL AND lng IS NOT NULL
         ORDER BY location_type, name
         LIMIT 200
@@ -80,6 +81,7 @@ export async function GET() {
         SELECT id::text, title, lat, lng, metadata
         FROM kamchatka_routes
         WHERE category = 'vulkani'
+          AND is_visible = TRUE
           AND lat IS NOT NULL AND lng IS NOT NULL
         LIMIT 100
       `),
@@ -88,6 +90,7 @@ export async function GET() {
         FROM places p
         JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
         WHERE lsp.tsunami_risk = TRUE
+          AND p.is_visible = TRUE
           AND p.lat IS NOT NULL AND p.lng IS NOT NULL
         LIMIT 100
       `),
