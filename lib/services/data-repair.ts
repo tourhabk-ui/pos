@@ -29,6 +29,8 @@ const ARTICLE_PLACE_NAMES = [
   'Камчатка глазами детей. 100 километров до Мутновской ГеоТЭС',
   'Гонка на собачьих упряжках «Берингия. Авача». Гонка среди вулканов',
   'Забег на Аагские (Чистинские) источники',
+  'Памятная табличка имени Родыгина Николач Александровича, первого мед. Работника западного побережья Камчатки',
+  'Удивительные деревья России: Пущинская хранительница старины - Берёза Эрмана (каменная)',
 ];
 
 export interface RepairItem {
@@ -49,6 +51,8 @@ export interface DataRepairResult {
   linked_tracks: number;
   normalized_sources: number;
   hidden_articles: number;
+  normalized_types: number;
+  merged_coord_subset: number;
   errors: number;
   duration_ms: number;
   items: RepairItem[];
@@ -64,6 +68,18 @@ export function nameWordSet(name: string): string {
     .filter(Boolean)
     .sort()
     .join(' ');
+}
+
+/** Множество слов имени — для проверки «одно имя строго входит в другое». */
+function nameWords(name: string): Set<string> {
+  return new Set(nameWordSet(name).split(' ').filter(Boolean));
+}
+
+/** true, если a — строгое подмножество b (все слова a в b, и |a| < |b|). */
+function isStrictSubset(a: Set<string>, b: Set<string>): boolean {
+  if (a.size === 0 || a.size >= b.size) return false;
+  for (const w of a) if (!b.has(w)) return false;
+  return true;
 }
 
 /** Финиш трека — обычно сам объект (старт — тропа/парковка). */
@@ -110,6 +126,8 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     linked_tracks: 0,
     normalized_sources: 0,
     hidden_articles: 0,
+    normalized_types: 0,
+    merged_coord_subset: 0,
     errors: 0,
     duration_ms: 0,
     items,
@@ -200,9 +218,9 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
   // ── Шаг 2: дубли мест (набор слов имени + < 1 км) ───────────────────────
   const { rows: allPlaces } = await pool.query<{
     id: string; ark_id: string | null; name: string; lat: number | null; lng: number | null;
-    desc_len: number; has_photo: boolean; is_visible: boolean;
+    desc_len: number; has_photo: boolean; is_visible: boolean; location_type: string | null;
   }>(
-    `SELECT p.id, p.ark_id, p.name, p.lat::float AS lat, p.lng::float AS lng,
+    `SELECT p.id, p.ark_id, p.name, p.location_type, p.lat::float AS lat, p.lng::float AS lng,
             length(COALESCE(p.description,''))::int AS desc_len,
             EXISTS (SELECT 1 FROM ai_route_images img WHERE img.route_id = p.ark_id) AS has_photo,
             p.is_visible
@@ -231,6 +249,13 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       if (haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
       if (!dryRun) {
         await pool.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
+        dupe.is_visible = false; // чтобы Шаг 8 не выбрал уже скрытое место как keeper
+        // Конфликт-безопасный перенос: если у маршрута уже есть keeper-точка,
+        // удаляем дублирующую dupe-точку (иначе UNIQUE(route_id,place_id) упадёт).
+        await pool.query(
+          `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
+          [keeper.id, dupe.id],
+        );
         await pool.query(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
         if (dupe.ark_id && keeper.ark_id) {
           await pool.query(
@@ -372,6 +397,88 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       } catch (err) {
         res.errors++;
         items.push({ step: 'route_dupes', place: dupe.title, detail: `ошибка слияния: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+      }
+    }
+  }
+
+  // ── Шаг 7: нормализация типа thermal -> hot_spring ──────────────────────
+  // location_type='thermal' — рудимент: те же термальные источники, но не
+  // попадают в фильтр «Термальные» (hot_spring) на /places.
+  if (dryRun) {
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM places WHERE location_type = 'thermal'`,
+    );
+    res.normalized_types = rows[0]?.n ?? 0;
+    if (res.normalized_types > 0) items.push({ step: 'types', detail: `thermal -> hot_spring: ${res.normalized_types}` });
+  } else {
+    const upd = await pool.query(
+      `UPDATE places SET location_type = 'hot_spring' WHERE location_type = 'thermal'`,
+    );
+    res.normalized_types = upd.rowCount ?? 0;
+  }
+
+  // ── Шаг 8: координатные дубли по подмножеству имени ─────────────────────
+  // «Опала» ⊂ «Вулкан Опала», «Безымянный» ⊂ «Вулкан Безымянный»: набор слов
+  // разный (Шаг 2 их не берёт), но координаты < 150 м и одно имя строго
+  // входит в другое. Сливаем ТОЛЬКО при совпадении location_type — иначе
+  // рискуем убрать уникальную опасную зону (напр. volcano) из геофенса.
+  // keeper: с фото > длиннее описание > более полное имя (больше слов) > id.
+  const coordCand = allPlaces.filter(
+    p => p.is_visible && p.lat != null && p.lng != null && nameWordSet(p.name),
+  );
+  const wordsById = new Map<string, Set<string>>();
+  for (const p of coordCand) wordsById.set(p.id, nameWords(p.name));
+  const hiddenSubset = new Set<string>();
+  for (let i = 0; i < coordCand.length; i++) {
+    const a = coordCand[i];
+    if (hiddenSubset.has(a.id)) continue;
+    for (let j = i + 1; j < coordCand.length; j++) {
+      const b = coordCand[j];
+      if (hiddenSubset.has(a.id)) break;
+      if (hiddenSubset.has(b.id)) continue;
+      if (a.location_type !== b.location_type) continue;
+      if (haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number) > 0.15) continue;
+      const wa = wordsById.get(a.id) as Set<string>;
+      const wb = wordsById.get(b.id) as Set<string>;
+      if (!isStrictSubset(wa, wb) && !isStrictSubset(wb, wa)) continue;
+      const [keeper, dupe] = [a, b].sort((x, y) =>
+        Number(y.has_photo) - Number(x.has_photo)
+        || y.desc_len - x.desc_len
+        || (wordsById.get(y.id) as Set<string>).size - (wordsById.get(x.id) as Set<string>).size
+        || x.id.localeCompare(y.id),
+      );
+      try {
+        if (!dryRun) {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            // Конфликт-безопасно: сперва убрать dupe-точки на маршрутах, где keeper уже есть.
+            await client.query(
+              `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
+              [keeper.id, dupe.id],
+            );
+            await client.query(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
+            if (dupe.ark_id && keeper.ark_id) {
+              await client.query(
+                `UPDATE kamchatka_routes SET metadata = metadata || jsonb_build_object('place_ark_id', $1::text) WHERE metadata->>'place_ark_id' = $2`,
+                [keeper.ark_id, dupe.ark_id],
+              );
+            }
+            await client.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
+            await client.query('COMMIT');
+          } catch (txErr) {
+            await client.query('ROLLBACK');
+            throw txErr;
+          } finally {
+            client.release();
+          }
+        }
+        hiddenSubset.add(dupe.id);
+        res.merged_coord_subset++;
+        items.push({ step: 'coord_subset', place: dupe.name, detail: `подмножество, скрыт -> «${keeper.name}»` });
+      } catch (err) {
+        res.errors++;
+        items.push({ step: 'coord_subset', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
       }
     }
   }
