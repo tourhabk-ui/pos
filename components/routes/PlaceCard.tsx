@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
-  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home,
+  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Trash2,
 } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 
@@ -76,6 +76,43 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
   const [liked,  setLiked]  = useState(false);
   const [liking, setLiking] = useState(false);
 
+  // Админ-удаление места прямо с витрины. isAdmin определяем из localStorage
+  // (user_roles пишет AuthContext) — без зависимости от AuthProvider, чтобы
+  // публичная карточка не падала вне контекста.
+  const [isAdmin,  setIsAdmin]  = useState(false);
+  const [removed,  setRemoved]  = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    try {
+      const roles = JSON.parse(localStorage.getItem('user_roles') || '[]');
+      setIsAdmin(Array.isArray(roles) && roles.includes('admin'));
+    } catch { /* гость — кнопки нет */ }
+  }, []);
+
+  const handleDelete = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (deleting) return;
+    if (!window.confirm(`Удалить место «${route.title}»? Действие необратимо.`)) return;
+    setDeleting(true);
+    try {
+      let token: string | undefined;
+      try { token = JSON.parse(localStorage.getItem('user') || 'null')?.token; } catch { /* cookie-сессия */ }
+      const res = await fetch(`/api/admin/places/${route.id}?force=true`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) { setRemoved(true); return; }
+      const data = await res.json().catch(() => ({}));
+      window.alert(data?.error || `Не удалось удалить (HTTP ${res.status})`);
+    } catch {
+      window.alert('Сеть недоступна, попробуйте ещё раз');
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleting, route.id, route.title]);
+
   const handleFavorite = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -95,8 +132,25 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
     finally { setLiking(false); }
   }, [liking, liked, route.id, route.title]);
 
+  if (removed) return null;
+
   return (
-    <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden hover:border-[var(--accent)]/30 transition-colors duration-200">
+    <article className="group relative rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden hover:border-[var(--accent)]/30 transition-colors duration-200">
+
+      {/* ── Админ: удалить место с витрины ─────────────────── */}
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          aria-label="Удалить место"
+          title="Удалить место"
+          className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+          style={{ background: 'var(--danger)', opacity: deleting ? 0.5 : 0.92 }}
+        >
+          <Trash2 className="w-4 h-4 text-white" />
+        </button>
+      )}
 
       {/* ── Photo ─────────────────────────────────────────── */}
       <Link href={`/places/${route.id}`} className="block relative overflow-hidden" style={{ aspectRatio: '4/3' }}>
