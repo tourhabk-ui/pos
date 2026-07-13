@@ -14,7 +14,7 @@
  * Eval-only: используется регрессионным харнессом, в живой Editor не вмешивается.
  */
 
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFast, callAIWaterfall, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { RouteRow } from '@/lib/agents/editor';
 
 export interface JudgeVerdict {
@@ -51,6 +51,44 @@ const JUDGE_SYSTEM = `Ты — строгий редактор-оценщик о
 {"score": 1-5, "reason": "<кратко>"}`;
 
 /**
+ * Оценка судьёй с фоллбэком провайдера (общий для editor и kuzmich грейдеров).
+ * Попытка 1 — быстрый набор `callAIFast` (DeepSeek/Gemini/OpenRouter). Если он
+ * недоступен, вернул sentinel-заглушку («Сервис временно недоступен») или ответ
+ * без распознаваемого балла — добираем полным `callAIWaterfall` (Tier-1
+ * GLM/Nvidia/Groq/Cerebras/Mistral, Tier-2 Yandex/MiniMax, Tier-3 Anthropic),
+ * то есть ДРУГИМ набором провайдеров. score=null возвращаем только когда ОБА
+ * набора не дали валидного балла — тогда «судья недоступен» честно означает
+ * системный сбой, а не единичный отказ одного быстрого провайдера.
+ * Fail-soft: любое исключение проглатывается, харнесс не падает.
+ */
+export async function judgeWithFallback(system: string, user: string): Promise<JudgeVerdict> {
+  const messages = [
+    { role: 'system' as const, content: system },
+    { role: 'user' as const, content: user },
+  ];
+
+  // Попытка 1 — быстрый набор.
+  try {
+    const raw = await callAIFast(messages);
+    if (raw && !isWaterfallErrorResponse(raw)) {
+      const score = parseJudgeScore(raw);
+      if (score !== null) return { score, reason: raw.slice(0, 200) };
+    }
+  } catch { /* переходим к фоллбэку */ }
+
+  // Попытка 2 — полный waterfall (другой набор провайдеров, включая Anthropic).
+  try {
+    const raw = await callAIWaterfall(messages);
+    if (raw && !isWaterfallErrorResponse(raw)) {
+      const score = parseJudgeScore(raw);
+      if (score !== null) return { score, reason: raw.slice(0, 200) };
+    }
+  } catch { /* исчерпали провайдеров */ }
+
+  return { score: null, reason: 'судья недоступен (fast+waterfall)' };
+}
+
+/**
  * Оценивает одно сгенерированное описание относительно исходных фактов маршрута.
  * Fail-soft: при сбое AI/парсинга возвращает score=null (не валит харнесс).
  */
@@ -65,14 +103,5 @@ export async function judgeDescription(route: RouteRow, text: string): Promise<J
 ОЦЕНИВАЕМОЕ ОПИСАНИЕ:
 ${text.slice(0, 2000)}`;
 
-  try {
-    const raw = await callAIFast([
-      { role: 'system' as const, content: JUDGE_SYSTEM },
-      { role: 'user' as const, content: user },
-    ]);
-    const score = parseJudgeScore(raw);
-    return { score, reason: (raw ?? '').slice(0, 200) };
-  } catch {
-    return { score: null, reason: 'судья недоступен' };
-  }
+  return judgeWithFallback(JUDGE_SYSTEM, user);
 }
