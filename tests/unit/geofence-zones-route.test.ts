@@ -1,7 +1,8 @@
 /**
- * Геофенс опасных зон: жизне-безопасные зоны берутся ТОЛЬКО из видимых мест.
- * Скрытые (is_visible=false) места-статьи/события (напр. «Гонка среди вулканов»)
- * не должны рождать вулканических/цунами-зон и ложных 112-алертов.
+ * Геофенс опасных зон.
+ * - Все источники зон фильтруют is_visible = TRUE (скрытые места-статьи не рождают алертов).
+ * - Вулканическая зона строится ТОЛЬКО для вулканов с повышенным кодом KVERT
+ *   (yellow/orange/red). Потухшая/спокойная сопка (Мишенная) красной зоны не даёт.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -19,18 +20,18 @@ describe('GET /api/safety/geofence-zones', () => {
     queryMock.mockResolvedValue({ rows: [] });
     await GET();
 
-    // Три запроса: places (volcano/hot_spring/geyser), kamchatka_routes, tsunami-join
+    // Три запроса: вулканы (JOIN volcano_status), термальные/гейзеры, цунами.
     expect(queryMock).toHaveBeenCalledTimes(3);
     for (const call of queryMock.mock.calls) {
       expect(String(call[0]).toLowerCase()).toContain('is_visible');
     }
   });
 
-  it('строит зону из видимого вулкана', async () => {
+  it('вулкан с повышенным кодом KVERT (orange) → критическая зона', async () => {
     queryMock.mockImplementation((sql: string) => {
       const s = String(sql);
-      if (s.includes("location_type IN")) {
-        return Promise.resolve({ rows: [{ id: 'v1', name: 'Ключевская', lat: 56.05, lng: 160.64, location_type: 'volcano' }] });
+      if (s.includes('volcano_status')) {
+        return Promise.resolve({ rows: [{ id: 'v1', name: 'Ключевская сопка', lat: 56.05, lng: 160.64, acc: 'orange' }] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -40,12 +41,27 @@ describe('GET /api/safety/geofence-zones', () => {
     expect(body.success).toBe(true);
     expect(body.fallback).toBe(false);
     expect(body.zones).toHaveLength(1);
-    expect(body.zones[0]).toMatchObject({ hazard: 'volcano', level: 'danger', name: 'Ключевская' });
+    expect(body.zones[0]).toMatchObject({ hazard: 'volcano', level: 'critical', name: 'Ключевская сопка' });
+    expect(body.zones[0].message).toContain('KVERT');
+  });
+
+  it('нет вулканов с повышенным кодом → нет вулканической зоны (потухшая сопка не алертит)', async () => {
+    // volcano_status-запрос уже отфильтровал по ACC и вернул пусто; есть только термальные.
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes("location_type IN ('hot_spring'")) {
+        return Promise.resolve({ rows: [{ id: 't1', name: 'Паратунка', lat: 52.9, lng: 158.2, location_type: 'hot_spring' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.zones.some((z: { hazard: string }) => z.hazard === 'volcano')).toBe(false);
+    expect(body.zones.some((z: { hazard: string }) => z.hazard === 'thermal')).toBe(true);
   });
 
   it('сбой БД → пустые зоны + fallback, не синтетика', async () => {
-    // Только первый запрос падает (иначе братья-промисы Promise.all остаются
-    // необработанными); Promise.all отвергается первым — ветка catch срабатывает.
     let n = 0;
     queryMock.mockImplementation(() => {
       n += 1;
