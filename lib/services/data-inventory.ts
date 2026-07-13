@@ -89,6 +89,16 @@ const SECTIONS: SectionQuery[] = [
           ORDER BY km LIMIT 100`,
   },
   {
+    id: 'places_by_type',
+    title: 'Места по типу (видимые) — как фильтры на /places',
+    sql: `SELECT COALESCE(NULLIF(location_type,''), '(без типа)') AS location_type,
+                 COUNT(*)::int AS n
+          FROM places
+          WHERE is_visible
+          GROUP BY 1
+          ORDER BY n DESC`,
+  },
+  {
     id: 'places_thin',
     title: 'Места без контента: короткое описание / нет фото / нет safety-профиля',
     sql: `SELECT
