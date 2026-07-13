@@ -249,6 +249,13 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       if (haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
       if (!dryRun) {
         await pool.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
+        dupe.is_visible = false; // чтобы Шаг 8 не выбрал уже скрытое место как keeper
+        // Конфликт-безопасный перенос: если у маршрута уже есть keeper-точка,
+        // удаляем дублирующую dupe-точку (иначе UNIQUE(route_id,place_id) упадёт).
+        await pool.query(
+          `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
+          [keeper.id, dupe.id],
+        );
         await pool.query(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
         if (dupe.ark_id && keeper.ark_id) {
           await pool.query(
@@ -445,6 +452,11 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           const client = await pool.connect();
           try {
             await client.query('BEGIN');
+            // Конфликт-безопасно: сперва убрать dupe-точки на маршрутах, где keeper уже есть.
+            await client.query(
+              `DELETE FROM route_waypoints WHERE place_id = $2 AND route_id IN (SELECT route_id FROM route_waypoints WHERE place_id = $1)`,
+              [keeper.id, dupe.id],
+            );
             await client.query(`UPDATE route_waypoints SET place_id = $1 WHERE place_id = $2`, [keeper.id, dupe.id]);
             if (dupe.ark_id && keeper.ark_id) {
               await client.query(
