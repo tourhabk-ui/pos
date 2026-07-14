@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2, ClipboardList, Pencil, X, Save } from 'lucide-react';
+import { Search, Upload, CheckCircle, XCircle, Loader2, ImageIcon, Layers, AlertTriangle, Trash2, ClipboardList, Pencil, X, Save, Globe, ExternalLink } from 'lucide-react';
 
 interface Place {
   id: string;
@@ -31,6 +31,21 @@ const LOCATION_TYPE_OPTIONS = [
   'glacier', 'forest', 'beach', 'waterfall', 'rock', 'viewpoint', 'settlement',
   'museum', 'historical', 'geyser', 'other',
 ];
+
+interface WikiCandidate {
+  title: string;
+  pageId: number;
+  distanceM: number | null;
+  imageUrl: string;
+  thumbUrl: string;
+  width: number;
+  height: number;
+  mime: string;
+  author: string;
+  license: string;
+  licenseUrl: string;
+  descriptionUrl: string;
+}
 
 interface DuplicatePlace {
   id: string;
@@ -212,6 +227,73 @@ export default function PlacesPhotosClient() {
     } catch (err) {
       setEditError(err instanceof Error ? err.message : 'Ошибка сети');
       setEditSaving(false);
+    }
+  };
+
+  // ── Реальные фото из Wikimedia Commons (с ревью) ──
+  const [wikiPlaceId, setWikiPlaceId] = useState<string | null>(null);
+  const [wikiPlaceName, setWikiPlaceName] = useState('');
+  const [wikiCandidates, setWikiCandidates] = useState<WikiCandidate[]>([]);
+  const [wikiLoading, setWikiLoading] = useState(false);
+  const [wikiError, setWikiError] = useState<string | null>(null);
+  const [wikiStoring, setWikiStoring] = useState<string | null>(null);
+  const [wikiDone, setWikiDone] = useState(false);
+
+  const fetchWikiCandidates = useCallback(async (placeId: string) => {
+    setWikiLoading(true);
+    setWikiError(null);
+    setWikiCandidates([]);
+    try {
+      const res = await fetch(`/api/admin/places/${placeId}/wiki-candidates`);
+      const data = await res.json() as { ok?: boolean; candidates?: WikiCandidate[]; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setWikiCandidates(data.candidates ?? []);
+    } catch (err) {
+      setWikiError(err instanceof Error ? err.message : 'Не удалось найти фото');
+    } finally {
+      setWikiLoading(false);
+    }
+  }, []);
+
+  const openWiki = useCallback((placeId: string, name: string) => {
+    setWikiPlaceId(placeId);
+    setWikiPlaceName(name);
+    setWikiDone(false);
+    void fetchWikiCandidates(placeId);
+  }, [fetchWikiCandidates]);
+
+  const closeWiki = () => {
+    setWikiPlaceId(null);
+    setWikiCandidates([]);
+    setWikiError(null);
+    setWikiStoring(null);
+  };
+
+  const storeWiki = async (c: WikiCandidate) => {
+    if (!wikiPlaceId) return;
+    setWikiStoring(c.imageUrl);
+    setWikiError(null);
+    try {
+      const res = await fetch(`/api/admin/places/${wikiPlaceId}/wiki-candidates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: c.imageUrl,
+          author: c.author,
+          license: c.license,
+          licenseUrl: c.licenseUrl,
+          sourceUrl: c.descriptionUrl,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; url?: string; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setPlaces((prev) => prev.map((p) => p.id === wikiPlaceId ? { ...p, hasPhoto: true, photoUrl: data.url ?? p.photoUrl } : p));
+      setWikiDone(true);
+      setFeedback((prev) => ({ ...prev, [wikiPlaceId]: { ok: true, msg: 'Фото из Wikimedia установлено' } }));
+    } catch (err) {
+      setWikiError(err instanceof Error ? err.message : 'Не удалось сохранить фото');
+    } finally {
+      setWikiStoring(null);
     }
   };
 
@@ -759,6 +841,15 @@ export default function PlacesPhotosClient() {
                 </button>
 
                 <button
+                  onClick={() => openWiki(place.id, place.name)}
+                  disabled={!place.arkId}
+                  className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid var(--border)' }}
+                >
+                  <Globe className="w-3.5 h-3.5" />Фото из Wikimedia
+                </button>
+
+                <button
                   onClick={() => openEditor(place.id)}
                   className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all"
                   style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
@@ -789,6 +880,102 @@ export default function PlacesPhotosClient() {
 
       {!loading && filtered.length === 0 && (
         <p className="text-center text-[var(--text-muted)] py-12">Ничего не найдено</p>
+      )}
+
+      {/* Ревью фото из Wikimedia Commons */}
+      {wikiPlaceId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+          onClick={closeWiki}
+        >
+          <div
+            className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border bg-[var(--bg-card)] p-5"
+            style={{ borderColor: 'var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-playfair text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <Globe className="w-5 h-5 text-[var(--ocean)]" />Фото с Wikimedia Commons
+              </h2>
+              <button onClick={closeWiki} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-[var(--text-secondary)] mb-4">
+              {wikiPlaceName} · выберите подходящий кадр. Фото будет обрезано до 1280×720 и подписано автором и лицензией.
+            </p>
+
+            {wikiLoading && (
+              <p className="text-sm text-[var(--text-muted)] py-8 text-center flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />Ищу свободные фото рядом с координатами…
+              </p>
+            )}
+
+            {wikiError && (
+              <p className="text-sm text-[var(--danger)] flex items-center gap-1.5 mb-3">
+                <AlertTriangle className="w-4 h-4" />{wikiError}
+              </p>
+            )}
+
+            {!wikiLoading && !wikiError && wikiCandidates.length === 0 && (
+              <p className="text-sm text-[var(--text-muted)] py-8 text-center">
+                Рядом с этой точкой на Wikimedia Commons свободных фото не нашлось.
+              </p>
+            )}
+
+            {wikiDone && (
+              <p className="text-sm mb-3 flex items-center gap-1.5" style={{ color: 'var(--success)' }}>
+                <CheckCircle className="w-4 h-4" />Фото установлено. Можно закрыть окно.
+              </p>
+            )}
+
+            {wikiCandidates.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {wikiCandidates.map((c) => {
+                  const isStoring = wikiStoring === c.imageUrl;
+                  return (
+                    <div key={c.pageId || c.imageUrl} className="rounded-lg border overflow-hidden bg-[var(--bg-hover)]" style={{ borderColor: 'var(--border)' }}>
+                      <div className="aspect-video relative overflow-hidden bg-black/10">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={c.thumbUrl} alt={c.title} className="w-full h-full object-cover" loading="lazy" />
+                      </div>
+                      <div className="p-2">
+                        <p className="text-[11px] text-[var(--text-secondary)] line-clamp-1" title={c.author}>
+                          {c.author || 'автор не указан'}
+                        </p>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1 flex items-center gap-1">
+                          <span className="line-clamp-1">{c.license}</span>
+                          {c.distanceM != null && <span>· {c.distanceM} м</span>}
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => storeWiki(c)}
+                            disabled={isStoring || !!wikiStoring}
+                            className="ds-btn ds-btn-primary text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {isStoring ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                            Выбрать
+                          </button>
+                          {c.descriptionUrl && (
+                            <a
+                              href={c.descriptionUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 text-[var(--text-muted)] hover:text-[var(--ocean)]"
+                              title="Открыть на Commons"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Полный редактор места */}

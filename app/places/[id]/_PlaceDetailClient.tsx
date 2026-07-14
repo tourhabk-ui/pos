@@ -181,6 +181,32 @@ export default function PlaceDetailClient({ id }: { id: string }) {
         images={place.images as string[]}
       />
 
+      {/* Атрибуция фото (CC-BY / CC-BY-SA — Wikimedia Commons) */}
+      {place.photoAttribution && (place.photoAttribution.author || place.photoAttribution.license) && (
+        <div className="max-w-3xl mx-auto px-4 pt-1.5 text-[11px] text-[var(--text-muted)]">
+          Фото:{' '}
+          {place.photoAttribution.sourceUrl ? (
+            <a href={place.photoAttribution.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+              {place.photoAttribution.author || 'Wikimedia Commons'}
+            </a>
+          ) : (
+            <span>{place.photoAttribution.author || 'Wikimedia Commons'}</span>
+          )}
+          {place.photoAttribution.license && (
+            <>
+              {' · '}
+              {place.photoAttribution.licenseUrl ? (
+                <a href={place.photoAttribution.licenseUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
+                  {place.photoAttribution.license}
+                </a>
+              ) : (
+                <span>{place.photoAttribution.license}</span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Action bar: navigate, bookmark, share, weather */}
       <PlaceActionBar lat={place.lat} lng={place.lng} placeId={place.id} name={place.name} />
 
