@@ -11,6 +11,7 @@ import {
   Calendar,
   Package
 } from 'lucide-react';
+import UonIntegrationCard from '@/components/operator/UonIntegrationCard';
 
 interface PartnerStatus {
   partner: {
@@ -128,6 +129,9 @@ export default function IntegrationsPageClient() {
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Интеграции с партнерами</h1>
         <p className="text-[var(--text-muted)] mt-1">Управление API подключениями и синхронизацией данных</p>
       </div>
+
+      {/* U-ON.Travel CRM — брони с Ведар автоматически падают в вашу CRM */}
+      <UonIntegrationCard />
 
       {/* Sync Result Alert */}
       {syncResult && (
