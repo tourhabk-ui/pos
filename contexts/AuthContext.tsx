@@ -31,6 +31,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   updatePreferences: (preferences: Partial<UserPreferences>) => Promise<void>;
+  /** Переключить активную роль. Возвращает путь кабинета новой роли для перехода. */
+  switchRole: (role: string) => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -287,6 +289,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const switchRole = async (role: string): Promise<string> => {
+    if (!user) throw new Error('Не авторизован');
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (user.token) headers['Authorization'] = `Bearer ${user.token}`;
+
+    const response = await fetch('/api/auth/switch-role', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ role }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Не удалось переключить роль');
+    }
+
+    const { role: newRole, roles, token, redirect } = result.data as {
+      role: string; roles: string[]; token?: string; redirect: string;
+    };
+
+    const updatedUser: User = {
+      ...user,
+      role: newRole,
+      roles,
+      // Bearer-сессия получает новый токен; cookie-only сессия — undefined (её
+      // рефрешит сервер по обновлённой cookie).
+      token: token ?? user.token,
+      updatedAt: new Date(),
+    };
+    setUser(updatedUser);
+    // В localStorage['user'] пишем только Bearer-сессию (как в signIn) —
+    // cookie-only не сохраняем, иначе загрузка пойдёт Bearer-веткой с пустым токеном.
+    if (token) await saveUserToStorage(updatedUser);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user_roles', JSON.stringify(roles));
+    }
+    return redirect;
+  };
+
   const updatePreferences = async (preferences: Partial<UserPreferences>) => {
     if (!user) return;
     
@@ -311,6 +352,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signOut,
     updateUser,
     updatePreferences,
+    switchRole,
   };
 
   return (
