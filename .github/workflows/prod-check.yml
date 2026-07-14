@@ -1,0 +1,50 @@
+name: Diag — проверка URL на проде
+
+# Универсальная диагностика: печатает HTTP-статус и фрагмент тела для списка
+# URL прода. Нужна, потому что песочница агента не имеет доступа к vedarai.ru.
+#
+# Способы запуска:
+#   1. workflow_dispatch — кнопка Run workflow (input urls, через запятую)
+#   2. push в main, меняющий .github/triggers/prod-check.json — URL берутся
+#      из поля urls этого файла
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'URL через запятую'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/prod-check.json'
+
+concurrency:
+  group: prod-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check URLs
+        env:
+          INPUT_URLS: ${{ github.event.inputs.urls || '' }}
+        run: |
+          if [ -n "$INPUT_URLS" ]; then
+            URLS=$(echo "$INPUT_URLS" | tr ',' '\n')
+          else
+            URLS=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/prod-check.json')).get('urls', [])))")
+          fi
+          while IFS= read -r URL; do
+            [ -z "$URL" ] && continue
+            echo "════ $URL ════"
+            CODE=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 30 -L "$URL")
+            echo "HTTP $CODE, bytes: $(wc -c < /tmp/body)"
+            head -c 500 /tmp/body | tr -d '\0'
+            echo ""
+          done <<< "$URLS"

@@ -132,6 +132,43 @@ async function scanPerformance(): Promise<GrowthIssue[]> {
 
 // ── AI analysis of code quality ────────────────────────────────────────────
 
+// Ответы модели без содержимого/с отговорками — не проблемы, в БД не пишем.
+// 12.07: в evo_growth_issues лежали «Файл не предоставлен для анализа» и
+// выдуманные строки кода — модель получала только ИМЕНА файлов.
+const AI_REVIEW_GARBAGE = /не предоставлен|невозможно подтвердить|пропускаю|нет информации о файле|file not provided/i;
+
+// На один файл не копим парафразы одной и той же претензии
+const MAX_OPEN_ISSUES_PER_FILE = 2;
+
+const MAX_FILE_CHARS = 24_000;
+
+function clampForReview(text: string): string {
+  return text.length > MAX_FILE_CHARS
+    ? text.slice(0, MAX_FILE_CHARS) + '\n// ... (обрезано для ревью)'
+    : text;
+}
+
+// Прод — standalone-образ без исходников .ts, поэтому диск -> фоллбэк на
+// GitHub raw (репо публичный). Без содержимого файл не ревьюится вовсе.
+async function readFileForReview(relPath: string): Promise<string | null> {
+  try {
+    const [fs, path] = await Promise.all([import('fs'), import('path')]);
+    const full = path.join(process.cwd(), relPath);
+    if (fs.existsSync(full)) return clampForReview(fs.readFileSync(full, 'utf8'));
+  } catch { /* фоллбэк ниже */ }
+
+  try {
+    const res = await fetch(
+      `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) return null;
+    return clampForReview(await res.text());
+  } catch {
+    return null;
+  }
+}
+
 async function aiCodeReview(): Promise<GrowthIssue[]> {
   // Files to review — exclude known false positives
   const reviewFiles = [
@@ -166,11 +203,22 @@ severity: critical = утечка данных/обход auth/инъекция/
 - lib/bookings/booking.service.ts — все SQL параметризованы ($1, $2)
 - app/api/webhook/route.ts — exec() защищён HMAC, команда захардкожена`,
     },
-    {
-      role: 'user',
-      content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта):\n${reviewFiles.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nВ description указывай конкретную строку и сценарий сбоя. Не выдумывай проблемы по имени файла — если уверенности нет, не включай в ответ.`,
-    },
   ];
+
+  // Содержимое файлов ОБЯЗАТЕЛЬНО: до 12.07 модель получала только имена
+  // и выдумывала «проблемы» («import pool from '@/lib/db' строка 60»,
+  // «callDeepSeek без try/catch» — ничего из этого в коде не было)
+  const fileBlocks: string[] = [];
+  for (const f of reviewFiles) {
+    const content = await readFileForReview(f);
+    if (content) fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
+  }
+  if (fileBlocks.length === 0) return [];
+
+  messages.push({
+    role: 'user',
+    content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта). Содержимое файлов ниже — ссылайся только на код, который реально видишь, с точными строками.\n\n${fileBlocks.join('\n\n')}`,
+  });
 
   try {
     const result = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
@@ -182,8 +230,12 @@ severity: critical = утечка данных/обход auth/инъекция/
       severity: string; suggestion: string;
     }>;
 
-    // Filter out excluded files (AI may still mention them)
-    const filtered = parsed.filter(p => !AI_EXCLUDED_FILES.has(p.file) && !ACCEPTED_RISKS.has(p.file));
+    // Filter out excluded files (AI may still mention them) + мусор-ответы
+    const filtered = parsed.filter(p =>
+      !AI_EXCLUDED_FILES.has(p.file) &&
+      !ACCEPTED_RISKS.has(p.file) &&
+      !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`),
+    );
 
     return filtered.map(p => ({
       category: 'bug' as const,
@@ -246,6 +298,17 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     if (existing.length > 0) {
       // Already exists — skip, just log the scan reference
       continue;
+    }
+
+    // Дедуп по file+title не ловит парафразы одной претензии («Нет try/catch
+    // внешнего вызова» × 4 формулировки) — жёсткий кап на файл
+    if (issue.file_path) {
+      const { rows: sameFile } = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM evo_growth_issues
+         WHERE status IN ('open', 'suggested') AND file_path = $1 AND category = $2`,
+        [issue.file_path, issue.category],
+      );
+      if ((sameFile[0]?.n ?? 0) >= MAX_OPEN_ISSUES_PER_FILE) continue;
     }
 
     await pool.query(

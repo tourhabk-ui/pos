@@ -84,11 +84,17 @@ export async function GET(
          vs.summary              AS volcano_summary,
          vs.source_url           AS volcano_source_url,
          vs.observed_at          AS volcano_observed_at,
-         (SELECT count(*)::int FROM ai_route_images ai WHERE ai.route_id = p.ark_id) AS photo_count
+         (SELECT count(*)::int FROM ai_route_images ai WHERE ai.route_id = p.ark_id) AS photo_count,
+         ai.model      AS photo_model,
+         ai.author     AS photo_author,
+         ai.license    AS photo_license,
+         ai.license_url AS photo_license_url,
+         ai.source_url  AS photo_source_url
        FROM places p
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
        LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
        LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
+       LEFT JOIN ai_route_images ai ON ai.route_id = p.ark_id
        WHERE (p.ark_id::text = $1 OR p.id = $1)
          AND p.is_visible = true`,
       [id]
@@ -198,6 +204,13 @@ export async function GET(
         })(),
         images: (r.images as unknown[] | null) ?? [],
         photoCount: Number(r.photo_count),
+        // Атрибуция фото — обязательна для CC-BY/CC-BY-SA (model=wikimedia).
+        photoAttribution: (r.photo_model === 'wikimedia' && (r.photo_author || r.photo_license)) ? {
+          author: (r.photo_author as string | null) ?? null,
+          license: (r.photo_license as string | null) ?? null,
+          licenseUrl: (r.photo_license_url as string | null) ?? null,
+          sourceUrl: (r.photo_source_url as string | null) ?? null,
+        } : null,
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,

@@ -180,8 +180,23 @@ export async function scoutOsmTraces(): Promise<OsmTracesScoutResult> {
       feedErrors.push(`${feed}: ${fetched.error.slice(0, 120)}`);
       continue;
     }
+    let parsed = parseTracesRss(fetched.text);
+    // Заглушка с кодом 200: глобальная лента OSM никогда не бывает без <item>.
+    // С прод-IP Timeweb (и через BrightData) OSM периодически отдаёт rate-limit
+    // страницу 200 без треков — перечитываем через прокси, а если и там пусто,
+    // это НЕ успех: feed_errors + не инкрементим feeds_ok (метрика честная —
+    // feeds_ok считает только ленты с реальными треками)
+    if (parsed.length === 0) {
+      if (fetched.via === 'direct') {
+        const viaBd = await fetchViaBrightData(feed);
+        parsed = viaBd ? parseTracesRss(viaBd) : [];
+      }
+      if (parsed.length === 0) {
+        feedErrors.push(`${feed}: 200 без <item> (заглушка/rate-limit OSM), via=${fetched.via}`);
+        continue;
+      }
+    }
     feedsOk++;
-    const parsed = parseTracesRss(fetched.text);
     seen += parsed.length;
     for (const it of parsed) {
       if (isInKamchatka(it.lat, it.lng)) byId.set(it.id, it);

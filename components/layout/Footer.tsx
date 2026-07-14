@@ -5,6 +5,7 @@ import { Send } from 'lucide-react';
 const PLATFORM = [
   { label: 'Туры', href: '/catalog' },
   { label: 'Камчатская рыбалка', href: '/hub/fishing' },
+  { label: 'Места', href: '/places' },
   { label: 'Маршруты', href: '/routes' },
   { label: 'Карта Камчатки', href: '/map' },
   { label: 'Планирование поездки', href: '/partners' },

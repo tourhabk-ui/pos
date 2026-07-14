@@ -20,8 +20,7 @@
  */
 
 import { askKuzmichForEval } from '@/lib/kuzmich/core';
-import { callAIFast } from '@/lib/ai/providers';
-import { parseJudgeScore } from '@/lib/agents/eval/editor-judge';
+import { judgeWithFallback } from '@/lib/agents/eval/editor-judge';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
 
@@ -87,16 +86,10 @@ ${context ? context.slice(0, 4000) : '(контекст пуст — retrieval �
 ОТВЕТ КУЗЬМИЧА:
 ${answer.slice(0, 2000)}`;
 
-  try {
-    const raw = await callAIFast([
-      { role: 'system', content: FAITHFULNESS_JUDGE_SYSTEM },
-      { role: 'user', content: user },
-    ]);
-    const score = parseJudgeScore(raw);
-    return { score, reason: (raw ?? '').slice(0, 200) };
-  } catch {
-    return { score: null, reason: 'судья недоступен' };
-  }
+  // Судья с фоллбэком провайдера: быстрый набор, при недоступности — полный
+  // waterfall (Anthropic и др.). «судья недоступен» ставится, только если ОБА
+  // набора не дали балла — не из-за единичного отказа одного провайдера.
+  return judgeWithFallback(FAITHFULNESS_JUDGE_SYSTEM, user);
 }
 
 /** Fire-and-forget Telegram-алерт владельцу (образец: sendTgAlertAsync в smoke-test.ts). */

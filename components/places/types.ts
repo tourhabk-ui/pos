@@ -94,6 +94,13 @@ export interface PlaceIndigenous {
   respectNotes: string | null;
 }
 
+export interface PlacePhotoAttribution {
+  author: string | null;
+  license: string | null;
+  licenseUrl: string | null;
+  sourceUrl: string | null;
+}
+
 export interface PlaceData {
   id: string;
   name: string;
@@ -108,6 +115,7 @@ export interface PlaceData {
   photoUrl: string | null;
   images: unknown[];
   photoCount: number;
+  photoAttribution: PlacePhotoAttribution | null;
   bestSeason: string | null;
   seasonalNotes: Record<string, string> | null;
   accessInfo: string | null;

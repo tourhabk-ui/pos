@@ -218,7 +218,22 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       CASE WHEN payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
-    ) DESC, title ASC` :
+    ) DESC,
+    -- Качество карточки: у туров/маршрутов порядок задаёт сумма выше (у них есть
+    -- цена/сложность), а у мест она всегда 0 — поэтому места ранжируются дальше
+    -- по «презентабельности»: есть фото -> значимый тип -> богатое описание.
+    -- Так первый экран /places перестаёт быть алфавитным («300-летняя берёза»).
+    has_ai_image DESC,
+    CASE location_type
+      WHEN 'volcano'    THEN 6 WHEN 'geyser'  THEN 6
+      WHEN 'hot_spring' THEN 5 WHEN 'lake'    THEN 5
+      WHEN 'waterfall'  THEN 4 WHEN 'bay'     THEN 4
+      WHEN 'mountain'   THEN 3 WHEN 'river'   THEN 3
+      WHEN 'viewpoint'  THEN 2
+      ELSE 1
+    END DESC,
+    length(COALESCE(description, '')) DESC,
+    title ASC` :
     'title ASC';
 
   const [dataResult, countResult] = await Promise.all([

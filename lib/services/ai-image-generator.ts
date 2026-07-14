@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 
 const TYPE_PROMPTS: Record<string, string> = {
   volcano:
-    'dramatic aerial view of active Kamchatka volcano Russia, volcanic eruption with lava glow and ash column, pyroclastic flows, epic volcanic landscape, golden sunset light, National Geographic style',
+    'majestic snow-capped stratovolcano with classic symmetrical cone, Kamchatka Russia, calm clear day, alpine tundra and wildflowers in foreground, crisp blue sky, soft golden light, National Geographic landscape photography',
   geyser:
     'powerful geyser eruption in Valley of Geysers Kamchatka Russia, steam column against blue sky, colorful hydrothermal terraces with yellow and orange mineral deposits, crystal clear pools',
   hot_spring:

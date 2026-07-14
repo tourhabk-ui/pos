@@ -61,7 +61,7 @@ jobs:
           import json
           d = json.load(open('/tmp/inv.json'))
           for s in d.get('sections', []):
-              if s['id'] in ('places_total', 'places_coord_dupes', 'places_name_dupes', 'routes_place_links', 'routes_by_source'):
+              if s['id'] in ('places_total', 'places_coord_dupes', 'places_name_dupes', 'routes_place_links', 'routes_by_source', 'routes_total', 'routes_name_dupes'):
                   print(f"\n════ {s['title']} ════")
                   for row in s['rows'][:20]:
                       print('  ' + ' | '.join(f"{k}={v}" for k, v in row.items()))

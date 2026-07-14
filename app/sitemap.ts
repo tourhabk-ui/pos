@@ -33,6 +33,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Статические страницы
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE,                            lastModified: new Date(),  changeFrequency: 'hourly',  priority: 1.0 },
+    { url: `${BASE}/places`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.9 },
     { url: `${BASE}/routes`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.9 },
     { url: `${BASE}/map`,                  lastModified: STABLE,      changeFrequency: 'daily',   priority: 0.85 },
     { url: `${BASE}/safety`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.9 },

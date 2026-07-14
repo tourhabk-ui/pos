@@ -65,18 +65,19 @@ const SECTIONS: SectionQuery[] = [
   },
   {
     id: 'places_name_dupes',
-    title: 'Места-дубли по нормализованному имени (ё=е, без регистра)',
+    title: 'Места-дубли по нормализованному имени (видимые, ё=е, без регистра)',
     sql: `SELECT lower(translate(name,'Ёё','Ее')) AS norm_name,
                  COUNT(*)::int AS n,
                  array_agg(id ORDER BY id) AS ids,
                  array_agg(name ORDER BY id) AS names
           FROM places
+          WHERE is_visible
           GROUP BY 1 HAVING COUNT(*) > 1
           ORDER BY n DESC, norm_name LIMIT 100`,
   },
   {
     id: 'places_coord_dupes',
-    title: 'Места-дубли по координатам (< ~300 м, разные записи)',
+    title: 'Места-дубли по координатам (видимые, < ~300 м, разные записи)',
     sql: `SELECT a.id AS id_a, a.name AS name_a, b.id AS id_b, b.name AS name_b,
                  round((sqrt(power((a.lat-b.lat)*111.32,2)+power((a.lng-b.lng)*63.5,2)))::numeric, 2) AS km
           FROM places a
@@ -84,7 +85,18 @@ const SECTIONS: SectionQuery[] = [
             AND b.lat BETWEEN a.lat - 0.003 AND a.lat + 0.003
             AND b.lng BETWEEN a.lng - 0.005 AND a.lng + 0.005
           WHERE a.lat IS NOT NULL AND a.lng IS NOT NULL
+            AND a.is_visible AND b.is_visible
           ORDER BY km LIMIT 100`,
+  },
+  {
+    id: 'places_by_type',
+    title: 'Места по типу (видимые) — как фильтры на /places',
+    sql: `SELECT COALESCE(NULLIF(location_type,''), '(без типа)') AS location_type,
+                 COUNT(*)::int AS n
+          FROM places
+          WHERE is_visible
+          GROUP BY 1
+          ORDER BY n DESC`,
   },
   {
     id: 'places_thin',
@@ -130,11 +142,12 @@ const SECTIONS: SectionQuery[] = [
   },
   {
     id: 'routes_name_dupes',
-    title: 'Маршруты-дубли по нормализованному названию',
+    title: 'Маршруты-дубли по нормализованному названию (видимые)',
     sql: `SELECT lower(translate(title,'Ёё','Ее')) AS norm_title,
                  COUNT(*)::int AS n,
                  array_agg(COALESCE(source_name,'?') ORDER BY id) AS sources
           FROM kamchatka_routes
+          WHERE is_visible
           GROUP BY 1 HAVING COUNT(*) > 1
           ORDER BY n DESC, norm_title LIMIT 100`,
   },
