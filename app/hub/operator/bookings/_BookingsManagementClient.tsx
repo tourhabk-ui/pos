@@ -425,6 +425,15 @@ export default function BookingsManagementClient() {
                   <button onClick={() => setDetail(b)} className="text-xs px-2 py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded transition-colors">
                     Детали
                   </button>
+                  <a
+                    href={`/api/hub/operator/bookings/${b.id}/document`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-2 py-1 border border-[var(--border)] hover:bg-[var(--bg-hover)] text-[var(--ocean)] rounded transition-colors"
+                    title="Ваучер с листом безопасности (PDF)"
+                  >
+                    Документ
+                  </a>
                 </div>
               </div>
             ))}
