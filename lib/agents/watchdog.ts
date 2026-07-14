@@ -258,8 +258,8 @@ async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
       SELECT COUNT(*)::text AS count
-      FROM sos_signals
-      WHERE status = 'active'
+      FROM sos_events
+      WHERE status NOT IN ('resolved', 'false_alarm')
         AND created_at < NOW() - INTERVAL '30 minutes'
     `);
     const count = parseInt(rows[0]?.count ?? '0', 10);
@@ -269,7 +269,10 @@ async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
       count,
       details: `ВНИМАНИЕ: ${count} активных SOS-сигналов без реакции > 30 мин.`,
     };
-  } catch {
+  } catch (err) {
+    // SOS-чек не имеет права падать молча: сломанный запрос здесь уже прятал
+    // мёртвый алерт месяцами (FROM sos_signals — таблицы не существует)
+    console.error('[watchdog] checkIgnoredSOS failed:', err);
     return null;
   }
 }
