@@ -17,7 +17,7 @@
 | Deploy | Timeweb Cloud — приложение **Fair Polydeuces** (репо: `tourhabk-ui/pos`) |
 | CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
 
-**Масштаб:** 199 стр / 601 API routes / 214 компонентов / 244 миграций
+**Масштаб:** 202 стр / 613 API routes / 214 компонентов / 250 миграций
 
 **Ключевые файлы перед стартом:**
 - `lib/db-pool.ts` — `import { pool } from` (named, не default)

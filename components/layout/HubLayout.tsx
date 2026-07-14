@@ -10,6 +10,7 @@ import { Sun, Moon, User } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import Logo from '@/components/shared/Logo';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
+import { RoleSwitcher } from './RoleSwitcher';
 
 interface SidebarItem {
   href: string;
@@ -75,6 +76,7 @@ export function HubLayout({ children, sidebarItems, sidebarTitle, requiredRole }
             {sidebarTitle}
           </h1>
           <div className="flex items-center gap-3">
+            <RoleSwitcher />
             <button onClick={toggleTheme} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

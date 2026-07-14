@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { verifyToken, extractToken } from '@/lib/auth/jwt';
 import { ApiResponse } from '@/types';
+import { ownedRoles } from '@/lib/auth/role-switch';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     }
 
     const user = userResult.rows[0];
+    const prefs = (user.preferences ?? {}) as { roles?: unknown };
 
     return NextResponse.json({
       success: true,
@@ -57,7 +59,9 @@ export async function GET(request: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
-        roles: [user.role],
+        // Реальные роли пользователя (preferences.roles ∪ активная) — нужны
+        // гарду кабинетов и переключателю ролей, раньше был хардкод [role].
+        roles: ownedRoles(prefs.roles, (user.role as string | null) ?? null),
         preferences: user.preferences || {},
         createdAt: user.created_at,
         updatedAt: user.updated_at
