@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
       timestamp: report.timestamp,
       raw_signals: report.raw_count,
       findings: report.domains.length,
+      // Разбивка исходов — видно, findings:0 из-за тишины рынка или сбоя AI.
+      breakdown: report.breakdown,
       duration_ms: report.duration_ms,
       domains: report.domains.map(d => ({
         domain: d.domain,

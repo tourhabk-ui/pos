@@ -15,6 +15,7 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
 import { jaccardSimilarity } from '@/lib/utils/text-similarity';
+import { parseProposalArray } from '@/lib/agents/agent-diagnostics';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -36,6 +37,10 @@ export interface ScoutInnovatorResult {
   intel_entries: number;
   duration_ms: number;
   issues_created: string[];
+  /** Почему issues не создались (для диагностики молчания): no_intel / ai_call_failed /
+   *  ai_empty / parse_error / ai_empty_array / all_duplicates / all_critic_rejected /
+   *  issue_creation_failed / ok. Видно прямо в HTTP-ответе крон-эндпоинта. */
+  reason?: string;
 }
 
 async function readCodebaseRules(): Promise<string> {
@@ -154,7 +159,7 @@ async function generateStructuredProposals(
   platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
   apiRoutesList: string,
   gitContext?: { git_log?: string; changed_files?: string },
-): Promise<StructuredProposal[]> {
+): Promise<{ proposals: StructuredProposal[]; reason: string }> {
   const gitSection = gitContext?.git_log || gitContext?.changed_files
     ? [
         '',
@@ -225,13 +230,14 @@ ${gitSection}
       timeoutMs: 45_000,
       temperature: 0.4,
     });
-    const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
-    const parsed = JSON.parse(json) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed as StructuredProposal[];
+    const { proposals, reason } = parseProposalArray(raw);
+    if (reason !== 'ok') {
+      console.error(`[scout-innovator] Phase 1 вернул пусто: ${reason} (raw ${raw?.length ?? 0} симв.)`);
+    }
+    return { proposals: proposals as StructuredProposal[], reason };
   } catch (err) {
     console.error('[scout-innovator] Phase 1 AI call failed:', err);
-    return [];
+    return { proposals: [], reason: 'ai_call_failed' };
   }
 }
 
@@ -490,6 +496,7 @@ export async function runScoutInnovator(
       intel_entries: 0,
       duration_ms: Date.now() - start,
       issues_created: [],
+      reason: 'no_intel',
     };
   }
 
@@ -508,7 +515,7 @@ export async function runScoutInnovator(
   ].filter(Boolean).join('\n\n');
 
   // 4. Phase 1 — генерируем структурированные предложения (JSON)
-  const rawProposals = await generateStructuredProposals(
+  const { proposals: rawProposals, reason: phase1Reason } = await generateStructuredProposals(
     repoContext,
     intelContext,
     platformStats,
@@ -524,6 +531,9 @@ export async function runScoutInnovator(
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
       issues_created: [],
+      // phase1Reason различает: ai_call_failed / ai_empty / parse_error /
+      // not_array / ai_empty_array — почему модель не дала предложений.
+      reason: phase1Reason,
     };
   }
 
@@ -562,6 +572,8 @@ export async function runScoutInnovator(
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
       issues_created: [],
+      // Предложения были, но всё отсеяно: дедупом или критиком.
+      reason: skipped_by_critic > 0 && deduped.length > 0 ? 'all_critic_rejected' : 'all_duplicates',
     };
   }
 
@@ -618,5 +630,7 @@ export async function runScoutInnovator(
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,
     issues_created: issueUrls,
+    // Предложения были, но ни одно не превратилось в issue → сбой создания (GitHub API/токен).
+    reason: issueUrls.length === 0 ? 'issue_creation_failed' : 'ok',
   };
 }

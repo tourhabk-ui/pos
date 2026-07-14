@@ -21,6 +21,7 @@
  */
 
 import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { classifyIntelResponse, emptyDomainBreakdown, type DomainStatus } from '@/lib/agents/agent-diagnostics';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
@@ -68,6 +69,9 @@ export interface IntelligenceReport {
   domains:    IntelligenceFinding[];
   raw_count:  number;
   duration_ms: number;
+  /** Исходы анализа по доменам: found / no_signals / ai_empty / parse_error / no_relevant.
+   *  found=0 при ai_empty>0 = деградация AI-провайдера, а не «нет новостей». */
+  breakdown:  Record<DomainStatus, number>;
 }
 
 // ── RSS Sources ──────────────────────────────────────────────────────────────
@@ -476,8 +480,8 @@ async function analyzeSignals(
   domainKey: string,
   config: DomainSource,
   signals: RawSignal[],
-): Promise<IntelligenceFinding | null> {
-  if (signals.length === 0) return null;
+): Promise<{ status: DomainStatus; finding?: IntelligenceFinding }> {
+  if (signals.length === 0) return { status: 'no_signals' };
 
   const snippets = signals
     .slice(0, 12)
@@ -526,34 +530,23 @@ ${config.ai_filter}
 
   try {
     const text = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
-    if (!text) return null;
-
-    // Extract JSON from response (handle potential markdown wrapping)
-    const jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(jsonStr) as {
-      summary: string;
-      urgency: string;
-      action_items: string[];
-    };
-
-    if (parsed.summary === 'null' || !parsed.summary) return null;
-
-    const urgency = ['critical', 'notable', 'informational'].includes(parsed.urgency)
-      ? parsed.urgency as IntelligenceFinding['urgency']
-      : 'informational';
+    const c = classifyIntelResponse(text);
+    if (c.status !== 'found') return { status: c.status };
 
     return {
-      domain: domainKey as IntelligenceFinding['domain'],
-      summary: parsed.summary,
-      signals,
-      urgency,
-      action_items: Array.isArray(parsed.action_items)
-        ? parsed.action_items.slice(0, 3)
-        : [],
+      status: 'found',
+      finding: {
+        domain: domainKey as IntelligenceFinding['domain'],
+        summary: c.summary!,
+        signals,
+        urgency: (c.urgency ?? 'informational') as IntelligenceFinding['urgency'],
+        action_items: c.actionItems ?? [],
+      },
     };
   } catch (err) {
     console.error('[intelligence] AI analysis failed:', err instanceof Error ? err.message : err);
-    return null;
+    // Исключение = провайдер не ответил (в отличие от «модель решила: нерелевантно»).
+    return { status: 'ai_empty' };
   }
 }
 
@@ -619,15 +612,26 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
       }
 
       rawCount += signals.length;
-      const finding = await analyzeSignals(key, config, signals);
-      return finding;
+      return analyzeSignals(key, config, signals);
     })
   );
 
+  // Разбивка исходов по доменам — чтобы «findings: 0» отличать от «AI молчит».
+  const breakdown = emptyDomainBreakdown();
   for (const result of gatherResults) {
-    if (result.status === 'fulfilled' && result.value) {
-      findings.push(result.value);
+    if (result.status === 'fulfilled') {
+      breakdown[result.value.status]++;
+      if (result.value.status === 'found' && result.value.finding) {
+        findings.push(result.value.finding);
+      }
+    } else {
+      // Promise отклонён (сеть/сбор) — считаем как пустой ответ модели.
+      breakdown.ai_empty++;
     }
+  }
+  const aiFailures = breakdown.ai_empty + breakdown.parse_error;
+  if (findings.length === 0 && aiFailures > 0) {
+    console.error(`[intelligence] 0 findings при ${aiFailures} сбоях AI из ${rawCount} сигналов — деградация провайдера, не тишина рынка`);
   }
 
   // Store findings in agent_memory (evo agent)
@@ -690,6 +694,7 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
     domains: findings,
     raw_count: rawCount,
     duration_ms: Date.now() - start,
+    breakdown,
   };
 }
 
