@@ -15,7 +15,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { Flame, Snowflake, Waves, Droplets, Trees, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data } from './data';
+
+const ELEMENT_ICON: Record<string, LucideIcon> = {
+  fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
+};
 
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
 
@@ -330,16 +335,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         {elements.length > 0 && (
           <section>
             <div className="shead"><span className="num">IV</span><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
-            <div className="index">
-              {elements.map((el, i) => (
-                <Link className="erow" href={el.href} key={el.key}>
-                  <span className="enum">{String(i + 1).padStart(2, '0')}</span>
-                  <span className={`esw sw-${el.key}`} />
-                  <b>{el.label}</b>
-                  <span className="ecnt">{el.count} мест</span>
-                  <span className="earr">→</span>
-                </Link>
-              ))}
+            <div className="elements">
+              {elements.map((el, i) => {
+                const Icon = ELEMENT_ICON[el.key] ?? Flame;
+                const wide = elements.length % 2 === 1 && i === elements.length - 1;
+                return (
+                  <Link className={`etile et-${el.key}`} href={el.href} key={el.key}
+                    style={wide ? { gridColumn: 'span 2' } : undefined}>
+                    <span className="glass">
+                      <Icon className="eicon" size={24} strokeWidth={1.6} aria-hidden />
+                      <b>{el.label}</b>
+                      <span className="ecnt">{el.count} мест</span>
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
@@ -555,18 +565,37 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .guide .acts{margin-top:14px;display:flex;gap:22px;align-items:center}
 .v7 .guide .acts a{font:600 10px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--pine);border-bottom:1px solid color-mix(in srgb,var(--pine) 35%,transparent);padding-bottom:3px;cursor:pointer}
 .v7 .guide .acts a.lead{color:var(--shroom);border-bottom-color:color-mix(in srgb,var(--shroom) 45%,transparent)}
-/* стихии */
-.v7 .index .erow{display:flex;align-items:center;gap:14px;padding:13px 2px;border-bottom:1px solid var(--hair-soft);transition:padding-left .2s}
-.v7 .index .erow:first-child{border-top:1px solid var(--hair-soft)}
-.v7 .index .erow:active{padding-left:8px}
-.v7 .index .enum{font:400 9.5px/1 var(--fm);color:var(--faint);width:20px}
-.v7 .index .esw{width:34px;height:24px;flex:none}
-.v7 .sw-fire{background:linear-gradient(135deg,#8A3B28,#4A1F15)}.v7 .sw-snow{background:linear-gradient(135deg,#D7E4EC,#8FA9BC)}
-.v7 .sw-ocean{background:linear-gradient(135deg,#79B7C7,#2E657C)}.v7 .sw-therm{background:linear-gradient(135deg,#D9C9A8,#8FB8AE)}
-.v7 .sw-nature{background:linear-gradient(135deg,#7FA36B,#3A6144)}
-.v7 .index b{font:600 14px/1.2 var(--fd)}
-.v7 .index .ecnt{font:400 10px/1 var(--fm);color:var(--faint);margin-left:auto}
-.v7 .index .earr{font:400 11px/1 var(--fb);color:var(--tide)}
+/* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
+.v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
+  box-shadow:0 6px 20px rgba(0,0,0,.14);transition:transform .18s,box-shadow .28s}
+.v7 .etile::before{content:"";position:absolute;inset:0;z-index:-1}
+.v7 .et-fire::before{background:radial-gradient(120% 90% at 30% 15%,#D46A3E 0%,#8A3B28 45%,#3E1710 100%)}
+.v7 .et-snow::before{background:radial-gradient(120% 90% at 30% 15%,#DCEAF3 0%,#8FB4CC 45%,#3E5C72 100%)}
+.v7 .et-ocean::before{background:radial-gradient(120% 90% at 30% 15%,#7FC1D2 0%,#2E8CA3 45%,#123E4C 100%)}
+.v7 .et-therm::before{background:radial-gradient(120% 90% at 30% 15%,#E4CE9E 0%,#B4761F 48%,#5A3B0E 100%)}
+.v7 .et-nature::before{background:radial-gradient(120% 90% at 30% 15%,#8FBE6E 0%,#4E8C5B 45%,#234A31 100%)}
+.v7 .etile .glass{position:absolute;inset:7px;border-radius:16px;padding:13px 14px;display:flex;flex-direction:column;gap:3px;
+  justify-content:flex-end;color:#fff;background:rgba(12,16,15,.24);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.v7 .etile .eicon{color:#fff;margin-bottom:auto;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
+.v7 .etile b{font:600 16px/1.1 var(--fd);color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
+.v7 .etile .ecnt{font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
+.v7 .etile:active{transform:scale(.97)}
+/* подсветка-свечение по стихии */
+.v7 .et-fire{box-shadow:0 8px 24px rgba(180,72,46,.42)}
+.v7 .et-snow{box-shadow:0 8px 24px rgba(120,160,190,.42)}
+.v7 .et-ocean{box-shadow:0 8px 24px rgba(46,140,163,.45)}
+.v7 .et-therm{box-shadow:0 8px 24px rgba(180,118,31,.42)}
+.v7 .et-nature{box-shadow:0 8px 24px rgba(78,140,91,.42)}
+@media (hover:hover){
+  .v7 .etile:hover{transform:translateY(-2px)}
+  .v7 .et-fire:hover{box-shadow:0 12px 34px rgba(180,72,46,.62)}
+  .v7 .et-snow:hover{box-shadow:0 12px 34px rgba(120,160,190,.62)}
+  .v7 .et-ocean:hover{box-shadow:0 12px 34px rgba(46,140,163,.65)}
+  .v7 .et-therm:hover{box-shadow:0 12px 34px rgba(180,118,31,.62)}
+  .v7 .et-nature:hover{box-shadow:0 12px 34px rgba(78,140,91,.62)}
+}
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
 .v7 .dataline::-webkit-scrollbar{display:none}
