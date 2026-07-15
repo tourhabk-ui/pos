@@ -243,7 +243,10 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
                   {safety.alerts.map((a, i) => (
                     <li key={i}>
                       <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
-                      <span className="atx">{a.title}</span>
+                      <span className="atx">
+                        {a.title}
+                        {a.description ? <span className="adesc">{a.description}</span> : null}
+                      </span>
                       <span className="ago">{fmtAgo(a.at)}</span>
                     </li>
                   ))}
@@ -670,6 +673,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .alerts li i{width:6px;height:6px;border-radius:50%;flex:none;align-self:center}
 .v7 .alerts i.sev-hi{background:var(--brusnika)}.v7 .alerts i.sev-mid{background:var(--amber)}.v7 .alerts i.sev-lo{background:var(--tide)}
 .v7 .alerts .atx{font:500 12px/1.45 var(--fb);flex:1}
+.v7 .alerts .adesc{display:block;margin-top:3px;font:400 10.5px/1.4 var(--fb);color:var(--faint)}
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */

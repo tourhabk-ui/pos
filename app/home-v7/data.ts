@@ -17,6 +17,7 @@ import { getSeismicFeed, type SeismicEvent } from '@/lib/services/seismic-feed';
 
 export interface SafetyAlert {
   title: string;
+  description: string | null;
   type: string | null;
   severity: number;
   at: string | null;
@@ -85,10 +86,12 @@ const ACC_RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
 async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
-      query<{ title: string; alert_type: string | null; severity: number; created_at: string }>(
+      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string }>(
         // Землетрясения показываем отдельным блоком «Пульс полуострова»,
         // поэтому из ленты предупреждений их исключаем (иначе дубль).
-        `SELECT title, alert_type, severity::int AS severity, created_at::text
+        // description несёт важную деталь (объезд при закрытии дороги, окна
+        // проезда по пропускам) — без неё турист видит только факт закрытия.
+        `SELECT title, description, alert_type, severity::int AS severity, created_at::text
            FROM external_alerts
           WHERE expires_at > NOW()
             AND alert_type IS DISTINCT FROM 'earthquake'
@@ -110,6 +113,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
 
     const alerts = alertsRes.rows.map((r) => ({
       title: r.title,
+      description: r.description,
       type: r.alert_type,
       severity: r.severity ?? 0,
       at: r.created_at,
