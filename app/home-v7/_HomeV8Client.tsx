@@ -50,7 +50,7 @@ function magColor(m: number): string {
 }
 const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
-export default function HomeV8Client({ data }: { data: HomeV8Data }) {
+export default function HomeV8Client({ data, preview = false }: { data: HomeV8Data; preview?: boolean }) {
   const { safety, seismic, radar, zones, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
@@ -176,9 +176,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* панель превью */}
+      {/* панель темы (в превью — с меткой) */}
       <div className="protobar">
-        <span className="tag">Превью · v8 «Воронка»</span>
+        <span className="tag">{preview ? 'Превью · v8 «Воронка»' : ''}</span>
         <div className="seg" id="themeSeg">
           <button aria-pressed={theme === 'light'} onClick={() => setTheme('light')}>Днём</button>
           <button aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>В поле</button>
@@ -387,12 +387,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        <div className="note">
-          Превью Главной v8 на /home-v7. Живые блоки на реальных данных: безопасность — KVERT (volcano_status)
-          и external_alerts; сейсмособытия — КБГС РАН / USGS (общий слой seismic-feed); кольцо —
-          location_real_time_status; платы — queryCatalog; лид-форма — POST /api/leads. Фейкового компаса и
-          не подключённых эко-баллов нет — только настоящие данные. Живая Главная (/) не тронута.
-        </div>
+        {preview && (
+          <div className="note">
+            Превью Главной v8 на /home-v7. Живые блоки на реальных данных: безопасность — KVERT (volcano_status)
+            и external_alerts; сейсмособытия — КБГС РАН / USGS (общий слой seismic-feed); кольцо —
+            location_real_time_status; платы — queryCatalog; лид-форма — POST /api/leads. Фейкового компаса и
+            не подключённых эко-баллов нет — только настоящие данные.
+          </div>
+        )}
       </div>
 
       {/* SOS — красный, отдельно от коммерции */}
