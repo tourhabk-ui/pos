@@ -18,5 +18,5 @@ export const metadata: Metadata = {
 
 export default async function HomeV7Page() {
   const data = await getHomeV8Data();
-  return <HomeV8Client data={data} />;
+  return <HomeV8Client data={data} preview />;
 }
