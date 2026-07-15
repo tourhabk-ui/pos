@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Flame, Snowflake, Waves, Droplets, Trees, type LucideIcon } from 'lucide-react';
-import type { HomeV8Data } from './data';
+import type { HomeV8Data, SafetyAlert } from './data';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -238,20 +238,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
           {(safety.alerts.length > 0 || seismic.events.length > 0) && (
             <div className="safety">
-              {safety.alerts.length > 0 && (
-                <ul className="alerts">
-                  {safety.alerts.map((a, i) => (
-                    <li key={i}>
-                      <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
-                      <span className="atx">
-                        {a.title}
-                        {a.description ? <span className="adesc">{a.description}</span> : null}
-                      </span>
-                      <span className="ago">{fmtAgo(a.at)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {safety.alerts.length > 0 && <AlertsTicker alerts={safety.alerts} />}
               {seismic.events.length > 0 && (
                 <SeismicPulse events={seismic.events} source={SRC_LABEL[seismic.source]} />
               )}
@@ -523,6 +510,38 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
 interface PulseQuake { magnitude: number; place: string; time: number; depth: number | null }
 
 /**
+ * Живая лента предупреждений — компактное окно ~4 строки с плавной вертикальной
+ * прокруткой (экономит место на мобильном). Только актуальные алерты (фильтр и
+ * срок годности — на стороне data.ts). При 1-2 записях не крутим — статичный
+ * список; при большем числе — бесшовный цикл (список продублирован), пауза по
+ * тапу/наведению и при prefers-reduced-motion.
+ */
+function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
+  const scroll = alerts.length > 2;
+  const row = (a: SafetyAlert, i: number, dup: boolean) => (
+    <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined}>
+      <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
+      <span className="atx">
+        {a.title}
+        {a.description ? <span className="adesc">{a.description}</span> : null}
+      </span>
+      <span className="ago">{fmtAgo(a.at)}</span>
+    </li>
+  );
+  return (
+    <div className={`ticker${scroll ? ' scroll' : ''}`}>
+      <ul
+        className="alerts ticker-track"
+        style={scroll ? { animationDuration: `${Math.max(16, alerts.length * 5)}s` } : undefined}
+      >
+        {alerts.map((a, i) => row(a, i, false))}
+        {scroll && alerts.map((a, i) => row(a, i, true))}
+      </ul>
+    </div>
+  );
+}
+
+/**
  * «Пульс полуострова» — реальные сейсмособытия (КБГС РАН / USGS) ритмом, а не
  * списком: сильнейший толчок крупно + столбики по магнитуде (свежие справа).
  * Тап по столбику → деталь. Столбики = настоящие события, не синтетика.
@@ -667,14 +686,21 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--fb);border:1px solid var(--hair);padding:7px 10px;border-radius:999px}
 .v7 .vchip i{width:7px;height:7px;border-radius:50%}
 .v7 .vchip small{font:400 9px/1 var(--fm);color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+/* Живая лента предупреждений — компактное окно ~4 строки с вертикальной прокруткой */
+.v7 .ticker{position:relative;overflow:hidden}
+.v7 .ticker.scroll{height:76px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%)}
+.v7 .ticker.scroll .ticker-track{animation:v7-ticker linear infinite;will-change:transform}
+.v7 .ticker.scroll:hover .ticker-track,.v7 .ticker.scroll:focus-within .ticker-track{animation-play-state:paused}
+@keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
 .v7 .alerts{list-style:none}
-.v7 .alerts li{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--hair-soft)}
-.v7 .alerts li:first-child{border-top:0}
+.v7 .alerts li{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--hair-soft)}
+.v7 .ticker:not(.scroll) .alerts li:first-child{border-top:0}
 .v7 .alerts li i{width:6px;height:6px;border-radius:50%;flex:none;align-self:center}
 .v7 .alerts i.sev-hi{background:var(--brusnika)}.v7 .alerts i.sev-mid{background:var(--amber)}.v7 .alerts i.sev-lo{background:var(--tide)}
-.v7 .alerts .atx{font:500 12px/1.45 var(--fb);flex:1}
-.v7 .alerts .adesc{display:block;margin-top:3px;font:400 10.5px/1.4 var(--fb);color:var(--faint)}
+.v7 .alerts .atx{font:500 12px/1.4 var(--fb);flex:1}
+.v7 .alerts .adesc{display:block;margin-top:2px;font:400 10.5px/1.35 var(--fb);color:var(--faint)}
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){.v7 .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.v7 .ticker.scroll .ticker-track{animation:none}}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 .v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
