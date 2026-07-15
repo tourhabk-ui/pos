@@ -528,9 +528,16 @@ ${config.ai_filter}
     const text = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
     if (!text) return null;
 
-    // Extract JSON from response (handle potential markdown wrapping)
-    const jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(jsonStr) as {
+    // Устойчивый разбор: если премиум-модель недоступна, callAIWithModelDirect
+    // уходит в waterfall (свободные модели), а те часто добавляют prose/markdown
+    // вокруг JSON. Вытягиваем первый объект {...}, а не парсим всю строку — иначе
+    // любой текст вокруг ломал JSON.parse, и находка молча терялась (findings: 0).
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) {
+      console.error(`[intelligence] нет JSON-объекта в ответе (len=${text.length}, head="${text.slice(0, 80)}")`);
+      return null;
+    }
+    const parsed = JSON.parse(m[0]) as {
       summary: string;
       urgency: string;
       action_items: string[];

@@ -929,12 +929,49 @@ export async function callGeminiDirect(messages: ChatMessage[]): Promise<string 
   } catch { return null; }
 }
 
-// ── Gemini Vision (image analysis) via OpenRouter ─────────────
+// ── Gemini Vision (image analysis): нативный Gemini → OpenRouter ─────────────
+// Приоритет 1 — нативный Google Gemini API (GEMINI_API_KEY): не зависит от
+// OpenRouter, поэтому фото читается даже если ключ/модель OpenRouter отвалились
+// (именно из-за OpenRouter-only Кузьмич «перестал узнавать фото»).
+// Приоритет 2 — тот же Gemini через OpenRouter (как было).
 export async function callGeminiVision(
   imageBase64: string,
   mimeType: string,
   prompt: string,
 ): Promise<string | null> {
+  const systemHint = 'Ты — эксперт по природе и достопримечательностям Камчатки. Отвечай на русском, кратко и точно. Определяй вулканы, животных, растения, локации.';
+
+  // Приоритет 1: нативный Gemini API.
+  const geminiKey = getGeminiKey();
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemHint }] },
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mimeType, data: imageBase64 } },
+                { text: prompt },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 600 },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text?.trim()) return text.trim();
+      }
+    } catch { /* переходим на OpenRouter */ }
+  }
+
+  // Приоритет 2 (fallback): Gemini через OpenRouter.
   const apiKey = getOpenRouterKey();
   if (!apiKey) return null;
 
