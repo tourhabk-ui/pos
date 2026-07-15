@@ -1,4 +1,4 @@
 {
-  "note": "Маркер запуска ai-debug.yml: правка этого файла в main запускает диагностику AI-конвейера (debug-waterfall + E2E chat probe). run 2: инцидент 11.07 — проверка живого пути /api/ai/chat после провала waterfall на скриншоте владельца.",
-  "run": 2
+  "note": "Маркер запуска ai-debug.yml: правка этого файла в main запускает диагностику AI-конвейера (debug-waterfall + E2E chat probe). run 3: проверка после замены OPENROUTER_API_KEY в env Timeweb — какой провайдер отвечает + живой путь Кузьмича.",
+  "run": 3
 }
