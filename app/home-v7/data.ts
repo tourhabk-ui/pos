@@ -261,7 +261,12 @@ function quakeLevel(m: number): HazardLevel {
   return m >= 5 ? 'critical' : m >= 4 ? 'danger' : 'warning';
 }
 
-// Опасные точки для радара: активные вулканы (KVERT) + термальные/гейзеры + сейсмика с координатами.
+// Радар — только ОСТРЫЕ, настоящие опасности: активные вулканы (KVERT).
+// Сейсмика добавляется отдельно (события с координатами). Термальные источники
+// и гейзеры НЕ помечаем опасностью: большинство — купальные/тёплые, это
+// достопримечательность, а не угроза; блиц «до 95°C» на каждом источнике — и
+// неправда, и «крик волка», обесценивающий настоящую опасность (trust-first).
+// Температурная осторожность источника — контекст на карточке места, не радар.
 async function fetchRadarBase(): Promise<Hazard[]> {
   const hazards: Hazard[] = [];
   try {
@@ -277,23 +282,6 @@ async function fetchRadarBase(): Promise<Hazard[]> {
         level: v.acc === 'yellow' ? 'danger' : 'critical',
         kind: 'volcano', label: v.name,
         note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
-      });
-    }
-  } catch { /* пропускаем блок */ }
-  try {
-    const therm = await query<{ name: string; lat: string; lng: string; location_type: string }>(
-      `SELECT name, lat::text, lng::text, location_type
-         FROM places
-        WHERE location_type IN ('hot_spring','geyser')
-          AND is_visible = TRUE AND lat IS NOT NULL AND lng IS NOT NULL
-        LIMIT 80`,
-    );
-    for (const t of therm.rows) {
-      hazards.push({
-        lat: parseFloat(t.lat), lng: parseFloat(t.lng),
-        level: t.location_type === 'hot_spring' ? 'danger' : 'warning',
-        kind: 'thermal', label: t.name,
-        note: t.location_type === 'hot_spring' ? 'Термальные источники — вода до 95°C.' : 'Гейзеры — держитесь на тропах.',
       });
     }
   } catch { /* пропускаем блок */ }
