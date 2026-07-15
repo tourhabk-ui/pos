@@ -250,6 +250,7 @@ const MARKUP = `
 <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 17h6a4 4 0 0 0 0-8h-4"/></symbol>
 <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 3 19h18Z"/><path d="M12 10v4m0 2.6v.2"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></symbol>
 <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19C4 13 8 5 19 5c0 9-5 13-11 13H5Z"/><path d="M5 19c2-5 5-8 10-10"/></symbol>
 <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.4 2.4L15.5 9.6"/></symbol>
@@ -401,7 +402,17 @@ const MARKUP = `
   </section>
 
   <section>
-    <div class="shead"><span class="num">VII</span><h2>Собрать поездку</h2><span class="line"></span></div>
+    <div class="shead"><span class="num">VII</span><h2>Из полевого архива</h2><span class="line"></span><a class="all" href="#">Все</a></div>
+    <div class="gallery">
+      <a class="frame" href="#"><span class="img"><span class="art" style="aspect-ratio:1/1.32;display:block;background:radial-gradient(60% 40% at 50% 26%,#E7EDF1 0%,transparent 60%),linear-gradient(180deg,#93AFC7 0%,#4C77A3 52%,#2C5078 100%)"></span></span><figcaption><b>Озеро в кальдере</b><span>IX.17</span></figcaption></a>
+      <a class="frame" href="#"><span class="img"><span class="art" style="aspect-ratio:1/1;display:block;background:radial-gradient(45% 40% at 55% 45%,#4A5C8C 0%,rgba(74,92,140,.3) 45%,transparent 70%),linear-gradient(180deg,#7FA36B 0%,#517F4C 60%,#375C3E 100%)"></span></span><figcaption><b>Жимолость</b><span>VII.21</span></figcaption></a>
+      <a class="frame" href="#"><span class="img"><span class="art" style="aspect-ratio:1/1.15;display:block;background:linear-gradient(180deg,#C3CFD6 0%,#8CA0AD 40%,#40525D 75%,#232E35 100%)"></span></span><figcaption><b>Косатка</b><span>V.18</span></figcaption></a>
+      <a class="frame" href="#"><span class="img"><span class="art" style="aspect-ratio:1/1.08;display:block;background:radial-gradient(50% 40% at 45% 55%,#A64038 0%,rgba(166,64,56,.28) 45%,transparent 68%),linear-gradient(180deg,#94B36A 0%,#5E8752 60%,#3D6345 100%)"></span></span><figcaption><b>Брусника</b><span>VIII.25</span></figcaption></a>
+    </div>
+  </section>
+
+  <section>
+    <div class="shead"><span class="num">VIII</span><h2>Собрать поездку</h2><span class="line"></span></div>
     <div class="lead" id="leadBox">
       <h3>Не знаете, <em>с чего начать</em>?</h3>
       <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
@@ -415,11 +426,11 @@ const MARKUP = `
   </section>
 
   <section>
-    <div class="shead"><span class="num">VIII</span><h2>Разделы</h2><span class="line"></span></div>
+    <div class="shead"><span class="num">IX</span><h2>Разделы</h2><span class="line"></span></div>
     <div class="hubline"><a href="#">Туристам</a><a href="#">Рыбалка</a><a href="#">Операторам</a><a href="#">Гидам</a><a href="#">Жильё</a><a href="#">Снаряжение</a><a href="#">Трансферы</a></div>
   </section>
 
-  <div class="note">Превью v7 «Воронка» на /home-v7. Данные пока иллюстративные — следующий шаг привязать платы к places, кольцо/статусы к KVERT, лид-форму к lead-processor. Живая Главная (/) не тронута.</div>
+  <div class="note">Превью v7 «Воронка» на /home-v7. Касса-воронка: «Хочу тур» в шапке (единственный залитый элемент), цена + «+N эко» + CTA на каждой плате, «Подобрать тур» у Кузьмича, лид-форма перед разделами. Данные пока иллюстративные — следующий шаг привязать платы к places, кольцо/статусы к KVERT, лид-форму к lead-processor. ВАЖНО: эко-баллы («140») подключать только после того, как замкнут цикл начисления (бронь completed → eco_points_reward; чек-ин у эко-точки) — иначе цифра нечестна; эко-чип показывать лишь при балансе >0. Живая Главная (/) не тронута.</div>
 </div>
 
 <button class="sos" id="sosBtn" aria-label="SOS — удерживайте">SOS<svg class="hold" viewBox="0 0 72 72"><circle id="holdArc" cx="36" cy="36" r="34"/></svg></button>
