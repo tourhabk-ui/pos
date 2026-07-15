@@ -225,8 +225,16 @@ ${gitSection}
       timeoutMs: 45_000,
       temperature: 0.4,
     });
-    const json = raw.trim().replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
-    const parsed = JSON.parse(json) as unknown;
+    // Устойчивый разбор: премиум-модель может быть недоступна и callAIWithModel
+    // уходит в waterfall (свободные модели), а те часто оборачивают JSON в prose/
+    // markdown. Вытягиваем первый массив [...] из ответа, а не парсим всю строку —
+    // иначе любое слово вокруг ломало JSON.parse и предложение молча терялось.
+    const m = raw.match(/\[[\s\S]*\]/);
+    if (!m) {
+      console.error(`[scout-innovator] Phase 1: в ответе нет JSON-массива (len=${raw.length}, head="${raw.slice(0, 80)}")`);
+      return [];
+    }
+    const parsed = JSON.parse(m[0]) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed as StructuredProposal[];
   } catch (err) {
