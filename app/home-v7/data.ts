@@ -91,10 +91,18 @@ async function fetchSafety(): Promise<SafetySnapshot> {
         // поэтому из ленты предупреждений их исключаем (иначе дубль).
         // description несёт важную деталь (объезд при закрытии дороги, окна
         // проезда по пропускам) — без неё турист видит только факт закрытия.
-        `SELECT title, description, alert_type, severity::int AS severity, created_at::text
-           FROM external_alerts
-          WHERE expires_at > NOW()
-            AND alert_type IS DISTINCT FROM 'earthquake'
+        // DISTINCT ON (заголовок) — ingest иногда заводит один и тот же алерт
+        // дважды (RSS без дедупа); в ленте показываем по одной строке на тему,
+        // берём самую свежую и severe.
+        `SELECT title, description, alert_type, severity, created_at::text
+           FROM (
+             SELECT DISTINCT ON (lower(title))
+                    title, description, alert_type, severity::int AS severity, created_at
+               FROM external_alerts
+              WHERE expires_at > NOW()
+                AND alert_type IS DISTINCT FROM 'earthquake'
+              ORDER BY lower(title), severity DESC, created_at DESC
+           ) t
           ORDER BY severity DESC, created_at DESC
           LIMIT 5`,
       ),
