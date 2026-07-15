@@ -51,7 +51,7 @@ function magColor(m: number): string {
 const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, seismic, zones, plates, feed, stats, elements } = data;
+  const { safety, seismic, radar, zones, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -170,7 +170,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   };
 
   const openZones = zones.total > 0 ? zones.open : null;
-  const hasSafety = safety.volcanoes.length > 0 || safety.alerts.length > 0;
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
   return (
@@ -231,21 +230,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
       <div className="wrap">
 
-        {/* I. БЕЗОПАСНОСТЬ — только реальные данные */}
+        {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section>
-          <div className="shead"><span className="num">I</span><h2>Сводка безопасности</h2><span className="line" /><Link className="all" href="/map">Карта</Link></div>
-          {hasSafety ? (
+          <div className="shead"><span className="num">I</span><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/map">Карта</Link></div>
+
+          <RadarScope hazards={radar.hazards} center={radar.center} />
+
+          {(safety.alerts.length > 0 || seismic.events.length > 0) && (
             <div className="safety">
-              {safety.volcanoes.length > 0 && (
-                <div className="volc">
-                  {safety.volcanoes.map((v) => (
-                    <span className="vchip" key={v.name}>
-                      <i style={{ background: ACC_VAR[v.acc] ?? 'var(--muted)' }} />
-                      {v.name}<small>{ACC_LABEL[v.acc] ?? v.acc}</small>
-                    </span>
-                  ))}
-                </div>
-              )}
               {safety.alerts.length > 0 && (
                 <ul className="alerts">
                   {safety.alerts.map((a, i) => (
@@ -257,27 +249,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                   ))}
                 </ul>
               )}
-              <div className="src">Источник: КВЕРТ · Камчатское УГМС{safety.updatedAt ? ` · обновлено ${fmtAgo(safety.updatedAt)}` : ''}</div>
-            </div>
-          ) : (
-            <div className="safety calm">
-              <b>Повышенных предупреждений сейчас нет.</b>
-              <span>Следим за KVERT и оперативными сводками — как только появится риск, покажем здесь.</span>
-            </div>
-          )}
-
-          {seismic.events.length > 0 && (
-            <div className="seismo">
-              <div className="scap"><span>Сейсмособытия · последние</span><span>{SRC_LABEL[seismic.source]}</span></div>
-              <ul className="quakes">
-                {seismic.events.map((q, i) => (
-                  <li key={i}>
-                    <span className="mag" style={{ background: magColor(q.magnitude) }}>{q.magnitude.toFixed(1)}</span>
-                    <span className="qpl">{q.place}</span>
-                    <span className="qmeta">{q.depth != null ? `${Math.round(q.depth)} км · ` : ''}{fmtAgo(new Date(q.time).toISOString())}</span>
-                  </li>
-                ))}
-              </ul>
+              {seismic.events.length > 0 && (
+                <div className="seismo">
+                  <div className="scap"><span>Сейсмособытия · последние</span><span>{SRC_LABEL[seismic.source]}</span></div>
+                  <ul className="quakes">
+                    {seismic.events.map((q, i) => (
+                      <li key={i}>
+                        <span className="mag" style={{ background: magColor(q.magnitude) }}>{q.magnitude.toFixed(1)}</span>
+                        <span className="qpl">{q.place}</span>
+                        <span className="qmeta">{q.depth != null ? `${Math.round(q.depth)} км · ` : ''}{fmtAgo(new Date(q.time).toISOString())}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{safety.updatedAt ? ` · обновлено ${fmtAgo(safety.updatedAt)}` : ''}</div>
             </div>
           )}
         </section>
@@ -440,6 +426,106 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   );
 }
 
+const LEVEL_COLOR: Record<string, string> = {
+  critical: 'var(--brusnika)', danger: 'var(--shroom)', warning: 'var(--amber)',
+};
+const KIND_LABEL: Record<string, string> = { volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика' };
+const MAX_KM = 200; // внешнее кольцо
+
+interface RadarHazard { lat: number; lng: number; level: string; kind: string; label: string; note: string }
+interface Placed extends RadarHazard { x: number; y: number; dist: number }
+
+/**
+ * Радар безопасности: реальные опасные точки (вулканы KVERT, термы, сейсмика)
+ * по настоящему азимуту и расстоянию от центра. Центр — геолокация (если
+ * разрешена) или Петропавловск. Луч-развёртка декоративен поверх реальных
+ * блипов; несуществующих точек не рисуем.
+ */
+function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat: number; lng: number; label: string } }) {
+  const [c, setC] = useState(center);
+  const [geo, setGeo] = useState<'idle' | 'ok' | 'deny'>('idle');
+  const [sel, setSel] = useState<Placed | null>(null);
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { setGeo('deny'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setC({ lat: p.coords.latitude, lng: p.coords.longitude, label: 'Ваше местоположение' }); setGeo('ok'); setSel(null); },
+      () => setGeo('deny'),
+      { timeout: 8000, maximumAge: 300000 },
+    );
+  };
+
+  const R = 92, CX = 100, CY = 100;
+  const kmLat = 111.32, kmLng = 111.32 * Math.cos((c.lat * Math.PI) / 180);
+  const placed: Placed[] = hazards
+    .map((h) => {
+      const north = (h.lat - c.lat) * kmLat;
+      const east = (h.lng - c.lng) * kmLng;
+      const dist = Math.hypot(north, east);
+      return { ...h, dist, x: CX + (east / MAX_KM) * R, y: CY - (north / MAX_KM) * R };
+    })
+    .filter((h) => h.dist <= MAX_KM)
+    .sort((a, b) => (a.level === 'critical' ? -1 : 0) - (b.level === 'critical' ? -1 : 0));
+
+  const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
+
+  return (
+    <div className="radar">
+      <div className="scope">
+        <svg viewBox="0 0 200 200" aria-label="Радар безопасности">
+          <defs>
+            <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="var(--radar)" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          {rings.map((k, i) => (
+            <circle key={i} cx={CX} cy={CY} r={R * k} fill="none" stroke="var(--radar)" strokeOpacity={0.28} strokeWidth={0.8} />
+          ))}
+          <line x1={CX - R} y1={CY} x2={CX + R} y2={CY} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
+          <line x1={CX} y1={CY - R} x2={CX} y2={CY + R} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
+          <text x={CX} y={CY - R - 3} textAnchor="middle" className="rn">С</text>
+          <g className="sweep">
+            <path d={`M ${CX} ${CY} L ${CX} ${CY - R} A ${R} ${R} 0 0 1 ${CX + R * Math.sin(0.7)} ${CY - R * Math.cos(0.7)} Z`} fill="url(#sweepGrad)" />
+            <line x1={CX} y1={CY} x2={CX} y2={CY - R} stroke="var(--radar)" strokeOpacity={0.7} strokeWidth={1} />
+          </g>
+          <circle cx={CX} cy={CY} r={2.4} fill="var(--radar)" />
+          {placed.map((h, i) => (
+            <g key={i} onClick={() => setSel(h)} style={{ cursor: 'pointer' }}>
+              {h.level === 'critical' && <circle cx={h.x} cy={h.y} r={6} className="pulse" fill={LEVEL_COLOR[h.level]} />}
+              <circle cx={h.x} cy={h.y} r={h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6}
+                fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6}
+                style={sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined} />
+            </g>
+          ))}
+        </svg>
+        {placed.length === 0 && <div className="clean">Рядом опасностей нет</div>}
+      </div>
+
+      <div className="rmeta">
+        <div className="rrow">
+          <span className="rc">Центр: <b>{c.label}</b></span>
+          {geo !== 'ok' && <button className="rgeo" onClick={useMyLocation}>Моё местоположение</button>}
+        </div>
+        {geo === 'deny' && <div className="rhint">Геолокация недоступна — показываю от Петропавловска.</div>}
+        {sel ? (
+          <button className="rsel" onClick={() => setSel(null)}>
+            <span className="rdot" style={{ background: LEVEL_COLOR[sel.level] }} />
+            <span className="rtx"><b>{sel.label}</b><span>{KIND_LABEL[sel.kind]} · {Math.round(sel.dist)} км · {sel.note}</span></span>
+          </button>
+        ) : (
+          <div className="rleg">
+            <span><i style={{ background: LEVEL_COLOR.critical }} />критично</span>
+            <span><i style={{ background: LEVEL_COLOR.danger }} />опасно</span>
+            <span><i style={{ background: LEVEL_COLOR.warning }} />внимание</span>
+            <span className="rcount">{placed.length} рядом</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Кольцо готовности: дуга открытых зон (зелёная) на фоне закрытых (красная). Реальные open/total. */
 function Ring({ open, total }: { open: number; total: number }) {
   const N = Math.max(total, 1);
@@ -509,8 +595,34 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .shead h2{font:600 21px/1.2 var(--fd)}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
 .v7 .shead .all{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide)}
+/* радар безопасности */
+.v7{--radar:#3FB950}
+.v7 .radar{border:1px solid var(--hair);border-radius:16px;padding:16px;background:radial-gradient(120% 100% at 50% 0%,color-mix(in srgb,var(--radar) 8%,transparent),transparent 70%)}
+.v7 .radar .scope{position:relative;width:100%;max-width:300px;margin:0 auto}
+.v7 .radar .scope svg{width:100%;height:auto;display:block;overflow:visible}
+.v7 .radar .rn{font:600 8px var(--fb);fill:var(--radar);opacity:.8}
+.v7 .radar .sweep{transform-origin:100px 100px;animation:radarSweep 4.5s linear infinite}
+@keyframes radarSweep{to{transform:rotate(360deg)}}
+.v7 .radar .pulse{animation:radarPulse 1.6s ease-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes radarPulse{0%{opacity:.5;transform:scale(.6)}70%{opacity:0;transform:scale(1.8)}100%{opacity:0}}
+.v7 .radar .clean{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:600 11px/1 var(--fb);letter-spacing:.06em;color:var(--muted);background:var(--bg);padding:6px 10px;border-radius:999px;border:1px solid var(--hair)}
+.v7 .radar .rmeta{margin-top:14px}
+.v7 .radar .rrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.v7 .radar .rc{font:400 10.5px/1.4 var(--fb);color:var(--muted)}
+.v7 .radar .rc b{color:var(--ink);font-weight:600}
+.v7 .radar .rgeo{font:600 9px/1 var(--fb);letter-spacing:.1em;text-transform:uppercase;color:var(--tide);background:none;border:1px solid color-mix(in srgb,var(--tide) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+.v7 .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--faint)}
+.v7 .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.v7 .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--fb);color:var(--muted)}
+.v7 .radar .rleg i{width:7px;height:7px;border-radius:50%}
+.v7 .radar .rleg .rcount{margin-left:auto;font:400 9px/1 var(--fm);color:var(--faint)}
+.v7 .radar .rsel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:var(--bg-hover,color-mix(in srgb,var(--ink) 5%,transparent));border:1px solid var(--hair);border-radius:12px;padding:11px 12px;cursor:pointer;font-family:var(--fb)}
+.v7 .radar .rsel .rdot{width:9px;height:9px;border-radius:50%;flex:none}
+.v7 .radar .rsel .rtx{display:flex;flex-direction:column;gap:3px}
+.v7 .radar .rsel .rtx b{font:600 12.5px/1.2 var(--fd);color:var(--ink)}
+.v7 .radar .rsel .rtx span{font:400 10px/1.4 var(--fb);color:var(--muted)}
 /* безопасность */
-.v7 .safety{border:1px solid var(--hair);padding:16px}
+.v7 .safety{border:1px solid var(--hair);padding:16px;margin-top:14px}
 .v7 .safety.calm{display:flex;flex-direction:column;gap:6px}
 .v7 .safety.calm b{font:600 15px/1.3 var(--fd);color:var(--pine)}
 .v7 .safety.calm span{font:400 11.5px/1.5 var(--fb);color:var(--muted)}

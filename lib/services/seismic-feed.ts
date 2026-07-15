@@ -13,6 +13,8 @@ export interface SeismicEvent {
   place: string;
   time: number;       // epoch ms
   depth: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 export interface SeismicFeed {
   events: SeismicEvent[];
@@ -44,8 +46,9 @@ async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kb
   try {
     const { rows } = await pool.query<{
       id: string; title: string; description: string | null; created_at: Date;
+      magnitude: string | null; lat: string | null; lng: string | null;
     }>(`
-      SELECT id::text, title, description, created_at
+      SELECT id::text, title, description, created_at, magnitude, lat, lng
       FROM external_alerts
       WHERE alert_type = 'earthquake'
         AND created_at > NOW() - INTERVAL '48 hours'
@@ -55,8 +58,17 @@ async function fetchFromKbgsras(): Promise<{ events: SeismicEvent[]; source: 'kb
     if (rows.length === 0) return null;
     const events: SeismicEvent[] = rows
       .map((r) => {
-        const { magnitude, place } = parseTitleKbgsras(r.title);
-        return { id: r.id, magnitude, place, time: new Date(r.created_at).getTime(), depth: parseDepth(r.description) };
+        const parsed = parseTitleKbgsras(r.title);
+        const magnitude = r.magnitude != null ? parseFloat(r.magnitude) : parsed.magnitude;
+        return {
+          id: r.id,
+          magnitude,
+          place: parsed.place,
+          time: new Date(r.created_at).getTime(),
+          depth: parseDepth(r.description),
+          lat: r.lat != null ? parseFloat(r.lat) : null,
+          lng: r.lng != null ? parseFloat(r.lng) : null,
+        };
       })
       .filter((e) => e.magnitude > 0);
     return events.length > 0 ? { events, source: 'kbgsras' } : null;
@@ -82,6 +94,8 @@ async function fetchFromUsgs(): Promise<{ events: SeismicEvent[]; source: 'usgs'
     place: f.properties.place,
     time: f.properties.time,
     depth: f.geometry.coordinates[2],
+    lng: f.geometry.coordinates[0] ?? null,
+    lat: f.geometry.coordinates[1] ?? null,
   }));
   const result = { events, source: 'usgs' as const };
   usgsCache = { data: result, ts: Date.now() };

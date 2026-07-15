@@ -54,15 +54,31 @@ export interface Element { key: string; label: string; count: number; href: stri
 export interface Quake { magnitude: number; place: string; time: number; depth: number | null }
 export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null }
 
+export type HazardLevel = 'critical' | 'danger' | 'warning';
+export type HazardKind = 'volcano' | 'thermal' | 'quake';
+export interface Hazard {
+  lat: number; lng: number;
+  level: HazardLevel; kind: HazardKind;
+  label: string; note: string;
+}
+export interface RadarSnapshot {
+  hazards: Hazard[];
+  center: { lat: number; lng: number; label: string };
+}
+
 export interface HomeV8Data {
   safety: SafetySnapshot;
   seismic: SeismicSnapshot;
+  radar: RadarSnapshot;
   zones: ZonesSnapshot;
   plates: Plate[];
   feed: FeedItem[];
   stats: Stat[];
   elements: Element[];
 }
+
+// Центр радара по умолчанию — Петропавловск-Камчатский (клиент заменит на геолокацию).
+const PETROPAVLOVSK = { lat: 53.0444, lng: 158.6483, label: 'Петропавловск-Камчатский' };
 
 const ACC_RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
 
@@ -230,22 +246,79 @@ async function fetchElements(): Promise<Element[]> {
   }
 }
 
-async function fetchSeismic(): Promise<SeismicSnapshot> {
-  try {
-    const feed = await getSeismicFeed();
-    const events: Quake[] = feed.events
-      .filter((e: SeismicEvent) => Number.isFinite(e.magnitude) && e.magnitude > 0)
-      .slice(0, 4)
-      .map((e) => ({ magnitude: e.magnitude, place: e.place, time: e.time, depth: e.depth }));
-    return { events, source: feed.source, updatedAt: feed.updatedAt };
-  } catch {
-    return { events: [], source: 'none', updatedAt: null };
-  }
+function seismicSnapshot(events: SeismicEvent[], source: SeismicSnapshot['source'], updatedAt: string): SeismicSnapshot {
+  const list: Quake[] = events
+    .filter((e) => Number.isFinite(e.magnitude) && e.magnitude > 0)
+    .slice(0, 4)
+    .map((e) => ({ magnitude: e.magnitude, place: e.place, time: e.time, depth: e.depth }));
+  return { events: list, source, updatedAt };
 }
 
+function quakeLevel(m: number): HazardLevel {
+  return m >= 5 ? 'critical' : m >= 4 ? 'danger' : 'warning';
+}
+
+// Опасные точки для радара: активные вулканы (KVERT) + термальные/гейзеры + сейсмика с координатами.
+async function fetchRadarBase(): Promise<Hazard[]> {
+  const hazards: Hazard[] = [];
+  try {
+    const volc = await query<{ name: string; lat: string; lng: string; acc: string }>(
+      `SELECT p.name, p.lat::text, p.lng::text, vs.aviation_color_code AS acc
+         FROM places p JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
+        WHERE vs.aviation_color_code IN ('yellow','orange','red')
+          AND p.is_visible = TRUE AND p.lat IS NOT NULL AND p.lng IS NOT NULL`,
+    );
+    for (const v of volc.rows) {
+      hazards.push({
+        lat: parseFloat(v.lat), lng: parseFloat(v.lng),
+        level: v.acc === 'yellow' ? 'danger' : 'critical',
+        kind: 'volcano', label: v.name,
+        note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
+      });
+    }
+  } catch { /* пропускаем блок */ }
+  try {
+    const therm = await query<{ name: string; lat: string; lng: string; location_type: string }>(
+      `SELECT name, lat::text, lng::text, location_type
+         FROM places
+        WHERE location_type IN ('hot_spring','geyser')
+          AND is_visible = TRUE AND lat IS NOT NULL AND lng IS NOT NULL
+        LIMIT 80`,
+    );
+    for (const t of therm.rows) {
+      hazards.push({
+        lat: parseFloat(t.lat), lng: parseFloat(t.lng),
+        level: t.location_type === 'hot_spring' ? 'danger' : 'warning',
+        kind: 'thermal', label: t.name,
+        note: t.location_type === 'hot_spring' ? 'Термальные источники — вода до 95°C.' : 'Гейзеры — держитесь на тропах.',
+      });
+    }
+  } catch { /* пропускаем блок */ }
+  return hazards;
+}
+
+const ACC_LABEL_SHORT: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [safety, seismic, zones, plates, feed, stats, elements] = await Promise.all([
-    fetchSafety(), fetchSeismic(), fetchZones(), fetchPlates(), fetchFeed(), fetchStats(), fetchElements(),
+  const [safety, feedResult, zones, plates, feedItems, stats, elements, radarBase] = await Promise.all([
+    fetchSafety(),
+    getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
+    fetchZones(), fetchPlates(), fetchFeed(), fetchStats(), fetchElements(), fetchRadarBase(),
   ]);
-  return { safety, seismic, zones, plates, feed, stats, elements };
+
+  const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt);
+
+  const quakeHazards: Hazard[] = feedResult.events
+    .filter((e) => e.lat != null && e.lng != null && Number.isFinite(e.magnitude) && e.magnitude > 0)
+    .slice(0, 8)
+    .map((e) => ({
+      lat: e.lat as number, lng: e.lng as number,
+      level: quakeLevel(e.magnitude), kind: 'quake' as const,
+      label: `M${e.magnitude.toFixed(1)} · ${e.place}`,
+      note: `Землетрясение${e.depth != null ? `, глубина ${Math.round(e.depth)} км` : ''}.`,
+    }));
+
+  const radar: RadarSnapshot = { hazards: [...radarBase, ...quakeHazards], center: PETROPAVLOVSK };
+
+  return { safety, seismic, radar, zones, plates, feed: feedItems, stats, elements };
 }
