@@ -1,11 +1,37 @@
 import { Metadata, Viewport } from 'next';
-import { Inter, Playfair_Display } from 'next/font/google';
+import { Inter, Playfair_Display, Manrope, JetBrains_Mono, Unbounded } from 'next/font/google';
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin', 'cyrillic'],
-  weight: ['400', '700'],
+  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
   display: 'swap',
   variable: '--font-playfair',
+});
+
+// Редизайн v8: Unbounded — смелые заголовки главной (жирный геометрический дисплей).
+// Само-хостинг через next/font (не Google-CDN <link>), правило §2 соблюдено.
+const unbounded = Unbounded({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['500', '600', '700', '800'],
+  display: 'swap',
+  variable: '--font-unbounded',
+});
+
+// Редизайн v7 «Воронка»: Manrope — текст, JetBrains Mono — метки/цифры/координаты.
+// Само-хостинг на билде через next/font (не Google-CDN <link>), правило §2 соблюдено.
+const manrope = Manrope({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['400', '500', '600', '700', '800'],
+  display: 'swap',
+  variable: '--font-manrope',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['300', '400', '500'],
+  display: 'swap',
+  variable: '--font-jetbrains',
 });
 
 const inter = Inter({
@@ -147,7 +173,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="shortcut icon" href="/favicon.ico" />
         <meta name="theme-color" content="#0f172a" />
       </head>
-      <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable}`}>
+      <body className={`min-h-screen transition-colors duration-300 ${inter.className} ${playfairDisplay.variable} ${inter.variable} ${manrope.variable} ${jetbrainsMono.variable} ${unbounded.variable}`}>
         <Providers>
           <OfflineBanner />
           {children}
