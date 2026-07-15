@@ -56,7 +56,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [err, setErr] = useState<string | null>(null);
   const [sosOpen, setSosOpen] = useState(false);
   const [hold, setHold] = useState(0); // 0..1 для дуги удержания
+  const [plateIdx, setPlateIdx] = useState(0);
   const leadRef = useRef<HTMLDivElement | null>(null);
+  const platesRef = useRef<HTMLDivElement | null>(null);
   const holdRaf = useRef<number | null>(null);
   const holdT0 = useRef<number | null>(null);
 
@@ -64,6 +66,54 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     document.documentElement.setAttribute('data-v7theme', theme);
     return () => document.documentElement.removeAttribute('data-v7theme');
   }, [theme]);
+
+  // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.
+  useEffect(() => {
+    const c = platesRef.current;
+    if (!c || plates.length < 2) return;
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const stride = () => {
+      const first = c.firstElementChild as HTMLElement | null;
+      return first ? first.getBoundingClientRect().width + 14 : c.clientWidth;
+    };
+    let idx = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let pauseTimer: ReturnType<typeof setTimeout>;
+    const go = (i: number) => {
+      idx = (i + plates.length) % plates.length;
+      c.scrollTo({ left: idx * stride(), behavior: rm ? 'auto' : 'smooth' });
+      setPlateIdx(idx);
+    };
+    const onScroll = () => {
+      clearTimeout(pauseTimer);
+      pauseTimer = setTimeout(() => {
+        const i = Math.round(c.scrollLeft / stride());
+        if (i !== idx) { idx = i; setPlateIdx(i); }
+      }, 90);
+    };
+    const start = () => { if (!rm && !timer) timer = setInterval(() => go(idx + 1), 5000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onUp = () => { setTimeout(start, 8000); };
+    c.addEventListener('scroll', onScroll, { passive: true });
+    c.addEventListener('pointerdown', stop, { passive: true });
+    c.addEventListener('pointerup', onUp);
+    start();
+    return () => {
+      stop(); clearTimeout(pauseTimer);
+      c.removeEventListener('scroll', onScroll);
+      c.removeEventListener('pointerdown', stop);
+      c.removeEventListener('pointerup', onUp);
+    };
+  }, [plates.length]);
+
+  const goPlate = (i: number) => {
+    const c = platesRef.current;
+    if (!c) return;
+    const first = c.firstElementChild as HTMLElement | null;
+    const stride = first ? first.getBoundingClientRect().width + 14 : c.clientWidth;
+    c.scrollTo({ left: i * stride, behavior: 'smooth' });
+    setPlateIdx(i);
+  };
 
   const jumpToLead = () => {
     leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -231,7 +281,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         {plates.length > 0 && (
           <section>
             <div className="shead"><span className="num">II</span><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
-            <div className="plates">
+            <div className="plates" ref={platesRef}>
               {plates.map((p) => {
                 const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
                 const price = fmtPrice(p.priceFrom);
@@ -250,6 +300,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 );
               })}
             </div>
+            {plates.length > 1 && (
+              <div className="pl-dots">
+                {plates.map((_, i) => (
+                  <button key={i} className={i === plateIdx ? 'on' : ''} aria-label={`Плата ${i + 1}`} onClick={() => goPlate(i)} />
+                ))}
+              </div>
+            )}
             {feed.length > 0 && (
               <div className="arrivals"><span className="k">Журнал</span><span className="t">{feed[0].text}</span></div>
             )}
@@ -471,7 +528,10 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* платы */
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
-.v7 .plate{flex:none;width:80%;max-width:340px;scroll-snap-align:center}
+.v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
+.v7 .pl-dots{display:flex;gap:7px;justify-content:center;margin-top:14px}
+.v7 .pl-dots button{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:var(--hair);cursor:pointer;transition:background .2s,transform .2s}
+.v7 .pl-dots button.on{background:var(--shroom);transform:scale(1.25)}
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--plate) center/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
