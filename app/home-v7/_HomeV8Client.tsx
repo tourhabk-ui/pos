@@ -543,7 +543,7 @@ function Ring({ open, total }: { open: number; total: number }) {
 
 const CSS = `
 .v7{
-  --fd:var(--font-playfair),Georgia,serif;--fb:var(--font-manrope),system-ui,sans-serif;--fm:var(--font-jetbrains),ui-monospace,monospace;
+  --fd:var(--font-unbounded),system-ui,sans-serif;--fb:var(--font-manrope),system-ui,sans-serif;--fm:var(--font-jetbrains),ui-monospace,monospace;
   --pine:#2E5F46;--tide:#3E8CA3;--brusnika:#B23A32;--amber:#B4761F;--shroom:#D97B2E;--leaf:#4E8C5B;--danger:#C0392B;
 }
 html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
@@ -574,13 +574,13 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo .dateline{display:flex;align-items:center;gap:12px;justify-content:center;color:rgba(255,255,255,.75)}
 .v7 .hero-photo .dateline::before,.v7 .hero-photo .dateline::after{content:"";flex:0 0 30px;height:1px;background:rgba(255,255,255,.4)}
 .v7 .hero-photo .dateline span{font:400 9px/1 var(--fm);letter-spacing:.18em;text-transform:uppercase}
-.v7 .hero-photo h1{margin-top:16px;font:500 40px/1.06 var(--fd);letter-spacing:-.012em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
-.v7 .hero-photo h1 em{font-style:italic;font-weight:600}
+.v7 .hero-photo h1{margin-top:16px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
+.v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
 .v7 .ring-glass{margin:20px auto 0;display:flex;align-items:center;gap:16px;justify-content:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.32);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:14px 18px;width:max-content;max-width:100%}
 .v7 .ring-glass .dial{width:84px;height:84px;transform:rotate(-90deg);flex:none}
 .v7 .ring-cap{text-align:left}
-.v7 .ring-cap b{font:600 26px/1 var(--fd)}
+.v7 .ring-cap b{font:700 23px/1 var(--fd);letter-spacing:-.02em}
 .v7 .ring-cap b i{font-style:normal;color:rgba(255,255,255,.6);font-size:16px}
 .v7 .ring-cap span{display:block;font:600 9px/1.4 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.82);margin-top:3px}
 .v7 .ring-cap em{display:block;font:400 8.5px/1.4 var(--fm);color:rgba(255,255,255,.6);margin-top:3px;font-style:normal}
@@ -592,7 +592,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 section{margin-top:40px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
 .v7 .shead .num{font:500 11px/1 var(--fm);color:var(--faint)}
-.v7 .shead h2{font:600 21px/1.2 var(--fd)}
+.v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
 .v7 .shead .all{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide)}
 /* радар безопасности */
@@ -658,7 +658,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 2px 0}
-.v7 .plate .row b{font:600 15px/1.2 var(--fd)}
+.v7 .plate .row b{font:600 14px/1.25 var(--fd);letter-spacing:-.015em}
 .v7 .plate .cap{padding:5px 2px 0;font:400 11px/1.5 var(--fb);color:var(--muted)}
 .v7 .plate .buy{margin-top:9px;padding:9px 2px 0;border-top:1px solid var(--hair-soft);display:flex;align-items:baseline;gap:10px}
 .v7 .plate .buy .price{font:600 14px/1 var(--fd)}
@@ -669,7 +669,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--fb);color:var(--muted)}
 /* проводник */
 .v7 .guide{border-left:2px solid var(--pine);padding:2px 0 2px 18px}
-.v7 .guide q{display:block;font:500 17px/1.5 var(--fd);font-style:italic;quotes:"«" "»"}
+.v7 .guide q{display:block;font:500 15px/1.5 var(--fd);letter-spacing:-.01em;quotes:"«" "»"}
 .v7 .guide .sig{margin-top:10px;display:flex;align-items:center;gap:10px}
 .v7 .guide .sig .caps{font:600 10px/1 var(--fb);letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
 .v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--faint)}
@@ -691,7 +691,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
   justify-content:flex-end;color:#fff;background:rgba(12,16,15,.24);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
   border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
 .v7 .etile .eicon{color:#fff;margin-bottom:auto;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
-.v7 .etile b{font:600 16px/1.1 var(--fd);color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
+.v7 .etile b{font:600 14.5px/1.15 var(--fd);letter-spacing:-.01em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
 .v7 .etile .ecnt{font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .etile:active{transform:scale(.97)}
 /* подсветка-свечение по стихии */
@@ -713,13 +713,13 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .dataline::-webkit-scrollbar{display:none}
 .v7 .dl{flex:none;padding:2px 20px 2px 0;margin-right:20px;border-right:1px solid var(--hair-soft)}
 .v7 .dl:last-child{border-right:0;margin-right:0}
-.v7 .dl .n{font:500 26px/1 var(--fd)}
+.v7 .dl .n{font:600 23px/1 var(--fd);letter-spacing:-.02em}
 .v7 .dl .t{margin-top:6px;font:600 8.5px/1.4 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
 .v7 .dl.link .t{color:var(--tide)}
 /* лид */
 .v7 .lead{border:1px solid var(--hair);padding:20px 18px}
-.v7 .lead h3{font:500 25px/1.2 var(--fd)}
-.v7 .lead h3 em{font-style:italic;font-weight:600}
+.v7 .lead h3{font:600 20px/1.22 var(--fd);letter-spacing:-.02em}
+.v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--fb);color:var(--muted)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
 .v7 .lead .chip{font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:8px 11px;cursor:pointer;transition:.15s}
@@ -755,7 +755,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .scrim.on{opacity:1;pointer-events:auto}
 .v7 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;transform:translateY(105%);transition:transform .32s cubic-bezier(.3,.9,.3,1);background:var(--bg);border-top:1px solid var(--hair);padding:18px 22px calc(22px + env(safe-area-inset-bottom));max-width:480px;margin:0 auto}
 .v7 .sheet.on{transform:none}
-.v7 .sheet h3{font:600 22px/1.2 var(--fd)}
+.v7 .sheet h3{font:600 17px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .sheet p{font:400 11.5px/1.6 var(--fb);color:var(--muted);margin-top:6px}
 .v7 .protocols{margin-top:16px}
 .v7 .proto{width:100%;display:flex;align-items:center;gap:14px;padding:13px 2px;border:0;border-bottom:1px solid var(--hair-soft);background:none;cursor:pointer;color:var(--ink);text-align:left;font-family:var(--fb)}
