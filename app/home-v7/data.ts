@@ -87,20 +87,24 @@ async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
       query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string }>(
-        // Землетрясения показываем отдельным блоком «Пульс полуострова»,
-        // поэтому из ленты предупреждений их исключаем (иначе дубль).
-        // description несёт важную деталь (объезд при закрытии дороги, окна
-        // проезда по пропускам) — без неё турист видит только факт закрытия.
-        // DISTINCT ON (заголовок) — ingest иногда заводит один и тот же алерт
-        // дважды (RSS без дедупа); в ленте показываем по одной строке на тему,
-        // берём самую свежую и severe.
+        // Лента безопасности = только actionable-типы, меняющие решение
+        // туриста сегодня (закрытия, вулканы, погода, стихии). Общие новости
+        // (статистика пожаров, пресс-релизы МЧС) в external_alerts не пускаем —
+        // им место в новостном блоке, не в сводке безопасности. Землетрясения
+        // тоже вне ленты: они отдельным блоком «Пульс полуострова».
+        // DISTINCT ON (заголовок) — ingest иногда заводит один алерт дважды
+        // (RSS без дедупа); показываем по одной строке на тему, самую свежую.
+        // description несёт важную деталь (объезд, окна проезда по пропускам).
         `SELECT title, description, alert_type, severity, created_at::text
            FROM (
              SELECT DISTINCT ON (lower(title))
                     title, description, alert_type, severity::int AS severity, created_at
                FROM external_alerts
               WHERE expires_at > NOW()
-                AND alert_type IS DISTINCT FROM 'earthquake'
+                AND alert_type IN (
+                  'road_closure', 'volcano', 'volcanic_eruption', 'ash_cloud',
+                  'tsunami_warning', 'flood', 'avalanche', 'landslide', 'weather'
+                )
               ORDER BY lower(title), severity DESC, created_at DESC
            ) t
           ORDER BY severity DESC, created_at DESC
