@@ -37,8 +37,16 @@ function fmtAgo(iso: string | null): string {
   return `${Math.round(h / 24)} дн назад`;
 }
 
+function magColor(m: number): string {
+  if (m >= 6) return 'var(--brusnika)';
+  if (m >= 4.5) return 'var(--shroom)';
+  if (m >= 3) return 'var(--amber)';
+  return 'var(--tide)';
+}
+const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
+
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
-  const { safety, zones, plates, feed, stats, elements } = data;
+  const { safety, seismic, zones, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -202,6 +210,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               <span>Следим за KVERT и оперативными сводками — как только появится риск, покажем здесь.</span>
             </div>
           )}
+
+          {seismic.events.length > 0 && (
+            <div className="seismo">
+              <div className="scap"><span>Сейсмособытия · последние</span><span>{SRC_LABEL[seismic.source]}</span></div>
+              <ul className="quakes">
+                {seismic.events.map((q, i) => (
+                  <li key={i}>
+                    <span className="mag" style={{ background: magColor(q.magnitude) }}>{q.magnitude.toFixed(1)}</span>
+                    <span className="qpl">{q.place}</span>
+                    <span className="qmeta">{q.depth != null ? `${Math.round(q.depth)} км · ` : ''}{fmtAgo(new Date(q.time).toISOString())}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
 
         {/* II. ПЛАТЫ — реальные туры/маршруты с фото и ценой */}
@@ -313,8 +336,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
         <div className="note">
           Превью Главной v8 на /home-v7. Живые блоки на реальных данных: безопасность — KVERT (volcano_status)
-          и external_alerts; кольцо — location_real_time_status; платы — queryCatalog; лид-форма — POST /api/leads.
-          Приборов-бутафорий (сейсмолента/компас) и не подключённых эко-баллов нет. Живая Главная (/) не тронута.
+          и external_alerts; сейсмособытия — КБГС РАН / USGS (общий слой seismic-feed); кольцо —
+          location_real_time_status; платы — queryCatalog; лид-форма — POST /api/leads. Фейкового компаса и
+          не подключённых эко-баллов нет — только настоящие данные. Живая Главная (/) не тронута.
         </div>
       </div>
 
@@ -435,6 +459,15 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .alerts .atx{font:500 12px/1.45 var(--fb);flex:1}
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
+/* сейсмособытия — реальные (КБГС РАН / USGS) */
+.v7 .seismo{margin-top:14px;border:1px solid var(--hair);padding:12px 14px}
+.v7 .seismo .scap{display:flex;justify-content:space-between;font:400 8.5px/1 var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+.v7 .quakes{list-style:none}
+.v7 .quakes li{display:flex;align-items:center;gap:11px;padding:8px 0;border-top:1px solid var(--hair-soft)}
+.v7 .quakes li:first-child{border-top:0}
+.v7 .quakes .mag{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font:600 12px/1 var(--fd);font-feature-settings:"lnum"}
+.v7 .quakes .qpl{flex:1;font:500 11.5px/1.35 var(--fb)}
+.v7 .quakes .qmeta{font:400 8.5px/1.3 var(--fm);color:var(--faint);white-space:nowrap;text-align:right}
 /* платы */
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}

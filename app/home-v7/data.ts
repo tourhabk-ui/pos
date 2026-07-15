@@ -13,6 +13,7 @@
 
 import { query } from '@/lib/database';
 import { queryCatalog, type CatalogItem } from '@/lib/routes/catalog-query';
+import { getSeismicFeed, type SeismicEvent } from '@/lib/services/seismic-feed';
 
 export interface SafetyAlert {
   title: string;
@@ -50,9 +51,12 @@ export interface Plate {
 export interface FeedItem { text: string }
 export interface Stat { value: string; label: string; href?: string }
 export interface Element { key: string; label: string; count: number; href: string }
+export interface Quake { magnitude: number; place: string; time: number; depth: number | null }
+export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null }
 
 export interface HomeV8Data {
   safety: SafetySnapshot;
+  seismic: SeismicSnapshot;
   zones: ZonesSnapshot;
   plates: Plate[];
   feed: FeedItem[];
@@ -226,9 +230,22 @@ async function fetchElements(): Promise<Element[]> {
   }
 }
 
+async function fetchSeismic(): Promise<SeismicSnapshot> {
+  try {
+    const feed = await getSeismicFeed();
+    const events: Quake[] = feed.events
+      .filter((e: SeismicEvent) => Number.isFinite(e.magnitude) && e.magnitude > 0)
+      .slice(0, 4)
+      .map((e) => ({ magnitude: e.magnitude, place: e.place, time: e.time, depth: e.depth }));
+    return { events, source: feed.source, updatedAt: feed.updatedAt };
+  } catch {
+    return { events: [], source: 'none', updatedAt: null };
+  }
+}
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [safety, zones, plates, feed, stats, elements] = await Promise.all([
-    fetchSafety(), fetchZones(), fetchPlates(), fetchFeed(), fetchStats(), fetchElements(),
+  const [safety, seismic, zones, plates, feed, stats, elements] = await Promise.all([
+    fetchSafety(), fetchSeismic(), fetchZones(), fetchPlates(), fetchFeed(), fetchStats(), fetchElements(),
   ]);
-  return { safety, zones, plates, feed, stats, elements };
+  return { safety, seismic, zones, plates, feed, stats, elements };
 }
