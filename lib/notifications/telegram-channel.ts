@@ -102,7 +102,8 @@ async function maxChannelPost(
     if (attachments.length > 0) body.attachments = attachments;
 
     const res = await fetch(
-      `https://platform-api.max.ru/messages?chat_id=${channelId}`,
+      // MAX Bot API v2 host — старый platform-api.max.ru выведен из эксплуатации.
+      `https://platform-api2.max.ru/messages?chat_id=${channelId}`,
       {
         method: 'POST',
         headers: {

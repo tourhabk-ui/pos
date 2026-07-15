@@ -36,14 +36,16 @@ export async function register(): Promise<void> {
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://tourhab.ru';
       const webhookUrl = `${baseUrl}/api/max/kuzmich`;
       try {
-        // Check existing subscription first
-        const checkRes = await fetch('https://platform-api.max.ru/subscriptions', {
+        // Check existing subscription first.
+        // MAX Bot API v2 host — старый platform-api.max.ru выведен из эксплуатации,
+        // пакет @maxhub/max-bot-api уже по умолчанию использует platform-api2.max.ru.
+        const checkRes = await fetch('https://platform-api2.max.ru/subscriptions', {
           headers: { Authorization: maxToken },
         });
         const checkData = await checkRes.json() as { subscriptions?: Array<{ url: string }> };
         const alreadyRegistered = checkData.subscriptions?.some((s) => s.url === webhookUrl);
         if (!alreadyRegistered) {
-          await fetch('https://platform-api.max.ru/subscriptions', {
+          await fetch('https://platform-api2.max.ru/subscriptions', {
             method: 'POST',
             headers: { Authorization: maxToken, 'Content-Type': 'application/json' },
             body: JSON.stringify({

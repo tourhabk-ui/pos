@@ -4,7 +4,7 @@
  * DELETE /api/max/setup — удалить webhook
  *
  * Admin-only. Docs: https://dev.max.ru/docs-api
- * MAX API: POST https://platform-api.max.ru/subscriptions
+ * MAX API v2: POST https://platform-api2.max.ru/subscriptions
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,7 +12,9 @@ import { requireAdmin } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_API_BASE = 'https://platform-api.max.ru';
+// MAX Bot API v2 host — старый platform-api.max.ru выведен из эксплуатации,
+// пакет @maxhub/max-bot-api уже по умолчанию использует platform-api2.max.ru.
+const MAX_API_BASE = 'https://platform-api2.max.ru';
 
 const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
 
