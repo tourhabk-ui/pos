@@ -250,18 +250,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
                 </ul>
               )}
               {seismic.events.length > 0 && (
-                <div className="seismo">
-                  <div className="scap"><span>Сейсмособытия · последние</span><span>{SRC_LABEL[seismic.source]}</span></div>
-                  <ul className="quakes">
-                    {seismic.events.map((q, i) => (
-                      <li key={i}>
-                        <span className="mag" style={{ background: magColor(q.magnitude) }}>{q.magnitude.toFixed(1)}</span>
-                        <span className="qpl">{q.place}</span>
-                        <span className="qmeta">{q.depth != null ? `${Math.round(q.depth)} км · ` : ''}{fmtAgo(new Date(q.time).toISOString())}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <SeismicPulse events={seismic.events} source={SRC_LABEL[seismic.source]} />
               )}
               <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{safety.updatedAt ? ` · обновлено ${fmtAgo(safety.updatedAt)}` : ''}</div>
             </div>
@@ -528,6 +517,49 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
   );
 }
 
+interface PulseQuake { magnitude: number; place: string; time: number; depth: number | null }
+
+/**
+ * «Пульс полуострова» — реальные сейсмособытия (КБГС РАН / USGS) ритмом, а не
+ * списком: сильнейший толчок крупно + столбики по магнитуде (свежие справа).
+ * Тап по столбику → деталь. Столбики = настоящие события, не синтетика.
+ */
+function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string }) {
+  const [sel, setSel] = useState<number | null>(null);
+  if (events.length === 0) return null;
+  const strongest = events.reduce((a, b) => (b.magnitude > a.magnitude ? b : a), events[0]);
+  const bars = [...events].reverse(); // events: свежие первыми → разворот, чтобы свежие были справа
+  const maxMag = Math.max(6, ...events.map((e) => e.magnitude));
+  const selected = sel != null ? bars[sel] : null;
+  return (
+    <div className="pulse">
+      <div className="phead">
+        <div className="pbig">
+          <b>M{strongest.magnitude.toFixed(1)}</b>
+          <span>сильнейший · {strongest.depth != null ? `${Math.round(strongest.depth)} км · ` : ''}{fmtAgo(new Date(strongest.time).toISOString())}</span>
+        </div>
+        <div className="psrc">Пульс полуострова<i>{source}</i></div>
+      </div>
+      <div className="pbars">
+        {bars.map((q, i) => (
+          <button key={i} className={`pbar${sel === i ? ' on' : ''}`}
+            style={{ height: `${Math.max(12, (q.magnitude / maxMag) * 100)}%`, background: magColor(q.magnitude) }}
+            aria-label={`M${q.magnitude.toFixed(1)}`} onClick={() => setSel(sel === i ? null : i)} />
+        ))}
+      </div>
+      <div className="paxis"><span>старее</span><span>сейчас →</span></div>
+      {selected ? (
+        <button className="psel" onClick={() => setSel(null)}>
+          <span className="pmag" style={{ background: magColor(selected.magnitude) }}>{selected.magnitude.toFixed(1)}</span>
+          <span className="ptx"><b>{selected.place}</b><span>{selected.depth != null ? `${Math.round(selected.depth)} км · ` : ''}{fmtAgo(new Date(selected.time).toISOString())}</span></span>
+        </button>
+      ) : (
+        <div className="psum">за ~48 ч — {events.length} толчков · макс M{strongest.magnitude.toFixed(1)}</div>
+      )}
+    </div>
+  );
+}
+
 /** Кольцо готовности: дуга открытых зон (зелёная) на фоне закрытых (красная). Реальные open/total. */
 function Ring({ open, total }: { open: number; total: number }) {
   const N = Math.max(total, 1);
@@ -640,15 +672,24 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .alerts .atx{font:500 12px/1.45 var(--fb);flex:1}
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
-/* сейсмособытия — реальные (КБГС РАН / USGS) */
-.v7 .seismo{margin-top:14px;border:1px solid var(--hair);padding:12px 14px}
-.v7 .seismo .scap{display:flex;justify-content:space-between;font:400 8.5px/1 var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
-.v7 .quakes{list-style:none}
-.v7 .quakes li{display:flex;align-items:center;gap:11px;padding:8px 0;border-top:1px solid var(--hair-soft)}
-.v7 .quakes li:first-child{border-top:0}
-.v7 .quakes .mag{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font:600 12px/1 var(--fd);font-feature-settings:"lnum"}
-.v7 .quakes .qpl{flex:1;font:500 11.5px/1.35 var(--fb)}
-.v7 .quakes .qmeta{font:400 8.5px/1.3 var(--fm);color:var(--faint);white-space:nowrap;text-align:right}
+/* «Пульс полуострова» — реальные сейсмособытия ритмом */
+.v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
+.v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.v7 .pulse .pbig b{font:700 30px/0.95 var(--fd);letter-spacing:-.02em;display:block}
+.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 9px/1.3 var(--fm);color:var(--muted)}
+.v7 .pulse .psrc{text-align:right;font:600 8.5px/1.3 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.v7 .pulse .psrc i{display:block;font:400 8px/1.4 var(--fm);letter-spacing:.08em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px}
+.v7 .pulse .pbars{margin-top:14px;display:flex;align-items:flex-end;gap:4px;height:70px}
+.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:3px 3px 0 0;cursor:pointer;opacity:.85;transition:opacity .15s,transform .15s;transform-origin:bottom}
+.v7 .pulse .pbar:hover{opacity:1}
+.v7 .pulse .pbar.on{opacity:1;transform:scaleX(1.15);outline:2px solid var(--ink);outline-offset:1px}
+.v7 .pulse .paxis{margin-top:6px;display:flex;justify-content:space-between;font:400 8px/1 var(--fm);letter-spacing:.08em;color:var(--faint)}
+.v7 .pulse .psum{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 9.5px/1.4 var(--fm);color:var(--muted)}
+.v7 .pulse .psel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:11px 0 0;cursor:pointer;font-family:var(--fb)}
+.v7 .pulse .psel .pmag{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 12px/1 var(--fd)}
+.v7 .pulse .psel .ptx{display:flex;flex-direction:column;gap:2px}
+.v7 .pulse .psel .ptx b{font:500 11.5px/1.3 var(--fb);color:var(--ink)}
+.v7 .pulse .psel .ptx span{font:400 8.5px/1.3 var(--fm);color:var(--faint)}
 /* платы */
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}

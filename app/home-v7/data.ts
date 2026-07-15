@@ -86,9 +86,12 @@ async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
       query<{ title: string; alert_type: string | null; severity: number; created_at: string }>(
+        // Землетрясения показываем отдельным блоком «Пульс полуострова»,
+        // поэтому из ленты предупреждений их исключаем (иначе дубль).
         `SELECT title, alert_type, severity::int AS severity, created_at::text
            FROM external_alerts
           WHERE expires_at > NOW()
+            AND alert_type IS DISTINCT FROM 'earthquake'
           ORDER BY severity DESC, created_at DESC
           LIMIT 5`,
       ),
@@ -249,7 +252,7 @@ async function fetchElements(): Promise<Element[]> {
 function seismicSnapshot(events: SeismicEvent[], source: SeismicSnapshot['source'], updatedAt: string): SeismicSnapshot {
   const list: Quake[] = events
     .filter((e) => Number.isFinite(e.magnitude) && e.magnitude > 0)
-    .slice(0, 4)
+    .slice(0, 14) // для «пульса» нужно больше событий, чем для списка
     .map((e) => ({ magnitude: e.magnitude, place: e.place, time: e.time, depth: e.depth }));
   return { events: list, source, updatedAt };
 }
