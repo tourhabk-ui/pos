@@ -13,9 +13,9 @@
  * Данные приходят из серверного data-слоя (app/home-v7/data.ts).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -62,6 +62,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
   const [reportOpen, setReportOpen] = useState(false);
+  const [sosOpen, setSosOpen] = useState(false);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
@@ -131,6 +132,15 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
   const jumpToLead = () => {
     leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  // СОС: онлайн — уходим на полноценный /sos; офлайн — не даём навигации
+  // (она бы упала на «Нет соединения») и открываем инлайн-панель на главной.
+  const sosClick = (e: React.MouseEvent) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      e.preventDefault();
+      setSosOpen(true);
+    }
   };
 
   const submitLead = async () => {
@@ -373,9 +383,9 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           мобильной Главной; шторка сама рендерит оверлей. */}
       <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
-      {/* SOS — красный, ведёт на паник-экран /sos: офлайн-номера, VolcanoMesh,
-          координаты, категории. Без промежуточной шторки — в ЧП нужен один тап. */}
-      <Link href="/sos" className="sos" aria-label="SOS — экстренная помощь">SOS</Link>
+      {/* SOS — онлайн ведёт на полноценный /sos; офлайн (где /sos не поднимется
+          из-за RSC-подкачки) открывает инлайн-панель поверх главной. */}
+      <Link href="/sos" className="sos" aria-label="SOS — экстренная помощь" onClick={sosClick}>SOS</Link>
 
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
@@ -383,8 +393,10 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
         <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
         <Link href="/routes"><span className="ico"><Route className="ti" size={19} strokeWidth={2} /></span><span>Маршруты</span></Link>
-        <Link href="/sos" className="sos-tab"><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
+        <Link href="/sos" className="sos-tab" onClick={sosClick}><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
+
+      <EmergencyPanel open={sosOpen} onClose={() => setSosOpen(false)} />
     </div>
   );
 }
@@ -574,6 +586,151 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
       ) : (
         <div className="psum">за ~48 ч — {events.length} толчков · макс M{strongest.magnitude.toFixed(1)}</div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Инлайн-панель экстренной помощи — открывается ПОВЕРХ главной, без перехода
+ * на другую страницу и без сети. Всё критичное зашито статикой: звонки (tel:),
+ * координаты (navigator.geolocation), протоколы (текст). Полевой тест на Трёх
+ * братьях показал, что офлайн выживает только контент на уже загруженной
+ * главной — навигация на /sos умирает (Next тянет данные экрана по сети).
+ * Номера — из /sos (одобренные). Протоколы — из /safety/offline.
+ */
+const EMG_CALLS: { label: string; num: string; tel: string; primary?: boolean }[] = [
+  { label: 'Единый номер экстренных служб', num: '112', tel: '112', primary: true },
+  { label: 'МЧС Камчатский край', num: '+7 (4152) 23-53-62', tel: '+74152235362' },
+  { label: 'ПСО «Камчатка» (спасатели)', num: '+7 (4152) 41-27-30', tel: '+74152412730' },
+];
+
+const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[] }[] = [
+  {
+    id: 'bear', title: 'Медведь', urgent: 'Никогда не беги — сработает инстинкт преследования',
+    steps: [
+      'Остановись. Говори спокойным низким голосом — покажи, что ты человек.',
+      'Медленно отступай боком, не поворачивайся спиной.',
+      'Подними руки — выгляди крупнее. Антизверь наготове.',
+      'Приближается — шуми, бей в кастрюлю, кричи.',
+      'Нападение: бей в нос и глаза. Не ложись — только активное сопротивление.',
+      'Медведица с медвежатами опаснее всего — уходи немедленно.',
+    ],
+  },
+  {
+    id: 'hypothermia', title: 'Гипотермия', urgent: 'Дрожь прекратилась, человек вялый — критическая стадия',
+    steps: [
+      'Убери от ветра, сними мокрое, укутай в спальник, поделись теплом тела.',
+      'Нет дрожи, спутанность: горизонтально, не двигай — может остановить сердце.',
+      'Тёплое питьё — только если в сознании и глотает сам. Алкоголь запрещён.',
+      'Грей тело (грудь, подмышки, пах), не конечности.',
+      'Мокрая одежда крадёт тепло в 25× быстрее. Приоритет — сухость.',
+      'Звони 112, передай координаты, не оставляй одного.',
+    ],
+  },
+  {
+    id: 'lost', title: 'Потерялся', urgent: 'СТОП — стой где стоишь, не паникуй',
+    steps: [
+      'S.T.O.P.: стой, думай, осмотрись, планируй.',
+      'Не иди наугад — каждый шаг удаляет от зоны поиска.',
+      'Нужна вода/люди — иди вниз по склону к реке.',
+      'Три костра треугольником — сигнал бедствия.',
+      'Ночлег: лапник 15 см — тепло снизу важнее укрытия сверху.',
+      'Береги заряд: авиарежим, геолокацию включай только для звонка.',
+    ],
+  },
+  {
+    id: 'volcano', title: 'Вулкан', urgent: 'Запах серы + тремор земли = уходи немедленно',
+    steps: [
+      'Признаки: запах серы, подземный гул, тремор, гибель птиц.',
+      'Пепел: закрой рот и нос тканью, двигайся перпендикулярно ветру.',
+      'Лавовый поток медленный — уходи вверх по склону, в сторону от потока.',
+      'Термальные поля: не ступай на белую/жёлтую землю — под коркой кипяток.',
+    ],
+  },
+];
+
+function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoState, setGeoState] = useState<'idle' | 'ok' | 'deny'>('idle');
+  const [copied, setCopied] = useState(false);
+  const [openProto, setOpenProto] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !navigator.geolocation) { if (open) setGeoState('deny'); return; }
+    setGeoState('idle');
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGeoState('ok'); },
+      () => setGeoState('deny'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }, [open]);
+
+  if (!open) return null;
+
+  const coordText = coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : '';
+  const copy = () => {
+    if (!coordText) return;
+    navigator.clipboard?.writeText(coordText)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => {});
+  };
+  const smsBody = coords ? `SOS. Нужна помощь. Мои координаты: ${coordText}` : 'SOS. Нужна помощь.';
+
+  return (
+    <div className="emg" role="dialog" aria-label="Экстренная помощь">
+      <div className="emg-top">
+        <b>Экстренная помощь</b>
+        <button className="emg-x" onClick={onClose} aria-label="Закрыть"><X size={20} strokeWidth={2.2} /></button>
+      </div>
+
+      <div className="emg-scroll">
+        {/* Координаты — работают без сети */}
+        <div className="emg-coord">
+          <span className="emg-lbl"><MapPin size={13} strokeWidth={2} /> Твои координаты</span>
+          {geoState === 'ok' && coords ? (
+            <button className="emg-cval" onClick={copy}>
+              {coordText}<span>{copied ? 'скопировано' : 'копировать'}</span>
+            </button>
+          ) : geoState === 'deny' ? (
+            <span className="emg-cwait">Разреши геолокацию и включи GPS</span>
+          ) : (
+            <span className="emg-cwait">Определяю позицию…</span>
+          )}
+        </div>
+
+        {/* Звонки — работают без интернета */}
+        <div className="emg-calls">
+          {EMG_CALLS.map((c) => (
+            <a key={c.tel} href={`tel:${c.tel}`} className={`emg-call${c.primary ? ' emg-call-primary' : ''}`}>
+              <Phone size={c.primary ? 22 : 17} strokeWidth={2.2} />
+              <span className="emg-ct"><b>{c.num}</b><span>{c.label}</span></span>
+            </a>
+          ))}
+          <a href={`sms:112?body=${encodeURIComponent(smsBody)}`} className="emg-sms">
+            SMS на 112 с координатами
+          </a>
+        </div>
+
+        {/* Протоколы — текст зашит, без сети */}
+        <div className="emg-protos">
+          <span className="emg-lbl">Что делать при ЧП</span>
+          {EMG_PROTOCOLS.map((p) => (
+            <div key={p.id} className="emg-proto">
+              <button className="emg-phead" onClick={() => setOpenProto(openProto === p.id ? null : p.id)} aria-expanded={openProto === p.id}>
+                <span className="emg-pt"><b>{p.title}</b><span>{p.urgent}</span></span>
+                <ChevronDown size={16} strokeWidth={2} className={openProto === p.id ? 'emg-chev emg-chev-on' : 'emg-chev'} />
+              </button>
+              {openProto === p.id && (
+                <ol className="emg-steps">
+                  {p.steps.map((s, i) => <li key={i}>{s}</li>)}
+                </ol>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <p className="emg-note">Работает без интернета. Звонок 112 проходит даже без SIM и с чужой сетью.</p>
+      </div>
     </div>
   );
 }
@@ -802,17 +959,49 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* навигация */
 .v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
 .v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-.v7 nav.tabs a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease}
-.v7 nav.tabs a .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
-.v7 nav.tabs a .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
-.v7 nav.tabs a:active .ico{transform:scale(.9)}
+.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
+.v7 nav.tabs a .ico,.v7 nav.tabs button .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
+.v7 nav.tabs a .ti,.v7 nav.tabs button .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
+.v7 nav.tabs a:active .ico,.v7 nav.tabs button:active .ico{transform:scale(.9)}
 .v7 nav.tabs a.active{color:var(--ink)}
 .v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--shroom) 15%,transparent)}
 .v7 nav.tabs a.active .ti{color:var(--shroom);transform:translateY(-1px)}
-.v7 nav.tabs a.sos-tab{color:var(--danger)}
-.v7 nav.tabs a.sos-tab .ico{background:var(--danger);box-shadow:0 3px 12px color-mix(in srgb,var(--danger) 38%,transparent)}
-.v7 nav.tabs a.sos-tab .ti{color:#fff}
+.v7 nav.tabs .sos-tab{color:var(--danger)}
+.v7 nav.tabs .sos-tab .ico{background:var(--danger);box-shadow:0 3px 12px color-mix(in srgb,var(--danger) 38%,transparent)}
+.v7 nav.tabs .sos-tab .ti{color:#fff}
 /* SOS — красный */
-.v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
+.v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;cursor:pointer;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
+/* Инлайн-панель экстренной помощи (офлайн-стойкая, поверх главной) */
+.v7 .emg{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;animation:emgin .18s ease}
+@keyframes emgin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.v7 .emg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px calc(14px);border-bottom:1px solid var(--hair);padding-top:calc(16px + env(safe-area-inset-top))}
+.v7 .emg-top b{font:700 17px/1 var(--fd);color:var(--ink)}
+.v7 .emg-x{width:38px;height:38px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
+.v7 .emg-scroll{flex:1;overflow-y:auto;padding:16px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
+.v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.v7 .emg-coord{display:flex;flex-direction:column;gap:8px}
+.v7 .emg-cval{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;font:600 20px/1 var(--fm);color:var(--ink);background:none;border:0;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.v7 .emg-cval span{font:600 8.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
+.v7 .emg-cwait{font:500 13px/1.3 var(--fb);color:var(--muted)}
+.v7 .emg-calls{display:flex;flex-direction:column;gap:9px}
+.v7 .emg-call{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;border:1px solid var(--hair);background:var(--plate);color:var(--ink);text-decoration:none}
+.v7 .emg-call .emg-ct{display:flex;flex-direction:column;gap:2px}
+.v7 .emg-call .emg-ct b{font:600 15px/1 var(--fb)}
+.v7 .emg-call .emg-ct span{font:400 10px/1.2 var(--fb);color:var(--muted)}
+.v7 .emg-call-primary{background:var(--danger);border-color:transparent;color:#fff;padding:17px 18px}
+.v7 .emg-call-primary .emg-ct b{font:800 26px/1 var(--fd);letter-spacing:.02em}
+.v7 .emg-call-primary .emg-ct span{color:rgba(255,255,255,.85)}
+.v7 .emg-sms{display:block;text-align:center;padding:12px;border-radius:12px;border:1px dashed var(--hair);color:var(--tide);font:600 11px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
+.v7 .emg-protos{display:flex;flex-direction:column;gap:8px}
+.v7 .emg-proto{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+.v7 .emg-phead{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:var(--plate);border:0;cursor:pointer;text-align:left;font-family:var(--fb)}
+.v7 .emg-pt{display:flex;flex-direction:column;gap:3px}
+.v7 .emg-pt b{font:600 13px/1 var(--fb);color:var(--ink)}
+.v7 .emg-pt span{font:400 10px/1.3 var(--fb);color:var(--danger)}
+.v7 .emg-chev{color:var(--muted);flex:none;transition:transform .2s ease}
+.v7 .emg-chev-on{transform:rotate(180deg)}
+.v7 .emg-steps{margin:0;padding:6px 16px 14px 30px;display:flex;flex-direction:column;gap:7px;list-style:decimal}
+.v7 .emg-steps li{font:400 12px/1.45 var(--fb);color:var(--ink)}
+.v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--faint);text-align:center;margin:2px 0 0}
 .v7 .sos:active{transform:scale(.94)}
 `;
