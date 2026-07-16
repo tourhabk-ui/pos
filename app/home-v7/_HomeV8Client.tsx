@@ -579,18 +579,30 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
 }
 
 /** Кольцо готовности: дуга открытых зон (зелёная) на фоне закрытых (красная). Реальные open/total. */
+/**
+ * Прогресс-круг «зон открыто». Непрерывная дуга заполняется от верха по часовой
+ * (эффект «открывается сверху вниз»). Работает при любом числе зон — прежняя
+ * посегментная версия при total≈471 давала отрицательную длину сегмента и
+ * ничего не рисовала. Незакрытая доля — красноватый трек.
+ */
 function Ring({ open, total }: { open: number; total: number }) {
-  const N = Math.max(total, 1);
-  const cx = 92, cy = 92, r = 78, gap = 4;
-  const seg = 360 / N - gap;
-  const P = (a: number): [number, number] => [cx + r * Math.cos((a * Math.PI) / 180), cy + r * Math.sin((a * Math.PI) / 180)];
-  const arcs = Array.from({ length: N }, (_, i) => {
-    const a0 = i * (360 / N) + gap / 2, a1 = a0 + seg;
-    const [x0, y0] = P(a0), [x1, y1] = P(a1);
-    const col = i < open ? 'var(--pine)' : 'var(--brusnika)';
-    return <path key={i} d={`M ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1}`} stroke={col} strokeWidth={4} strokeLinecap="round" fill="none" />;
-  });
-  return <svg className="dial" viewBox="0 0 184 184">{arcs}</svg>;
+  const cx = 92, cy = 92, r = 78, C = 2 * Math.PI * r;
+  const frac = total > 0 ? Math.min(Math.max(open / total, 0), 1) : 0;
+  const allOpen = total > 0 && open >= total;
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const offset = revealed ? C * (1 - frac) : C;
+  return (
+    <svg className="dial" viewBox="0 0 184 184">
+      <circle cx={cx} cy={cy} r={r} fill="none" strokeWidth={4}
+        className={allOpen ? 'dtrack' : 'dtrack dtrack-warn'} />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pine)" strokeWidth={4} strokeLinecap="round"
+        className="dprog" strokeDasharray={C} strokeDashoffset={offset} />
+    </svg>
+  );
 }
 
 const CSS = `
@@ -631,6 +643,10 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
 .v7 .ring-glass{margin:20px auto 0;display:flex;align-items:center;gap:16px;justify-content:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.32);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:14px 18px;width:max-content;max-width:100%}
 .v7 .ring-glass .dial{width:84px;height:84px;transform:rotate(-90deg);flex:none}
+.v7 .ring-glass .dial .dtrack{stroke:rgba(255,255,255,.16)}
+.v7 .ring-glass .dial .dtrack-warn{stroke:color-mix(in srgb,var(--brusnika) 55%,rgba(255,255,255,.16))}
+.v7 .ring-glass .dial .dprog{transition:stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)}
+@media (prefers-reduced-motion:reduce){.v7 .ring-glass .dial .dprog{transition:none}}
 .v7 .ring-cap{text-align:left}
 .v7 .ring-cap b{font:700 23px/1 var(--fd);letter-spacing:-.02em}
 .v7 .ring-cap b i{font-style:normal;color:rgba(255,255,255,.6);font-size:16px}
