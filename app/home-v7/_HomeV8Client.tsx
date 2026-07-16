@@ -688,23 +688,23 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .reportbtn span{color:var(--muted);font-weight:500}
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
-.v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
-.v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
-.v7 .pulse .pbig b{font:700 30px/0.95 var(--fd);letter-spacing:-.02em;display:block}
-.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 9px/1.3 var(--fm);color:var(--muted)}
-.v7 .pulse .psrc{text-align:right;font:600 8.5px/1.3 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.v7 .pulse .psrc i{display:block;font:400 8px/1.4 var(--fm);letter-spacing:.08em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px}
-.v7 .pulse .pbars{margin-top:14px;display:flex;align-items:flex-end;gap:4px;height:70px}
-.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:3px 3px 0 0;cursor:pointer;opacity:.85;transition:opacity .15s,transform .15s;transform-origin:bottom}
-.v7 .pulse .pbar:hover{opacity:1}
-.v7 .pulse .pbar.on{opacity:1;transform:scaleX(1.15);outline:2px solid var(--ink);outline-offset:1px}
-.v7 .pulse .paxis{margin-top:6px;display:flex;justify-content:space-between;font:400 8px/1 var(--fm);letter-spacing:.08em;color:var(--faint)}
-.v7 .pulse .psum{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 9.5px/1.4 var(--fm);color:var(--muted)}
-.v7 .pulse .psel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:11px 0 0;cursor:pointer;font-family:var(--fb)}
-.v7 .pulse .psel .pmag{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 12px/1 var(--fd)}
+.v7 .pulse{margin-top:12px;border:1px solid var(--hair);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--plate) 45%,transparent)}
+.v7 .pulse .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.v7 .pulse .pbig b{font:600 21px/1 var(--fd);letter-spacing:-.02em;display:block}
+.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 8.5px/1.3 var(--fm);color:var(--muted)}
+.v7 .pulse .psrc{text-align:right;font:600 8px/1.3 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.v7 .pulse .psrc i{display:block;font:400 7.5px/1.4 var(--fm);letter-spacing:.06em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px;opacity:.85}
+.v7 .pulse .pbars{margin-top:12px;display:flex;align-items:flex-end;gap:3px;height:44px}
+.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:2px;cursor:pointer;opacity:.62;transition:opacity .18s ease,box-shadow .18s ease;transform-origin:bottom}
+.v7 .pulse .pbar:hover{opacity:.9}
+.v7 .pulse .pbar.on{opacity:1;box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--ink)}
+.v7 .pulse .paxis{margin-top:8px;display:flex;justify-content:space-between;font:400 7.5px/1 var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.v7 .pulse .psum{margin-top:11px;padding-top:9px;border-top:1px solid var(--hair-soft);font:400 9px/1.4 var(--fm);color:var(--muted)}
+.v7 .pulse .psel{margin-top:11px;width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:10px 0 0;cursor:pointer;font-family:var(--fb)}
+.v7 .pulse .psel .pmag{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 11px/1 var(--fd)}
 .v7 .pulse .psel .ptx{display:flex;flex-direction:column;gap:2px}
-.v7 .pulse .psel .ptx b{font:500 11.5px/1.3 var(--fb);color:var(--ink)}
-.v7 .pulse .psel .ptx span{font:400 8.5px/1.3 var(--fm);color:var(--faint)}
+.v7 .pulse .psel .ptx b{font:500 11px/1.3 var(--fb);color:var(--ink)}
+.v7 .pulse .psel .ptx span{font:400 8px/1.3 var(--fm);color:var(--faint)}
 /* платы */
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
