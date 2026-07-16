@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck } from 'lucide-react';
+import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen } from 'lucide-react';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -251,6 +251,19 @@ export default function SafetyClient() {
           <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Бесплатно, заранее. С гидом или сам — спасателям это спасает жизни.</span>
         </span>
         <span style={{ color: 'var(--danger)', fontSize: 18, fontWeight: 700 }}>→</span>
+      </Link>
+
+      {/* Инструкции выживания — офлайн-протоколы «что делать при…» */}
+      <Link href="/safety/offline" className="ds-card" style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', marginBottom: 20,
+        textDecoration: 'none',
+      }}>
+        <BookOpen className="w-6 h-6" style={{ color: 'var(--ocean)', flexShrink: 0 }} />
+        <span style={{ flex: 1 }}>
+          <span style={{ display: 'block', fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>Что делать при ЧП</span>
+          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Медведь · холод · вулкан · потерялся. Работает без интернета.</span>
+        </span>
+        <span style={{ color: 'var(--ocean)', fontSize: 18, fontWeight: 700 }}>→</span>
       </Link>
 
       {/* Зоны */}

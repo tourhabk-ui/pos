@@ -218,6 +218,11 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
             <span>Бесплатно. С гидом или сам — спасателям это спасает жизни →</span>
           </Link>
 
+          <Link href="/safety/offline" className="protoline">
+            Что делать при ЧП: медведь · холод · вулкан · потерялся
+            <b>работает без сети →</b>
+          </Link>
+
           {(safety.alerts.length > 0 || seismic.events.length > 0) && (
             <div className="safety">
               {safety.alerts.length > 0 && <AlertsTicker alerts={safety.alerts} />}
@@ -673,6 +678,9 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .mchsline b{font:700 12px/1.3 var(--fd);color:var(--ink)}
 .v7 .mchsline span{font:500 10px/1.35 var(--fb);color:var(--muted)}
 .v7 .mchsline:active{transform:scale(.99)}
+.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:10px 14px;border-radius:12px;text-decoration:none;border:1px solid var(--hair);font:500 10.5px/1.4 var(--fb);color:var(--muted)}
+.v7 .protoline b{font:700 10.5px/1 var(--fb);color:var(--ink)}
+.v7 .protoline:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 .v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
 .v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
