@@ -1,12 +1,8 @@
-import type { Metadata } from 'next';
-import DashboardClient from './_DashboardClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Командный центр — Vedar',
-  description: 'Панель экспедиции: маршрут дня, статус вулканов, предупреждения Кузьмича.',
-  robots: 'noindex',
-};
-
+// /dashboard — осиротевший «командный центр», перекрыт живой Главной v8
+// (июль 2026). Ни одной входящей ссылки; редиректим на Главную.
+// Клиент _DashboardClient.tsx оставлен на случай возрождения отдельным входом.
 export default function DashboardPage() {
-  return <DashboardClient />;
+  redirect('/');
 }
