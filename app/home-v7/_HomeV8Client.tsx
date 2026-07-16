@@ -377,7 +377,8 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
       </div>
 
       {/* SOS — красный, отдельно от коммерции */}
-      <button className="sos" aria-label="SOS — удерживайте"
+      <button className="sos" aria-label="SOS — экстренная помощь"
+        onClick={() => setSosOpen(true)}
         onPointerDown={startHold} onPointerUp={resetHold} onPointerLeave={resetHold} onPointerCancel={resetHold}>
         SOS
         <svg className="hold" viewBox="0 0 72 72"><circle cx="36" cy="36" r="34" style={{ strokeDashoffset: 213 * (1 - hold) }} /></svg>
@@ -385,12 +386,12 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
       <div className={`scrim${sosOpen ? ' on' : ''}`} onClick={() => setSosOpen(false)} />
       <div className={`sheet${sosOpen ? ' on' : ''}`} role="dialog" aria-label="Экстренная помощь">
         <h3>Что случилось?</h3>
-        <p>Категория уйдёт спасателям вместе с координатами. Работает офлайн — SMS-канал.</p>
+        <p>Позвоните 112 или откройте протокол на странице СОС — с координатами и офлайн-инструкциями.</p>
         <div className="protocols">
-          <button className="proto" onClick={() => setSosOpen(false)}><b>Потерялся</b><span>маяк + последняя точка</span></button>
-          <button className="proto" onClick={() => setSosOpen(false)}><b>Медведь</b><span>протокол встречи</span></button>
-          <button className="proto" onClick={() => setSosOpen(false)}><b>Травма</b><span>помощь + вызов SAR</span></button>
-          <button className="proto" onClick={() => setSosOpen(false)}><b>Холод</b><span>гипотермия офлайн</span></button>
+          <Link className="proto" href="/safety?p=lost"   onClick={() => setSosOpen(false)}><b>Потерялся</b><span>маяк + последняя точка</span></Link>
+          <Link className="proto" href="/safety?p=bear"   onClick={() => setSosOpen(false)}><b>Медведь</b><span>протокол встречи</span></Link>
+          <Link className="proto" href="/safety?p=injury" onClick={() => setSosOpen(false)}><b>Травма</b><span>помощь + вызов SAR</span></Link>
+          <Link className="proto" href="/safety?p=cold"   onClick={() => setSosOpen(false)}><b>Холод</b><span>гипотермия офлайн</span></Link>
         </div>
         <a className="call112" href="tel:112">Позвонить 112</a>
       </div>
@@ -836,7 +837,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .sheet h3{font:600 17px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .sheet p{font:400 11.5px/1.6 var(--fb);color:var(--muted);margin-top:6px}
 .v7 .protocols{margin-top:16px}
-.v7 .proto{width:100%;display:flex;align-items:center;gap:14px;padding:13px 2px;border:0;border-bottom:1px solid var(--hair-soft);background:none;cursor:pointer;color:var(--ink);text-align:left;font-family:var(--fb)}
+.v7 .proto{width:100%;display:flex;align-items:center;gap:14px;padding:13px 2px;border:0;border-bottom:1px solid var(--hair-soft);background:none;cursor:pointer;color:var(--ink);text-decoration:none;text-align:left;font-family:var(--fb)}
 .v7 .proto:first-child{border-top:1px solid var(--hair-soft)}
 .v7 .proto b{font:600 14px/1.2 var(--fd)}
 .v7 .proto span{font:400 10px/1.4 var(--fb);color:var(--muted);margin-left:auto;text-align:right}
