@@ -235,6 +235,13 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
             <b>работает без сети →</b>
           </Link>
 
+          {/* Навигатор — жёсткая ссылка (не Next Link): чтобы офлайн грузилась
+              закэшированная страница, а не заглушка «Нет соединения». */}
+          <a href="/on-route" className="protoline">
+            Навигатор по маршруту: компас до точки, высота, трек
+            <b>работает без сети →</b>
+          </a>
+
           <button type="button" className="reportbtn" onClick={() => setReportOpen(true)}>
             Сообщить о наблюдении <span>медведь · лавина · состояние тропы →</span>
           </button>
