@@ -13,7 +13,7 @@
  * Данные приходят из серверного data-слоя (app/home-v7/data.ts).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
@@ -132,6 +132,15 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
   const jumpToLead = () => {
     leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  // СОС: онлайн — уходим на полноценный /sos; офлайн — не даём навигации
+  // (она бы упала на «Нет соединения») и открываем инлайн-панель на главной.
+  const sosClick = (e: React.MouseEvent) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      e.preventDefault();
+      setSosOpen(true);
+    }
   };
 
   const submitLead = async () => {
@@ -374,10 +383,9 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           мобильной Главной; шторка сама рендерит оверлей. */}
       <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
-      {/* SOS — открывает инлайн-панель поверх главной (0 переходов, 0 сети):
-          навигация на /sos офлайн умирает, а панель на уже загруженной
-          главной — выживает (подтверждено полевым тестом на Трёх братьях). */}
-      <button className="sos" aria-label="SOS — экстренная помощь" onClick={() => setSosOpen(true)}>SOS</button>
+      {/* SOS — онлайн ведёт на полноценный /sos; офлайн (где /sos не поднимется
+          из-за RSC-подкачки) открывает инлайн-панель поверх главной. */}
+      <Link href="/sos" className="sos" aria-label="SOS — экстренная помощь" onClick={sosClick}>SOS</Link>
 
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
@@ -385,7 +393,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
         <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
         <Link href="/routes"><span className="ico"><Route className="ti" size={19} strokeWidth={2} /></span><span>Маршруты</span></Link>
-        <button className="sos-tab" onClick={() => setSosOpen(true)}><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></button>
+        <Link href="/sos" className="sos-tab" onClick={sosClick}><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
 
       <EmergencyPanel open={sosOpen} onClose={() => setSosOpen(false)} />
