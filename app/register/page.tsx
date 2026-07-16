@@ -220,20 +220,29 @@ export default function RegisterRoutePage() {
 
           <div className="space-y-3 mb-6 text-left">
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
-              <p className="font-semibold text-sm mb-1">Через Госуслуги</p>
-              <p className="text-xs text-[var(--text-muted)]">Подайте электронное заявление на gosuslugi.ru</p>
-              <a href="https://www.gosuslugi.ru" target="_blank" rel="noopener noreferrer"
+              <p className="font-semibold text-sm mb-1">Онлайн — сайт МЧС России</p>
+              <p className="text-xs text-[var(--text-muted)]">Электронная заявка на регистрацию туристской группы.</p>
+              <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form" target="_blank" rel="noopener noreferrer"
                  className="text-[var(--accent)] text-xs font-medium mt-2 inline-block hover:underline">
-                Открыть Госуслуги →
+                Открыть форму МЧС →
               </a>
             </div>
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
-              <p className="font-semibold text-sm mb-1">По телефону МЧС</p>
-              <p className="text-xs text-[var(--text-muted)]">+7 (4152) 23-53-62 — Главное управление МЧС по Камчатскому краю</p>
+              <p className="font-semibold text-sm mb-1">Почтой (заказное с уведомлением)</p>
+              <p className="text-xs text-[var(--text-muted)]">683003, Камчатский край, г. Петропавловск-Камчатский, ул. Ленинградская, д. 25</p>
             </div>
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
-              <p className="font-semibold text-sm mb-1">Лично</p>
-              <p className="text-xs text-[var(--text-muted)]">г. Петропавловск-Камчатский, ул. Ленинская, 28</p>
+              <p className="font-semibold text-sm mb-1">Лично — ЦУКС ГУ МЧС по Камчатскому краю</p>
+              <p className="text-xs text-[var(--text-muted)]">г. Петропавловск-Камчатский, ул. Тундровая, д. 6</p>
+            </div>
+            <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
+              <p className="font-semibold text-sm mb-1">Консультация по телефону</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                <a href="tel:+74152301081" className="text-[var(--accent)] hover:underline">+7 (4152) 30-10-81</a> — маршрутный лист, погода, действующие предупреждения
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-1.5">
+                <a href="tel:+74152410395" className="text-[var(--accent)] hover:underline">+7 (4152) 41-03-95</a> — ПСО КГКУ «ЦОД»: состояние и сложность маршрута, снаряжение
+              </p>
             </div>
           </div>
 
