@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
+import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -60,6 +61,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [plateIdx, setPlateIdx] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
@@ -223,6 +225,10 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
             <b>работает без сети →</b>
           </Link>
 
+          <button type="button" className="reportbtn" onClick={() => setReportOpen(true)}>
+            Сообщить о наблюдении <span>медведь · лавина · состояние тропы →</span>
+          </button>
+
           {(safety.alerts.length > 0 || seismic.events.length > 0) && (
             <div className="safety">
               {safety.alerts.length > 0 && <AlertsTicker alerts={safety.alerts} />}
@@ -362,6 +368,10 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           </div>
         )}
       </div>
+
+      {/* Сообщить о наблюдении (trail_reports) — восстановлено на v8 после свапа
+          мобильной Главной; шторка сама рендерит оверлей. */}
+      <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
       {/* SOS — красный, ведёт на паник-экран /sos: офлайн-номера, VolcanoMesh,
           координаты, категории. Без промежуточной шторки — в ЧП нужен один тап. */}
@@ -681,6 +691,9 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:10px 14px;border-radius:12px;text-decoration:none;border:1px solid var(--hair);font:500 10.5px/1.4 var(--fb);color:var(--muted)}
 .v7 .protoline b{font:700 10.5px/1 var(--fb);color:var(--ink)}
 .v7 .protoline:active{transform:scale(.99)}
+.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:10px 14px;border-radius:12px;border:1px dashed var(--hair);background:none;cursor:pointer;font:600 10.5px/1.4 var(--fb);color:var(--ink);font-family:var(--fb)}
+.v7 .reportbtn span{color:var(--muted);font-weight:500}
+.v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 .v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
 .v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
