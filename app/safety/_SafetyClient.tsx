@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone } from 'lucide-react';
+import Link from 'next/link';
+import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck } from 'lucide-react';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -237,6 +238,20 @@ export default function SafetyClient() {
           <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{bannerLabel}</span>
         </div>
       )}
+
+      {/* Регистрация маршрута в МЧС — одно действие, которое спасает жизнь */}
+      <Link href="/register" className="ds-card" style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', marginBottom: 20,
+        textDecoration: 'none', border: '1px solid color-mix(in srgb, var(--danger) 28%, transparent)',
+        background: 'color-mix(in srgb, var(--danger) 8%, var(--bg-card))',
+      }}>
+        <ShieldCheck className="w-6 h-6" style={{ color: 'var(--danger)', flexShrink: 0 }} />
+        <span style={{ flex: 1 }}>
+          <span style={{ display: 'block', fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>Зарегистрируй маршрут в МЧС</span>
+          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>Бесплатно, заранее. С гидом или сам — спасателям это спасает жизни.</span>
+        </span>
+        <span style={{ color: 'var(--danger)', fontSize: 18, fontWeight: 700 }}>→</span>
+      </Link>
 
       {/* Зоны */}
       {loading ? (
