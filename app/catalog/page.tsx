@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
 import MarketplaceClient from '@/components/marketplace/MarketplaceClient';
-import { queryMarketplaceToursForPage, type MarketplaceToursResult } from '@/lib/tours/marketplace-query';
+import { queryMarketplaceToursForPage, type MarketplaceToursResult } from '@/lib/search';
 import { parseMarketplaceSearchParams, buildToursItemListJsonLd } from '@/lib/tours/marketplace-page';
 
 export const dynamic = 'force-dynamic';

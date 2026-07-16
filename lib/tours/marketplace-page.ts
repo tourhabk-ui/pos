@@ -6,7 +6,7 @@
  */
 
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
-import type { MarketplaceToursFilters, MarketplaceTourRow } from '@/lib/tours/marketplace-query';
+import type { MarketplaceToursFilters, MarketplaceTourRow } from '@/lib/search';
 
 const SORT_VALUES = ['recommended', 'price_asc', 'price_desc', 'recent'] as const;
 const DIFFICULTY_VALUES = ['easy', 'medium', 'hard'] as const;

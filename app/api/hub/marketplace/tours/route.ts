@@ -2,13 +2,13 @@
  * GET /api/hub/marketplace/tours
  * Public API: Get all available tours for marketplace
  *
- * Query-логика вынесена в lib/tours/marketplace-query.ts — общий data-слой с
+ * Query-логика вынесена в движок «Поиск» (lib/search) — общий data-слой с
  * SSR-рендером app/catalog/page.tsx (шаг 3 аудита 11.07). Здесь остаётся
  * только HTTP-обёртка.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { MarketplaceToursQuerySchema, queryMarketplaceTours } from '@/lib/tours/marketplace-query';
+import { MarketplaceToursQuerySchema, queryMarketplaceTours } from '@/lib/search';
 
 export const dynamic = 'force-dynamic';
 

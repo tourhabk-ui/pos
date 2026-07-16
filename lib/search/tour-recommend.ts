@@ -1,7 +1,9 @@
 /**
- * Движок рекомендаций туров
- * 3 стратегии: Similar Users, Tour Content, Eco-Optimized
- * Чистый SQL, без внешних ML-библиотек
+ * ПОИСК · персональные рекомендации туров.
+ * 3 стратегии: Similar Users, Tour Content, Eco-Optimized. Чистый SQL.
+ *
+ * Часть движка «Поиск» (`lib/search`). Консолидация июль 2026: перемещено из
+ * `lib/recommendations/engine.ts` без изменения поведения.
  */
 
 import { query } from '@/lib/database';

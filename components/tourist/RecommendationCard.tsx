@@ -4,7 +4,7 @@ import React from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Users, Target, Leaf, Mountain, Clock, Circle } from 'lucide-react';
-import type { RecommendedTour, RecommendationStrategy } from '@/lib/recommendations/engine';
+import type { RecommendedTour, RecommendationStrategy } from '@/lib/search';
 
 interface RecommendationCardProps {
   tour: RecommendedTour;

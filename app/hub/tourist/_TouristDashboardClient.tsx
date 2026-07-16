@@ -9,7 +9,7 @@ import {
 import Link from 'next/link';
 import { Weather } from '@/types';
 import RecommendationCard, { RecommendationCardSkeleton } from '@/components/tourist/RecommendationCard';
-import type { RecommendedTour } from '@/lib/recommendations/engine';
+import type { RecommendedTour } from '@/lib/search';
 
 interface TouristStats {
   overview: Record<string, unknown>;
