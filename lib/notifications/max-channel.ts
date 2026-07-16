@@ -41,8 +41,10 @@ function convertTgToMax(html: string): string {
  * Отправить текстовый пост в MAX-канал.
  * Если MAX не настроен — возвращает ok: false без ошибки (не блокирует).
  */
-export async function maxPostToChannel(text: string): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  const channelId = process.env.MAX_CHANNEL_ID;
+export async function maxPostToChannel(text: string, targetChatId?: number | string): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  // targetChatId переопределяет канал (для мульти-канальной маршрутизации репостера);
+  // по умолчанию — единый MAX_CHANNEL_ID из env.
+  const channelId = targetChatId != null ? String(targetChatId) : process.env.MAX_CHANNEL_ID;
   if (!channelId) return { ok: false, skipped: true, error: 'MAX_CHANNEL_ID not set' };
 
   const api = getApi();
@@ -68,8 +70,9 @@ export async function maxPostToChannel(text: string): Promise<{ ok: boolean; err
 export async function maxPostPhotoToChannel(
   photoUrl: string,
   caption: string,
+  targetChatId?: number | string,
 ): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  const channelId = process.env.MAX_CHANNEL_ID;
+  const channelId = targetChatId != null ? String(targetChatId) : process.env.MAX_CHANNEL_ID;
   if (!channelId) return { ok: false, skipped: true, error: 'MAX_CHANNEL_ID not set' };
 
   const api = getApi();
