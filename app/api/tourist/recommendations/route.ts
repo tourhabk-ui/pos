@@ -9,7 +9,7 @@ import {
   getRecommendations,
   getCachedRecommendations,
   saveRecommendationsCache,
-} from '@/lib/recommendations/engine';
+} from '@/lib/search';
 import { requireRole } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';

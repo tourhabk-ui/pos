@@ -14,7 +14,7 @@ import type { NextRequest } from 'next/server';
 const getRecommendationsMock = vi.fn();
 const getCachedRecommendationsMock = vi.fn();
 const saveRecommendationsCacheMock = vi.fn();
-vi.mock('@/lib/recommendations/engine', () => ({
+vi.mock('@/lib/search/tour-recommend', () => ({
   getRecommendations: (...args: unknown[]) => getRecommendationsMock(...args),
   getCachedRecommendations: (...args: unknown[]) => getCachedRecommendationsMock(...args),
   saveRecommendationsCache: (...args: unknown[]) => saveRecommendationsCacheMock(...args),
