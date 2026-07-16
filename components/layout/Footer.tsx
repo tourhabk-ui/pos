@@ -4,6 +4,8 @@ import { Send } from 'lucide-react';
 
 const PLATFORM = [
   { label: 'Туры', href: '/catalog' },
+  { label: 'Календарь туров', href: '/calendar' },
+  { label: 'Популярное', href: '/trending' },
   { label: 'Камчатская рыбалка', href: '/hub/fishing' },
   { label: 'Места', href: '/places' },
   { label: 'Маршруты', href: '/routes' },
@@ -11,8 +13,10 @@ const PLATFORM = [
   { label: 'Планирование поездки', href: '/partners' },
   { label: 'Партнёры', href: '/operators' },
   { label: 'Стать партнёром', href: '/for-operators' },
+  { label: 'Оставить заявку', href: '/contact' },
   { label: 'Помощь туристам', href: '/help/tourists' },
   { label: 'Помощь операторам', href: '/help/operators' },
+  { label: 'Вопросы и ответы', href: '/faq' },
   { label: 'О платформе', href: '/about' },
   { label: 'Блог', href: '/blog' },
   { label: 'Инциденты и алерты', href: '/safety/incidents' },
