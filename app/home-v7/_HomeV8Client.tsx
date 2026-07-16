@@ -53,7 +53,7 @@ const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'U
 
 export default function HomeV8Client({ data, preview = false }: { data: HomeV8Data; preview?: boolean }) {
   const { safety, seismic, radar, plates, feed, stats, elements } = data;
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
@@ -65,10 +65,21 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
+  // По умолчанию тёмная; если пользователь ранее выбрал светлую — восстанавливаем.
+  useEffect(() => {
+    const saved = localStorage.getItem('v8-theme');
+    if (saved === 'light' || saved === 'dark') setTheme(saved);
+  }, []);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-v7theme', theme);
     return () => document.documentElement.removeAttribute('data-v7theme');
   }, [theme]);
+
+  const chooseTheme = (t: 'light' | 'dark') => {
+    setTheme(t);
+    try { localStorage.setItem('v8-theme', t); } catch { /* приватный режим */ }
+  };
 
   // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.
   useEffect(() => {
@@ -158,8 +169,8 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
       <div className="protobar">
         <span className="tag">{preview ? 'Превью · v8 «Воронка»' : ''}</span>
         <div className="seg" id="themeSeg">
-          <button aria-pressed={theme === 'light'} onClick={() => setTheme('light')}>Днём</button>
-          <button aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>В поле</button>
+          <button aria-pressed={theme === 'light'} onClick={() => chooseTheme('light')}>Днём</button>
+          <button aria-pressed={theme === 'dark'} onClick={() => chooseTheme('dark')}>В поле</button>
         </div>
       </div>
 
@@ -573,7 +584,7 @@ const CSS = `
 }
 html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
 html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
-.v7,.v7[data-v7theme]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
+.v7,.v7[data-v7theme]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7 *{margin:0;padding:0;box-sizing:border-box}
 .v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:96px;-webkit-font-smoothing:antialiased}
 @media (prefers-reduced-motion:reduce){.v7 *,.v7 *::before,.v7 *::after{animation:none!important;transition:none!important}}
