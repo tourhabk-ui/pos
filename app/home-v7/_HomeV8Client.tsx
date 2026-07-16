@@ -59,13 +59,9 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sosOpen, setSosOpen] = useState(false);
-  const [hold, setHold] = useState(0); // 0..1 для дуги удержания
   const [plateIdx, setPlateIdx] = useState(0);
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
-  const holdRaf = useRef<number | null>(null);
-  const holdT0 = useRef<number | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-v7theme', theme);
@@ -150,25 +146,6 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
     }
   };
 
-  // SOS: удержание 1с → открыть шторку
-  const HOLD_MS = 1000;
-  const startHold = (e: React.PointerEvent) => {
-    e.preventDefault();
-    holdT0.current = null;
-    const tick = (ts: number) => {
-      if (holdT0.current == null) holdT0.current = ts;
-      const k = Math.min(1, (ts - holdT0.current) / HOLD_MS);
-      setHold(k);
-      if (k >= 1) { setSosOpen(true); resetHold(); return; }
-      holdRaf.current = requestAnimationFrame(tick);
-    };
-    holdRaf.current = requestAnimationFrame(tick);
-  };
-  const resetHold = () => {
-    if (holdRaf.current) cancelAnimationFrame(holdRaf.current);
-    holdRaf.current = null; holdT0.current = null; setHold(0);
-  };
-
   const openZones = zones.total > 0 ? zones.open : null;
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
@@ -232,7 +209,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section>
-          <div className="shead"><span className="num">I</span><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/map">Карта</Link></div>
+          <div className="shead"><span className="num">I</span><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
 
@@ -376,25 +353,9 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         )}
       </div>
 
-      {/* SOS — красный, отдельно от коммерции */}
-      <button className="sos" aria-label="SOS — экстренная помощь"
-        onClick={() => setSosOpen(true)}
-        onPointerDown={startHold} onPointerUp={resetHold} onPointerLeave={resetHold} onPointerCancel={resetHold}>
-        SOS
-        <svg className="hold" viewBox="0 0 72 72"><circle cx="36" cy="36" r="34" style={{ strokeDashoffset: 213 * (1 - hold) }} /></svg>
-      </button>
-      <div className={`scrim${sosOpen ? ' on' : ''}`} onClick={() => setSosOpen(false)} />
-      <div className={`sheet${sosOpen ? ' on' : ''}`} role="dialog" aria-label="Экстренная помощь">
-        <h3>Что случилось?</h3>
-        <p>Позвоните 112 или откройте протокол на странице СОС — с координатами и офлайн-инструкциями.</p>
-        <div className="protocols">
-          <Link className="proto" href="/safety?p=lost"   onClick={() => setSosOpen(false)}><b>Потерялся</b><span>маяк + последняя точка</span></Link>
-          <Link className="proto" href="/safety?p=bear"   onClick={() => setSosOpen(false)}><b>Медведь</b><span>протокол встречи</span></Link>
-          <Link className="proto" href="/safety?p=injury" onClick={() => setSosOpen(false)}><b>Травма</b><span>помощь + вызов SAR</span></Link>
-          <Link className="proto" href="/safety?p=cold"   onClick={() => setSosOpen(false)}><b>Холод</b><span>гипотермия офлайн</span></Link>
-        </div>
-        <a className="call112" href="tel:112">Позвонить 112</a>
-      </div>
+      {/* SOS — красный, ведёт на паник-экран /sos: офлайн-номера, VolcanoMesh,
+          координаты, категории. Без промежуточной шторки — в ЧП нужен один тап. */}
+      <Link href="/sos" className="sos" aria-label="SOS — экстренная помощь">SOS</Link>
 
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
@@ -402,7 +363,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         <Link href="/map"><MapIcon className="ti" size={19} strokeWidth={2} /><span>Карта</span></Link>
         <Link href="/kuzmich"><Compass className="ti" size={19} strokeWidth={2} /><span>Кузьмич</span></Link>
         <Link href="/routes"><Route className="ti" size={19} strokeWidth={2} /><span>Маршруты</span></Link>
-        <Link href="/safety" className="sos-tab"><Siren className="ti" size={19} strokeWidth={2} /><span>СОС</span></Link>
+        <Link href="/sos" className="sos-tab"><Siren className="ti" size={19} strokeWidth={2} /><span>СОС</span></Link>
       </div></nav>
     </div>
   );
@@ -827,19 +788,6 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 nav.tabs a.sos-tab,.v7 nav.tabs a.sos-tab .ti{color:var(--danger)}
 .v7 nav.tabs a.sos-tab:active .ti{transform:scale(.86)}
 /* SOS — красный */
-.v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border-radius:50%;border:0;cursor:pointer;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent);touch-action:none;user-select:none;-webkit-user-select:none}
-.v7 .sos svg.hold{position:absolute;inset:-6px}
-.v7 .sos circle{fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-dasharray:213;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .05s linear}
-.v7 .scrim{position:fixed;inset:0;background:rgba(17,23,21,.5);z-index:70;opacity:0;pointer-events:none;transition:opacity .25s}
-.v7 .scrim.on{opacity:1;pointer-events:auto}
-.v7 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;transform:translateY(105%);transition:transform .32s cubic-bezier(.3,.9,.3,1);background:var(--bg);border-top:1px solid var(--hair);padding:18px 22px calc(22px + env(safe-area-inset-bottom));max-width:480px;margin:0 auto}
-.v7 .sheet.on{transform:none}
-.v7 .sheet h3{font:600 17px/1.2 var(--fd);letter-spacing:-.02em}
-.v7 .sheet p{font:400 11.5px/1.6 var(--fb);color:var(--muted);margin-top:6px}
-.v7 .protocols{margin-top:16px}
-.v7 .proto{width:100%;display:flex;align-items:center;gap:14px;padding:13px 2px;border:0;border-bottom:1px solid var(--hair-soft);background:none;cursor:pointer;color:var(--ink);text-decoration:none;text-align:left;font-family:var(--fb)}
-.v7 .proto:first-child{border-top:1px solid var(--hair-soft)}
-.v7 .proto b{font:600 14px/1.2 var(--fd)}
-.v7 .proto span{font:400 10px/1.4 var(--fb);color:var(--muted);margin-left:auto;text-align:right}
-.v7 .call112{display:block;text-align:center;margin-top:16px;width:100%;padding:15px;border:0;cursor:pointer;background:var(--danger);color:#fff;font:700 12px/1 var(--fb);letter-spacing:.2em;text-transform:uppercase}
+.v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
+.v7 .sos:active{transform:scale(.94)}
 `;
