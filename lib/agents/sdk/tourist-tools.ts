@@ -10,7 +10,7 @@
 
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
-import { composeTrip } from '@/lib/kuzmich/trip-composer';
+import { composeTrip } from '@/lib/planner/compose';
 
 // Вычисляем длительность в днях из реальных колонок
 const DURATION_EXPR = `COALESCE(t.multi_day_count, CEIL(t.duration_hours / 24.0)::int, 1)`;

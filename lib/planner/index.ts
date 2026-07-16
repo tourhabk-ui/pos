@@ -5,6 +5,7 @@
  * `lib/services/{trip-recommender,planner-data-layer,planner-intelligence,
  * routes-recommender}`. Сведено в один модуль:
  *   - engine       — ядро подбора маршрута по дням (recommendTrip, зоны, граф);
+ *   - compose      — сборка комплексного маршрута из нескольких туров (Кузьмич);
  *   - data         — data-слой (честная занятость, туры зоны, альтернативы);
  *   - intelligence — погода Open-Meteo, quality/health-скоринг;
  *   - interests    — парсинг интересов туриста → подбор маршрутов.
@@ -53,3 +54,11 @@ export {
   type PlannerCache,
   type RealTour,
 } from './data';
+
+export {
+  composeTrip,
+  type ComposedTrip,
+  type ComposeTripParams,
+  type TripTour,
+  type TripDay,
+} from './compose';
