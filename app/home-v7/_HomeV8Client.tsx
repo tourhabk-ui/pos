@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -52,7 +52,7 @@ function magColor(m: number): string {
 const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
 export default function HomeV8Client({ data, preview = false }: { data: HomeV8Data; preview?: boolean }) {
-  const { safety, seismic, radar, zones, plates, feed, stats, elements } = data;
+  const { safety, seismic, radar, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
@@ -148,7 +148,6 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
     }
   };
 
-  const openZones = zones.total > 0 ? zones.open : null;
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
   return (
@@ -181,23 +180,12 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           <h1>Полуостров,<br />прочитанный <em>сегодня</em></h1>
           <p className="sub">Маршруты, безопасность и реальные туры проверенных операторов — в одном месте.</p>
 
-          {/* честное кольцо: открыто N из M зон (реальные данные) */}
-          <div className="ring-glass">
-            {openZones != null ? (
-              <>
-                <Ring open={zones.open} total={zones.total} />
-                <div className="ring-cap">
-                  <b>{zones.open}<i>/{zones.total}</i></b>
-                  <span>зон открыто сегодня</span>
-                  {zones.updatedAt && <em>обновлено {fmtAgo(zones.updatedAt)}</em>}
-                </div>
-              </>
-            ) : (
-              <div className="ring-cap"><span>Статусы зон обновляются</span></div>
-            )}
+          {/* три способа найти тур — каждый в свой инструмент */}
+          <div className="hero-cta">
+            <Link href="/routes" className="hc-btn"><LayoutGrid className="hci" size={17} strokeWidth={2} /><span>Каталог</span></Link>
+            <Link href="/planner" className="hc-btn"><Sparkles className="hci" size={17} strokeWidth={2} /><span>Планировщик</span></Link>
+            <Link href="/kuzmich" className="hc-btn"><Compass className="hci" size={17} strokeWidth={2} /><span>Кузьмич</span></Link>
           </div>
-
-          <button className="cta-hero" onClick={jumpToLead}>Подобрать тур</button>
           {safety.volcanoes[0] && (
             <div className="kvert">
               <i style={{ background: ACC_VAR[safety.volcanoes[0].acc] }} />
@@ -578,33 +566,6 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
   );
 }
 
-/** Кольцо готовности: дуга открытых зон (зелёная) на фоне закрытых (красная). Реальные open/total. */
-/**
- * Прогресс-круг «зон открыто». Непрерывная дуга заполняется от верха по часовой
- * (эффект «открывается сверху вниз»). Работает при любом числе зон — прежняя
- * посегментная версия при total≈471 давала отрицательную длину сегмента и
- * ничего не рисовала. Незакрытая доля — красноватый трек.
- */
-function Ring({ open, total }: { open: number; total: number }) {
-  const cx = 92, cy = 92, r = 78, C = 2 * Math.PI * r;
-  const frac = total > 0 ? Math.min(Math.max(open / total, 0), 1) : 0;
-  const allOpen = total > 0 && open >= total;
-  const [revealed, setRevealed] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => requestAnimationFrame(() => setRevealed(true)));
-    return () => cancelAnimationFrame(id);
-  }, []);
-  const offset = revealed ? C * (1 - frac) : C;
-  return (
-    <svg className="dial" viewBox="0 0 184 184">
-      <circle cx={cx} cy={cy} r={r} fill="none" strokeWidth={4}
-        className={allOpen ? 'dtrack' : 'dtrack dtrack-warn'} />
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pine)" strokeWidth={4} strokeLinecap="round"
-        className="dprog" strokeDasharray={C} strokeDashoffset={offset} />
-    </svg>
-  );
-}
-
 const CSS = `
 .v7{
   --fd:var(--font-unbounded),system-ui,sans-serif;--fb:var(--font-manrope),system-ui,sans-serif;--fm:var(--font-jetbrains),ui-monospace,monospace;
@@ -641,19 +602,12 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo h1{margin-top:16px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
 .v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
-.v7 .ring-glass{margin:20px auto 0;display:flex;align-items:center;gap:16px;justify-content:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.32);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:14px 18px;width:max-content;max-width:100%}
-.v7 .ring-glass .dial{width:84px;height:84px;transform:rotate(-90deg);flex:none}
-.v7 .ring-glass .dial .dtrack{stroke:rgba(255,255,255,.16)}
-.v7 .ring-glass .dial .dtrack-warn{stroke:color-mix(in srgb,var(--brusnika) 55%,rgba(255,255,255,.16))}
-.v7 .ring-glass .dial .dprog{transition:stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)}
-@media (prefers-reduced-motion:reduce){.v7 .ring-glass .dial .dprog{transition:none}}
-.v7 .ring-cap{text-align:left}
-.v7 .ring-cap b{font:700 23px/1 var(--fd);letter-spacing:-.02em}
-.v7 .ring-cap b i{font-style:normal;color:rgba(255,255,255,.6);font-size:16px}
-.v7 .ring-cap span{display:block;font:600 9px/1.4 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.82);margin-top:3px}
-.v7 .ring-cap em{display:block;font:400 8.5px/1.4 var(--fm);color:rgba(255,255,255,.6);margin-top:3px;font-style:normal}
-.v7 .cta-hero{margin-top:20px;background:var(--shroom);color:#fff;border:0;font:700 12px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;padding:15px 30px;cursor:pointer;transition:transform .13s}
-.v7 .cta-hero:active{transform:scale(.97)}
+.v7 .hero-cta{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%;max-width:420px}
+.v7 .hc-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:14px 6px;border-radius:14px;text-decoration:none;color:#fff;font:700 10px/1.1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-align:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease,border-color .2s ease}
+.v7 .hc-btn .hci{color:#fff;transition:transform .2s ease}
+.v7 .hc-btn:active{transform:scale(.96)}
+.v7 .hc-btn:hover{background:rgba(10,14,12,.5);border-color:rgba(255,255,255,.3)}
+.v7 .hc-btn:hover .hci{transform:translateY(-1px)}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
