@@ -13,7 +13,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { fetchWeatherForecast } from '@/lib/services/planner-intelligence';
+import { fetchWeatherForecast } from '@/lib/planner/intelligence';
 
 export interface RescueAlert {
   type: 'sos_timeout' | 'weather_threat' | 'booking_unconfirmed' | 'operator_no_response';

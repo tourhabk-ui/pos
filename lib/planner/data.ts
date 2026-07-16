@@ -4,7 +4,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import type { ZoneId } from '@/lib/services/trip-recommender';
+import type { ZoneId } from '@/lib/planner/engine';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 

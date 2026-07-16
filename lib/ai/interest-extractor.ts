@@ -6,7 +6,7 @@
  */
 
 import { encrypt, decrypt } from '@/lib/encryption';
-import { parseInterestsFromText } from '@/lib/services/routes-recommender';
+import { parseInterestsFromText } from '@/lib/planner/interests';
 
 interface InterestScores {
   scores: Record<string, number>;

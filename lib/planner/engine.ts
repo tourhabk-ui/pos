@@ -11,10 +11,10 @@ import {
   createPlannerCache, fetchRealToursForZone, fetchAvailabilityForTour,
   fetchZoneCapacity, fetchContingencyAlternatives, fetchReviewSignals,
   type PlannerCache, type RealTour,
-} from '@/lib/services/planner-data-layer';
+} from '@/lib/planner/data';
 import {
   fetchWeatherForecast, computeQualityScore, assessHealthCompatibility,
-} from '@/lib/services/planner-intelligence';
+} from '@/lib/planner/intelligence';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 

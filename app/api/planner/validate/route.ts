@@ -11,9 +11,9 @@ import {
   ZONE_GRAPH,
   ACTIVITY_CONSTRAINTS,
   ZONE_ALLOWED_TRANSPORT,
-} from '@/lib/services/trip-recommender';
-import type { ZoneId } from '@/lib/services/trip-recommender';
-import { SEASON_BLOCKED } from '@/lib/services/routes-recommender';
+} from '@/lib/planner/engine';
+import type { ZoneId } from '@/lib/planner/engine';
+import { SEASON_BLOCKED } from '@/lib/planner/interests';
 
 export const dynamic = 'force-dynamic';
 

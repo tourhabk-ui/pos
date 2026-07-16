@@ -6,8 +6,8 @@
  *   tourist_plan_text — натуральный язык → заполненный план поездки
  */
 
-import { parseInterestsFromText } from '@/lib/services/routes-recommender';
-import { recommendTrip } from '@/lib/services/trip-recommender';
+import { parseInterestsFromText } from '@/lib/planner/interests';
+import { recommendTrip } from '@/lib/planner/engine';
 import type { AgentContext } from '../context-hub';
 
 export interface AgencyResult {

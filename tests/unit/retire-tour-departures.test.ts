@@ -27,12 +27,12 @@ describe('fetchCrowdLoad — из живого календаря', () => {
 
     // fetchCrowdLoad приватная — дёргаем через публичный вход рекомендателя нельзя
     // без тяжёлого сетапа; проверяем через модуль напрямую: SQL уходит в pool.
-    const { recommendTrip } = await import('@/lib/services/trip-recommender');
+    const { recommendTrip } = await import('@/lib/planner/engine');
     expect(typeof recommendTrip).toBe('function');
 
     // Прямая проверка SQL: в исходнике не осталось чтения tour_departures
     const fs = await import('node:fs');
-    const src = fs.readFileSync('lib/services/trip-recommender.ts', 'utf8');
+    const src = fs.readFileSync('lib/planner/engine.ts', 'utf8');
     expect(src).toContain('v_tour_daily_occupancy');
     expect(src).not.toMatch(/FROM tour_departures/);
   });
@@ -45,7 +45,7 @@ describe('код больше не читает tour_departures', () => {
       'app/api/public/now/route.ts',
       'app/api/mcp/route.ts',
       'app/api/cron/digest/route.ts',
-      'lib/services/trip-recommender.ts',
+      'lib/planner/engine.ts',
       'lib/bookings/booking.service.ts',
     ]) {
       const src = fs.readFileSync(f, 'utf8');

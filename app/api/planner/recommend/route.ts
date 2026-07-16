@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { recommendTrip } from '@/lib/services/trip-recommender';
+import { recommendTrip } from '@/lib/planner/engine';
 import { verifyAuth } from '@/lib/auth';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 

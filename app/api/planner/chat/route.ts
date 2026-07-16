@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { parseInterestsFromText } from '@/lib/services/routes-recommender';
+import { parseInterestsFromText } from '@/lib/planner/interests';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
