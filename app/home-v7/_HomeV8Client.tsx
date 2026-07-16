@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -165,21 +165,22 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* панель темы (в превью — с меткой) */}
-      <div className="protobar">
-        <span className="tag">{preview ? 'Превью · v8 «Воронка»' : ''}</span>
-        <div className="seg" id="themeSeg">
-          <button aria-pressed={theme === 'light'} onClick={() => chooseTheme('light')}>Днём</button>
-          <button aria-pressed={theme === 'dark'} onClick={() => chooseTheme('dark')}>В поле</button>
-        </div>
-      </div>
-
       {/* шапка */}
       <div className="topbar"><div className="in">
         <span className="brand">Ведар</span>
+        {preview && <span className="ptag">Превью · v8</span>}
         <span className="sp" />
         <button className="icn" aria-label="Поиск">
           <svg viewBox="0 0 24 24" className="li"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+        </button>
+        <button
+          className="icn"
+          aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+          onClick={() => chooseTheme(theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark'
+            ? <Sun className="li" size={19} strokeWidth={2} />
+            : <Moon className="li" size={19} strokeWidth={2} />}
         </button>
         <button className="cta-top" onClick={jumpToLead}>Хочу тур</button>
       </div></div>
@@ -210,7 +211,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section>
-          <div className="shead"><span className="num">I</span><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
+          <div className="shead"><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
 
@@ -242,7 +243,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         {/* II. ПЛАТЫ — реальные туры/маршруты с фото и ценой */}
         {plates.length > 0 && (
           <section>
-            <div className="shead"><span className="num">II</span><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <div className="shead"><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
             <div className="plates" ref={platesRef}>
               {plates.map((p) => {
                 const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
@@ -277,7 +278,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* III. КУЗЬМИЧ */}
         <section>
-          <div className="shead"><span className="num">III</span><h2>Проводник Кузьмич</h2><span className="line" /></div>
+          <div className="shead"><h2>Проводник Кузьмич</h2><span className="line" /></div>
           <div className="guide">
             <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам проверенному оператору.</q>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
@@ -291,7 +292,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         {/* IV. СТИХИИ — реальные счётчики */}
         {elements.length > 0 && (
           <section>
-            <div className="shead"><span className="num">IV</span><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
+            <div className="shead"><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
             <div className="elements">
               {elements.map((el, i) => {
                 const Icon = ELEMENT_ICON[el.key] ?? Flame;
@@ -313,7 +314,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* V. ЦИФРЫ */}
         <section>
-          <div className="shead"><span className="num">V</span><h2>В цифрах</h2><span className="line" /></div>
+          <div className="shead"><h2>В цифрах</h2><span className="line" /></div>
           <div className="dataline">
             {stats.map((s, i) => (
               s.href
@@ -325,7 +326,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* VI. ЛИД-ФОРМА — реальный POST /api/leads */}
         <section ref={leadRef} id="lead">
-          <div className="shead"><span className="num">VI</span><h2>Собрать поездку</h2><span className="line" /></div>
+          <div className="shead"><h2>Собрать поездку</h2><span className="line" /></div>
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
             <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
@@ -350,7 +351,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* VII. РАЗДЕЛЫ */}
         <section>
-          <div className="shead"><span className="num">VII</span><h2>Разделы</h2><span className="line" /></div>
+          <div className="shead"><h2>Разделы</h2><span className="line" /></div>
           <div className="hubline">
             <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
             <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
@@ -591,12 +592,8 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
 .v7 a{color:inherit;text-decoration:none}
-.v7 .protobar{position:sticky;top:0;z-index:60;background:var(--bg);border-bottom:1px solid var(--hair);padding:9px 14px;display:flex;gap:10px;align-items:center}
-.v7 .protobar .tag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-right:auto}
-.v7 .seg{display:flex;gap:14px}
-.v7 .seg button{font:600 10px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);background:none;border:0;padding:4px 0;cursor:pointer;border-bottom:1px solid transparent}
-.v7 .seg button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--ink)}
-.v7 .topbar{position:sticky;top:39px;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
+.v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
 .v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
 .v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
 .v7 .topbar .sp{flex:1}
@@ -624,7 +621,6 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* секции */
 .v7 section{margin-top:40px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
-.v7 .shead .num{font:500 11px/1 var(--fm);color:var(--faint)}
 .v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
 .v7 .shead .all{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide)}
