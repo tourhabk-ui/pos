@@ -213,6 +213,11 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
 
+          <Link href="/register" className="mchsline">
+            <b>Зарегистрируй маршрут в МЧС заранее</b>
+            <span>Бесплатно. С гидом или сам — спасателям это спасает жизни →</span>
+          </Link>
+
           {(safety.alerts.length > 0 || seismic.events.length > 0) && (
             <div className="safety">
               {safety.alerts.length > 0 && <AlertsTicker alerts={safety.alerts} />}
@@ -664,6 +669,10 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.v7 .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.v7 .ticker.scroll .ticker-track{animation:none}}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
+.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:14px;padding:12px 14px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 22%,transparent)}
+.v7 .mchsline b{font:700 12px/1.3 var(--fd);color:var(--ink)}
+.v7 .mchsline span{font:500 10px/1.35 var(--fb);color:var(--muted)}
+.v7 .mchsline:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 .v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
 .v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
