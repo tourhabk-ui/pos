@@ -379,11 +379,11 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
-        <Link href="/" className="active"><Home className="ti" size={19} strokeWidth={2} /><span>Дом</span></Link>
-        <Link href="/map"><MapIcon className="ti" size={19} strokeWidth={2} /><span>Карта</span></Link>
-        <Link href="/kuzmich"><Compass className="ti" size={19} strokeWidth={2} /><span>Кузьмич</span></Link>
-        <Link href="/routes"><Route className="ti" size={19} strokeWidth={2} /><span>Маршруты</span></Link>
-        <Link href="/sos" className="sos-tab"><Siren className="ti" size={19} strokeWidth={2} /><span>СОС</span></Link>
+        <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
+        <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
+        <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
+        <Link href="/routes"><span className="ico"><Route className="ti" size={19} strokeWidth={2} /></span><span>Маршруты</span></Link>
+        <Link href="/sos" className="sos-tab"><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
     </div>
   );
@@ -825,14 +825,16 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* навигация */
 .v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
 .v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-.v7 nav.tabs a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0 calc(8px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .2s ease}
-.v7 nav.tabs a .ti{transition:transform .2s ease,color .2s ease;transform-origin:center bottom}
-.v7 nav.tabs a:active .ti{transform:scale(.86)}
+.v7 nav.tabs a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease}
+.v7 nav.tabs a .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
+.v7 nav.tabs a .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
+.v7 nav.tabs a:active .ico{transform:scale(.9)}
 .v7 nav.tabs a.active{color:var(--ink)}
+.v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--shroom) 15%,transparent)}
 .v7 nav.tabs a.active .ti{color:var(--shroom);transform:translateY(-1px)}
-.v7 nav.tabs a.active::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:24px;height:3px;border-radius:0 0 4px 4px;background:var(--shroom)}
-.v7 nav.tabs a.sos-tab,.v7 nav.tabs a.sos-tab .ti{color:var(--danger)}
-.v7 nav.tabs a.sos-tab:active .ti{transform:scale(.86)}
+.v7 nav.tabs a.sos-tab{color:var(--danger)}
+.v7 nav.tabs a.sos-tab .ico{background:var(--danger);box-shadow:0 3px 12px color-mix(in srgb,var(--danger) 38%,transparent)}
+.v7 nav.tabs a.sos-tab .ti{color:#fff}
 /* SOS — красный */
 .v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
 .v7 .sos:active{transform:scale(.94)}
