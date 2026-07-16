@@ -408,6 +408,14 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
   const [c, setC] = useState(center);
   const [geo, setGeo] = useState<'idle' | 'ok' | 'deny'>('idle');
   const [sel, setSel] = useState<Placed | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyCoords = () => {
+    const t = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+    navigator.clipboard?.writeText(t)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => {});
+  };
 
   const useMyLocation = () => {
     if (!navigator.geolocation) { setGeo('deny'); return; }
@@ -470,6 +478,12 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
           <span className="rc">Центр: <b>{c.label}</b></span>
           {geo !== 'ok' && <button className="rgeo" onClick={useMyLocation}>Моё местоположение</button>}
         </div>
+        {geo === 'ok' && (
+          <button className="rcoord" onClick={copyCoords} title="Скопировать координаты">
+            {c.lat.toFixed(5)}, {c.lng.toFixed(5)}
+            <span>{copied ? 'скопировано' : 'копировать'}</span>
+          </button>
+        )}
         {geo === 'deny' && <div className="rhint">Геолокация недоступна — показываю от Петропавловска.</div>}
         {sel ? (
           <button className="rsel" onClick={() => setSel(null)}>
@@ -650,6 +664,8 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .radar .rc b{color:var(--ink);font-weight:600}
 .v7 .radar .rgeo{font:600 9px/1 var(--fb);letter-spacing:.1em;text-transform:uppercase;color:var(--tide);background:none;border:1px solid color-mix(in srgb,var(--tide) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
 .v7 .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--faint)}
+.v7 .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--ink);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.v7 .radar .rcoord span{font:600 8px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
 .v7 .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .v7 .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--fb);color:var(--muted)}
 .v7 .radar .rleg i{width:7px;height:7px;border-radius:50%}
