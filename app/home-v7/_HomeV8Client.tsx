@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -52,8 +52,8 @@ function magColor(m: number): string {
 const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
 export default function HomeV8Client({ data, preview = false }: { data: HomeV8Data; preview?: boolean }) {
-  const { safety, seismic, radar, zones, plates, feed, stats, elements } = data;
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const { safety, seismic, radar, plates, feed, stats, elements } = data;
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
@@ -65,10 +65,21 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
 
+  // По умолчанию тёмная; если пользователь ранее выбрал светлую — восстанавливаем.
+  useEffect(() => {
+    const saved = localStorage.getItem('v8-theme');
+    if (saved === 'light' || saved === 'dark') setTheme(saved);
+  }, []);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-v7theme', theme);
     return () => document.documentElement.removeAttribute('data-v7theme');
   }, [theme]);
+
+  const chooseTheme = (t: 'light' | 'dark') => {
+    setTheme(t);
+    try { localStorage.setItem('v8-theme', t); } catch { /* приватный режим */ }
+  };
 
   // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.
   useEffect(() => {
@@ -148,28 +159,28 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
     }
   };
 
-  const openZones = zones.total > 0 ? zones.open : null;
   const heroImg = theme === 'dark' ? '/images/hero/hero-dark.jpeg' : '/images/hero/hero-light.jpeg';
 
   return (
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* панель темы (в превью — с меткой) */}
-      <div className="protobar">
-        <span className="tag">{preview ? 'Превью · v8 «Воронка»' : ''}</span>
-        <div className="seg" id="themeSeg">
-          <button aria-pressed={theme === 'light'} onClick={() => setTheme('light')}>Днём</button>
-          <button aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>В поле</button>
-        </div>
-      </div>
-
       {/* шапка */}
       <div className="topbar"><div className="in">
         <span className="brand">Ведар</span>
+        {preview && <span className="ptag">Превью · v8</span>}
         <span className="sp" />
         <button className="icn" aria-label="Поиск">
           <svg viewBox="0 0 24 24" className="li"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+        </button>
+        <button
+          className="icn"
+          aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+          onClick={() => chooseTheme(theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark'
+            ? <Sun className="li" size={19} strokeWidth={2} />
+            : <Moon className="li" size={19} strokeWidth={2} />}
         </button>
         <button className="cta-top" onClick={jumpToLead}>Хочу тур</button>
       </div></div>
@@ -181,23 +192,12 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           <h1>Полуостров,<br />прочитанный <em>сегодня</em></h1>
           <p className="sub">Маршруты, безопасность и реальные туры проверенных операторов — в одном месте.</p>
 
-          {/* честное кольцо: открыто N из M зон (реальные данные) */}
-          <div className="ring-glass">
-            {openZones != null ? (
-              <>
-                <Ring open={zones.open} total={zones.total} />
-                <div className="ring-cap">
-                  <b>{zones.open}<i>/{zones.total}</i></b>
-                  <span>зон открыто сегодня</span>
-                  {zones.updatedAt && <em>обновлено {fmtAgo(zones.updatedAt)}</em>}
-                </div>
-              </>
-            ) : (
-              <div className="ring-cap"><span>Статусы зон обновляются</span></div>
-            )}
+          {/* три способа найти тур — каждый в свой инструмент */}
+          <div className="hero-cta">
+            <Link href="/routes" className="hc-btn"><LayoutGrid className="hci" size={17} strokeWidth={2} /><span>Каталог</span></Link>
+            <Link href="/planner" className="hc-btn"><Sparkles className="hci" size={17} strokeWidth={2} /><span>Планировщик</span></Link>
+            <Link href="/kuzmich" className="hc-btn"><Compass className="hci" size={17} strokeWidth={2} /><span>Кузьмич</span></Link>
           </div>
-
-          <button className="cta-hero" onClick={jumpToLead}>Подобрать тур</button>
           {safety.volcanoes[0] && (
             <div className="kvert">
               <i style={{ background: ACC_VAR[safety.volcanoes[0].acc] }} />
@@ -211,7 +211,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section>
-          <div className="shead"><span className="num">I</span><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
+          <div className="shead"><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
 
@@ -243,7 +243,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         {/* II. ПЛАТЫ — реальные туры/маршруты с фото и ценой */}
         {plates.length > 0 && (
           <section>
-            <div className="shead"><span className="num">II</span><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <div className="shead"><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
             <div className="plates" ref={platesRef}>
               {plates.map((p) => {
                 const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
@@ -278,7 +278,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* III. КУЗЬМИЧ */}
         <section>
-          <div className="shead"><span className="num">III</span><h2>Проводник Кузьмич</h2><span className="line" /></div>
+          <div className="shead"><h2>Проводник Кузьмич</h2><span className="line" /></div>
           <div className="guide">
             <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам проверенному оператору.</q>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
@@ -292,7 +292,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         {/* IV. СТИХИИ — реальные счётчики */}
         {elements.length > 0 && (
           <section>
-            <div className="shead"><span className="num">IV</span><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
+            <div className="shead"><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
             <div className="elements">
               {elements.map((el, i) => {
                 const Icon = ELEMENT_ICON[el.key] ?? Flame;
@@ -314,7 +314,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* V. ЦИФРЫ */}
         <section>
-          <div className="shead"><span className="num">V</span><h2>В цифрах</h2><span className="line" /></div>
+          <div className="shead"><h2>В цифрах</h2><span className="line" /></div>
           <div className="dataline">
             {stats.map((s, i) => (
               s.href
@@ -326,7 +326,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* VI. ЛИД-ФОРМА — реальный POST /api/leads */}
         <section ref={leadRef} id="lead">
-          <div className="shead"><span className="num">VI</span><h2>Собрать поездку</h2><span className="line" /></div>
+          <div className="shead"><h2>Собрать поездку</h2><span className="line" /></div>
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
             <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
@@ -351,7 +351,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
         {/* VII. РАЗДЕЛЫ */}
         <section>
-          <div className="shead"><span className="num">VII</span><h2>Разделы</h2><span className="line" /></div>
+          <div className="shead"><h2>Разделы</h2><span className="line" /></div>
           <div className="hubline">
             <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
             <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
@@ -379,11 +379,11 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
-        <Link href="/" className="active"><Home className="ti" size={19} strokeWidth={2} /><span>Дом</span></Link>
-        <Link href="/map"><MapIcon className="ti" size={19} strokeWidth={2} /><span>Карта</span></Link>
-        <Link href="/kuzmich"><Compass className="ti" size={19} strokeWidth={2} /><span>Кузьмич</span></Link>
-        <Link href="/routes"><Route className="ti" size={19} strokeWidth={2} /><span>Маршруты</span></Link>
-        <Link href="/sos" className="sos-tab"><Siren className="ti" size={19} strokeWidth={2} /><span>СОС</span></Link>
+        <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
+        <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
+        <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
+        <Link href="/routes"><span className="ico"><Route className="ti" size={19} strokeWidth={2} /></span><span>Маршруты</span></Link>
+        <Link href="/sos" className="sos-tab"><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
     </div>
   );
@@ -408,6 +408,14 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
   const [c, setC] = useState(center);
   const [geo, setGeo] = useState<'idle' | 'ok' | 'deny'>('idle');
   const [sel, setSel] = useState<Placed | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyCoords = () => {
+    const t = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+    navigator.clipboard?.writeText(t)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => {});
+  };
 
   const useMyLocation = () => {
     if (!navigator.geolocation) { setGeo('deny'); return; }
@@ -470,6 +478,12 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
           <span className="rc">Центр: <b>{c.label}</b></span>
           {geo !== 'ok' && <button className="rgeo" onClick={useMyLocation}>Моё местоположение</button>}
         </div>
+        {geo === 'ok' && (
+          <button className="rcoord" onClick={copyCoords} title="Скопировать координаты">
+            {c.lat.toFixed(5)}, {c.lng.toFixed(5)}
+            <span>{copied ? 'скопировано' : 'копировать'}</span>
+          </button>
+        )}
         {geo === 'deny' && <div className="rhint">Геолокация недоступна — показываю от Петропавловска.</div>}
         {sel ? (
           <button className="rsel" onClick={() => setSel(null)}>
@@ -564,21 +578,6 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
   );
 }
 
-/** Кольцо готовности: дуга открытых зон (зелёная) на фоне закрытых (красная). Реальные open/total. */
-function Ring({ open, total }: { open: number; total: number }) {
-  const N = Math.max(total, 1);
-  const cx = 92, cy = 92, r = 78, gap = 4;
-  const seg = 360 / N - gap;
-  const P = (a: number): [number, number] => [cx + r * Math.cos((a * Math.PI) / 180), cy + r * Math.sin((a * Math.PI) / 180)];
-  const arcs = Array.from({ length: N }, (_, i) => {
-    const a0 = i * (360 / N) + gap / 2, a1 = a0 + seg;
-    const [x0, y0] = P(a0), [x1, y1] = P(a1);
-    const col = i < open ? 'var(--pine)' : 'var(--brusnika)';
-    return <path key={i} d={`M ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1}`} stroke={col} strokeWidth={4} strokeLinecap="round" fill="none" />;
-  });
-  return <svg className="dial" viewBox="0 0 184 184">{arcs}</svg>;
-}
-
 const CSS = `
 .v7{
   --fd:var(--font-unbounded),system-ui,sans-serif;--fb:var(--font-manrope),system-ui,sans-serif;--fm:var(--font-jetbrains),ui-monospace,monospace;
@@ -586,19 +585,15 @@ const CSS = `
 }
 html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
 html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
-.v7,.v7[data-v7theme]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
+.v7,.v7[data-v7theme]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7 *{margin:0;padding:0;box-sizing:border-box}
 .v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:96px;-webkit-font-smoothing:antialiased}
 @media (prefers-reduced-motion:reduce){.v7 *,.v7 *::before,.v7 *::after{animation:none!important;transition:none!important}}
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
 .v7 a{color:inherit;text-decoration:none}
-.v7 .protobar{position:sticky;top:0;z-index:60;background:var(--bg);border-bottom:1px solid var(--hair);padding:9px 14px;display:flex;gap:10px;align-items:center}
-.v7 .protobar .tag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-right:auto}
-.v7 .seg{display:flex;gap:14px}
-.v7 .seg button{font:600 10px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);background:none;border:0;padding:4px 0;cursor:pointer;border-bottom:1px solid transparent}
-.v7 .seg button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--ink)}
-.v7 .topbar{position:sticky;top:39px;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
+.v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
 .v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
 .v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
 .v7 .topbar .sp{flex:1}
@@ -615,21 +610,17 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo h1{margin-top:16px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
 .v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
-.v7 .ring-glass{margin:20px auto 0;display:flex;align-items:center;gap:16px;justify-content:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.32);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:14px 18px;width:max-content;max-width:100%}
-.v7 .ring-glass .dial{width:84px;height:84px;transform:rotate(-90deg);flex:none}
-.v7 .ring-cap{text-align:left}
-.v7 .ring-cap b{font:700 23px/1 var(--fd);letter-spacing:-.02em}
-.v7 .ring-cap b i{font-style:normal;color:rgba(255,255,255,.6);font-size:16px}
-.v7 .ring-cap span{display:block;font:600 9px/1.4 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.82);margin-top:3px}
-.v7 .ring-cap em{display:block;font:400 8.5px/1.4 var(--fm);color:rgba(255,255,255,.6);margin-top:3px;font-style:normal}
-.v7 .cta-hero{margin-top:20px;background:var(--shroom);color:#fff;border:0;font:700 12px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;padding:15px 30px;cursor:pointer;transition:transform .13s}
-.v7 .cta-hero:active{transform:scale(.97)}
+.v7 .hero-cta{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%;max-width:420px}
+.v7 .hc-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:14px 6px;border-radius:14px;text-decoration:none;color:#fff;font:700 10px/1.1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-align:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease,border-color .2s ease}
+.v7 .hc-btn .hci{color:#fff;transition:transform .2s ease}
+.v7 .hc-btn:active{transform:scale(.96)}
+.v7 .hc-btn:hover{background:rgba(10,14,12,.5);border-color:rgba(255,255,255,.3)}
+.v7 .hc-btn:hover .hci{transform:translateY(-1px)}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
-.v7 .shead .num{font:500 11px/1 var(--fm);color:var(--faint)}
 .v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
 .v7 .shead .all{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide)}
@@ -650,6 +641,8 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .radar .rc b{color:var(--ink);font-weight:600}
 .v7 .radar .rgeo{font:600 9px/1 var(--fb);letter-spacing:.1em;text-transform:uppercase;color:var(--tide);background:none;border:1px solid color-mix(in srgb,var(--tide) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
 .v7 .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--faint)}
+.v7 .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--ink);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.v7 .radar .rcoord span{font:600 8px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
 .v7 .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .v7 .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--fb);color:var(--muted)}
 .v7 .radar .rleg i{width:7px;height:7px;border-radius:50%}
@@ -695,23 +688,23 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .reportbtn span{color:var(--muted);font-weight:500}
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
-.v7 .pulse{margin-top:14px;border:1px solid var(--hair);border-radius:14px;padding:14px 15px}
-.v7 .pulse .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
-.v7 .pulse .pbig b{font:700 30px/0.95 var(--fd);letter-spacing:-.02em;display:block}
-.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 9px/1.3 var(--fm);color:var(--muted)}
-.v7 .pulse .psrc{text-align:right;font:600 8.5px/1.3 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.v7 .pulse .psrc i{display:block;font:400 8px/1.4 var(--fm);letter-spacing:.08em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px}
-.v7 .pulse .pbars{margin-top:14px;display:flex;align-items:flex-end;gap:4px;height:70px}
-.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:3px 3px 0 0;cursor:pointer;opacity:.85;transition:opacity .15s,transform .15s;transform-origin:bottom}
-.v7 .pulse .pbar:hover{opacity:1}
-.v7 .pulse .pbar.on{opacity:1;transform:scaleX(1.15);outline:2px solid var(--ink);outline-offset:1px}
-.v7 .pulse .paxis{margin-top:6px;display:flex;justify-content:space-between;font:400 8px/1 var(--fm);letter-spacing:.08em;color:var(--faint)}
-.v7 .pulse .psum{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 9.5px/1.4 var(--fm);color:var(--muted)}
-.v7 .pulse .psel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:11px 0 0;cursor:pointer;font-family:var(--fb)}
-.v7 .pulse .psel .pmag{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 12px/1 var(--fd)}
+.v7 .pulse{margin-top:12px;border:1px solid var(--hair);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--plate) 45%,transparent)}
+.v7 .pulse .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.v7 .pulse .pbig b{font:600 21px/1 var(--fd);letter-spacing:-.02em;display:block}
+.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 8.5px/1.3 var(--fm);color:var(--muted)}
+.v7 .pulse .psrc{text-align:right;font:600 8px/1.3 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.v7 .pulse .psrc i{display:block;font:400 7.5px/1.4 var(--fm);letter-spacing:.06em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px;opacity:.85}
+.v7 .pulse .pbars{margin-top:12px;display:flex;align-items:flex-end;gap:3px;height:44px}
+.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:2px;cursor:pointer;opacity:.62;transition:opacity .18s ease,box-shadow .18s ease;transform-origin:bottom}
+.v7 .pulse .pbar:hover{opacity:.9}
+.v7 .pulse .pbar.on{opacity:1;box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--ink)}
+.v7 .pulse .paxis{margin-top:8px;display:flex;justify-content:space-between;font:400 7.5px/1 var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.v7 .pulse .psum{margin-top:11px;padding-top:9px;border-top:1px solid var(--hair-soft);font:400 9px/1.4 var(--fm);color:var(--muted)}
+.v7 .pulse .psel{margin-top:11px;width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:10px 0 0;cursor:pointer;font-family:var(--fb)}
+.v7 .pulse .psel .pmag{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 11px/1 var(--fd)}
 .v7 .pulse .psel .ptx{display:flex;flex-direction:column;gap:2px}
-.v7 .pulse .psel .ptx b{font:500 11.5px/1.3 var(--fb);color:var(--ink)}
-.v7 .pulse .psel .ptx span{font:400 8.5px/1.3 var(--fm);color:var(--faint)}
+.v7 .pulse .psel .ptx b{font:500 11px/1.3 var(--fb);color:var(--ink)}
+.v7 .pulse .psel .ptx span{font:400 8px/1.3 var(--fm);color:var(--faint)}
 /* платы */
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
@@ -809,14 +802,16 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* навигация */
 .v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
 .v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-.v7 nav.tabs a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0 calc(8px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .2s ease}
-.v7 nav.tabs a .ti{transition:transform .2s ease,color .2s ease;transform-origin:center bottom}
-.v7 nav.tabs a:active .ti{transform:scale(.86)}
+.v7 nav.tabs a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease}
+.v7 nav.tabs a .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
+.v7 nav.tabs a .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
+.v7 nav.tabs a:active .ico{transform:scale(.9)}
 .v7 nav.tabs a.active{color:var(--ink)}
+.v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--shroom) 15%,transparent)}
 .v7 nav.tabs a.active .ti{color:var(--shroom);transform:translateY(-1px)}
-.v7 nav.tabs a.active::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:24px;height:3px;border-radius:0 0 4px 4px;background:var(--shroom)}
-.v7 nav.tabs a.sos-tab,.v7 nav.tabs a.sos-tab .ti{color:var(--danger)}
-.v7 nav.tabs a.sos-tab:active .ti{transform:scale(.86)}
+.v7 nav.tabs a.sos-tab{color:var(--danger)}
+.v7 nav.tabs a.sos-tab .ico{background:var(--danger);box-shadow:0 3px 12px color-mix(in srgb,var(--danger) 38%,transparent)}
+.v7 nav.tabs a.sos-tab .ti{color:#fff}
 /* SOS — красный */
 .v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
 .v7 .sos:active{transform:scale(.94)}

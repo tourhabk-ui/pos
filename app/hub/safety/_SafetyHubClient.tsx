@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
 
 interface RescueMessage {
@@ -177,7 +177,7 @@ export default function SafetyHubClient() {
   const fetchVolcanic = useCallback(() => {
     setVolcanicLoading(true);
     setVolcanicError(null);
-    fetch('/api/safety/volcanic')
+    fetch('/api/safety/volcanic', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: { events?: VolcanicEvent[]; error?: string }) => {
         if (d.error && !d.events?.length) { setVolcanicError(d.error); return; }
@@ -191,6 +191,18 @@ export default function SafetyHubClient() {
   useEffect(() => {
     if (activeTab === 'volcanic' && !volcanicLoaded && !volcanicLoading) fetchVolcanic();
   }, [activeTab, volcanicLoaded, volcanicLoading, fetchVolcanic]);
+
+  // Схлопываем дубли: КБГС/МЧС нередко присылают одну сводку несколько раз
+  // (разные id, одинаковый текст) — показываем каждую один раз.
+  const volcanicUnique = useMemo(() => {
+    const seen = new Set<string>();
+    return volcanic.filter((ev) => {
+      const k = `${ev.title}|${ev.description ?? ''}|${ev.created_at}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [volcanic]);
 
   const handleRescueSend = useCallback(async () => {
     const text = rescueInput.trim();
@@ -569,6 +581,12 @@ export default function SafetyHubClient() {
             </button>
           </div>
 
+          {volcanicLastUpdate && !volcanicLoading && (
+            <p className="text-xs text-[var(--text-muted)] text-right -mt-2">
+              обновлено в {volcanicLastUpdate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
+
           {volcanicLoading && (
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8 text-center">
               <Flame className="w-8 h-8 mx-auto mb-2 text-[var(--text-muted)] animate-pulse" />
@@ -582,16 +600,16 @@ export default function SafetyHubClient() {
             </div>
           )}
 
-          {!volcanicLoading && !volcanicError && volcanic.length === 0 && (
+          {!volcanicLoading && !volcanicError && volcanicUnique.length === 0 && (
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 text-center">
               <Flame className="w-8 h-8 mx-auto mb-3 text-[var(--text-muted)]" />
               <p className="text-sm text-[var(--text-muted)]">Извержений за последние 7 дней не зафиксировано</p>
             </div>
           )}
 
-          {!volcanicLoading && volcanic.length > 0 && (
+          {!volcanicLoading && volcanicUnique.length > 0 && (
             <div className="space-y-3">
-              {volcanic.map((ev) => {
+              {volcanicUnique.map((ev) => {
                 const color = ev.severity >= 2
                   ? 'var(--danger)'
                   : ev.severity === 1
