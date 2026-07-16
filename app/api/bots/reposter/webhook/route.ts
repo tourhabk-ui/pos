@@ -58,6 +58,25 @@ function getWebhookSecret(): string {
 }
 
 /**
+ * Маршрутизация «TG-канал → MAX-канал» для нескольких пар.
+ * REPOSTER_ROUTES — JSON-мапа { "<tg_chat_id>": "<max_chat_id>", ... }.
+ * Если источник есть в мапе — постим в его MAX-канал; иначе undefined →
+ * функции постинга падают на единый MAX_CHANNEL_ID (обратная совместимость 1→1).
+ */
+function resolveMaxTarget(sourceChatId: number | undefined): string | undefined {
+  if (sourceChatId == null) return undefined;
+  const raw = process.env.REPOSTER_ROUTES;
+  if (!raw) return undefined;
+  try {
+    const map = JSON.parse(raw) as Record<string, string | number>;
+    const t = map[String(sourceChatId)];
+    return t != null ? String(t) : undefined;
+  } catch {
+    return undefined; // кривой JSON — не роняем репост, идём в дефолтный канал
+  }
+}
+
+/**
  * Получить прямую ссылку на файл через Telegram File API.
  * Telegram хранит файлы до 20 МБ; ссылка действует 1 час.
  */
@@ -111,11 +130,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
-  // 3. Определяем тип поста и репостим
+  // 3. Определяем целевой MAX-канал по источнику и тип поста
+
+  const maxTarget = resolveMaxTarget(post.chat?.id);
 
   // Текстовый пост
   if (post.text) {
-    const result = await maxPostToChannel(tgTextToMaxHtml(post.text));
+    const result = await maxPostToChannel(tgTextToMaxHtml(post.text), maxTarget);
     return NextResponse.json({ ok: result.ok, skipped: result.skipped, error: result.error });
   }
 
@@ -128,13 +149,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const caption = post.caption ? tgTextToMaxHtml(post.caption) : '';
 
     if (fileUrl) {
-      const result = await maxPostPhotoToChannel(fileUrl, caption);
+      const result = await maxPostPhotoToChannel(fileUrl, caption, maxTarget);
       return NextResponse.json({ ok: result.ok, skipped: result.skipped, error: result.error });
     }
 
     // Если не удалось получить URL фото — отправляем только подпись
     if (caption) {
-      const result = await maxPostToChannel(caption);
+      const result = await maxPostToChannel(caption, maxTarget);
       return NextResponse.json({ ok: result.ok, error: result.error });
     }
 
@@ -143,7 +164,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Видео / документ — репостим только подпись
   if ((post.video || post.document) && post.caption) {
-    const result = await maxPostToChannel(tgTextToMaxHtml(post.caption));
+    const result = await maxPostToChannel(tgTextToMaxHtml(post.caption), maxTarget);
     return NextResponse.json({ ok: result.ok, error: result.error });
   }
 

@@ -35,6 +35,9 @@ const BodySchema = z.object({
   dump_chat_id:   z.number({ required_error: 'dump_chat_id — твой Telegram user ID' }),
   from_id:        z.number().int().min(1).default(1),
   to_id:          z.number().int().min(1),
+  // Целевой MAX-канал для бэкфилла. Если не задан — единый MAX_CHANNEL_ID из env.
+  // Нужно при нескольких парах TG→MAX, чтобы бэкфилл шёл в правильный канал.
+  max_chat_id:    z.union([z.string().min(1), z.number()]).optional(),
 });
 
 // ── Telegram API helpers ──────────────────────────────────────────────────────
@@ -119,7 +122,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { source_chat_id, dump_chat_id, from_id, to_id } = parsed.data;
+  const { source_chat_id, dump_chat_id, from_id, to_id, max_chat_id } = parsed.data;
 
   const stats = { processed: 0, skipped: 0, errors: 0, total: to_id - from_id + 1 };
 
@@ -140,20 +143,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let maxResult: { ok: boolean; error?: string; skipped?: boolean };
 
     if (forwarded.text) {
-      maxResult = await maxPostToChannel(forwarded.text);
+      maxResult = await maxPostToChannel(forwarded.text, max_chat_id);
     } else if (forwarded.photo && forwarded.photo.length > 0) {
       const largest = forwarded.photo[forwarded.photo.length - 1];
       const fileUrl = await getTelegramFileUrl(largest.file_id);
       const caption = forwarded.caption ?? '';
       if (fileUrl) {
-        maxResult = await maxPostPhotoToChannel(fileUrl, caption);
+        maxResult = await maxPostPhotoToChannel(fileUrl, caption, max_chat_id);
       } else if (caption) {
-        maxResult = await maxPostToChannel(caption);
+        maxResult = await maxPostToChannel(caption, max_chat_id);
       } else {
         maxResult = { ok: true, skipped: true };
       }
     } else if ((forwarded.video || forwarded.document) && forwarded.caption) {
-      maxResult = await maxPostToChannel(forwarded.caption);
+      maxResult = await maxPostToChannel(forwarded.caption, max_chat_id);
     } else {
       maxResult = { ok: true, skipped: true };
     }
