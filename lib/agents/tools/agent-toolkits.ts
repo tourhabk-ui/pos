@@ -177,7 +177,7 @@ function makeBrainWrite(agentId: string): AgentToolFn {
 function buildRescueToolkit(agentId: string): AgentToolkit {
   return {
     fetchWeather: withAudit(agentId, 'fetchWeather', async (lat: unknown, lng: unknown, days: unknown) => {
-      const { fetchWeatherForecast } = await import('@/lib/services/planner-intelligence');
+      const { fetchWeatherForecast } = await import('@/lib/planner/intelligence');
       const forecast = await fetchWeatherForecast(
         typeof lat === 'number' ? lat : 53.0,
         typeof lng === 'number' ? lng : 158.6,
@@ -466,7 +466,7 @@ function buildHackerToolkit(agentId: string): AgentToolkit {
 function buildQualityToolkit(agentId: string): AgentToolkit {
   return {
     computeScore: withAudit(agentId, 'computeScore', async (params: unknown) => {
-      const { computeQualityScore } = await import('@/lib/services/planner-intelligence');
+      const { computeQualityScore } = await import('@/lib/planner/intelligence');
       const p = typeof params === 'object' && params !== null ? params as Record<string, unknown> : {};
       const score = computeQualityScore({
         tourRating: typeof p.tourRating === 'number' ? p.tourRating : null,
@@ -606,7 +606,7 @@ function buildPlanningToolkit(agentId: string): AgentToolkit {
       return { success: true, message: `${rows.length} months of data`, details: { seasonal: rows } };
     }),
     parseInterests: withAudit(agentId, 'parseInterests', async (text: unknown) => {
-      const { parseInterestsFromText } = await import('@/lib/services/routes-recommender');
+      const { parseInterestsFromText } = await import('@/lib/planner/interests');
       const parsed = parseInterestsFromText(String(text));
       return {
         success: true,
@@ -615,7 +615,7 @@ function buildPlanningToolkit(agentId: string): AgentToolkit {
       };
     }),
     fetchWeather: withAudit(agentId, 'fetchWeather', async (lat: unknown, lng: unknown, days: unknown) => {
-      const { fetchWeatherForecast } = await import('@/lib/services/planner-intelligence');
+      const { fetchWeatherForecast } = await import('@/lib/planner/intelligence');
       const forecast = await fetchWeatherForecast(
         typeof lat === 'number' ? lat : 53.0,
         typeof lng === 'number' ? lng : 158.6,

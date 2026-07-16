@@ -13,7 +13,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
-import { fetchWeatherForecast } from '@/lib/services/planner-intelligence';
+import { fetchWeatherForecast } from '@/lib/planner/intelligence';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 // Активности, которые НЕ зависят от погоды — хорошие План Б

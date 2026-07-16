@@ -38,7 +38,7 @@ import { getModelForAgent } from '@/lib/ai/agent-models';
 import { type ChatMessage } from '@/lib/ai/prompts';
 import { KUZMICH_SYSTEM, buildTourContext, searchPlaceKnowledge } from '@/lib/kuzmich/core';
 import { getZoneWeatherForText } from '@/lib/services/zone-weather';
-import { parseInterestsFromText, findRoutesByInterests, formatRoutesForTelegram } from '@/lib/services/routes-recommender';
+import { parseInterestsFromText, findRoutesByInterests, formatRoutesForTelegram } from '@/lib/planner/interests';
 import {
   postRouteToChannel,
   postOperatorToChannel,

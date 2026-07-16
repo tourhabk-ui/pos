@@ -20,7 +20,7 @@ vi.mock('@/lib/db-pool', () => ({
 import {
   fetchAvailabilityForTour,
   fetchZoneCapacity,
-} from '@/lib/services/planner-data-layer';
+} from '@/lib/planner/data';
 
 // Каждый тест — свежий cache-объект, чтобы cached() не мемоизировал между тестами
 function freshCache() {
