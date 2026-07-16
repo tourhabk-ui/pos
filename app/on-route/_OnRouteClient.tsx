@@ -126,17 +126,34 @@ export default function OnRouteClient() {
   const [elapsedMin, setElapsedMin] = useState(0);
   const startRef = useRef(Date.now());
   const watchRef = useRef<number | null>(null);
+  const snappedRef = useRef(false);
 
-  // Load active route from localStorage + API
+  // Load active route: сперва из localStorage-кэша (работает офлайн!), затем
+  // обновляем из API если есть сеть. Точки маршрута нужны как раз в поле без
+  // связи — поэтому кэшируем их на телефоне при открытии онлайн.
   useEffect(() => {
     const routeId = localStorage.getItem('active_trail_route_id');
     if (!routeId) { setLoadingRoute(false); return; }
+    const cacheKey = `trail_route_wps_${routeId}`;
 
+    // 1. Мгновенно поднимаем закэшированные точки — офлайн-стойко
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { title: string | null; waypoints: Waypoint[] };
+        if (Array.isArray(parsed.waypoints) && parsed.waypoints.length > 0) {
+          setWaypoints(parsed.waypoints);
+          setRouteTitle(parsed.title);
+          setLoadingRoute(false);
+        }
+      }
+    } catch { /* битый кэш — игнорируем */ }
+
+    // 2. Есть сеть — обновляем и перекладываем в кэш на будущее (для офлайна)
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
       .then((j: RouteApiResponse) => {
         if (!j.success) return;
-        setRouteTitle(j.data.title);
         const wps = j.data.waypoints;
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: Waypoint[] = wps
@@ -146,11 +163,28 @@ export default function OnRouteClient() {
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position ?? 0) + 1}`,
           }));
-        if (converted.length > 0) setWaypoints(converted);
+        if (converted.length > 0) {
+          setWaypoints(converted);
+          setRouteTitle(j.data.title);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ title: j.data.title, waypoints: converted })); } catch { /* квота */ }
+        }
       })
-      .catch(() => {})
+      .catch(() => { /* офлайн — уже показали кэш */ })
       .finally(() => setLoadingRoute(false));
   }, []);
+
+  // Старт с БЛИЖАЙШЕЙ точки, а не всегда с №1: при первом GPS-фиксе выбираем
+  // ближайший вейпоинт (иначе «до точки 1» может быть за десятки км).
+  useEffect(() => {
+    if (snappedRef.current || !pos || waypoints.length === 0) return;
+    let best = 0, bestD = Infinity;
+    waypoints.forEach((w, i) => {
+      const d = haversineKm(pos.lat, pos.lng, w.lat, w.lng);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    setCurrentIdx(best);
+    snappedRef.current = true;
+  }, [pos, waypoints]);
 
   // Online/offline detection
   useEffect(() => {
