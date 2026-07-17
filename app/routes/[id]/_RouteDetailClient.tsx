@@ -182,6 +182,7 @@ interface RouteDetail {
 interface OperationalAlert {
   placeId: string;
   placeName: string;
+  hiddenAlertsCount?: number;
   isOpen: boolean;
   message: string | null;
   activeAlerts: string[];
@@ -629,8 +630,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* ── МЕТА-ИНФОРМАЦИЯ (переместили из hero) ─────────────────────────── */}
-      <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-16 z-20">
+      {/* ── МЕТА-ИНФОРМАЦИЯ (переместили из hero) ───────────────────────────
+          НЕ sticky: два липких блока на одном top-16 наезжали друг на друга,
+          плашка фактов съедала заголовок (скрины владельца 2026-07-17) */}
+      <div className="bg-[var(--bg-card)] border-b border-[var(--border)]">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 space-y-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest">
@@ -723,7 +726,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     <p className="text-xs text-[var(--text-secondary)]">{alert.message}</p>
                   )}
                   {!alert.message && alert.activeAlerts.length > 0 && (
-                    <p className="text-xs text-[var(--text-secondary)]">{alert.activeAlerts.join(' · ')}</p>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {alert.activeAlerts.join(' · ')}
+                      {(alert.hiddenAlertsCount ?? 0) > 0 && (
+                        <span className="text-[var(--text-muted)]"> · и ещё {alert.hiddenAlertsCount}</span>
+                      )}
+                    </p>
                   )}
                 </div>
               </div>

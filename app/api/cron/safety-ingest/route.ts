@@ -28,7 +28,9 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
       UPDATE location_real_time_status lrs
       SET
         active_alerts = (
-          SELECT COALESCE(array_agg(ea.title), '{}')
+          -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
+          -- один текст) размножали алерт шестикратно на карточках маршрутов
+          SELECT COALESCE(array_agg(DISTINCT ea.title), '{}')
           FROM external_alerts ea
           LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
           WHERE ea.expires_at > NOW()

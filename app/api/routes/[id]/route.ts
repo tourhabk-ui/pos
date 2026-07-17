@@ -282,14 +282,21 @@ export async function GET(
           hazardTypes:  (w.hazard_types as string[]) ?? [],
         })),
         offers,
-        operationalAlerts: operationalResult.rows.map(a => ({
-          placeId:      a.place_id as string,
-          placeName:    a.place_name as string,
-          isOpen:       (a.is_open as boolean | null) ?? true,
-          message:      (a.alert_message as string | null) ?? null,
-          activeAlerts: (a.active_alerts as string[] | null) ?? [],
-          severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
-        })),
+        operationalAlerts: operationalResult.rows.map(a => {
+          // Страховка от накопленных дублей в active_alerts (RSS-перепубликации):
+          // уникализируем и режем до 3 — стена повторов хоронит реальную опасность
+          const raw = (a.active_alerts as string[] | null) ?? [];
+          const unique = [...new Set(raw.map(t => t.trim()).filter(Boolean))];
+          return {
+            placeId:      a.place_id as string,
+            placeName:    a.place_name as string,
+            isOpen:       (a.is_open as boolean | null) ?? true,
+            message:      (a.alert_message as string | null) ?? null,
+            activeAlerts: unique.slice(0, 3),
+            hiddenAlertsCount: Math.max(0, unique.length - 3),
+            severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
+          };
+        }),
       },
     });
   } catch (error) {

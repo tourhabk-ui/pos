@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts } from '@/lib/services/seismic-parser';
+import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, titleFingerprint } from '@/lib/services/seismic-parser';
 
 // Реальный бюллетень МЧС Камчатка (2 июля), который раньше молча отбрасывался —
 // ни цунами, ни шторм, ни паводок, ни пожар: 4 категории classifyMchsItem не
@@ -69,6 +69,47 @@ describe('classifyMchsItem — volcanic hazard advisories (regression: Mutnovsky
 
     const fire = classifyMchsItem('mchs/p', 'Особый противопожарный режим', 'Введён особый противопожарный режим.', '2026-07-02T05:00:00Z', 'https://x');
     expect(fire!.alert_type).toBe('fire_danger');
+  });
+});
+
+describe('classifyMchsItem — шум не становится алертом (скрины владельца 2026-07-17)', () => {
+  it('пожарно-тактическое учение → null', () => {
+    const e = classifyMchsItem('kamgov/1',
+      'Возгорание в гардеробе и эвакуация 10 человек',
+      'Пожарно-тактическое учение прошло в новом корпусе средней школы № 40.',
+      '2026-07-16T05:00:00Z', 'https://x', 'kamgov');
+    expect(e).toBeNull();
+  });
+
+  it('новость-итог «по вине курильщиков произошло 4 пожара» → null', () => {
+    const e = classifyMchsItem('kamgov/2',
+      'По вине неосторожных курильщиков за 2026 год на Камчатке произошло 4 пожара',
+      'Статистика пожаров за год.',
+      '2026-07-16T05:00:00Z', 'https://x', 'kamgov');
+    expect(e).toBeNull();
+  });
+
+  it('«высокие классы пожарной опасности» остаётся fire_danger', () => {
+    const e = classifyMchsItem('kamgov/3',
+      'Экстренное предупреждение на 16-20 июля 2026 г.',
+      'Высокие классы пожарной опасности в лесах края.',
+      '2026-07-16T05:00:00Z', 'https://x', 'kamgov');
+    expect(e!.alert_type).toBe('fire_danger');
+  });
+
+  it('одинаковый заголовок с разными guid → одинаковый source_id (дедуп перепубликаций)', () => {
+    const mk = (id: string) => classifyMchsItem(id,
+      'Экстренное предупреждение на 16-20 июля 2026 г.',
+      'Высокие классы пожарной опасности.',
+      '2026-07-16T05:00:00Z', 'https://x', 'kamgov');
+    expect(mk('guid-111')!.source_id).toBe(mk('guid-222')!.source_id);
+    expect(mk('guid-111')!.source_id).toMatch(/^kamgov\/t/);
+  });
+
+  it('titleFingerprint нечувствителен к регистру и пунктуации', () => {
+    expect(titleFingerprint('Экстренное предупреждение, 16-20 июля!'))
+      .toBe(titleFingerprint('экстренное предупреждение 16 20 июля'));
+    expect(titleFingerprint('А')).not.toBe(titleFingerprint('Б'));
   });
 });
 
