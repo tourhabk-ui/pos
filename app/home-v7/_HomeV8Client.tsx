@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -192,6 +192,9 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
             ? <Sun className="li" size={19} strokeWidth={2} />
             : <Moon className="li" size={19} strokeWidth={2} />}
         </button>
+        <Link href="/profile" className="icn" aria-label="Личный кабинет">
+          <User className="li" size={19} strokeWidth={2} />
+        </Link>
         <button className="cta-top" onClick={jumpToLead}>Хочу тур</button>
       </div></div>
 
