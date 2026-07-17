@@ -214,8 +214,25 @@ function OnTrailTab() {
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  // Shared route loader — eliminates duplicated fetch/convert logic
+  // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
+  // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
+  // API если есть сеть и перекладываем в кэш на будущее.
   const fetchRouteWaypoints = useCallback((routeId: string) => {
+    const cacheKey = `trail_route_wps_${routeId}`;
+
+    // 1. Мгновенно из кэша — работает офлайн
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { title: string | null; waypoints: SavedWaypoint[] };
+        if (Array.isArray(parsed.waypoints) && parsed.waypoints.length > 0) {
+          setWaypoints(parsed.waypoints);
+          setActiveRouteTitle(parsed.title);
+        }
+      }
+    } catch { /* битый кэш — игнорируем */ }
+
+    // 2. Обновляем из сети (если есть) и кэшируем
     setIsLoadingRoute(true);
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
@@ -232,9 +249,12 @@ function OnTrailTab() {
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
-        if (converted.length > 0) setWaypoints(converted);
+        if (converted.length > 0) {
+          setWaypoints(converted);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: converted })); } catch { /* квота */ }
+        }
       })
-      .catch(() => {})
+      .catch(() => { /* офлайн — уже показали кэш */ })
       .finally(() => setIsLoadingRoute(false));
   }, []); // state setters are stable refs
 
@@ -294,6 +314,20 @@ function OnTrailTab() {
       clearInterval(timer);
     };
   }, []); // startTimeRef is a ref — read at callback time, no restart needed
+
+  // Старт с БЛИЖАЙШЕЙ точки при первом GPS-фиксе (а не всегда с №1 — иначе
+  // «до точки 1» может быть за десятки км, если старт маршрута далеко).
+  const snappedRef = useRef(false);
+  useEffect(() => {
+    if (snappedRef.current || !coords || waypoints.length === 0) return;
+    let best = 0, bestD = Infinity;
+    waypoints.forEach((w, i) => {
+      const d = haversine(coords.lat, coords.lng, w.lat, w.lng);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    setCurrentWpIdx(best);
+    snappedRef.current = true;
+  }, [coords, waypoints]);
 
   // Auto-advance waypoint when within 50m
   useEffect(() => {

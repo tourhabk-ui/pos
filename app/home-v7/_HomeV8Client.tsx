@@ -237,7 +237,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
 
           {/* Навигатор — жёсткая ссылка (не Next Link): чтобы офлайн грузилась
               закэшированная страница, а не заглушка «Нет соединения». */}
-          <a href="/on-route" className="protoline">
+          <a href="/planning?mode=trail" className="protoline">
             Навигатор по маршруту: компас до точки, высота, трек
             <b>работает без сети →</b>
           </a>
