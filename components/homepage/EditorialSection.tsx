@@ -8,15 +8,24 @@ interface Fact {
   num: string;
   text: string;
   href?: string;
+  danger?: boolean;
 }
 
-const FACTS: Fact[] = [
-  { num: '6',   text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents' },
-  { num: '154', text: 'маршрута требуют регистрации в МЧС',     href: '/routes?kind=route' },
-  { num: '763', text: 'точки с профилем безопасности',          href: '/places' },
-];
+interface EditorialSectionProps {
+  /** Живые цифры из единого источника (lib/stats/platform-counts). null — БД недоступна. */
+  mchsRoutes: number | null;
+  safetyProfiles: number | null;
+}
 
-export function EditorialSection() {
+export function EditorialSection({ mchsRoutes, safetyProfiles }: EditorialSectionProps) {
+  // Вневременной факт остаётся статикой; цифры платформы — из БД, не хардкод
+  // (раньше 154/763 жили здесь и расходились со StatsBand).
+  const FACTS: Fact[] = [
+    { num: '6', text: 'туристов погибло на Ключевском — 2022', href: '/safety/incidents', danger: true },
+    ...(mchsRoutes != null ? [{ num: mchsRoutes.toLocaleString('ru-RU'), text: 'маршрута требуют регистрации в МЧС', href: '/routes?kind=route' }] : []),
+    ...(safetyProfiles != null ? [{ num: safetyProfiles.toLocaleString('ru-RU'), text: 'точки с профилем безопасности', href: '/places' }] : []),
+  ];
+
   return (
     <section className="py-24 md:py-32 bg-[var(--bg-card)] overflow-hidden">
       <div className="container mx-auto px-6">
@@ -41,7 +50,7 @@ export function EditorialSection() {
             <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-10 border-t border-[var(--border)] pt-12">
               {FACTS.map((f, i) => (
                 <div key={i}>
-                  <p className={`text-4xl font-playfair font-bold mb-2 ${i === 0 ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>
+                  <p className={`text-4xl font-playfair font-bold mb-2 ${f.danger ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>
                     {f.num}
                   </p>
                   <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold leading-relaxed">

@@ -14,6 +14,8 @@
 import { query } from '@/lib/database';
 import { queryCatalog, type CatalogItem } from '@/lib/routes/catalog-query';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/seismic-feed';
+import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
+import { groupPlacesByElement } from '@/lib/stats/element-groups';
 
 export interface SafetyAlert {
   title: string;
@@ -215,54 +217,19 @@ async function fetchFeed(): Promise<FeedItem[]> {
   }
 }
 
-async function fetchStats(): Promise<Stat[]> {
-  try {
-    const [routes, places, mchs] = await Promise.all([
-      query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM kamchatka_routes`),
-      query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM places WHERE is_visible = TRUE`),
-      query<{ n: string }>(
-        `SELECT COUNT(*)::text AS n FROM kamchatka_routes WHERE mchs_registration_required = TRUE`,
-      ),
-    ]);
-    return [
-      { value: routes.rows[0]?.n ?? '0', label: 'маршрута', href: '/routes' },
-      { value: places.rows[0]?.n ?? '0', label: 'локация', href: '/routes?kind=place' },
-      { value: mchs.rows[0]?.n ?? '0', label: 'рег. МЧС' },
-      { value: '24/7', label: 'SAR' },
-    ];
-  } catch {
-    return [{ value: '24/7', label: 'SAR' }];
-  }
+// «В цифрах» и «Стихии» — из ЕДИНОГО источника (lib/stats/platform-counts),
+// того же, что кормит StatsBand и /routes-листинг. Чистые деривации.
+function deriveStats(counts: PlatformCounts): Stat[] {
+  return [
+    { value: counts.routes.toLocaleString('ru-RU'),     label: 'маршрута', href: '/routes' },
+    { value: counts.places.toLocaleString('ru-RU'),     label: 'локация',  href: '/routes?kind=place' },
+    { value: counts.mchsRoutes.toLocaleString('ru-RU'), label: 'рег. МЧС' },
+    { value: '24/7', label: 'SAR' },
+  ];
 }
 
-// Стихии → группы location_type. Каждая ведёт в каталог с фильтром.
-const ELEMENT_GROUPS: Array<{ key: string; label: string; types: string[]; href: string }> = [
-  { key: 'fire',   label: 'Огонь',   types: ['volcano'],                          href: '/routes?location_type=volcano' },
-  { key: 'snow',   label: 'Снег',    types: ['mountain', 'glacier', 'pass'],      href: '/routes?location_type=mountain' },
-  { key: 'ocean',  label: 'Океан',   types: ['bay', 'coast', 'cape', 'island'],   href: '/routes?location_type=bay' },
-  { key: 'therm',  label: 'Термы',   types: ['hot_spring', 'geyser'],             href: '/routes?location_type=hot_spring' },
-  { key: 'nature', label: 'Природа', types: ['lake', 'river', 'waterfall', 'valley', 'nature'], href: '/routes?location_type=lake' },
-];
-
-async function fetchElements(): Promise<Element[]> {
-  try {
-    const res = await query<{ location_type: string | null; n: string }>(
-      `SELECT location_type, COUNT(*)::text AS n
-         FROM places
-        WHERE is_visible = TRUE AND location_type IS NOT NULL
-        GROUP BY location_type`,
-    );
-    const byType = new Map<string, number>();
-    for (const r of res.rows) byType.set((r.location_type || '').toLowerCase(), parseInt(r.n));
-    return ELEMENT_GROUPS.map((g) => ({
-      key: g.key,
-      label: g.label,
-      href: g.href,
-      count: g.types.reduce((sum, t) => sum + (byType.get(t) ?? 0), 0),
-    })).filter((e) => e.count > 0);
-  } catch {
-    return [];
-  }
+function deriveElements(counts: PlatformCounts): Element[] {
+  return groupPlacesByElement(counts.placesByType).elements;
 }
 
 function seismicSnapshot(events: SeismicEvent[], source: SeismicSnapshot['source'], updatedAt: string): SeismicSnapshot {
@@ -307,11 +274,16 @@ async function fetchRadarBase(): Promise<Hazard[]> {
 const ACC_LABEL_SHORT: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
 
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [safety, feedResult, zones, plates, feedItems, stats, elements, radarBase] = await Promise.all([
+  const [safety, feedResult, zones, plates, feedItems, counts, radarBase] = await Promise.all([
     fetchSafety(),
     getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
-    fetchZones(), fetchPlates(), fetchFeed(), fetchStats(), fetchElements(), fetchRadarBase(),
+    fetchZones(), fetchPlates(), fetchFeed(),
+    getPlatformCounts().catch(() => null),
+    fetchRadarBase(),
   ]);
+
+  const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
+  const elements: Element[] = counts ? deriveElements(counts) : [];
 
   const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt);
 
