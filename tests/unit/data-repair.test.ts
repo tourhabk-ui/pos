@@ -133,8 +133,81 @@ describe('runDataRepair (dry-run)', () => {
     // Туры дубля перевешены на keeper r1, дубль r2 скрыт
     expect(updates.some(u => u.includes('UPDATE operator_tours SET route_id') && u.includes('["r1","r2"]'))).toBe(true);
     expect(updates.some(u => u.includes('UPDATE kamchatka_routes SET is_visible = false') && u.includes('"r2"'))).toBe(true);
-    // r1 (keeper) НЕ скрывается
-    expect(updates.some(u => u.includes('is_visible = false') && u.includes('"r1"'))).toBe(false);
+    // r1 (keeper) НЕ скрывается: первый параметр hide-запроса — скрываемый id
+    // (второй — keeper в метке merged_into, поэтому проверяем позицию)
+    expect(updates.some(u => u.includes('is_visible = false') && u.includes('["r1"'))).toBe(false);
+  });
+
+  it('Шаг 6 v2: тёзки с NULL activity и разъехавшимися координатами сливаются, паспортные данные переливаются', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.includes('FROM kamchatka_routes') && s.includes('has_geometry')) {
+        return Promise.resolve({
+          rows: [
+            // Инвентаризация: «Горный массив Вачкажец» из разных источников —
+            // у visitkamchatka пин на объекте, у idilesom старт в городе (~55 км)
+            { id: 'v1', title: 'Горный массив Вачкажец', activity_type: null, lat: 53.06, lng: 157.93, desc_len: 800, has_geometry: false, is_visible: true },
+            { id: 'v2', title: 'Вачкажец горный массив', activity_type: 'hiking', lat: 52.9, lng: 158.6, desc_len: 200, has_geometry: true, is_visible: true },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false);
+    // keeper = v2 (с треком); v1 слит несмотря на NULL activity и дистанцию
+    expect(result.merged_routes).toBe(1);
+    // Паспортные/safety-поля дубля перелиты в keeper (COALESCE + OR по МЧС)
+    expect(updates.some(u =>
+      u.includes('FROM kamchatka_routes d')
+      && u.includes('mchs_registration_required')
+      && u.includes('["v2","v1"]'),
+    )).toBe(true);
+    // Дубль скрыт со следом merged_into -> keeper
+    expect(updates.some(u => u.includes('merged_into') && u.includes('["v1","v2"]'))).toBe(true);
+    // Дистанция попала в аудит-строку отчёта
+    const twin = result.items.find(i => i.step === 'route_dupes');
+    expect(twin?.detail).toContain('км между записями');
+  });
+
+  it('Шаг 2: точная тёзка места (регистр) сливается без дистанционного вето, однословная — нет', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.trim().toUpperCase().startsWith('DELETE')) return Promise.resolve({ rows: [], rowCount: 0 });
+      if (s.includes('FROM places p')) {
+        return Promise.resolve({ rows: [
+          // Инвентаризация: «Кутхины баты»/«Кутхины Баты» ~6 км врозь — одна
+          // координата неверна, но объект точно один
+          { id: 'k1', ark_id: null, name: 'Кутхины баты', location_type: 'rock', lat: 51.45, lng: 157.10, desc_len: 400, has_photo: true, is_visible: true },
+          { id: 'k2', ark_id: null, name: 'Кутхины Баты', location_type: 'rock', lat: 51.49, lng: 157.18, desc_len: 100, has_photo: false, is_visible: true },
+          // Перестановка слов (не точная тёзка) дальше 1 км — по-прежнему не дубль
+          { id: 't1', ark_id: null, name: 'Озеро Толмачево', location_type: 'lake', lat: 52.60, lng: 157.50, desc_len: 200, has_photo: false, is_visible: true },
+          { id: 't2', ark_id: null, name: 'Толмачево озеро', location_type: 'lake', lat: 52.70, lng: 157.60, desc_len: 100, has_photo: false, is_visible: true },
+          // Однословная точная тёзка дальше 1 км — слишком слабый сигнал, не дубль
+          { id: 's1', ark_id: null, name: 'Шишель', location_type: 'mountain', lat: 57.00, lng: 160.00, desc_len: 200, has_photo: false, is_visible: true },
+          { id: 's2', ark_id: null, name: 'Шишель', location_type: 'mountain', lat: 57.10, lng: 160.20, desc_len: 100, has_photo: false, is_visible: true },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false);
+    expect(result.merged_dupes).toBe(1);
+    // keeper = k1 (с фото); k2 скрыт, в отчёте — пометка про тёзку и дистанцию
+    expect(updates.some(u => u.includes('UPDATE places SET is_visible = false') && u.includes('"k2"'))).toBe(true);
+    const twin = result.items.find(i => i.step === 'dupes');
+    expect(twin?.place).toBe('Кутхины Баты');
+    expect(twin?.detail).toContain('точная тёзка');
   });
 
   it('dry-run по маршрутам: считает merged_routes, но не шлёт UPDATE', async () => {

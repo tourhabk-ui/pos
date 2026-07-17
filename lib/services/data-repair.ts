@@ -76,6 +76,12 @@ export interface DataRepairResult {
   items: RepairItem[];
 }
 
+/** Точное равенство имён без регистра/ё/лишних пробелов: «Кутхины баты» == «Кутхины Баты». */
+export function sameExactName(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  return norm(a) === norm(b);
+}
+
 /** Набор слов нормализованного имени: «Озеро Курильское» == «Курильское озеро». */
 export function nameWordSet(name: string): string {
   return name
@@ -320,7 +326,13 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     const keeper = sorted[0];
     for (const dupe of sorted.slice(1)) {
       if (dupe.lat == null || keeper.lat == null || dupe.lng == null || keeper.lng == null) continue;
-      if (haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
+      const km = haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng);
+      // Точная тёзка (посимвольно, без регистра/ё) из ≥2 слов — то же место,
+      // даже если координаты разъехались (одна из записей просто неверна:
+      // «Кутхины баты»/«Кутхины Баты» из инвентаризации). Для перестановок
+      // слов и однословных имён дистанционное вето < 1 км остаётся.
+      const exactTwin = sameExactName(dupe.name, keeper.name) && nameWords(keeper.name).size >= 2;
+      if (km > 1 && !exactTwin) continue;
       if (!dryRun) {
         await pool.query(`UPDATE places SET is_visible = false WHERE id = $1`, [dupe.id]);
         dupe.is_visible = false; // чтобы Шаг 8 не выбрал уже скрытое место как keeper
@@ -341,7 +353,13 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
         }
       }
       res.merged_dupes++;
-      items.push({ step: 'dupes', place: dupe.name, detail: `дубль скрыт, ссылки -> «${keeper.name}»` });
+      items.push({
+        step: 'dupes',
+        place: dupe.name,
+        detail: km > 1
+          ? `точная тёзка в ${km.toFixed(1)} км (одна координата неверна), дубль скрыт, ссылки -> «${keeper.name}»`
+          : `дубль скрыт, ссылки -> «${keeper.name}»`,
+      });
     }
   }
 
@@ -428,11 +446,20 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
 
   // ── Шаг 6: дубли МАРШРУТОВ (kamchatka_routes) ───────────────────────────
   // Одно название из разных источников лежит отдельными строками
-  // («Вилючинский водопад» ×9). Критерий СТРОЖЕ мест: набор слов имени +
-  // совпадающий activity_type (или оба NULL) + координаты < 1 км. Разный
-  // activity_type = разный продукт (лыжный/снегоходный Вачкажец), не дубль.
+  // («Горный массив Вачкажец» ×5). v2 (июль 2026, «следующий пласт дублей»
+  // владельца): прежние критерии давали merged_routes=0 на 20 группах тёзок
+  // из инвентаризации — activity_type сидел в ключе группировки (NULL и
+  // 'hiking' расходились), а порог 1 км резал пары, где источники пиннят один
+  // маршрут в разных точках (старт в городе vs сам объект — десятки км).
+  // Теперь: группа = полный набор слов названия; внутри пары activity
+  // совместим (равен или хотя бы один NULL) — разный НЕ-NULL activity
+  // (лыжный/снегоходный Вачкажец) по-прежнему разные продукты; дистанция —
+  // не вето, а строка аудита. Платформа только про Камчатку, полное
+  // совпадение названия = один объект.
   // Keeper: с треком (geometry) > длиннее описание > стабильный id.
-  // Туры дубля перевешиваются на keeper — не осиротеют.
+  // Туры дубля перевешиваются на keeper, паспортные/safety-поля дубля
+  // переливаются в keeper (COALESCE; mchs_registration_required — OR:
+  // флаг «регистрация в МЧС обязательна» не теряем никогда).
   const { rows: allRoutes } = await pool.query<{
     id: string; title: string; activity_type: string | null;
     lat: number | null; lng: number | null;
@@ -450,10 +477,9 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     if (!r.is_visible) continue;
     const wordSet = nameWordSet(r.title);
     if (!wordSet) continue;
-    const key = `${wordSet}|${r.activity_type ?? ''}`;
-    const arr = routesByKey.get(key) ?? [];
+    const arr = routesByKey.get(wordSet) ?? [];
     arr.push(r);
-    routesByKey.set(key, arr);
+    routesByKey.set(wordSet, arr);
   }
 
   for (const [, group] of routesByKey) {
@@ -467,21 +493,70 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     );
     const keeper = sorted[0];
     for (const dupe of sorted.slice(1)) {
-      // Координатная сверка: если у обоих есть координаты — < 1 км; если у
-      // одного нет — доверяем совпадению имени+activity (idilesom без lat/lng)
-      if (dupe.lat != null && dupe.lng != null && keeper.lat != null && keeper.lng != null
-          && haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng) > 1) continue;
+      // Разный НЕ-NULL activity_type = разный продукт (лыжный vs снегоходный
+      // Вачкажец) — не сливаем. NULL совместим с чем угодно (idilesom часто
+      // без activity, но название полностью совпало).
+      if (dupe.activity_type && keeper.activity_type && dupe.activity_type !== keeper.activity_type) continue;
+      // Дистанция между записями — аудит, не вето: источники пиннят один
+      // маршрут в разных точках (офис в ПК vs сам объект).
+      const kmApart = (dupe.lat != null && dupe.lng != null && keeper.lat != null && keeper.lng != null)
+        ? haversineKm(dupe.lat, dupe.lng, keeper.lat, keeper.lng)
+        : null;
       try {
         if (!dryRun) {
-          // Атомарно: туры дубля -> keeper (критично: не осиротить
-          // operator_tours) И скрытие дубля должны примениться вместе или никак.
+          // Атомарно: паспортные/safety-поля дубля -> keeper, туры дубля ->
+          // keeper (критично: не осиротить operator_tours) И скрытие дубля
+          // должны примениться вместе или никак.
           // waypoints дубля НЕ трогаем: скрытый маршрут не рендерится, а перенос
           // на keeper ломает его порядок точек и нарушает UNIQUE(route_id,place_id).
           const client = await pool.connect();
           try {
             await client.query('BEGIN');
+            // Данные дубля, которых нет у keeper, не теряем: COALESCE по
+            // паспортным полям; mchs_registration_required — OR (флаг
+            // «регистрация в МЧС обязательна» не может пропасть при слиянии).
+            await client.query(
+              `UPDATE kamchatka_routes k SET
+                 geometry = COALESCE(k.geometry, d.geometry),
+                 lat = COALESCE(k.lat, d.lat),
+                 lng = COALESCE(k.lng, d.lng),
+                 description = CASE WHEN COALESCE(k.description, '') = '' THEN d.description ELSE k.description END,
+                 difficulty = COALESCE(k.difficulty, d.difficulty),
+                 zone = COALESCE(k.zone, d.zone),
+                 category = COALESCE(k.category, d.category),
+                 activity_type = COALESCE(k.activity_type, d.activity_type),
+                 distance_km = COALESCE(k.distance_km, d.distance_km),
+                 duration_hours = COALESCE(k.duration_hours, d.duration_hours),
+                 duration_days = COALESCE(k.duration_days, d.duration_days),
+                 elevation_gain_m = COALESCE(k.elevation_gain_m, d.elevation_gain_m),
+                 season = COALESCE(k.season, d.season),
+                 route_type = COALESCE(k.route_type, d.route_type),
+                 hazards = CASE WHEN k.hazards IS NULL OR cardinality(k.hazards) = 0 THEN d.hazards ELSE k.hazards END,
+                 equipment = CASE WHEN k.equipment IS NULL OR cardinality(k.equipment) = 0 THEN d.equipment ELSE k.equipment END,
+                 mchs_registration_required = (COALESCE(k.mchs_registration_required, false) OR COALESCE(d.mchs_registration_required, false)),
+                 mchs_phone = COALESCE(k.mchs_phone, d.mchs_phone),
+                 park_name = COALESCE(k.park_name, d.park_name),
+                 park_approval_url = COALESCE(k.park_approval_url, d.park_approval_url),
+                 flora_fauna = COALESCE(k.flora_fauna, d.flora_fauna),
+                 accessibility = COALESCE(k.accessibility, d.accessibility),
+                 official_passport_url = COALESCE(k.official_passport_url, d.official_passport_url),
+                 passport_agency = COALESCE(k.passport_agency, d.passport_agency),
+                 passport_verified_at = COALESCE(k.passport_verified_at, d.passport_verified_at),
+                 updated_at = NOW()
+               FROM kamchatka_routes d
+               WHERE k.id = $1 AND d.id = $2`,
+              [keeper.id, dupe.id],
+            );
             await client.query(`UPDATE operator_tours SET route_id = $1 WHERE route_id = $2`, [keeper.id, dupe.id]);
-            await client.query(`UPDATE kamchatka_routes SET is_visible = false WHERE id = $1`, [dupe.id]);
+            // merged_into в metadata — след слияния: видно, куда ушёл дубль,
+            // и слияние обратимо вручную (is_visible = true + удалить метку).
+            await client.query(
+              `UPDATE kamchatka_routes
+               SET is_visible = false,
+                   metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('merged_into', $2::text)
+               WHERE id = $1`,
+              [dupe.id, keeper.id],
+            );
             await client.query('COMMIT');
           } catch (txErr) {
             await client.query('ROLLBACK');
@@ -491,7 +566,11 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           }
         }
         res.merged_routes++;
-        items.push({ step: 'route_dupes', place: dupe.title, detail: `дубль-маршрут скрыт, туры -> «${keeper.title}»` });
+        items.push({
+          step: 'route_dupes',
+          place: dupe.title,
+          detail: `тёзка${kmApart != null ? ` (${kmApart.toFixed(0)} км между записями)` : ''} скрыта, туры и паспортные данные -> «${keeper.title}»`,
+        });
       } catch (err) {
         res.errors++;
         items.push({ step: 'route_dupes', place: dupe.title, detail: `ошибка слияния: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
