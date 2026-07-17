@@ -175,6 +175,9 @@ interface RouteDetail {
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
   operationalAlerts?: OperationalAlert[];
+  /** Зонные алерты района (общие для ≥2 точек) — показываются один раз на маршрут */
+  zoneAlerts?: string[];
+  zoneHiddenCount?: number;
 }
 
 // Живой статус точек маршрута (закрытия, пропускной режим) — в отличие
@@ -711,10 +714,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
       </div>
 
       {/* ── ОПЕРАТИВНЫЕ ОГРАНИЧЕНИЯ ─────────────────────────────────────────── */}
-      {(route.operationalAlerts?.length ?? 0) > 0 && (
+      {((route.zoneAlerts?.length ?? 0) > 0 || (route.operationalAlerts?.length ?? 0) > 0) && (
         <div className="border-b border-[var(--border)] bg-[var(--bg-card)]">
           <div className="max-w-6xl mx-auto px-4 md:px-8 py-3 space-y-2">
-            {route.operationalAlerts!.map(alert => (
+            {(route.zoneAlerts?.length ?? 0) > 0 && (
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--warning)]" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[var(--text-primary)]">В районе маршрута</p>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    {route.zoneAlerts!.join(' · ')}
+                    {(route.zoneHiddenCount ?? 0) > 0 && (
+                      <span className="text-[var(--text-muted)]"> · и ещё {route.zoneHiddenCount}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
+            {(route.operationalAlerts ?? []).map(alert => (
               <div key={alert.placeId} className="flex items-start gap-2.5">
                 <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${alert.severity >= 2 || !alert.isOpen ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}`} />
                 <div className="min-w-0">

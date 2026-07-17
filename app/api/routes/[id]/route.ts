@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
+import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 
 export const dynamic = 'force-dynamic';
 
@@ -170,6 +171,7 @@ export async function GET(
        JOIN places p ON p.id = rw.place_id
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
        WHERE rw.route_id = $1
+         AND p.is_visible = TRUE
        ORDER BY rw.position`,
       [id]
     ).catch(() => ({ rows: [] }));
@@ -186,6 +188,7 @@ export async function GET(
        JOIN places p ON p.id = rw.place_id
        JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
        WHERE rw.route_id = $1
+         AND p.is_visible = TRUE
          AND (
            (rs.alert_message IS NOT NULL AND (rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()))
            OR rs.is_open = FALSE
@@ -282,21 +285,18 @@ export async function GET(
           hazardTypes:  (w.hazard_types as string[]) ?? [],
         })),
         offers,
-        operationalAlerts: operationalResult.rows.map(a => {
-          // Страховка от накопленных дублей в active_alerts (RSS-перепубликации):
-          // уникализируем и режем до 3 — стена повторов хоронит реальную опасность
-          const raw = (a.active_alerts as string[] | null) ?? [];
-          const unique = [...new Set(raw.map(t => t.trim()).filter(Boolean))];
-          return {
-            placeId:      a.place_id as string,
-            placeName:    a.place_name as string,
-            isOpen:       (a.is_open as boolean | null) ?? true,
-            message:      (a.alert_message as string | null) ?? null,
-            activeAlerts: unique.slice(0, 3),
-            hiddenAlertsCount: Math.max(0, unique.length - 3),
-            severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
-          };
-        }),
+        // Зонные алерты (общие для >=2 точек) схлопываются в один блок на
+        // маршрут, у точек остаётся только своё — см. lib/routes/operational-alerts
+        ...collapseOperationalAlerts(
+          operationalResult.rows.map(a => ({
+            place_id:       a.place_id as string,
+            place_name:     a.place_name as string,
+            is_open:        a.is_open as boolean | null,
+            alert_message:  a.alert_message as string | null,
+            active_alerts:  a.active_alerts as string[] | null,
+            alert_severity: a.alert_severity as number | null,
+          })),
+        ),
       },
     });
   } catch (error) {
