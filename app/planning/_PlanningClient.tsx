@@ -218,6 +218,38 @@ function OnTrailTab() {
   const [showMap, setShowMap] = useState(false);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
+
+  // Этап 2 офлайн-карты: авто-докачка тайлов коридора маршрута (зум 10-12,
+  // ~15 км паддинг) при активном маршруте. Один раз на маршрут (флаг), только
+  // онлайн — чтобы в поле без сети карта с треком уже была закэширована.
+  const prefetchTiles = useCallback(async (routeId: string) => {
+    if (typeof navigator === 'undefined' || navigator.onLine === false) return;
+    if (!navigator.serviceWorker) return;
+    const flag = `tiles_cached_${routeId}`;
+    try { if (localStorage.getItem(flag)) return; } catch { /* ignore */ }
+    try {
+      const res = await fetch(`/api/routes/${routeId}/offline-bundle`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.tile_urls) || data.tile_urls.length === 0) return;
+      const reg = await navigator.serviceWorker.ready;
+      const sw = reg.active;
+      if (!sw) return;
+      setTileDl({ done: 0, total: data.tile_count });
+      const onMsg = (e: MessageEvent) => {
+        if ((e.data as { regionId?: string })?.regionId !== routeId) return;
+        const m = e.data as { type: string; done: number; total: number };
+        if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
+        if (m.type === 'TILES_DONE') {
+          setTileDl(null);
+          try { localStorage.setItem(flag, '1'); } catch { /* ignore */ }
+          navigator.serviceWorker.removeEventListener('message', onMsg);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', onMsg);
+      sw.postMessage({ type: 'CACHE_TILES', tiles: data.tile_urls, regionId: routeId });
+    } catch { /* тихо — не критично */ }
+  }, []);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
   // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
@@ -257,11 +289,12 @@ function OnTrailTab() {
         if (converted.length > 0) {
           setWaypoints(converted);
           try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: converted })); } catch { /* квота */ }
+          void prefetchTiles(routeId); // авто-докачка тайлов коридора для офлайна
         }
       })
       .catch(() => { /* офлайн — уже показали кэш */ })
       .finally(() => setIsLoadingRoute(false));
-  }, []); // state setters are stable refs
+  }, [prefetchTiles]);
 
   // Network
   useEffect(() => {
@@ -570,6 +603,17 @@ function OnTrailTab() {
         </div>
 
       </div>
+
+      {/* Индикатор докачки офлайн-карты (Этап 2) */}
+      {tileDl && tileDl.total > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
+          <Download className="w-3.5 h-3.5 animate-pulse" style={{ color: 'var(--success)' }} />
+          Карта офлайн: {tileDl.done} / {tileDl.total}
+          <span className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
+            <span className="block h-full rounded-full" style={{ width: `${Math.round((tileDl.done / tileDl.total) * 100)}%`, background: 'var(--success)' }} />
+          </span>
+        </div>
+      )}
 
       {/* Bottom action grid */}
       <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
