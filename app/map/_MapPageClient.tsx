@@ -39,6 +39,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { useMesh } from '@/hooks/use-mesh';
 import { useGeofence } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
@@ -172,15 +173,9 @@ export default function MapPageClient() {
     proximityPlaces,
   );
 
-  // SOS-контакты захардкожены — работают ВСЕГДА, даже без IndexedDB.
+  // Единый источник номеров — работает ВСЕГДА, офлайн (см. lib/safety/emergency-numbers.ts).
   // tel: ссылки работают через мобильную сеть, интернет НЕ нужен.
-  const SOS_CONTACTS = [
-    { name: 'Единый номер экстренных служб', phone: '112', type: 'МЧС' },
-    { name: 'Скорая медицинская помощь', phone: '103', type: 'Медицина' },
-    { name: 'Полиция', phone: '102', type: 'Правоохранительные' },
-    { name: 'МЧС Камчатский край', phone: '+74152235362', type: 'МЧС' },
-    { name: 'ПСО «Камчатка» (ПКГО)', phone: '+74152412730', type: 'Спасатели' },
-  ] as const;
+  const SOS_CONTACTS = EMERGENCY_NUMBERS;
 
   const selectedRoute = selectedId ? allRoutes.find(r => r.id === selectedId) ?? null : null;
   const selectedPlaceData = selectedPlaceId ? allRoutes.find(r => r.id === selectedPlaceId) ?? null : null;

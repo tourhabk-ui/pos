@@ -4,6 +4,7 @@ import { AlertTriangle, Phone, Shield, ChevronRight, MapPin, Thermometer, Wind, 
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -94,12 +95,12 @@ const SEVERITY_CONFIG: Record<number, { label: string; color: string; bg: string
   3: { label: 'Высокий',  color: 'text-[var(--danger)]',  bg: 'bg-[var(--danger)]/10' },
 };
 
-const EMERGENCY_CONTACTS = [
-  { number: '112', label: 'Единая экстренная служба', note: 'Работает с мобильного без SIM' },
-  { number: '8 (4152) 41-17-17', label: 'МЧС Камчатского края', note: 'Круглосуточно' },
-  { number: '8 (4152) 29-95-77', label: 'Горноспасательный отряд', note: 'КГБУ «КПСС»' },
-  { number: '8 (4152) 42-02-02', label: 'Скорая помощь (ПКГ)', note: 'Петропавловск-Камчатский' },
-];
+// Единый источник номеров (см. lib/safety/emergency-numbers.ts).
+const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map((c) => ({
+  number: c.phone,
+  label: c.name,
+  note: c.hint ?? c.type,
+}));
 
 const HAZARD_ICONS: Record<string, typeof AlertTriangle> = {
   volcano: Activity,

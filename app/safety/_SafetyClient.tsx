@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen } from 'lucide-react';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -102,11 +103,8 @@ function getLocalProtocol(text: string): string | null {
   return null;
 }
 
-const EMERGENCY_CONTACTS = [
-  { name: 'Спасение / полиция / скорая', number: '112' },
-  { name: 'МЧС Камчатки', number: '8 (4152) 29-99-99' },
-  { name: 'ПАСС (поиск и спасение)', number: '8 (4152) 41-03-03' },
-];
+// Единый источник номеров (см. lib/safety/emergency-numbers.ts).
+const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c.phone }));
 
 // ── Компонент ─────────────────────────────────────────────────────
 

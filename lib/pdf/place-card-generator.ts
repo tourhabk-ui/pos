@@ -265,10 +265,12 @@ export async function generatePlaceCardPDF(place: PlaceCardData): Promise<Buffer
     doc.fontSize(9).font('Helvetica').fillColor('#444444').text('Единый экстренный', 60, doc.y + 2);
 
     const col2x = 52 + W / 2;
+    // Без выдуманных номеров: если у точки нет верифицированного номера в БД —
+    // показываем федеральный короткий 101 (см. lib/safety/emergency-numbers.ts).
     doc.fontSize(14).font('Helvetica-Bold').fillColor('#000000')
-       .text(place.phoneRangerMches ?? '+7-4152-41-11-11', col2x, y);
+       .text(place.phoneRangerMches ?? '101', col2x, y);
     doc.fontSize(9).font('Helvetica').fillColor('#444444')
-       .text('МЧС Камчатки', col2x, doc.y + 2);
+       .text('МЧС · пожарные и спасатели', col2x, doc.y + 2);
 
     y = doc.y + 16;
 

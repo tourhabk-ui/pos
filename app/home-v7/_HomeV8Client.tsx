@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
@@ -606,13 +607,11 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
  * координаты (navigator.geolocation), протоколы (текст). Полевой тест на Трёх
  * братьях показал, что офлайн выживает только контент на уже загруженной
  * главной — навигация на /sos умирает (Next тянет данные экрана по сети).
- * Номера — из /sos (одобренные). Протоколы — из /safety/offline.
+ * Номера — из единого источника lib/safety/emergency-numbers.ts. Протоколы — из /safety/offline.
  */
-const EMG_CALLS: { label: string; num: string; tel: string; primary?: boolean }[] = [
-  { label: 'Единый номер экстренных служб', num: '112', tel: '112', primary: true },
-  { label: 'МЧС Камчатский край', num: '+7 (4152) 23-53-62', tel: '+74152235362' },
-  { label: 'ПСО «Камчатка» (спасатели)', num: '+7 (4152) 41-27-30', tel: '+74152412730' },
-];
+// Единый источник номеров (см. lib/safety/emergency-numbers.ts).
+const EMG_CALLS: { label: string; num: string; tel: string; primary?: boolean }[] =
+  EMERGENCY_NUMBERS.map((c) => ({ label: c.name, num: c.phone, tel: c.phone, primary: c.primary }));
 
 const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[] }[] = [
   {

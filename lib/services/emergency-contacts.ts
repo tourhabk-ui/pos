@@ -53,19 +53,23 @@ export interface EmergencyContactsHealth {
 }
 
 /**
- * Файлы, в которых номера зашиты хардкодом (инвентаризация, июль 2026).
- * Список ведётся вручную — это карта того, ЧТО придётся править после
- * сверки, а не источник правды о номерах.
+ * Инвентаризация файлов с хардкод-номерами.
+ *
+ * ИСТОРИЯ: до июля 2026 экстренные номера были зашиты хардкодом вразнобой (6+
+ * разных МЧС/спасательных номеров в 18 файлах). После жалобы владельца
+ * («везде разные номера, я такие не знаю») все user-facing SOS/safety-экраны
+ * переведены на ЕДИНЫЙ источник lib/safety/emergency-numbers.ts (только
+ * федеральные короткие 112/101/102/103, региональные — до верификации
+ * владельцем). Поэтому список теперь пуст: хардкод-сайтов не осталось.
+ * Проверенные региональные номера добавляются в emergency-numbers.ts
+ * (VERIFIED_REGIONAL) и/или сюда в таблицу с source='verified'.
  */
-export const HARDCODED_PHONE_SITES = [
-  { phone: '+7 (4152) 23-53-62', role: 'ГУ МЧС', files: ['app/sos/page.tsx', 'public/emergency.html'], sosCritical: true },
-  { phone: '+7 (4152) 41-27-30', role: 'ПСО «Камчатка»', files: ['app/sos/page.tsx', 'public/emergency.html'], sosCritical: true },
-  { phone: '+7 (4152) 29-99-99', role: 'МЧС', files: ['app/hub/safety/_SafetyHubClient.tsx', 'app/safety/_SafetyClient.tsx'], sosCritical: true },
-  { phone: '+7 (4152) 41-03-03', role: 'ПАСС', files: ['app/hub/safety/_SafetyHubClient.tsx', 'app/api/safety/rescue-chat/route.ts', 'app/safety/_SafetyClient.tsx'], sosCritical: true },
-  { phone: '+7 (4152) 41-11-11', role: 'не указана в коде', files: ['components/places/PlaceSOS.tsx'], sosCritical: true },
-  { phone: '+7 (4152) 11-05-05', role: 'МЧС (Кузьмич)', files: ['lib/kuzmich/core.ts'], sosCritical: false },
-  { phone: '+7 (4152) 42-40-27', role: 'ЭКОСПАС', files: ['app/hub/safety/_SafetyHubClient.tsx', 'app/api/safety/rescue-chat/route.ts'], sosCritical: true },
-] as const;
+export const HARDCODED_PHONE_SITES: {
+  phone: string;
+  role: string;
+  files: readonly string[];
+  sosCritical: boolean;
+}[] = [];
 
 /** Нормализация для сравнения: только цифры, без кода страны 7/8 */
 export function normalizePhone(phone: string): string {

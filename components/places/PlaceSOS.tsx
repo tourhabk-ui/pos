@@ -31,8 +31,8 @@ export default function PlaceSOS() {
       </a>
 
       <a
-        href="tel:+74152411111"
-        aria-label="МЧС Камчатки, номер +7-4152-41-11-11"
+        href="tel:101"
+        aria-label="МЧС, пожарные и спасатели, номер 101"
         className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity active:opacity-70 shrink-0"
         style={{
           background: 'var(--bg-hover)',
@@ -41,7 +41,7 @@ export default function PlaceSOS() {
         }}
       >
         <Phone className="w-3 h-3 shrink-0" style={{ color: 'var(--danger)' }} aria-hidden="true" />
-        МЧС Камчатки
+        МЧС 101
       </a>
 
       <span

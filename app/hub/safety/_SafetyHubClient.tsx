@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 interface RescueMessage {
   role: 'user' | 'assistant';
@@ -55,14 +56,8 @@ interface VolcanicEvent {
   source_url: string | null;
 }
 
-const EMERGENCY_CONTACTS = [
-  { name: 'Единая служба спасения', number: '112' },
-  { name: 'Полиция', number: '102' },
-  { name: 'Скорая помощь', number: '103' },
-  { name: 'МЧС Камчатки', number: '8 (4152) 29-99-99' },
-  { name: 'ПАСС Камчатки (поиск и спасение)', number: '8 (4152) 41-03-03' },
-  { name: 'Дежурный КГКУ ЭКОСПАС', number: '8 (4152) 42-40-27' },
-];
+// Единый источник номеров (см. lib/safety/emergency-numbers.ts).
+const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c.phone }));
 
 // Avalanche zones — Kamchatka
 const AVALANCHE_ZONES = [
@@ -221,7 +216,7 @@ export default function SafetyHubClient() {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     if (!isOnline) {
       const local = getLocalProtocol(text)
-        ?? 'Нет связи. Позвоните: 112 | 8 (4152) 41-03-03 (ПАСС Камчатки)\n\n3 свистка подряд = сигнал бедствия.';
+        ?? 'Нет связи. Звоните 112 — работает без баланса и SIM, переключит на спасателей.\n\n3 свистка подряд = сигнал бедствия.';
       setRescueMessages(prev => [...prev, { role: 'assistant', content: local }]);
       setRescueLoading(false);
       return;
@@ -296,7 +291,7 @@ export default function SafetyHubClient() {
         if (!res.ok || data.error || !data.reply) {
           // AI недоступен — локальный протокол выживания вместо текста ошибки
           const local = getLocalProtocol(text);
-          const footer = 'AI-связь недоступна. При угрозе жизни: 112 | 8 (4152) 41-03-03 (ПАСС Камчатки)';
+          const footer = 'AI-связь недоступна. При угрозе жизни звоните 112 — работает без баланса и SIM.';
           setRescueMessages(prev => [...prev, {
             role: 'assistant',
             content: local ? `${local}\n\n───\n${footer}` : footer,
@@ -309,7 +304,7 @@ export default function SafetyHubClient() {
     } catch {
       // Таймаут или сетевая ошибка — показываем локальный протокол
       const local = getLocalProtocol(text)
-        ?? 'Нет связи. Позвоните: 112 | 8 (4152) 41-03-03 (ПАСС Камчатки)';
+        ?? 'Нет связи. Звоните 112 — работает без баланса и SIM, переключит на спасателей.';
       setRescueMessages(prev => [...prev, { role: 'assistant', content: local }]);
     } finally {
       setRescueLoading(false);
@@ -410,7 +405,7 @@ export default function SafetyHubClient() {
             style={{ borderColor: 'color-mix(in srgb, var(--warning) 40%, transparent)', background: 'color-mix(in srgb, var(--warning) 8%, transparent)' }}>
             <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: 'var(--warning)' }} />
             <p className="text-xs" style={{ color: 'var(--warning)' }}>
-              AI Спасатель — поддержка и инструкции. При реальной угрозе жизни звоните <strong>112</strong> или <strong>8 (4152) 41-03-03</strong>
+              AI Спасатель — поддержка и инструкции. При реальной угрозе жизни звоните <strong>112</strong> — работает без баланса и SIM.
             </p>
           </div>
 

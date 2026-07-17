@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Shield, AlertTriangle, Phone, MapPin, Thermometer, Wind, Navigation, Eye, Clock, CheckCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 export const metadata: Metadata = {
   title: 'Выживание на Камчатке — офлайн-инструкции',
@@ -253,12 +254,8 @@ export default function OfflineSurvivalPage() {
           <div className="max-w-2xl">
             <p className="text-xs uppercase tracking-widest text-[var(--text-muted)] mb-4">Экстренные контакты</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { label: 'Единый экстренный', number: '112', note: 'Работает без SIM и без баланса' },
-                { label: 'МЧС Камчатки', number: '+7 (4152) 41-27-70', note: 'Поисково-спасательная служба' },
-                { label: 'МЧС (сотовый)', number: '112', note: 'С мобильного — бесплатно' },
-                { label: 'Скорая помощь', number: '103', note: 'Петропавловск-Камчатский' },
-              ].map(({ label, number, note }) => (
+              {/* Единый источник номеров (см. lib/safety/emergency-numbers.ts). */}
+              {EMERGENCY_NUMBERS.map((c) => ({ label: c.name, number: c.phone, note: c.hint ?? c.type })).map(({ label, number, note }) => (
                 <a
                   key={number + label}
                   href={`tel:${number.replace(/\D/g, '')}`}

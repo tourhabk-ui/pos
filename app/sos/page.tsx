@@ -7,17 +7,12 @@ import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCa
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
 import { useMesh } from '@/hooks/use-mesh';
 import LottiePlayer from '@/components/ui/LottiePlayer';
+import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
-// Захардкоженные номера — работают ВСЕГДА, без зависимостей
-const SOS_CONTACTS = [
-  { name: 'Единый номер экстренных служб', phone: '112', type: 'МЧС', primary: true },
-  { name: 'Скорая медицинская помощь', phone: '103', type: 'Медицина' },
-  { name: 'Полиция', phone: '102', type: 'Правоохранительные' },
-  { name: 'МЧС Камчатский край', phone: '+7 (4152) 23-53-62', type: 'МЧС' },
-  { name: 'ПСО «Камчатка» (ПКГО)', phone: '+7 (4152) 41-27-30', type: 'Спасатели' },
-];
+// Единый источник номеров — работает офлайн, без зависимостей (см. lib/safety/emergency-numbers.ts)
+const SOS_CONTACTS = EMERGENCY_NUMBERS;
 
 export default function SosPage() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);

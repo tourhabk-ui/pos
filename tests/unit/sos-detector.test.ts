@@ -71,11 +71,12 @@ describe('detectEmergency — негативные случаи (информа�
 });
 
 describe('buildSosBlock', () => {
-  it('всегда содержит 112, канонический телефон МЧС (как на /sos) и ссылку на SOS', () => {
+  it('всегда содержит 112 и ссылку на SOS, без невериф. региональных номеров', () => {
     const block = buildSosBlock(['lost']);
     expect(block).toContain('112');
-    expect(block).toContain('+7 (4152) 23-53-62');
     expect(block).toContain('vedarai.ru/sos');
+    // Региональные номера не верифицированы — их в блоке быть не должно.
+    expect(block).not.toMatch(/4152/);
   });
 
   it('добавляет советы по категориям, не больше трёх', () => {
@@ -101,7 +102,7 @@ describe('withSosBlock', () => {
     );
     expect(emergency).toBe(true);
     expect(text).toContain('112');
-    expect(text).toContain('+7 (4152) 23-53-62');
+    expect(text).toContain('vedarai.ru/sos');
     expect(text.indexOf('112')).toBeLessThan(text.indexOf('Извините'));
   });
 
@@ -117,12 +118,12 @@ describe('withSosBlock', () => {
     const { text, emergency } = withSosBlock(answer, 'я заблудился, сколько стоит эвакуация');
     expect(emergency).toBe(true);
     expect(text).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
-    expect(text).toContain('+7 (4152) 23-53-62');
+    expect(text).toContain('vedarai.ru/sos');
   });
 
   it('голое «112» без МЧС в ответе — блок всё равно добавляется (перестраховка)', () => {
     const answer = 'Звоните 112.';
     const { text } = withSosBlock(answer, 'спасите, замерзаю');
-    expect(text).toContain('+7 (4152) 23-53-62');
+    expect(text).toContain('vedarai.ru/sos');
   });
 });

@@ -625,10 +625,10 @@ export function SafetyDashboardClient() {
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: 'МЧС Камчатка',     number: '112'          },
-              { label: 'Поисковый центр',   number: '+7 4152 41-61-64' },
-              { label: 'Скорая помощь',     number: '103'          },
-              { label: 'Диспетчер туров',   number: '+7 4152 26-44-44' },
+              { label: 'Единый номер спасения', number: '112' },
+              { label: 'Пожарные и спасатели (МЧС)', number: '101' },
+              { label: 'Полиция',           number: '102' },
+              { label: 'Скорая помощь',     number: '103' },
             ].map(({ label, number }) => (
               <div key={label} className="flex items-center gap-2">
                 <PhoneCall className="w-4 h-4 shrink-0 text-[var(--accent)]" />

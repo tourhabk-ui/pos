@@ -118,9 +118,10 @@ export function detectEmergency(text: string): EmergencyDetection {
 export function buildSosBlock(categories: EmergencyCategory[]): string {
   const lines = [
     'ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ:',
-    'Звоните 112 — работает без SIM-карты при наличии любой сети.',
-    // Номер — канонический для платформы (app/sos, реестр emergency-contacts)
-    'ГУ МЧС по Камчатскому краю: +7 (4152) 23-53-62. Кнопка SOS: vedarai.ru/sos',
+    'Звоните 112 — работает без SIM-карты и без баланса при наличии любой сети, переключит на МЧС/полицию/скорую.',
+    // Только 112: региональные номера МЧС не верифицированы — неверный номер в
+    // ЧП опаснее его отсутствия (см. lib/safety/emergency-numbers.ts).
+    'Кнопка SOS с координатами: vedarai.ru/sos',
   ];
   for (const category of categories.slice(0, 3)) {
     lines.push(CATEGORY_ADVICE[category]);

@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v14'; // bumped: /on-route в офлайн-precache (полевой тест Три брата)
+const CACHE_NAME = 'kamchatour-v15'; // bumped: единый источник экстренных номеров (112) — переprecache emergency.html/sos/offline
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
