@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Route, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
@@ -399,7 +399,7 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
         <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
         <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
         <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
-        <Link href="/routes"><span className="ico"><Route className="ti" size={19} strokeWidth={2} /></span><span>Маршруты</span></Link>
+        <a href="/planning?mode=trail"><span className="ico"><Navigation className="ti" size={19} strokeWidth={2} /></span><span>На маршруте</span></a>
         <Link href="/sos" className="sos-tab" onClick={sosClick}><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
 
