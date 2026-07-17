@@ -238,6 +238,8 @@ export default function LeafletMap({
         if (marker.geometry && marker.geometry.coordinates.length >= 2) {
           const geomHex = COLOR_MAP[marker.geometry.color ?? marker.color ?? 'teal'] ?? '#0D9488';
           const coords = marker.geometry.coordinates as [number, number][];
+          // Трек участвует в fitBounds — иначе линия длиннее вьюпорта обрезается
+          allCoords.push(...coords);
           if (marker.geometry.type === 'polygon') {
             L.polygon(coords, {
               color: geomHex,

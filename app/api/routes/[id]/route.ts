@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,10 +44,24 @@ export async function GET(
          kr.official_passport_url,
          kr.passport_agency,
          kr.ark_id AS kr_ark_id,
-         pk.slug AS park_slug
+         pk.slug AS park_slug,
+         COALESCE(kr.geometry, krs.geometry) AS geometry
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       LEFT JOIN LATERAL (
+         -- Трек места может жить отдельной строкой kamchatka_routes
+         -- (точка «Гора Замок» ↔ её маршрут): связь через metadata.place_ark_id
+         -- или общий source_url — та же логика, что в GPX-экспорте
+         SELECT geometry FROM kamchatka_routes k2
+         WHERE k2.geometry IS NOT NULL
+           AND k2.id <> ark.id
+           AND (
+             k2.metadata->>'place_ark_id' = ark.id::text
+             OR (ark.source_url IS NOT NULL AND k2.source_url = ark.source_url)
+           )
+         LIMIT 1
+       ) krs ON TRUE
        LEFT JOIN LATERAL (
          SELECT slug FROM parks
          WHERE kr.park_name IS NOT NULL
@@ -234,6 +249,15 @@ export async function GET(
         pdfUrl:          (r.pdf_url as string | null) ?? null,
         officialPassportUrl: (r.official_passport_url as string | null) ?? null,
         passportAgency:      (r.passport_agency as string | null) ?? null,
+        // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
+        // null = трека нет нигде (geometry, payload.geometry, payload.track)
+        track: (() => {
+          const pts = decimateTrack(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return pts.length >= 2 ? pts.map(p => [p.lat, p.lng] as [number, number]) : null;
+        })(),
         reviews: reviewsResult.rows.map(rv => ({
           id:         String(rv.id),
           rating:     rv.rating != null ? Number(rv.rating) : null,

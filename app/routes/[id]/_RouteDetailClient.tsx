@@ -21,7 +21,7 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { AssistantButton } from '@/components/shared/AssistantButton';
-import { MarkerType } from '@/components/shared/leaflet-types';
+import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
@@ -169,6 +169,8 @@ interface RouteDetail {
   pdfUrl: string | null;
   officialPassportUrl: string | null;
   passportAgency: string | null;
+  /** GPS-трек [lat, lng][] (прорежен на сервере); null — трека нет */
+  track?: [number, number][] | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
   operationalAlerts?: OperationalAlert[];
@@ -498,8 +500,48 @@ export default function RouteDetailClient({ id }: { id: string }) {
   }
 
   const hasGeo = route.lat != null && route.lng != null;
+  // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
+  // waypoints (≥2 точек). Одна координата треком НЕ считается: обещать
+  // навигацию, по которой нельзя идти, опаснее, чем не обещать.
+  const navWaypoints = (route.waypoints ?? []).filter(
+    (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
+  );
+  const trackCoords: [number, number][] | null =
+    (route.track?.length ?? 0) >= 2
+      ? route.track!
+      : navWaypoints.length >= 2
+        ? navWaypoints.map(w => [w.lat, w.lng] as [number, number])
+        : null;
+  const hasTrack = trackCoords != null;
   const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
+
+  // Карта карточки: трек-линия + стартовый пин + точки маршрута (кликабельные).
+  // Раньше рисовался один пин без линии — «GPS-трек» существовал только в GPX.
+  const mapCenter: [number, number] = hasGeo
+    ? [Number(route.lat), Number(route.lng)]
+    : trackCoords?.[0] ?? [53.02, 158.65];
+  const cardMapMarkers: MapMarker[] = [
+    {
+      coords: mapCenter,
+      title: route.title,
+      description: locLabel,
+      color: 'red',
+      type: MarkerType.TOUR,
+      category: route.locationType ?? 'other',
+      ...(trackCoords
+        ? { geometry: { type: 'polyline' as const, coordinates: trackCoords, color: 'red', weight: 4 } }
+        : {}),
+    },
+    ...navWaypoints.map(w => ({
+      coords: [w.lat, w.lng] as [number, number],
+      title: w.placeName,
+      href: `/places/${w.placeId}`,
+      color: 'blue',
+      type: MarkerType.POI,
+      category: w.locationType ?? 'other',
+    })),
+  ];
 
   // Фильтрация и сортировка туров
   const allOffers = route.offers ?? [];
@@ -1031,20 +1073,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
               </section>
             )}
 
-            {/* Экспорт — скачать GPX / открыть в навигаторе */}
-            {hasGeo && (
+            {/* Экспорт — скачать GPX / открыть в навигаторе.
+                Только при реальном треке: обещать навигацию по одной
+                координате — обман, из-за которого туристы блуждают */}
+            {hasTrack && (
               <section>
                 <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
                   <Navigation className="w-3.5 h-3.5 text-[var(--accent)]" /> Навигация
                 </h2>
                 <div className="flex flex-col gap-2">
-                  <button
-                    onClick={handleStartNavigation}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
-                    style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
-                  >
-                    <Navigation className="w-4 h-4" /> Начать навигацию
-                  </button>
+                  {navWaypoints.length >= 2 && (
+                    <button
+                      onClick={handleStartNavigation}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
+                      style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
+                    >
+                      <Navigation className="w-4 h-4" /> Начать навигацию
+                    </button>
+                  )}
                   <div className="flex gap-2">
                     <a
                       href={`/api/routes/${route.id}/export?format=gpx`}
@@ -1082,16 +1128,16 @@ export default function RouteDetailClient({ id }: { id: string }) {
               </section>
             )}
 
-            {/* Карта — mobile */}
-            {hasGeo && (
+            {/* Карта — mobile: трек + точки маршрута, не одинокий пин */}
+            {(hasGeo || hasTrack) && (
               <section className="lg:hidden">
                 <h2 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-3 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-[var(--accent)]" /> На карте
                 </h2>
                 <LeafletMap
-                  center={[Number(route.lat), Number(route.lng)]}
+                  center={mapCenter}
                   zoom={10}
-                  markers={[{ coords: [Number(route.lat), Number(route.lng)], title: route.title, description: locLabel, color: 'red', type: MarkerType.TOUR, category: route.locationType ?? 'other' }]}
+                  markers={cardMapMarkers}
                   height="240px"
                   className="w-full rounded-lg"
                 />
@@ -1188,20 +1234,22 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 </div>
               </div>
 
-              {/* Экспорт — скачать GPX / открыть в навигаторе */}
-              {hasGeo && (
+              {/* Экспорт — скачать GPX / открыть в навигаторе (только при реальном треке) */}
+              {hasTrack && (
                 <div>
                   <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <Navigation className="w-3 h-3" /> Навигация
                   </h2>
                   <div className="flex flex-col gap-2">
-                    <button
-                      onClick={handleStartNavigation}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors"
-                      style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
-                    >
-                      <Navigation className="w-3.5 h-3.5" /> Начать навигацию
-                    </button>
+                    {navWaypoints.length >= 2 && (
+                      <button
+                        onClick={handleStartNavigation}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors"
+                        style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
+                      >
+                        <Navigation className="w-3.5 h-3.5" /> Начать навигацию
+                      </button>
+                    )}
                     <div className="flex gap-2">
                       <a
                         href={`/api/routes/${route.id}/export?format=gpx`}
@@ -1239,16 +1287,16 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 </div>
               )}
 
-              {/* Карта */}
-              {hasGeo && (
+              {/* Карта: трек + точки маршрута, не одинокий пин */}
+              {(hasGeo || hasTrack) && (
                 <div>
                   <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <MapPin className="w-3 h-3" /> На карте
                   </h2>
                   <LeafletMap
-                    center={[Number(route.lat), Number(route.lng)]}
+                    center={mapCenter}
                     zoom={10}
-                    markers={[{ coords: [Number(route.lat), Number(route.lng)], title: route.title, description: locLabel, color: 'red', type: MarkerType.TOUR, category: route.locationType ?? 'other' }]}
+                    markers={cardMapMarkers}
                     height="220px"
                     className="w-full rounded-lg"
                   />
