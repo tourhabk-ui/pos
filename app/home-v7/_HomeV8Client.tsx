@@ -610,8 +610,15 @@ function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string
  * Номера — из единого источника lib/safety/emergency-numbers.ts. Протоколы — из /safety/offline.
  */
 // Единый источник номеров (см. lib/safety/emergency-numbers.ts).
+// tel: — только цифры и «+»: форматированный «+7 (4152) 30-10-89» с пробелами
+// ломает tel-ссылку на части устройств.
 const EMG_CALLS: { label: string; num: string; tel: string; primary?: boolean }[] =
-  EMERGENCY_NUMBERS.map((c) => ({ label: c.name, num: c.phone, tel: c.phone, primary: c.primary }));
+  EMERGENCY_NUMBERS.map((c) => ({
+    label: c.name,
+    num: c.phone,
+    tel: c.phone.replace(/[^\d+]/g, ''),
+    primary: c.primary,
+  }));
 
 const EMG_PROTOCOLS: { id: string; title: string; urgent: string; steps: string[] }[] = [
   {
