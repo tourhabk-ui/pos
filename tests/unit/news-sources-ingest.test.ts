@@ -138,4 +138,38 @@ describe('GET /api/routes/[id] — operationalAlerts', () => {
     expect(body.data.operationalAlerts[0].message).toContain('объезд через Сокоч');
     expect(body.data.operationalAlerts[0].severity).toBe(2);
   });
+
+  it('дубли в active_alerts схлопываются, показ ограничен тремя + hiddenAlertsCount', async () => {
+    const spam = 'Экстренное предупреждение на 16-20 июля 2026 г.';
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('location_real_time_status')) {
+        return Promise.resolve({
+          rows: [{
+            place_name: 'Козельский', place_id: 'ark-2',
+            is_open: true, alert_message: null,
+            active_alerts: [spam, spam, spam, spam, spam, spam, 'Камнепад на тропе', 'Медведь у ручья', 'Туман на перевале', 'Ветер 25 м/с'],
+            alert_severity: 1,
+          }],
+        });
+      }
+      if (sql.includes('route_waypoints')) return Promise.resolve({ rows: [] });
+      if (sql.includes('FROM reviews')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({
+        rows: [{
+          id: 'route-1', route_dedupe_key: 'kozelsky', category: 'trekking',
+          title: 'Козельский', description: 'Вулкан', payload: {},
+        }],
+      });
+    });
+
+    const req = new Request(`http://localhost/api/routes/${ROUTE_ID}`) as unknown as NextRequest;
+    const res = await getRoute(req, { params: Promise.resolve({ id: ROUTE_ID }) });
+    const body = await res.json() as { data: { operationalAlerts: Array<{ activeAlerts: string[]; hiddenAlertsCount: number }> } };
+
+    const alert = body.data.operationalAlerts[0];
+    // 10 сырых строк → 5 уникальных → 3 показанных + 2 скрытых
+    expect(alert.activeAlerts).toHaveLength(3);
+    expect(alert.activeAlerts.filter(t => t === spam)).toHaveLength(1);
+    expect(alert.hiddenAlertsCount).toBe(2);
+  });
 });

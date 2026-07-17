@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { extractTrackpoints } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,32 +67,8 @@ export async function GET(
     const r = result.rows[0];
     const payload = (r.payload as Record<string, unknown>) ?? {};
 
-    // Попытка получить trackpoints (геометрию трека)
-    let trackpoints: { lat: number; lng: number; elevation?: number }[] = [];
-
-    // 1. Direct geometry column on kamchatka_routes (highest priority)
-    const directGeom = r.geometry as { type?: string; coordinates?: number[][] } | null;
-    if (directGeom?.type === 'LineString' && Array.isArray(directGeom.coordinates)) {
-      trackpoints = directGeom.coordinates
-        .filter(c => Array.isArray(c) && c.length >= 2)
-        .map(c => ({ lng: c[0], lat: c[1], elevation: c[2] as number | undefined }));
-    }
-
-    // 2. Legacy: geometry in payload JSONB
-    if (trackpoints.length === 0) {
-      const geom = payload.geometry as { type?: string; coordinates?: number[][] } | null;
-      if (geom?.type === 'LineString' && Array.isArray(geom.coordinates)) {
-        trackpoints = geom.coordinates
-          .filter(c => Array.isArray(c) && c.length >= 2)
-          .map(c => ({ lng: c[0], lat: c[1], elevation: c[2] as number | undefined }));
-      }
-    }
-
-    // 3. Legacy: track array in payload
-    const track = payload.track as { lat: number; lng: number; elevation?: number }[] | null;
-    if (trackpoints.length === 0 && track && track.length > 0) {
-      trackpoints = track;
-    }
+    // Трек из всех исторических мест хранения — общая логика с карточкой маршрута
+    let trackpoints = extractTrackpoints(r.geometry, payload);
 
     // Fallback: если нет trackpoints, используем центр маршрута
     if (trackpoints.length === 0 && r.lat && r.lng) {

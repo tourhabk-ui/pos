@@ -4,14 +4,18 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Flame, Snowflake, Waves, Droplets, Bird, ShieldCheck } from 'lucide-react';
+import { elementHref } from '@/lib/stats/element-groups';
 
+// href стихий — из единого маппинга (lib/stats/element-groups): десктоп ведёт
+// туда же, куда мобайл. Раньше Снег/Океан/Природа вели в category=…, а мобайл
+// в location_type=… — одна стихия, разные фильтры.
 const ELEMENTS = [
   {
     number: '01',
     title: 'ОГОНЬ',
     subtitle: 'Вулканы и мощь земли',
     icon: Flame,
-    href: '/routes?location_type=volcano',
+    href: elementHref('fire'),
     image: '/images/bento/mutnovsky.jpg',
   },
   {
@@ -19,7 +23,7 @@ const ELEMENTS = [
     title: 'СНЕГ',
     subtitle: 'Хели-ски и ледники',
     icon: Snowflake,
-    href: '/routes?category=snegohod',
+    href: elementHref('snow'),
     image: '/images/hero/hero-dark.jpeg',
   },
   {
@@ -27,7 +31,7 @@ const ELEMENTS = [
     title: 'ОКЕАН',
     subtitle: 'Чёрные пляжи и серфинг',
     icon: Waves,
-    href: '/routes?category=morskie_progulki',
+    href: elementHref('ocean'),
     image: '/images/bento/khalaktyr.jpg',
   },
   {
@@ -35,7 +39,7 @@ const ELEMENTS = [
     title: 'ТЕРМЫ',
     subtitle: 'Горячие источники',
     icon: Droplets,
-    href: '/routes?location_type=hot_spring',
+    href: elementHref('therm'),
     image: '/images/bento/laguna.jpg',
   },
   {
@@ -43,7 +47,7 @@ const ELEMENTS = [
     title: 'ПРИРОДА',
     subtitle: 'Медведи, орлы, нерест',
     icon: Bird,
-    href: '/routes?category=medvedi',
+    href: elementHref('nature'),
     image: '/images/hero/bears-kurilskoye.jpg',
   },
   {

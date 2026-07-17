@@ -522,6 +522,16 @@ export function mchs_zones(text: string): string[] {
   return ['avachinsky'];
 }
 
+/** Стабильный отпечаток заголовка (djb2 по нормализованному тексту). */
+export function titleFingerprint(title: string): string {
+  const norm = title.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, ' ').trim();
+  let h = 5381;
+  for (let i = 0; i < norm.length; i++) {
+    h = ((h << 5) + h + norm.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(36);
+}
+
 export function classifyMchsItem(
   id: string,
   title: string,
@@ -542,6 +552,13 @@ export function classifyMchsItem(
     return null;
   }
 
+  // Учения и тренировки — не угроза: «пожарно-тактическое учение в школе № 40»
+  // висело неделю как fire_danger на карточках маршрутов (скрины владельца
+  // 2026-07-17). Алерт = действующая опасность, не отчёт о тренировке.
+  if (/учени[еяй]|тренировк|пожарно-тактическ/.test(text)) {
+    return null;
+  }
+
   let alert_type: SeismicEvent['alert_type'] = 'info';
   let severity: 0 | 1 | 2 | 3 = 0;
   let expires_hours = 24;
@@ -552,7 +569,10 @@ export function classifyMchsItem(
     alert_type = 'info'; severity = 2; expires_hours = 24;
   } else if (/паводок|половодье|подтопление|уровень воды|реках.*ожидается/i.test(text)) {
     alert_type = 'flood'; severity = 1; expires_hours = 120;
-  } else if (/пожар|противопожарный режим|особый.*режим/i.test(text)) {
+  } else if (/класс[а-я]*\s+пожарной опасности|противопожарный режим|особый.*режим|угроза (лесных )?пожар/i.test(text)) {
+    // Только ДЕЙСТВУЮЩАЯ пожарная опасность. Голое «пожар» ловило новости-итоги
+    // («по вине курильщиков за год произошло 4 пожара») и держало их алертом
+    // 168 часов на всех точках без зоны (скрины владельца 2026-07-17).
     alert_type = 'fire_danger'; severity = 1; expires_hours = 168;
   } else if (detectRoadRestriction(text)) {
     // Дорожные ограничения: пропускной режим, закрытие/перекрытие проезда
@@ -580,7 +600,11 @@ export function classifyMchsItem(
   if (isNaN(publishedAt.getTime())) return null;
 
   return {
-    source_id:     `${sourcePrefix}/${id}`,
+    // Дедуп по СОДЕРЖАНИЮ, не по guid: RSS перепубликует одно предупреждение
+    // с новыми id, и «Экстренное предупреждение на 16-20 июля» вставлялось
+    // шестью строками (скрины владельца 2026-07-17). Одинаковый нормализованный
+    // заголовок → одинаковый external_id → ON CONFLICT DO NOTHING.
+    source_id:     `${sourcePrefix}/t${titleFingerprint(title)}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,

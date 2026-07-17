@@ -69,6 +69,8 @@ export interface DataRepairResult {
   normalized_types: number;
   merged_coord_subset: number;
   merged_morph: number;
+  /** Диагностика (Шаг 10, без изменений БД): waypoints дальше порога от маршрута */
+  waypoint_outliers: number;
   errors: number;
   duration_ms: number;
   items: RepairItem[];
@@ -199,6 +201,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     normalized_types: 0,
     merged_coord_subset: 0,
     merged_morph: 0,
+    waypoint_outliers: 0,
     errors: 0,
     duration_ms: 0,
     items,
@@ -611,6 +614,56 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
         items.push({ step: 'coord_morph', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
       }
     }
+  }
+
+  // ── Шаг 10: ДИАГНОСТИКА кривых waypoints (без изменений БД) ──────────────
+  // Кейс владельца: у «Пиначево — Центральный» (Налычево) точками маршрута
+  // стояли Козельский и Халактырский пляж — чужие waypoints тянут за собой
+  // чужие алерты и врут навигации. Автоматически НЕ отвязываем: многодневные
+  // линейные треки легально уходят на десятки км от «координаты маршрута»,
+  // поэтому только отчёт с дистанциями — решение по каждой связке за владельцем.
+  try {
+    const { rows: wpRows } = await pool.query<{
+      route_id: string; route_title: string; route_lat: string | null; route_lng: string | null;
+      place_id: string; place_name: string; place_lat: string; place_lng: string;
+    }>(`
+      SELECT kr.id AS route_id, kr.title AS route_title,
+             kr.lat::text AS route_lat, kr.lng::text AS route_lng,
+             p.id AS place_id, p.name AS place_name,
+             p.lat::text AS place_lat, p.lng::text AS place_lng
+      FROM route_waypoints rw
+      JOIN kamchatka_routes kr ON kr.id = rw.route_id
+      JOIN places p ON p.id = rw.place_id
+      WHERE kr.lat IS NOT NULL AND kr.lng IS NOT NULL
+        AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+    `);
+
+    const WAYPOINT_SUSPECT_KM = 30;
+    const outliers: { route: string; place: string; km: number }[] = [];
+    for (const w of wpRows) {
+      const km = haversineKm(
+        Number(w.route_lat), Number(w.route_lng),
+        Number(w.place_lat), Number(w.place_lng),
+      );
+      if (km >= WAYPOINT_SUSPECT_KM) {
+        outliers.push({ route: w.route_title, place: w.place_name, km });
+      }
+    }
+    outliers.sort((a, b) => b.km - a.km);
+    res.waypoint_outliers = outliers.length;
+    for (const o of outliers.slice(0, 60)) {
+      items.push({
+        step: 'wp_outlier',
+        place: o.place,
+        detail: `${o.km.toFixed(0)} км от маршрута «${o.route}» — проверить связку`,
+      });
+    }
+    if (outliers.length > 60) {
+      items.push({ step: 'wp_outlier', detail: `…и ещё ${outliers.length - 60} связок дальше ${WAYPOINT_SUSPECT_KM} км` });
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({ step: 'wp_outlier', detail: `диагностика не прошла: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
   }
 
   res.duration_ms = Date.now() - t0;

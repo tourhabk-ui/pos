@@ -36,6 +36,12 @@ export interface ScoutInnovatorResult {
   intel_entries: number;
   duration_ms: number;
   issues_created: string[];
+  /**
+   * Диагностика фазы синтеза предложений. Всплывает в ответе эндпоинта и в
+   * логе GitHub Actions — чтобы «0 предложений» перестало быть немым: видно,
+   * дошли ли до модели, что она вернула и на каком шаге отвалилось.
+   */
+  phase1_diag?: string;
 }
 
 async function readCodebaseRules(): Promise<string> {
@@ -148,13 +154,40 @@ async function readPlatformInventory(): Promise<string> {
   }
 }
 
+/**
+ * Устойчивый разбор ответа модели в массив предложений. Чистая функция —
+ * тестируется без сети. Свободные модели часто оборачивают JSON в prose или
+ * ```json-фенсы, а премиум-модель иногда возвращает пустой массив осознанно.
+ * Возвращает и предложения, и человекочитаемую диагностику для лога.
+ */
+export function parseProposalsResponse(raw: string): { proposals: StructuredProposal[]; diag: string } {
+  const text = (raw ?? '').trim();
+  if (!text) return { proposals: [], diag: 'модель вернула пустую строку (waterfall исчерпан или провайдеры недоступны)' };
+
+  // Снимаем markdown-фенсы ```json ... ``` перед поиском массива.
+  const unfenced = text.replace(/```(?:json)?/gi, '').trim();
+  const m = unfenced.match(/\[[\s\S]*\]/);
+  if (!m) {
+    return { proposals: [], diag: `в ответе нет JSON-массива (len=${text.length}, head="${text.slice(0, 120)}")` };
+  }
+  try {
+    const parsed = JSON.parse(m[0]) as unknown;
+    if (!Array.isArray(parsed)) return { proposals: [], diag: 'JSON распарсился, но это не массив' };
+    if (parsed.length === 0) return { proposals: [], diag: 'модель осознанно вернула пустой массив (нет острых триггеров)' };
+    return { proposals: parsed as StructuredProposal[], diag: `распознано предложений: ${parsed.length}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { proposals: [], diag: `JSON.parse упал: ${msg} (head="${m[0].slice(0, 120)}")` };
+  }
+}
+
 async function generateStructuredProposals(
   repoContext: string,
   intelContext: string,
   platformStats: { bookings_week: string; confirmed_week: string; new_operators: string },
   apiRoutesList: string,
   gitContext?: { git_log?: string; changed_files?: string },
-): Promise<StructuredProposal[]> {
+): Promise<{ proposals: StructuredProposal[]; diag: string; modelUsed: string }> {
   const gitSection = gitContext?.git_log || gitContext?.changed_files
     ? [
         '',
@@ -220,26 +253,20 @@ ${gitSection}
   ];
 
   try {
-    const { text: raw } = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', {
+    const { text: raw, model_used } = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', {
       maxTokens: 1500,
       timeoutMs: 45_000,
       temperature: 0.4,
     });
-    // Устойчивый разбор: премиум-модель может быть недоступна и callAIWithModel
-    // уходит в waterfall (свободные модели), а те часто оборачивают JSON в prose/
-    // markdown. Вытягиваем первый массив [...] из ответа, а не парсим всю строку —
-    // иначе любое слово вокруг ломало JSON.parse и предложение молча терялось.
-    const m = raw.match(/\[[\s\S]*\]/);
-    if (!m) {
-      console.error(`[scout-innovator] Phase 1: в ответе нет JSON-массива (len=${raw.length}, head="${raw.slice(0, 80)}")`);
-      return [];
+    const { proposals, diag } = parseProposalsResponse(raw);
+    if (proposals.length === 0) {
+      console.error(`[scout-innovator] Phase 1 (модель=${model_used}): ${diag}`);
     }
-    const parsed = JSON.parse(m[0]) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed as StructuredProposal[];
+    return { proposals, diag: `модель=${model_used}: ${diag}`, modelUsed: model_used };
   } catch (err) {
-    console.error('[scout-innovator] Phase 1 AI call failed:', err);
-    return [];
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[scout-innovator] Phase 1 AI call failed:', msg);
+    return { proposals: [], diag: `исключение в AI-вызове: ${msg}`, modelUsed: 'none' };
   }
 }
 
@@ -516,7 +543,7 @@ export async function runScoutInnovator(
   ].filter(Boolean).join('\n\n');
 
   // 4. Phase 1 — генерируем структурированные предложения (JSON)
-  const rawProposals = await generateStructuredProposals(
+  const { proposals: rawProposals, diag: phase1Diag } = await generateStructuredProposals(
     repoContext,
     intelContext,
     platformStats,
@@ -532,6 +559,7 @@ export async function runScoutInnovator(
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
       issues_created: [],
+      phase1_diag: phase1Diag,
     };
   }
 
@@ -570,6 +598,7 @@ export async function runScoutInnovator(
       intel_entries: allPages.length,
       duration_ms: Date.now() - start,
       issues_created: [],
+      phase1_diag: `${phase1Diag}; после дедупа/критика осталось 0 (dup=${skipped_duplicates}, critic=${skipped_by_critic})`,
     };
   }
 
@@ -618,6 +647,15 @@ export async function runScoutInnovator(
     await saveProposalLocks([...locks, ...createdTitles]);
   }
 
+  // Диагностика этапа создания Issues: если предложения были, а issue не создано —
+  // почти всегда отсутствует GITHUB_ISSUES_TOKEN на проде либо GitHub API отказал.
+  let issuesDiag = `${phase1Diag}; к созданию: ${proposals.length}, создано issue: ${issueUrls.length}`;
+  if (proposals.length > 0 && issueUrls.length === 0) {
+    issuesDiag += process.env.GITHUB_ISSUES_TOKEN
+      ? '; GITHUB_ISSUES_TOKEN есть, но GitHub API вернул ошибку'
+      : '; GITHUB_ISSUES_TOKEN НЕ задан на проде — issue не создаётся';
+  }
+
   return {
     proposals_count: proposals.length,
     skipped_duplicates,
@@ -626,5 +664,6 @@ export async function runScoutInnovator(
     intel_entries: allPages.length,
     duration_ms: Date.now() - start,
     issues_created: issueUrls,
+    phase1_diag: issuesDiag,
   };
 }

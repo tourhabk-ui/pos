@@ -84,7 +84,10 @@ export async function GET(
          vs.summary              AS volcano_summary,
          vs.source_url           AS volcano_source_url,
          vs.observed_at          AS volcano_observed_at,
-         (SELECT count(*)::int FROM ai_route_images ai WHERE ai.route_id = p.ark_id) AS photo_count,
+         -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации не
+         -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
+         (SELECT count(*)::int FROM ai_route_images ai
+          WHERE ai.route_id = p.ark_id AND ai.model IN ('wikimedia', 'manual-upload')) AS photo_count,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -118,7 +121,7 @@ export async function GET(
          p.lat,
          p.lng,
          p.photo_url,
-         (SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai2 WHERE ai2.route_id = p.ark_id) THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS thumb_url,
+         (SELECT CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai2 WHERE ai2.route_id = p.ark_id AND ai2.model IN ('wikimedia', 'manual-upload')) THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS thumb_url,
          round(
            6371 * acos(
              LEAST(1.0, cos(radians($1::float)) * cos(radians(p.lat::float)) *

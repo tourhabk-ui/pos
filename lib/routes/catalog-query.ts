@@ -146,7 +146,9 @@ export interface CatalogItem {
   bestMonths: number[] | null;
   geometry: { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null;
   volcanoStatus: string | null;
-  hasAiImage: boolean;
+  /** Есть РЕАЛЬНОЕ фото (wikimedia) в хранилище изображений. AI-генерации
+      больше не показываются — вместо них честный градиент по типу места. */
+  hasRealImage: boolean;
   hazards: string[];
 }
 
@@ -223,7 +225,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     -- цена/сложность), а у мест она всегда 0 — поэтому места ранжируются дальше
     -- по «презентабельности»: есть фото -> значимый тип -> богатое описание.
     -- Так первый экран /places перестаёт быть алфавитным («300-летняя берёза»).
-    has_ai_image DESC,
+    has_real_image DESC,
     CASE location_type
       WHEN 'volcano'    THEN 6 WHEN 'geyser'  THEN 6
       WHEN 'hot_spring' THEN 5 WHEN 'lake'    THEN 5
@@ -260,7 +262,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.payload->'geometry'        AS geometry,
          ark.payload->>'volcano_status' AS volcano_status,
          ark.created_at,
-         (ari.route_id IS NOT NULL) AS has_ai_image
+         -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации в выдачу
+         -- не идут — вместо них честный градиент (решение владельца 2026-07-17)
+         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        ${where}
@@ -278,8 +282,8 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
 
   const items: CatalogItem[] = dataResult.rows.map(r => {
     const payload = (r.payload as Record<string, unknown>) ?? {};
-    const hasAiImage = Boolean(r.has_ai_image);
-    const imageUrl = hasAiImage
+    const hasRealImage = Boolean(r.has_real_image);
+    const imageUrl = hasRealImage
       ? `/api/images/route/${r.id}`
       : (pickPrimaryImage(payload) || getCategoryFallbackImage(r.category as string));
 
@@ -304,7 +308,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       bestMonths:   (r.best_months as number[] | null) ?? null,
       geometry:      (r.geometry as { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null) ?? null,
       volcanoStatus: (r.volcano_status as string | null) ?? null,
-      hasAiImage,
+      hasRealImage,
       hazards:      resolveHazards(r),
     };
   });

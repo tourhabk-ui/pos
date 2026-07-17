@@ -199,16 +199,19 @@ export const GLOBAL_SOS_CONTACTS: SosContact[] = [
     phone: '112',
     type: 'mchs',
   },
+  // Региональные номера убраны до верификации владельцем — неверный номер в ЧП
+  // опаснее его отсутствия. Федеральные короткие покрывают всё (см.
+  // lib/safety/emergency-numbers.ts).
   {
-    id: 'mchs-kamchatka',
-    name: 'МЧС Камчатский край',
-    phone: '+7 (4152) 23-53-62',
+    id: 'mchs-101',
+    name: 'Пожарные и спасатели (МЧС)',
+    phone: '101',
     type: 'mchs',
   },
   {
-    id: 'rescue-pkgo',
-    name: 'ПСО «Камчатка» (ПКГО)',
-    phone: '+7 (4152) 41-27-30',
+    id: 'police-102',
+    name: 'Полиция',
+    phone: '102',
     type: 'rescue',
   },
   {

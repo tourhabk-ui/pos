@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,9 @@ export async function GET(
          ark.id, ark.route_dedupe_key, ark.route_id, ark.category, ark.location_type, ark.activity_type,
          ark.title, ark.description, ark.lat, ark.lng, ark.source_url, ark.source_name, ark.payload, ark.created_at,
          COALESCE(kr.kuzmich_review, ark.kuzmich_review) AS kuzmich_review,
-         (ari.route_id IS NOT NULL) AS has_ai_image,
+         -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации не
+         -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
+         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
          kr.mchs_registration_required,
          kr.mchs_phone,
          kr.park_name,
@@ -43,10 +46,24 @@ export async function GET(
          kr.official_passport_url,
          kr.passport_agency,
          kr.ark_id AS kr_ark_id,
-         pk.slug AS park_slug
+         pk.slug AS park_slug,
+         COALESCE(kr.geometry, krs.geometry) AS geometry
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       LEFT JOIN LATERAL (
+         -- Трек места может жить отдельной строкой kamchatka_routes
+         -- (точка «Гора Замок» ↔ её маршрут): связь через metadata.place_ark_id
+         -- или общий source_url — та же логика, что в GPX-экспорте
+         SELECT geometry FROM kamchatka_routes k2
+         WHERE k2.geometry IS NOT NULL
+           AND k2.id <> ark.id
+           AND (
+             k2.metadata->>'place_ark_id' = ark.id::text
+             OR (ark.source_url IS NOT NULL AND k2.source_url = ark.source_url)
+           )
+         LIMIT 1
+       ) krs ON TRUE
        LEFT JOIN LATERAL (
          SELECT slug FROM parks
          WHERE kr.park_name IS NOT NULL
@@ -217,7 +234,7 @@ export async function GET(
         equipment:   (r.kr_equipment as string[] | null) ?? (payload.required_equipment as string[] | null) ?? null,
         photos:      (payload.photos as string[] | null) ?? null,
         kuzmichReview: (r.kuzmich_review as string | null) ?? null,
-        hasAiImage:  Boolean(r.has_ai_image),
+        hasRealImage: Boolean(r.has_real_image),
         mchsRequired:    (r.mchs_registration_required as boolean | null) ?? false,
         mchsPhone:       (r.mchs_phone as string | null) ?? null,
         parkName:        (r.park_name as string | null) ?? null,
@@ -234,6 +251,15 @@ export async function GET(
         pdfUrl:          (r.pdf_url as string | null) ?? null,
         officialPassportUrl: (r.official_passport_url as string | null) ?? null,
         passportAgency:      (r.passport_agency as string | null) ?? null,
+        // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
+        // null = трека нет нигде (geometry, payload.geometry, payload.track)
+        track: (() => {
+          const pts = decimateTrack(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return pts.length >= 2 ? pts.map(p => [p.lat, p.lng] as [number, number]) : null;
+        })(),
         reviews: reviewsResult.rows.map(rv => ({
           id:         String(rv.id),
           rating:     rv.rating != null ? Number(rv.rating) : null,
@@ -256,14 +282,21 @@ export async function GET(
           hazardTypes:  (w.hazard_types as string[]) ?? [],
         })),
         offers,
-        operationalAlerts: operationalResult.rows.map(a => ({
-          placeId:      a.place_id as string,
-          placeName:    a.place_name as string,
-          isOpen:       (a.is_open as boolean | null) ?? true,
-          message:      (a.alert_message as string | null) ?? null,
-          activeAlerts: (a.active_alerts as string[] | null) ?? [],
-          severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
-        })),
+        operationalAlerts: operationalResult.rows.map(a => {
+          // Страховка от накопленных дублей в active_alerts (RSS-перепубликации):
+          // уникализируем и режем до 3 — стена повторов хоронит реальную опасность
+          const raw = (a.active_alerts as string[] | null) ?? [];
+          const unique = [...new Set(raw.map(t => t.trim()).filter(Boolean))];
+          return {
+            placeId:      a.place_id as string,
+            placeName:    a.place_name as string,
+            isOpen:       (a.is_open as boolean | null) ?? true,
+            message:      (a.alert_message as string | null) ?? null,
+            activeAlerts: unique.slice(0, 3),
+            hiddenAlertsCount: Math.max(0, unique.length - 3),
+            severity:     a.alert_severity != null ? Number(a.alert_severity) : 0,
+          };
+        }),
       },
     });
   } catch (error) {

@@ -54,7 +54,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
        ot.multi_day_count AS duration_days,
        ot.difficulty,
        ot.description,
-       (SELECT url FROM ai_route_images WHERE route_id = ot.route_id LIMIT 1) AS photo_url,
+       (SELECT CASE WHEN model IN ('wikimedia', 'manual-upload') THEN '/api/images/route/' || ot.route_id END
+        FROM ai_route_images WHERE route_id = ot.route_id LIMIT 1) AS photo_url,
        kr.hazards,
        kr.mchs_registration_required
      FROM tour_selection_items si

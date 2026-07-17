@@ -173,13 +173,18 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
             >
               <Phone className="w-3.5 h-3.5" /> 112
             </a>
-            <a
-              href={`tel:${safety.phoneRangerMches ?? '+74152235362'}`}
-              className="inline-flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] bg-[var(--bg-card)] border border-[var(--border)] px-4 py-2 rounded-xl hover:border-[var(--accent)] transition-colors"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              {safety.phoneRangerMches ?? '+7 415 223-53-62'} МЧС
-            </a>
+            {/* Региональный номер МЧС показываем ТОЛЬКО если он реально задан для
+                точки в БД. Никаких выдуманных fallback — неверный номер в ЧП
+                опаснее его отсутствия. Единый источник — 112 выше. */}
+            {safety.phoneRangerMches && (
+              <a
+                href={`tel:${safety.phoneRangerMches.replace(/[^\d+]/g, '')}`}
+                className="inline-flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] bg-[var(--bg-card)] border border-[var(--border)] px-4 py-2 rounded-xl hover:border-[var(--accent)] transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                {safety.phoneRangerMches} МЧС
+              </a>
+            )}
           </div>
 
           {/* Emergency access */}
