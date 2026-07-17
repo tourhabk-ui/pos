@@ -229,4 +229,36 @@ describe('runDataRepair (dry-run)', () => {
     }
   });
 
+  it('Шаг 10: waypoints дальше 30 км попадают в отчёт, ближние — нет, БД не мутируется', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes('FROM route_waypoints rw') && s.includes('JOIN kamchatka_routes kr')) {
+        return Promise.resolve({ rows: [
+          // Кейс владельца: Налычево-трек с чужой точкой (~40 км)
+          { route_id: 'r1', route_title: 'Пиначево — Центральный', route_lat: '53.42', route_lng: '158.55',
+            place_id: 'p1', place_name: 'Козельский', place_lat: '53.06', place_lng: '158.88' },
+          // Легитимная точка в 2 км от маршрута
+          { route_id: 'r1', route_title: 'Пиначево — Центральный', route_lat: '53.42', route_lng: '158.55',
+            place_id: 'p2', place_name: 'Кордон Пиначево', place_lat: '53.43', place_lng: '158.57' },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false); // даже в apply — только отчёт
+    expect(result.waypoint_outliers).toBe(1);
+    const outlierItems = result.items.filter(i => i.step === 'wp_outlier');
+    expect(outlierItems).toHaveLength(1);
+    expect(outlierItems[0].place).toBe('Козельский');
+    expect(outlierItems[0].detail).toContain('Пиначево — Центральный');
+    // Шаг 10 — только отчёт: связки waypoints никто не переписывает и не удаляет
+    // (другие шаги в apply-режиме легитимно мутируют СВОИ таблицы)
+    for (const call of queryMock.mock.calls) {
+      const s = String(call[0]).trim().toUpperCase();
+      if (s.startsWith('UPDATE') || s.startsWith('DELETE')) {
+        expect(s).not.toContain('ROUTE_WAYPOINTS');
+      }
+    }
+  });
+
 });
