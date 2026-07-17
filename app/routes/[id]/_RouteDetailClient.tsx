@@ -152,7 +152,8 @@ interface RouteDetail {
   altitude: number | null; groupSizeMax: number | null; dangerLevel: string | null;
   equipment: string[] | null; kuzmichReview: string | null;
   photos: string[] | null; offers: Offer[];
-  hasAiImage: boolean;
+  /** Есть реальное фото (wikimedia) в хранилище — AI-генерации не показываются */
+  hasRealImage: boolean;
   mchsRequired: boolean;
   mchsPhone: string | null;
   parkName: string | null;
@@ -462,12 +463,6 @@ export default function RouteDetailClient({ id }: { id: string }) {
       .catch(() => {});
   }, [route, id]);
 
-  // Must be before early returns to satisfy Rules of Hooks
-  useEffect(() => {
-    if (!route || (route.photos?.length ?? 0) > 0 || route.hasAiImage) return;
-    fetch(`/api/images/route/${route.id}`).catch(() => undefined);
-  }, [route?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleStartNavigation = useCallback(() => {
     if (!route) return;
     try { localStorage.setItem('active_trail_route_id', route.id); } catch { /* ignore */ }
@@ -574,11 +569,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const maxPrice = allOffers.length > 0
     ? Math.max(...allOffers.map(o => o.effectivePrice ?? o.priceBase ?? 0).filter(p => p > 0))
     : 500000;
+  // Hero: реальные фото → реальное фото из хранилища (wikimedia) → честный
+  // градиент по типу места. AI-картинки чужих пейзажей больше не показываем.
   const photos = [...new Set(route.photos ?? [])];
-  const aiImageUrl = `/api/images/route/${route.id}`;
-  const heroImage = photos[galleryIdx] ?? photos[0] ?? (route.hasAiImage ? aiImageUrl : null);
-  const isAiHero = !photos.length && route.hasAiImage;
-  const useGradient = !photos.length && !route.hasAiImage;
+  const storedImageUrl = `/api/images/route/${route.id}`;
+  const heroImage = photos[galleryIdx] ?? photos[0] ?? (route.hasRealImage ? storedImageUrl : null);
+  const useGradient = heroImage == null;
 
   const minPrice = allOffers.length > 0
     ? Math.min(...allOffers.map(o => o.effectivePrice ?? o.priceBase ?? 0).filter(p => p > 0))
@@ -604,11 +600,6 @@ export default function RouteDetailClient({ id }: { id: string }) {
             />
           ) : (
             <Image src={heroImage!} alt={route.title} fill className="object-contain" priority sizes="100vw" />
-          )}
-          {isAiHero && (
-            <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">
-              <span>AI</span><span className="opacity-70">· временное фото</span>
-            </div>
           )}
         </div>
 

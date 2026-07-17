@@ -38,7 +38,7 @@ const ROUTE_ROW = {
   payload: {},
   created_at: '2026-01-01',
   kuzmich_review: null,
-  has_ai_image: false,
+  has_real_image: false,
   mchs_registration_required: true,
   mchs_phone: '+74152300000',
   park_name: null,

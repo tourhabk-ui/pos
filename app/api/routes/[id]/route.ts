@@ -26,7 +26,9 @@ export async function GET(
          ark.id, ark.route_dedupe_key, ark.route_id, ark.category, ark.location_type, ark.activity_type,
          ark.title, ark.description, ark.lat, ark.lng, ark.source_url, ark.source_name, ark.payload, ark.created_at,
          COALESCE(kr.kuzmich_review, ark.kuzmich_review) AS kuzmich_review,
-         (ari.route_id IS NOT NULL) AS has_ai_image,
+         -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации не
+         -- показываются, вместо них честный градиент (решение владельца 2026-07-17)
+         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
          kr.mchs_registration_required,
          kr.mchs_phone,
          kr.park_name,
@@ -232,7 +234,7 @@ export async function GET(
         equipment:   (r.kr_equipment as string[] | null) ?? (payload.required_equipment as string[] | null) ?? null,
         photos:      (payload.photos as string[] | null) ?? null,
         kuzmichReview: (r.kuzmich_review as string | null) ?? null,
-        hasAiImage:  Boolean(r.has_ai_image),
+        hasRealImage: Boolean(r.has_real_image),
         mchsRequired:    (r.mchs_registration_required as boolean | null) ?? false,
         mchsPhone:       (r.mchs_phone as string | null) ?? null,
         parkName:        (r.park_name as string | null) ?? null,

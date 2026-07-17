@@ -8,7 +8,7 @@ export interface RouteItem {
   id: string;
   kind?: 'place' | 'tour' | 'route';
   imageUrl?: string;
-  hasAiImage?: boolean;
+  hasRealImage?: boolean;
   category: string;
   locationType?: string | null;
   activityType?: string | null;

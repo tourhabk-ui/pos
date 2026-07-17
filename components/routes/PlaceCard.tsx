@@ -67,7 +67,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
   const Icon    = LOCATION_ICONS[locType] ?? MapPin;
   const label   = LOCATION_LABELS[locType] ?? 'Место';
 
-  const photoSrc = route.hasAiImage
+  const photoSrc = route.hasRealImage
     ? `/api/images/route/${route.id}`
     : (route.imageUrl ?? null);
 

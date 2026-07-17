@@ -27,7 +27,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
   const places = col.place_ids?.length
     ? (await pool.query(
         `SELECT p.id, p.name, p.location_type, p.lat, p.lng, p.description,
-                (SELECT ai.image_url FROM ai_route_images ai WHERE ai.route_id = p.ark_id LIMIT 1) AS image_url
+                (SELECT CASE WHEN ai.model IN ('wikimedia', 'manual-upload') THEN '/api/images/route/' || p.ark_id END
+                 FROM ai_route_images ai WHERE ai.route_id = p.ark_id LIMIT 1) AS image_url
          FROM places p WHERE p.id = ANY($1::uuid[])`,
         [col.place_ids]
       )).rows
