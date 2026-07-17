@@ -10,11 +10,15 @@ import {
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
+import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
   { ssr: false }
 );
+
+// Карта с треком — только на клиенте (Leaflet не SSR-безопасен)
+const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -211,6 +215,7 @@ function OnTrailTab() {
   const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -346,6 +351,24 @@ function OnTrailTab() {
   const mins = Math.floor((elapsed % 3600) / 60);
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
+
+  // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая)
+  const mapMarkers: MapMarker[] = waypoints.length > 0
+    ? [
+        {
+          coords: [waypoints[0].lat, waypoints[0].lng],
+          title: activeRouteTitle ?? 'Маршрут',
+          geometry: { type: 'polyline', coordinates: waypoints.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 },
+          suppressBalloon: true,
+        },
+        ...waypoints.map((w, i): MapMarker => ({
+          coords: [w.lat, w.lng],
+          title: w.name,
+          color: i === currentWpIdx ? 'orange' : 'green',
+          type: MarkerType.POI,
+        })),
+      ]
+    : [];
   const distToNext = coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
@@ -550,11 +573,11 @@ function OnTrailTab() {
 
       {/* Bottom action grid */}
       <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
-        <Link href="/map"
+        <button onClick={() => setShowMap(true)}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
           style={{ background: 'var(--bg-card)', color: 'var(--success)', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
-        </Link>
+        </button>
         <a href={coords
             ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10`
             : 'https://openweathermap.org/city/2124044'}
@@ -574,6 +597,32 @@ function OnTrailTab() {
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>
+
+      {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
+          localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}
+      {showMap && (
+        <div className="fixed inset-0 z-[1000]" style={{ background: '#0d1117' }}>
+          <LeafletMap
+            markers={mapMarkers}
+            center={coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined)}
+            zoom={13}
+            height="100dvh"
+            showUserLocation
+          />
+          <button onClick={() => setShowMap(false)}
+            className="absolute top-4 left-4 z-[1001] w-11 h-11 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(13,17,23,0.85)', color: '#fff', border: '1px solid #30363d' }}
+            aria-label="Закрыть карту">
+            <X className="w-5 h-5" />
+          </button>
+          {waypoints.length === 0 && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm whitespace-nowrap"
+              style={{ background: 'rgba(13,17,23,0.9)', color: 'var(--text-muted)', border: '1px solid #30363d' }}>
+              Маршрут не выбран — карта без трека
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Route selection modal */}
       {showRouteModal && (
