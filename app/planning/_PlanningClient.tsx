@@ -470,6 +470,11 @@ function OnTrailTab() {
                   {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
+                <button onClick={openRouteModal}
+                  className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg mt-3"
+                  style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
+                  Сменить маршрут <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </>
             ) : activeRouteTitle ? (
               <>
