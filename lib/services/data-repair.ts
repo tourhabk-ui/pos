@@ -783,6 +783,8 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       JOIN places p ON p.id = rw.place_id
       WHERE kr.lat IS NOT NULL AND kr.lng IS NOT NULL
         AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+        AND kr.is_visible = TRUE
+        AND p.is_visible = TRUE
     `);
 
     const WAYPOINT_SUSPECT_KM = 30;
