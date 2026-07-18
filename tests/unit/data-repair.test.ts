@@ -302,6 +302,42 @@ describe('runDataRepair (dry-run)', () => {
     }
   });
 
+  it('Шаг 1b: псевдокластер из 3+ мест — координата чинится из финиша трека тёзки, без тёзки — нет', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.trim().toUpperCase().startsWith('DELETE')) return Promise.resolve({ rows: [], rowCount: 0 });
+      if (s.includes('FROM places p')) {
+        // Кластер Эссо: три разноимённых места в ~15 м друг от друга
+        return Promise.resolve({ rows: [
+          { id: 'e1', ark_id: null, name: 'Каньон Сноубордистов', location_type: 'other', lat: 55.9000, lng: 158.7000, desc_len: 100, has_photo: false, is_visible: true },
+          { id: 'e2', ark_id: null, name: 'Озеро Галямаки', location_type: 'lake', lat: 55.9001, lng: 158.7001, desc_len: 100, has_photo: false, is_visible: true },
+          { id: 'e3', ark_id: null, name: 'Скала Черный замок', location_type: 'rock', lat: 55.9002, lng: 158.7000, desc_len: 100, has_photo: false, is_visible: true },
+          // Одиночное место с той же дрожью в другом углу — не кластер, не трогаем
+          { id: 's1', ark_id: null, name: 'Гора Одинокая', location_type: 'mountain', lat: 52.0, lng: 157.0, desc_len: 100, has_photo: false, is_visible: true },
+        ] });
+      }
+      if (s.includes('WHERE geometry IS NOT NULL AND title IS NOT NULL')) {
+        return Promise.resolve({ rows: [
+          // Трек маршрута-тёзки: финиш — сам каньон
+          { title: 'Каньон Сноубордистов', geometry: { coordinates: [[158.71, 55.92], [158.73, 55.94], [158.75, 55.96]] } },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false);
+    expect(result.coords_from_twin_track).toBe(1);
+    // e1 -> финиш трека (lat=55.96, lng=158.75)
+    expect(updates.some(u => u.includes('UPDATE places SET lat') && u.includes('"e1"') && u.includes('55.96'))).toBe(true);
+    // Места без тёзки-трека и одиночка не тронуты
+    expect(updates.some(u => u.includes('UPDATE places SET lat') && (u.includes('"e2"') || u.includes('"e3"') || u.includes('"s1"')))).toBe(false);
+  });
+
   it('Шаг 9b: координата маршрута дальше 30 км от собственного трека чинится на старт трека, близкая — нет', async () => {
     const updates: string[] = [];
     queryMock.mockImplementation((sql: string, params?: unknown[]) => {
