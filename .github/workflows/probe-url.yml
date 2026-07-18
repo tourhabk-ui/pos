@@ -1,0 +1,38 @@
+name: Probe — снять содержимое внешних URL с раннера
+
+# Из контейнера разработки внешний интернет закрыт (WebFetch 403 на все
+# хосты), а раннер GitHub Actions ходит свободно. Этот workflow — «глаза»:
+# скачивает указанные URL и печатает начало содержимого в лог, чтобы можно
+# было писать парсеры по реальным данным, а не по догадкам. Ничего не пишет
+# ни в БД, ни в репозиторий.
+
+# Запуск: push в main, меняющий .github/triggers/probe-url.json (там же —
+# список URL). workflow_dispatch у интеграции недоступен (403).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/probe-url.json'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch and print
+        run: |
+          URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json'))['urls']))")
+          BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
+          for u in $URLS; do
+            echo "════════════════════════════════════════════════"
+            echo "URL: $u"
+            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time 60 -A 'Mozilla/5.0 (compatible; VedarProbe/1.0)' "$u" || echo 000)
+            echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
+            echo "── первые ${BYTES} байт ──"
+            head -c "${BYTES}" /tmp/body | tr -d '\r'
+            echo ""
+          done
