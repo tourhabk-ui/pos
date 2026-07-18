@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -473,6 +473,59 @@ export default function RouteDetailClient({ id }: { id: string }) {
     router.push('/planning?mode=trail');
   }, [route, router]);
 
+  // Данные карты — useMemo обязателен: LeafletMap пересоздаёт карту при смене
+  // identity center/markers, а карточка ре-рендерится на каждый чих (галерея,
+  // фильтры туров) — без мемоизации карта мигала и сбрасывала зум.
+  // Хук стоит ДО ранних return (правила хуков), поэтому терпит route=null.
+  const mapData = useMemo(() => {
+    if (!route) {
+      return {
+        navWaypoints: [] as (RouteWaypoint & { lat: number; lng: number })[],
+        trackCoords: null as [number, number][] | null,
+        mapCenter: [53.02, 158.65] as [number, number],
+        cardMapMarkers: [] as MapMarker[],
+      };
+    }
+    // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
+    // waypoints (≥2 точек). Одна координата треком НЕ считается: обещать
+    // навигацию, по которой нельзя идти, опаснее, чем не обещать.
+    const navWaypoints = (route.waypoints ?? []).filter(
+      (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
+    );
+    const trackCoords: [number, number][] | null =
+      (route.track?.length ?? 0) >= 2
+        ? route.track!
+        : navWaypoints.length >= 2
+          ? navWaypoints.map(w => [w.lat, w.lng] as [number, number])
+          : null;
+    // Карта карточки: трек-линия + стартовый пин + точки маршрута (кликабельные).
+    const mapCenter: [number, number] = route.lat != null && route.lng != null
+      ? [Number(route.lat), Number(route.lng)]
+      : trackCoords?.[0] ?? [53.02, 158.65];
+    const cardMapMarkers: MapMarker[] = [
+      {
+        coords: mapCenter,
+        title: route.title,
+        description: LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут',
+        color: 'red',
+        type: MarkerType.TOUR,
+        category: route.locationType ?? 'other',
+        ...(trackCoords
+          ? { geometry: { type: 'polyline' as const, coordinates: trackCoords, color: 'red', weight: 4 } }
+          : {}),
+      },
+      ...navWaypoints.map(w => ({
+        coords: [w.lat, w.lng] as [number, number],
+        title: w.placeName,
+        href: `/places/${w.placeId}`,
+        color: 'blue',
+        type: MarkerType.POI,
+        category: w.locationType ?? 'other',
+      })),
+    ];
+    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers };
+  }, [route]);
+
   if (loading) {
     return (
       <>
@@ -499,48 +552,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
   }
 
   const hasGeo = route.lat != null && route.lng != null;
-  // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
-  // waypoints (≥2 точек). Одна координата треком НЕ считается: обещать
-  // навигацию, по которой нельзя идти, опаснее, чем не обещать.
-  const navWaypoints = (route.waypoints ?? []).filter(
-    (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
-  );
-  const trackCoords: [number, number][] | null =
-    (route.track?.length ?? 0) >= 2
-      ? route.track!
-      : navWaypoints.length >= 2
-        ? navWaypoints.map(w => [w.lat, w.lng] as [number, number])
-        : null;
+  const { navWaypoints, trackCoords, mapCenter, cardMapMarkers } = mapData;
   const hasTrack = trackCoords != null;
   const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
-
-  // Карта карточки: трек-линия + стартовый пин + точки маршрута (кликабельные).
-  // Раньше рисовался один пин без линии — «GPS-трек» существовал только в GPX.
-  const mapCenter: [number, number] = hasGeo
-    ? [Number(route.lat), Number(route.lng)]
-    : trackCoords?.[0] ?? [53.02, 158.65];
-  const cardMapMarkers: MapMarker[] = [
-    {
-      coords: mapCenter,
-      title: route.title,
-      description: locLabel,
-      color: 'red',
-      type: MarkerType.TOUR,
-      category: route.locationType ?? 'other',
-      ...(trackCoords
-        ? { geometry: { type: 'polyline' as const, coordinates: trackCoords, color: 'red', weight: 4 } }
-        : {}),
-    },
-    ...navWaypoints.map(w => ({
-      coords: [w.lat, w.lng] as [number, number],
-      title: w.placeName,
-      href: `/places/${w.placeId}`,
-      color: 'blue',
-      type: MarkerType.POI,
-      category: w.locationType ?? 'other',
-    })),
-  ];
 
   // Фильтрация и сортировка туров
   const allOffers = route.offers ?? [];
