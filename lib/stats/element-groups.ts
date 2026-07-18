@@ -18,15 +18,33 @@ export interface ElementGroup {
   /** location_type значения; первый — primary (задаёт href) */
   types: string[];
   href: string;
+  /** Цвет стихии (hex) — карточки мест, линии горизонта, пеленг */
+  color: string;
 }
 
 export const ELEMENT_GROUPS: ElementGroup[] = [
-  { key: 'fire',   label: 'Огонь',   types: ['volcano'],                          href: '/routes?location_type=volcano' },
-  { key: 'snow',   label: 'Снег',    types: ['mountain', 'glacier'],              href: '/routes?location_type=mountain' },
-  { key: 'ocean',  label: 'Океан',   types: ['bay', 'cape', 'island', 'beach'],   href: '/routes?location_type=bay' },
-  { key: 'therm',  label: 'Термы',   types: ['hot_spring', 'geyser', 'thermal'],  href: '/routes?location_type=hot_spring' },
-  { key: 'nature', label: 'Природа', types: ['lake', 'river', 'waterfall', 'forest'], href: '/routes?location_type=lake' },
+  { key: 'fire',   label: 'Огонь',   types: ['volcano'],                          href: '/routes?location_type=volcano',    color: '#C24C3D' },
+  { key: 'snow',   label: 'Снег',    types: ['mountain', 'glacier'],              href: '/routes?location_type=mountain',   color: '#8FB8D8' },
+  { key: 'ocean',  label: 'Океан',   types: ['bay', 'cape', 'island', 'beach'],   href: '/routes?location_type=bay',        color: '#38B6D8' },
+  { key: 'therm',  label: 'Термы',   types: ['hot_spring', 'geyser', 'thermal'],  href: '/routes?location_type=hot_spring', color: '#E8842C' },
+  { key: 'nature', label: 'Природа', types: ['lake', 'river', 'waterfall', 'forest'], href: '/routes?location_type=lake',   color: '#3E9B5F' },
 ];
+
+/** Нейтраль для типов вне стихий (EXCLUDED: музеи, посёлки, скалы...) */
+export const NEUTRAL_ELEMENT_COLOR = '#8B96AB';
+
+/**
+ * Стихия по location_type. null — тип вне стихий (или неизвестен): вызывающий
+ * код берёт NEUTRAL_ELEMENT_COLOR. «Защита/Безопасность» стихией не является
+ * и сюда не маппится никогда.
+ */
+export function getElementForType(
+  locationType: string | null | undefined,
+): { key: string; label: string; color: string; href: string } | null {
+  if (!locationType) return null;
+  const g = ELEMENT_GROUPS.find((el) => el.types.includes(locationType));
+  return g ? { key: g.key, label: g.label, color: g.color, href: g.href } : null;
+}
 
 /**
  * Типы, не относящиеся к «стихиям» (антропогенные/служебные) — считаются в

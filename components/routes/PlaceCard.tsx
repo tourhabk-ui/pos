@@ -1,31 +1,21 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
   Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Trash2,
 } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
+import { LOCATION_TYPE_LABELS } from '@/components/places/types';
+import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-groups';
+import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
+import { useAnchor } from './useAnchor';
 
-const LOCATION_LABELS: Record<string, string> = {
-  volcano:    'Вулкан',
-  geyser:     'Гейзерное поле',
-  hot_spring: 'Термальный источник',
-  thermal:    'Термальный источник',
-  lake:       'Озеро',
-  mountain:   'Горный массив',
-  river:      'Река',
-  bay:        'Бухта',
-  beach:      'Пляж',
-  forest:     'Природный парк',
-  museum:     'Музей',
-  historical: 'Историческое место',
-  rock:       'Скала',
-  viewpoint:  'Смотровая площадка',
-  settlement: 'Населённый пункт',
-  other:      'Место',
-};
+// Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
+// без цен и офферов. Кромка фото — силуэт горизонта по типу места, под
+// именем — честный пеленг и дистанция от якоря (геолокация — только по
+// тапу по прибору). Цвета — канон стихий lib/stats/element-groups.
 
 const LOCATION_ICONS: Record<string, React.ElementType> = {
   volcano:    Flame,
@@ -46,35 +36,55 @@ const LOCATION_ICONS: Record<string, React.ElementType> = {
   other:      MapPin,
 };
 
-const PLACEHOLDER_BG: Record<string, string> = {
-  volcano:    'linear-gradient(135deg, #7c2d12 0%, #991b1b 100%)',
-  geyser:     'linear-gradient(135deg, #78350f 0%, #44403c 100%)',
-  hot_spring: 'linear-gradient(135deg, #0e7490 0%, #0c4a6e 100%)',
-  thermal:    'linear-gradient(135deg, #0e7490 0%, #0c4a6e 100%)',
-  lake:       'linear-gradient(135deg, #1e3a5f 0%, #0c4a6e 100%)',
-  mountain:   'linear-gradient(135deg, #374151 0%, #1f2937 100%)',
-  river:      'linear-gradient(135deg, #1d4ed8 0%, #0c4a6e 100%)',
-  bay:        'linear-gradient(135deg, #075985 0%, #0c4a6e 100%)',
-  beach:      'linear-gradient(135deg, #92400e 0%, #78350f 100%)',
-  forest:     'linear-gradient(135deg, #14532d 0%, #166534 100%)',
-  museum:     'linear-gradient(135deg, #374151 0%, #1f2937 100%)',
-  historical: 'linear-gradient(135deg, #44403c 0%, #292524 100%)',
-  other:      'linear-gradient(135deg, #292524 0%, #1c1917 100%)',
-};
+const MONO = "'JetBrains Mono', ui-monospace, monospace";
+
+// Каскад появления и чёт/нечет кен-бёрнса — из порядка монтирования
+let mountCounter = 0;
 
 export default function PlaceCard({ route }: { route: RouteItem }) {
   const locType = route.locationType ?? 'other';
   const Icon    = LOCATION_ICONS[locType] ?? MapPin;
-  const label   = LOCATION_LABELS[locType] ?? 'Место';
+  const label   = LOCATION_TYPE_LABELS[locType] ?? 'Место';
+
+  const element  = getElementForType(locType);
+  const elColor  = element?.color ?? NEUTRAL_ELEMENT_COLOR;
+  const hzOpen   = horizonPath(locType);
+  const hzClosed = closedHorizon(hzOpen);
+
+  const seq = useRef(-1);
+  if (seq.current < 0) seq.current = mountCounter++;
 
   const photoSrc = route.hasRealImage
     ? `/api/images/route/${route.id}`
     : (route.imageUrl ?? null);
 
-  const placeholderBg = PLACEHOLDER_BG[locType] ?? PLACEHOLDER_BG.other;
+  // Прибор: пеленг и дистанция от якоря (ПК → по тапу — позиция телефона)
+  const { anchor, label: anchorLabel, requestGeo } = useAnchor();
+  const inst = useMemo(() => {
+    if (route.lat == null || route.lng == null) return null;
+    const place = { lat: route.lat, lng: route.lng };
+    const brg = bearingDeg(anchor, place);
+    return { km: distanceKm(anchor, place), brg, rumb: rumb16(brg) };
+  }, [anchor, route.lat, route.lng]);
+
+  const season = seasonRoman(route.bestMonths);
+
+  // Каскад появления
+  const [visible, setVisible] = useState(false);
+  const artRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = artRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setVisible(true); io.disconnect(); }
+    }, { threshold: 0.12 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const [liked,  setLiked]  = useState(false);
   const [liking, setLiking] = useState(false);
+  const [popped, setPopped] = useState(false);
 
   // Админ-удаление места прямо с витрины. isAdmin определяем из localStorage
   // (user_roles пишет AuthContext) — без зависимости от AuthProvider, чтобы
@@ -118,11 +128,13 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
     e.stopPropagation();
     if (liking || liked) return;
     setLiking(true);
+    setPopped(true);
+    try { navigator.vibrate?.(12); } catch { /* без вибромотора */ }
     try {
       const res = await fetch('/api/tourist/wishlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_type: 'route', item_id: route.id, title: route.title }),
+        body: JSON.stringify({ item_type: 'place', item_id: route.id, title: route.title }),
       });
       if (res.ok) setLiked(true);
       else if (res.status === 401) {
@@ -132,12 +144,26 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
     finally { setLiking(false); }
   }, [liking, liked, route.id, route.title]);
 
+  const handleInstTap = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    requestGeo();
+  }, [requestGeo]);
+
   if (removed) return null;
 
   return (
-    <article className="group relative rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden hover:border-[var(--accent)]/30 transition-colors duration-200">
-
-      {/* ── Админ: удалить место с витрины ─────────────────── */}
+    <article
+      ref={artRef}
+      className={`pc group relative overflow-hidden ${visible ? 'pc-in' : ''}`}
+      style={{
+        borderRadius: 12,
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        transitionDelay: visible ? `${(seq.current % 6) * 95}ms` : '0ms',
+      }}
+    >
+      {/* ── Админ: удалить место с витрины (поверх .sky) ──── */}
       {isAdmin && (
         <button
           type="button"
@@ -145,67 +171,133 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           disabled={deleting}
           aria-label="Удалить место"
           title="Удалить место"
-          className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+          className="absolute top-2 left-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
           style={{ background: 'var(--danger)', opacity: deleting ? 0.5 : 0.92 }}
         >
           <Trash2 className="w-4 h-4 text-white" />
         </button>
       )}
 
-      {/* ── Photo ─────────────────────────────────────────── */}
-      <Link href={`/places/${route.id}`} className="block relative overflow-hidden" style={{ aspectRatio: '4/3' }}>
-        {photoSrc ? (
-          <img
-            src={photoSrc}
-            alt={route.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: placeholderBg }}
+      {/* ── Небо: фото/градиент + вырубка-горизонт ──────── */}
+      <Link href={`/places/${route.id}`} className="block">
+        <div className="pc-sky relative overflow-hidden" style={{ height: 132 }}>
+          {photoSrc ? (
+            <img
+              src={photoSrc}
+              alt={route.title}
+              loading="lazy"
+              className={`pc-img w-full h-full object-cover ${seq.current % 2 ? 'pc-kb-odd' : 'pc-kb-even'}`}
+            />
+          ) : (
+            <div
+              className="w-full h-full flex items-start justify-end p-2"
+              style={{
+                background: `linear-gradient(160deg, color-mix(in srgb, ${elColor} 30%, #10151c) 0%, color-mix(in srgb, ${elColor} 10%, #0b0f14) 100%)`,
+              }}
+            >
+              <Icon className="w-5 h-5 text-white opacity-25" />
+            </div>
+          )}
+
+          {/* Вырубка: заливка фоном карточки + самообрисовка линии цветом стихии */}
+          <svg
+            className="absolute bottom-0 left-0 w-full"
+            style={{ height: 46, display: 'block' }}
+            viewBox="0 0 200 46"
+            preserveAspectRatio="none"
+            aria-hidden="true"
           >
-            <Icon className="w-12 h-12 text-white opacity-20" />
-          </div>
-        )}
-        {/* Type badge */}
-        <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ background: 'rgba(0,0,0,0.55)' }}>
-          <Icon className="w-3 h-3" />
-          {label}
-        </span>
+            <path d={hzClosed} fill="var(--bg-card)" />
+            <path
+              d={hzOpen}
+              className={visible ? 'pc-hz-draw' : ''}
+              pathLength={1}
+              fill="none"
+              stroke={elColor}
+              strokeOpacity={0.55}
+              strokeWidth={1.6}
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+
+          {/* Сердце */}
+          <button
+            type="button"
+            onClick={handleFavorite}
+            aria-label={liked ? 'В избранном' : 'В избранное'}
+            className={`pc-hrt absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
+            onAnimationEnd={() => setPopped(false)}
+            style={{ background: liked ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: liking ? 0.6 : 1 }}
+          >
+            <Heart
+              className="w-3.5 h-3.5"
+              style={{ color: 'white', fill: liked ? 'white' : 'none' }}
+            />
+          </button>
+        </div>
       </Link>
 
-      {/* ── Content ───────────────────────────────────────── */}
-      <div className="p-3 flex items-start gap-2">
-        <Link href={`/places/${route.id}`} className="flex-1 min-w-0">
-          <h3
-            className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors text-sm"
-            style={{ fontFamily: 'var(--font-playfair)' }}
+      {/* ── Тело ────────────────────────────────────────── */}
+      <div className="px-3 pb-3 pt-0.5">
+        <Link
+          href={element?.href ?? '/routes?kind=place'}
+          className="inline-block text-[9px] font-semibold uppercase"
+          style={{ color: elColor, letterSpacing: '0.2em' }}
+        >
+          {label}
+        </Link>
+        <Link href={`/places/${route.id}`} className="block">
+          <b
+            className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
+            style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600 }}
           >
             {route.title}
-          </h3>
-          {route.lat != null && (
-            <span className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-              <MapPin className="w-3 h-3" />
-              На карте
-            </span>
-          )}
+          </b>
         </Link>
 
-        <button
-          type="button"
-          onClick={handleFavorite}
-          aria-label={liked ? 'В избранном' : 'В избранное'}
-          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 mt-0.5"
-          style={{ background: liked ? 'var(--accent)' : 'var(--bg-hover)', opacity: liking ? 0.5 : 1 }}
-        >
-          <Heart
-            className="w-3 h-3 transition-all"
-            style={{ color: liked ? 'var(--bg-card)' : 'var(--text-secondary)', fill: liked ? 'var(--bg-card)' : 'none' }}
-          />
-        </button>
+        {/* Прибор: пеленг + дистанция; тап — предложить точность (геолокация) */}
+        {inst && (
+          <div
+            className="pc-inst mt-2 pt-2 flex items-center gap-2"
+            style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
+            onClick={handleInstTap}
+            title="Уточнить от вашей позиции"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10.5" fill="none" stroke="var(--border)" strokeWidth="1" />
+              <g style={{ transform: `rotate(${inst.brg}deg)`, transformOrigin: '12px 12px', transition: 'transform .5s ease' }}>
+                <path d="M12,4.5 L14.2,13 L12,11.4 L9.8,13 Z" fill={elColor} />
+              </g>
+            </svg>
+            <span className="min-w-0" style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-secondary)' }}>
+              <b style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{inst.km} км</b>
+              {' '}{inst.rumb} · {Math.round(inst.brg)}°
+              <span className="block" style={{ fontSize: 8, color: 'var(--text-muted)' }}>{anchorLabel}</span>
+            </span>
+            {season && (
+              <span className="ml-auto" style={{ fontFamily: MONO, fontSize: 8, color: 'var(--text-muted)' }}>
+                {season}
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      <style jsx>{`
+        @media (prefers-reduced-motion: no-preference) {
+          .pc { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+          .pc.pc-in { opacity: 1; transform: translateY(0); }
+          .pc:active { transform: scale(.975); }
+          .pc-kb-even { animation: pc-kb-a 28s ease-in-out infinite alternate; }
+          .pc-kb-odd  { animation: pc-kb-b 34s ease-in-out infinite alternate; }
+          @keyframes pc-kb-a { from { transform: scale(1) translateX(0); } to { transform: scale(1.09) translateX(-2.5%); } }
+          @keyframes pc-kb-b { from { transform: scale(1.09) translateX(2%); } to { transform: scale(1) translateX(0); } }
+          .pc-hz-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pc-draw 1.9s ease-out forwards; }
+          @keyframes pc-draw { to { stroke-dashoffset: 0; } }
+          .pc-hrt-pop { animation: pc-pop .45s cubic-bezier(.3,1.6,.5,1); }
+          @keyframes pc-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+        }
+      `}</style>
     </article>
   );
 }
