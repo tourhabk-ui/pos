@@ -1,0 +1,11 @@
+{
+  "note": "Маркер запуска probe-url.yml: правка этого файла в main скачивает указанные URL с раннера и печатает содержимое в лог.",
+  "run": 1,
+  "bytes": 9000,
+  "urls": [
+    "https://www.kamgov.ru/rss",
+    "https://www.kamgov.ru/mintur/rss",
+    "https://kamgov.ru/mintur/news/operativnaa-svodka-dostupnosti-turisticeskih-obektov-91124",
+    "https://xn--80aihfaa6bgjbrt2e.xn--p1ai/bearscontest"
+  ]
+}
