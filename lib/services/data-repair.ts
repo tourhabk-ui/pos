@@ -69,6 +69,8 @@ export interface DataRepairResult {
   normalized_types: number;
   merged_coord_subset: number;
   merged_morph: number;
+  /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
+  fixed_route_coords: number;
   /** Диагностика (Шаг 10, без изменений БД): waypoints дальше порога от маршрута */
   waypoint_outliers: number;
   errors: number;
@@ -207,6 +209,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     normalized_types: 0,
     merged_coord_subset: 0,
     merged_morph: 0,
+    fixed_route_coords: 0,
     waypoint_outliers: 0,
     errors: 0,
     duration_ms: 0,
@@ -693,6 +696,71 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
         items.push({ step: 'coord_morph', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
       }
     }
+  }
+
+  // ── Шаг 9b: координата маршрута из его же трека ──────────────────────────
+  // wp_outlier (run 10) показал: места уже починены (миграции 751-752), а
+  // «Вулкан Бакенинг» всё равно в 93 км от одноимённого маршрута — бита
+  // координата САМОГО маршрута. Трек маршрута — его собственная правда: если
+  // lat/lng дальше 30 км от ВСЕХ точек трека, координата очевидно чужая
+  // (заглушка геокодера) — ставим старт трека. Пустая координата при живом
+  // треке тоже заполняется стартом. Маршруты БЕЗ трека не трогаем: у морских
+  // прогулок координата города-старта легитимна, отличить её от битой без
+  // трека нельзя.
+  try {
+    const { rows: geoRoutes } = await pool.query<{
+      id: string; title: string; lat: string | null; lng: string | null;
+      geometry: { coordinates?: number[][] } | null;
+    }>(
+      `SELECT id, title, lat::text AS lat, lng::text AS lng, geometry
+       FROM kamchatka_routes
+       WHERE is_visible = TRUE AND geometry IS NOT NULL`,
+    );
+    const ROUTE_COORD_SUSPECT_KM = 30;
+    for (const r of geoRoutes) {
+      const coords = r.geometry?.coordinates;
+      if (!Array.isArray(coords)) continue;
+      const pts = coords.filter(
+        (c): c is number[] => Array.isArray(c) && c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]),
+      );
+      if (pts.length < 2) continue;
+      const start = pts[0]; // GeoJSON: [lng, lat]
+      let action: 'fill' | 'fix' | null = null;
+      if (r.lat == null || r.lng == null) {
+        action = 'fill';
+      } else {
+        const lat = Number(r.lat);
+        const lng = Number(r.lng);
+        // Прореженный проход по треку (+ последняя точка): хватает, чтобы
+        // отличить «координата на треке» от «в сотне км», не мучая CPU
+        const stride = Math.max(1, Math.floor(pts.length / 50));
+        let minKm = Infinity;
+        for (let i = 0; i < pts.length && minKm >= ROUTE_COORD_SUSPECT_KM; i += stride) {
+          minKm = Math.min(minKm, haversineKm(lat, lng, pts[i][1], pts[i][0]));
+        }
+        const last = pts[pts.length - 1];
+        minKm = Math.min(minKm, haversineKm(lat, lng, last[1], last[0]));
+        if (minKm >= ROUTE_COORD_SUSPECT_KM) action = 'fix';
+      }
+      if (!action) continue;
+      if (!dryRun) {
+        await pool.query(
+          `UPDATE kamchatka_routes SET lat = $1, lng = $2, updated_at = NOW() WHERE id = $3`,
+          [start[1], start[0], r.id],
+        );
+      }
+      res.fixed_route_coords++;
+      items.push({
+        step: 'route_coords',
+        place: r.title,
+        detail: action === 'fill'
+          ? `координаты не было — старт трека ${start[1].toFixed(4)}, ${start[0].toFixed(4)}`
+          : `дальше ${ROUTE_COORD_SUSPECT_KM} км от собственного трека — старт трека ${start[1].toFixed(4)}, ${start[0].toFixed(4)}`,
+      });
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({ step: 'route_coords', detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
   }
 
   // ── Шаг 10: ДИАГНОСТИКА кривых waypoints (без изменений БД) ──────────────

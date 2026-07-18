@@ -302,6 +302,58 @@ describe('runDataRepair (dry-run)', () => {
     }
   });
 
+  it('Шаг 9b: координата маршрута дальше 30 км от собственного трека чинится на старт трека, близкая — нет', async () => {
+    const updates: string[] = [];
+    queryMock.mockImplementation((sql: string, params?: unknown[]) => {
+      const s = String(sql);
+      if (s.trim().toUpperCase().startsWith('UPDATE')) {
+        updates.push(`${s.replace(/\s+/g, ' ').trim()} :: ${JSON.stringify(params)}`);
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }
+      if (s.includes('WHERE is_visible = TRUE AND geometry IS NOT NULL')) {
+        return Promise.resolve({ rows: [
+          // Кейс Бакенинга: координата маршрута в ~100 км от трека — чинится
+          { id: 'g1', title: 'Вулкан Бакенинг', lat: '53.0', lng: '156.7',
+            geometry: { coordinates: [[158.05, 53.89], [158.07, 53.90], [158.09, 53.91]] } },
+          // Координата на треке — не трогаем
+          { id: 'g2', title: 'Вулкан Горелый', lat: '52.56', lng: '158.03',
+            geometry: { coordinates: [[158.03, 52.56], [158.05, 52.57]] } },
+          // Координаты нет, трек есть — заполняется стартом
+          { id: 'g3', title: 'Тропа без координаты', lat: null, lng: null,
+            geometry: { coordinates: [[158.20, 53.10], [158.25, 53.12]] } },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(false);
+    expect(result.fixed_route_coords).toBe(2);
+    // g1 -> старт трека (lat=53.89, lng=158.05)
+    expect(updates.some(u => u.includes('UPDATE kamchatka_routes SET lat') && u.includes('"g1"') && u.includes('53.89'))).toBe(true);
+    // g3 -> заполнение стартом
+    expect(updates.some(u => u.includes('UPDATE kamchatka_routes SET lat') && u.includes('"g3"'))).toBe(true);
+    // g2 не трогаем
+    expect(updates.some(u => u.includes('"g2"'))).toBe(false);
+  });
+
+  it('Шаг 9b: dry-run считает, но не мутирует', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes('WHERE is_visible = TRUE AND geometry IS NOT NULL')) {
+        return Promise.resolve({ rows: [
+          { id: 'g1', title: 'Вулкан Бакенинг', lat: '53.0', lng: '156.7',
+            geometry: { coordinates: [[158.05, 53.89], [158.09, 53.91]] } },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    const result = await runDataRepair(true);
+    expect(result.fixed_route_coords).toBe(1);
+    for (const call of queryMock.mock.calls) {
+      expect(String(call[0]).trim().toUpperCase().startsWith('UPDATE')).toBe(false);
+    }
+  });
+
   it('Шаг 10: waypoints дальше 30 км попадают в отчёт, ближние — нет, БД не мутируется', async () => {
     queryMock.mockImplementation((sql: string) => {
       const s = String(sql);
