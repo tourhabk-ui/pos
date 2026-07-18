@@ -576,6 +576,13 @@ export function classifyMchsItem(
     // («по вине курильщиков за год произошло 4 пожара») и держало их алертом
     // 168 часов на всех точках без зоны (скрины владельца 2026-07-17).
     alert_type = 'fire_danger'; severity = 1; expires_hours = 168;
+  } else if (/оперативн[а-я]* сводк/.test(text) && /доступност[а-я]* туристическ/.test(text)) {
+    // Оперативные сводки Минтура Камчатки о доступности туристических
+    // объектов (kamgov.ru/mintur/news/...) — официальный «открыто/закрыто»
+    // по объектам. Ссылку на такую сводку прислал владелец 2026-07-18.
+    // Пока сохраняем как info-сводку (текст объектов — в description);
+    // построчный разбор статусов — следующий шаг, когда накопятся образцы.
+    alert_type = 'info'; severity = 0; expires_hours = 48;
   } else if (detectRoadRestriction(text)) {
     // Дорожные ограничения: пропускной режим, закрытие/перекрытие проезда
     // к туристическим местам (пропущенный кейс: Вилючинский перевал/Вачкажец)
@@ -723,7 +730,17 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
 // Классификация — той же classifyMchsItem: природные категории + road_closure.
 
 const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?: boolean }> = [
-  { prefix: 'kamgov', candidates: ['https://www.kamgov.ru/rss'] },
+  {
+    prefix: 'kamgov',
+    candidates: [
+      'https://www.kamgov.ru/rss',
+      // Раздел Минтура (оперативные сводки доступности туробъектов) может
+      // не попадать в общий фид. Если пути не существует — гос-сайт отдаст
+      // HTML, fetchOneMchsFeed его отбросит; дубли снимает saveEvent.
+      'https://www.kamgov.ru/mintur/rss',
+      'https://www.kamgov.ru/mintur/news/rss',
+    ],
+  },
   // WordPress-фиды турпортала; из среды разработки сеть к нему закрыта,
   // работоспособность не проверена — источник optional: недоступность
   // не считается ошибкой конвейера, fetchOneMchsFeed отбрасывает не-RSS.
@@ -741,8 +758,12 @@ export async function ingestNewsFeeds(): Promise<ParseResult> {
   const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
 
   for (const source of NEWS_FEED_SOURCES) {
-    const xmls = (await Promise.all(source.candidates.map(fetchOneMchsFeed)))
-      .filter((xml): xml is string => xml !== null);
+    // Дедуп одинакового содержимого: разные пути могут быть алиасами одного
+    // фида (например /rss и /mintur/rss) — не обрабатывать дважды
+    const xmls = [...new Set(
+      (await Promise.all(source.candidates.map(fetchOneMchsFeed)))
+        .filter((xml): xml is string => xml !== null),
+    )];
 
     if (xmls.length === 0) {
       if (!source.optional) result.errors.push(`news feed unavailable: ${source.prefix}`);

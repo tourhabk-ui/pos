@@ -115,6 +115,16 @@ describe('classifyMchsItem — шум не становится алертом (
     expect(mk('guid-111')!.source_id).toMatch(/^kamgov\/t/);
   });
 
+  it('оперативная сводка Минтура о доступности туробъектов → info-сводка', () => {
+    const e = classifyMchsItem('kamgov/5',
+      'Оперативная сводка доступности туристических объектов',
+      'Минтур Камчатского края информирует о доступности туристических объектов на 18 июля.',
+      '2026-07-18T05:00:00Z', 'https://kamgov.ru/mintur/news/x', 'kamgov');
+    expect(e).not.toBeNull();
+    expect(e!.alert_type).toBe('info');
+    expect(e!.severity).toBe(0);
+  });
+
   it('titleFingerprint нечувствителен к регистру и пунктуации', () => {
     expect(titleFingerprint('Экстренное предупреждение, 16-20 июля!'))
       .toBe(titleFingerprint('экстренное предупреждение 16 20 июля'));
