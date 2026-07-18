@@ -63,6 +63,8 @@ export interface DataRepairResult {
   bogus_places: number;
   coords_from_track: number;
   coords_from_geocode: number;
+  /** Шаг 1b: координата из трека маршрута-тёзки (псевдокластеры <300 м) */
+  coords_from_twin_track: number;
   hidden_unfixable: number;
   merged_dupes: number;
   merged_routes: number;
@@ -203,6 +205,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     bogus_places: 0,
     coords_from_track: 0,
     coords_from_geocode: 0,
+    coords_from_twin_track: 0,
     hidden_unfixable: 0,
     merged_dupes: 0,
     merged_routes: 0,
@@ -313,6 +316,73 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
             p.is_visible
      FROM places p`,
   );
+
+  // ── Шаг 1b: псевдокластеры координат → координата из трека тёзки ────────
+  // Кластер Эссо (инвентаризация runs 8-14): 5+ РАЗНОимённых мест стоят в
+  // 10-20 м друг от друга — тот же сломанный геокодинг, что в Шаге 1, но с
+  // «дрожью», поэтому строгое равенство координат его не ловит. Вопрос
+  // владельца «на idilesom нет координат?» — есть: треки одноимённых
+  // маршрутов уже импортированы в kamchatka_routes.geometry. Для мест из
+  // групп ≥3 в радиусе 300 м чиним координату из ФИНИША трека
+  // маршрута-тёзки (strong-совпадение имени — механика Шага 1).
+  try {
+    const clusterCand = allPlaces.filter(p => p.is_visible && p.lat != null && p.lng != null);
+    // Компоненты связности по рёбрам < 300 м (union-find без рекурсии)
+    const parent = new Map<string, string>();
+    const find = (x: string): string => {
+      let r = x;
+      while (parent.get(r) !== r) r = parent.get(r) as string;
+      let c = x;
+      while (parent.get(c) !== c) { const n = parent.get(c) as string; parent.set(c, r); c = n; }
+      return r;
+    };
+    for (const p of clusterCand) parent.set(p.id, p.id);
+    for (let i = 0; i < clusterCand.length; i++) {
+      for (let j = i + 1; j < clusterCand.length; j++) {
+        const a = clusterCand[i]; const b = clusterCand[j];
+        if (Math.abs((a.lat as number) - (b.lat as number)) > 0.005) continue;
+        if (haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number) > 0.3) continue;
+        parent.set(find(a.id), find(b.id));
+      }
+    }
+    const compSize = new Map<string, number>();
+    for (const p of clusterCand) {
+      const r = find(p.id);
+      compSize.set(r, (compSize.get(r) ?? 0) + 1);
+    }
+    const suspects = clusterCand.filter(p => (compSize.get(find(p.id)) ?? 0) >= 3);
+
+    if (suspects.length > 0) {
+      const { rows: twinTracks } = await pool.query<{ title: string; geometry: { coordinates?: number[][] } | null }>(
+        `SELECT title, geometry FROM kamchatka_routes
+         WHERE geometry IS NOT NULL AND title IS NOT NULL`,
+      );
+      for (const place of suspects) {
+        const donor = twinTracks.find(t =>
+          Array.isArray(t.geometry?.coordinates) && (t.geometry?.coordinates?.length ?? 0) >= 3
+          && nameMatchStrength(place.name, t.title) === 'strong',
+        );
+        if (!donor) continue;
+        const dest = trackDestination(donor.geometry?.coordinates ?? []);
+        if (!dest || !withinKamchatka(dest.lat, dest.lng)) continue;
+        // Финиш трека совпал с текущей (кластерной) точкой — чинить нечего
+        if (haversineKm(dest.lat, dest.lng, place.lat as number, place.lng as number) < 0.3) continue;
+        if (!dryRun) {
+          await pool.query(`UPDATE places SET lat = $1, lng = $2 WHERE id = $3`, [dest.lat, dest.lng, place.id]);
+        }
+        place.lat = dest.lat; place.lng = dest.lng; // дальше по шагам — уже чиненая
+        res.coords_from_twin_track++;
+        items.push({
+          step: 'coords_cluster',
+          place: place.name,
+          detail: `псевдокластер: из финиша трека «${donor.title}» -> ${dest.lat.toFixed(4)}, ${dest.lng.toFixed(4)}`,
+        });
+      }
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({ step: 'coords_cluster', detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+  }
 
   const byWordSet = new Map<string, typeof allPlaces>();
   for (const p of allPlaces) {
