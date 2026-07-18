@@ -21,11 +21,18 @@ concurrency:
   group: data-repair
   cancel-in-progress: false
 
+# issues: write — петля самоулучшения открывает issue-драфты новых правил
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   repair:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+
       - name: Dry-run (ждём деплой эндпоинта при первом запуске)
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -68,3 +75,30 @@ jobs:
                   if not s['rows']:
                       print('  (пусто)')
           PY
+
+      # Петля самоулучшения: прогон анализирует свои результаты и открывает
+      # issue-ДРАФТ новых правил ремонта. Скрипт ничего не меняет; коммит
+      # правила — человек + CI. Дедуп по сигнатуре содержимого: то же
+      # предложение второй раз не открывается.
+      - name: Предложения новых шагов ремонта (issue-драфт)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node scripts/propose-repair-steps.js /tmp/apply.json /tmp/inv.json > /tmp/proposal.md
+          if [ ! -s /tmp/proposal.md ]; then
+            echo "предлагать нечего — пропуск"
+            exit 0
+          fi
+          SIG=$(grep -o 'sig:[a-f0-9]*' /tmp/proposal.md | head -1 || true)
+          PREV=$(gh issue list --label data-repair-proposal --state open --limit 5 --json body -q '.[].body' 2>/dev/null | grep -o 'sig:[a-f0-9]*' | head -5 || true)
+          if [ -n "$SIG" ] && echo "$PREV" | grep -q "$SIG"; then
+            echo "то же предложение уже открыто (${SIG}) — пропуск"
+            exit 0
+          fi
+          gh label create data-repair-proposal -c '1D76DB' -d 'Авто-предложения шагов ремонта данных' --force || true
+          gh issue create \
+            --title "Data-repair: предложения по итогам прогона №${{ github.run_number }}" \
+            --label data-repair-proposal \
+            --body-file /tmp/proposal.md
+          echo "issue-драфт открыт"
