@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,7 +10,7 @@ import {
   AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
-import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
+import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -216,6 +216,12 @@ function OnTrailTab() {
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  // Центр карты фиксируется В МОМЕНТ открытия. LeafletMap пересоздаёт карту
+  // при смене identity center/markers — живые coords в center убивали карту
+  // на каждом GPS-тике: тайлы не успевали грузиться (вечно-серый фон),
+  // маркеры «прыгали», а «вы здесь» не отрисовывался (скрины владельца
+  // 2026-07-18). Живую позицию рисует сам LeafletMap (showUserLocation).
+  const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
@@ -385,13 +391,15 @@ function OnTrailTab() {
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
 
-  // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая)
-  const mapMarkers: MapMarker[] = waypoints.length > 0
+  // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
+  // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
+  // markers — пересборка на каждом рендере (GPS-тики) убивала карту.
+  const mapMarkers: MapMarker[] = useMemo(() => waypoints.length > 0
     ? [
         {
-          coords: [waypoints[0].lat, waypoints[0].lng],
+          coords: [waypoints[0].lat, waypoints[0].lng] as [number, number],
           title: activeRouteTitle ?? 'Маршрут',
-          geometry: { type: 'polyline', coordinates: waypoints.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 },
+          geometry: { type: 'polyline', coordinates: waypoints.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 } as MapMarkerGeometry,
           suppressBalloon: true,
         },
         ...waypoints.map((w, i): MapMarker => ({
@@ -401,7 +409,7 @@ function OnTrailTab() {
           type: MarkerType.POI,
         })),
       ]
-    : [];
+    : [], [waypoints, currentWpIdx, activeRouteTitle]);
   const distToNext = coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
@@ -617,7 +625,10 @@ function OnTrailTab() {
 
       {/* Bottom action grid */}
       <div className="grid grid-cols-2 gap-2 p-4" style={{ borderTop: '1px solid #21262d' }}>
-        <button onClick={() => setShowMap(true)}
+        <button onClick={() => {
+            setMapCenter(coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined));
+            setShowMap(true);
+          }}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
           style={{ background: 'var(--bg-card)', color: 'var(--success)', border: '1px solid #1a3620', minHeight: 60 }}>
           <MapIcon className="w-5 h-5" /> КАРТА
@@ -648,8 +659,8 @@ function OnTrailTab() {
         <div className="fixed inset-0 z-[1000]" style={{ background: '#0d1117' }}>
           <LeafletMap
             markers={mapMarkers}
-            center={coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined)}
-            zoom={13}
+            center={mapCenter}
+            zoom={12}
             height="100dvh"
             showUserLocation
           />

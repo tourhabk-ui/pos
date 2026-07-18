@@ -29,6 +29,9 @@ const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Модульная константа: инлайн-литерал center пересоздавал LeafletMap на каждом рендере
+const MAP_CENTER: [number, number] = [54.5, 158.5];
+
 const PLACES: SelectItem[] = [
   { id: 'volcano',    label: 'Вулканы',    Icon: Flame },
   { id: 'hot_spring', label: 'Термальные', Icon: Thermometer },
@@ -2039,7 +2042,7 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
     <div className="relative w-full h-full">
       <LeafletMap
         markers={mapMarkers}
-        center={[54.5, 158.5]}
+        center={MAP_CENTER}
         zoom={6}
         height="100%"
         className="rounded-none border-0"

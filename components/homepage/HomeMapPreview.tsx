@@ -7,6 +7,9 @@ import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
+// Модульная константа: инлайн-литерал center пересоздавал LeafletMap на каждом рендере
+const HOME_MAP_CENTER: [number, number] = [53.0, 158.7];
+
 type KindValue = 'place' | 'route' | 'tour';
 
 const KIND_TABS: { value: KindValue; label: string }[] = [
@@ -174,7 +177,7 @@ export function HomeMapPreview() {
     <div ref={containerRef} className="relative h-full min-h-[400px]">
       {/* LeafletMap — на заднем плане */}
       <LeafletMap
-        center={[53.0, 158.7]}
+        center={HOME_MAP_CENTER}
         zoom={7}
         markers={markers}
         height="100%"

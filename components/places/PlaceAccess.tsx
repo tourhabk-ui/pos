@@ -1,8 +1,9 @@
 'use client';
 
+import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Download, Navigation, MapPin, FileDown } from 'lucide-react';
-import { MarkerType } from '@/components/shared/leaflet-types';
+import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -20,6 +21,28 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
   const organicUrl = `geo:${lat},${lng}?z=12`;
   const gpxUrl = `/api/places/${placeId}/gpx`;
 
+  // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
+  // center/markers — инлайн-массивы сбрасывали её при ре-рендере родителя
+  const mapCenter = useMemo<[number, number]>(() => [lat, lng], [lat, lng]);
+  const mapMarkers = useMemo<MapMarker[]>(() => [
+    {
+      coords: [lat, lng],
+      title: name,
+      description: 'Текущее место',
+      color: 'red',
+      type: MarkerType.TOUR,
+      category: 'place',
+    },
+    ...nearbyMarkers.map(n => ({
+      coords: [n.lat, n.lng] as [number, number],
+      title: n.name,
+      description: n.locationType ?? '',
+      color: 'blue' as const,
+      type: MarkerType.TOUR,
+      category: n.locationType ?? 'other',
+    })),
+  ], [lat, lng, name, nearbyMarkers]);
+
   return (
     <section className="max-w-3xl mx-auto px-4 space-y-4">
       <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2" style={{ fontFamily: 'var(--font-playfair)' }}>
@@ -35,26 +58,9 @@ export default function PlaceAccess({ placeId, name, lat, lng, accessInfo, nearb
       {/* Map */}
       <div className="w-full rounded-lg overflow-hidden border border-[var(--border)]">
         <LeafletMap
-          center={[lat, lng]}
+          center={mapCenter}
           zoom={11}
-          markers={[
-            {
-              coords: [lat, lng],
-              title: name,
-              description: 'Текущее место',
-              color: 'red',
-              type: MarkerType.TOUR,
-              category: 'place',
-            },
-            ...nearbyMarkers.map(n => ({
-              coords: [n.lat, n.lng] as [number, number],
-              title: n.name,
-              description: n.locationType ?? '',
-              color: 'blue' as const,
-              type: MarkerType.TOUR,
-              category: n.locationType ?? 'other',
-            })),
-          ]}
+          markers={mapMarkers}
           height="300px"
           className="w-full"
         />

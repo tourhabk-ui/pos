@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -57,6 +57,9 @@ const PLACE_TYPES: { value: string; label: string; Icon: React.ElementType }[] =
 ];
 
 // Цвета маркеров на карте по location_type
+// Модульная константа: инлайн-литерал center пересоздавал LeafletMap на каждом рендере
+const MAP_CENTER: [number, number] = [53.0, 158.7];
+
 const LOCATION_COLORS: Record<string, string> = {
   volcano:    'orange',
   geyser:     'green',
@@ -306,7 +309,9 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     resetFilters();
   };
 
-  const mapMarkers = mapRoutes.map(r => ({
+  // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
+  // markers — без мемоизации любой ре-рендер страницы сбрасывал карту.
+  const mapMarkers = useMemo(() => mapRoutes.map(r => ({
     coords:      [r.lat, r.lng] as [number, number],
     title:       r.title,
     description: r.locationType ?? '',
@@ -314,7 +319,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     href:        kind === 'place' ? `/places/${r.id}` : `/routes/${r.id}`,
     type:        MarkerType.TOUR,
     category:    r.locationType ?? 'other',
-  }));
+  })), [mapRoutes, kind]);
 
   const searchPlaceholder = kind === 'place' ? 'Поиск мест…' : 'Поиск маршрутов…';
 
@@ -520,7 +525,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             ) : (
               <LeafletMap
                 markers={mapMarkers}
-                center={[53.0, 158.7]}
+                center={MAP_CENTER}
                 zoom={6}
                 height="520px"
                 className="w-full"
