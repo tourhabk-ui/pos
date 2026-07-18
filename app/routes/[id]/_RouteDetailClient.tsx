@@ -595,9 +595,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
   const heroImage = photos[galleryIdx] ?? photos[0] ?? (route.hasRealImage ? storedImageUrl : null);
   const useGradient = heroImage == null;
 
+  // Цена на карточке МАРШРУТА — только от реальных туров операторов (§10:
+  // маршрут — инструкция, тур — коммерция). payload.price_from — цена из
+  // наскрапленной статьи-источника, показывать её как цену маршрута нельзя
+  // («Рыболовная база» показывала «от 18 000 ₽» без единого оффера —
+  // скрин владельца 2026-07-18).
   const minPrice = allOffers.length > 0
     ? Math.min(...allOffers.map(o => o.effectivePrice ?? o.priceBase ?? 0).filter(p => p > 0))
-    : (route.priceFrom ?? 0);
+    : 0;
   const uniqueOperators = new Set(allOffers.map(o => o.operator.id)).size;
   const descParagraphs = route.description?.split('\n').filter(p => p.trim()) ?? [];
   const isLongDesc = descParagraphs.length > 3;
