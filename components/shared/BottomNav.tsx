@@ -1,29 +1,34 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { House, Map, Navigation, Siren } from 'lucide-react';
-import { BearIcon } from '@/components/shared/BearIcon';
+import { House, Map, Compass, Navigation, Siren, type LucideIcon } from 'lucide-react';
 
-// ЛК убран из нижнего нава (решение владельца) — личный кабинет теперь
-// только в шапке (иконка User рядом с темой), как уже было на /map и
-// /ai-assistant; MobileDashboardHeader (главная) получил тот же паттерн.
-// СОС — отдельный красный пункт (фидбэк с Халактырского пляжа: в поле
-// скрытого long-press недостаточно, нужна ВИДИМАЯ кнопка). Ведёт на
-// /emergency — офлайн-страница с нулевыми зависимостями (GPS + 112 + протоколы).
-const LEFT_ITEMS = [
-  { icon: House,      label: 'Домой',    href: '/' },
-  { icon: Map,        label: 'Карта',    href: '/map' },
+// Единая мобильная навигация (решение владельца 2026-07-18): на /map и
+// /ai-assistant была другая навигация, чем на главной — набор пунктов,
+// подписи и адреса разъезжались. Канон — таб-бар главной v8:
+// Дом / Карта / Кузьмич / На маршруте / СОС. Здесь тот же набор на
+// глобальных токенах (v8 использует локальные переменные темы .v7).
+// ЛК по-прежнему только в шапке. СОС онлайн ведёт на полноценный /sos;
+// офлайн — на /emergency (страница с нулевыми зависимостями, есть в
+// precache) — инлайн-панель главной сюда не тащим.
+const FO = "var(--font-outfit,'Outfit',sans-serif)";
+
+interface NavItem {
+  icon: LucideIcon;
+  label: string;
+  href: string;
+  /** Пути, на которых пункт подсвечен (дубль /ai-assistant ↔ /kuzmich — Этап 9) */
+  activeOn: string[];
+}
+
+const ITEMS: NavItem[] = [
+  { icon: House,      label: 'Дом',         href: '/',                    activeOn: ['/'] },
+  { icon: Map,        label: 'Карта',       href: '/map',                 activeOn: ['/map'] },
+  { icon: Compass,    label: 'Кузьмич',     href: '/kuzmich',             activeOn: ['/kuzmich', '/ai-assistant'] },
+  { icon: Navigation, label: 'На маршруте', href: '/planning?mode=trail', activeOn: ['/planning'] },
 ];
-
-const RIGHT_ITEMS = [
-  { icon: Navigation, label: 'Маршрут',  href: '/planning' },
-];
-
-// Долгое удержание центральной кнопки — быстрый жест к СОС в дополнение
-// к видимой красной кнопке (обе ведут на /emergency).
-const SOS_LONG_PRESS_MS = 600;
 
 interface BottomNavProps {
   activePath: string;
@@ -32,54 +37,37 @@ interface BottomNavProps {
 
 export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
   const router = useRouter();
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFired = useRef(false);
 
-  const startPress = useCallback(() => {
-    longPressFired.current = false;
-    pressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      router.push('/emergency');
-    }, SOS_LONG_PRESS_MS);
-  }, [router]);
-
-  const cancelPress = useCallback(() => {
-    if (pressTimer.current) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = null;
-    }
-  }, []);
-
-  const handleKuzmichClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (longPressFired.current) {
-      // Долгое удержание уже увело на /emergency — не открывать чат поверх
+  // Офлайн /sos не поднимется (RSC-подкачка) — уводим на офлайн-первый /emergency
+  const sosClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       e.preventDefault();
+      router.push('/emergency');
       return;
     }
     onNavClick?.(e);
-  }, [onNavClick]);
+  }, [router, onNavClick]);
 
   return (
     <nav
-      /* display управляется ТОЛЬКО классами: inline display:flex перебивал
-         md:hidden (инлайн-стиль сильнее класса) — нав был виден и на десктопе */
-      className="flex md:hidden items-center justify-around"
+      className="flex md:hidden"
       aria-label="Основная навигация"
       style={{
         position: 'fixed',
-        bottom: '32px',
-        left: '16px',
-        right: '16px',
+        bottom: 0,
+        left: 0,
+        right: 0,
         zIndex: 100,
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
-        borderRadius: '50px',
-        padding: '12px 24px',
+        alignItems: 'center',
+        background: 'color-mix(in srgb, var(--bg-card) 88%, transparent)',
+        backdropFilter: 'blur(18px) saturate(1.2)',
+        WebkitBackdropFilter: 'blur(18px) saturate(1.2)',
+        borderTop: '1px solid var(--border)',
+        padding: '0 4px',
       }}
     >
-      {LEFT_ITEMS.map(({ icon: Icon, label, href }) => {
-        const isActive = activePath === href;
+      {ITEMS.map(({ icon: Icon, label, href, activeOn }) => {
+        const isActive = activeOn.includes(activePath);
         return (
           <Link
             key={href}
@@ -87,109 +75,66 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             aria-label={label}
             onClick={onNavClick}
             style={{
+              flex: 1,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '2px',
-              color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+              gap: '5px',
+              padding: '8px 0 calc(7px + env(safe-area-inset-bottom))',
+              color: isActive ? 'var(--accent)' : 'var(--text-muted)',
               textDecoration: 'none',
-              transition: 'color 200ms ease',
-              padding: '4px 8px',
-              borderRadius: '12px',
+              fontFamily: FO,
+              fontSize: '8px',
+              fontWeight: 600,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              transition: 'color 220ms ease',
             }}
           >
-            <Icon size={20} strokeWidth={1.5} />
-            <span style={{ fontFamily: "var(--font-outfit,'Outfit',sans-serif)", fontSize: '10px', fontWeight: 500 }}>
-              {label}
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '46px',
+                height: '28px',
+                borderRadius: '999px',
+                background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
+                transition: 'background 280ms ease',
+              }}
+            >
+              <Icon size={19} strokeWidth={2} />
             </span>
+            <span>{label}</span>
           </Link>
         );
       })}
 
-      {/* Center Kuzmich button — protruding, главный AI-центр (Field OS).
-          Медведь вместо абстрактного робота — Кузьмич камчатский, не generic
-          бот; свечение (--success) вокруг кнопки остаётся визуальным AI-акцентом.
-          Долгое удержание (600мс) — экстренный переход на /emergency (СОС). */}
-      <div style={{ position: 'relative', width: '60px', flexShrink: 0 }}>
-        <Link
-          href="/ai-assistant"
-          aria-label="Кузьмич (удерживайте для СОС)"
-          onClick={handleKuzmichClick}
-          onPointerDown={startPress}
-          onPointerUp={cancelPress}
-          onPointerLeave={cancelPress}
-          onContextMenu={(e) => e.preventDefault()}
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '-32px',
-            transform: 'translateX(-50%)',
-            width: '60px',
-            height: '60px',
-            borderRadius: '50%',
-            background: 'var(--accent)',
-            border: '3px solid var(--bg-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            textDecoration: 'none',
-            boxShadow: '0 0 15px var(--success)',
-            transition: 'transform 200ms ease',
-            touchAction: 'manipulation',
-          }}
-        >
-          <BearIcon size={26} color="white" />
-        </Link>
-      </div>
-
-      {RIGHT_ITEMS.map(({ icon: Icon, label, href }) => {
-        const isActive = activePath === href;
-        return (
-          <Link
-            key={href}
-            href={href}
-            aria-label={label}
-            onClick={onNavClick}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '2px',
-              color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
-              textDecoration: 'none',
-              transition: 'color 200ms ease',
-              padding: '4px 8px',
-              borderRadius: '12px',
-            }}
-          >
-            <Icon size={20} strokeWidth={1.5} />
-            <span style={{ fontFamily: "var(--font-outfit,'Outfit',sans-serif)", fontSize: '10px', fontWeight: 500 }}>
-              {label}
-            </span>
-          </Link>
-        );
-      })}
-
-      {/* СОС — всегда красный и видимый, ведёт на офлайн /emergency */}
+      {/* СОС — всегда красный и видимый (фидбэк с Халактырского пляжа) */}
       <Link
-        href="/emergency"
+        href="/sos"
         aria-label="СОС — экстренная помощь"
-        onClick={onNavClick}
+        onClick={sosClick}
         style={{
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '2px',
+          gap: '5px',
+          padding: '8px 0 calc(7px + env(safe-area-inset-bottom))',
           color: 'var(--danger)',
           textDecoration: 'none',
-          padding: '4px 8px',
-          borderRadius: '12px',
+          fontFamily: FO,
+          fontSize: '8px',
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
         }}
       >
-        <Siren size={20} strokeWidth={1.75} />
-        <span style={{ fontFamily: "var(--font-outfit,'Outfit',sans-serif)", fontSize: '10px', fontWeight: 700 }}>
-          СОС
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '28px' }}>
+          <Siren size={18} strokeWidth={2.2} />
         </span>
+        <span>СОС</span>
       </Link>
     </nav>
   );
