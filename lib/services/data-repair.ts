@@ -358,9 +358,14 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
          WHERE geometry IS NOT NULL AND title IS NOT NULL`,
       );
       for (const place of suspects) {
+        // ТОЛЬКО полное совпадение набора слов: strong-матч по nameMatchStrength
+        // ловил ложных доноров на генерик-словах — «Природный парк Быстринский»
+        // получил трек «Природного парка Налычево» (250 км), «Каньон
+        // Сноубордистов» — трек «Каньона Крылья Гамулов» (700 км). Run 15.
+        const placeWs = nameWordSet(place.name);
         const donor = twinTracks.find(t =>
           Array.isArray(t.geometry?.coordinates) && (t.geometry?.coordinates?.length ?? 0) >= 3
-          && nameMatchStrength(place.name, t.title) === 'strong',
+          && nameWordSet(t.title) === placeWs,
         );
         if (!donor) continue;
         const dest = trackDestination(donor.geometry?.coordinates ?? []);
