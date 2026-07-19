@@ -35,6 +35,8 @@ interface RoutePreview {
   durationDays: number | null;
   distanceKm: number | null;
   imageUrl: string | null;
+  /** Через какие места проходит (для выбора по названию места) */
+  via?: string | null;
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
@@ -224,6 +226,15 @@ function OnTrailTab() {
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
+  // Навигаторный выбор (фидбэк владельца 2026-07-19): ищем по НАЗВАНИЮ МЕСТА,
+  // варианты смотрим на карте и только потом фиксируем маршрут.
+  const [modalQuery, setModalQuery] = useState('');
+  const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [preview, setPreview] = useState<{ id: string; title: string; wps: SavedWaypoint[] } | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
+  const previewCacheRef = useRef<Map<string, SavedWaypoint[]>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
 
   // Этап 2 офлайн-карты: авто-докачка тайлов коридора маршрута (зум 10-12,
@@ -424,6 +435,29 @@ function OnTrailTab() {
         })),
       ]
     : [], [waypoints, currentWpIdx, activeRouteTitle]);
+  // Карта превью варианта: identity стабильна на выбранный вариант —
+  // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
+  const previewMap = useMemo(() => {
+    if (!preview || preview.wps.length === 0) return null;
+    const center: [number, number] = [preview.wps[0].lat, preview.wps[0].lng];
+    const markers: MapMarker[] = [
+      {
+        coords: center,
+        title: preview.title,
+        color: 'teal',
+        type: MarkerType.POI,
+        geometry: { type: 'polyline', coordinates: preview.wps.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+      },
+      ...preview.wps.map((w, i) => ({
+        coords: [w.lat, w.lng] as [number, number],
+        title: w.name,
+        color: i === 0 ? 'orange' : 'green',
+        type: MarkerType.POI,
+      })),
+    ];
+    return { center, markers };
+  }, [preview]);
+
   const distToNext = coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
@@ -448,15 +482,79 @@ function OnTrailTab() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  function selectRoute(r: RoutePreview) {
+  function selectRoute(r: { id: string }) {
     try { localStorage.setItem('active_trail_route_id', r.id); } catch { /* ignore */ }
     setShowRouteModal(false);
+    setPreview(null);
+    setModalQuery('');
     setWaypoints([]);
     setCurrentWpIdx(0);
     // Reset timer via ref — no effect restart, no sensor disruption
     startTimeRef.current = Date.now();
     setElapsed(0);
     fetchRouteWaypoints(r.id);
+  }
+
+  // Поиск маршрутов по названию места: /api/routes/search знает waypoints
+  // (семантика + route_waypoints), «Авачинский» находит все маршруты через него
+  useEffect(() => {
+    const q = modalQuery.trim();
+    clearTimeout(modalSearchRef.current);
+    if (!showRouteModal || q.length < 2) { setSearchRoutes([]); setSearching(false); return; }
+    setSearching(true);
+    modalSearchRef.current = setTimeout(() => {
+      fetch(`/api/routes/search?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then((d: unknown) => {
+          const rows = (typeof d === 'object' && d !== null ? (d as Record<string, unknown>).routes : null);
+          if (!Array.isArray(rows)) { setSearchRoutes([]); return; }
+          setSearchRoutes(rows.slice(0, 8).map((r) => {
+            const row = r as Record<string, unknown>;
+            const via = Array.isArray(row.waypoint_names)
+              ? (row.waypoint_names as string[]).slice(0, 3).join(' · ')
+              : null;
+            return {
+              id: String(row.id),
+              title: String(row.title),
+              difficulty: (row.difficulty_level as string | null) ?? null,
+              durationDays: null,
+              distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
+              imageUrl: null,
+              via,
+            } satisfies RoutePreview;
+          }));
+        })
+        .catch(() => setSearchRoutes([]))
+        .finally(() => setSearching(false));
+    }, 350);
+    return () => clearTimeout(modalSearchRef.current);
+  }, [modalQuery, showRouteModal]);
+
+  // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
+  function openPreview(r: RoutePreview) {
+    const cached = previewCacheRef.current.get(r.id);
+    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached }); return; }
+    setPreviewLoadingId(r.id);
+    fetch(`/api/routes/${r.id}`)
+      .then(res => res.json())
+      .then((j: unknown) => {
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        const data = (j as Record<string, unknown>).data as Record<string, unknown>;
+        const wps = data.waypoints;
+        if (!Array.isArray(wps)) return;
+        const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
+          .filter(w => w.lat != null && w.lng != null)
+          .map(w => ({
+            lat: Number(w.lat),
+            lng: Number(w.lng),
+            name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
+          }));
+        if (converted.length === 0) return;
+        previewCacheRef.current.set(r.id, converted);
+        setPreview({ id: r.id, title: r.title, wps: converted });
+      })
+      .catch(() => { /* остаёмся на списке */ })
+      .finally(() => setPreviewLoadingId(null));
   }
 
   function openRouteModal() {
@@ -693,51 +791,106 @@ function OnTrailTab() {
         </div>
       )}
 
-      {/* Route selection modal */}
+      {/* Навигаторный выбор маршрута: место → варианты → превью на карте → фиксация */}
       {showRouteModal && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
-          onClick={() => setShowRouteModal(false)}>
-          <div className="rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto"
+          onClick={() => { setShowRouteModal(false); setPreview(null); }}>
+          <div className="rounded-t-2xl p-4 max-h-[85vh] overflow-y-auto"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
             onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-[var(--text-primary)] text-base">Выбрать маршрут</h3>
-              <button onClick={() => setShowRouteModal(false)}
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Куда идём?</h3>
+              <button onClick={() => { setShowRouteModal(false); setPreview(null); }}
                 className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }}>
                 <X className="w-4 h-4 text-[var(--text-muted)]" />
               </button>
             </div>
-            {modalError ? (
-              <div className="flex flex-col items-center gap-3 py-6">
-                <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
-                <button
-                  onClick={() => { setModalError(null); openRouteModal(); }}
-                  className="text-xs font-semibold px-4 py-2 rounded-lg"
-                  style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                  Попробовать снова
-                </button>
+
+            {preview && previewMap ? (
+              /* ── Превью варианта на карте (фиксация только кнопкой) ── */
+              <div>
+                <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
+                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} />
+                </div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
+                  {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={() => setPreview(null)}
+                    className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                    К вариантам
+                  </button>
+                  <button onClick={() => selectRoute(preview)}
+                    className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
+                    style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                    Начать по маршруту
+                  </button>
+                </div>
               </div>
-            ) : modalRoutes.length === 0 ? (
-              <div className="text-[var(--text-muted)] text-sm text-center py-6">Загрузка маршрутов…</div>
             ) : (
-              <div className="space-y-2">
-                {modalRoutes.map(r => (
-                  <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl"
-                    style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                        {r.distanceKm ? `${r.distanceKm} км · ` : ''}
-                        {r.difficulty ? DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty : '—'}
-                      </p>
-                    </div>
-                    <button onClick={() => selectRoute(r)}
-                      className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
-                      style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                      Начать
+              <div>
+                {/* Поиск по названию места */}
+                <input
+                  type="text"
+                  value={modalQuery}
+                  onChange={e => setModalQuery(e.target.value)}
+                  placeholder="Название места: Авачинский, Толбачик…"
+                  className="w-full px-3 py-2.5 rounded-xl text-sm mb-3"
+                  style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                />
+
+                {modalError && modalQuery.trim().length < 2 ? (
+                  <div className="flex flex-col items-center gap-3 py-6">
+                    <p className="text-[var(--danger)] text-sm text-center">{modalError}</p>
+                    <button
+                      onClick={() => { setModalError(null); openRouteModal(); }}
+                      className="text-xs font-semibold px-4 py-2 rounded-lg"
+                      style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                      Попробовать снова
                     </button>
                   </div>
-                ))}
+                ) : (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                      {modalQuery.trim().length >= 2
+                        ? (searching ? 'Ищем маршруты…' : `Маршруты через «${modalQuery.trim()}»`)
+                        : 'Рекомендуемые'}
+                    </p>
+                    {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).length === 0 ? (
+                      <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                        {modalQuery.trim().length >= 2
+                          ? (searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место')
+                          : 'Загрузка маршрутов…'}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).map(r => (
+                          <button key={r.id} onClick={() => openPreview(r)}
+                            className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+                            style={{
+                              background: 'var(--bg-primary)',
+                              border: '1px solid var(--border)',
+                              opacity: previewLoadingId === r.id ? 0.6 : 1,
+                            }}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                              <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+                                {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
+                                {r.via ? ` · через: ${r.via}` : ''}
+                              </p>
+                            </div>
+                            <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
+                              {previewLoadingId === r.id ? '…' : 'На карте'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
