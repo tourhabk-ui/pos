@@ -121,6 +121,10 @@ export const CatalogQuerySchema = z.object({
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
   price_min:     z.coerce.number().min(0).optional(),
   price_max:     z.coerce.number().min(0).optional(),
+  // Фильтр «Рядом»: точки в радиусе от якоря (позиция туриста или ПК)
+  near_lat:      z.coerce.number().min(-90).max(90).optional(),
+  near_lng:      z.coerce.number().min(-180).max(180).optional(),
+  radius_km:     z.coerce.number().min(1).max(1000).optional(),
 });
 
 export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
@@ -160,7 +164,7 @@ export interface CatalogResult {
 }
 
 export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
-  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max } = filters;
+  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km } = filters;
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['is_visible = TRUE'];
@@ -209,6 +213,16 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     conditions.push(`(payload->>'price_from')::numeric <= $${idx}`);
     params.push(price_max);
     idx++;
+  }
+  if (near_lat != null && near_lng != null && radius_km != null) {
+    // Гаверсинус в SQL; least(1.0, ...) страхует acos от погрешности округления
+    conditions.push(
+      `lat IS NOT NULL AND lng IS NOT NULL AND 6371 * acos(least(1.0,
+         cos(radians($${idx})) * cos(radians(lat)) * cos(radians(lng) - radians($${idx + 1}))
+         + sin(radians($${idx})) * sin(radians(lat)))) <= $${idx + 2}`,
+    );
+    params.push(near_lat, near_lng, radius_km);
+    idx += 3;
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
