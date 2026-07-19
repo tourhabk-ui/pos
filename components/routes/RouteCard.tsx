@@ -25,6 +25,8 @@ export interface RouteItem {
   offerCount?: number;
   topOperatorName?: string;
   minOfferPrice?: number | null;
+  /** Живой статус точки (location_real_time_status); null/undefined — данных нет */
+  isOpen?: boolean | null;
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: React.ElementType; accent: string }> = {

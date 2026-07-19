@@ -11,6 +11,7 @@ import { LOCATION_TYPE_LABELS } from '@/components/places/types';
 import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-groups';
 import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
 import { useAnchor } from './useAnchor';
+import { nearestZoneKey } from '@/lib/services/zone-weather';
 
 // Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
 // без цен и офферов. Кромка фото — силуэт горизонта по типу места, под
@@ -41,6 +42,18 @@ const MONO = "'JetBrains Mono', ui-monospace, monospace";
 // Каскад появления и чёт/нечет кен-бёрнса — из порядка монтирования
 let mountCounter = 0;
 
+// Погода зон — ОДИН запрос на всю сетку (модульный синглтон), сервер кэширует
+// 30 минут. Зоны без ответа честно отсутствуют — чип не показывается.
+interface ZoneWx { key: string; tempC: number; windKmh: number; descRu: string }
+let wxPromise: Promise<Map<string, ZoneWx>> | null = null;
+function loadZonesWeather(): Promise<Map<string, ZoneWx>> {
+  wxPromise ??= fetch('/api/weather/zones')
+    .then((r) => (r.ok ? r.json() : { zones: [] }))
+    .then((d: { zones?: ZoneWx[] }) => new Map((d.zones ?? []).map((z) => [z.key, z])))
+    .catch(() => { wxPromise = null; return new Map<string, ZoneWx>(); });
+  return wxPromise;
+}
+
 export default function PlaceCard({ route }: { route: RouteItem }) {
   const locType = route.locationType ?? 'other';
   const Icon    = LOCATION_ICONS[locType] ?? MapPin;
@@ -68,6 +81,19 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
   }, [anchor, route.lat, route.lng]);
 
   const season = seasonRoman(route.bestMonths);
+
+  // Живая погода ближайшей зоны (≤80 км) — окно в реальное место
+  const [wx, setWx] = useState<ZoneWx | null>(null);
+  useEffect(() => {
+    if (route.lat == null || route.lng == null) return;
+    const zoneKey = nearestZoneKey(route.lat, route.lng);
+    if (!zoneKey) return;
+    let alive = true;
+    loadZonesWeather().then((zones) => {
+      if (alive) setWx(zones.get(zoneKey) ?? null);
+    });
+    return () => { alive = false; };
+  }, [route.lat, route.lng]);
 
   // Каскад появления
   const [visible, setVisible] = useState(false);
@@ -191,13 +217,25 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             />
           ) : (
             <div
-              className="w-full h-full flex items-start justify-end p-2"
+              className="pc-ph w-full h-full flex items-start justify-end p-2"
               style={{
                 background: `linear-gradient(160deg, color-mix(in srgb, ${elColor} 30%, #10151c) 0%, color-mix(in srgb, ${elColor} 10%, #0b0f14) 100%)`,
+                backgroundSize: '170% 170%',
               }}
             >
               <Icon className="w-5 h-5 text-white opacity-25" />
             </div>
+          )}
+
+          {/* Живая погода зоны — glass-чип поверх фото */}
+          {wx && (
+            <span
+              className="absolute left-2 z-10 px-1.5 py-0.5 rounded-full backdrop-blur-md bg-black/40 border border-white/15 text-white"
+              style={{ bottom: 50, fontFamily: MONO, fontSize: 9 }}
+              title={wx.descRu}
+            >
+              {wx.tempC > 0 ? `+${wx.tempC}` : wx.tempC}° · {wx.windKmh} км/ч
+            </span>
           )}
 
           {/* Мягкая подсветка цветом стихии снизу фото — цвет несёт различие */}
@@ -229,6 +267,18 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
             />
+            {/* Редкий пробег свечения вдоль кромки цветом стихии */}
+            <path
+              d={hzOpen}
+              className="pc-hz-glow"
+              pathLength={1}
+              fill="none"
+              stroke={elColor}
+              strokeWidth={2.6}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              style={{ animationDelay: `${(seq.current % 6) * 1.4}s` }}
+            />
           </svg>
 
           {/* Сердце */}
@@ -250,13 +300,28 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
 
       {/* ── Тело ────────────────────────────────────────── */}
       <div className="px-3 pb-3 pt-0.5">
-        <Link
-          href={element?.href ?? '/routes?kind=place'}
-          className="inline-block text-[9px] font-semibold uppercase"
-          style={{ color: elColor, letterSpacing: '0.2em' }}
-        >
-          {label}
-        </Link>
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            href={element?.href ?? '/routes?kind=place'}
+            className="inline-block text-[9px] font-semibold uppercase"
+            style={{ color: elColor, letterSpacing: '0.2em' }}
+          >
+            {label}
+          </Link>
+          {/* Живой статус точки — только когда данные есть */}
+          {route.isOpen != null && (
+            <span
+              className="inline-flex items-center gap-1 text-[8px] font-semibold uppercase"
+              style={{ color: route.isOpen ? 'var(--success)' : 'var(--danger)', letterSpacing: '0.12em' }}
+            >
+              <span
+                className={route.isOpen ? 'pc-live' : ''}
+                style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }}
+              />
+              {route.isOpen ? 'открыто' : 'закрыто'}
+            </span>
+          )}
+        </div>
         <Link href={`/places/${route.id}`} className="block">
           <b
             className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
@@ -277,7 +342,9 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
               <circle cx="12" cy="12" r="10.5" fill="none" stroke="var(--border)" strokeWidth="1" />
               <g style={{ transform: `rotate(${inst.brg}deg)`, transformOrigin: '12px 12px', transition: 'transform .5s ease' }}>
-                <path d="M12,4.5 L14.2,13 L12,11.4 L9.8,13 Z" fill={elColor} />
+                <g className="pc-needle">
+                  <path d="M12,4.5 L14.2,13 L12,11.4 L9.8,13 Z" fill={elColor} />
+                </g>
               </g>
             </svg>
             <span className="min-w-0" style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-secondary)' }}>
@@ -296,6 +363,8 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
 
       <style jsx>{`
         .pc:hover { border-color: color-mix(in srgb, var(--el) 45%, var(--border)); }
+        /* Без анимации (reduced-motion) пробег свечения не рисуется вовсе */
+        .pc-hz-glow { opacity: 0; }
         @media (prefers-reduced-motion: no-preference) {
           .pc { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease, border-color .2s ease; }
           .pc.pc-in { opacity: 1; transform: translateY(0); }
@@ -308,6 +377,14 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           @keyframes pc-draw { to { stroke-dashoffset: 0; } }
           .pc-hrt-pop { animation: pc-pop .45s cubic-bezier(.3,1.6,.5,1); }
           @keyframes pc-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+          .pc-ph { animation: pc-sky-drift 22s ease-in-out infinite alternate; }
+          @keyframes pc-sky-drift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+          .pc-hz-glow { stroke-dasharray: 0.16 0.84; stroke-dashoffset: 1.16; opacity: .7; animation: pc-glow 8s linear infinite; }
+          @keyframes pc-glow { 0% { stroke-dashoffset: 1.16; } 55% { stroke-dashoffset: -1; } 100% { stroke-dashoffset: -1; } }
+          .pc-needle { animation: pc-breathe 3.4s ease-in-out infinite alternate; transform-origin: 12px 12px; }
+          @keyframes pc-breathe { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+          .pc-live { animation: pc-pulse 2.4s ease-in-out infinite; }
+          @keyframes pc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
         }
       `}</style>
     </article>

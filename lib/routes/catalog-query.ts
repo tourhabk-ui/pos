@@ -150,6 +150,8 @@ export interface CatalogItem {
       больше не показываются — вместо них честный градиент по типу места. */
   hasRealImage: boolean;
   hazards: string[];
+  /** Живой статус точки из location_real_time_status; null — данных нет */
+  isOpen: boolean | null;
 }
 
 export interface CatalogResult {
@@ -264,9 +266,12 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.created_at,
          -- Только реальные фото (wikimedia / ручная загрузка): AI-генерации в выдачу
          -- не идут — вместо них честный градиент (решение владельца 2026-07-17)
-         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image
+         (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
+         -- Живой статус места (открыто/закрыто) — свойство точки, не тура
+         lrs.is_open
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
+       LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
        ${where}
        ORDER BY ${orderBy}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -310,6 +315,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       volcanoStatus: (r.volcano_status as string | null) ?? null,
       hasRealImage,
       hazards:      resolveHazards(r),
+      isOpen:       (r.is_open as boolean | null) ?? null,
     };
   });
 
