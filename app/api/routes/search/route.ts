@@ -20,19 +20,23 @@ interface RouteRow {
   similarity?: number;
 }
 
+// Колонка сложности в kamchatka_routes называется difficulty (миграция 056);
+// difficulty_level здесь — имя поля ответа. Обращение r.difficulty_level
+// роняло endpoint 500-кой на КАЖДЫЙ запрос (вскрылось навигаторным выбором
+// маршрута по месту, 2026-07-19).
 const ENRICH_SQL = `
   SELECT
     r.id,
     r.title,
     r.distance_km,
-    r.difficulty_level,
+    r.difficulty AS difficulty_level,
     r.zone,
-    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL) AS waypoint_names
+    ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
   FROM kamchatka_routes r
   LEFT JOIN route_waypoints rw ON rw.route_id = r.id
   LEFT JOIN places p ON p.id = rw.place_id
-  WHERE r.id = ANY($1::uuid[])
-  GROUP BY r.id, r.title, r.distance_km, r.difficulty_level, r.zone
+  WHERE r.id = ANY($1::uuid[]) AND r.is_visible = TRUE
+  GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
 `;
 
 export async function GET(req: NextRequest) {
@@ -74,25 +78,39 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ILIKE фоллбэк: только по названию
+  // ILIKE фоллбэк: по названию маршрута ИЛИ по названию места на нём —
+  // навигаторный выбор ищет именно место («Авачинский» → все маршруты через него)
   const like = `%${rawQ}%`;
-  const result = await query<RouteRow>(
-    `SELECT
-       r.id,
-       r.title,
-       r.distance_km,
-       r.difficulty_level,
-       r.zone,
-       ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL) AS waypoint_names
-     FROM kamchatka_routes r
-     LEFT JOIN route_waypoints rw ON rw.route_id = r.id
-     LEFT JOIN places p ON p.id = rw.place_id
-     WHERE r.title ILIKE $1
-     GROUP BY r.id, r.title, r.distance_km, r.difficulty_level, r.zone
-     ORDER BY r.title
-     LIMIT 15`,
-    [like],
-  );
-
-  return NextResponse.json({ routes: result.rows, semantic: false });
+  try {
+    const result = await query<RouteRow>(
+      `SELECT
+         r.id,
+         r.title,
+         r.distance_km,
+         r.difficulty AS difficulty_level,
+         r.zone,
+         ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
+       FROM kamchatka_routes r
+       LEFT JOIN route_waypoints rw ON rw.route_id = r.id
+       LEFT JOIN places p ON p.id = rw.place_id
+       WHERE r.is_visible = TRUE
+         AND (
+           r.title ILIKE $1
+           OR EXISTS (
+             SELECT 1 FROM route_waypoints rw2
+             JOIN places p2 ON p2.id = rw2.place_id
+             WHERE rw2.route_id = r.id AND p2.is_visible = TRUE AND p2.name ILIKE $1
+           )
+         )
+       GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
+       ORDER BY r.title
+       LIMIT 15`,
+      [like],
+    );
+    return NextResponse.json({ routes: result.rows, semantic: false });
+  } catch (err) {
+    // В поле лучше пустой список, чем 500 — UI покажет «ничего не нашлось»
+    console.error('[search] fallback error', { error: err instanceof Error ? err.message : String(err) });
+    return NextResponse.json({ routes: [], semantic: false });
+  }
 }
