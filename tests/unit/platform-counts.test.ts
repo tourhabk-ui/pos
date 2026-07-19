@@ -6,6 +6,7 @@ import {
   allElementTypes,
   knownLocationTypes,
   elementHref,
+  getElementForType,
 } from '@/lib/stats/element-groups';
 
 describe('ELEMENT_GROUPS — маппинг выверен против реальных location_type', () => {
@@ -34,6 +35,23 @@ describe('ELEMENT_GROUPS — маппинг выверен против реал
   it('стихий пять, у каждой непустой href', () => {
     expect(ELEMENT_GROUPS).toHaveLength(5);
     for (const g of ELEMENT_GROUPS) expect(g.href).toMatch(/^\/routes\?location_type=/);
+  });
+
+  it('у каждой стихии непустой hex-цвет (карточки мест)', () => {
+    for (const g of ELEMENT_GROUPS) {
+      expect(g.color, `стихия «${g.key}» без цвета`).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
+
+  it('getElementForType: тип стихии → группа с цветом, EXCLUDED и неизвестный → null', () => {
+    expect(getElementForType('volcano')?.key).toBe('fire');
+    expect(getElementForType('volcano')?.color).toMatch(/^#/);
+    expect(getElementForType('glacier')?.key).toBe('snow');
+    for (const t of EXCLUDED_TYPES) {
+      expect(getElementForType(t), `EXCLUDED тип «${t}» не должен маппиться в стихию`).toBeNull();
+    }
+    expect(getElementForType('no_such_type')).toBeNull();
+    expect(getElementForType(null)).toBeNull();
   });
 });
 
