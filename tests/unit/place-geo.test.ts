@@ -7,9 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   bearingDeg, distanceKm, rumb16, seasonRoman,
-  HORIZONS, horizonPath, closedHorizon,
+  HORIZON, horizonPath, closedHorizon,
 } from '@/components/routes/place-horizons';
-import { LOCATION_TYPE_LABELS } from '@/components/places/types';
 
 const PK = { lat: 53.0195, lng: 158.6505 };
 const KLYUCHEVSKAYA = { lat: 56.056, lng: 160.642 };
@@ -54,18 +53,14 @@ describe('гео-математика прибора', () => {
   });
 });
 
-describe('силуэты горизонта', () => {
-  it('каждый известный location_type имеет путь', () => {
-    for (const t of Object.keys(LOCATION_TYPE_LABELS)) {
-      expect(HORIZONS[t], `нет силуэта для «${t}»`).toBeTruthy();
-      expect(HORIZONS[t]).toMatch(/^M0,\d+/);
-      expect(HORIZONS[t]).toMatch(/L200,\d+$/);
-    }
+describe('кромка-горизонт (ревизия: одна дуга, различие несёт цвет стихии)', () => {
+  it('дуга валидна и едина для всех типов', () => {
+    expect(horizonPath()).toBe(HORIZON);
+    expect(HORIZON).toMatch(/^M0,\d+/);
+    expect(HORIZON).toMatch(/200,\d+$/);
   });
 
-  it('horizonPath безопасен для неизвестного типа, closedHorizon замыкает', () => {
-    expect(horizonPath('no_such')).toBe(HORIZONS.other);
-    expect(horizonPath(null)).toBe(HORIZONS.other);
+  it('closedHorizon замыкает путь под заливку', () => {
     expect(closedHorizon('M0,30 L200,30')).toBe('M0,30 L200,30 L200,46 L0,46 Z');
   });
 });

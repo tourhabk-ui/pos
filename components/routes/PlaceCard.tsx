@@ -48,7 +48,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
 
   const element  = getElementForType(locType);
   const elColor  = element?.color ?? NEUTRAL_ELEMENT_COLOR;
-  const hzOpen   = horizonPath(locType);
+  const hzOpen   = horizonPath();
   const hzClosed = closedHorizon(hzOpen);
 
   const seq = useRef(-1);
@@ -161,6 +161,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
         transitionDelay: visible ? `${(seq.current % 6) * 95}ms` : '0ms',
+        ['--el' as string]: elColor,
       }}
     >
       {/* ── Админ: удалить место с витрины (поверх .sky) ──── */}
@@ -199,7 +200,16 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             </div>
           )}
 
-          {/* Вырубка: заливка фоном карточки + самообрисовка линии цветом стихии */}
+          {/* Мягкая подсветка цветом стихии снизу фото — цвет несёт различие */}
+          <div
+            className="absolute inset-x-0 bottom-0 pointer-events-none"
+            style={{
+              height: '58%',
+              background: `linear-gradient(to top, color-mix(in srgb, ${elColor} 38%, transparent), transparent)`,
+            }}
+          />
+
+          {/* Кромка: заливка фоном карточки + самообрисовка дуги цветом стихии */}
           <svg
             className="absolute bottom-0 left-0 w-full"
             style={{ height: 46, display: 'block' }}
@@ -214,8 +224,9 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
               pathLength={1}
               fill="none"
               stroke={elColor}
-              strokeOpacity={0.55}
-              strokeWidth={1.6}
+              strokeOpacity={0.9}
+              strokeWidth={2.2}
+              strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
             />
           </svg>
@@ -284,8 +295,9 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
       </div>
 
       <style jsx>{`
+        .pc:hover { border-color: color-mix(in srgb, var(--el) 45%, var(--border)); }
         @media (prefers-reduced-motion: no-preference) {
-          .pc { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+          .pc { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease, border-color .2s ease; }
           .pc.pc-in { opacity: 1; transform: translateY(0); }
           .pc:active { transform: scale(.975); }
           .pc-kb-even { animation: pc-kb-a 28s ease-in-out infinite alternate; }
