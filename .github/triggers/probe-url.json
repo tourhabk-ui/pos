@@ -1,9 +1,9 @@
 {
   "note": "Маркер запуска probe-url.yml",
-  "run": 4,
-  "bytes": 6000,
+  "run": 5,
+  "bytes": 8000,
   "urls": [
-    "https://vedarai.ru/api/routes?q=%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D0%B5%D1%80%D0%B5%D0%B2%D0%B0%D0%BB&kind=route&limit=5",
-    "https://vedarai.ru/api/routes?q=%D0%9E%D0%B4%D0%BD%D0%BE%D0%B4%D0%BD%D0%B5%D0%B2%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%BE%D1%85%D0%BE%D0%B4&kind=route&limit=5"
+    "https://vedarai.ru/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff",
+    "https://vedarai.ru/api/routes/55cb0779-4e54-4a2b-9f8d-d84828274a0f"
   ]
 }
