@@ -3,7 +3,12 @@ FROM node:20-alpine AS base
 
 # ── 1. Dependencies ─────────────────────────────────────────────
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
+# Устойчивость к недоступности dl-cdn.alpinelinux.org (Fastly; с билд-серверов
+# Timeweb периодически TLS-ошибки — деплой 19.07 падал именно здесь): при
+# провале переключаем apk-репозитории на зеркало Яндекса, оно из РФ стабильно.
+RUN apk add --no-cache libc6-compat || \
+    (sed -i 's#https://dl-cdn.alpinelinux.org#https://mirror.yandex.ru/mirrors#g' /etc/apk/repositories \
+     && apk add --no-cache libc6-compat)
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
