@@ -29,6 +29,7 @@ export default function RegisterRoutePage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
+  const [returnLinkCopied, setReturnLinkCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Шаг 1: Маршрут
@@ -217,6 +218,38 @@ export default function RegisterRoutePage() {
           <p className="text-[var(--text-secondary)] mb-6 text-sm">
             PDF-заявка скачана. Подайте её в МЧС одним из способов:
           </p>
+
+          {registrationId && (
+            <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--success)] mb-6 text-left">
+              <p className="font-semibold text-sm mb-1">Сообщите о возвращении</p>
+              <p className="text-xs text-[var(--text-muted)] mb-3">
+                {expectedReturnTime
+                  ? `Контрольное время: ${endDate} в ${expectedReturnTime}.`
+                  : `Контрольное время: ${endDate} до 20:00.`}{' '}
+                Если к нему не отметиться, мы напомним и предупредим ваш экстренный
+                контакт. Сохраните ссылку — по возвращении нажмите «Я вернулся».
+              </p>
+              <div className="flex gap-2">
+                <a
+                  href={`/return?id=${registrationId}`}
+                  className="flex-1 py-2.5 rounded-lg bg-[var(--success)] text-white text-center font-semibold text-sm hover:opacity-90"
+                >
+                  Страница «Я вернулся»
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${window.location.origin}/return?id=${registrationId}`)
+                      .then(() => setReturnLinkCopied(true))
+                      .catch(() => {});
+                  }}
+                  className="px-4 py-2.5 rounded-lg border border-[var(--border)] text-sm font-medium hover:bg-[var(--bg-hover)]"
+                >
+                  {returnLinkCopied ? 'Скопировано' : 'Копировать'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3 mb-6 text-left">
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">

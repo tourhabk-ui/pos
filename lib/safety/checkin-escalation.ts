@@ -91,3 +91,63 @@ export function decideEscalation(
   if (!nextStep) return null;
   return { step: nextStep, hoursOverdue };
 }
+
+// ── Тексты уведомлений ───────────────────────────────────────────────────────
+// Все шаги реально уходят экстренному контакту (телеграм-канала к самому
+// туристу у нас нет), поэтому и обращение — к контакту, а не «Вы
+// зарегистрировали маршрут». В каждом сообщении — ссылка «Я вернулся»:
+// контакт связывается с группой и закрывает регистрацию сам (для
+// подтверждения без входа достаточно номера руководителя).
+
+export interface EscalationMessageInput {
+  routeName: string;
+  leaderName: string;
+  leaderPhone: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  /** Готовый текст позиции: «53.02° N, 158.65° E» или «неизвестно». */
+  positionText: string;
+  /** Ссылка «Я вернулся» — vedarai.ru/return?id=<регистрация>. */
+  returnUrl: string;
+}
+
+export function formatPositionText(lat: string | null, lng: string | null): string {
+  if (!lat || !lng) return 'неизвестно';
+  return `${parseFloat(lat).toFixed(5)}° N, ${parseFloat(lng).toFixed(5)}° E`;
+}
+
+export function buildEscalationMessage(
+  input: EscalationMessageInput,
+  step: EscalationStep,
+  hoursOverdue: number,
+): string {
+  const hours = hoursOverdue.toFixed(1);
+
+  if (step === 'soft') {
+    return (
+      `Напоминание от Ведара: группа «${input.routeName}» под руководством ` +
+      `${input.leaderName} должна была вернуться ${hours} ч назад и ещё не отметилась.\n` +
+      `Свяжитесь с руководителем: ${input.leaderPhone}. На маршруте часто нет связи — ` +
+      `это само по себе не повод для тревоги.\n` +
+      `Если группа вернулась — отметьте возвращение (понадобится номер руководителя):\n` +
+      `${input.returnUrl}`
+    );
+  }
+  if (step === 'hard') {
+    return (
+      `ВНИМАНИЕ: турист ${input.leaderName} (${input.leaderPhone}) не вернулся с маршрута ` +
+      `«${input.routeName}» уже ${hours} ч.\n` +
+      `Последняя известная позиция: ${input.positionText}.\n` +
+      `Пожалуйста, свяжитесь с туристом. Если группа вернулась — отметьте: ${input.returnUrl}\n` +
+      `Если контакт не удался — звоните 112.`
+    );
+  }
+  return (
+    `ЭКСТРЕННАЯ СИТУАЦИЯ: турист ${input.leaderName} (${input.leaderPhone}) не вернулся с маршрута ` +
+    `«${input.routeName}» уже ${hours} ч.\n` +
+    `Экстренный контакт: ${input.emergencyContactName} (${input.emergencyContactPhone}).\n` +
+    `Последняя известная позиция: ${input.positionText}.\n` +
+    `Отметка о возвращении (если группа нашлась): ${input.returnUrl}\n` +
+    `Рекомендуем немедленно сообщить в МЧС: 112.`
+  );
+}
