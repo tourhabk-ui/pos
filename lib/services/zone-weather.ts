@@ -27,12 +27,22 @@ export const ZONES = {
 
 export type ZoneKey = keyof typeof ZONES;
 
-const _cache = new Map<ZoneKey, { text: string; at: number }>();
+export interface ZoneWeather {
+  key: ZoneKey;
+  zoneName: string;
+  tempC: number;
+  feelsC: number;
+  windKmh: number;
+  descRu: string;
+}
+
+const _cache = new Map<ZoneKey, { data: ZoneWeather | null; at: number }>();
 const TTL_MS = 30 * 60 * 1000;
 
-async function fetchZoneWeather(key: ZoneKey): Promise<string> {
+/** Структурная погода зоны (30-мин кэш); null — источник недоступен */
+export async function getZoneWeather(key: ZoneKey): Promise<ZoneWeather | null> {
   const cached = _cache.get(key);
-  if (cached && Date.now() - cached.at < TTL_MS) return cached.text;
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.data;
 
   const zone = ZONES[key];
   try {
@@ -40,16 +50,53 @@ async function fetchZoneWeather(key: ZoneKey): Promise<string> {
       `https://wttr.in/${zone.lat},${zone.lon}?format=j1&lang=ru`,
       { signal: AbortSignal.timeout(6000) },
     );
-    if (!res.ok) return '';
+    if (!res.ok) return null;
     const data = await res.json() as WttrResponse;
     const c = data.current_condition?.[0];
-    if (!c) return '';
-    const desc = c.lang_ru?.[0]?.value ?? c.weatherDesc[0]?.value ?? '';
-    const sign = (n: number) => n > 0 ? `+${n}` : String(n);
-    const text = `${zone.name}: ${sign(parseInt(c.temp_C))}C (ощущается ${sign(parseInt(c.FeelsLikeC))}C), ${desc}, ветер ${c.windspeedKmph} км/ч`;
-    _cache.set(key, { text, at: Date.now() });
-    return text;
-  } catch { return ''; }
+    if (!c) return null;
+    const weather: ZoneWeather = {
+      key,
+      zoneName: zone.name,
+      tempC: parseInt(c.temp_C),
+      feelsC: parseInt(c.FeelsLikeC),
+      windKmh: parseInt(c.windspeedKmph),
+      descRu: c.lang_ru?.[0]?.value ?? c.weatherDesc[0]?.value ?? '',
+    };
+    _cache.set(key, { data: weather, at: Date.now() });
+    return weather;
+  } catch { return null; }
+}
+
+/** Погода всех зон разом (для карточек витрины; один вызов — 6 зон из кэша) */
+export async function getAllZonesWeather(): Promise<ZoneWeather[]> {
+  const results = await Promise.all(
+    (Object.keys(ZONES) as ZoneKey[]).map(k => getZoneWeather(k)),
+  );
+  return results.filter((w): w is ZoneWeather => w !== null);
+}
+
+/**
+ * Ближайшая погодная зона к точке; null — точка дальше maxKm от всех зон
+ * (крайний север и т.п. — там погоду зоны показывать нечестно).
+ */
+export function nearestZoneKey(lat: number, lng: number, maxKm = 100): ZoneKey | null {
+  let best: ZoneKey | null = null;
+  let bestKm = Infinity;
+  for (const key of Object.keys(ZONES) as ZoneKey[]) {
+    const z = ZONES[key];
+    const dLat = (z.lat - lat) * 111;
+    const dLng = (z.lon - lng) * 111 * Math.cos((lat * Math.PI) / 180);
+    const km = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (km < bestKm) { bestKm = km; best = key; }
+  }
+  return bestKm <= maxKm ? best : null;
+}
+
+async function fetchZoneWeather(key: ZoneKey): Promise<string> {
+  const w = await getZoneWeather(key);
+  if (!w) return '';
+  const sign = (n: number) => n > 0 ? `+${n}` : String(n);
+  return `${w.zoneName}: ${sign(w.tempC)}C (ощущается ${sign(w.feelsC)}C), ${w.descRu}, ветер ${w.windKmh} км/ч`;
 }
 
 /**
