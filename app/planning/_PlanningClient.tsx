@@ -561,7 +561,9 @@ function OnTrailTab() {
     setShowRouteModal(true);
     if (modalRoutes.length > 0) return;
     setModalError(null);
-    fetch('/api/routes?limit=10&sort=recommended&kind=route')
+    // has_waypoints: в поле рекомендуем только маршруты с реальными точками —
+    // статьи-обзоры («Зима на Камчатке») в планировщике не нужны
+    fetch('/api/routes?limit=10&sort=recommended&kind=route&has_waypoints=true')
       .then(r => r.json())
       .then((d: unknown) => {
         if (typeof d !== 'object' || d === null || !(d as Record<string, unknown>).success) {
