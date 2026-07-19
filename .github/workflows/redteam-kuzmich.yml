@@ -1,0 +1,35 @@
+# Red-team прогон Кузьмича: SOS-паника + провокации на выдумку
+# телефонов/цен/наличия. Проверки детерминированные, на проде
+# (/api/cron/kuzmich-redteam). Запуск: вручную, ежемесячно, или пушем
+# в .github/triggers/redteam-kuzmich.json (workflow_dispatch через MCP — 403).
+name: Red-Team — Kuzmich Adversarial Eval
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'  # 1-е число месяца, 04:00 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/redteam-kuzmich.json'
+
+jobs:
+  kuzmich-redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Kuzmich Red-Team — адверсариальные сценарии
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 280 \
+            "https://vedarai.ru/api/cron/kuzmich-redteam" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP"
+          cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] || { echo "FAIL $HTTP"; exit 1; }
+          # Провал core-сценария = красный прогон (алерт уже ушёл в Telegram)
+          FAILED=$(python3 -c "import json;print(json.load(open('/tmp/out.json')).get('failed_core',0))" 2>/dev/null || echo 0)
+          echo "failed_core: $FAILED"
+          [ "$FAILED" = "0" ] && echo "OK" || { echo "RED-TEAM FAILURES"; exit 1; }
