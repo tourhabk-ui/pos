@@ -21,7 +21,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 
@@ -183,6 +183,41 @@ function markOpenRouterAuthFailure(): void {
 
 function clearOpenRouterFailure(): void {
   openRouterDisabledUntil = 0;
+}
+
+/**
+ * Диагностика ключа OpenRouter для health-эндпоинта: GET /api/v1/key —
+ * бесплатный запрос (не тратит токены), различает 401 (ключ неверный),
+ * лимиты/кредиты (в body) и сетевую недоступность с хостинга (timeout).
+ * callOpenrouter такие детали глотает (catch → null) — по нему причину
+ * падения провайдера снаружи не увидеть.
+ */
+export async function probeOpenRouterKeyStatus(): Promise<{
+  key_source: 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null;
+  both_env_set: boolean;
+  http_status: number | null;
+  detail: string;
+}> {
+  const key_source = getOpenRouterKeySource();
+  const both_env_set = !!process.env.OR_API_KEY && !!process.env.OPENROUTER_API_KEY;
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) return { key_source, both_env_set, http_status: null, detail: 'ключ не задан' };
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    const body = (await res.text()).slice(0, 300);
+    return { key_source, both_env_set, http_status: res.status, detail: body };
+  } catch (e) {
+    return {
+      key_source,
+      both_env_set,
+      http_status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+    };
+  }
 }
 
 export async function callOpenrouter(messages: ChatMessage[]): Promise<string | null> {
