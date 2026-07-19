@@ -860,21 +860,46 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       FROM route_waypoints rw
       JOIN kamchatka_routes kr ON kr.id = rw.route_id
       JOIN places p ON p.id = rw.place_id
-      WHERE kr.lat IS NOT NULL AND kr.lng IS NOT NULL
-        AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+      WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
         AND kr.is_visible = TRUE
         AND p.is_visible = TRUE
     `);
 
+    // Опорная точка маршрута: его координата, а при NULL — медиана его же
+    // waypoints (от 3 точек). Слепое пятно со скрина владельца 2026-07-19:
+    // у «Однодневного похода к Авачинскому» координаты нет, и точка-беглец
+    // в 285 км (Каменный лес княженики) не попадала в диагностику.
     const WAYPOINT_SUSPECT_KM = 30;
-    const outliers: { route: string; place: string; km: number }[] = [];
+    const median = (xs: number[]): number => {
+      const s = [...xs].sort((a, b) => a - b);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+    const byRoute = new Map<string, typeof wpRows>();
     for (const w of wpRows) {
-      const km = haversineKm(
-        Number(w.route_lat), Number(w.route_lng),
-        Number(w.place_lat), Number(w.place_lng),
-      );
-      if (km >= WAYPOINT_SUSPECT_KM) {
-        outliers.push({ route: w.route_title, place: w.place_name, km });
+      const arr = byRoute.get(w.route_id) ?? [];
+      arr.push(w);
+      byRoute.set(w.route_id, arr);
+    }
+
+    const outliers: { route: string; place: string; km: number }[] = [];
+    for (const rows of byRoute.values()) {
+      let refLat: number;
+      let refLng: number;
+      if (rows[0].route_lat != null && rows[0].route_lng != null) {
+        refLat = Number(rows[0].route_lat);
+        refLng = Number(rows[0].route_lng);
+      } else if (rows.length >= 3) {
+        refLat = median(rows.map((w) => Number(w.place_lat)));
+        refLng = median(rows.map((w) => Number(w.place_lng)));
+      } else {
+        continue; // ни координаты, ни статистики — мерить не от чего
+      }
+      for (const w of rows) {
+        const km = haversineKm(refLat, refLng, Number(w.place_lat), Number(w.place_lng));
+        if (km >= WAYPOINT_SUSPECT_KM) {
+          outliers.push({ route: w.route_title, place: w.place_name, km });
+        }
       }
     }
     outliers.sort((a, b) => b.km - a.km);
