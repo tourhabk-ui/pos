@@ -425,4 +425,37 @@ describe('runDataRepair (dry-run)', () => {
     }
   });
 
+  it('Шаг 10: маршрут БЕЗ координаты — опорная точка медиана waypoints, беглец виден', async () => {
+    // Скрин владельца 2026-07-19: «Однодневный поход к Авачинскому» без
+    // lat/lng, 6 точек у вулкана + Каменный лес княженики в сотнях км —
+    // раньше весь маршрут выпадал из диагностики.
+    const near = (i: number) => ({
+      route_id: 'r2', route_title: 'Однодневный поход к Авачинскому', route_lat: null, route_lng: null,
+      place_id: `n${i}`, place_name: `Точка ${i}`, place_lat: String(53.25 + i * 0.001), place_lng: '158.83',
+    });
+    queryMock.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes('FROM route_waypoints rw') && s.includes('JOIN kamchatka_routes kr')) {
+        return Promise.resolve({ rows: [
+          near(1), near(2), near(3), near(4), near(5), near(6),
+          { route_id: 'r2', route_title: 'Однодневный поход к Авачинскому', route_lat: null, route_lng: null,
+            place_id: 'far', place_name: 'Каменный лес княженики', place_lat: '55.7', place_lng: '160.0' },
+          // Маршрут без координаты и всего с 2 точками — мерить не от чего, не флажим
+          { route_id: 'r3', route_title: 'Пара точек', route_lat: null, route_lng: null,
+            place_id: 'a', place_name: 'А', place_lat: '53.0', place_lng: '158.0' },
+          { route_id: 'r3', route_title: 'Пара точек', route_lat: null, route_lng: null,
+            place_id: 'b', place_name: 'Б', place_lat: '57.0', place_lng: '160.0' },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await runDataRepair(true);
+    expect(result.waypoint_outliers).toBe(1);
+    const outlier = result.items.filter(i => i.step === 'wp_outlier');
+    expect(outlier).toHaveLength(1);
+    expect(outlier[0].place).toBe('Каменный лес княженики');
+    expect(outlier[0].detail).toContain('Однодневный поход к Авачинскому');
+  });
+
 });
