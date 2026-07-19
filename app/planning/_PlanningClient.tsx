@@ -318,6 +318,20 @@ function OnTrailTab() {
     if (routeId) fetchRouteWaypoints(routeId);
   }, [fetchRouteWaypoints]);
 
+  // PWA днями живёт в фоне без перемонтирования: возврат на экран — рефетч
+  // точек активного маршрута. Скрин владельца 2026-07-19: API уже отдавал
+  // починенную координату, а приложение держало вчерашний state в памяти
+  // (точка «в 285 км» при честных 13) — mount-рефетча для поля недостаточно.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const routeId = localStorage.getItem('active_trail_route_id');
+      if (routeId) fetchRouteWaypoints(routeId);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchRouteWaypoints]);
+
   // Wake Lock
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
