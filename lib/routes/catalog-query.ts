@@ -125,6 +125,9 @@ export const CatalogQuerySchema = z.object({
   near_lat:      z.coerce.number().min(-90).max(90).optional(),
   near_lng:      z.coerce.number().min(-180).max(180).optional(),
   radius_km:     z.coerce.number().min(1).max(1000).optional(),
+  // Только маршруты с реальными точками (route_waypoints) — планировщик
+  // в поле не должен рекомендовать статьи-обзоры без единой точки
+  has_waypoints: z.enum(['true']).optional(),
 });
 
 export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
@@ -164,7 +167,7 @@ export interface CatalogResult {
 }
 
 export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
-  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km } = filters;
+  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints } = filters;
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['is_visible = TRUE'];
@@ -213,6 +216,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     conditions.push(`(payload->>'price_from')::numeric <= $${idx}`);
     params.push(price_max);
     idx++;
+  }
+  if (has_waypoints === 'true') {
+    conditions.push(`EXISTS (SELECT 1 FROM route_waypoints rwx WHERE rwx.route_id = ark.id)`);
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
     // Гаверсинус в SQL; least(1.0, ...) страхует acos от погрешности округления

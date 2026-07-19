@@ -48,4 +48,10 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     const [sql] = queryMock.mock.calls[0] as [string];
     expect(sql).not.toContain('acos');
   });
+
+  it('has_waypoints=true добавляет EXISTS по route_waypoints (рекомендуемые планировщика)', async () => {
+    await queryCatalog(CatalogQuerySchema.parse({ kind: 'route', has_waypoints: 'true' }));
+    const [sql] = queryMock.mock.calls[0] as [string];
+    expect(sql).toContain('EXISTS (SELECT 1 FROM route_waypoints');
+  });
 });
