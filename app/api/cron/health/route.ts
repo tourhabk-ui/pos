@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, probeOpenRouterKeyStatus } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -205,12 +205,16 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, regSpike] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, regSpike, orKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
     probeAI(callFugu),
     checkOperatorRegistrationSpike().catch(() => ({ today: 0, baseline_median: 0, is_spike: false })),
+    // Диагностика ПРИЧИНЫ падения OpenRouter: 401/кредиты/сеть + какая env
+    // переменная реально используется (OR_API_KEY приоритетнее OPENROUTER_API_KEY —
+    // замена второй при живой первой ничего не меняет).
+    probeOpenRouterKeyStatus().catch(() => null),
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk;
@@ -266,6 +270,7 @@ export async function GET(request: NextRequest) {
     ok: issues.filter(i => i.level === 'crit').length === 0,
     ms: Date.now() - started,
     ai: { openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
+    openrouter_key_diag: orKeyDiag,
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
     issues,

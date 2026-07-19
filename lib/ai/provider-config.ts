@@ -11,6 +11,17 @@ export function getOpenRouterKey(): string | null {
     || null;
 }
 
+/**
+ * Какая env-переменная реально даёт ключ OpenRouter — для health-диагностики.
+ * OR_API_KEY имеет приоритет: если в окружении остался старый OR_API_KEY,
+ * замена OPENROUTER_API_KEY ничего не меняет — это надо видеть, а не гадать.
+ */
+export function getOpenRouterKeySource(): 'OR_API_KEY' | 'OPENROUTER_API_KEY' | null {
+  if (process.env.OR_API_KEY) return 'OR_API_KEY';
+  if (process.env.OPENROUTER_API_KEY) return 'OPENROUTER_API_KEY';
+  return null;
+}
+
 export function getDeepSeekKey(): string | null {
   return process.env.DEEPSEEK_API_KEY || null;
 }
