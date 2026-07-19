@@ -11,6 +11,8 @@ import {
   decideEscalation,
   resolveControlTime,
   tripKindFromDates,
+  buildEscalationMessage,
+  formatPositionText,
 } from '@/lib/safety/checkin-escalation';
 import type { EscalationStep } from '@/lib/safety/checkin-escalation';
 
@@ -63,36 +65,19 @@ function stepToNum(step: EscalationStep): number {
   return step === 'soft' ? 1 : step === 'hard' ? 2 : 3;
 }
 
-function formatPosition(lat: string | null, lng: string | null): string {
-  if (!lat || !lng) return 'неизвестно';
-  return `${parseFloat(lat).toFixed(5)}° N, ${parseFloat(lng).toFixed(5)}° E`;
-}
-
 function buildMessage(reg: RegRow, step: EscalationStep, hoursOverdue: number): string {
-  const pos = formatPosition(reg.last_position_lat, reg.last_position_lng);
-  const hours = hoursOverdue.toFixed(1);
-
-  if (step === 'soft') {
-    return (
-      `Вы зарегистрировали маршрут "${reg.route_name}" и ещё не отметились о возвращении.\n` +
-      `Просрочка: ${hours} ч. Если вы уже вернулись — нажмите «Я вернулся» в приложении.\n` +
-      `Если нужна помощь — звоните 112.`
-    );
-  }
-  if (step === 'hard') {
-    return (
-      `ВНИМАНИЕ: турист ${reg.leader_name} (${reg.leader_phone}) не вернулся с маршрута ` +
-      `"${reg.route_name}" уже ${hours} ч.\n` +
-      `Последняя известная позиция: ${pos}.\n` +
-      `Пожалуйста, свяжитесь с туристом. Если контакт не удался — звоните 112.`
-    );
-  }
-  return (
-    `ЭКСТРЕННАЯ СИТУАЦИЯ: турист ${reg.leader_name} (${reg.leader_phone}) не вернулся с маршрута ` +
-    `"${reg.route_name}" уже ${hours} ч.\n` +
-    `Экстренный контакт: ${reg.emergency_contact_name} (${reg.emergency_contact_phone}).\n` +
-    `Последняя известная позиция: ${pos}.\n` +
-    `Рекомендуем немедленно сообщить в МЧС: 112.`
+  return buildEscalationMessage(
+    {
+      routeName: reg.route_name,
+      leaderName: reg.leader_name,
+      leaderPhone: reg.leader_phone,
+      emergencyContactName: reg.emergency_contact_name,
+      emergencyContactPhone: reg.emergency_contact_phone,
+      positionText: formatPositionText(reg.last_position_lat, reg.last_position_lng),
+      returnUrl: `https://vedarai.ru/return?id=${reg.id}`,
+    },
+    step,
+    hoursOverdue,
   );
 }
 
