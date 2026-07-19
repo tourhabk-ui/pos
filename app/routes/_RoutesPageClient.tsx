@@ -88,6 +88,14 @@ const SORT_OPTIONS = [
   { value: 'recent',      label: 'Новые' },
 ];
 
+const NEAR_PK = { lat: 53.0195, lng: 158.6505 };
+const NEAR_OPTIONS = [
+  { value: '',    label: 'Неважно' },
+  { value: '50',  label: 'до 50 км' },
+  { value: '100', label: 'до 100 км' },
+  { value: '200', label: 'до 200 км' },
+];
+
 const DIFFICULTY_OPTIONS = [
   { value: '',       label: 'Любая' },
   { value: 'easy',   label: 'Лёгкая' },
@@ -158,6 +166,12 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [sort,         setSort]         = useState<SortValue>('recommended');
   const [difficulty,   setDifficulty]   = useState<DifficultyValue>('');
   const [priceRange,   setPriceRange]   = useState('');
+  // Фильтр «Рядом»: радиус от якоря. Якорь — позиция туриста (геолокация по
+  // явному выбору радиуса), при отказе — честно Петропавловск.
+  const [nearRadius,   setNearRadius]   = useState('');
+  const [nearAnchor,   setNearAnchor]   = useState<{ lat: number; lng: number }>(NEAR_PK);
+  const [nearLabel,    setNearLabel]    = useState('от Петропавловска');
+  const geoRequestedRef = useRef(false);
   const [page,         setPage]         = useState(() => {
     // Deep-link на страницу пагинации должен работать и для SSR, и для клиента.
     const p = parseInt(searchParams.get('page') ?? '1', 10);
@@ -179,18 +193,37 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
   // For routes: difficulty + price filters; for places: only difficulty
   const activeFiltersCount = kind === 'place'
-    ? [difficulty].filter(Boolean).length
-    : [difficulty, priceRange].filter(Boolean).length;
+    ? [difficulty, nearRadius].filter(Boolean).length
+    : [difficulty, priceRange, nearRadius].filter(Boolean).length;
 
   const getPriceParams = useCallback(() => {
     const range = PRICE_RANGES.find(r => r.value === priceRange);
     return { price_min: range?.min, price_max: range?.max };
   }, [priceRange]);
 
+  // Выбор радиуса «Рядом» — явное действие туриста, здесь можно спросить
+  // геолокацию (один раз). Отказ/ошибка — молча остаёмся на Петропавловске.
+  const selectNearRadius = useCallback((value: string) => {
+    setNearRadius(value);
+    setPage(1);
+    if (!value || geoRequestedRef.current) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    geoRequestedRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNearAnchor({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNearLabel('от вас');
+      },
+      () => { /* отказ — якорь ПК */ },
+      { maximumAge: 60_000, timeout: 10_000 },
+    );
+  }, []);
+
   // ── Fetch grid ───────────────────────────────────────────────
   const fetchRoutes = useCallback(async (
     q: string, act: string, locType: string, pg: number, srt: string,
     diff: string, k: KindValue, price_min?: number, price_max?: number,
+    near?: { lat: number; lng: number; radiusKm: number },
   ) => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT), sort: srt, kind: k });
@@ -201,6 +234,11 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     if (k === 'route') {
       if (price_min != null) params.set('price_min', String(price_min));
       if (price_max != null) params.set('price_max', String(price_max));
+    }
+    if (near) {
+      params.set('near_lat', String(near.lat));
+      params.set('near_lng', String(near.lng));
+      params.set('radius_km', String(near.radiusKm));
     }
     try {
       const res  = await fetch(`/api/routes?${params}`);
@@ -226,6 +264,11 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     if (kind === 'place' && locationType) params.set('location_type', locationType);
     if (query)      params.set('q', query);
     if (difficulty) params.set('difficulty', difficulty);
+    if (nearRadius) {
+      params.set('near_lat', String(nearAnchor.lat));
+      params.set('near_lng', String(nearAnchor.lng));
+      params.set('radius_km', nearRadius);
+    }
     try {
       const res  = await fetch(`/api/routes?${params}`);
       const json: RoutesResponse = await res.json();
@@ -238,7 +281,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
       }
     } catch { /* silent */ }
     setMapLoading(false);
-  }, [activityType, locationType, query, difficulty, kind]);
+  }, [activityType, locationType, query, difficulty, kind, nearRadius, nearAnchor]);
 
   // ── Trigger grid fetch ───────────────────────────────────────
   useEffect(() => {
@@ -260,11 +303,14 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
       if (matched) return;
     }
     const { price_min, price_max } = getPriceParams();
+    const near = nearRadius
+      ? { lat: nearAnchor.lat, lng: nearAnchor.lng, radiusKm: Number(nearRadius) }
+      : undefined;
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, price_min, price_max);
+      fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, price_min, price_max, near);
     }, query ? 300 : 0);
-  }, [query, activityType, locationType, page, sort, difficulty, priceRange, kind, fetchRoutes, getPriceParams]);
+  }, [query, activityType, locationType, page, sort, difficulty, priceRange, kind, nearRadius, nearAnchor, fetchRoutes, getPriceParams]);
 
   useEffect(() => {
     if (view === 'map') fetchMapRoutes();
@@ -281,7 +327,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     router.replace(`/routes${p.size ? '?' + p : ''}`, { scroll: false });
   }, [query, activityType, locationType, page, kind, router]);
 
-  const resetFilters = () => { setDifficulty(''); setPriceRange(''); setPage(1); };
+  const resetFilters = () => { setDifficulty(''); setPriceRange(''); setNearRadius(''); setPage(1); };
 
   const retryFetch = () => {
     const { price_min, price_max } = getPriceParams();
@@ -445,6 +491,30 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </div>
               </div>
             )}
+
+            <div>
+              <p className="ds-label mb-2">
+                Рядом
+                {nearRadius && (
+                  <span className="ml-2 normal-case tracking-normal text-[var(--text-muted)]">{nearLabel}</span>
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {NEAR_OPTIONS.map(o => (
+                  <button
+                    key={o.value}
+                    onClick={() => selectNearRadius(o.value)}
+                    className={`px-3 py-1.5 rounded-full text-sm border transition-all duration-150 ${
+                      nearRadius === o.value
+                        ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                        : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 bg-[var(--bg-card)]'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div>
               <p className="ds-label mb-2">Сложность</p>
