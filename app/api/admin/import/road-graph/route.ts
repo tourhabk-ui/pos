@@ -38,7 +38,7 @@ const BodySchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('reset'), note: z.string().max(500).optional() }),
   z.object({ mode: z.literal('nodes'), rows: z.array(NodeRow).min(1).max(10_000) }),
   z.object({ mode: z.literal('edges'), rows: z.array(EdgeRow).min(1).max(3_000) }),
-  z.object({ mode: z.literal('finish'), import_id: z.number().int() }),
+  z.object({ mode: z.literal('finish'), import_id: z.coerce.number().int() }),
 ]);
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -67,7 +67,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `INSERT INTO road_graph_imports (source, note) VALUES ('overpass', $1) RETURNING id`,
       [body.note ?? null],
     );
-    return NextResponse.json({ ok: true, import_id: r.rows[0].id });
+    // BIGSERIAL приходит из pg строкой — отдаём числом, чтобы finish не падал
+    return NextResponse.json({ ok: true, import_id: Number(r.rows[0].id) });
   }
 
   if (body.mode === 'nodes') {

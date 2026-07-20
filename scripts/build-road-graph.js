@@ -127,7 +127,8 @@ async function main() {
     console.log(`  рёбра +${r.inserted}`);
   }
 
-  const fin = await post({ mode: 'finish', import_id });
+  // BIGSERIAL id приходит из pg строкой — finish ждёт число (run 2 упал тут)
+  const fin = await post({ mode: 'finish', import_id: Number(import_id) });
   console.log(`ГОТОВО: узлов ${fin.nodes}, рёбер ${fin.edges}`);
 }
 
