@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callKimi, probeOpenRouterKeyStatus } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callKimi, probeOpenRouterKeyStatus, probeKimiKeyStatus } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, kimiOk, regSpike, orKeyDiag] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, kimiOk, regSpike, orKeyDiag, kimiKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -254,6 +254,8 @@ export async function GET(request: NextRequest) {
     // переменная реально используется (OR_API_KEY приоритетнее OPENROUTER_API_KEY —
     // замена второй при живой первой ничего не меняет).
     probeOpenRouterKeyStatus().catch(() => null),
+    // Диагностика Kimi: точный статус (401/402 ключ-баланс, 404 модель, conn база/RF)
+    process.env.MOONSHOT_API_KEY ? probeKimiKeyStatus().catch(() => null) : Promise.resolve(null),
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || kimiOk;
@@ -317,6 +319,7 @@ export async function GET(request: NextRequest) {
     openrouter_key_diag: orKeyDiag,
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
+    kimi_key_diag: kimiKeyDiag,
     safety_ingest_age_min: seismic.ageMin,
     issues,
   });

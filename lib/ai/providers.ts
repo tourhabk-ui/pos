@@ -895,6 +895,39 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
   } catch { return null; }
 }
 
+// Диагностика ПРИЧИНЫ, почему callKimi молчит: реальный POST в
+// /chat/completions с настроенной моделью. 401/402 = ключ/баланс,
+// 404 = не та модель, conn/timeout = база или RF-блок хоста.
+export async function probeKimiKeyStatus(): Promise<{
+  key_set: boolean;
+  base: string;
+  model: string;
+  http_status: number | null;
+  detail: string;
+}> {
+  const { apiKey, base, model } = getKimiConfig();
+  if (!apiKey) return { key_set: false, base, model, http_status: null, detail: 'ключ не задан' };
+
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text()).slice(0, 300);
+    return { key_set: true, base, model, http_status: res.status, detail: body };
+  } catch (e) {
+    return {
+      key_set: true,
+      base,
+      model,
+      http_status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+    };
+  }
+}
+
 // ── GLM 5.1 (ZhipuAI direct API — bigmodel.cn) ────────────────
 // ZhipuAI OpenAI-compatible endpoint. Env: GLM_API_KEY
 export async function callGLM(messages: ChatMessage[]): Promise<string | null> {
