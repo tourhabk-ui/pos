@@ -83,7 +83,10 @@ function buildGraph(elements) {
           length += haversineM(p.lat, p.lon, g.lat, g.lon);
         }
       }
-      if (length <= 0) continue;
+      // Округляем ДО проверки: микросегмент 0.04 м проходил length>0,
+      // но округлялся в 0.0 и валился на Zod positive() (run 1 импорта)
+      const roundedLength = Math.round(length * 10) / 10;
+      if (roundedLength <= 0) continue;
 
       const gA = w.geometry[a];
       const gB = w.geometry[b];
@@ -93,7 +96,7 @@ function buildGraph(elements) {
       edges.push({
         from: fromId,
         to: toId,
-        length_m: Math.round(length * 10) / 10,
+        length_m: roundedLength,
         highway,
         surface,
         name,
