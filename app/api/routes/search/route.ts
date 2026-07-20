@@ -102,6 +102,16 @@ export async function GET(req: NextRequest) {
              WHERE rw2.route_id = r.id AND p2.is_visible = TRUE AND p2.name ILIKE $1
            )
          )
+         -- Компактность вейпоинтов (bbox ≤ ~55 км) ЛИБО их отсутствие:
+         -- мега-сборники «35 мест по всему краю» — не проходимые треки,
+         -- их синтетическая геометрия рисуется паутиной (полевой скрин 20.07)
+         AND COALESCE(
+           (SELECT (MAX(p3.lat) - MIN(p3.lat)) <= 0.5 AND (MAX(p3.lng) - MIN(p3.lng)) <= 0.8
+            FROM route_waypoints rw3
+            JOIN places p3 ON p3.id = rw3.place_id
+            WHERE rw3.route_id = r.id AND p3.lat IS NOT NULL AND p3.lng IS NOT NULL),
+           TRUE
+         )
        GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
        ORDER BY r.title
        LIMIT 15`,

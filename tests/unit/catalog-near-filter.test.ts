@@ -54,4 +54,12 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     const [sql] = queryMock.mock.calls[0] as [string];
     expect(sql).toContain('EXISTS (SELECT 1 FROM route_waypoints');
   });
+
+  it('has_waypoints=true требует компактность вейпоинтов (мега-сборники — не треки)', async () => {
+    await queryCatalog(CatalogQuerySchema.parse({ kind: 'route', has_waypoints: 'true' }));
+    const [sql] = queryMock.mock.calls[0] as [string];
+    expect(sql).toContain('MAX(p.lat) - MIN(p.lat)');
+    expect(sql).toContain('<= 0.5');
+    expect(sql).toContain('<= 0.8');
+  });
 });

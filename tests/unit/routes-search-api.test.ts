@@ -47,6 +47,14 @@ describe('/api/routes/search — фоллбэк', () => {
     expect(sql).toContain('p2.name ILIKE $1');
   });
 
+  it('отсекает мега-сборники: компактность bbox вейпоинтов в фоллбэке', async () => {
+    queryMock.mockResolvedValue({ rows: [], rowCount: 0 } as never);
+    await GET(req('Авачинский'));
+    const sql = String(queryMock.mock.calls[0][0]);
+    expect(sql).toContain('MAX(p3.lat) - MIN(p3.lat)');
+    expect(sql).toContain('<= 0.5');
+  });
+
   it('ошибка БД → 200 с пустым списком, не 500 (полевой UI)', async () => {
     queryMock.mockRejectedValue(new Error('column does not exist'));
     const res = await GET(req('Авачинский'));
