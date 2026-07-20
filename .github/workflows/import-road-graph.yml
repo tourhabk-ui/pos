@@ -1,0 +1,24 @@
+# Импорт дорожного графа Камчатки: раннер качает дороги с Overpass
+# (с Timeweb OSM недоступен), строит граф и заливает чанками в прод
+# (/api/admin/import/road-graph, CRON_SECRET). Запуск: вручную или пушем
+# в .github/triggers/import-road-graph.json.
+name: Import — Road Graph (OSM)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/import-road-graph.json'
+
+jobs:
+  road-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Построить и залить дорожный граф
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: node scripts/build-road-graph.js
