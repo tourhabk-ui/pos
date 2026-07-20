@@ -181,6 +181,44 @@ async function checkOperatorRegistrationSpike(): Promise<RegistrationSpikeResult
   return { today, baseline_median, is_spike };
 }
 
+// ── Safety-ingest heartbeat (монитор-над-монитором) ───────────────────────────
+// Сейсмо/цунами-ингест обязан отрабатывать ≤5 мин (in-process таймер start.js).
+// Раньше его молчание ловил только Telegram-watchdog (который сам задерживался).
+// Теперь health следит сам: crit если последний heartbeat старше порога.
+// Tsunami от 185 км ≈ 15 мин — за это окно монитор молчать не имеет права.
+const SEISMIC_STALE_MIN = 15;
+
+/** Чистая логика: возраст последнего heartbeat → issue (тестируется без БД). */
+export function seismicIssueFromAge(
+  ageMin: number | null,
+  thresholdMin: number = SEISMIC_STALE_MIN,
+): HealthIssue | null {
+  if (ageMin === null) {
+    return { level: 'crit', text: 'Сейсмо-ингест ни разу не отработал (agent_run_history пуст)' };
+  }
+  if (ageMin > thresholdMin) {
+    return {
+      level: 'crit',
+      text: `Сейсмо-ингест молчит ${Math.round(ageMin)} мин (норма ≤5, heartbeat из start.js)`,
+    };
+  }
+  return null;
+}
+
+async function checkSafetyIngest(): Promise<{ ageMin: number | null; issue: HealthIssue | null }> {
+  try {
+    const r = await pool.query<{ ended: Date | null }>(
+      `SELECT MAX(ended_at) AS ended FROM agent_run_history WHERE agent_id = 'safety-ingest'`,
+    );
+    const ended = r.rows[0]?.ended ?? null;
+    const ageMin = ended ? (Date.now() - new Date(ended).getTime()) / 60_000 : null;
+    return { ageMin: ageMin === null ? null : Math.round(ageMin * 10) / 10, issue: seismicIssueFromAge(ageMin) };
+  } catch {
+    // agent_run_history недоступна — не молчим, но и не выдумываем свежесть
+    return { ageMin: null, issue: null };
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
@@ -247,6 +285,10 @@ export async function GET(request: NextRequest) {
   const dbIssues = await checkDB();
   issues.push(...dbIssues);
 
+  // Сейсмо-heartbeat (монитор-над-монитором)
+  const seismic = await checkSafetyIngest();
+  if (seismic.issue) issues.push(seismic.issue);
+
   // Отправить алерт если есть проблемы
   if (issues.length > 0) {
     const crits = issues.filter(i => i.level === 'crit');
@@ -273,6 +315,7 @@ export async function GET(request: NextRequest) {
     openrouter_key_diag: orKeyDiag,
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
+    safety_ingest_age_min: seismic.ageMin,
     issues,
   });
 }
