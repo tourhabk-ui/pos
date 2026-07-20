@@ -24,13 +24,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Fetch and print
+        env:
+          # Некоторые эндпоинты (например /api/cron/health) требуют CRON_SECRET.
+          # Заголовок безопасен для публичных URL — они его игнорируют. Секрет
+          # маскируется в логах Actions и не попадает в коммитимый probe-url.json.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json'))['urls']))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
-            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time 60 -A 'Mozilla/5.0 (compatible; VedarProbe/1.0)' "$u" || echo 000)
+            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time 60 -A 'Mozilla/5.0 (compatible; VedarProbe/1.0)' -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             echo "── первые ${BYTES} байт ──"
             head -c "${BYTES}" /tmp/body | tr -d '\r'
