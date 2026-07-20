@@ -61,6 +61,13 @@ describe('buildGraph', () => {
     expect(g.edges.length).toBe(0);
   });
 
+  it('микросегмент (<5 см, округляется в 0.0) пропускается — Zod positive() не падает', () => {
+    const g = buildGraph([
+      way(1, [1, 2], [[53.0, 158.0], [53.0000003, 158.0]]), // ~3 см
+    ]);
+    expect(g.edges.length).toBe(0);
+  });
+
   it('haversineM: ПК → Елизово ≈ 29 км', () => {
     const d = haversineM(53.0195, 158.6505, 53.1830, 158.3883);
     expect(d).toBeGreaterThan(25_000);
