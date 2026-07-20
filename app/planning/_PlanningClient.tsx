@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
+import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -419,35 +420,44 @@ function OnTrailTab() {
   // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
   // markers — пересборка на каждом рендере (GPS-тики) убивала карту.
-  const mapMarkers: MapMarker[] = useMemo(() => waypoints.length > 0
-    ? [
-        {
-          coords: [waypoints[0].lat, waypoints[0].lng] as [number, number],
-          title: activeRouteTitle ?? 'Маршрут',
-          geometry: { type: 'polyline', coordinates: waypoints.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 } as MapMarkerGeometry,
-          suppressBalloon: true,
-        },
-        ...waypoints.map((w, i): MapMarker => ({
-          coords: [w.lat, w.lng],
-          title: w.name,
-          color: i === currentWpIdx ? 'orange' : 'green',
-          type: MarkerType.POI,
-        })),
-      ]
-    : [], [waypoints, currentWpIdx, activeRouteTitle]);
+  const mapMarkers: MapMarker[] = useMemo(() => {
+    if (waypoints.length === 0) return [];
+    const line = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+    // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
+    // линию не рисуем, только точки (полевой скрин 20.07)
+    const scattered = isScatteredCollection(line);
+    return [
+      ...(scattered ? [] : [{
+        coords: [waypoints[0].lat, waypoints[0].lng] as [number, number],
+        title: activeRouteTitle ?? 'Маршрут',
+        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+        suppressBalloon: true,
+      }]),
+      ...waypoints.map((w, i): MapMarker => ({
+        coords: [w.lat, w.lng],
+        title: w.name,
+        color: i === currentWpIdx ? 'orange' : 'green',
+        type: MarkerType.POI,
+      })),
+    ];
+  }, [waypoints, currentWpIdx, activeRouteTitle]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
     if (!preview || preview.wps.length === 0) return null;
     const center: [number, number] = [preview.wps[0].lat, preview.wps[0].lng];
+    const line = preview.wps.map(w => [w.lat, w.lng] as [number, number]);
+    // Сборник мест по всему краю (сегменты >25 км) — не трек: линию не
+    // рисуем и «Начать по маршруту» не предлагаем
+    const scattered = isScatteredCollection(line);
     const markers: MapMarker[] = [
-      {
+      ...(scattered ? [] : [{
         coords: center,
         title: preview.title,
         color: 'teal',
         type: MarkerType.POI,
-        geometry: { type: 'polyline', coordinates: preview.wps.map(w => [w.lat, w.lng] as [number, number]), color: '#4ade80', weight: 4 } as MapMarkerGeometry,
-      },
+        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+      }]),
       ...preview.wps.map((w, i) => ({
         coords: [w.lat, w.lng] as [number, number],
         title: w.name,
@@ -455,7 +465,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-    return { center, markers };
+    return { center, markers, scattered };
   }, [preview]);
 
   const distToNext = coords && nextWp
@@ -818,17 +828,26 @@ function OnTrailTab() {
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
                   {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
                 </p>
+                {previewMap.scattered && (
+                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                    Это подборка мест по всему краю, а не единый трек — идти по ней
+                    как по маршруту нельзя. Выберите компактный маршрут из вариантов.
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setPreview(null)}
                     className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg"
                     style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
                     К вариантам
                   </button>
-                  <button onClick={() => selectRoute(preview)}
-                    className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
-                    style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                    Начать по маршруту
-                  </button>
+                  {!previewMap.scattered && (
+                    <button onClick={() => selectRoute(preview)}
+                      className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
+                      style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                      Начать по маршруту
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (

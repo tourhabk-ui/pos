@@ -218,7 +218,17 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     idx++;
   }
   if (has_waypoints === 'true') {
-    conditions.push(`EXISTS (SELECT 1 FROM route_waypoints rwx WHERE rwx.route_id = ark.id)`);
+    // Точки должны быть И компактными: bbox вейпоинтов ≤ ~55 км. Мега-сборники
+    // «35 мест по всему краю» имеют waypoints, но их синтетическая геометрия —
+    // паутина прямых через весь Петропавловск (полевой скрин 20.07), это не
+    // проходимый трек и в навигацию попадать не должно.
+    conditions.push(
+      `EXISTS (SELECT 1 FROM route_waypoints rwx WHERE rwx.route_id = ark.id)
+       AND (SELECT (MAX(p.lat) - MIN(p.lat)) <= 0.5 AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
+            FROM route_waypoints rwx2
+            JOIN places p ON p.id = rwx2.place_id
+            WHERE rwx2.route_id = ark.id AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
+    );
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
     // Гаверсинус в SQL; least(1.0, ...) страхует acos от погрешности округления
