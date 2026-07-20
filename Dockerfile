@@ -35,6 +35,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS="--max-old-space-size=3072"
 ENV WEBPACK_PARALLELISM=1
 
+# Версионный маркер деплоя: vedarai.ru/version.json — какой коммит и когда
+# собран. Workflows ждут нужную версию вместо слепых таймеров (deploy-race).
+# sha берётся из .git/HEAD (re-include в .dockerignore): Timeweb собирает
+# в detached HEAD, значит там чистый sha; иначе — 'unknown' (локальный билд).
+RUN node -e "const fs=require('fs');let sha='unknown';try{const h=fs.readFileSync('.git/HEAD','utf8').trim();if(/^[0-9a-f]{40}$/.test(h))sha=h;}catch(e){};fs.mkdirSync('public',{recursive:true});fs.writeFileSync('public/version.json',JSON.stringify({commit:sha,built_at:new Date().toISOString()}));"
+
 # Вызываем локальный бинарь next напрямую, а НЕ через npx: npx при неполном
 # node_modules лезет в реестр за next и виснет по ETIMEDOUT. Локальный путь
 # гарантированно не ходит в сеть на этапе сборки.

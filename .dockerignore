@@ -5,6 +5,9 @@ npm-debug.log
 README.md
 .next
 .git
+# …но .git/HEAD (41 байт) нужен для version.json: Timeweb собирает в
+# detached HEAD, там лежит чистый sha коммита — без git-бинаря и сети.
+!.git/HEAD
 .gitignore
 .env
 .env.local
