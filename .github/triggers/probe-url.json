@@ -1,8 +1,10 @@
 {
   "note": "Маркер запуска probe-url.yml",
-  "run": 8,
+  "run": 9,
   "bytes": 2500,
   "urls": [
-    "https://vedarai.ru/api/routes?limit=6&sort=recommended&kind=route&has_waypoints=true"
+    "https://vedarai.ru/api/routing/path?from_lat=53.0195&from_lng=158.6505&to_lat=53.1830&to_lng=158.3883&mode=car",
+    "https://vedarai.ru/api/routing/path?from_lat=53.0195&from_lng=158.6505&to_lat=53.0446&to_lng=158.6483&mode=foot",
+    "https://vedarai.ru/api/routing/path?from_lat=53.1830&from_lng=158.3883&to_lat=53.2290&to_lng=158.8370&mode=car"
   ]
 }
