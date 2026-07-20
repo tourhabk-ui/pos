@@ -35,3 +35,44 @@ try {
 }
 
 spawn('node', ['server.js'], { env: { ...process.env, PORT: '3001', HOSTNAME: '127.0.0.1' }, stdio: 'inherit', cwd: __dirname });
+
+// ── Safety heartbeat ─────────────────────────────────────────────────────
+// Планировщик GitHub Actions (schedule */5) — best-effort: под нагрузкой он
+// задерживал сейсмо/цунами-ингест на 1–3 часа вместо 5 минут (монитор молчал
+// часами при SLA ≤5 мин). Этот всегда-живой супервизор сам дёргает серверный
+// ингест каждые 5 минут: сервер напрямую тянет USGS + МЧС RSS (эти источники
+// хостинг не блокирует), поэтому землетрясения и цунами свежие ≤5 мин
+// независимо от GitHub. Telegram КБГС по-прежнему добирает GitHub-воркфлоу
+// (t.me для хостинга гео-заблокирован). Секрет из коробки не уходит.
+const SAFETY_INGEST_INTERVAL_MS = 5 * 60 * 1000;
+
+function triggerSafetyIngest() {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return;
+  const r = http.request({
+    hostname: '127.0.0.1',
+    port: 3001,
+    path: '/api/cron/safety-ingest',
+    method: 'GET',
+    // server.js (Next 15) сверяет Host с HOSTNAME=127.0.0.1 (DNS-rebinding guard)
+    headers: { 'host': '127.0.0.1:3001', 'authorization': `Bearer ${secret}` },
+    timeout: 90000,
+  }, res => {
+    res.resume(); // сливаем тело, не копим в памяти
+    if (res.statusCode !== 200) console.error(`[safety-heartbeat] HTTP ${res.statusCode}`);
+  });
+  r.on('timeout', () => { console.error('[safety-heartbeat] timeout'); r.destroy(); });
+  r.on('error', e => console.error('[safety-heartbeat] error:', e.message));
+  r.end();
+}
+
+if (process.env.CRON_SECRET) {
+  // Пауза на прогрев server.js, затем сразу прогон и далее каждые 5 минут.
+  setTimeout(() => {
+    triggerSafetyIngest();
+    setInterval(triggerSafetyIngest, SAFETY_INGEST_INTERVAL_MS);
+  }, 45000);
+  console.log('[safety-heartbeat] scheduled every 5 min');
+} else {
+  console.error('[safety-heartbeat] CRON_SECRET not set — in-process heartbeat disabled');
+}
