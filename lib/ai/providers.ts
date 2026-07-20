@@ -464,6 +464,52 @@ export async function callDeepSeekWithTools(
   }
 }
 
+// Kimi tool-calling (OpenAI-совместимый). Первичный провайдер tools-цикла:
+// доступен из РФ, сильнее DeepSeek по агентности. База/модель — из env.
+export async function callKimiWithTools(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+  timeoutMs = 25_000,
+): Promise<ToolsCallResult | null> {
+  const { apiKey, base, model } = getKimiConfig();
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetchWithRetry(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        max_tokens: 1000,
+        messages,
+        tools,
+        tool_choice: 'auto',
+      }),
+    }, { timeoutMs, label: `kimi-tools:${model}` });
+
+    if (!res.ok) return null;
+
+    const data = await res.json() as {
+      choices?: Array<{
+        message?: { content?: string | null; tool_calls?: ToolCall[] };
+      }>;
+    };
+    const msg = data?.choices?.[0]?.message;
+    if (!msg) return null;
+
+    return {
+      content: msg.content ?? null,
+      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
 export async function firstNonNullTool(
   attempts: Array<() => Promise<ToolsCallResult | null>>,
@@ -475,16 +521,18 @@ export async function firstNonNullTool(
   return null;
 }
 
-// Водопад инструментов: OpenRouter (дёшево, авто-восстановление если разблокируют)
-// → DeepSeek (рабочий фоллбэк). Раньше tools-цикл Кузьмича висел только на
-// OpenRouter — при регион-блоке инструменты отваливались, чат жил без tools.
+// Водопад инструментов: Kimi (первичный — качество + доступен из РФ) → DeepSeek
+// (рабочий фоллбэк) → OpenRouter (последний шанс, авто-восстановление если
+// разблокируют). Раньше tools-цикл Кузьмича висел только на OpenRouter — при
+// регион-блоке инструменты отваливались, чат жил без tools.
 export async function callToolsWaterfall(
   messages: ToolMsg[],
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
   return firstNonNullTool([
-    () => callOpenRouterWithTools(messages, tools),
-    () => callDeepSeekWithTools(messages, tools),
+    () => callKimiWithTools(messages, tools),        // первичный: качество + доступен из РФ
+    () => callDeepSeekWithTools(messages, tools),    // фоллбэк
+    () => callOpenRouterWithTools(messages, tools),  // последний шанс (авто-восстановление если разблокируют)
   ]);
 }
 
@@ -795,6 +843,52 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
       logLLMUsage('deepseek-chat', data.usage);
+      return text;
+    }
+    return null;
+  } catch { return null; }
+}
+
+// ── Kimi (Moonshot AI — platform.kimi.ai) ─────────────────────
+// Китайский провайдер, OpenAI-совместимый, сильный tool-calling, доступен из РФ
+// (в отличие от региона-блокнутого OpenRouter). База и модель — из env, чтобы
+// сменить тир (kimi-k2.6 / kimi-k3) или базу (api.moonshot.ai vs api.kimi.ai)
+// без правки кода. НЕ брать «thinking»-вариант — у него проблемы с function-calling.
+export function getKimiConfig(): { apiKey: string | null; base: string; model: string } {
+  return {
+    apiKey: process.env.MOONSHOT_API_KEY || null,
+    base: (process.env.MOONSHOT_BASE_URL || 'https://api.moonshot.ai/v1').replace(/\/+$/, ''),
+    model: process.env.MOONSHOT_MODEL || 'kimi-k2.6',
+  };
+}
+
+export async function callKimi(messages: ChatMessage[]): Promise<string | null> {
+  const { apiKey, base, model } = getKimiConfig();
+  if (!apiKey) return null;
+
+  try {
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetchWithRetry(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        max_tokens: 800,
+        messages: payload,
+      }),
+    }, { timeoutMs: 25_000, label: `kimi:${model}` });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: ProviderUsage;
+    };
+    const text: string | undefined = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) {
+      logLLMUsage(`kimi:${model}`, data.usage);
       return text;
     }
     return null;
