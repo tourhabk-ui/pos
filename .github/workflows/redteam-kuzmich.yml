@@ -18,6 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Версионный маркер: не гадаем по таймерам, ждём пока прод соберёт
+      # нужный коммит (до 8 мин), затем прогоняем. Если version.json ещё
+      # не задеплоен (старый образ) или коммит не совпал — печатаем факт
+      # и продолжаем: прогон на текущей версии тоже информативен.
+      - name: Версия прода — ждать нужный коммит
+        run: |
+          WANT="${GITHUB_SHA}"
+          echo "Ожидаемый коммит: $WANT"
+          for i in $(seq 1 16); do
+            BODY=$(curl -s --max-time 20 "https://vedarai.ru/version.json" || true)
+            GOT=$(python3 -c "import json,sys;print(json.loads(sys.argv[1]).get('commit','none'))" "$BODY" 2>/dev/null || echo "no-marker")
+            echo "[$i/16] прод: $GOT ($BODY)"
+            [ "$GOT" = "$WANT" ] && { echo "ВЕРСИЯ СОВПАЛА"; exit 0; }
+            sleep 30
+          done
+          echo "ВЕРСИЯ НЕ ДОЖДАЛАСЬ — прогон на текущей версии прода"
+
       - name: Kuzmich Red-Team — адверсариальные сценарии
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
