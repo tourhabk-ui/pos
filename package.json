@@ -95,7 +95,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "lottie-web": "^5.13.0",
-    "lucide-react": "^0.555.0",
+    "lucide-react": "^1.25.0",
     "next": "^15.5.20",
     "nodemailer": "^9.0.3",
     "pdf-parse": "^2.4.5",
