@@ -415,6 +415,79 @@ export async function callOpenRouterWithTools(
   }
 }
 
+// DeepSeek tool-calling (OpenAI-совместимый function-calling). Используется как
+// фоллбэк tools-цикла, когда OpenRouter недоступен — например, регион-блокирует
+// IP хостинга (403 "Access denied by security policy"): замена ключа не помогает,
+// а DeepSeek с российского хостинга доступен.
+export async function callDeepSeekWithTools(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+  modelId = 'deepseek-chat',
+  timeoutMs = 25_000,
+): Promise<ToolsCallResult | null> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        temperature: 0.3,
+        max_tokens: 1000,
+        messages,
+        tools,
+        tool_choice: 'auto',
+      }),
+    }, { timeoutMs, label: `deepseek-tools:${modelId}` });
+
+    if (!res.ok) return null;
+
+    const data = await res.json() as {
+      choices?: Array<{
+        message?: { content?: string | null; tool_calls?: ToolCall[] };
+      }>;
+    };
+    const msg = data?.choices?.[0]?.message;
+    if (!msg) return null;
+
+    return {
+      content: msg.content ?? null,
+      tool_calls: msg.tool_calls?.length ? msg.tool_calls : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Первый непустой результат из списка попыток; поздние не зовём после успеха. */
+export async function firstNonNullTool(
+  attempts: Array<() => Promise<ToolsCallResult | null>>,
+): Promise<ToolsCallResult | null> {
+  for (const attempt of attempts) {
+    const r = await attempt();
+    if (r) return r;
+  }
+  return null;
+}
+
+// Водопад инструментов: OpenRouter (дёшево, авто-восстановление если разблокируют)
+// → DeepSeek (рабочий фоллбэк). Раньше tools-цикл Кузьмича висел только на
+// OpenRouter — при регион-блоке инструменты отваливались, чат жил без tools.
+export async function callToolsWaterfall(
+  messages: ToolMsg[],
+  tools: ToolDefinition[],
+): Promise<ToolsCallResult | null> {
+  return firstNonNullTool([
+    () => callOpenRouterWithTools(messages, tools),
+    () => callDeepSeekWithTools(messages, tools),
+  ]);
+}
+
 // Call AI with a preferred model. Falls back to full waterfall if preferred model fails.
 export async function callAIWithModel(
   messages: ChatMessage[],

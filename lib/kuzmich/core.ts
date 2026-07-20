@@ -10,7 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
-import { callAIWaterfall, callOpenRouterWithTools, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
+import { callAIWaterfall, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
@@ -1629,7 +1629,7 @@ export async function aiChatAgentLoop(
   const seenToolSigs = new Set<string>(); // дедуп повторных вызовов между ходами
 
   for (let turn = 0; turn < 4; turn++) {
-    const result = await callOpenRouterWithTools(msgs, KUZMICH_TOOLS);
+    const result = await callToolsWaterfall(msgs, KUZMICH_TOOLS);
     if (!result) return null;
 
     if (!result.tool_calls?.length) {
