@@ -57,6 +57,10 @@ test.describe('API Smoke Tests', () => {
   });
 
   test('POST /api/leads accepts lead', async ({ request }) => {
+    // Мутирующий тест: создаёт лид (Telegram-алерт, watchdog, AI-обработчик).
+    // В прод-smoke (SMOKE_READONLY=1) пропускаем, чтобы не сорить боевыми лидами —
+    // прогоняется только локально/на тестовой БД.
+    test.skip(process.env.SMOKE_READONLY === '1', 'мутирующий — пропущен в read-only прод-smoke');
     const res = await request.post('/api/leads', {
       data: {
         name: 'E2E Test',

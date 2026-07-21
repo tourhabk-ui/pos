@@ -1,0 +1,71 @@
+name: E2E — Playwright smoke по проду
+
+# Гоняет Playwright-smoke по ЖИВОМУ проду (vedarai.ru), а не поднимает своё
+# приложение с нуля: чистой сборки схемы БД из миграций в репо нет (трекинг
+# миграций бутстрапится, база строится не с нуля, schema.sql требует PostGIS),
+# поэтому DB-backed e2e в CI дал бы вечно-красный джоб. Прогон по проду не
+# требует БД, зелёный при живом проде и ловит реальные регрессии витрины:
+# главная упала, /routes/500, публичные API сломаны.
+#
+# Read-only: SMOKE_READONLY=1 пропускает единственный мутирующий тест
+# (POST /api/leads), чтобы не сорить боевыми лидами.
+#
+# Первый прогон: правка .github/triggers/e2e-smoke.json в main (мерж этого PR
+# запускает smoke автоматически). Дальше — по расписанию и вручную.
+
+on:
+  schedule:
+    - cron: '30 6 * * *'  # ежедневно 06:30 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/e2e-smoke.json'
+
+concurrency:
+  group: e2e-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      BASE_URL: https://vedarai.ru
+      SMOKE_READONLY: '1'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Wait for prod to answer
+        run: |
+          for i in $(seq 1 10); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE_URL/" || echo 000)
+            if [ "$CODE" = "200" ]; then echo "прод отвечает (HTTP 200)"; break; fi
+            echo "прод ещё не готов (HTTP $CODE), жду 30с ($i/10)"; sleep 30
+          done
+
+      - name: Run smoke (chromium, read-only, против прода)
+        run: npx playwright test test/e2e/smoke.spec.ts --project=chromium
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

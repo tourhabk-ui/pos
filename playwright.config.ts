@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Когда BASE_URL указывает на внешний адрес (прод/стейдж) — свой dev-сервер не
+// поднимаем, гоняем спеки против уже живого приложения (прод-smoke без БД).
+// Без BASE_URL или на localhost — как раньше: playwright сам стартует `npm run dev`.
+const baseURL = process.env.BASE_URL || 'http://localhost:3000';
+const isRemoteTarget = !!process.env.BASE_URL && !/localhost|127\.0\.0\.1/.test(process.env.BASE_URL);
+
 export default defineConfig({
   testDir: './test/e2e',
   fullyParallel: true,
@@ -8,7 +14,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -37,10 +43,12 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+  webServer: isRemoteTarget
+    ? undefined
+    : {
+        command: 'npm run dev',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      },
 });
