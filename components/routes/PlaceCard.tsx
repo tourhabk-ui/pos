@@ -198,7 +198,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           disabled={deleting}
           aria-label="Удалить место"
           title="Удалить место"
-          className="absolute top-2 left-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
+          className="pc-hit absolute top-2 left-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
           style={{ background: 'var(--danger)', opacity: deleting ? 0.5 : 0.92 }}
         >
           <Trash2 className="w-4 h-4 text-white" />
@@ -286,7 +286,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             type="button"
             onClick={handleFavorite}
             aria-label={liked ? 'В избранном' : 'В избранное'}
-            className={`pc-hrt absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
+            className={`pc-hrt pc-hit absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
             onAnimationEnd={() => setPopped(false)}
             style={{ background: liked ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: liking ? 0.6 : 1 }}
           >
@@ -325,7 +325,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
         <Link href={`/places/${route.id}`} className="block">
           <b
             className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
-            style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600 }}
+            style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600, letterSpacing: '-0.01em', textWrap: 'balance' }}
           >
             {route.title}
           </b>
@@ -337,6 +337,10 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             className="pc-inst mt-2 pt-2 flex items-center gap-2"
             style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
             onClick={handleInstTap}
+            role="button"
+            tabIndex={0}
+            aria-label="Уточнить пеленг и дистанцию от вашей позиции"
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); requestGeo(); } }}
             title="Уточнить от вашей позиции"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
@@ -363,6 +367,22 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
 
       <style jsx>{`
         .pc:hover { border-color: color-mix(in srgb, var(--el) 45%, var(--border)); }
+        /* Фокус с клавиатуры виден на всех интерактивных (§10 доступность).
+           outline следует border-radius кнопок — на круглых иконках круглый. */
+        .pc a:focus-visible,
+        .pc button:focus-visible,
+        .pc-inst:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 2px;
+        }
+        /* Комфортная тач-цель ≥44px для иконок-кнопок 32px без раздутия вида:
+           невидимая расширенная зона тапа (§10, палец в поле). */
+        .pc-hit::after {
+          content: '';
+          position: absolute;
+          inset: -6px;
+          border-radius: 9999px;
+        }
         /* Без анимации (reduced-motion) пробег свечения не рисуется вовсе */
         .pc-hz-glow { opacity: 0; }
         @media (prefers-reduced-motion: no-preference) {
