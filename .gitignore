@@ -171,3 +171,6 @@ data/route-passports/
 /test-results/
 /blob-report/
 /playwright/.cache/
+
+# Evo — рука действия: манифест прогона (артефакт, в коммит не идёт)
+evo-apply-manifest.json

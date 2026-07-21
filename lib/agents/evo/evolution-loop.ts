@@ -13,6 +13,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { deterministicFix } from '@/lib/agents/evo/deterministic-fix';
 
 export interface EvolutionResult {
   processed: number;
@@ -21,21 +22,6 @@ export interface EvolutionResult {
   errors: number;
   duration_ms: number;
 }
-
-// Действия которые AI может выполнять автоматически (без одобрения)
-const SAFE_AUTO_FIXES = new Set([
-  'dead_code',     // удаление мёртвых файлов
-  'add_indexes',   // добавление индексов БД
-]);
-
-// Файлы которые AI НЕ трогает без одобрения
-const PROTECTED_PATHS = [
-  'lib/auth/',
-  'lib/payments/',
-  'app/api/webhook/',
-  'app/api/payments/',
-  '.env',
-];
 
 /**
  * Главный цикл эволюции.
@@ -86,27 +72,27 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
     processed++;
 
     try {
-      const canAutoFix = SAFE_AUTO_FIXES.has(issue.category)
-        && !isProtectedPath(issue.file_path);
+      // Предохранитель (решение владельца): авто-применяется ТОЛЬКО
+      // детерминированное — индекс-миграция из allowlist'а таблиц/колонок.
+      // Модель диффов не пишет: эмитим структурированный payload, а раннер
+      // (scripts/evo-apply.js) превращает его в файловую правку и черновой PR.
+      const fix = deterministicFix(issue);
 
-      if (canAutoFix) {
-        // Автоматический фикс — генерируем diff
-        const diff = await generateFix(issue, learningSummary);
-        if (diff) {
-          await pool.query(
-            `INSERT INTO evo_evolution_log (issue_id, action, status, diff_summary)
-             VALUES ($1, $2, 'pending', $3)`,
-            [issue.id, `auto_fix_${issue.category}`, diff.slice(0, 4000)],
-          );
-          await pool.query(
-            `UPDATE evo_growth_issues SET status = 'accepted' WHERE id = $1`,
-            [issue.id],
-          );
-          autoFixes++;
-        }
+      if (fix) {
+        await pool.query(
+          `INSERT INTO evo_evolution_log (issue_id, action, status, diff_summary)
+           VALUES ($1, $2, 'pending', $3)`,
+          [issue.id, `auto_fix_${issue.category}`, JSON.stringify(fix)],
+        );
+        await pool.query(
+          `UPDATE evo_growth_issues SET status = 'accepted' WHERE id = $1`,
+          [issue.id],
+        );
+        autoFixes++;
       } else {
-        // Только предложение — ждёт фидбека человека.
-        // Меняем статус на 'suggested', чтобы следующий цикл не обрабатывал повторно.
+        // Не сводится к детерминированной правке — текстовое предложение
+        // человеку. Меняем статус на 'suggested', чтобы следующий цикл не
+        // обрабатывал повторно.
         const suggestion = await generateSuggestion(issue, learningSummary);
         await pool.query(
           `UPDATE evo_growth_issues SET status = 'suggested', suggestion = $1 WHERE id = $2`,
@@ -127,63 +113,6 @@ export async function runEvolutionLoop(): Promise<EvolutionResult> {
   );
 
   return { processed, auto_fixes: autoFixes, suggestions, errors, duration_ms: Date.now() - start };
-}
-
-function isProtectedPath(filePath: string | null): boolean {
-  if (!filePath) return true; // без file_path — не трогаем
-  return PROTECTED_PATHS.some(p => filePath.includes(p));
-}
-
-async function generateFix(issue: {
-  category: string; file_path: string | null;
-  title: string; description: string | null; suggestion: string | null;
-}, learningSummary: string): Promise<string | null> {
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content: `Ты инженер платформы TourHab (Next.js 15, TypeScript strict, PostgreSQL без Prisma). Генерируешь минимальный безопасный unified diff для авто-применения БЕЗ ручного ревью — правка должна быть точечной и ничего не ломать вокруг.
-
-Обязательные правила (нарушение = отказ применять):
-- SQL только параметризованный ($1,$2), никогда конкатенация
-- import { pool } from '@/lib/db-pool' (named), никогда default import
-- Никакого отладочного console-вывода, эмодзи, секретов в коде
-- Миграции БД — только отдельным файлом migrations/NNN_name.sql, идемпотентно (IF NOT EXISTS); индексы на больших таблицах через CREATE INDEX CONCURRENTLY (вне транзакции)
-- НЕ менять auth, payments, webhook, схему существующих таблиц
-- Изменяй минимум строк
-
-Верни ТОЛЬКО unified diff, без объяснений и markdown. Контекстные строки (@@) должны точно соответствовать реальному коду — если не уверен в точном содержимом файла, верни единственную строку:
-NEED_CONTEXT: <что именно нужно увидеть>
-
-Формат:
---- a/path/to/file
-+++ b/path/to/file
-@@ -old,start +new,start @@
- контекст
--удалить
-+добавить
-
-Если файл — подтверждённый мёртвый модуль и нужно удалить целиком:
-DELETE FILE: path/to/file`,
-    },
-    {
-      role: 'user',
-      content: `Категория: ${issue.category}
-Проблема: ${issue.title}
-${issue.description ? `Описание: ${issue.description}` : ''}
-${issue.suggestion ? `Предложенное направление: ${issue.suggestion}` : ''}
-${issue.file_path ? `Целевой файл: ${issue.file_path}` : ''}
-${learningSummary ? `\nУроки из прошлых циклов (не повторяй ошибок): ${learningSummary}` : ''}
-
-Если категория add_indexes — верни diff нового файла-миграции migrations/NNN_name.sql (идемпотентного). Если dead_code — верни DELETE FILE. Иначе — минимальный точечный diff целевого файла. Если для корректных контекстных строк нужно увидеть исходный код, верни NEED_CONTEXT с указанием файла.`,
-    },
-  ];
-
-  try {
-    const diff = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
-    return diff?.trim() ?? null;
-  } catch {
-    return null;
-  }
 }
 
 async function generateSuggestion(issue: {

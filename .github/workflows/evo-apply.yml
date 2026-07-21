@@ -1,0 +1,112 @@
+name: Evo — рука действия (детерминированные авто-фиксы)
+
+# Читает pending детерминированные правки эволюции (индекс-миграции, удаление
+# подтверждённо-мёртвых файлов) с прода, применяет их, гоняет tsc и открывает
+# ЧЕРНОВОЙ PR на ревью. Ничего не мержит — финальное решение за человеком.
+#
+# Раннер на GitHub (не на Timeweb) → RF-блокировки не мешают git/PR.
+# Требует secret CRON_SECRET. Для CI на созданном PR можно задать secret EVO_PAT
+# (PAT с repo+PR) — иначе PR открывается через GITHUB_TOKEN (CI на нём не бежит).
+
+on:
+  schedule:
+    - cron: '17 4 * * *'  # ежедневно 04:17 UTC (нечётная минута — GitHub дропает :00)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/evo-apply.json'
+
+concurrency:
+  group: evo-apply
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Применить детерминированные правки (пишет файлы + манифест)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: node scripts/evo-apply.js
+
+      - name: Открыть черновой PR, если есть изменения
+        env:
+          GH_TOKEN: ${{ secrets.EVO_PAT || secrets.GITHUB_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          MANIFEST=evo-apply-manifest.json
+          if [ ! -f "$MANIFEST" ]; then echo "нет манифеста — нечего делать"; exit 0; fi
+
+          COUNT=$(jq -r '.count' "$MANIFEST")
+          NOOP=$(jq -c '.noop_ids' "$MANIFEST")
+          SHIPPED_IDS=$(jq -c '.shipped_ids' "$MANIFEST")
+          BRANCH="evo/auto-fixes-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
+
+          # Тело коммита/PR — в файл (многострочное; в YAML держим команды однострочными)
+          MSG=$(mktemp)
+          {
+            echo "chore(evo): детерминированные авто-фиксы (индексы/мёртвый код)"
+            echo
+            echo "Сгенерировано рукой действия эволюции из открытых находок Growth Scan."
+            echo "Только детерминированное (без AI-диффов). Черновик — на ревью человеку."
+            echo
+            echo "## Что применено"
+            jq -r '.summary | map("- " + .) | join("\n")' "$MANIFEST"
+          } > "$MSG"
+
+          # Манифест — артефакт прогона, в коммит не идёт
+          rm -f "$MANIFEST"
+
+          PR_URL=""
+          if [ "$COUNT" -gt 0 ] && [ -n "$(git status --porcelain)" ]; then
+            echo "Изменения есть — гоняем tsc перед PR"
+            npx tsc --noEmit
+
+            git config user.name  "evo-bot"
+            git config user.email "evo-bot@users.noreply.github.com"
+            git checkout -b "$BRANCH"
+            git add -A
+            git commit -F "$MSG"
+            git push -u origin "$BRANCH"
+
+            PR_URL=$(gh pr create --draft --base main --head "$BRANCH" \
+              --title "chore(evo): детерминированные авто-фиксы эволюции" \
+              --body-file "$MSG")
+            echo "PR: $PR_URL"
+          else
+            echo "Реальных изменений нет (count=$COUNT)"
+          fi
+
+          # Колбэк: закрыть записи в evo_evolution_log (shipped → in_progress с pr_url; noop → complete)
+          if [ -n "$PR_URL" ]; then
+            SHIPPED=$(echo "$SHIPPED_IDS" | jq -c --arg url "$PR_URL" 'map({id: ., pr_url: $url})')
+          else
+            SHIPPED='[]'
+          fi
+          PAYLOAD=$(jq -nc --argjson shipped "$SHIPPED" --argjson noop "$NOOP" '{shipped: $shipped, noop: $noop}')
+
+          if [ "$SHIPPED" != "[]" ] || [ "$NOOP" != "[]" ]; then
+            echo "Колбэк на прод: $PAYLOAD"
+            curl -s -X POST "https://vedarai.ru/api/cron/evo-apply" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" || echo "колбэк не прошёл (не критично — pending закроется на следующем прогоне)"
+          fi
