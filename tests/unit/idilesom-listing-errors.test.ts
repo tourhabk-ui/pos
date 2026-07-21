@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchAllIds, importIdilesomPlaces } from '@/lib/services/idilesom-importer';
+import { fetchAllIds, importIdilesomPlaces } from '@/lib/services/ingest/idilesom-importer';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

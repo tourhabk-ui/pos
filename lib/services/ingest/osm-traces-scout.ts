@@ -18,8 +18,8 @@
 
 import { gunzipSync } from 'zlib';
 import { pool } from '@/lib/db-pool';
-import { parseGpx } from '@/lib/services/visitkamchatka-gpx-importer';
-import { matchTrackToPlace, type PlaceRef } from '@/lib/services/idilesom-importer';
+import { parseGpx } from '@/lib/services/ingest/visitkamchatka-gpx-importer';
+import { matchTrackToPlace, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const HEADERS = {

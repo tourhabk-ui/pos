@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { importVisitKamchatkaGpx } from '@/lib/services/visitkamchatka-gpx-importer';
+import { importVisitKamchatkaGpx } from '@/lib/services/ingest/visitkamchatka-gpx-importer';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;

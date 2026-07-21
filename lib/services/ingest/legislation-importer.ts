@@ -20,7 +20,7 @@
 
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import { callAIWaterfall } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 

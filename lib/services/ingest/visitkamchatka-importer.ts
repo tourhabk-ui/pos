@@ -14,7 +14,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 
 const BASE_URL = 'https://visitkamchatka.ru';
 const SOURCE_NAME = 'visitkamchatka.ru';

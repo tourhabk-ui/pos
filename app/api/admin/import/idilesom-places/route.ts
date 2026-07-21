@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { importIdilesomPlaces } from '@/lib/services/idilesom-importer';
+import { importIdilesomPlaces } from '@/lib/services/ingest/idilesom-importer';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;

@@ -25,7 +25,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notifications/telegram-channel';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 // ── Types ────────────────────────────────────────────────────────────────────

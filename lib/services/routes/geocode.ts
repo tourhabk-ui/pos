@@ -37,7 +37,7 @@ export function clearGeocodeCache(): void {
   geocodeCache.clear();
 }
 
-// Kamchatka bounding box (см. lib/services/idilesom-importer.ts) — защита от
+// Kamchatka bounding box (см. lib/services/ingest/idilesom-importer.ts) — защита от
 // того, что Nominatim примет название места за что-то за пределами края.
 export const KAMCHATKA_BOUNDS = { latMin: 50, latMax: 64, lngMin: 155, lngMax: 167 };
 

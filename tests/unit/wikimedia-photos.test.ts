@@ -3,7 +3,7 @@
  * кандидата из imageinfo. Только чистые функции — без сети.
  */
 import { describe, it, expect } from 'vitest';
-import { isFreeLicense, stripHtml, buildCandidate } from '@/lib/services/wikimedia-photos';
+import { isFreeLicense, stripHtml, buildCandidate } from '@/lib/services/ingest/wikimedia-photos';
 
 describe('isFreeLicense', () => {
   it('принимает CC-BY / CC-BY-SA / CC0 / PD по машинному коду', () => {

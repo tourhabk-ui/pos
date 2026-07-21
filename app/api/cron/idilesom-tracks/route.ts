@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { backfillIdilesomTracks, linkIdilesomTracksToPlaces } from '@/lib/services/idilesom-importer';
+import { backfillIdilesomTracks, linkIdilesomTracksToPlaces } from '@/lib/services/ingest/idilesom-importer';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
