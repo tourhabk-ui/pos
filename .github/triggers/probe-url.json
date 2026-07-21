@@ -1,9 +1,10 @@
 {
   "note": "Маркер запуска probe-url.yml",
-  "run": 16,
-  "bytes": 2000,
+  "run": 17,
+  "bytes": 16000,
   "urls": [
     "https://vedarai.ru/version.json",
-    "https://vedarai.ru/api/cron/health"
+    "https://vedarai.ru/sw.js",
+    "https://vedarai.ru/offline"
   ]
 }
