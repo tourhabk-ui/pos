@@ -4,71 +4,68 @@
  * «Рука действия» эволюции применяет ТОЛЬКО детерминированное — то, что
  * выводится из находки Growth Scan без участия модели и без хрупкого
  * git-apply AI-диффа (решение владельца: предохранитель = только
- * детерминированное). Отсюда:
- *   - add_index   — из находки «Нет индекса: <таблица>.<колонка>» (perf-скан
- *                   детектит отсутствие индекса детерминированным SQL);
- *   - delete_file — из подтверждённо-мёртвого модуля (dead_code).
+ * детерминированное).
+ *
+ * v1 — единственный вид: add_index. Он аддитивный (новая идемпотентная
+ * миграция), а таблица/колонка берутся из ФИКСИРОВАННОГО множества, которое
+ * детектит perf-скан (growth-agent.scanPerformance). Это позволяет раннеру
+ * писать файл из значений allowlist'а, а не из сырых сетевых данных.
+ *
+ * delete_file (удаление мёртвого файла) СПЕЦИАЛЬНО НЕ автоприменяется: путь
+ * пришёл бы из сетевого ответа, а удаление разрушительно и цель нельзя
+ * ограничить безопасным allowlist'ом (CodeQL: network data → fs.rm). Мёртвые
+ * модули остаются текстовым предложением человеку.
  *
  * Модель диффов НЕ пишет: loop эмитит структурированный payload, а раннер
- * (GitHub Actions, scripts/evo-apply.js) превращает его в файловую правку.
- * SQL-шаблон индекс-миграции живёт в раннере — там, где файлы реально
- * создаются; здесь только определяется, ЧТО за правка и безопасна ли она.
+ * (scripts/evo-apply.js) превращает его в файловую правку. SQL-шаблон
+ * индекс-миграции живёт в раннере — там, где файлы реально создаются.
  */
 
+// Совпадает с фиксированными множествами growth-agent.scanPerformance:
+// именно эти таблицы/колонки он проверяет на отсутствие индекса. Держим
+// allowlist каноничным здесь; раннер (JS) дублирует его как вторую линию.
+export const INDEXABLE_TABLES = ['operator_bookings', 'agent_memory', 'ai_actions_log'] as const;
+export const INDEXABLE_COLUMNS = ['created_at', 'booking_status', 'agent_id'] as const;
+
 export interface DeterministicFix {
-  kind: 'add_index' | 'delete_file';
-  /** для add_index */
-  table?: string;
-  column?: string;
-  /** для delete_file */
-  path?: string;
-}
-
-// Пути, которые эволюция не трогает без человека ни при каких находках.
-export const PROTECTED_PATHS = [
-  'lib/auth/',
-  'lib/payments/',
-  'app/api/webhook/',
-  'app/api/payments/',
-  'app/api/safety/sos',
-  'middleware.ts',
-  '.env',
-];
-
-export function isProtectedPath(filePath: string | null): boolean {
-  if (!filePath) return true; // без пути — не трогаем
-  return PROTECTED_PATHS.some((p) => filePath.includes(p));
+  kind: 'add_index';
+  table: (typeof INDEXABLE_TABLES)[number];
+  column: (typeof INDEXABLE_COLUMNS)[number];
 }
 
 // Заголовок находки perf-скана: «Нет индекса: operator_bookings.created_at».
-// Имена таблицы/колонки — только [a-z_0-9] (иначе не наш формат, не трогаем).
 const INDEX_TITLE = /^Нет индекса:\s*([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\s*$/i;
+
+function pickTable(v: string): DeterministicFix['table'] | null {
+  return INDEXABLE_TABLES.find((t) => t === v) ?? null;
+}
+function pickColumn(v: string): DeterministicFix['column'] | null {
+  return INDEXABLE_COLUMNS.find((c) => c === v) ?? null;
+}
 
 /**
  * Возвращает детерминированную правку для находки — или null, если находка
- * не сводится к безопасному детерминированному действию (тогда loop оставит
- * её текстовым предложением человеку).
+ * не сводится к безопасному детерминированному действию из allowlist'а (тогда
+ * loop оставит её текстовым предложением человеку).
  */
 export function deterministicFix(issue: {
   category: string;
   title: string;
   file_path: string | null;
 }): DeterministicFix | null {
-  if (issue.category === 'performance') {
-    const m = INDEX_TITLE.exec(issue.title.trim());
-    if (m) return { kind: 'add_index', table: m[1].toLowerCase(), column: m[2].toLowerCase() };
-  }
-
-  if (issue.category === 'dead_code' && issue.file_path && !isProtectedPath(issue.file_path)) {
-    return { kind: 'delete_file', path: issue.file_path };
-  }
-
-  return null;
+  if (issue.category !== 'performance') return null;
+  const m = INDEX_TITLE.exec(issue.title.trim());
+  if (!m) return null;
+  const table = pickTable(m[1].toLowerCase());
+  const column = pickColumn(m[2].toLowerCase());
+  if (!table || !column) return null;
+  return { kind: 'add_index', table, column };
 }
 
 /**
  * Разбор payload из evo_evolution_log.diff_summary. Старые записи могли нести
- * сырой AI-дифф (не JSON) — такие возвращают null и раннером игнорируются.
+ * сырой AI-дифф или delete_file (не JSON / не add_index) — такие возвращают
+ * null и раннером игнорируются. Таблица/колонка сверяются с allowlist'ом.
  */
 export function parseFixPayload(diffSummary: string | null): DeterministicFix | null {
   if (!diffSummary) return null;
@@ -80,17 +77,11 @@ export function parseFixPayload(diffSummary: string | null): DeterministicFix | 
   }
   if (!obj || typeof obj !== 'object') return null;
   const f = obj as Record<string, unknown>;
-
-  if (f.kind === 'add_index'
-    && typeof f.table === 'string' && /^[a-z_][a-z0-9_]*$/i.test(f.table)
-    && typeof f.column === 'string' && /^[a-z_][a-z0-9_]*$/i.test(f.column)) {
-    return { kind: 'add_index', table: f.table.toLowerCase(), column: f.column.toLowerCase() };
+  if (f.kind !== 'add_index' || typeof f.table !== 'string' || typeof f.column !== 'string') {
+    return null;
   }
-
-  if (f.kind === 'delete_file'
-    && typeof f.path === 'string' && f.path.length > 0 && !isProtectedPath(f.path)) {
-    return { kind: 'delete_file', path: f.path };
-  }
-
-  return null;
+  const table = pickTable(f.table);
+  const column = pickColumn(f.column);
+  if (!table || !column) return null;
+  return { kind: 'add_index', table, column };
 }

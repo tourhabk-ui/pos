@@ -7,11 +7,16 @@
  * tsc, черновой PR и колбэк-пометку делает workflow (.github/workflows/
  * evo-apply.yml) — так каждый шаг виден в логе и гейтится отдельно.
  *
- * Применяем два вида правок:
- *   add_index   → новая идемпотентная миграция migrations/NNN_evo_idx_*.sql
- *                 (CREATE INDEX CONCURRENTLY IF NOT EXISTS — вне транзакции,
- *                 project migrate-runner это понимает);
- *   delete_file → удаление подтверждённо-мёртвого файла (если существует).
+ * Применяем один вид правки:
+ *   add_index → новая идемпотентная миграция migrations/NNN_evo_idx_*.sql
+ *               (CREATE INDEX CONCURRENTLY IF NOT EXISTS — вне транзакции,
+ *               project migrate-runner это понимает).
+ *
+ * Таблица/колонка берутся из ФИКСИРОВАННОГО allowlist'а (совпадает с
+ * growth-agent.scanPerformance): в файл пишутся значения-константы, а не сырые
+ * сетевые данные (CodeQL: network data → file). Удаление файлов (delete_file)
+ * НЕ автоприменяется — разрушительно и цель нельзя ограничить allowlist'ом;
+ * мёртвые модули остаются предложением человеку.
  *
  * Раннер на GitHub Actions, не на Timeweb → RF-блокировки не мешают.
  * Никаких AI-вызовов и git apply произвольных диффов: только детерминизм.
@@ -28,20 +33,14 @@ const REPO_ROOT = process.cwd();
 const MIGRATIONS_DIR = path.join(REPO_ROOT, 'migrations');
 const MANIFEST_PATH = path.join(REPO_ROOT, 'evo-apply-manifest.json');
 
-// Дублируем предохранитель из lib/agents/evo/deterministic-fix.ts: сервер уже
-// фильтрует, но раннер пишет в файловую систему — вторая линия обязательна.
-const PROTECTED_PATHS = [
-  'lib/auth/', 'lib/payments/', 'app/api/webhook/',
-  'app/api/payments/', 'app/api/safety/sos', 'middleware.ts', '.env',
-];
-const IDENT_RE = /^[a-z_][a-z0-9_]*$/i;
+// Allowlist таблиц/колонок — канон в lib/agents/evo/deterministic-fix.ts,
+// здесь дублируем как вторую линию. Значения, попавшие в имя файла и SQL,
+// берутся ИЗ ЭТИХ КОНСТАНТ (re-derive через .find), а не из сетевого payload.
+const INDEXABLE_TABLES = ['operator_bookings', 'agent_memory', 'ai_actions_log'];
+const INDEXABLE_COLUMNS = ['created_at', 'booking_status', 'agent_id'];
 
 function log(stage, message, data = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), stage, message, ...data }));
-}
-
-function isProtected(p) {
-  return !p || PROTECTED_PATHS.some((prefix) => p.includes(prefix));
 }
 
 function nextMigrationNumber() {
@@ -107,47 +106,30 @@ async function main() {
   for (const item of pending) {
     const fix = item.fix || {};
     try {
-      if (fix.kind === 'add_index') {
-        const { table, column } = fix;
-        if (!IDENT_RE.test(table || '') || !IDENT_RE.test(column || '')) {
-          log('SKIP', 'add_index: недопустимый идентификатор', { table, column });
-          continue;
-        }
-        const indexName = `idx_${table}_${column}`;
-        if (indexAlreadyDefined(indexName)) {
-          log('NOOP', 'add_index: индекс уже определён в миграциях', { indexName });
-          noopIds.push(item.id);
-          continue;
-        }
-        const num = String(nextNum++).padStart(3, '0');
-        const file = `${num}_evo_${indexName}.sql`;
-        fs.writeFileSync(path.join(MIGRATIONS_DIR, file), indexMigrationSql(table, column));
-        shippedIds.push(item.id);
-        summary.push(`+ индекс \`${indexName}\` → migrations/${file}`);
-        log('APPLY', 'add_index', { file });
-      } else if (fix.kind === 'delete_file') {
-        const rel = fix.path;
-        if (isProtected(rel)) {
-          log('SKIP', 'delete_file: защищённый путь', { path: rel });
-          continue;
-        }
-        const abs = path.join(REPO_ROOT, rel);
-        if (!abs.startsWith(REPO_ROOT + path.sep)) {
-          log('SKIP', 'delete_file: путь вне репозитория', { path: rel });
-          continue;
-        }
-        if (fs.existsSync(abs)) {
-          fs.rmSync(abs);
-          shippedIds.push(item.id);
-          summary.push(`- удалён мёртвый файл \`${rel}\``);
-          log('APPLY', 'delete_file', { path: rel });
-        } else {
-          log('NOOP', 'delete_file: файла нет (уже удалён)', { path: rel });
-          noopIds.push(item.id);
-        }
-      } else {
-        log('SKIP', 'неизвестный вид правки', { kind: fix.kind });
+      if (fix.kind !== 'add_index') {
+        log('SKIP', 'неавтоприменяемый вид правки', { kind: fix.kind });
+        continue;
       }
+      // Re-derive из allowlist-констант: в файл идёт значение-константа, а не
+      // сырой сетевой payload (санитизация network→file).
+      const table = INDEXABLE_TABLES.find((t) => t === String(fix.table));
+      const column = INDEXABLE_COLUMNS.find((c) => c === String(fix.column));
+      if (!table || !column) {
+        log('SKIP', 'add_index: таблица/колонка вне allowlist', { table: fix.table, column: fix.column });
+        continue;
+      }
+      const indexName = `idx_${table}_${column}`;
+      if (indexAlreadyDefined(indexName)) {
+        log('NOOP', 'add_index: индекс уже определён в миграциях', { indexName });
+        noopIds.push(item.id);
+        continue;
+      }
+      const num = String(nextNum++).padStart(3, '0');
+      const file = `${num}_evo_${indexName}.sql`;
+      fs.writeFileSync(path.join(MIGRATIONS_DIR, file), indexMigrationSql(table, column));
+      shippedIds.push(item.id);
+      summary.push(`+ индекс \`${indexName}\` → migrations/${file}`);
+      log('APPLY', 'add_index', { file });
     } catch (e) {
       log('ERROR', 'Ошибка применения правки', { id: item.id, error: String(e) });
     }

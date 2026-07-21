@@ -5,8 +5,8 @@
  * детерминированно и открывает ЧЕРНОВОЙ PR.
  *
  * GET  /api/cron/evo-apply?secret=<CRON_SECRET>
- *   → список pending детерминированных правок (add_index / delete_file).
- *     Старые записи с сырым AI-диффом (не JSON) отфильтровываются.
+ *   → список pending детерминированных правок (add_index из allowlist'а).
+ *     Старые записи с сырым AI-диффом / delete_file отфильтровываются.
  *
  * POST /api/cron/evo-apply?secret=<CRON_SECRET>
  *   body { shipped: [{ id, pr_url }] }
