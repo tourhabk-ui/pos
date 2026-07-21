@@ -1,5 +1,5 @@
 import { pool } from '@/lib/db-pool';
-import { ACC_META, type AccColor } from '@/lib/services/kvert-vona';
+import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 
 interface GuardianPlaceRow {
   name: string;

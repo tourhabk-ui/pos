@@ -13,7 +13,7 @@
 
 import { query } from '@/lib/database';
 import { queryCatalog, type CatalogItem } from '@/lib/routes/catalog-query';
-import { getSeismicFeed, type SeismicEvent } from '@/lib/services/seismic-feed';
+import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
 

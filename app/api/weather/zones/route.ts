@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getAllZonesWeather, ZONES } from '@/lib/services/zone-weather';
+import { getAllZonesWeather, ZONES } from '@/lib/services/safety/zone-weather';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { nearestZoneKey } from '@/lib/services/zone-weather';
+import { nearestZoneKey } from '@/lib/services/safety/zone-weather';
 
 describe('nearestZoneKey', () => {
   it('Авачинский вулкан → зона avachinsky', () => {

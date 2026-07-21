@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { computeRescueCoverage } from '@/lib/services/rescue-coverage';
+import { computeRescueCoverage } from '@/lib/services/safety/rescue-coverage';
 
 export const dynamic = 'force-dynamic';
 

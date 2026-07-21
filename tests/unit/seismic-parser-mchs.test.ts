@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, titleFingerprint } from '@/lib/services/seismic-parser';
+import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, titleFingerprint } from '@/lib/services/safety/seismic-parser';
 
 // Реальный бюллетень МЧС Камчатка (2 июля), который раньше молча отбрасывался —
 // ни цунами, ни шторм, ни паводок, ни пожар: 4 категории classifyMchsItem не

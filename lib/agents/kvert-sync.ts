@@ -13,7 +13,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { parseVonaFeed, normalizeVolcanoName, type AccColor } from '@/lib/services/kvert-vona';
+import { parseVonaFeed, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 
 const DEFAULT_KVERT_URL = 'http://www.kscnet.ru/ivs/kvert/van/index.php?type=3';
 

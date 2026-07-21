@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computeRescueCoverage } from '@/lib/services/rescue-coverage';
+import { computeRescueCoverage } from '@/lib/services/safety/rescue-coverage';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

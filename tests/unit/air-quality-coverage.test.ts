@@ -7,8 +7,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getCoverageStats, clearAirQualityFreshness } from '@/lib/services/air-quality';
-import { ZONES } from '@/lib/services/zone-weather';
+import { getCoverageStats, clearAirQualityFreshness } from '@/lib/services/safety/air-quality';
+import { ZONES } from '@/lib/services/safety/zone-weather';
 
 const TOTAL = Object.keys(ZONES).length;
 

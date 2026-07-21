@@ -27,7 +27,7 @@ import {
   normalizePhone,
   computePhoneDiscrepancies,
   HARDCODED_PHONE_SITES,
-} from '@/lib/services/emergency-contacts';
+} from '@/lib/services/safety/emergency-contacts';
 import { GET as getHealth } from '@/app/api/admin/health/emergency-contacts/route';
 
 beforeEach(() => {

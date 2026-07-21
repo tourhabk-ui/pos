@@ -5,7 +5,7 @@
  * lib/services/seismic-feed.ts (тот же источник использует Главная v8).
  */
 import { NextResponse } from 'next/server';
-import { getSeismicFeed } from '@/lib/services/seismic-feed';
+import { getSeismicFeed } from '@/lib/services/safety/seismic-feed';
 
 export const dynamic = 'force-dynamic';
 

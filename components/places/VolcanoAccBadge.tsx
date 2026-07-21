@@ -1,7 +1,7 @@
 'use client';
 
 import { Mountain, ExternalLink } from 'lucide-react';
-import { ACC_META, type AccColor } from '@/lib/services/kvert-vona';
+import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import type { VolcanoAccStatus } from '@/components/places/types';
 
 /**

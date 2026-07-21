@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { getCoverageStats } from '@/lib/services/air-quality';
+import { getCoverageStats } from '@/lib/services/safety/air-quality';
 
 export const dynamic = 'force-dynamic';
 
