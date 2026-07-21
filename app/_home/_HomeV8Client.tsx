@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Главная v8 «Воронка» (превью, /home-v7) — фото-первый герой + честные приборы.
+ * Главная v8 «Воронка» — фото-первый герой + честные приборы (мобильная главная).
  * Отличия от v7-прототипа (по договорённости с владельцем):
  *   - Герой на реальном фото Камчатки, не на градиенте-заглушке.
  *   - Блок безопасности — реальные данные: KVERT ACC (volcano_status) +
@@ -10,7 +10,7 @@
  *   - Лид-форма шлёт реальный POST /api/leads (lead-processor).
  *   - SOS окрашен в --danger, отдельно от коммерческой оранжевой.
  *   - Эко-баллы не показываем: начисление в коде не подключено (нечестно).
- * Данные приходят из серверного data-слоя (app/home-v7/data.ts).
+ * Данные приходят из серверного data-слоя (app/_home/data.ts).
  */
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
@@ -52,7 +52,7 @@ function magColor(m: number): string {
 }
 const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
-export default function HomeV8Client({ data, preview = false }: { data: HomeV8Data; preview?: boolean }) {
+export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const { safety, seismic, radar, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [chips, setChips] = useState<Record<string, boolean>>({});
@@ -179,7 +179,6 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
       {/* шапка */}
       <div className="topbar"><div className="in">
         <span className="brand">Ведар</span>
-        {preview && <span className="ptag">Превью · v8</span>}
         <span className="sp" />
         <button className="icn" aria-label="Поиск">
           <svg viewBox="0 0 24 24" className="li"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
@@ -380,14 +379,6 @@ export default function HomeV8Client({ data, preview = false }: { data: HomeV8Da
           </div>
         </section>
 
-        {preview && (
-          <div className="note">
-            Превью Главной v8 на /home-v7. Живые блоки на реальных данных: безопасность — KVERT (volcano_status)
-            и external_alerts; сейсмособытия — КБГС РАН / USGS (общий слой seismic-feed); кольцо —
-            location_real_time_status; платы — queryCatalog; лид-форма — POST /api/leads. Фейкового компаса и
-            не подключённых эко-баллов нет — только настоящие данные.
-          </div>
-        )}
       </div>
 
       {/* Сообщить о наблюдении (trail_reports) — восстановлено на v8 после свапа
