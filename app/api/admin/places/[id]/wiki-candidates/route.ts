@@ -15,7 +15,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { searchCommonsPhotos, downloadPhotoBytes } from '@/lib/services/wikimedia-photos';
+import { searchCommonsPhotos, downloadPhotoBytes } from '@/lib/services/ingest/wikimedia-photos';
 
 export const dynamic = 'force-dynamic';
 

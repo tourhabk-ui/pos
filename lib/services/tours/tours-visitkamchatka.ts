@@ -12,7 +12,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 
 const TOURS_BASE = 'https://tours.visitkamchatka.ru';

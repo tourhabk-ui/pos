@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { matchTrackToPlace, type PlaceRef } from '@/lib/services/idilesom-importer';
+import { matchTrackToPlace, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 
 // Трек ~7 км: старт на трассе, финиш у озера (шаг ~0.009° ≈ 1 км)
 function trackTowards(lat: number, lng: number, steps = 7): number[][] {

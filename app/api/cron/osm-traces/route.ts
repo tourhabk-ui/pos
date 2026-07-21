@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { scoutOsmTraces } from '@/lib/services/osm-traces-scout';
+import { scoutOsmTraces } from '@/lib/services/ingest/osm-traces-scout';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';

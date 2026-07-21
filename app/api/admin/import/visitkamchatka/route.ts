@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { importVisitKamchatka } from '@/lib/services/visitkamchatka-importer';
+import { importVisitKamchatka } from '@/lib/services/ingest/visitkamchatka-importer';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;

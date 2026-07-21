@@ -9,7 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { generateAndStoreRouteImage } from '@/lib/services/ai-image-generator';
+import { generateAndStoreRouteImage } from '@/lib/services/ingest/ai-image-generator';
 import { validateRoutePost } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -601,7 +601,7 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 // ── AI News channel post ─────────────────────────────────────────────────────
 
 import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.service';
-import { buildPollinationsUrl } from '@/lib/services/ai-image-generator';
+import { buildPollinationsUrl } from '@/lib/services/ingest/ai-image-generator';
 import { getPublicBaseUrl } from '@/lib/config';
 
 /**

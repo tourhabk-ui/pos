@@ -18,7 +18,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { readAgentBriefing } from '@/lib/agents/warmup';
-import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/firecrawl';
+import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface DigestResult {

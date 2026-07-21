@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { importLegislation } from '@/lib/services/legislation-importer';
+import { importLegislation } from '@/lib/services/ingest/legislation-importer';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 

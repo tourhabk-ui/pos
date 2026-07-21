@@ -18,7 +18,7 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { gradeKuzmichResponse } from '@/lib/agents/managed/kuzmich-outcomes';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
-import { searchLegislation } from '@/lib/services/legislation-importer';
+import { searchLegislation } from '@/lib/services/ingest/legislation-importer';
 import { trimHistoryToBudget, fitTextToTokenBudget, splitHistoryForCompaction } from '@/lib/kuzmich/context-budget';
 import { summarizeDroppedTurns } from '@/lib/kuzmich/history-compaction';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';

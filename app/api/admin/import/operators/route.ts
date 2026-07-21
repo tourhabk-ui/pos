@@ -13,9 +13,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators';
-import { scrapeGuideDirectory } from '@/lib/services/visitkamchatka-guides';
-import { auditVisitKamchatka } from '@/lib/services/visitkamchatka-audit';
+import { scrapeOperatorDirectory } from '@/lib/services/ingest/visitkamchatka-operators';
+import { scrapeGuideDirectory } from '@/lib/services/ingest/visitkamchatka-guides';
+import { auditVisitKamchatka } from '@/lib/services/ingest/visitkamchatka-audit';
 import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operators/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runPassportOcr } from '@/lib/import/passport-ocr-runner';
-import { joinOcrPages } from '@/lib/services/mistral-ocr';
+import { joinOcrPages } from '@/lib/services/ingest/mistral-ocr';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTracesRss, isInKamchatka } from '@/lib/services/osm-traces-scout';
+import { parseTracesRss, isInKamchatka } from '@/lib/services/ingest/osm-traces-scout';
 
 const RSS = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:georss="http://www.georss.org/georss">

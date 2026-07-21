@@ -3,7 +3,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import {
   generateAndStoreRouteImage,
   getRoutesWithoutImages,
-} from '@/lib/services/ai-image-generator';
+} from '@/lib/services/ingest/ai-image-generator';
 import { z } from 'zod';
 
 const GenerateSchema = z.object({

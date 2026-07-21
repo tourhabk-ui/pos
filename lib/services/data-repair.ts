@@ -19,7 +19,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/idilesom-importer';
+import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
 // Места-статьи/события из инвентаризации — скрыть (точное имя, не паттерн:

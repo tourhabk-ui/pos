@@ -14,7 +14,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { ocrPdfBase64, MISTRAL_OCR_MODEL } from '@/lib/services/mistral-ocr';
+import { ocrPdfBase64, MISTRAL_OCR_MODEL } from '@/lib/services/ingest/mistral-ocr';
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const DEFAULT_DELAY_MS = 1500; // free tier Mistral ~1 RPS — держим паузу между документами

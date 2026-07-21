@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
-import { buildImagePrompt } from '@/lib/services/ai-image-generator';
+import { buildImagePrompt } from '@/lib/services/ingest/ai-image-generator';
 
 describe('buildImagePrompt', () => {
   it('вулкан — заснеженный конус, без "eruption"/"pyroclastic"', () => {
