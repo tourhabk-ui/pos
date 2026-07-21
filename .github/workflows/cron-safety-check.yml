@@ -1,0 +1,46 @@
+name: Cron — синтетическая проверка safety-флоу
+
+# Прогоняет /api/cron/safety-check на живом проде: инварианты безопасности
+# (SOS-детектор → 112, экстренные номера, телефон МЧС на маршрутах, покупаемый
+# тур, профили безопасности). criticalFail = сломано ядро обещания (турист в ЧП
+# не получит 112) → джоб краснеет. Read-only, сайд-эффектов нет.
+#
+# Первый прогон: правка .github/triggers/safety-check.json в main.
+
+on:
+  schedule:
+    - cron: '15 */6 * * *'  # каждые 6 часов
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/safety-check.json'
+
+jobs:
+  safety-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run safety self-check
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+
+          # Ждём деплой эндпоинта (актуально для первого прогона после мержа).
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+              "$BASE/api/cron/safety-check" -H "Authorization: Bearer $CRON_SECRET" || echo 000)
+            if [ "$CODE" != "404" ] && [ "$CODE" != "000" ]; then echo "эндпоинт на месте (HTTP $CODE)"; break; fi
+            echo "эндпоинт ещё не задеплоен (HTTP $CODE), жду 60с ($i/20)"; sleep 60
+          done
+
+          HTTP=$(curl -s -o /tmp/safety.json -w "%{http_code}" --max-time 60 \
+            "$BASE/api/cron/safety-check" -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP"
+          cat /tmp/safety.json | python3 -m json.tool --no-ensure-ascii 2>/dev/null || cat /tmp/safety.json || true
+          [ "$HTTP" = "200" ] || { echo "FAIL HTTP $HTTP"; exit 1; }
+
+          # criticalFail=true → ядро безопасности сломано, краснеем.
+          python3 -c "import json,sys; d=json.load(open('/tmp/safety.json')); sys.exit(1 if d.get('criticalFail') else 0)"
