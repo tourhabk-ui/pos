@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
-import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { pool } from '@/lib/db-pool';
 
 // ── GET /api/leads/[id]/proposal ──────────────────────────────────────────────

@@ -8,7 +8,7 @@ import {
   toStringOrNull,
   toNumberOrNull,
   toBooleanOrNull,
-} from './_helpers';
+} from '../_helpers';
 
 export const partnerService = {
   normalize(row: Record<string, unknown> | null) {

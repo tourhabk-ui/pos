@@ -6,7 +6,7 @@ import { requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { notifyOperatorNewLead } from '@/lib/notifications/lead-notify';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP

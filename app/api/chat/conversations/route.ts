@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
-import { chatService } from '@/lib/services/chat.service';
+import { chatService } from '@/lib/services/operators/chat.service';
 import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';

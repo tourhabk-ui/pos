@@ -5,7 +5,7 @@
  * notifyOperatorNewLead  — при входящем лиде (вызывается из POST /api/leads)
  */
 
-import type { LeadProposalData } from '@/lib/services/lead-processor.service';
+import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
 
 function esc(s: string): string {

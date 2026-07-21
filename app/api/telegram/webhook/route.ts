@@ -53,7 +53,7 @@ import { sendWelcomeMessage } from '@/lib/telegram/welcome';
 import { notifyTouristBookingConfirmed, notifyTouristBookingCancelled } from '@/lib/telegram/booking-notify';
 import { createTicket, getUserOpenTickets, addTicketMessage } from '@/lib/support/ticket.service';
 import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/support/categorize';
-import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { createLead } from '@/lib/leads/create';
 

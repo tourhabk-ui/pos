@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { reconcileRegistry } from '@/lib/services/operator-registry.service';
+import { reconcileRegistry } from '@/lib/services/operators/operator-registry.service';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';

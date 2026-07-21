@@ -20,7 +20,7 @@ vi.mock('@/lib/auth/middleware', () => ({
 const getOrCreateDirectMock = vi.fn();
 const sendMessageMock = vi.fn();
 const listConversationsMock = vi.fn();
-vi.mock('@/lib/services/chat.service', () => ({
+vi.mock('@/lib/services/operators/chat.service', () => ({
   chatService: {
     getOrCreateDirect: (...args: unknown[]) => getOrCreateDirectMock(...args),
     sendMessage: (...args: unknown[]) => sendMessageMock(...args),

@@ -11,7 +11,7 @@ import {
   ReviewNotFoundError,
   ReviewValidationError,
   DuplicateReviewError,
-} from './_helpers';
+} from '../_helpers';
 
 export const reviewService = {
   normalize(row: Record<string, unknown> | null) {
