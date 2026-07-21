@@ -13,7 +13,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { hasValidTrack } from './offline-readiness';
+import { hasValidTrack } from '../offline-readiness';
 
 export interface RoutePreflightSafety {
   routeId: string;

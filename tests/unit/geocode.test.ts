@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { geocodeAddress, withinKamchatka, clearGeocodeCache, normalizeGeocodeKey } from '@/lib/services/geocode';
+import { geocodeAddress, withinKamchatka, clearGeocodeCache, normalizeGeocodeKey } from '@/lib/services/routes/geocode';
 
 describe('withinKamchatka', () => {
   it('accepts coordinates within the Kamchatka bounding box', () => {

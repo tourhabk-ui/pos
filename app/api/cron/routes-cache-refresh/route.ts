@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { refreshRoutesWithoutCache } from '@/lib/services/route-description-cache';
+import { refreshRoutesWithoutCache } from '@/lib/services/routes/route-description-cache';
 import { getCronSecret } from '@/lib/auth/cron';
 
 export async function POST(req: NextRequest) {

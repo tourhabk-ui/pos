@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
-import { geocodeAddress, withinKamchatka } from '@/lib/services/geocode';
+import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 import { NON_PLACE_RE, PLACEHOLDER_COND } from '@/lib/places/audit';
 
 export const dynamic = 'force-dynamic';

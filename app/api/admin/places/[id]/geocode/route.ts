@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { geocodeAddress, withinKamchatka } from '@/lib/services/geocode';
+import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
 export const dynamic = 'force-dynamic';
 

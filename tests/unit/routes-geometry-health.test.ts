@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computeGeometryHealth } from '@/lib/services/routes-geometry-health';
+import { computeGeometryHealth } from '@/lib/services/routes/routes-geometry-health';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

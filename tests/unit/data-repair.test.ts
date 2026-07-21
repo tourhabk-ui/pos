@@ -17,7 +17,7 @@ vi.mock('@/lib/db-pool', () => ({
       }),
   },
 }));
-vi.mock('@/lib/services/geocode', () => ({
+vi.mock('@/lib/services/routes/geocode', () => ({
   geocodeAddress: vi.fn().mockResolvedValue(null),
   withinKamchatka: (lat: number, lng: number) => lat >= 50 && lat <= 64 && lng >= 155 && lng <= 167,
 }));
