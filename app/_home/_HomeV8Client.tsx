@@ -523,11 +523,18 @@ interface PulseQuake { magnitude: number; place: string; time: number; depth: nu
  * Живая лента предупреждений — компактное окно ~4 строки с плавной вертикальной
  * прокруткой (экономит место на мобильном). Только актуальные алерты (фильтр и
  * срок годности — на стороне data.ts). При 1-2 записях не крутим — статичный
- * список; при большем числе — бесшовный цикл (список продублирован), пауза по
- * тапу/наведению и при prefers-reduced-motion.
+ * список; при большем числе — бесшовный цикл (список продублирован).
+ *
+ * Взаимодействие: тап РАСКРЫВАЕТ ленту в полный читаемый список и сворачивает
+ * обратно. Раньше единственной реакцией была пауза анимации по :hover/:focus —
+ * на телефоне тап давал «залипший» эмулированный hover, и лента просто
+ * замирала на середине, не раскрываясь (фидбэк владельца). Теперь развёрнутое
+ * состояние — статичный скроллящийся список без маски и без бегущей анимации.
  */
 function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
   const scroll = alerts.length > 2;
+  const [open, setOpen] = useState(false);
+  const animate = scroll && !open; // бегущая строка только в свёрнутом длинном списке
   const row = (a: SafetyAlert, i: number, dup: boolean) => (
     <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined}>
       <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
@@ -539,14 +546,25 @@ function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
     </li>
   );
   return (
-    <div className={`ticker${scroll ? ' scroll' : ''}`}>
+    <div className={`ticker${scroll ? ' scroll' : ''}${open ? ' open' : ''}`}>
       <ul
         className="alerts ticker-track"
-        style={scroll ? { animationDuration: `${Math.max(16, alerts.length * 5)}s` } : undefined}
+        style={animate ? { animationDuration: `${Math.max(16, alerts.length * 5)}s` } : undefined}
       >
         {alerts.map((a, i) => row(a, i, false))}
-        {scroll && alerts.map((a, i) => row(a, i, true))}
+        {animate && alerts.map((a, i) => row(a, i, true))}
       </ul>
+      {scroll && (
+        <button
+          type="button"
+          className={`ticker-toggle${open ? ' open' : ''}`}
+          aria-expanded={open}
+          aria-label={open ? 'Свернуть ленту предупреждений' : 'Показать все предупреждения'}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronDown className="tchev" size={16} strokeWidth={2.2} />
+        </button>
+      )}
     </div>
   );
 }
@@ -829,7 +847,20 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .ticker{position:relative;overflow:hidden}
 .v7 .ticker.scroll{height:76px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%)}
 .v7 .ticker.scroll .ticker-track{animation:v7-ticker linear infinite;will-change:transform}
-.v7 .ticker.scroll:hover .ticker-track,.v7 .ticker.scroll:focus-within .ticker-track{animation-play-state:paused}
+/* Курсор мыши на десктопе ставит бегущую строку на паузу, чтобы успеть прочитать.
+   На тач-устройствах :hover не используем — там открытие/закрытие делает тап (см. .ticker-toggle). */
+@media (hover:hover){.v7 .ticker.scroll:not(.open):hover .ticker-track{animation-play-state:paused}}
+/* Развёрнутое состояние: полный читаемый список, без маски и без бегущей анимации,
+   с обычной вертикальной прокруткой если не влезает. */
+.v7 .ticker.scroll.open{height:auto;max-height:min(58vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;-webkit-mask-image:none;mask-image:none}
+.v7 .ticker.scroll.open .ticker-track{animation:none;transform:none}
+/* Кнопка-переключатель. Свёрнутая лента — вся площадь тап-цель (шеврон в углу);
+   развёрнутая — компактная кнопка сворачивания в углу, чтобы список можно было листать. */
+.v7 .ticker-toggle{position:absolute;border:0;background:transparent;cursor:pointer;color:var(--faint);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px;z-index:2}
+.v7 .ticker-toggle:not(.open){inset:0;width:100%}
+.v7 .ticker-toggle.open{top:2px;right:2px;padding:6px;border-radius:999px;background:var(--card);border:1px solid var(--hair)}
+.v7 .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
+.v7 .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
 .v7 .alerts{list-style:none}
 .v7 .alerts li{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--hair-soft)}
