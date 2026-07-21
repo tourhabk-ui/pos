@@ -29,6 +29,8 @@ export interface EditorResult {
   improved_titles: string[];
   improved_ids: string[];  // ark_id / route.id — для smoke test по конкретным строкам
   errors: number;
+  /** true, если цикл остановлен по бюджету времени (не все маршруты обработаны — остаток доберёт следующий прогон) */
+  stopped_early: boolean;
   /** Раздельные счётчики: без них "30 ошибок" неотличимо — AI не ответил или БД не приняла запись */
   generation_failed: number;
   db_update_failed: number;
@@ -39,6 +41,17 @@ export interface EditorResult {
 
 const BATCH_SIZE = 30;
 const MIN_DESCRIPTION_LENGTH = 300;
+
+// Бюджет времени на цикл генерации. Крон дёргает эндпоинт curl'ом с
+// --max-time 300: если 30 последовательных AI-вызовов не уложатся, curl
+// убивает запрос (exit 28) и весь прогон засчитывается как провал, хотя
+// часть описаний уже записана. Особенно опасно в окно деплоя Timeweb, когда
+// сервер холодный и первые вызовы медленные. Останавливаемся заранее и
+// возвращаем частичный результат (200) — остаток доберёт следующий ночной
+// прогон. Здоровый прогон 30 маршрутов укладывается сильно раньше бюджета,
+// так что на него это не влияет. Оставляем запас ~90с эндпоинту на
+// smoke-test + логирование + ответ до 300с-порога curl.
+const TIME_BUDGET_MS = 210_000;
 
 // «Отдых» перед повторной попыткой для уже обработанных коротких описаний.
 // Причина (фидбэк владельца 07.2026): часть обскурных маршрутов честно
@@ -196,13 +209,23 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   } catch (err) {
     return {
       processed: 0, improved: 0, improved_titles: [], improved_ids: [], errors: 1,
+      stopped_early: false,
       generation_failed: 0, db_update_failed: 0,
       error_samples: [`db_select: ${err instanceof Error ? err.message : String(err)}`],
       duration_ms: Date.now() - start,
     };
   }
 
+  let stoppedEarly = false;
   for (const route of routes) {
+    // Не начинаем новый AI-вызов, если бюджет исчерпан — иначе рискуем не
+    // вернуться до curl --max-time 300 (см. TIME_BUDGET_MS). Уже записанные
+    // описания сохранены, остаток возьмёт следующий прогон.
+    if (Date.now() - start > TIME_BUDGET_MS) {
+      stoppedEarly = true;
+      addErrorSample(`бюджет времени исчерпан (${TIME_BUDGET_MS / 1000}с) — обработано ${processed}/${routes.length}, остаток на следующий прогон`);
+      break;
+    }
     processed++;
     const { text: newDescription, failReason } = await generateRouteDescription(route);
     if (!newDescription || newDescription.length < MIN_GENERATION_LENGTH) {
@@ -250,6 +273,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     await tgSend(
       `<b>Editor</b> — улучшил ${improved} описаний\n` +
       `(обработано: ${processed}, ошибок: ${errors})\n` +
+      (stoppedEarly ? `Остановлен по бюджету времени — остаток доберёт следующий прогон\n` : '') +
       `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
       `<b>Улучшенные маршруты и локации:</b>\n${titlesList}`,
     );
@@ -257,6 +281,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
 
   return {
     processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors,
+    stopped_early: stoppedEarly,
     generation_failed: generationFailed, db_update_failed: dbUpdateFailed, error_samples: errorSamples,
     duration_ms: Date.now() - start,
   };
