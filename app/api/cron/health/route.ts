@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callKimi, probeOpenRouterKeyStatus, probeKimiKeyStatus } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -243,30 +243,30 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, kimiOk, regSpike, orKeyDiag, kimiKeyDiag] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
     probeAI(callFugu),
-    probeAI(callKimi),
+    probeAI(callQwen),
     checkOperatorRegistrationSpike().catch(() => ({ today: 0, baseline_median: 0, is_spike: false })),
     // Диагностика ПРИЧИНЫ падения OpenRouter: 401/кредиты/сеть + какая env
     // переменная реально используется (OR_API_KEY приоритетнее OPENROUTER_API_KEY —
     // замена второй при живой первой ничего не меняет).
     probeOpenRouterKeyStatus().catch(() => null),
-    // Диагностика Kimi: точный статус (401/402 ключ-баланс, 404 модель, conn база/RF)
-    process.env.MOONSHOT_API_KEY ? probeKimiKeyStatus().catch(() => null) : Promise.resolve(null),
+    // Диагностика Qwen: точный статус (401/402 ключ-баланс, 404 модель, conn база/RF)
+    process.env.DASHSCOPE_API_KEY ? probeQwenKeyStatus().catch(() => null) : Promise.resolve(null),
   ]);
 
-  const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || kimiOk;
+  const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
   if (!anyOk) {
-    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (Kimi + OpenRouter + Anthropic + DeepSeek + Fugu)' });
+    issues.push({ level: 'crit', text: 'Все AI-провайдеры недоступны (Qwen + OpenRouter + Anthropic + DeepSeek + Fugu)' });
   } else {
     // Предупреждаем только о РЕАЛЬНЫХ проблемах, а не об ожидаемом:
     // — провайдеры без ключа = не настроены, это не сбой
     // — Anthropic-direct блокируется регионом, но Claude доступен через OpenRouter,
     //   поэтому это проблема, только если и OpenRouter лёг
-    if (process.env.MOONSHOT_API_KEY && !kimiOk) issues.push({ level: 'warn', text: 'Kimi недоступен (ключ задан — проверь RF-доступность/базу/модель)' });
+    if (process.env.DASHSCOPE_API_KEY && !qwenOk) issues.push({ level: 'warn', text: 'Qwen недоступен (ключ задан — проверь RF-доступность/базу/модель)' });
     if (!deepseekOk) issues.push({ level: 'warn', text: 'DeepSeek недоступен' });
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
@@ -315,11 +315,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: issues.filter(i => i.level === 'crit').length === 0,
     ms: Date.now() - started,
-    ai: { kimi: kimiOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
+    ai: { qwen: qwenOk, openrouter: openrouterOk, anthropic: anthropicOk, deepseek: deepseekOk, fugu: fuguOk },
     openrouter_key_diag: orKeyDiag,
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
-    kimi_key_diag: kimiKeyDiag,
+    qwen_key_diag: qwenKeyDiag,
     safety_ingest_age_min: seismic.ageMin,
     issues,
   });

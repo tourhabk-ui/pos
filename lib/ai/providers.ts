@@ -464,14 +464,15 @@ export async function callDeepSeekWithTools(
   }
 }
 
-// Kimi tool-calling (OpenAI-совместимый). Первичный провайдер tools-цикла:
-// доступен из РФ, сильнее DeepSeek по агентности. База/модель — из env.
-export async function callKimiWithTools(
+// Qwen tool-calling (OpenAI-совместимый, Alibaba DashScope). Первичный
+// провайдер tools-цикла: доступен из РФ (китайский, как DeepSeek), сильный
+// агентный function-calling. База/модель — из env.
+export async function callQwenWithTools(
   messages: ToolMsg[],
   tools: ToolDefinition[],
   timeoutMs = 25_000,
 ): Promise<ToolsCallResult | null> {
-  const { apiKey, base, model } = getKimiConfig();
+  const { apiKey, base, model } = getQwenConfig();
   if (!apiKey) return null;
 
   try {
@@ -489,7 +490,7 @@ export async function callKimiWithTools(
         tools,
         tool_choice: 'auto',
       }),
-    }, { timeoutMs, label: `kimi-tools:${model}` });
+    }, { timeoutMs, label: `qwen-tools:${model}` });
 
     if (!res.ok) return null;
 
@@ -521,7 +522,7 @@ export async function firstNonNullTool(
   return null;
 }
 
-// Водопад инструментов: Kimi (первичный — качество + доступен из РФ) → DeepSeek
+// Водопад инструментов: Qwen (первичный — качество + доступен из РФ) → DeepSeek
 // (рабочий фоллбэк) → OpenRouter (последний шанс, авто-восстановление если
 // разблокируют). Раньше tools-цикл Кузьмича висел только на OpenRouter — при
 // регион-блоке инструменты отваливались, чат жил без tools.
@@ -530,7 +531,7 @@ export async function callToolsWaterfall(
   tools: ToolDefinition[],
 ): Promise<ToolsCallResult | null> {
   return firstNonNullTool([
-    () => callKimiWithTools(messages, tools),        // первичный: качество + доступен из РФ
+    () => callQwenWithTools(messages, tools),        // первичный: качество + доступен из РФ
     () => callDeepSeekWithTools(messages, tools),    // фоллбэк
     () => callOpenRouterWithTools(messages, tools),  // последний шанс (авто-восстановление если разблокируют)
   ]);
@@ -849,21 +850,21 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
   } catch { return null; }
 }
 
-// ── Kimi (Moonshot AI — platform.kimi.ai) ─────────────────────
-// Китайский провайдер, OpenAI-совместимый, сильный tool-calling, доступен из РФ
-// (в отличие от региона-блокнутого OpenRouter). База и модель — из env, чтобы
-// сменить тир (kimi-k2.6 / kimi-k3) или базу (api.moonshot.ai vs api.kimi.ai)
-// без правки кода. НЕ брать «thinking»-вариант — у него проблемы с function-calling.
-export function getKimiConfig(): { apiKey: string | null; base: string; model: string } {
+// ── Qwen (Alibaba DashScope — OpenAI-совместимый) ─────────────
+// Китайский провайдер, доступен из РФ (как DeepSeek), сильный агентный
+// tool-calling. База и модель — из env: QWEN_BASE_URL (default
+// dashscope-intl — интернациональный шлюз), QWEN_MODEL (default qwen-plus).
+// Сменить регион-шлюз или тир (qwen-plus/qwen-max) — без правки кода.
+export function getQwenConfig(): { apiKey: string | null; base: string; model: string } {
   return {
-    apiKey: process.env.MOONSHOT_API_KEY || null,
-    base: (process.env.MOONSHOT_BASE_URL || 'https://api.moonshot.ai/v1').replace(/\/+$/, ''),
-    model: process.env.MOONSHOT_MODEL || 'kimi-k2.6',
+    apiKey: process.env.DASHSCOPE_API_KEY || null,
+    base: (process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1').replace(/\/+$/, ''),
+    model: process.env.QWEN_MODEL || 'qwen-plus',
   };
 }
 
-export async function callKimi(messages: ChatMessage[]): Promise<string | null> {
-  const { apiKey, base, model } = getKimiConfig();
+export async function callQwen(messages: ChatMessage[]): Promise<string | null> {
+  const { apiKey, base, model } = getQwenConfig();
   if (!apiKey) return null;
 
   try {
@@ -880,7 +881,7 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
         max_tokens: 800,
         messages: payload,
       }),
-    }, { timeoutMs: 25_000, label: `kimi:${model}` });
+    }, { timeoutMs: 25_000, label: `qwen:${model}` });
     if (!res.ok) return null;
     const data = await res.json() as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -888,24 +889,24 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage(`kimi:${model}`, data.usage);
+      logLLMUsage(`qwen:${model}`, data.usage);
       return text;
     }
     return null;
   } catch { return null; }
 }
 
-// Диагностика ПРИЧИНЫ, почему callKimi молчит: реальный POST в
-// /chat/completions с настроенной моделью. 401/402 = ключ/баланс,
-// 404 = не та модель, conn/timeout = база или RF-блок хоста.
-export async function probeKimiKeyStatus(): Promise<{
+// Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
+// /chat/completions с настроенной моделью. 401/403 = ключ, 404 = не та
+// модель, conn/timeout = база или RF-блок хоста.
+export async function probeQwenKeyStatus(): Promise<{
   key_set: boolean;
   base: string;
   model: string;
   http_status: number | null;
   detail: string;
 }> {
-  const { apiKey, base, model } = getKimiConfig();
+  const { apiKey, base, model } = getQwenConfig();
   if (!apiKey) return { key_set: false, base, model, http_status: null, detail: 'ключ не задан' };
 
   try {
