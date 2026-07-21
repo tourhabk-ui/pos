@@ -74,6 +74,10 @@ const nextConfig = {
       // код переехал в app/_home/ (приватная папка, не роут), роут /home-v7 убран.
       // 301 на / — страховка от старых закладок на превью.
       { source: '/home-v7',            destination: '/',                               permanent: true },
+      // /dashboard — осиротевший «командный центр», перекрыт Главной v8 (реорг
+      // Этап 9). Раньше страница делала runtime redirect('/') (307); постоянный
+      // 301 здесь — SEO-корректно и убирает stub-роут. _DashboardClient сохранён.
+      { source: '/dashboard',          destination: '/',                               permanent: true },
     ];
   },
 
