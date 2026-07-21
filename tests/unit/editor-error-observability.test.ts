@@ -123,6 +123,42 @@ describe('runEditor: наблюдаемость ошибок', () => {
     expect(result.improved_titles).toEqual([ROUTE.title]);
   });
 
+  it('успешный путь: stopped_early = false (бюджет не исчерпан)', async () => {
+    mockDb({ routes: [ROUTE] });
+    callAIFastMock.mockResolvedValue(LONG_TEXT);
+
+    const result = await runEditor();
+
+    expect(result.stopped_early).toBe(false);
+  });
+
+  it('бюджет времени исчерпан → stopped_early, остаток не обрабатывается (страховка от curl --max-time 300)', async () => {
+    // Прод-инцидент 2026-07-21: 30 последовательных AI-вызовов не уложились
+    // в 300с curl-таймаута крона → exit 28, весь прогон засчитан провалом.
+    // Теперь цикл останавливается по бюджету и возвращает частичный результат.
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const routes = Array.from({ length: 5 }, (_, i) => ({ ...ROUTE, id: `00000000-0000-0000-0000-00000000000${i + 1}` }));
+      mockDb({ routes });
+      // Первый маршрут обрабатывается, но «съедает» больше бюджета — второй уже не начнётся.
+      callAIFastMock.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 220_000); // перескок за TIME_BUDGET_MS (210с)
+        return LONG_TEXT;
+      });
+
+      const result = await runEditor();
+
+      expect(result.stopped_early).toBe(true);
+      expect(result.processed).toBe(1);          // только первый — остальные обрезаны бюджетом
+      expect(result.improved).toBe(1);           // уже записанное сохранено
+      expect(callAIFastMock).toHaveBeenCalledTimes(1);
+      expect(result.error_samples.some((s) => s.includes('бюджет времени'))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('error_samples дедуплицируются и ограничены 5', async () => {
     const routes = Array.from({ length: 8 }, (_, i) => ({ ...ROUTE, id: `00000000-0000-0000-0000-00000000000${i + 1}` }));
     mockDb({ routes });
