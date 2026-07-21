@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
-import { calculateDynamicPrice } from '@/lib/services/dynamic-pricing';
+import { calculateDynamicPrice } from '@/lib/services/tours/dynamic-pricing';
 
 export const dynamic = 'force-dynamic';
 

@@ -11,7 +11,7 @@ import {
   TourNotFoundError,
   TourValidationError,
   TourAlreadyPublishedError,
-} from './_helpers';
+} from '../_helpers';
 
 export const tourService = {
   normalize(row: Record<string, unknown> | null) {

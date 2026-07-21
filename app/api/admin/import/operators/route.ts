@@ -16,7 +16,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { scrapeOperatorDirectory } from '@/lib/services/visitkamchatka-operators';
 import { scrapeGuideDirectory } from '@/lib/services/visitkamchatka-guides';
 import { auditVisitKamchatka } from '@/lib/services/visitkamchatka-audit';
-import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours-visitkamchatka';
+import { scrapeTourMarketplace, debugFetchTours } from '@/lib/services/tours/tours-visitkamchatka';
 import { scrapeOperatorTours } from '@/lib/services/operator-tour-scraper';
 import { scanAllOperatorGroups, fetchGroupAvailability } from '@/lib/telegram/operator-availability';
 import { fetchViaBrightData, diagnoseBrightData } from '@/lib/scraping/brightdata';

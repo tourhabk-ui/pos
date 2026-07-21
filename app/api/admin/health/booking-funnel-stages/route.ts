@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { getBookingFunnelStages } from '@/lib/services/booking-funnel-stages';
+import { getBookingFunnelStages } from '@/lib/services/tours/booking-funnel-stages';
 
 export const dynamic = 'force-dynamic';
 
