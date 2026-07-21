@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs } from '@/lib/services/safety/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -165,6 +165,7 @@ function buildResponse(
     mchs?: ParseResultSummary;
     news?: ParseResultSummary;
     minec?: ParseResultSummary;
+    vk?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -177,6 +178,7 @@ function buildResponse(
     ...(ingestResult.mchs?.errors ?? []),
     ...(ingestResult.news?.errors ?? []),
     ...(ingestResult.minec?.errors ?? []),
+    ...(ingestResult.vk?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -212,6 +214,11 @@ function buildResponse(
       events_found: ingestResult.minec.events.length,
       inserted: ingestResult.minec.inserted,
       skipped: ingestResult.minec.skipped,
+    } : undefined,
+    vk: ingestResult.vk ? {
+      events_found: ingestResult.vk.events.length,
+      inserted: ingestResult.vk.inserted,
+      skipped: ingestResult.vk.skipped,
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
@@ -273,7 +280,7 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult] = await Promise.all([
+  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
@@ -281,6 +288,7 @@ export async function POST(req: Request) {
     parsed.data.minec_html
       ? ingestTelegramNewsHtml(parsed.data.minec_html)
       : Promise.resolve(undefined),
+    ingestVkMchs(),
   ]);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
@@ -289,8 +297,9 @@ export async function POST(req: Request) {
     usgs: usgsResult,
     news: newsResult,
     minec: minecResult,
+    vk: vkResult,
     total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0),
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted,
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;

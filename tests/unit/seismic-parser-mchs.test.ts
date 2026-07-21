@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, titleFingerprint } from '@/lib/services/safety/seismic-parser';
+import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, ingestVkMchs, detectRoadRestriction, titleFingerprint } from '@/lib/services/safety/seismic-parser';
 
 // Реальный бюллетень МЧС Камчатка (2 июля), который раньше молча отбрасывался —
 // ни цунами, ни шторм, ни паводок, ни пожар: 4 категории classifyMchsItem не
@@ -129,6 +129,114 @@ describe('classifyMchsItem — шум не становится алертом (
     expect(titleFingerprint('Экстренное предупреждение, 16-20 июля!'))
       .toBe(titleFingerprint('экстренное предупреждение 16 20 июля'));
     expect(titleFingerprint('А')).not.toBe(titleFingerprint('Б'));
+  });
+});
+
+describe('detectRoadRestriction — естественный порядок «глагол→предмет» (сводка ГУ МЧС в ВК/МАХ)', () => {
+  it('«Временно ограничено движение транспортных средств» → ограничение (severity 1)', () => {
+    // Прямая строка из суточной сводки ГУ МЧС Камчатки (2026-07-21), которую
+    // прежний паттерн «предмет→глагол» пропускал: глагол стоит перед предметом.
+    const r = detectRoadRestriction(
+      'временно ограничено движение транспортных средств на участке автодороги «палана — строящийся аэропорт»',
+    );
+    expect(r).not.toBeNull();
+    expect(r!.severity).toBe(1);
+  });
+
+  it('«Перекрыт проезд» → полное перекрытие (severity 2)', () => {
+    const r = detectRoadRestriction('перекрыт проезд на участке мыс левашова — октябрьский');
+    expect(r).not.toBeNull();
+    expect(r!.severity).toBe(2);
+  });
+
+  it('обычный текст без дорожных ограничений → null', () => {
+    expect(detectRoadRestriction('на реках ожидается подъём уровня воды')).toBeNull();
+  });
+});
+
+describe('classifyMchsItem — сводка ГУ МЧС из ВК (source vk_mchs, title пустой)', () => {
+  it('дорожное ограничение из ВК-поста → road_closure с source_id vk_mchs', () => {
+    // У VK-постов нет заголовка: весь текст приходит в description, title=''.
+    const e = classifyMchsItem(
+      'vk.com/mchs_kamchatka/12345',
+      '',
+      'Временно ограничено движение транспортных средств на участке автодороги «Палана — строящийся аэропорт».',
+      '2026-07-21T06:00:00Z',
+      'https://vk.com/wall-123_12345',
+      'vk_mchs',
+    );
+    expect(e).not.toBeNull();
+    expect(e!.alert_type).toBe('road_closure');
+    expect(e!.source_id).toMatch(/^vk_mchs\/t/);
+    expect(e!.source_url).toBe('https://vk.com/wall-123_12345');
+  });
+
+  it('подъём воды в реках из ВК-поста → flood', () => {
+    const e = classifyMchsItem(
+      'vk.com/mchs_kamchatka/12346',
+      '',
+      'На реках полуострова ожидается подъём уровня воды, возможно подтопление низменных участков.',
+      '2026-07-21T06:00:00Z',
+      'https://vk.com/wall-123_12346',
+      'vk_mchs',
+    );
+    expect(e).not.toBeNull();
+    expect(e!.alert_type).toBe('flood');
+  });
+});
+
+describe('ingestVkMchs', () => {
+  const savedToken = process.env.VK_SERVICE_TOKEN;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (savedToken === undefined) delete process.env.VK_SERVICE_TOKEN;
+    else process.env.VK_SERVICE_TOKEN = savedToken;
+  });
+
+  it('без VK_SERVICE_TOKEN — тихий no-op (опциональный источник, без сети и без ошибок)', async () => {
+    delete process.env.VK_SERVICE_TOKEN;
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    const r = await ingestVkMchs();
+    expect(fetchSpy).not.toHaveBeenCalled(); // не ходим в сеть без токена
+    expect(r.inserted).toBe(0);
+    expect(r.skipped).toBe(0);
+    expect(r.errors).toEqual([]);
+    expect(r.events).toEqual([]);
+  });
+
+  it('ошибку VK API кладёт в errors, ничего не вставляет', async () => {
+    process.env.VK_SERVICE_TOKEN = 'test-token';
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: { error_msg: 'access denied' } }), { status: 200 }),
+    );
+    const r = await ingestVkMchs();
+    expect(r.inserted).toBe(0);
+    expect(r.errors.length).toBeGreaterThan(0);
+    expect(r.errors[0]).toContain('access denied');
+  });
+
+  it('не-ok HTTP от VK → ошибка, без вставок', async () => {
+    process.env.VK_SERVICE_TOKEN = 'test-token';
+    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 500 }));
+    const r = await ingestVkMchs();
+    expect(r.inserted).toBe(0);
+    expect(r.errors[0]).toContain('vk http 500');
+  });
+
+  it('пустые/нейтральные посты не порождают событий (классификатор отсеивает шум)', async () => {
+    process.env.VK_SERVICE_TOKEN = 'test-token';
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        response: { items: [
+          { id: 1, owner_id: -123, date: 1721541600, text: '' },
+          { id: 2, owner_id: -123, date: 1721541600, text: 'Поздравляем с профессиональным праздником!' },
+        ] },
+      }), { status: 200 }),
+    );
+    const r = await ingestVkMchs();
+    expect(r.inserted).toBe(0);
+    expect(r.events).toEqual([]);
+    expect(r.errors).toEqual([]);
   });
 });
 
