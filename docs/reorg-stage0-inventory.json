@@ -1,0 +1,5229 @@
+{
+  "meta": {
+    "generatedAt": "2026-07-21T13:45:43.073Z",
+    "scannedFiles": 1586,
+    "libModules": 315,
+    "pages": 203
+  },
+  "libSummary": {
+    "dead": 16,
+    "onlyTests": 0,
+    "alive": 299
+  },
+  "pageSummary": {
+    "noNav": 32,
+    "linked": 171
+  },
+  "libRows": [
+    {
+      "path": "lib/agents/agencies/admin-agency.ts",
+      "loc": 1,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/agents/agencies/eco-agency.ts",
+      "loc": 1,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/agents/agencies/security-agency.ts",
+      "loc": 1,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/database/index.ts",
+      "loc": 15,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/planner/index.ts",
+      "loc": 65,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/agents/tools/types.ts",
+      "loc": 72,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/agents/managed/client.ts",
+      "loc": 91,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/events/subscribers.ts",
+      "loc": 112,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/database/migrate.ts",
+      "loc": 171,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/middleware/validation.ts",
+      "loc": 193,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/env.ts",
+      "loc": 200,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/mcp/kamchatka-data/server.ts",
+      "loc": 251,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/monitoring.ts",
+      "loc": 278,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/middleware/rate-limit.ts",
+      "loc": 288,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/agents/scheduler.ts",
+      "loc": 391,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/mcp/dev-tools/server.ts",
+      "loc": 427,
+      "incoming": 0,
+      "incomingNonTest": 0,
+      "verdict": "DEAD?",
+      "importers": []
+    },
+    {
+      "path": "lib/mesh/victim-ip.ts",
+      "loc": 35,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/mesh/sos-relay/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/query-expansion-health.ts",
+      "loc": 42,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/query-expansion/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/permissions.ts",
+      "loc": 44,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/agents/operator/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/rescue-coverage.ts",
+      "loc": 45,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/rescue-coverage/route.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/geometry-compact.ts",
+      "loc": 46,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/planning/_PlanningClient.tsx"
+      ]
+    },
+    {
+      "path": "lib/services/_errors.ts",
+      "loc": 47,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/history-compaction.ts",
+      "loc": 51,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/fetchAsMarkdown.ts",
+      "loc": 54,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/booking-intake/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/alert.ts",
+      "loc": 57,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/evo/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/orchestrator.ts",
+      "loc": 57,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/evo/route.ts"
+      ]
+    },
+    {
+      "path": "lib/booking/stay-price.ts",
+      "loc": 62,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "components/booking/StayBookingForm.tsx"
+      ]
+    },
+    {
+      "path": "lib/services/route-preflight-safety.ts",
+      "loc": 63,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/agencies/guide-agency.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/accommodation-search.ts",
+      "loc": 66,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/transfer-search.ts",
+      "loc": 66,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/catalog-sitemap.ts",
+      "loc": 68,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/sitemap.ts"
+      ]
+    },
+    {
+      "path": "lib/encryption.ts",
+      "loc": 69,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/ai/interest-extractor.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/gear-search.ts",
+      "loc": 69,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/services/mistral-ocr.ts",
+      "loc": 69,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/import/passport-ocr-runner.ts"
+      ]
+    },
+    {
+      "path": "lib/services/places-quality.ts",
+      "loc": 71,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/places/quality/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/routes-geometry-health.ts",
+      "loc": 71,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/routes-geometry/route.ts"
+      ]
+    },
+    {
+      "path": "lib/mesh/signaling-store.ts",
+      "loc": 72,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/mesh/signal/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/markdown-new.ts",
+      "loc": 74,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/knowledge-base/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/query-expansion.ts",
+      "loc": 80,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/ai/route-knowledge.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/operational-alerts.ts",
+      "loc": 80,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/mcp/kamchatka-data/sources/mches-telegram.ts",
+      "loc": 81,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/mcp/kamchatka-data/server.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/live-questions.ts",
+      "loc": 83,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/kuzmich-eval/route.ts"
+      ]
+    },
+    {
+      "path": "lib/planner-constants.ts",
+      "loc": 84,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/planner/intelligence.ts"
+      ]
+    },
+    {
+      "path": "lib/routing/subgraph.ts",
+      "loc": 88,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routing/path/route.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/context-budget.ts",
+      "loc": 90,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/services/payment.service.ts",
+      "loc": 92,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/tool-loop.ts",
+      "loc": 93,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/sales/messages.ts",
+      "loc": 95,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/sales/campaign/execute/route.ts"
+      ]
+    },
+    {
+      "path": "lib/channels/channel-manager.ts",
+      "loc": 98,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/channel-sync/route.ts"
+      ]
+    },
+    {
+      "path": "lib/monitoring/logger.ts",
+      "loc": 98,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/monitoring/logs/route.ts"
+      ]
+    },
+    {
+      "path": "lib/seo/ssr-sentinel.ts",
+      "loc": 98,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/ssr-sentinel/route.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/industry-channels.ts",
+      "loc": 100,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/industry-intel/route.ts"
+      ]
+    },
+    {
+      "path": "lib/payments/binance-client.ts",
+      "loc": 102,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/finance/binance/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/analytics.service.ts",
+      "loc": 102,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/errors/api-handler.ts",
+      "loc": 103,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/payments/create/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/memory/memory-bridge.ts",
+      "loc": 106,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/memory-bridge/route.ts"
+      ]
+    },
+    {
+      "path": "lib/partners/kamchatka-fishing/sync.ts",
+      "loc": 110,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/partners/kamchatka-fishing/index.ts"
+      ]
+    },
+    {
+      "path": "lib/parks/permit-matrix.ts",
+      "loc": 111,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "scripts/map-park-vertices.ts"
+      ]
+    },
+    {
+      "path": "lib/services/booking-funnel-stages.ts",
+      "loc": 112,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/booking-funnel-stages/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/lead-agency.ts",
+      "loc": 115,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/services/rag.service.ts",
+      "loc": 116,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/tourist-agency.ts",
+      "loc": 124,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/services/hotels.service.ts",
+      "loc": 124,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "components/routes/HotelsBlock.tsx"
+      ]
+    },
+    {
+      "path": "lib/import/passport-ocr-runner.ts",
+      "loc": 126,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/ocr-passports/route.ts"
+      ]
+    },
+    {
+      "path": "lib/email.ts",
+      "loc": 128,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/route-escalation/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/transfers.service.ts",
+      "loc": 129,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "components/routes/TransfersBlock.tsx"
+      ]
+    },
+    {
+      "path": "lib/safety/mchs-client.ts",
+      "loc": 130,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/operator/mchs-registrations/route.ts"
+      ]
+    },
+    {
+      "path": "lib/import/passport-enrich-runner.ts",
+      "loc": 138,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/enrich-passports/route.ts"
+      ]
+    },
+    {
+      "path": "lib/operators/structurer.ts",
+      "loc": 140,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/operator-tour-scraper.ts"
+      ]
+    },
+    {
+      "path": "lib/services/search.service.ts",
+      "loc": 140,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/editor-regression.ts",
+      "loc": 141,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/editor-eval/route.ts"
+      ]
+    },
+    {
+      "path": "lib/mcp/kamchatka-data/sources/local-vk.ts",
+      "loc": 143,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/mcp/kamchatka-data/server.ts"
+      ]
+    },
+    {
+      "path": "lib/channels/tripster.ts",
+      "loc": 146,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/channels/channel-manager.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/marketing-agency.ts",
+      "loc": 151,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/booking-notifications.ts",
+      "loc": 152,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/bookings/booking.service.ts"
+      ]
+    },
+    {
+      "path": "lib/integrations/uon.ts",
+      "loc": 153,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/bookings/create/route.ts"
+      ]
+    },
+    {
+      "path": "lib/safety/checkin-escalation.ts",
+      "loc": 154,
+      "incoming": 2,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/checkin-watchdog/route.ts",
+        "lib/safety/checkin-escalation.test.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/image-tagger.ts",
+      "loc": 155,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/operator/tours/[id]/generate-tags/route.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/booking-notify.ts",
+      "loc": 157,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/webhook/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/memory-contradiction.ts",
+      "loc": 158,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/memory-contradiction/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/insurance.service.ts",
+      "loc": 158,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "components/routes/InsuranceBlock.tsx"
+      ]
+    },
+    {
+      "path": "lib/safety/safety-selfcheck.ts",
+      "loc": 160,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/safety-check/route.ts"
+      ]
+    },
+    {
+      "path": "lib/admin/alerts.ts",
+      "loc": 162,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/alerts/route.ts"
+      ]
+    },
+    {
+      "path": "lib/import/passport-fields.ts",
+      "loc": 162,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/import/passport-enrich-runner.ts"
+      ]
+    },
+    {
+      "path": "lib/mcp/kamchatka-data/sources/tourism-db.ts",
+      "loc": 162,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/mcp/kamchatka-data/server.ts"
+      ]
+    },
+    {
+      "path": "lib/services/route-description-cache.ts",
+      "loc": 165,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/routes-cache-refresh/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/flights.service.ts",
+      "loc": 166,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "components/routes/FlightsBlock.tsx"
+      ]
+    },
+    {
+      "path": "lib/channels/yandex.ts",
+      "loc": 167,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/channels/yandex/feed/route.ts"
+      ]
+    },
+    {
+      "path": "lib/import/route-passports.ts",
+      "loc": 168,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "scripts/import-route-passports.ts"
+      ]
+    },
+    {
+      "path": "lib/services/partner.service.ts",
+      "loc": 168,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/feedback-loop.ts",
+      "loc": 176,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/evo/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/transfer-operator-agency.ts",
+      "loc": 177,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/search/tour-search.ts",
+      "loc": 196,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/search/index.ts"
+      ]
+    },
+    {
+      "path": "lib/services/data-inventory.ts",
+      "loc": 198,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/data-inventory/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/kuzmich-place-enricher.ts",
+      "loc": 199,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/kuzmich-places/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/kamchatkaland-importer.ts",
+      "loc": 202,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/import-routes/route.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/voucher-generator.ts",
+      "loc": 204,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/bookings/[id]/pdf/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/operator-tour-scraper.ts",
+      "loc": 212,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/emergency-contacts.ts",
+      "loc": 213,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/emergency-contacts/route.ts"
+      ]
+    },
+    {
+      "path": "lib/payments/tochka.ts",
+      "loc": 214,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/payments/tochka/qr/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/wikimedia-photos.ts",
+      "loc": 214,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/places/[id]/wiki-candidates/route.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/contract-generator.ts",
+      "loc": 218,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/bookings/[id]/pdf/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/travelpayouts.ts",
+      "loc": 222,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/affiliate/link/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/kuzmich-redteam.ts",
+      "loc": 226,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/kuzmich-redteam/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/execution/handlers/ab-scale-executor.ts",
+      "loc": 226,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/execution/initiative-executor.ts"
+      ]
+    },
+    {
+      "path": "lib/middleware/csrf.ts",
+      "loc": 229,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/csrf-token/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/support.service.ts",
+      "loc": 233,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/services/booking.service.ts",
+      "loc": 234,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/services/notification.service.ts",
+      "loc": 246,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/tool-schemas.ts",
+      "loc": 261,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/rescue-agency.ts",
+      "loc": 263,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/evolver-analysis.ts",
+      "loc": 263,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/orchestrator.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/execution/handlers/operator-outreach-executor.ts",
+      "loc": 263,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/execution/initiative-executor.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/proposal-generator.ts",
+      "loc": 267,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/leads/[id]/proposal/pdf/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/visitkamchatka-importer.ts",
+      "loc": 270,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/visitkamchatka/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/sdk/operator-tools.ts",
+      "loc": 279,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/sms.ts",
+      "loc": 280,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfers/book/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/guide-agency.ts",
+      "loc": 286,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/post-validation.ts",
+      "loc": 289,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/notifications/telegram-channel.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/places-enricher.ts",
+      "loc": 291,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/import-routes/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/visitkamchatka-importer.ts",
+      "loc": 293,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/import-routes/route.ts"
+      ]
+    },
+    {
+      "path": "lib/sales/bot-ceo.ts",
+      "loc": 296,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/sales/campaign/launch/route.ts"
+      ]
+    },
+    {
+      "path": "lib/validation/support-schemas.ts",
+      "loc": 304,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/support/tickets/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/visitkamchatka-audit.ts",
+      "loc": 308,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/operator-registry.service.ts",
+      "loc": 311,
+      "incoming": 2,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/registry/reconcile/route.ts",
+        "lib/services/operator-registry.service.test.ts"
+      ]
+    },
+    {
+      "path": "lib/services/osm-traces-scout.ts",
+      "loc": 315,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/osm-traces/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/visitkamchatka-guides.ts",
+      "loc": 321,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/review.service.ts",
+      "loc": 324,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/place-card-generator.ts",
+      "loc": 335,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/places/[id]/pdf/route.ts"
+      ]
+    },
+    {
+      "path": "lib/search/tour-recommend.ts",
+      "loc": 337,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/search/index.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/group-scout.ts",
+      "loc": 340,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/group-scout/route.ts"
+      ]
+    },
+    {
+      "path": "lib/safety/hazard-signals.ts",
+      "loc": 372,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/safety/warnings/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/danger-analyst-agency.ts",
+      "loc": 395,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/danger-analysis/route.ts"
+      ]
+    },
+    {
+      "path": "lib/mesh/volcano-mesh.ts",
+      "loc": 410,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "hooks/use-mesh.ts"
+      ]
+    },
+    {
+      "path": "lib/services/visitkamchatka-operators.ts",
+      "loc": 425,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/email-templates.ts",
+      "loc": 457,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/notifications/send/route.ts"
+      ]
+    },
+    {
+      "path": "lib/transfers/matching.ts",
+      "loc": 469,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfers/book/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/email.ts",
+      "loc": 478,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfers/book/route.ts"
+      ]
+    },
+    {
+      "path": "lib/partners/kamchatka-fishing/tours-data.ts",
+      "loc": 486,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/smart-search/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/sdk/tourist-tools.ts",
+      "loc": 537,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/execution/handlers/code-change-executor.ts",
+      "loc": 549,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/execution/initiative-executor.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/crew-agents.ts",
+      "loc": 643,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/crew-plan/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/tours-visitkamchatka.ts",
+      "loc": 671,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/tools/agent-toolkits.ts",
+      "loc": 733,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/scheduler.ts"
+      ]
+    },
+    {
+      "path": "lib/services/seismic-parser.ts",
+      "loc": 869,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/safety-ingest/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/data-repair.ts",
+      "loc": 925,
+      "incoming": 1,
+      "incomingNonTest": 1,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/data-repair/route.ts"
+      ]
+    },
+    {
+      "path": "lib/tours/marketplace-constants.ts",
+      "loc": 14,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "components/marketplace/MarketplaceClient.tsx",
+        "lib/tours/marketplace-page.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/pdf-token.ts",
+      "loc": 25,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/bookings/[id]/pdf/route.ts",
+        "app/api/hub/bookings/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/index.ts",
+      "loc": 29,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/admin/route.ts",
+        "app/api/telegram/kuzmich/route.ts"
+      ]
+    },
+    {
+      "path": "lib/types/statuses.ts",
+      "loc": 39,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/hub/admin/bookings/_AdminBookingsClient.tsx",
+        "app/hub/admin/leads/_LeadsClient.tsx"
+      ]
+    },
+    {
+      "path": "lib/services/offline-readiness.ts",
+      "loc": 52,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/[id]/offline-readiness/route.ts",
+        "lib/services/route-preflight-safety.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/tools/taaft-search.ts",
+      "loc": 58,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/evo/evolver-analysis.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/leads/scoring.ts",
+      "loc": 58,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/leads/quickscore/route.ts",
+        "lib/leads/create.ts"
+      ]
+    },
+    {
+      "path": "lib/geo/kamchatka.ts",
+      "loc": 60,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/nearby/route.ts",
+        "lib/ai/rag-context.ts"
+      ]
+    },
+    {
+      "path": "lib/stay/refund-policy.ts",
+      "loc": 60,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/stay/bookings/[id]/cancel/route.ts",
+        "app/api/stay/bookings/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/interest-extractor.ts",
+      "loc": 63,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/stats/platform-counts.ts",
+      "loc": 67,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/home-v7/data.ts",
+        "app/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/routes/track.ts",
+      "loc": 68,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/[id]/export/route.ts",
+        "app/api/routes/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/grounding.ts",
+      "loc": 69,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/eval/kuzmich-redteam.ts",
+        "lib/agents/managed/kuzmich-outcomes.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/connect-token.ts",
+      "loc": 72,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/connect/route.ts",
+        "app/api/telegram/webhook/route.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/audit.ts",
+      "loc": 74,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/routes/audit/route.ts",
+        "app/api/cron/routes-audit/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/tourist-demand-aggregator.ts",
+      "loc": 80,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts",
+        "app/api/planner/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/verbalized-sampling.ts",
+      "loc": 81,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/editor.ts",
+        "lib/agents/places-enricher.ts"
+      ]
+    },
+    {
+      "path": "lib/import/osm-geometry.ts",
+      "loc": 84,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/import/osm-import-runner.ts",
+        "scripts/import-osm-geometry.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/safeguards/audit-log.ts",
+      "loc": 87,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/index.ts",
+        "lib/agents/safeguards/approval-required.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/lead-notify.ts",
+      "loc": 91,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/leads/process/route.ts",
+        "app/api/leads/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/observation-logger.ts",
+      "loc": 93,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/index.ts",
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/import/elevation-profile.ts",
+      "loc": 99,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/routes/[id]/_RouteDetailClient.tsx",
+        "scripts/compute-elevation-profile.ts"
+      ]
+    },
+    {
+      "path": "lib/tours/marketplace-page.ts",
+      "loc": 105,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/catalog/page.tsx",
+        "app/marketplace/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/editor-judge.ts",
+      "loc": 108,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/eval/editor-regression.ts",
+        "lib/agents/eval/kuzmich-faithfulness.ts"
+      ]
+    },
+    {
+      "path": "lib/operators/list-query.ts",
+      "loc": 108,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/operators/route.ts",
+        "app/operators/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/ai/route-knowledge.ts",
+      "loc": 109,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/search/route.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/compute-fund.ts",
+      "loc": 109,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/compute-fund/route.ts",
+        "app/api/payments/webhook/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/seismic-feed.ts",
+      "loc": 116,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/safety/seismic/route.ts",
+        "app/home-v7/data.ts"
+      ]
+    },
+    {
+      "path": "lib/support/categorize.ts",
+      "loc": 119,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/webhook/route.ts",
+        "lib/support/ticket.service.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/booking-intent.ts",
+      "loc": 123,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts",
+        "lib/ai/rag-context.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/welcome.ts",
+      "loc": 143,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/auth/telegram/route.ts",
+        "app/api/telegram/webhook/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/visitkamchatka-gpx-importer.ts",
+      "loc": 145,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/visitkamchatka-gpx/route.ts",
+        "lib/services/osm-traces-scout.ts"
+      ]
+    },
+    {
+      "path": "lib/services/air-quality.ts",
+      "loc": 146,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/air-quality-coverage/route.ts",
+        "app/api/admin/health/air-quality/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/kvert-sync.ts",
+      "loc": 148,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/safety/kvert-sync/route.ts",
+        "app/api/cron/kvert-acc/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/managed/kuzmich-outcomes.ts",
+      "loc": 152,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/health/kuzmich-grounding/route.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/events/agent-bus.ts",
+      "loc": 158,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/events/emit.ts",
+        "lib/events/subscribers.ts"
+      ]
+    },
+    {
+      "path": "lib/import/osm-import-runner.ts",
+      "loc": 158,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/osm-geometry/route.ts",
+        "app/api/cron/osm-import/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/memory-reflector.ts",
+      "loc": 161,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/memory-reflect/route.ts",
+        "lib/agents/memory-contradiction.ts"
+      ]
+    },
+    {
+      "path": "lib/services/ai-image-generator.ts",
+      "loc": 172,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/generate-images/route.ts",
+        "lib/notifications/telegram-channel.ts"
+      ]
+    },
+    {
+      "path": "lib/channels/avito.ts",
+      "loc": 176,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/channels/avito/feed/route.ts",
+        "lib/channels/channel-manager.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/eval/kuzmich-faithfulness.ts",
+      "loc": 185,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/kuzmich-eval/route.ts",
+        "lib/agents/eval/live-questions.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/engagement.ts",
+      "loc": 197,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts",
+        "app/api/cron/engagement/route.ts"
+      ]
+    },
+    {
+      "path": "lib/partners/kamchatka-fishing/client.ts",
+      "loc": 200,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/partners/kamchatka-fishing/index.ts",
+        "lib/partners/kamchatka-fishing/sync.ts"
+      ]
+    },
+    {
+      "path": "lib/routing/astar.ts",
+      "loc": 214,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routing/path/route.ts",
+        "lib/routing/subgraph.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/smoke-test.ts",
+      "loc": 216,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/editor/route.ts",
+        "lib/agents/memory-reflector.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/evolution-loop.ts",
+      "loc": 226,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "lib/agents/orchestrator.ts"
+      ]
+    },
+    {
+      "path": "lib/services/legislation-importer.ts",
+      "loc": 240,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/legislation-sync/route.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/operator-chat.ts",
+      "loc": 241,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/max/kuzmich/route.ts",
+        "app/api/telegram/kuzmich/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/dynamic-pricing.ts",
+      "loc": 269,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/octo/availability/route.ts",
+        "app/api/tours/[id]/price/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/repo-scanner.ts",
+      "loc": 277,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/repo-scan/route.ts",
+        "lib/agents/warmup.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/guardian-context.ts",
+      "loc": 293,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/safety/rescue-chat/route.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/growth-agent.ts",
+      "loc": 336,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "lib/agents/orchestrator.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/watchdog.ts",
+      "loc": 347,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/cron/watchdog/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/tour.service.ts",
+      "loc": 355,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/index.ts",
+        "lib/services/search.service.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/agencies/operator-agency.ts",
+      "loc": 386,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/health/kb-freshness/route.ts",
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/planner/data.ts",
+      "loc": 392,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/planner/engine.ts",
+        "lib/planner/index.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/tools/board-executor-tools.ts",
+      "loc": 399,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/execution/initiative-executor.ts",
+        "lib/agents/tools/agent-toolkits.ts"
+      ]
+    },
+    {
+      "path": "lib/planner/compose.ts",
+      "loc": 443,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/sdk/tourist-tools.ts",
+        "lib/planner/index.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/user-memory.ts",
+      "loc": 454,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/scout-digest.ts",
+      "loc": 470,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/cron/scout-digest/route.ts"
+      ]
+    },
+    {
+      "path": "lib/payments/transfer-payments.ts",
+      "loc": 514,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfers/book/route.ts",
+        "app/api/transfers/payment/confirm/route.ts"
+      ]
+    },
+    {
+      "path": "lib/transfers/booking.ts",
+      "loc": 526,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfers/book/route.ts",
+        "app/api/webhooks/cloudpayments/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/scout-innovator.ts",
+      "loc": 670,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/cron/scout/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/execution/initiative-executor.ts",
+      "loc": 1128,
+      "incoming": 2,
+      "incomingNonTest": 2,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/execute-all/route.ts",
+        "lib/agents/execution/handlers/code-change-executor.ts"
+      ]
+    },
+    {
+      "path": "lib/partners/kamchatka-fishing/index.ts",
+      "loc": 3,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/partners/kamchatka-fishing/bookings/route.ts",
+        "app/api/partners/kamchatka-fishing/route.ts",
+        "app/api/partners/kamchatka-fishing/tours/route.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/zone-meta.ts",
+      "loc": 23,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/routes/[id]/[zone]/page.tsx",
+        "components/routes/CategoryPage.tsx",
+        "lib/routes/catalog-sitemap.ts"
+      ]
+    },
+    {
+      "path": "lib/mesh/types.ts",
+      "loc": 44,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "components/mesh/MeshStatusWidget.tsx",
+        "hooks/use-mesh.ts",
+        "lib/mesh/volcano-mesh.ts"
+      ]
+    },
+    {
+      "path": "lib/mesh/rooms.ts",
+      "loc": 50,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "hooks/use-mesh.ts",
+        "lib/mesh/signaling-store.ts",
+        "lib/mesh/volcano-mesh.ts"
+      ]
+    },
+    {
+      "path": "lib/utils/text-similarity.ts",
+      "loc": 52,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/scout-digest.ts",
+        "lib/agents/scout-innovator.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/mtproto-client.ts",
+      "loc": 70,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "lib/telegram/group-scout.ts",
+        "lib/telegram/industry-channels.ts",
+        "lib/telegram/operator-availability.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/role-switch.ts",
+      "loc": 73,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/auth/me/route.ts",
+        "app/api/auth/switch-role/route.ts",
+        "components/layout/RoleSwitcher.tsx"
+      ]
+    },
+    {
+      "path": "lib/places/audit.ts",
+      "loc": 84,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/places/audit/route.ts",
+        "app/api/cron/places-audit/route.ts",
+        "app/api/cron/places-geocode/route.ts"
+      ]
+    },
+    {
+      "path": "lib/analytics/lead-tracking.ts",
+      "loc": 88,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "components/routes/RouteAffiliateBlock.tsx",
+        "components/routes/YandexTravelBlock.tsx",
+        "components/shared/StickyLeadButton.tsx"
+      ]
+    },
+    {
+      "path": "lib/notifications/web-push.ts",
+      "loc": 98,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/safety-ingest/route.ts",
+        "app/api/hub/operator/bookings/[id]/route.ts",
+        "app/api/telegram/admin/route.ts"
+      ]
+    },
+    {
+      "path": "lib/stats/element-groups.ts",
+      "loc": 102,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/home-v7/data.ts",
+        "components/homepage/BentoSection.tsx",
+        "components/routes/PlaceCard.tsx"
+      ]
+    },
+    {
+      "path": "lib/offline/tiles.ts",
+      "loc": 103,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/[id]/offline-bundle/route.ts",
+        "components/Offline/RegionCard.tsx",
+        "lib/offline/useOfflineRegion.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/stay-booking.ts",
+      "loc": 104,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/book/route.ts",
+        "app/api/stay/bookings/[id]/cancel/route.ts",
+        "app/api/stay/bookings/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/admin-notify.ts",
+      "loc": 104,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/llm-budget-check/route.ts",
+        "app/api/cron/support-escalate/route.ts",
+        "lib/support/ticket.service.ts"
+      ]
+    },
+    {
+      "path": "lib/safety/geofence.ts",
+      "loc": 121,
+      "incoming": 4,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/safety/geofence-zones/route.ts",
+        "components/safety/GeofenceAlert.tsx",
+        "hooks/useGeofence.ts",
+        "lib/safety/geofence.test.ts"
+      ]
+    },
+    {
+      "path": "lib/offline/pending-queue.ts",
+      "loc": 122,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/sos/page.tsx",
+        "components/PWA/ServiceWorkerRegistrar.tsx",
+        "components/safety/SOSButton.tsx"
+      ]
+    },
+    {
+      "path": "lib/octo/webhooks.ts",
+      "loc": 159,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/health/route.ts",
+        "app/api/octo/bookings/[uuid]/status/route.ts",
+        "lib/octo/service.ts"
+      ]
+    },
+    {
+      "path": "lib/services/kvert-vona.ts",
+      "loc": 174,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "components/places/VolcanoAccBadge.tsx",
+        "lib/agents/kvert-sync.ts",
+        "lib/kuzmich/guardian-context.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/embeddings.ts",
+      "loc": 184,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/search/route.ts",
+        "app/api/search/route.ts",
+        "lib/ai/rag-context.ts"
+      ]
+    },
+    {
+      "path": "lib/offline/useOfflineRegion.ts",
+      "loc": 229,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/planning/_PlanningClient.tsx",
+        "components/Offline/RegionCard.tsx",
+        "components/geo/OnSiteBanner.tsx"
+      ]
+    },
+    {
+      "path": "lib/offline/db.ts",
+      "loc": 230,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/map/_MapPageClient.tsx",
+        "app/offline/manage/page.tsx",
+        "lib/offline/useOfflineRegion.ts"
+      ]
+    },
+    {
+      "path": "lib/fish-species.ts",
+      "loc": 238,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/fish/[id]/page.tsx",
+        "app/fish/page.tsx",
+        "components/shared/DescriptionWithFishLinks.tsx"
+      ]
+    },
+    {
+      "path": "lib/agents/intent-classifier.ts",
+      "loc": 275,
+      "incoming": 4,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/webhook/route.ts",
+        "lib/agents/__tests__/intent-classifier.test.ts",
+        "lib/agents/index.ts",
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/safeguards/approval-required.ts",
+      "loc": 283,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/webhook/route.ts",
+        "lib/agents/agencies/operator-agency.ts",
+        "lib/agents/index.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/sdk/sdk-runner.ts",
+      "loc": 312,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat/route.ts",
+        "lib/agents/sdk/operator-tools.ts",
+        "lib/agents/sdk/tourist-tools.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/rag-context.ts",
+      "loc": 321,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/widget/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/payments/cloudpayments-webhook.ts",
+      "loc": 328,
+      "incoming": 3,
+      "incomingNonTest": 3,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/operator/payments/webhook/route.ts",
+        "app/api/payments/webhook/route.ts",
+        "app/api/webhooks/cloudpayments/route.ts"
+      ]
+    },
+    {
+      "path": "lib/stay/accommodation-types.ts",
+      "loc": 21,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/accommodations/[id]/_AccommodationDetailClient.tsx",
+        "app/api/stay/accommodations/route.ts",
+        "app/hub/stay/accommodations/_AccommodationsClient.tsx",
+        "app/hub/stay/onboarding/_StayOnboardingClient.tsx"
+      ]
+    },
+    {
+      "path": "lib/platform-settings.ts",
+      "loc": 23,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/telegram/diagnose/route.ts",
+        "app/api/admin/telegram/route.ts",
+        "app/api/telegram/kuzmich/route.ts",
+        "app/hub/admin/telegram/webhook/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/services/profanity-filter.ts",
+      "loc": 38,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/reviews/route.ts",
+        "app/api/places/[id]/reviews/route.ts",
+        "app/api/reviews/route.ts",
+        "app/api/safety/reports/route.ts"
+      ]
+    },
+    {
+      "path": "lib/pdf/fonts.ts",
+      "loc": 46,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "lib/pdf/contract-generator.ts",
+        "lib/pdf/place-card-generator.ts",
+        "lib/pdf/proposal-generator.ts",
+        "lib/pdf/voucher-generator.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/usage-context.ts",
+      "loc": 73,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/editor/route.ts",
+        "app/api/cron/scout-digest/route.ts",
+        "app/api/cron/scout/route.ts",
+        "lib/ai/providers.ts"
+      ]
+    },
+    {
+      "path": "lib/services/geocode.ts",
+      "loc": 79,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/places/[id]/geocode/route.ts",
+        "app/api/cron/places-geocode/route.ts",
+        "app/api/safety/reports/route.ts",
+        "lib/services/data-repair.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/operator-booking.ts",
+      "loc": 127,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/bookings/create/route.ts",
+        "app/api/hub/operator/bookings/route.ts",
+        "app/api/hub/operator/payments/webhook/route.ts",
+        "app/api/hub/operator/weather/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/max-channel.ts",
+      "loc": 132,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/bots/reposter/bulk/route.ts",
+        "app/api/bots/reposter/chats/route.ts",
+        "app/api/bots/reposter/webhook/route.ts",
+        "lib/notifications/operator-booking.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/category-meta.ts",
+      "loc": 141,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/routes/[id]/[zone]/page.tsx",
+        "app/routes/[id]/page.tsx",
+        "components/routes/CategoryPage.tsx",
+        "lib/routes/catalog-sitemap.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/learning/experiment-tracker.ts",
+      "loc": 202,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/eval/editor-regression.ts",
+        "lib/agents/eval/kuzmich-faithfulness.ts",
+        "lib/agents/index.ts",
+        "lib/agents/platform-agent.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/warmup.ts",
+      "loc": 246,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/editor/route.ts",
+        "lib/agents/editor.ts",
+        "lib/agents/scout-digest.ts",
+        "lib/agents/scout-innovator.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/editor.ts",
+      "loc": 264,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/cron/editor/route.ts",
+        "lib/agents/eval/editor-judge.ts",
+        "lib/agents/eval/editor-regression.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/evo/rescue-agent.ts",
+      "loc": 310,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/admin/evo/route.ts",
+        "app/api/cron/rescue/route.ts",
+        "lib/agents/orchestrator.ts"
+      ]
+    },
+    {
+      "path": "lib/routes/catalog-query.ts",
+      "loc": 370,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/routes/route.ts",
+        "app/home-v7/data.ts",
+        "app/places/page.tsx",
+        "app/routes/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/telegram/group-monitor.ts",
+      "loc": 390,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/kuzmich/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "lib/telegram/group-scout.ts",
+        "lib/telegram/industry-channels.ts"
+      ]
+    },
+    {
+      "path": "lib/services/idilesom-importer.ts",
+      "loc": 794,
+      "incoming": 4,
+      "incomingNonTest": 4,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/idilesom-places/route.ts",
+        "app/api/cron/idilesom-tracks/route.ts",
+        "lib/services/data-repair.ts",
+        "lib/services/osm-traces-scout.ts"
+      ]
+    },
+    {
+      "path": "lib/stay/room-types.ts",
+      "loc": 19,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/accommodations/[id]/_AccommodationDetailClient.tsx",
+        "app/api/stay/accommodations/[id]/rooms/route.ts",
+        "app/api/stay/rooms/[id]/route.ts",
+        "app/hub/stay/accommodations/[id]/rooms/_RoomsClient.tsx",
+        "components/booking/StayBookingForm.tsx"
+      ]
+    },
+    {
+      "path": "lib/auth/role-routes.ts",
+      "loc": 21,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/auth/switch-role/route.ts",
+        "app/api/partners/profile/route.ts",
+        "app/auth/login/_AuthPageClient.tsx",
+        "components/layout/HubLayout.tsx",
+        "lib/auth/partner-profile.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/partner-profile.ts",
+      "loc": 59,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/users/[id]/route.ts",
+        "app/api/auth/switch-role/route.ts",
+        "app/api/partners/profile/route.ts",
+        "app/api/roles/route.ts",
+        "app/api/stay/accommodations/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/firecrawl.ts",
+      "loc": 81,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/scout-digest.ts",
+        "lib/services/intelligence-monitor.service.ts",
+        "lib/services/legislation-importer.ts",
+        "lib/services/tours-visitkamchatka.ts",
+        "lib/services/visitkamchatka-importer.ts"
+      ]
+    },
+    {
+      "path": "lib/services/zone-weather.ts",
+      "loc": 123,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/telegram/webhook/route.ts",
+        "app/api/weather/zones/route.ts",
+        "components/routes/PlaceCard.tsx",
+        "lib/kuzmich/core.ts",
+        "lib/services/air-quality.ts"
+      ]
+    },
+    {
+      "path": "lib/leads/create.ts",
+      "loc": 127,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/booking-intake/route.ts",
+        "app/api/leads/route.ts",
+        "app/api/max/kuzmich/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "app/api/widget/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/geo/regions.ts",
+      "loc": 181,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/offline/manage/page.tsx",
+        "components/Offline/RegionCard.tsx",
+        "lib/offline/db.ts",
+        "lib/offline/tiles.ts",
+        "lib/offline/useOfflineRegion.ts"
+      ]
+    },
+    {
+      "path": "lib/planner/intelligence.ts",
+      "loc": 183,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/evo/rescue-agent.ts",
+        "lib/agents/tools/agent-toolkits.ts",
+        "lib/planner/compose.ts",
+        "lib/planner/engine.ts",
+        "lib/planner/index.ts"
+      ]
+    },
+    {
+      "path": "lib/support/ticket.service.ts",
+      "loc": 217,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/support-escalate/route.ts",
+        "app/api/hub/admin/support/tickets/[id]/route.ts",
+        "app/api/hub/admin/support/tickets/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "lib/telegram/admin-notify.ts"
+      ]
+    },
+    {
+      "path": "lib/api/operator-tours.ts",
+      "loc": 267,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/operator/bookings/route.ts",
+        "app/api/hub/operator/tours/[id]/availability/route.ts",
+        "app/api/hub/operator/tours/[id]/route.ts",
+        "app/api/hub/operator/tours/import/route.ts",
+        "app/api/hub/operator/tours/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/platform-agent.ts",
+      "loc": 395,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/agents/operator/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "lib/agents/index.ts",
+        "lib/agents/intent-classifier.ts"
+      ]
+    },
+    {
+      "path": "lib/services/chat.service.ts",
+      "loc": 395,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/chat/conversations/[id]/messages/route.ts",
+        "app/api/chat/conversations/[id]/read/route.ts",
+        "app/api/chat/conversations/route.ts",
+        "app/api/chat/unread/route.ts",
+        "lib/services/index.ts"
+      ]
+    },
+    {
+      "path": "lib/telegram/operator-availability.ts",
+      "loc": 458,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts",
+        "app/api/cron/telegram-webhook-watchdog/route.ts",
+        "app/api/telegram/admin/route.ts",
+        "app/api/telegram/setup-webhook/route.ts",
+        "lib/kuzmich/core.ts"
+      ]
+    },
+    {
+      "path": "lib/planner/engine.ts",
+      "loc": 1417,
+      "incoming": 5,
+      "incomingNonTest": 5,
+      "verdict": "alive",
+      "importers": [
+        "app/api/planner/recommend/route.ts",
+        "app/api/planner/validate/route.ts",
+        "lib/agents/agencies/tourist-agency.ts",
+        "lib/planner/data.ts",
+        "lib/planner/index.ts"
+      ]
+    },
+    {
+      "path": "lib/events/emit.ts",
+      "loc": 33,
+      "incoming": 6,
+      "incomingNonTest": 6,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/booking-intake/route.ts",
+        "app/api/cron/sos-events-bridge/route.ts",
+        "app/api/operator/tours/route.ts",
+        "app/api/reviews/route.ts",
+        "lib/agents/tools/agent-toolkits.ts",
+        "lib/ai/tourist-demand-aggregator.ts"
+      ]
+    },
+    {
+      "path": "lib/channels/types.ts",
+      "loc": 66,
+      "incoming": 6,
+      "incomingNonTest": 6,
+      "verdict": "alive",
+      "importers": [
+        "app/api/channels/avito/feed/route.ts",
+        "app/api/channels/yandex/feed/route.ts",
+        "lib/channels/avito.ts",
+        "lib/channels/channel-manager.ts",
+        "lib/channels/tripster.ts",
+        "lib/channels/yandex.ts"
+      ]
+    },
+    {
+      "path": "lib/octo/schemas.ts",
+      "loc": 100,
+      "incoming": 6,
+      "incomingNonTest": 6,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/octo-keys/[id]/route.ts",
+        "app/api/admin/octo-keys/route.ts",
+        "app/api/octo/availability/calendar/route.ts",
+        "app/api/octo/availability/route.ts",
+        "app/api/octo/bookings/[uuid]/cancel/route.ts",
+        "app/api/octo/bookings/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/provider-config.ts",
+      "loc": 142,
+      "incoming": 6,
+      "incomingNonTest": 6,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/debug-waterfall/route.ts",
+        "app/api/safety/rescue-chat/route.ts",
+        "lib/agents/sdk/sdk-runner.ts",
+        "lib/ai/providers.ts",
+        "lib/services/mistral-ocr.ts"
+      ]
+    },
+    {
+      "path": "lib/safety/sos-detector.ts",
+      "loc": 147,
+      "incoming": 6,
+      "incomingNonTest": 6,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/planner/companion/route.ts",
+        "lib/agents/eval/kuzmich-redteam.ts",
+        "lib/kuzmich/core.ts",
+        "lib/safety/safety-selfcheck.ts"
+      ]
+    },
+    {
+      "path": "lib/search/index.ts",
+      "loc": 29,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/hub/marketplace/tours/route.ts",
+        "app/api/tourist/recommendations/route.ts",
+        "app/catalog/page.tsx",
+        "app/hub/tourist/_TouristDashboardClient.tsx",
+        "app/marketplace/page.tsx",
+        "components/tourist/RecommendationCard.tsx"
+      ]
+    },
+    {
+      "path": "lib/storage/s3.ts",
+      "loc": 113,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/content/partners/[id]/upload/route.ts",
+        "app/api/admin/photos/upload/route.ts",
+        "app/api/admin/videos/upload/route.ts",
+        "app/api/hub/operator/upload/route.ts",
+        "app/api/places/[id]/photos/route.ts",
+        "app/api/upload/route.ts"
+      ]
+    },
+    {
+      "path": "lib/planner/interests.ts",
+      "loc": 321,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/planner/chat/route.ts",
+        "app/api/planner/validate/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "lib/agents/agencies/tourist-agency.ts",
+        "lib/agents/tools/agent-toolkits.ts",
+        "lib/ai/interest-extractor.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/tourist-helpers.ts",
+      "loc": 376,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/tourist/achievements/route.ts",
+        "app/api/tourist/checklists/route.ts",
+        "app/api/tourist/documents/route.ts",
+        "app/api/tourist/profile/route.ts",
+        "app/api/tourist/stats/route.ts",
+        "app/api/tourist/trips/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/gear-helpers.ts",
+      "loc": 496,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/gear/items/[id]/route.ts",
+        "app/api/gear/items/route.ts",
+        "app/api/gear/profile/route.ts",
+        "app/api/gear/rentals/[id]/route.ts",
+        "app/api/gear/rentals/route.ts",
+        "app/api/gear/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/intelligence-monitor.service.ts",
+      "loc": 883,
+      "incoming": 7,
+      "incomingNonTest": 7,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/agents/trigger/route.ts",
+        "app/api/admin/channels/test/route.ts",
+        "app/api/admin/intel/inject/route.ts",
+        "app/api/admin/intelligence-sources/test/route.ts",
+        "app/api/cron/digest/route.ts",
+        "app/api/cron/intelligence/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/context-hub.ts",
+      "loc": 141,
+      "incoming": 8,
+      "incomingNonTest": 8,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/agencies/guide-agency.ts",
+        "lib/agents/agencies/marketing-agency.ts",
+        "lib/agents/agencies/operator-agency.ts",
+        "lib/agents/agencies/rescue-agency.ts",
+        "lib/agents/agencies/tourist-agency.ts",
+        "lib/agents/agencies/transfer-operator-agency.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/guide-helpers.ts",
+      "loc": 550,
+      "incoming": 8,
+      "incomingNonTest": 8,
+      "verdict": "alive",
+      "importers": [
+        "app/api/guide/groups/route.ts",
+        "app/api/guide/map/route.ts",
+        "app/api/guide/profile/route.ts",
+        "app/api/guide/reviews/[id]/reply/route.ts",
+        "app/api/guide/reviews/route.ts",
+        "app/api/guide/schedule/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/password.ts",
+      "loc": 52,
+      "incoming": 9,
+      "incomingNonTest": 9,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import-mestechko/route.ts",
+        "app/api/admin/users/create-agent/route.ts",
+        "app/api/auth/change-password/route.ts",
+        "app/api/auth/register-operator/route.ts",
+        "app/api/auth/register/route.ts",
+        "app/api/auth/signin/route.ts"
+      ]
+    },
+    {
+      "path": "lib/bookings/booking.service.ts",
+      "loc": 731,
+      "incoming": 9,
+      "incomingNonTest": 9,
+      "verdict": "alive",
+      "importers": [
+        "app/api/bookings/[id]/cancel/route.ts",
+        "app/api/bookings/[id]/complete/route.ts",
+        "app/api/bookings/[id]/confirm/route.ts",
+        "app/api/bookings/[id]/reschedule/route.ts",
+        "app/api/bookings/[id]/route.ts",
+        "app/api/bookings/payments/[id]/refund/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/stay-helpers.ts",
+      "loc": 68,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/route.ts",
+        "app/api/stay/accommodations/[id]/photos/[assetId]/route.ts",
+        "app/api/stay/accommodations/[id]/photos/route.ts",
+        "app/api/stay/accommodations/[id]/rooms/route.ts",
+        "app/api/stay/accommodations/route.ts",
+        "app/api/stay/bookings/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/_helpers.ts",
+      "loc": 87,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "lib/services/analytics.service.ts",
+        "lib/services/booking.service.ts",
+        "lib/services/notification.service.ts",
+        "lib/services/partner.service.ts",
+        "lib/services/payment.service.ts",
+        "lib/services/rag.service.ts"
+      ]
+    },
+    {
+      "path": "lib/safety/emergency-numbers.ts",
+      "loc": 89,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "app/home-v7/_HomeV8Client.tsx",
+        "app/hub/safety/_SafetyHubClient.tsx",
+        "app/map/_MapPageClient.tsx",
+        "app/offline/page.tsx",
+        "app/safety/_SafetyClient.tsx",
+        "app/safety/incidents/page.tsx"
+      ]
+    },
+    {
+      "path": "lib/agents/memory/agent-knowledge.ts",
+      "loc": 277,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "lib/agents/memory-contradiction.ts",
+        "lib/agents/memory-reflector.ts",
+        "lib/agents/repo-scanner.ts",
+        "lib/agents/scout-digest.ts",
+        "lib/agents/scout-innovator.ts",
+        "lib/agents/tools/agent-toolkits.ts"
+      ]
+    },
+    {
+      "path": "lib/loyalty/loyalty-system.ts",
+      "loc": 397,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/content/reviews/[id]/moderate/route.ts",
+        "app/api/admin/content/reviews/route.ts",
+        "app/api/bookings/[id]/complete/route.ts",
+        "app/api/hub/operator/bookings/[id]/route.ts",
+        "app/api/loyalty/levels/route.ts",
+        "app/api/loyalty/promo/apply/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/telegram-channel.ts",
+      "loc": 1026,
+      "incoming": 10,
+      "incomingNonTest": 10,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/channels/test/route.ts",
+        "app/api/admin/intelligence-sources/test/route.ts",
+        "app/api/admin/telegram/channel-post/route.ts",
+        "app/api/cron/kuzmich/route.ts",
+        "app/api/telegram/admin/route.ts",
+        "app/api/telegram/kuzmich/route.ts"
+      ]
+    },
+    {
+      "path": "lib/octo/auth.ts",
+      "loc": 126,
+      "incoming": 11,
+      "incomingNonTest": 11,
+      "verdict": "alive",
+      "importers": [
+        "app/api/octo/availability/calendar/route.ts",
+        "app/api/octo/availability/route.ts",
+        "app/api/octo/bookings/[uuid]/cancel/route.ts",
+        "app/api/octo/bookings/[uuid]/confirm/route.ts",
+        "app/api/octo/bookings/[uuid]/route.ts",
+        "app/api/octo/bookings/[uuid]/status/route.ts"
+      ]
+    },
+    {
+      "path": "lib/octo/mappers.ts",
+      "loc": 340,
+      "incoming": 11,
+      "incomingNonTest": 11,
+      "verdict": "alive",
+      "importers": [
+        "app/api/octo/availability/calendar/route.ts",
+        "app/api/octo/availability/route.ts",
+        "app/api/octo/bookings/[uuid]/cancel/route.ts",
+        "app/api/octo/bookings/[uuid]/confirm/route.ts",
+        "app/api/octo/bookings/[uuid]/route.ts",
+        "app/api/octo/bookings/[uuid]/status/route.ts"
+      ]
+    },
+    {
+      "path": "lib/octo/service.ts",
+      "loc": 476,
+      "incoming": 11,
+      "incomingNonTest": 11,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/health/route.ts",
+        "app/api/octo/availability/calendar/route.ts",
+        "app/api/octo/availability/route.ts",
+        "app/api/octo/bookings/[uuid]/cancel/route.ts",
+        "app/api/octo/bookings/[uuid]/confirm/route.ts",
+        "app/api/octo/bookings/[uuid]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/lead-processor.service.ts",
+      "loc": 713,
+      "incoming": 11,
+      "incomingNonTest": 11,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/leads/process-batch/route.ts",
+        "app/api/cron/leads-process/route.ts",
+        "app/api/leads/[id]/process/route.ts",
+        "app/api/leads/[id]/proposal/pdf/route.ts",
+        "app/api/leads/[id]/proposal/route.ts",
+        "app/api/leads/[id]/proposal/send/route.ts"
+      ]
+    },
+    {
+      "path": "lib/kuzmich/core.ts",
+      "loc": 1917,
+      "incoming": 11,
+      "incomingNonTest": 11,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/ai-prompts/route.ts",
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/max/kuzmich/route.ts",
+        "app/api/meta/webhook/route.ts",
+        "app/api/telegram/kuzmich/route.ts"
+      ]
+    },
+    {
+      "path": "lib/scraping/brightdata.ts",
+      "loc": 153,
+      "incoming": 12,
+      "incomingNonTest": 12,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/operators/route.ts",
+        "app/api/admin/import/route-passports/route.ts",
+        "app/api/cron/import-route-passports/route.ts",
+        "lib/agents/kuzmich-place-enricher.ts",
+        "lib/services/idilesom-importer.ts",
+        "lib/services/operator-tour-scraper.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/email-service.ts",
+      "loc": 397,
+      "incoming": 13,
+      "incomingNonTest": 13,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/book/route.ts",
+        "app/api/admin/email-test/route.ts",
+        "app/api/admin/operators/[id]/route.ts",
+        "app/api/admin/operators/verify/route.ts",
+        "app/api/auth/register-operator/route.ts",
+        "app/api/bookings/[id]/cancel/route.ts"
+      ]
+    },
+    {
+      "path": "lib/notifications/telegram.ts",
+      "loc": 435,
+      "incoming": 13,
+      "incomingNonTest": 13,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/leads-followup/route.ts",
+        "app/api/cron/trip-reminders/route.ts",
+        "app/api/hub/admin/support/tickets/[id]/route.ts",
+        "app/api/leads/route.ts",
+        "app/api/telegram/webhook/route.ts",
+        "app/api/transfers/book/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/run-logger.ts",
+      "loc": 57,
+      "incoming": 14,
+      "incomingNonTest": 14,
+      "verdict": "alive",
+      "importers": [
+        "app/api/cron/data-inventory/route.ts",
+        "app/api/cron/data-repair/route.ts",
+        "app/api/cron/editor/route.ts",
+        "app/api/cron/evo/route.ts",
+        "app/api/cron/idilesom-tracks/route.ts",
+        "app/api/cron/intelligence/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/transfer-helpers.ts",
+      "loc": 494,
+      "incoming": 14,
+      "incomingNonTest": 14,
+      "verdict": "alive",
+      "importers": [
+        "app/api/transfer/analytics/dashboard/route.ts",
+        "app/api/transfer/drivers/[id]/documents/route.ts",
+        "app/api/transfer/drivers/[id]/route.ts",
+        "app/api/transfer/drivers/route.ts",
+        "app/api/transfer/profile/route.ts",
+        "app/api/transfer/reports/revenue/route.ts"
+      ]
+    },
+    {
+      "path": "lib/agents/memory/agent-memory.ts",
+      "loc": 365,
+      "incoming": 16,
+      "incomingNonTest": 16,
+      "verdict": "alive",
+      "importers": [
+        "app/api/planner/preferences/route.ts",
+        "app/api/planner/recommend/route.ts",
+        "lib/agents/execution/initiative-executor.ts",
+        "lib/agents/memory-contradiction.ts",
+        "lib/agents/memory-reflector.ts",
+        "lib/agents/memory/memory-bridge.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/agent-models.ts",
+      "loc": 85,
+      "incoming": 17,
+      "incomingNonTest": 17,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/booking-intake/route.ts",
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/planner/chat/route.ts",
+        "app/api/planner/companion/route.ts",
+        "app/api/planner/compose/route.ts"
+      ]
+    },
+    {
+      "path": "lib/errors/sanitize.ts",
+      "loc": 110,
+      "incoming": 18,
+      "incomingNonTest": 18,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/content/partners/[id]/route.ts",
+        "app/api/admin/content/partners/[id]/upload/route.ts",
+        "app/api/admin/guide-certifications/route.ts",
+        "app/api/admin/promo-codes/route.ts",
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts"
+      ]
+    },
+    {
+      "path": "lib/config.ts",
+      "loc": 297,
+      "incoming": 20,
+      "incomingNonTest": 20,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/knowledge-base/route.ts",
+        "app/api/hub/bookings/create/route.ts",
+        "app/api/leads/[id]/proposal/send/route.ts",
+        "app/api/telegram/register-kuzmich/route.ts",
+        "app/api/transfers/book/route.ts",
+        "app/api/transfers/confirm/route.ts"
+      ]
+    },
+    {
+      "path": "lib/services/index.ts",
+      "loc": 49,
+      "incoming": 22,
+      "incomingNonTest": 22,
+      "verdict": "alive",
+      "importers": [
+        "app/api/analytics/dashboards/route.ts",
+        "app/api/analytics/metrics/route.ts",
+        "app/api/analytics/reports/route.ts",
+        "app/api/bookings/payments/[id]/refund/route.ts",
+        "app/api/bookings/payments/route.ts",
+        "app/api/discovery/reviews/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/jwt.ts",
+      "loc": 156,
+      "incoming": 23,
+      "incomingNonTest": 23,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/user-photos/[id]/route.ts",
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/auth/magic/route.ts",
+        "app/api/auth/me/route.ts",
+        "app/api/auth/refresh/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth.ts",
+      "loc": 187,
+      "incoming": 28,
+      "incomingNonTest": 28,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/book/route.ts",
+        "app/api/auth/mfa/enable/route.ts",
+        "app/api/auth/mfa/verify/route.ts",
+        "app/api/auth/refresh/route.ts",
+        "app/api/bookings/[id]/cancel/route.ts",
+        "app/api/bookings/[id]/complete/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/operator-helpers.ts",
+      "loc": 356,
+      "incoming": 31,
+      "incomingNonTest": 31,
+      "verdict": "alive",
+      "importers": [
+        "app/api/discovery/tours/[id]/publish/route.ts",
+        "app/api/discovery/tours/[id]/stats/route.ts",
+        "app/api/operator/analytics/dashboard/route.ts",
+        "app/api/operator/bookings/[id]/route.ts",
+        "app/api/operator/bookings/route.ts",
+        "app/api/operator/clients/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/rate-limit.ts",
+      "loc": 92,
+      "incoming": 39,
+      "incomingNonTest": 39,
+      "verdict": "alive",
+      "importers": [
+        "app/api/ai/chat-stream/route.ts",
+        "app/api/ai/chat/route.ts",
+        "app/api/ai/crew-plan/route.ts",
+        "app/api/ai/deepseek/route.ts",
+        "app/api/ai/route.ts",
+        "app/api/ai/smart-search/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/prompts.ts",
+      "loc": 104,
+      "incoming": 53,
+      "incomingNonTest": 53,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/ai-check/route.ts",
+        "app/api/admin/ai-prompts/route.ts",
+        "app/api/admin/enrich-places/route.ts",
+        "app/api/admin/enrich-routes/route.ts",
+        "app/api/admin/test-fugu/route.ts",
+        "app/api/agents/rescue-briefing/route.ts"
+      ]
+    },
+    {
+      "path": "lib/security/timing-safe.ts",
+      "loc": 44,
+      "incoming": 60,
+      "incomingNonTest": 60,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/road-graph/route.ts",
+        "app/api/cron/abandoned-bookings/route.ts",
+        "app/api/cron/booking-stall-alert/route.ts",
+        "app/api/cron/channel-sync/route.ts",
+        "app/api/cron/checkin-watchdog/route.ts",
+        "app/api/cron/danger-analysis/route.ts"
+      ]
+    },
+    {
+      "path": "lib/types/db-rows.ts",
+      "loc": 1477,
+      "incoming": 61,
+      "incomingNonTest": 61,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/bookings/route.ts",
+        "app/api/admin/content/partners/route.ts",
+        "app/api/admin/content/reviews/[id]/analyze/route.ts",
+        "app/api/admin/content/reviews/route.ts",
+        "app/api/admin/content/routes/route.ts",
+        "app/api/admin/content/tours/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/cron.ts",
+      "loc": 33,
+      "incoming": 64,
+      "incomingNonTest": 64,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/import/road-graph/route.ts",
+        "app/api/admin/net-diag/route.ts",
+        "app/api/admin/test-fugu/route.ts",
+        "app/api/cron/abandoned-bookings/route.ts",
+        "app/api/cron/booking-stall-alert/route.ts",
+        "app/api/cron/channel-sync/route.ts"
+      ]
+    },
+    {
+      "path": "lib/ai/providers.ts",
+      "loc": 2333,
+      "incoming": 79,
+      "incomingNonTest": 79,
+      "verdict": "alive",
+      "importers": [
+        "app/api/admin/ai-assistant/route.ts",
+        "app/api/admin/ai-check/route.ts",
+        "app/api/admin/ai-prompts/route.ts",
+        "app/api/admin/content/reviews/[id]/analyze/route.ts",
+        "app/api/admin/enrich-places/route.ts",
+        "app/api/admin/enrich-routes/route.ts"
+      ]
+    },
+    {
+      "path": "lib/database.ts",
+      "loc": 304,
+      "incoming": 283,
+      "incomingNonTest": 283,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/availability/route.ts",
+        "app/api/accommodations/[id]/blocked-dates/route.ts",
+        "app/api/accommodations/[id]/book/route.ts",
+        "app/api/accommodations/[id]/prices/route.ts",
+        "app/api/accommodations/[id]/reviews/route.ts",
+        "app/api/accommodations/[id]/route.ts"
+      ]
+    },
+    {
+      "path": "lib/db-pool.ts",
+      "loc": 77,
+      "incoming": 324,
+      "incomingNonTest": 324,
+      "verdict": "alive",
+      "importers": [
+        "app/accommodations/[id]/page.tsx",
+        "app/ai-tools/[slug]/page.tsx",
+        "app/api/admin/agent-market/route.ts",
+        "app/api/admin/agents/runs/route.ts",
+        "app/api/admin/ai-analytics/chats/route.ts",
+        "app/api/admin/ai-analytics/route.ts"
+      ]
+    },
+    {
+      "path": "lib/auth/middleware.ts",
+      "loc": 93,
+      "incoming": 336,
+      "incomingNonTest": 336,
+      "verdict": "alive",
+      "importers": [
+        "app/api/accommodations/[id]/book/route.ts",
+        "app/api/accommodations/[id]/reviews/route.ts",
+        "app/api/accommodations/[id]/route.ts",
+        "app/api/accommodations/create/route.ts",
+        "app/api/admin/agent-market/route.ts",
+        "app/api/admin/agents/runs/route.ts"
+      ]
+    }
+  ],
+  "pageRows": [
+    {
+      "path": "app/hub/admin/telegram/page.tsx",
+      "route": "/hub/admin/telegram",
+      "loc": 4,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/moderation/page.tsx",
+      "route": "/hub/admin/moderation",
+      "loc": 5,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/agent/stats/page.tsx",
+      "route": "/hub/agent/stats",
+      "loc": 5,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/operator/guides/page.tsx",
+      "route": "/hub/operator/guides",
+      "loc": 5,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/transfer-operator/bookings/page.tsx",
+      "route": "/hub/transfer-operator/bookings",
+      "loc": 5,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/tp-verify/page.tsx",
+      "route": "/tp-verify",
+      "loc": 8,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/dashboard/page.tsx",
+      "route": "/dashboard",
+      "loc": 9,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/photos/page.tsx",
+      "route": "/hub/admin/photos",
+      "loc": 11,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/routes-analysis/page.tsx",
+      "route": "/hub/admin/routes-analysis",
+      "loc": 11,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/operator/ai-assist/page.tsx",
+      "route": "/hub/operator/ai-assist",
+      "loc": 11,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/places/page.tsx",
+      "route": "/hub/admin/places",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/support/page.tsx",
+      "route": "/hub/admin/support",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/operator/booking-intake/page.tsx",
+      "route": "/hub/operator/booking-intake",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/operator/register/page.tsx",
+      "route": "/hub/operator/register",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/transfer/page.tsx",
+      "route": "/hub/transfer",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/transfer-operator/routes/page.tsx",
+      "route": "/hub/transfer-operator/routes",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/routes/detail/[id]/page.tsx",
+      "route": "/routes/detail/[id]",
+      "loc": 12,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/agent/onboarding/page.tsx",
+      "route": "/hub/agent/onboarding",
+      "loc": 13,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/gear/onboarding/page.tsx",
+      "route": "/hub/gear/onboarding",
+      "loc": 13,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/guide/onboarding/page.tsx",
+      "route": "/hub/guide/onboarding",
+      "loc": 13,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/cart/page.tsx",
+      "route": "/cart",
+      "loc": 18,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/p/[code]/page.tsx",
+      "route": "/p/[code]",
+      "loc": 20,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/home-v7/page.tsx",
+      "route": "/home-v7",
+      "loc": 23,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/kuzmich/hub/page.tsx",
+      "route": "/kuzmich/hub",
+      "loc": 23,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/transparency/page.tsx",
+      "route": "/transparency",
+      "loc": 30,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/trip/[token]/page.tsx",
+      "route": "/trip/[token]",
+      "loc": 44,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/telegram/webhook/page.tsx",
+      "route": "/hub/admin/telegram/webhook",
+      "loc": 113,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/catalog/tours/[id]/page.tsx",
+      "route": "/catalog/tours/[id]",
+      "loc": 163,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/enrich-places/page.tsx",
+      "route": "/hub/admin/enrich-places",
+      "loc": 193,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/videos/page.tsx",
+      "route": "/hub/admin/videos",
+      "loc": 225,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/widget/lead-form/[slug]/page.tsx",
+      "route": "/widget/lead-form/[slug]",
+      "loc": 246,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/content/routes/page.tsx",
+      "route": "/hub/admin/content/routes",
+      "loc": 507,
+      "navRef": false,
+      "incoming": 0,
+      "verdict": "NO-NAV?"
+    },
+    {
+      "path": "app/hub/admin/bookings/page.tsx",
+      "route": "/hub/admin/bookings",
+      "loc": 5,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/operators/page.tsx",
+      "route": "/hub/admin/operators",
+      "loc": 5,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/analytics/page.tsx",
+      "route": "/hub/operator/analytics",
+      "loc": 5,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/notifications/page.tsx",
+      "route": "/hub/operator/notifications",
+      "loc": 5,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/email/page.tsx",
+      "route": "/hub/admin/email",
+      "loc": 8,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/intelligence/page.tsx",
+      "route": "/hub/admin/intelligence",
+      "loc": 9,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/agents/page.tsx",
+      "route": "/hub/admin/agents",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/artem/page.tsx",
+      "route": "/hub/admin/artem",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/integrations/page.tsx",
+      "route": "/hub/admin/integrations",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/pricing/page.tsx",
+      "route": "/hub/admin/pricing",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/user-photos/page.tsx",
+      "route": "/hub/admin/user-photos",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/tours/page.tsx",
+      "route": "/hub/guide/tours",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/help/page.tsx",
+      "route": "/hub/operator/help",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/leads/page.tsx",
+      "route": "/hub/operator/leads",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/onboarding/page.tsx",
+      "route": "/hub/operator/onboarding",
+      "loc": 11,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/ai-assistant/page.tsx",
+      "route": "/ai-assistant",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/auth/login/page.tsx",
+      "route": "/auth/login",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/auth/register-operator/page.tsx",
+      "route": "/auth/register-operator",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/booking-success/[id]/page.tsx",
+      "route": "/booking-success/[id]",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/calendar/page.tsx",
+      "route": "/calendar",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/collections/page.tsx",
+      "route": "/collections",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/help/operators/page.tsx",
+      "route": "/help/operators",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/help/tourists/page.tsx",
+      "route": "/help/tourists",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/ai-analytics/page.tsx",
+      "route": "/hub/admin/ai-analytics",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/ai-prompts/page.tsx",
+      "route": "/hub/admin/ai-prompts",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/brain/page.tsx",
+      "route": "/hub/admin/brain",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/leads/page.tsx",
+      "route": "/hub/admin/leads",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/outreach/page.tsx",
+      "route": "/hub/admin/outreach",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/places-photos/page.tsx",
+      "route": "/hub/admin/places-photos",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/taaft/page.tsx",
+      "route": "/hub/admin/taaft",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/find/page.tsx",
+      "route": "/hub/agent/find",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/leads/page.tsx",
+      "route": "/hub/agent/leads",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/profile/page.tsx",
+      "route": "/hub/guide/profile",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/reviews/page.tsx",
+      "route": "/hub/guide/reviews",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/profile/page.tsx",
+      "route": "/hub/operator/profile",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/selections/page.tsx",
+      "route": "/hub/operator/selections",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/tours/import/page.tsx",
+      "route": "/hub/operator/tours/import",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/transfers/page.tsx",
+      "route": "/hub/operator/transfers",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/cart/checkout/page.tsx",
+      "route": "/hub/tourist/cart/checkout",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/eco-points/page.tsx",
+      "route": "/hub/tourist/eco-points",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/loyalty/page.tsx",
+      "route": "/hub/tourist/loyalty",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/messages/page.tsx",
+      "route": "/hub/tourist/messages",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/notifications/page.tsx",
+      "route": "/hub/tourist/notifications",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/profile/page.tsx",
+      "route": "/hub/tourist/profile",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/reviews/page.tsx",
+      "route": "/hub/tourist/reviews",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/support/page.tsx",
+      "route": "/hub/tourist/support",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/trips/page.tsx",
+      "route": "/hub/tourist/trips",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/wishlist/page.tsx",
+      "route": "/hub/tourist/wishlist",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/operators/join/page.tsx",
+      "route": "/operators/join",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/partners/page.tsx",
+      "route": "/partners",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/planning/page.tsx",
+      "route": "/planning",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/profile/page.tsx",
+      "route": "/profile",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/trending/page.tsx",
+      "route": "/trending",
+      "loc": 12,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/finance/page.tsx",
+      "route": "/hub/admin/finance",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/health/page.tsx",
+      "route": "/hub/admin/health",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/bookings/page.tsx",
+      "route": "/hub/agent/bookings",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/clients/page.tsx",
+      "route": "/hub/agent/clients",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/commissions/page.tsx",
+      "route": "/hub/agent/commissions",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/page.tsx",
+      "route": "/hub/agent",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/profile/page.tsx",
+      "route": "/hub/agent/profile",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/referral/page.tsx",
+      "route": "/hub/agent/referral",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/agent/vouchers/page.tsx",
+      "route": "/hub/agent/vouchers",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/gear/inventory/page.tsx",
+      "route": "/hub/gear/inventory",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/gear/page.tsx",
+      "route": "/hub/gear",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/gear/rentals/page.tsx",
+      "route": "/hub/gear/rentals",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/earnings/page.tsx",
+      "route": "/hub/guide/earnings",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/groups/page.tsx",
+      "route": "/hub/guide/groups",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/page.tsx",
+      "route": "/hub/guide",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/guide/schedule/page.tsx",
+      "route": "/hub/guide/schedule",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/bookings/page.tsx",
+      "route": "/hub/operator/bookings",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/calendar/page.tsx",
+      "route": "/hub/operator/calendar",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/clients/page.tsx",
+      "route": "/hub/operator/clients",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/completeness/page.tsx",
+      "route": "/hub/operator/completeness",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/finance/page.tsx",
+      "route": "/hub/operator/finance",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/integrations/page.tsx",
+      "route": "/hub/operator/integrations",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/page.tsx",
+      "route": "/hub/operator",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/reports/page.tsx",
+      "route": "/hub/operator/reports",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/tours/[id]/page.tsx",
+      "route": "/hub/operator/tours/[id]",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/tours/new/page.tsx",
+      "route": "/hub/operator/tours/new",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/tours/page.tsx",
+      "route": "/hub/operator/tours",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/safety/page.tsx",
+      "route": "/hub/safety",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/accommodations/page.tsx",
+      "route": "/hub/stay/accommodations",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/bookings/page.tsx",
+      "route": "/hub/stay/bookings",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/calendar/page.tsx",
+      "route": "/hub/stay/calendar",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/onboarding/page.tsx",
+      "route": "/hub/stay/onboarding",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/page.tsx",
+      "route": "/hub/stay",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/bookings/page.tsx",
+      "route": "/hub/tourist/bookings",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/my-kamchatka/page.tsx",
+      "route": "/hub/tourist/my-kamchatka",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/page.tsx",
+      "route": "/hub/tourist",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/stays/page.tsx",
+      "route": "/hub/tourist/stays",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/trips/[id]/page.tsx",
+      "route": "/hub/tourist/trips/[id]",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/transfer-operator/drivers/page.tsx",
+      "route": "/hub/transfer-operator/drivers",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/transfer-operator/page.tsx",
+      "route": "/hub/transfer-operator",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/transfer-operator/vehicles/page.tsx",
+      "route": "/hub/transfer-operator/vehicles",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/on-route/page.tsx",
+      "route": "/on-route",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/safety/page.tsx",
+      "route": "/safety",
+      "loc": 13,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/gear/page.tsx",
+      "route": "/gear",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/accommodations/[id]/photos/page.tsx",
+      "route": "/hub/stay/accommodations/[id]/photos",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/stay/accommodations/[id]/rooms/page.tsx",
+      "route": "/hub/stay/accommodations/[id]/rooms",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/map/page.tsx",
+      "route": "/map",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/tools/equipment/page.tsx",
+      "route": "/tools/equipment",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/tools/safety/page.tsx",
+      "route": "/tools/safety",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/transfers/page.tsx",
+      "route": "/transfers",
+      "loc": 14,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/bookings/[id]/page.tsx",
+      "route": "/hub/operator/bookings/[id]",
+      "loc": 16,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/operator/leads/[id]/page.tsx",
+      "route": "/hub/operator/leads/[id]",
+      "loc": 16,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/leads/[id]/page.tsx",
+      "route": "/hub/admin/leads/[id]",
+      "loc": 17,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/tourist/cart/page.tsx",
+      "route": "/hub/tourist/cart",
+      "loc": 17,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/kuzmich/page.tsx",
+      "route": "/kuzmich",
+      "loc": 19,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/request/page.tsx",
+      "route": "/request",
+      "loc": 19,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/return/page.tsx",
+      "route": "/return",
+      "loc": 22,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/safety/page.tsx",
+      "route": "/hub/admin/safety",
+      "loc": 23,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/for-operators/page.tsx",
+      "route": "/for-operators",
+      "loc": 24,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/accommodations/page.tsx",
+      "route": "/accommodations",
+      "loc": 28,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/ai-tools/page.tsx",
+      "route": "/ai-tools",
+      "loc": 28,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/planner/page.tsx",
+      "route": "/planner",
+      "loc": 28,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/park/[slug]/page.tsx",
+      "route": "/park/[slug]",
+      "loc": 36,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/accommodations/[id]/page.tsx",
+      "route": "/accommodations/[id]",
+      "loc": 37,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/collections/[slug]/page.tsx",
+      "route": "/collections/[slug]",
+      "loc": 39,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/channels/page.tsx",
+      "route": "/hub/admin/channels",
+      "loc": 42,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/settings/page.tsx",
+      "route": "/hub/admin/settings",
+      "loc": 53,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/tools/page.tsx",
+      "route": "/tools",
+      "loc": 54,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/contact/page.tsx",
+      "route": "/contact",
+      "loc": 68,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/ai-tools/[slug]/page.tsx",
+      "route": "/ai-tools/[slug]",
+      "loc": 69,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/marketplace/page.tsx",
+      "route": "/marketplace",
+      "loc": 79,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/catalog/page.tsx",
+      "route": "/catalog",
+      "loc": 81,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/routes/[id]/[zone]/page.tsx",
+      "route": "/routes/[id]/[zone]",
+      "loc": 81,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/help/page.tsx",
+      "route": "/help",
+      "loc": 84,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/faq/page.tsx",
+      "route": "/faq",
+      "loc": 92,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/operators/page.tsx",
+      "route": "/operators",
+      "loc": 100,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/fishing/page.tsx",
+      "route": "/hub/fishing",
+      "loc": 116,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/places/page.tsx",
+      "route": "/places",
+      "loc": 118,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/fish/page.tsx",
+      "route": "/fish",
+      "loc": 122,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/routes/page.tsx",
+      "route": "/routes",
+      "loc": 125,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/migrations/page.tsx",
+      "route": "/hub/admin/migrations",
+      "loc": 127,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/places/[id]/page.tsx",
+      "route": "/places/[id]",
+      "loc": 134,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/content/accommodation-reviews/page.tsx",
+      "route": "/hub/admin/content/accommodation-reviews",
+      "loc": 148,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/offline/manage/page.tsx",
+      "route": "/offline/manage",
+      "loc": 160,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/offline/page.tsx",
+      "route": "/offline",
+      "loc": 161,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/places/[id]/review/page.tsx",
+      "route": "/places/[id]/review",
+      "loc": 163,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/users/page.tsx",
+      "route": "/hub/admin/users",
+      "loc": 164,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/notifications/page.tsx",
+      "route": "/hub/admin/notifications",
+      "loc": 170,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/legal/agent-agreement/page.tsx",
+      "route": "/legal/agent-agreement",
+      "loc": 178,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/blog/[slug]/page.tsx",
+      "route": "/blog/[slug]",
+      "loc": 179,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/page.tsx",
+      "route": "/",
+      "loc": 181,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/about/page.tsx",
+      "route": "/about",
+      "loc": 198,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/guides/page.tsx",
+      "route": "/guides",
+      "loc": 201,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/legal/terms/page.tsx",
+      "route": "/legal/terms",
+      "loc": 207,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/analytics/page.tsx",
+      "route": "/hub/admin/analytics",
+      "loc": 211,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/guide-certifications/page.tsx",
+      "route": "/hub/admin/guide-certifications",
+      "loc": 213,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/legal/offer/page.tsx",
+      "route": "/legal/offer",
+      "loc": 216,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/marketplace/tours/[id]/page.tsx",
+      "route": "/marketplace/tours/[id]",
+      "loc": 218,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/content/reviews/page.tsx",
+      "route": "/hub/admin/content/reviews",
+      "loc": 232,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/promo-codes/page.tsx",
+      "route": "/hub/admin/promo-codes",
+      "loc": 240,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/legal/commission/page.tsx",
+      "route": "/legal/commission",
+      "loc": 240,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/activity/page.tsx",
+      "route": "/hub/admin/activity",
+      "loc": 246,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/legal/privacy/page.tsx",
+      "route": "/legal/privacy",
+      "loc": 246,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/content/places-import/page.tsx",
+      "route": "/hub/admin/content/places-import",
+      "loc": 265,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/widget/[partnerId]/page.tsx",
+      "route": "/widget/[partnerId]",
+      "loc": 267,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/blog/page.tsx",
+      "route": "/blog",
+      "loc": 286,
+      "navRef": true,
+      "incoming": 1,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/knowledge/page.tsx",
+      "route": "/hub/admin/knowledge",
+      "loc": 293,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/routes/[id]/page.tsx",
+      "route": "/routes/[id]",
+      "loc": 316,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/fish/[id]/page.tsx",
+      "route": "/fish/[id]",
+      "loc": 322,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/safety/incidents/page.tsx",
+      "route": "/safety/incidents",
+      "loc": 333,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/safety/offline/page.tsx",
+      "route": "/safety/offline",
+      "loc": 337,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/operators/[slug]/page.tsx",
+      "route": "/operators/[slug]",
+      "loc": 451,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/sos/page.tsx",
+      "route": "/sos",
+      "loc": 496,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/calendar/page.tsx",
+      "route": "/hub/admin/calendar",
+      "loc": 532,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/page.tsx",
+      "route": "/hub/admin",
+      "loc": 540,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/content/partners/page.tsx",
+      "route": "/hub/admin/content/partners",
+      "loc": 741,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/register/page.tsx",
+      "route": "/register",
+      "loc": 769,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    },
+    {
+      "path": "app/hub/admin/content/tours/page.tsx",
+      "route": "/hub/admin/content/tours",
+      "loc": 858,
+      "navRef": true,
+      "incoming": 0,
+      "verdict": "linked"
+    }
+  ]
+}
