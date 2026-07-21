@@ -132,9 +132,12 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
 // местам. Категория появилась после пропущенной новости о пропусках к
 // Вилючинскому перевалу и закрытии проезда к Вачкажцу (июль 2026): все
 // прежние категории были природными, дорожные ограничения отбрасывались.
+// Последняя альтернатива ловит естественный русский порядок «глагол→предмет»
+// («Временно ограничено движение...» из суточной сводки ГУ МЧС в ВК/МАХ) —
+// прежний паттерн требовал «предмет→глагол» и такую формулировку пропускал.
 
 const ROAD_RESTRICTION_RE =
-  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)/i;
+  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)/i;
 
 export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
   if (!ROAD_RESTRICTION_RE.test(text)) return null;
@@ -810,16 +813,64 @@ export async function ingestTelegramNewsHtml(html: string): Promise<ParseResult>
   return result;
 }
 
+// ── Официальное сообщество ГУ МЧС Камчатки во ВКонтакте ──────────────────────
+// vk.com/mchs_kamchatka — суточные оперативные сводки (пожары, ДТП, дороги,
+// подъём рек, активность вулканов). Website-RSS 41.mchs.gov.ru несёт только
+// формальные предупреждения; сводки живут в соцканалах. VK API (api.vk.com)
+// доступен из РФ (Timeweb) напрямую — в отличие от t.me/OSM. Опционален: без
+// VK_SERVICE_TOKEN молча ничего не делает. Классификация — той же
+// classifyMchsItem (природные категории + road_closure, с отсевом телеанонсов/учений).
+const VK_MCHS_DOMAIN = 'mchs_kamchatka';
+
+export async function ingestVkMchs(): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  const token = process.env.VK_SERVICE_TOKEN;
+  if (!token) return result; // опциональный источник: токена нет — тихо выходим
+  try {
+    const url = `https://api.vk.com/method/wall.get?domain=${VK_MCHS_DOMAIN}`
+      + `&count=25&access_token=${encodeURIComponent(token)}&v=5.199`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) { result.errors.push(`vk http ${res.status}`); return result; }
+    const data = await res.json() as {
+      error?: { error_msg?: string };
+      response?: { items?: Array<{ id: number; owner_id: number; date: number; text?: string }> };
+    };
+    if (data.error) { result.errors.push(`vk: ${data.error.error_msg ?? 'api error'}`); return result; }
+    for (const post of data.response?.items ?? []) {
+      const text = (post.text ?? '').trim();
+      if (!text) continue;
+      const id = `vk.com/${VK_MCHS_DOMAIN}/${post.id}`;
+      const pubDate = new Date(post.date * 1000).toISOString();
+      const link = `https://vk.com/wall${post.owner_id}_${post.id}`;
+      // title пустой — у VK-постов нет заголовка, весь текст в description.
+      const event = classifyMchsItem(id, '', text, pubDate, link, 'vk_mchs');
+      if (!event) continue;
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
+    }
+  } catch (e) {
+    result.errors.push((e as Error).message);
+  }
+  return result;
+}
+
 export async function ingestAll(): Promise<{
   kbgsras: ParseResult;
   eqkam: ParseResult;
   usgs: ParseResult;
   mchs: ParseResult;
   news: ParseResult;
+  vk: ParseResult;
   total_inserted: number;
 }> {
-  const [kbgsras, eqkam, usgs, mchs, news] = await Promise.all([
-    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(), ingestNewsFeeds(),
+  const [kbgsras, eqkam, usgs, mchs, news, vk] = await Promise.all([
+    ingestKbgsras(), ingestEqkam(), ingestUsgs(), ingestMchsAlerts(), ingestNewsFeeds(), ingestVkMchs(),
   ]);
   return {
     kbgsras,
@@ -827,7 +878,8 @@ export async function ingestAll(): Promise<{
     usgs,
     mchs,
     news,
-    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted + mchs.inserted + news.inserted,
+    vk,
+    total_inserted: kbgsras.inserted + eqkam.inserted + usgs.inserted + mchs.inserted + news.inserted + vk.inserted,
   };
 }
 
