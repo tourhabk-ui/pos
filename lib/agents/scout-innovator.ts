@@ -10,7 +10,7 @@
 
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
-import { callAIWithModel, callAIFast } from '@/lib/ai/providers';
+import { callQwen, callAIWaterfall, callAIFast } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { writeDailyBriefing, readAgentBriefing } from '@/lib/agents/warmup';
@@ -253,11 +253,13 @@ ${gitSection}
   ];
 
   try {
-    const { text: raw, model_used } = await callAIWithModel(messages, 'anthropic/claude-opus-4-8', {
-      maxTokens: 1500,
-      timeoutMs: 45_000,
-      temperature: 0.4,
-    });
+    // Opus (anthropic/*) недоступен из РФ: прод-крон (Timeweb) бил в
+    // заблокированный OpenRouter/Anthropic-роут, вызов падал — эволюция
+    // переставала рождать предложения. Идём через подтверждённо-живой из РФ
+    // Qwen (DashScope), а водопад (DeepSeek/GLM, тоже доступны из РФ) — fallback.
+    const qwen = await callQwen(messages);
+    const raw = qwen?.trim() ? qwen : await callAIWaterfall(messages);
+    const model_used = qwen?.trim() ? 'qwen' : 'waterfall';
     const { proposals, diag } = parseProposalsResponse(raw);
     if (proposals.length === 0) {
       console.error(`[scout-innovator] Phase 1 (модель=${model_used}): ${diag}`);
