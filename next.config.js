@@ -70,6 +70,10 @@ const nextConfig = {
       { source: '/tours',              destination: '/catalog',                        permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
+      // /home-v7 — dev-превью новой главной (noindex, без ссылок). Реорг Этап 2:
+      // код переехал в app/_home/ (приватная папка, не роут), роут /home-v7 убран.
+      // 301 на / — страховка от старых закладок на превью.
+      { source: '/home-v7',            destination: '/',                               permanent: true },
     ];
   },
 
