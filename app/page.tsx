@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import loadDynamic from 'next/dynamic'
+import { headers } from 'next/headers'
 import { pool } from '@/lib/db-pool'
 import { Header } from '@/components/layout/Header'
 import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
@@ -87,10 +88,38 @@ export const metadata: Metadata = {
 }
 
 export default async function Page() {
-  // Единый источник цифр (см. lib/stats/platform-counts.ts): StatsBand,
-  // «В цифрах»/«Стихии» v8 и EditorialSection читают ОДНО число.
-  const [safety, counts, homeData] = await Promise.all([
-    getSafetyStatus(), getPlatformCounts().catch(() => null), getHomeV8Data(),
+  // Раньше оба дерева (мобайл v8 + десктоп-стек) рендерились и гидрировались на
+  // ЛЮБОМ устройстве через CSS `hidden` — display:none прячет, но JS всё равно
+  // качается и гидрируется. Теперь сервер по User-Agent рендерит ТОЛЬКО нужное
+  // дерево: телефон не тянет десктоп-секции, десктоп не тянет v8. Страница уже
+  // force-dynamic, так что UA читается на каждый запрос без проблем с кэшем.
+  //
+  // Боты — ВСЕГДА десктоп (SEO): Google/Yandex индексируют mobile-first, и лёгкое
+  // v8-дерево лишило бы их editorial/stats/маршрутов — весь SSR-SEO Шага 3.
+  // Неоднозначный UA → десктоп (безопасный дефолт: полный, SEO-богатый лейаут).
+  const ua = (await headers()).get('user-agent') ?? '';
+  const isBot = /bot|crawler|spider|googlebot|yandex|bingbot|duckduckbot|slurp|baiduspider|facebookexternalhit|telegram|whatsapp|twitterbot|applebot|petalbot/i.test(ua);
+  const isPhone = /android|iphone|ipod|opera mini|iemobile|blackberry|webos|mobile safari/i.test(ua) && !/ipad|tablet/i.test(ua);
+  const isMobile = isPhone && !isBot;
+
+  // ── Мобильное дерево: только v8, только для телефонов ──────────────
+  if (isMobile) {
+    const homeData = await getHomeV8Data();
+    return (
+      <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
+        <OnSiteBanner />
+        <main className="flex-1">
+          {/* Новая Главная v8 «Воронка» — фото-герой, радар безопасности,
+              карусель, стеклянные «Стихии», реальная сейсмика. Своя навигация и SOS. */}
+          <HomeV8Client data={homeData} />
+        </main>
+      </div>
+    );
+  }
+
+  // ── Десктоп-дерево (и все боты/SEO): единый источник цифр ──────────
+  const [safety, counts] = await Promise.all([
+    getSafetyStatus(), getPlatformCounts().catch(() => null),
   ]);
   const platformStats: PlatformStats | null = counts
     ? { routes: counts.routes, places: counts.places, mchsRoutes: counts.mchsRoutes, safetyProfiles: counts.safetyProfiles }
@@ -99,20 +128,9 @@ export default async function Page() {
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
-      <div className="hidden md:block">
-        <Header />
-      </div>
+      <Header />
       <OnSiteBanner />
-      <main className="flex-1 md:pt-[56px]">
-
-        {/* Mobile: новая Главная v8 «Воронка» — фото-герой, радар безопасности,
-            карусель, стеклянные «Стихии», реальная сейсмика. Своя навигация и SOS. */}
-        <div className="md:hidden">
-          <HomeV8Client data={homeData} />
-        </div>
-
-        {/* Desktop: текущий лейаут без изменений */}
-        <div className="hidden md:block">
+      <main className="flex-1 pt-[56px]">
 
         {/* Hero — статус дня: уровень безопасности + поиск маршрута */}
         <HeroStatus safety={safety} fetchedAt={fetchedAt} />
@@ -153,16 +171,10 @@ export default async function Page() {
           </div>
         </SectionErrorBoundary>
 
-        </div>
-
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
-      <div className="hidden md:block">
-        <Footer />
-      </div>
-      <div className="hidden md:block">
-        <SOSButton />
-      </div>
+      <Footer />
+      <SOSButton />
     </div>
   );
 }
