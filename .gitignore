@@ -165,3 +165,9 @@ scripts/update-timeweb-envs.ps1
 
 # PDF-паспорта маршрутов (качаются скриптом, в git только манифест-отчёты в артефактах CI)
 data/route-passports/
+
+# Playwright e2e (отчёты и артефакты прогона — не в git)
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

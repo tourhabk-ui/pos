@@ -12,6 +12,10 @@
     "test:coverage": "vitest --coverage",
     "test:integration": "vitest --include '**/*.integration.test.ts' --run",
     "test:unit": "vitest --include '**/*.test.ts' --exclude '**/*.integration.test.ts' --run",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test test/e2e/smoke.spec.ts --project=chromium",
+    "smoke": "playwright test test/e2e/smoke.spec.ts --project=chromium",
+    "smoke:prod": "BASE_URL=https://vedarai.ru SMOKE_READONLY=1 playwright test test/e2e/smoke.spec.ts --project=chromium",
     "db:setup": "bash scripts/setup-database.sh",
     "migrate": "tsx lib/database/migrate.ts",
     "db:migrate": "npx tsx lib/database/migrate.ts",
@@ -118,6 +122,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.3.2",
     "@types/leaflet.markercluster": "^1.5.6",
