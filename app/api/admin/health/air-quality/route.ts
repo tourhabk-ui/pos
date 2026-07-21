@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { getAllZonesAirQuality } from '@/lib/services/air-quality';
+import { getAllZonesAirQuality } from '@/lib/services/safety/air-quality';
 
 export const dynamic = 'force-dynamic';
 

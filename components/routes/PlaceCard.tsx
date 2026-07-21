@@ -11,7 +11,7 @@ import { LOCATION_TYPE_LABELS } from '@/components/places/types';
 import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-groups';
 import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
 import { useAnchor } from './useAnchor';
-import { nearestZoneKey } from '@/lib/services/zone-weather';
+import { nearestZoneKey } from '@/lib/services/safety/zone-weather';
 
 // Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
 // без цен и офферов. Кромка фото — силуэт горизонта по типу места, под

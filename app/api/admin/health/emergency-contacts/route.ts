@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { computeEmergencyContactsHealth } from '@/lib/services/emergency-contacts';
+import { computeEmergencyContactsHealth } from '@/lib/services/safety/emergency-contacts';
 
 export const dynamic = 'force-dynamic';
 

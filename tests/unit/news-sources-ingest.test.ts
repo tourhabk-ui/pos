@@ -24,7 +24,7 @@ vi.mock('@/lib/database', () => ({
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 
-import { ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/seismic-parser';
+import { ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/safety/seismic-parser';
 import { GET as getRoute } from '@/app/api/routes/[id]/route';
 
 const KAMGOV_RSS = `<?xml version="1.0"?>

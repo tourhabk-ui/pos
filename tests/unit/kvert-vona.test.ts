@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseVona, parseVonaFeed, parseColor, normalizeVolcanoName, cleanVolcanoName, ACC_META,
-} from '@/lib/services/kvert-vona';
+} from '@/lib/services/safety/kvert-vona';
 
 const VONA_RED = `VOLCANO OBSERVATORY NOTICE FOR AVIATION (VONA)
 

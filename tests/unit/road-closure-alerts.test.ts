@@ -26,7 +26,7 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireAdmin: (...args: unknown[]) => requireAdminMock(...args),
 }));
 
-import { classifyMchsItem, detectRoadRestriction } from '@/lib/services/seismic-parser';
+import { classifyMchsItem, detectRoadRestriction } from '@/lib/services/safety/seismic-parser';
 import { GET as getAlerts, POST as postAlert } from '@/app/api/admin/external-alerts/route';
 import { DELETE as deleteAlert } from '@/app/api/admin/external-alerts/[id]/route';
 import { PATCH as patchPlaceStatus } from '@/app/api/admin/places/[id]/status/route';

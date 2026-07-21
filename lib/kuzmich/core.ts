@@ -11,7 +11,7 @@
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
 import { callAIWaterfall, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
-import { getZoneWeatherForText } from '@/lib/services/zone-weather';
+import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import type { ToolCall } from '@/lib/ai/providers';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';

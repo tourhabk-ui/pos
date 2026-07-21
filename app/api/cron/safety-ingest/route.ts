@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml } from '@/lib/services/safety/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';

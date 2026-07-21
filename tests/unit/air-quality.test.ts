@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getZoneAirQuality, getAllZonesAirQuality, categorizeAqi } from '@/lib/services/air-quality';
+import { getZoneAirQuality, getAllZonesAirQuality, categorizeAqi } from '@/lib/services/safety/air-quality';
 
 describe('categorizeAqi', () => {
   it('categorizes AQI thresholds per US EPA breakpoints', () => {
