@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireOperator } from '@/lib/auth/middleware';
+import { callAIWaterfall } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,30 +84,16 @@ Rules:
 - latitude/longitude: must be realistic Kamchatka coordinates (50-60°N, 155-165°E)
 - notes: include useful local knowledge about the location or activity season`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-6',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  // Раньше — прямой api.anthropic.com (opus), недоступный из РФ (прод — Timeweb):
+  // оператор не мог авто-заполнить тур (вызов бросал ошибку). Уводим на
+  // устойчивый водопад (Qwen/DeepSeek/… доступны из РФ), fallback встроен.
+  const raw = await callAIWaterfall([{ role: 'user' as const, content: prompt }]);
 
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${response.statusText}`);
-  }
-
-  const data = await response.json() as { content: Array<{ type: string; text: string }> };
-  const responseText =
-    data.content[0]?.type === 'text' ? data.content[0].text : '{}';
+  // Модель может обернуть JSON в ```json ... ``` — снимаем ограждение.
+  const responseText = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
 
   // Parse JSON response
-  const parsed = JSON.parse(responseText);
+  const parsed = JSON.parse(responseText || '{}');
 
   return {
     short_description: parsed.short_description || undefined,
