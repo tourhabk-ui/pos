@@ -8,7 +8,7 @@ import { requireOctoAuth, applyOctoRateLimitHeaders } from '@/lib/octo/auth';
 import { AvailabilityCheckSchema } from '@/lib/octo/schemas';
 import { checkAvailability } from '@/lib/octo/service';
 import { mapAvailability, mapFreesaleAvailability } from '@/lib/octo/mappers';
-import { bulkDynamicPrices } from '@/lib/services/dynamic-pricing';
+import { bulkDynamicPrices } from '@/lib/services/tours/dynamic-pricing';
 
 export const dynamic = 'force-dynamic';
 

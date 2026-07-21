@@ -4,7 +4,7 @@
  */
 
 import { pool, toStringOrNull, toNumberOrNull } from './_helpers';
-import { tourService } from './tour.service';
+import { tourService } from './tours/tour.service';
 
 export const searchService = {
   async search(queryOrParams: unknown, maybeParams?: Record<string, unknown>) {

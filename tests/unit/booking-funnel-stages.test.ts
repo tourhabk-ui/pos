@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getBookingFunnelStages } from '@/lib/services/booking-funnel-stages';
+import { getBookingFunnelStages } from '@/lib/services/tours/booking-funnel-stages';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({
