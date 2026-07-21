@@ -14,7 +14,7 @@
 
 import PDFDocument from 'pdfkit';
 import { registerCyrillicFonts } from '@/lib/pdf/fonts';
-import type { LeadProposalData } from '@/lib/services/lead-processor.service';
+import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 
 interface GenerateOptions {
   clientName: string;

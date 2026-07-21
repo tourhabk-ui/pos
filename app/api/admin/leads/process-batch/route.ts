@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
-import { processSingleLead } from '@/lib/services/lead-processor.service';
+import { processSingleLead } from '@/lib/services/operators/lead-processor.service';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';

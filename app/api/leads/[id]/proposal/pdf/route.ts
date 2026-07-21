@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { generateProposalPDF } from '@/lib/pdf/proposal-generator';
 
 export async function GET(

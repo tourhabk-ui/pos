@@ -11,7 +11,7 @@
  *
  * Использует тот же smartFetch (Bright Data → direct), что и остальные скрейперы.
  * После наполнения таблицы сверка запускается через
- * POST /api/admin/registry/reconcile (или lib/services/operator-registry.service).
+ * POST /api/admin/registry/reconcile (или lib/services/operators/operator-registry.service).
  *
  * ВАЖНО: портал местами протухший (даты бронирования 2022). Даты записей
  * реестра сохраняем в registry_date — актуальность проверять по ним + scraped_at.

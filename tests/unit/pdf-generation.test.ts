@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { generateProposalPDF } from '@/lib/pdf/proposal-generator';
 import { generateVoucherPDF } from '@/lib/pdf/voucher-generator';
 import { DEFAULT_PDF_FONT } from '@/lib/pdf/fonts';
-import type { LeadProposalData } from '@/lib/services/lead-processor.service';
+import type { LeadProposalData } from '@/lib/services/operators/lead-processor.service';
 
 describe('PDF-генераторы с кириллицей', () => {
   it('шрифт DejaVu доступен в public/fonts', () => {

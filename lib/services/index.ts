@@ -15,14 +15,14 @@ export {
 
 // Tour / Review / Search
 export { tourService } from './tours/tour.service';
-export { reviewService } from './review.service';
+export { reviewService } from './operators/review.service';
 export { searchService } from './search.service';
 
 // Booking / Availability
 export { bookingService, availabilityService } from './tours/booking.service';
 
 // Partner (operators)
-export { partnerService } from './partner.service';
+export { partnerService } from './operators/partner.service';
 
 // Payment / Commission / Payout
 export { commissionService, payoutService } from './payment.service';
@@ -31,13 +31,13 @@ export { commissionService, payoutService } from './payment.service';
 export { knowledgeBaseService } from './rag.service';
 
 // Chat (conversation-based user-to-user messaging)
-export { chatService } from './chat.service';
+export { chatService } from './operators/chat.service';
 
 // Notifications
-export { notificationService } from './notification.service';
+export { notificationService } from './operators/notification.service';
 
 // Support (agents, feedback, SLA, ticket messages)
-export { agentService, feedbackService, slaService, ticketMessageService } from './support.service';
+export { agentService, feedbackService, slaService, ticketMessageService } from './operators/support.service';
 
 // Analytics (dashboard, metrics, reports)
 export { dashboardService, metricsService, reportService } from './analytics.service';

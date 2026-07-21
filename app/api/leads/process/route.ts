@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
-import { leadProcessor } from '@/lib/services/lead-processor.service';
+import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { notifyOperatorProposal } from '@/lib/notifications/lead-notify';
 
 const Schema = z.object({
