@@ -15,6 +15,15 @@ on:
       - '**/*.tsx'
       - '**/*.js'
       - '**/*.mjs'
+  # main автодеплоится на Timeweb — ловим уязвимость на диффе PR ДО мержа,
+  # а не постфактум в Security-табе, когда она уже уехала в прод.
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.js'
+      - '**/*.mjs'
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:
@@ -23,7 +32,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: codeql
+  # Per-ref: PR-скан и main-скан не отменяют друг друга (иначе мерж гасит
+  # незавершённый анализ ветки и наоборот).
+  group: codeql-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
