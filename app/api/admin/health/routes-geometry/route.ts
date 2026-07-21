@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { computeGeometryHealth } from '@/lib/services/routes-geometry-health';
+import { computeGeometryHealth } from '@/lib/services/routes/routes-geometry-health';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computePlacesQuality } from '@/lib/services/places-quality';
+import { computePlacesQuality } from '@/lib/services/routes/places-quality';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

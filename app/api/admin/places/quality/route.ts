@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { computePlacesQuality } from '@/lib/services/places-quality';
+import { computePlacesQuality } from '@/lib/services/routes/places-quality';
 
 export const dynamic = 'force-dynamic';
 

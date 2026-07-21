@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { findRoutePreflightSafety } from '@/lib/services/route-preflight-safety';
+import { findRoutePreflightSafety } from '@/lib/services/routes/route-preflight-safety';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({

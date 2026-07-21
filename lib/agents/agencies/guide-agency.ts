@@ -10,7 +10,7 @@
 
 import { pool } from '@/lib/db-pool';
 import type { AgentContext } from '../context-hub';
-import { findRoutePreflightSafety } from '@/lib/services/route-preflight-safety';
+import { findRoutePreflightSafety } from '@/lib/services/routes/route-preflight-safety';
 
 // Фразы-триггеры pre-flight команды — снимаются с начала сообщения, остаток
 // считается названием маршрута ("проверь маршрут Авачинский" → "Авачинский").

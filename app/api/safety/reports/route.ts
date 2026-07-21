@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { containsProfanity } from '@/lib/services/profanity-filter';
-import { withinKamchatka } from '@/lib/services/geocode';
+import { withinKamchatka } from '@/lib/services/routes/geocode';
 
 export const dynamic = 'force-dynamic';
 

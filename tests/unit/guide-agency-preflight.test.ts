@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockFindRoutePreflightSafety = vi.fn();
-vi.mock('@/lib/services/route-preflight-safety', () => ({
+vi.mock('@/lib/services/routes/route-preflight-safety', () => ({
   findRoutePreflightSafety: (...args: unknown[]) => mockFindRoutePreflightSafety(...args),
 }));
 
