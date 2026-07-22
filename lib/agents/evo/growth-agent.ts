@@ -169,14 +169,83 @@ async function readFileForReview(relPath: string): Promise<string | null> {
   }
 }
 
+// Ядро — ревьюим всегда: самые чувствительные пути (создание брони + мозг
+// Кузьмича), даже если давно не менялись.
+const CORE_REVIEW_FILES = [
+  'app/api/hub/bookings/create/route.ts',
+  'lib/kuzmich/core.ts',
+  // excluded: lib/payments/tochka.ts (env vars, verified)
+  // excluded: lib/bookings/booking.service.ts (parameterized SQL, verified)
+];
+
+const MAX_REVIEW_FILES = 4;
+const REVIEW_REPO_SLUG = 'tourhabk-ui/pos';
+
+/**
+ * Путь стоит ревью: исходник с логикой (app/api или lib), не тест/декларация,
+ * не в списках исключений/принятых рисков. Экспортируется для guard-теста.
+ */
+export function isReviewableSourcePath(p: string): boolean {
+  if (!p.endsWith('.ts')) return false;
+  if (p.endsWith('.d.ts') || p.includes('.test.') || p.includes('__tests__')) return false;
+  if (!(p.startsWith('app/api/') || p.startsWith('lib/'))) return false;
+  if (AI_EXCLUDED_FILES.has(p) || ACCEPTED_RISKS.has(p)) return false;
+  return true;
+}
+
+/** Union ядра и недавно изменённых: дедуп, ядро первым, обрезка до max. */
+export function pickReviewFiles(core: string[], recent: string[], max: number): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const f of [...core, ...recent]) {
+    if (seen.has(f)) continue;
+    seen.add(f);
+    out.push(f);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Недавно изменённые исходники через GitHub compare API. Сервер (РФ/Timeweb)
+ * достаёт raw.githubusercontent — та же инфраструктура, что api.github.com.
+ * Без токена лимит 60 req/hr, а скан раз в 6ч — с запасом. Ошибка/пусто → [],
+ * тогда ревьюим только ядро (прежнее поведение). Раньше сканер видел 2
+ * зашитых файла из 600+ — весь новый код (safety-ingest, MAX, planner…) не
+ * попадал под ревью вообще (EVO-4).
+ */
+async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]> {
+  try {
+    const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' };
+    const listRes = await fetch(
+      `https://api.github.com/repos/${REVIEW_REPO_SLUG}/commits?per_page=${windowCommits}&sha=main`,
+      { headers, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!listRes.ok) return [];
+    const commits = await listRes.json() as Array<{ sha: string }>;
+    if (!Array.isArray(commits) || commits.length < 2) return [];
+    const base = commits[commits.length - 1].sha;
+    const head = commits[0].sha;
+    const cmpRes = await fetch(
+      `https://api.github.com/repos/${REVIEW_REPO_SLUG}/compare/${base}...${head}`,
+      { headers, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!cmpRes.ok) return [];
+    const cmp = await cmpRes.json() as { files?: Array<{ filename: string; status: string }> };
+    const files = (cmp.files ?? [])
+      .filter(f => f.status !== 'removed')
+      .map(f => f.filename)
+      .filter(isReviewableSourcePath);
+    return Array.from(new Set(files));
+  } catch {
+    return [];
+  }
+}
+
 async function aiCodeReview(): Promise<GrowthIssue[]> {
-  // Files to review — exclude known false positives
-  const reviewFiles = [
-    'app/api/hub/bookings/create/route.ts',
-    'lib/kuzmich/core.ts',
-    // excluded: lib/payments/tochka.ts (env vars, verified)
-    // excluded: lib/bookings/booking.service.ts (parameterized SQL, verified)
-  ];
+  // Скользящее окно: ядро + недавно изменённые исходники (EVO-4). Fallback на
+  // ядро, если GitHub API недоступен.
+  const reviewFiles = pickReviewFiles(CORE_REVIEW_FILES, await recentlyChangedSourceFiles(), MAX_REVIEW_FILES);
 
   const messages: ChatMessage[] = [
     {
