@@ -3,13 +3,17 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { TransferOperatorMetricsGrid } from '@/components/transfer-operator/Dashboard/TransferOperatorMetricsGrid';
-import { Bus, UserPlus, ClipboardList, BarChart3 } from 'lucide-react';
+import { Bus, UserPlus, ClipboardList, BarChart3, Map } from 'lucide-react';
 
+// Ссылки только на реально существующие разделы (bookings/drivers/routes/
+// vehicles). Раньше «Создать трансфер»→/transfers и «Заявки»→/requests вели
+// на 404: таких страниц нет, а «создание трансфера» — не задача транспортного
+// оператора (он принимает брони и ведёт транспорт/водителей/маршруты).
 const QUICK_ACTIONS = [
   { label: 'Добавить транспорт', href: '/hub/transfer-operator/vehicles', icon: Bus },
   { label: 'Добавить водителя', href: '/hub/transfer-operator/drivers', icon: UserPlus },
-  { label: 'Создать трансфер', href: '/hub/transfer-operator/transfers', icon: Bus },
-  { label: 'Заявки', href: '/hub/transfer-operator/requests', icon: ClipboardList },
+  { label: 'Маршруты', href: '/hub/transfer-operator/routes', icon: Map },
+  { label: 'Заявки', href: '/hub/transfer-operator/bookings', icon: ClipboardList },
 ];
 
 export default function TransferOperatorDashboardClient() {
