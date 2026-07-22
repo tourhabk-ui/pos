@@ -80,7 +80,7 @@ function fmtDate(d: string | null): string | null {
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const data = await getGuide(id);
-  if (!data) return { title: 'Гид не найден | Ведар' };
+  if (!data) return { title: 'Гид не найден' };
   const { guide } = data;
   const title = `${guide.name} — сертифицированный гид Камчатки`;
   const description = guide.description?.slice(0, 160)
