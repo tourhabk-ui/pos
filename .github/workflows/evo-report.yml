@@ -1,0 +1,46 @@
+name: Evo — рука действия (находки → GitHub Issues)
+
+# Читает находки Growth Scan в статусе 'suggested' (не сводятся к авто-фиксу —
+# нужен человек) и заводит по ним GitHub Issues. Никаких изменений кода: только
+# задачи в трекер — безопасно и обратимо. Дедуп: колбэк проставляет
+# github_issue_url; вторая линия — поиск открытой issue по заголовку.
+#
+# Раннер на GitHub (не на Timeweb) → RF-блокировки не мешают. Требует secret
+# CRON_SECRET; issue создаёт под GITHUB_TOKEN (прав `issues: write` достаточно).
+
+on:
+  schedule:
+    - cron: '37 5 * * *'   # ежедневно 05:37 UTC (нечётная минута — GitHub дропает :00)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/evo-report.json'
+
+concurrency:
+  group: evo-report
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Завести GitHub Issues из находок эволюции
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVO_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "ERROR: CRON_SECRET secret не настроен"; exit 1; fi
+          node scripts/evo-report-issues.js

@@ -1,0 +1,4 @@
+{
+  "description": "Маркер ручного запуска evo-report.yml (рука эволюции: находки Growth Scan → GitHub Issues). Меняй any-поле и push в main, чтобы прогнать вне расписания.",
+  "bump": 0
+}
