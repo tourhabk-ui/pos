@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems } from '@/lib/services/safety/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -166,6 +166,7 @@ function buildResponse(
     news?: ParseResultSummary;
     minec?: ParseResultSummary;
     vk?: ParseResultSummary;
+    max?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -179,6 +180,7 @@ function buildResponse(
     ...(ingestResult.news?.errors ?? []),
     ...(ingestResult.minec?.errors ?? []),
     ...(ingestResult.vk?.errors ?? []),
+    ...(ingestResult.max?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -220,6 +222,11 @@ function buildResponse(
       inserted: ingestResult.vk.inserted,
       skipped: ingestResult.vk.skipped,
     } : undefined,
+    max: ingestResult.max ? {
+      events_found: ingestResult.max.events.length,
+      inserted: ingestResult.max.inserted,
+      skipped: ingestResult.max.skipped,
+    } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
@@ -255,6 +262,16 @@ const HtmlBodySchema = z.object({
   // Канал Минэкономразвития (законодательство/ограничения для туризма).
   // Optional: старый воркфлоу без этого поля продолжает работать.
   minec_html: z.string().optional(),
+  // Канал ГУ МЧС Камчатки в MAX (max.ru/id4101120929_gos). У MAX нет открытого
+  // read-API, поэтому раннер сам читает канал и присылает уже готовые посты
+  // массивом. Сервер прогоняет каждый через classifyMchsItem — она и есть
+  // фильтр мусора (приветствия/анонсы/учения → отброшены). Optional.
+  max_items: z.array(z.object({
+    id: z.string().min(1),
+    text: z.string(),
+    date: z.string().optional(),
+    link: z.string().optional(),
+  })).optional(),
 });
 
 // POST — GitHub Actions передаёт уже скачанный HTML (Telegram, geo-заблокирован
@@ -280,7 +297,7 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult] = await Promise.all([
+  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult, maxResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
@@ -289,6 +306,9 @@ export async function POST(req: Request) {
       ? ingestTelegramNewsHtml(parsed.data.minec_html)
       : Promise.resolve(undefined),
     ingestVkMchs(),
+    parsed.data.max_items && parsed.data.max_items.length > 0
+      ? ingestMaxItems(parsed.data.max_items)
+      : Promise.resolve(undefined),
   ]);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
@@ -298,8 +318,9 @@ export async function POST(req: Request) {
     news: newsResult,
     minec: minecResult,
     vk: vkResult,
+    max: maxResult,
     total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted,
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0),
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;

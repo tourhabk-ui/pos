@@ -42,6 +42,54 @@ jobs:
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
           echo "minec:   $(wc -c < /tmp/minec.html) bytes"
 
+      # Канал ГУ МЧС Камчатки в госмессенджере MAX (max.ru/id4101120929_gos).
+      # Тот же поток оперативных сводок, что VK, но у MAX нет открытого read-API,
+      # и хостинг (РФ) до него не достаёт — читаем с раннера. Публичная страница
+      # канала может быть SPA (пустая оболочка без текста) — тогда шаг тихо
+      # отдаёт []. Это НЕ фатально: сервер пропускает пустой max_items.
+      # Грубость извлечения безопасна: серверный classifyMchsItem отсеивает всё,
+      # что не относится к категориям опасности (мусор → null → в БД не попадает).
+      # TODO(owner): если публичная страница окажется JS-only, подключить чтение
+      # через MAX Bot API (бот-админ канала) и слать структурированные посты.
+      - name: Fetch MAX МЧС channel (best-effort)
+        run: |
+          curl -sf --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            "https://max.ru/id4101120929_gos" > /tmp/max.html \
+            || echo "" > /tmp/max.html
+          echo "max: $(wc -c < /tmp/max.html) bytes"
+
+          # Извлекаем текстовые блоки: снимаем script/style, режем теги, оставляем
+          # содержательные строки (>40 симв.), дедуп, максимум 40 — как items[].
+          node -e '
+            const fs = require("fs");
+            const crypto = require("crypto");
+            let html = "";
+            try { html = fs.readFileSync("/tmp/max.html", "utf8"); } catch { html = ""; }
+            const items = [];
+            if (html.trim()) {
+              const text = html
+                .replace(/<script[\s\S]*?<\/script>/gi, " ")
+                .replace(/<style[\s\S]*?<\/style>/gi, " ")
+                .replace(/<[^>]+>/g, "\n")
+                .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"");
+              const seen = new Set();
+              for (const raw of text.split(/\n+/)) {
+                const line = raw.replace(/\s+/g, " ").trim();
+                if (line.length < 40) continue;
+                if (seen.has(line)) continue;
+                seen.add(line);
+                const id = "max/" + crypto.createHash("sha1").update(line).digest("hex").slice(0, 16);
+                items.push({ id, text: line, link: "https://max.ru/id4101120929_gos" });
+                if (items.length >= 40) break;
+              }
+            }
+            fs.writeFileSync("/tmp/max_items.json", JSON.stringify(items));
+            console.log("max_items:", items.length);
+          '
+
       - name: Safety Ingest — POST HTML to server
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -51,11 +99,17 @@ jobs:
           # jq --rawfile корректно экранирует произвольный HTML в JSON.
           # minec_html может быть пустым (канал недоступен) — сервер
           # пропускает пустое поле, Zod-схема допускает отсутствие.
+          # max_items — массив постов MAX (может быть пустым: SPA/недоступен),
+          # добавляем только когда непустой (Zod допускает отсутствие).
+          [ -s /tmp/max_items.json ] || echo "[]" > /tmp/max_items.json
           jq -n \
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
-            '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html} + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)' \
+            --slurpfile max_items  /tmp/max_items.json \
+            '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
+              + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
+              + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)' \
             > /tmp/payload.json
 
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \
