@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical,
+  verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson,
 } from '@/lib/ai/verbalized-sampling';
 
 describe('verbalizedInstruction', () => {
@@ -39,9 +39,42 @@ describe('parseVerbalizedSamples', () => {
 
   it('невалидный / не-массив / без text → []', () => {
     expect(parseVerbalizedSamples('не json вовсе')).toEqual([]);
+    // Без '[' — не VS-массив, а случайный фрагмент: контракт «не-массив → []».
     expect(parseVerbalizedSamples('{"probability":0.5,"text":"Z"}')).toEqual([]);
     expect(parseVerbalizedSamples('[{"probability":0.5}]')).toEqual([]);
     expect(parseVerbalizedSamples('')).toEqual([]);
+  });
+
+  it('спасает завершённые объекты из ОБРЕЗАННОГО массива (баг «Большой Калыгирь»)', () => {
+    // Реальная форма: третий объект оборван по лимиту токенов — массив не
+    // закрыт, JSON.parse падает, но первые два целы.
+    const truncated =
+      '[{"probability":0.4,"text":"Первый полный вариант описания озера."},' +
+      '{"probability":0.35,"text":"Второй полный вариант с другой подачей."},' +
+      '{"probability":0.25,"text":"Третий вариант обрывается на середине пред';
+    expect(parseVerbalizedSamples(truncated)).toEqual([
+      { probability: 0.4, text: 'Первый полный вариант описания озера.' },
+      { probability: 0.35, text: 'Второй полный вариант с другой подачей.' },
+    ]);
+  });
+
+  it('спасение корректно разэкранирует \\n и \\" внутри text', () => {
+    const raw = '[{"probability":0.5,"text":"Строка\\nс переносом и \\"кавычками\\"."},{"probability":0.3,"text":"обрыв';
+    const out = parseVerbalizedSamples(raw);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe('Строка\nс переносом и "кавычками".');
+  });
+});
+
+describe('looksLikeVerbalizedJson — детектор (битой) попытки VS-JSON', () => {
+  it('распознаёт сырой/обрезанный VS-массив', () => {
+    expect(looksLikeVerbalizedJson('[{"probability":0.4,"text":"обрыв')).toBe(true);
+    expect(looksLikeVerbalizedJson('```json\n[{"probability":0.4,"text":"x"}]')).toBe(true);
+  });
+  it('обычную прозу за VS-JSON не принимает', () => {
+    expect(looksLikeVerbalizedJson('Озеро Большой Калыгирь расположено в Камчатском крае.')).toBe(false);
+    expect(looksLikeVerbalizedJson('')).toBe(false);
+    expect(looksLikeVerbalizedJson('[просто скобка в тексте]')).toBe(false);
   });
 });
 
