@@ -1,22 +1,23 @@
 /**
- * Proactive Rescue Agent — сам мониторит, сам алертит.
+ * Rescue Agent — проактивный мониторинг того, что НЕ покрывает Watchdog.
  *
- * Запускается каждые 30 мин через cron.
- * Проверяет:
- *   1. Активные SOS-события без ответа > 10 мин
- *   2. Погодные угрозы для активных туров
- *   3. Бронирования с просроченным подтверждением
- *   4. Операторы без ответа > 48ч
+ * Разведение дублей (EVO-3, июль 2026): SOS-таймауты и неподтверждённые
+ * бронирования сторожит теперь ТОЛЬКО Watchdog (lib/agents/watchdog.ts) —
+ * у него тот же порог, тот же Telegram, но частота 30 мин против 6-часовой
+ * evo-оркестрации, и он ещё пишет оператору напрямую. Держать те же проверки
+ * в двух агентах = двойные алерты владельцу об одном событии. Rescue оставляет
+ * за собой то, чего у Watchdog нет:
+ *   1. Погодные угрозы для ближайших туров (Open-Meteo по зоне бронирования)
+ *   2. Операторы без бронирований >7 дней (сигнал оттока, severity info)
  *
- * Отправляет алерты в Telegram владельцу.
- * Для критических SOS — также SMS (если настроен).
+ * SOS и брони >24ч → Watchdog. Не возвращать их сюда — расширять того сторожа.
  */
 
 import { pool } from '@/lib/db-pool';
 import { fetchWeatherForecast } from '@/lib/planner/intelligence';
 
 export interface RescueAlert {
-  type: 'sos_timeout' | 'weather_threat' | 'booking_unconfirmed' | 'operator_no_response';
+  type: 'weather_threat' | 'operator_no_response';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   body: string;
@@ -62,69 +63,20 @@ export async function runRescueScan(): Promise<RescueScanResult> {
   const start = Date.now();
   const alerts: RescueAlert[] = [];
 
-  // 1. SOS-события без ответа
-  alerts.push(...await checkSOSTimeouts());
-
-  // 2. Погодные угрозы для активных туров
+  // Погодные угрозы для ближайших туров (уникально для Rescue).
   alerts.push(...await checkWeatherThreats());
 
-  // 3. Бронирования без подтверждения > 24ч
-  alerts.push(...await checkUnconfirmedBookings());
-
-  // 4. Операторы без ответа
+  // Операторы без бронирований >7 дней — сигнал оттока (severity info).
+  // NB: это НЕ то же, что Watchdog.checkOperatorNoResponse (там оператор
+  // игнорирует конкретную бронь >48ч) — здесь про тишину/отток.
   alerts.push(...await checkOperatorResponse());
 
-  // Если есть критические алерты — отправляем в Telegram
+  // SOS и брони >24ч сюда НЕ возвращать — их сторожит Watchdog (см. заголовок).
   if (alerts.some(a => a.severity === 'critical')) {
     void sendCriticalAlerts(alerts.filter(a => a.severity === 'critical'));
   }
 
   return { alerts, scan_duration_ms: Date.now() - start };
-}
-
-// ── SOS Timeout Check ──────────────────────────────────────────────────────
-
-async function checkSOSTimeouts(): Promise<RescueAlert[]> {
-  const alerts: RescueAlert[] = [];
-
-  try {
-    const { rows } = await pool.query<{
-      id: number; user_id: number | null; lat: number | null; lng: number | null;
-      message: string | null; created_at: Date; age_minutes: number;
-    }>(`
-      SELECT id, user_id, lat, lng, message, created_at,
-             EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
-      FROM sos_events
-      WHERE status NOT IN ('resolved', 'false_alarm')
-      ORDER BY created_at ASC
-    `);
-
-    for (const sos of rows) {
-      const age = Math.round(sos.age_minutes);
-
-      if (age > 30) {
-        alerts.push({
-          type: 'sos_timeout',
-          severity: 'critical',
-          title: `🔴 SOS #${sos.id} — ${age} мин без ответа`,
-          body: sos.message ?? 'Без сообщения',
-          action: `Координаты: ${sos.lat ?? '?'}, ${sos.lng ?? '?'}. Вызвать МЧС: 112`,
-        });
-      } else if (age > 10) {
-        alerts.push({
-          type: 'sos_timeout',
-          severity: 'warning',
-          title: `🟡 SOS #${sos.id} — ${age} мин`,
-          body: sos.message ?? 'Без сообщения',
-          action: 'Проверить и ответить.',
-        });
-      }
-    }
-  } catch {
-    // Таблица может не существовать
-  }
-
-  return alerts;
 }
 
 // ── Weather Threat Check ──────────────────────────────────────────────────
@@ -180,43 +132,6 @@ async function checkWeatherThreats(): Promise<RescueAlert[]> {
     }
   } catch {
     // Ошибка — не критично
-  }
-
-  return alerts;
-}
-
-// ── Unconfirmed Bookings ──────────────────────────────────────────────────
-
-async function checkUnconfirmedBookings(): Promise<RescueAlert[]> {
-  const alerts: RescueAlert[] = [];
-
-  try {
-    const { rows } = await pool.query<{
-      id: number; tour_title: string; booking_date: string;
-      tourist_name: string; created_at: Date;
-    }>(`
-      SELECT ob.id, ot.title AS tour_title, ob.booking_date,
-             ob.tourist_name, ob.created_at
-      FROM operator_bookings ob
-      JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-      WHERE ob.booking_status = 'new'
-        AND ob.created_at < NOW() - INTERVAL '24 hours'
-        AND ob.deleted_at IS NULL
-      ORDER BY ob.created_at ASC
-    `);
-
-    for (const b of rows) {
-      const hours = Math.round((Date.now() - b.created_at.getTime()) / 3600000);
-      alerts.push({
-        type: 'booking_unconfirmed',
-        severity: hours > 48 ? 'warning' : 'info',
-        title: `📋 Заявка #${b.id} — ${hours}ч без подтверждения`,
-        body: `${b.tour_title} — ${b.tourist_name}, дата: ${formatDate(b.booking_date)}`,
-        action: 'Связаться с оператором и уточнить статус.',
-      });
-    }
-  } catch {
-    // Таблица может не существовать
   }
 
   return alerts;
