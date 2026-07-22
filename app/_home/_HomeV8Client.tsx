@@ -872,15 +872,20 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.v7 .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.v7 .ticker.scroll .ticker-track{animation:none}}
 .v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
-.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:14px;padding:12px 14px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 22%,transparent)}
+/* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
+   семантическая левая грань (МЧС=danger, офлайн-инструменты=tide, наблюдение=
+   amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода). */
+.v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:14px;padding:12px 14px 12px 15px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 22%,transparent);border-left:3px solid color-mix(in srgb,var(--danger) 48%,transparent)}
 .v7 .mchsline b{font:700 12px/1.3 var(--fd);color:var(--ink)}
 .v7 .mchsline span{font:500 10px/1.35 var(--fb);color:var(--muted)}
 .v7 .mchsline:active{transform:scale(.99)}
-.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:10px 14px;border-radius:12px;text-decoration:none;border:1px solid var(--hair);font:500 10.5px/1.4 var(--fb);color:var(--muted)}
+.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;text-decoration:none;background:var(--plate);border:1px solid var(--hair-soft);border-left:3px solid color-mix(in srgb,var(--tide) 68%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);font:500 10.5px/1.4 var(--fb);color:var(--muted);transition:transform .2s ease,box-shadow .2s ease}
 .v7 .protoline b{font:700 10.5px/1 var(--fb);color:var(--ink)}
+.v7 .protoline:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .protoline:active{transform:scale(.99)}
-.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:10px 14px;border-radius:12px;border:1px dashed var(--hair);background:none;cursor:pointer;font:600 10.5px/1.4 var(--fb);color:var(--ink);font-family:var(--fb)}
+.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--plate);border:1px solid var(--hair-soft);border-left:3px solid color-mix(in srgb,var(--amber) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--fb);color:var(--ink);font-family:var(--fb);transition:transform .2s ease,box-shadow .2s ease}
 .v7 .reportbtn span{color:var(--muted);font-weight:500}
+.v7 .reportbtn:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 .v7 .pulse{margin-top:12px;border:1px solid var(--hair);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--plate) 45%,transparent)}
