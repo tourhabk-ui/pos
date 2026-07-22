@@ -860,6 +860,44 @@ export async function ingestVkMchs(): Promise<ParseResult> {
   return result;
 }
 
+// ── Официальный канал ГУ МЧС Камчатки в MAX ─────────────────────────────────
+// max.ru/id4101120929_gos — тот же поток оперативных сводок, что и VK, но в
+// госмессенджере MAX. В отличие от VK (api.vk.com/wall.get доступен из РФ),
+// у MAX нет открытого read-API для чтения канала. Поэтому посты приходят
+// СНАРУЖИ: GitHub Actions читает канал и POST'ит массив items на сервер
+// (тот же паттерн, что t.me/kbgsras через ingestFromHtml — обход того, что
+// хостинг может не достучаться до источника). Сервер каждый item прогоняет
+// через classifyMchsItem — она же и фильтр мусора: приветствия, телеанонсы,
+// учения, статистика → null → выброшены; в БД попадают только реальные
+// категории опасности (цунами/паводок/пожар/дорога/вулкан).
+export async function ingestMaxItems(
+  items: Array<{ id: string; text: string; date?: string; link?: string }>,
+): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  for (const item of items) {
+    const text = (item.text ?? '').trim();
+    if (!text) continue;
+    const id = item.id || `max/${titleFingerprint(text)}`;
+    const pubDate = item.date && !isNaN(new Date(item.date).getTime())
+      ? new Date(item.date).toISOString()
+      : new Date().toISOString();
+    const link = item.link || 'https://max.ru/id4101120929_gos';
+    // title пустой — у MAX-постов нет заголовка, весь текст в description.
+    // classifyMchsItem вернёт null для мусора — это и есть сортировка.
+    const event = classifyMchsItem(id, '', text, pubDate, link, 'max_mchs');
+    if (!event) continue;
+    result.events.push(event);
+    try {
+      const status = await saveEvent(event);
+      if (status === 'inserted') result.inserted++;
+      else result.skipped++;
+    } catch (e) {
+      result.errors.push((e as Error).message);
+    }
+  }
+  return result;
+}
+
 export async function ingestAll(): Promise<{
   kbgsras: ParseResult;
   eqkam: ParseResult;

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, ingestVkMchs, detectRoadRestriction, titleFingerprint } from '@/lib/services/safety/seismic-parser';
+import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, ingestVkMchs, ingestMaxItems, detectRoadRestriction, titleFingerprint } from '@/lib/services/safety/seismic-parser';
+
+// Мок БД: ingestMaxItems сохраняет реальные события через query(). В тестах не
+// ходим в Postgres — подменяем слой БД. vi.hoisted, чтобы фабрика мока увидела
+// spy до подъёма vi.mock наверх файла.
+const { querySpy } = vi.hoisted(() => ({ querySpy: vi.fn() }));
+vi.mock('@/lib/database', () => ({ query: querySpy }));
 
 // Реальный бюллетень МЧС Камчатка (2 июля), который раньше молча отбрасывался —
 // ни цунами, ни шторм, ни паводок, ни пожар: 4 категории classifyMchsItem не
@@ -237,6 +243,80 @@ describe('ingestVkMchs', () => {
     expect(r.inserted).toBe(0);
     expect(r.events).toEqual([]);
     expect(r.errors).toEqual([]);
+  });
+});
+
+describe('classifyMchsItem — сводка ГУ МЧС из MAX (source max_mchs, title пустой)', () => {
+  it('вулканическая рекомендация из MAX-поста → volcanic_eruption с source_id max_mchs', () => {
+    // У MAX-постов, как и у VK, нет заголовка: весь текст в description, title=''.
+    const e = classifyMchsItem(
+      'max/98765',
+      '',
+      'Камчатским туристам рекомендуют воздержаться от восхождения на Мутновский вулкан: газопепловый выброс, землетрясения в постройке, оползни и обвалы.',
+      '2026-07-21T06:00:00Z',
+      'https://max.ru/id4101120929_gos',
+      'max_mchs',
+    );
+    expect(e).not.toBeNull();
+    expect(e!.alert_type).toBe('volcanic_eruption');
+    expect(e!.source_id).toMatch(/^max_mchs\/t/);
+  });
+});
+
+describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsItem сортирует мусор', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    querySpy.mockReset();
+  });
+
+  it('пустой массив → тихий no-op, без обращений к БД', async () => {
+    const r = await ingestMaxItems([]);
+    expect(r.inserted).toBe(0);
+    expect(r.events).toEqual([]);
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it('мусор (приветствия, анонсы, пустые) отсеивается — в БД ничего не идёт', async () => {
+    const r = await ingestMaxItems([
+      { id: 'max/1', text: '' },
+      { id: 'max/2', text: 'Поздравляем земляков с профессиональным праздником!' },
+      { id: 'max/3', text: 'Смотрите в новом выпуске программы «МЧС. Экстренный вызов».' },
+      { id: 'max/4', text: 'Пожарно-тактическое учение прошло в школе № 40.' },
+    ]);
+    expect(r.inserted).toBe(0);
+    expect(r.skipped).toBe(0);
+    expect(r.events).toEqual([]);
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it('реальная угроза классифицируется и сохраняется (source max_mchs)', async () => {
+    querySpy.mockResolvedValue({ rowCount: 1, rows: [{ id: 1 }] });
+    const r = await ingestMaxItems([
+      { id: 'max/10', text: 'Поздравляем с праздником!' }, // мусор — отсев
+      {
+        id: 'max/11',
+        text: 'Временно ограничено движение транспортных средств на участке автодороги «Палана — строящийся аэропорт».',
+        date: '2026-07-21T06:00:00Z',
+        link: 'https://max.ru/id4101120929_gos/11',
+      },
+    ]);
+    expect(r.inserted).toBe(1);
+    expect(r.events).toHaveLength(1);
+    expect(r.events[0].alert_type).toBe('road_closure');
+    expect(r.events[0].source_id).toMatch(/^max_mchs\/t/);
+    expect(r.events[0].source_url).toBe('https://max.ru/id4101120929_gos/11');
+    expect(querySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('без даты берётся текущее время, без link — дефолтный URL канала', async () => {
+    querySpy.mockResolvedValue({ rowCount: 1, rows: [{ id: 2 }] });
+    const r = await ingestMaxItems([
+      { id: 'max/20', text: 'На реках полуострова ожидается подъём уровня воды, возможно подтопление.' },
+    ]);
+    expect(r.inserted).toBe(1);
+    expect(r.events[0].alert_type).toBe('flood');
+    expect(r.events[0].source_url).toBe('https://max.ru/id4101120929_gos');
+    expect(r.events[0].published_at.getTime()).not.toBeNaN();
   });
 });
 
