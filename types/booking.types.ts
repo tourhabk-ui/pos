@@ -82,6 +82,12 @@ export interface BookingWithDetails {
   createdAt: Date;
   updatedAt: Date;
   logs: BookingLogEntry[];
+  /**
+   * Вейвер (согласие с рисками) для высокорисковых туров. Заполняется только
+   * для броней оператора (operator_bookings); для legacy-броней — undefined.
+   */
+  waiverRequired?: boolean;
+  waiverSigned?: boolean;
 }
 
 export interface CreateBookingInput {

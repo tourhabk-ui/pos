@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAuth } from '@/lib/auth/middleware';
 import { buildBookingIcs } from '@/lib/calendar/ics';
-import { z } from 'zod';
+import { normalizeBookingId } from '@/lib/bookings/booking-id';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +18,10 @@ export async function GET(
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
-  const { id } = await params;
-  if (!z.string().uuid().safeParse(id).success) {
+  // operator_bookings.id — BIGINT; список отдаёт его как `op-<id>`. UUID-проверки
+  // тут быть не может (иначе .ics всегда 400): нормализуем к bigint-строке.
+  const id = normalizeBookingId((await params).id);
+  if (!id) {
     return NextResponse.json({ success: false, error: 'Некорректный id' }, { status: 400 });
   }
 

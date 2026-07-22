@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { LoadingSpinner } from '@/components/admin/shared';
-import { Calendar, Users, ChevronDown, ChevronUp, Star, CalendarPlus, Ticket } from 'lucide-react';
+import { Calendar, Users, ChevronDown, ChevronUp, Star, CalendarPlus, Ticket, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import type { BookingWithDetails, BookingStatus } from '@/types/booking.types';
 
@@ -291,6 +291,32 @@ export default function BookingHistoryPageClient() {
                         <Ticket className="w-3.5 h-3.5" />
                         Ваучер
                       </a>
+                    )}
+
+                    {/* "Вейвер" — согласие с рисками для высокорисковых туров (вулкан,
+                        вертолёт, рафтинг, зимний выход). Свойство безопасности §7:
+                        не подписан — тревожный warning; подписан — спокойный success. */}
+                    {booking.waiverRequired && !isCancelledStatus(booking.status) && (
+                      <Link
+                        href={`/hub/tourist/bookings/${booking.id}/waiver`}
+                        className={`flex items-center gap-1 px-4 py-1.5 border rounded-md text-sm transition-colors ${
+                          booking.waiverSigned
+                            ? 'border-[var(--success)]/40 text-[var(--success)] hover:bg-[var(--success)]/10'
+                            : 'border-[var(--warning)]/40 text-[var(--warning)] hover:bg-[var(--warning)]/10'
+                        }`}
+                      >
+                        {booking.waiverSigned ? (
+                          <>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Согласие подписано
+                          </>
+                        ) : (
+                          <>
+                            <ShieldAlert className="w-3.5 h-3.5" />
+                            Подписать согласие
+                          </>
+                        )}
+                      </Link>
                     )}
 
                     {/* "Оставить отзыв" — shown only for completed bookings, links to reviews page */}
