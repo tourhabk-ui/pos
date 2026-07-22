@@ -299,12 +299,13 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 
 | Агент | Тип | Что делает |
 |-------|-----|------------|
-| **Watchdog** | Cron 30 мин | Бронирования без подтверждения >24ч, операторы без ответа >48ч, лиды >2ч. Алерты в Telegram. |
+| **Watchdog** | Cron 30 мин | **Единственный сторож** операционной безопасности: SOS-таймаут >15 мин (координаты + 112), брони без подтверждения >24ч, операторы игнорируют бронь >48ч, лиды >2ч, брони жилья >24ч, сейсмо-крон мёртв >15 мин. Алерты в Telegram. |
+| **Rescue** | В Evo (6ч) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). |
 | **Editor** | Cron 02:00 UTC | Туры с описанием <300 символов → AI переписывает → `route_description_cache`. |
 | **Scout Digest** | Cron 07:00 UTC | RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram. |
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
-Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`
+Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
 GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`
 
 **Правки промптов агентов** — добавлять принципы, а не перечни кейсов. Разрастающийся список исключений в промпте — признак того, что нужен инструмент или серверный guard (пример: `lib/safety/sos-detector.ts` — детерминированная SOS-страховка вместо новых абзацев в KUZMICH_SYSTEM). Критичные факты (безопасность, цены, телефоны, наличие мест) — только из инструментов/БД, самоотчётам модели не верить.

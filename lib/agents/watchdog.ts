@@ -256,18 +256,33 @@ async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
 
 async function checkIgnoredSOS(): Promise<WatchdogAlert | null> {
   try {
-    const { rows } = await pool.query<{ count: string }>(`
-      SELECT COUNT(*)::text AS count
+    // Единственный сторож SOS-таймаутов (EVO-3: Rescue-дубль убран). Порог 15 мин
+    // вместо прежних 30: Watchdog бежит каждые 30 мин, при 15-мин пороге
+    // непокрытый SOS ловится на следующем прогоне (~15-45 мин), а не 30-60.
+    // Координаты старейшего и «112» — из бывшего Rescue, чтобы деталь не потерять.
+    const { rows } = await pool.query<{
+      id: number; lat: number | null; lng: number | null;
+      age_min: number; total: string;
+    }>(`
+      SELECT id, lat, lng,
+             ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS age_min,
+             COUNT(*) OVER ()::text AS total
       FROM sos_events
       WHERE status NOT IN ('resolved', 'false_alarm')
-        AND created_at < NOW() - INTERVAL '30 minutes'
+        AND created_at < NOW() - INTERVAL '15 minutes'
+      ORDER BY created_at ASC
+      LIMIT 1
     `);
-    const count = parseInt(rows[0]?.count ?? '0', 10);
-    if (count === 0) return null;
+    if (rows.length === 0) return null;
+    const oldest = rows[0];
+    const count = parseInt(oldest.total ?? '1', 10);
+    const coords = oldest.lat != null && oldest.lng != null
+      ? `${oldest.lat}, ${oldest.lng}`
+      : 'координаты не переданы';
     return {
       type: 'sos_ignored',
       count,
-      details: `ВНИМАНИЕ: ${count} активных SOS-сигналов без реакции > 30 мин.`,
+      details: `ВНИМАНИЕ: ${count} активных SOS без реакции >15 мин. Старейший SOS #${oldest.id} — ${oldest.age_min} мин, координаты: ${coords}. Вызвать МЧС: 112.`,
     };
   } catch (err) {
     // SOS-чек не имеет права падать молча: сломанный запрос здесь уже прятал
