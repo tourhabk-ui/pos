@@ -16,9 +16,6 @@
 'use strict';
 
 const { execFileSync } = require('child_process');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 
 const PROD_URL = process.env.TOURHAB_URL || 'https://vedarai.ru';
 const CRON_SECRET = process.env.CRON_SECRET || '';
@@ -70,13 +67,10 @@ function ensureLabel() {
 }
 
 function createIssue(title, body) {
-  const tmp = path.join(os.tmpdir(), `evo-issue-${Date.now()}-${Math.random().toString(36).slice(2)}.md`);
-  fs.writeFileSync(tmp, body);
-  try {
-    return gh(['issue', 'create', '--repo', REPO, '--title', title, '--body-file', tmp, '--label', LABEL]);
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
+  // Тело передаём аргументом, а НЕ через временный файл: execFileSync не
+  // использует shell, поэтому произвольный/многострочный текст безопасен, а
+  // сетевые данные не пишутся на диск (CodeQL: network→file / insecure temp).
+  return gh(['issue', 'create', '--repo', REPO, '--title', title, '--body', body, '--label', LABEL]);
 }
 
 async function callback(reported) {
