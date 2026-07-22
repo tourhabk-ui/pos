@@ -7,6 +7,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -299,11 +300,14 @@ severity: critical = утечка данных/обход auth/инъекция/
       severity: string; suggestion: string;
     }>;
 
-    // Filter out excluded files (AI may still mention them) + мусор-ответы
+    // Filter out excluded files (AI may still mention them) + мусор-ответы +
+    // недостоверные находки (страж: клеймят санкционированный callAIFast/
+    // console.error нарушением, или «X вместо X» — см. finding-guard).
     const filtered = parsed.filter(p =>
       !AI_EXCLUDED_FILES.has(p.file) &&
       !ACCEPTED_RISKS.has(p.file) &&
-      !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`),
+      !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`) &&
+      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }),
     );
 
     return filtered.map(p => ({
