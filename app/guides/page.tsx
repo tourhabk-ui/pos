@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
-import { Shield, Award, Star, Phone } from 'lucide-react';
+import { Shield, Award, Star } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: 'Сертифицированные гиды Камчатки',
@@ -169,13 +169,13 @@ export default async function GuidesPage() {
                   </div>
                 )}
 
-                {/* Contact CTA */}
+                {/* Профиль гида — витрина доверия (аттестаты, специализации, контакт) */}
                 <a
-                  href={`/operators?guide=${guide.id}`}
+                  href={`/guides/${guide.id}`}
                   className="mt-auto flex items-center justify-center gap-2 text-sm font-medium text-[var(--accent)] border border-[var(--accent)]/30 rounded-lg py-2 hover:bg-[var(--accent)]/5 transition-colors"
                 >
-                  <Phone size={13} />
-                  Связаться
+                  <Shield size={13} />
+                  Профиль и аттестаты
                 </a>
               </div>
             ))}
