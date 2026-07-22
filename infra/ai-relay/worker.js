@@ -72,8 +72,9 @@ export default {
     let upstream;
     try {
       upstream = await fetch(target, init);
-    } catch (e) {
-      return json({ error: 'relay_upstream_unreachable', detail: String(e) }, 502);
+    } catch {
+      // Не отдаём детали ошибки/стек клиенту (CodeQL: information exposure).
+      return json({ error: 'relay_upstream_unreachable' }, 502);
     }
 
     const respHeaders = new Headers(upstream.headers);
