@@ -15,6 +15,7 @@ import { verifyAuth } from '@/lib/auth';
 import { listBookings } from '@/lib/bookings/booking.service';
 import { query } from '@/lib/database';
 import type { BookingWithDetails } from '@/types/booking.types';
+import { isHighRiskTour } from '@/lib/safety/tour-risk';
 
 // GET /api/bookings — Получение бронирований с ролевой фильтрацией
 export async function GET(request: NextRequest) {
@@ -67,20 +68,24 @@ export async function GET(request: NextRequest) {
       const opResult = await query<{
         id: string; booking_status: string; payment_status: string;
         tour_id: string; tour_title: string; tour_price: string;
+        tour_difficulty: string | null; tour_activity_type: string | null;
         tourist_name: string; tourist_email: string; tourist_id: string;
         booking_date: Date; participants: number; final_price: string;
         cancelled_at: Date | null; special_requests: string | null;
-        created_at: Date; updated_at: Date;
+        created_at: Date; updated_at: Date; waiver_signed: boolean;
       }>(
         `SELECT ob.id::text, ob.booking_status, ob.payment_status,
                 ot.id::text AS tour_id, ot.title AS tour_title, ot.base_price::text AS tour_price,
+                ot.difficulty AS tour_difficulty, ot.activity_type AS tour_activity_type,
                 ob.tourist_name, ob.tourist_email,
                 (ob.metadata->>'user_id') AS tourist_id,
                 ob.booking_date, ob.participants, ob.final_price::text,
                 ob.cancelled_at, ob.special_requests,
-                ob.created_at, ob.updated_at
+                ob.created_at, ob.updated_at,
+                (bw.id IS NOT NULL) AS waiver_signed
          FROM operator_bookings ob
          JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+         LEFT JOIN booking_waivers bw ON bw.booking_id = ob.id
          WHERE ob.metadata->>'user_id' = $1
          ORDER BY ob.created_at DESC
          LIMIT 1000`,
@@ -109,6 +114,8 @@ export async function GET(request: NextRequest) {
           createdAt: new Date(r.created_at),
           updatedAt: new Date(r.updated_at),
           logs: [],
+          waiverRequired: isHighRiskTour(r.tour_difficulty, r.tour_activity_type),
+          waiverSigned: r.waiver_signed,
         }));
 
       combined = [...legacyBookings, ...opBookings]
