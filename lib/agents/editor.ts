@@ -14,7 +14,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical } from '@/lib/ai/verbalized-sampling';
+import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -170,14 +170,16 @@ ${verbalizedInstruction(3)}
     if (!raw) return { text: null, failReason: `callAIFast: ${describeShortText(raw)}` };
 
     // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
-    // Fallback: если модель вернула не JSON (fast-провайдеры не гарантируют формат) —
-    // используем сырой ответ как раньше, поведение не хуже прежнего.
+    // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON. Иначе рискуем
+    // сохранить сырой обрезанный массив как описание (реальный баг на проде:
+    // «Озеро Большой Калыгирь» показывало JSON [{probability,text},…]). Битый
+    // VS-JSON = провал генерации → text:null, старое описание сохраняется.
     const samples = parseVerbalizedSamples(raw);
     const picked = pickLeastTypical(samples, MIN_GENERATION_LENGTH);
-    const result = picked ?? raw;
+    const result = picked ?? (looksLikeVerbalizedJson(raw) ? null : raw);
 
-    if (result.length >= MIN_GENERATION_LENGTH) return { text: result };
-    return { text: result, failReason: `callAIFast: ${describeShortText(result)}` };
+    if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
+    return { text: null, failReason: `callAIFast: ${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
   } catch (err) {
     return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
   }

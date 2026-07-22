@@ -15,7 +15,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
-import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical } from '@/lib/ai/verbalized-sampling';
+import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
@@ -177,10 +177,12 @@ ${verbalizedInstruction(3)}
   try {
     const raw = (await callAIFast(messages))?.trim() ?? null;
     if (!raw) return null;
-    // Verbalized Sampling: наименее шаблонный валидный вариант; fallback на сырой
-    // ответ, если модель вернула не-JSON (fast-провайдеры не гарантируют формат).
+    // Verbalized Sampling: наименее шаблонный валидный вариант. Fallback на сырой
+    // ответ — ТОЛЬКО если это НЕ (битый) VS-JSON, иначе сохранили бы сырой
+    // обрезанный массив как описание (баг на проде). Битый VS-JSON → null,
+    // caller пропустит (rewriteDescription может вернуть null).
     const picked = pickLeastTypical(parseVerbalizedSamples(raw), 100);
-    return picked ?? raw;
+    return picked ?? (looksLikeVerbalizedJson(raw) ? null : raw);
   } catch (e) {
     console.error('rewrite error:', e instanceof Error ? e.message : String(e));
     return null;
