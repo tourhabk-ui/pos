@@ -5,6 +5,8 @@ import {
   Compass, Calendar, TrendingUp, Award, MapPin,
   Sun, Cloud, CloudRain, CloudSnow, Wind, Droplets,
   ChevronRight, RefreshCw, Target, Star,
+  Route, BedDouble, Mountain, ShoppingCart, Heart, Mail,
+  MessageSquare, Bell, LifeBuoy, Trophy, User, type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Weather } from '@/types';
@@ -45,6 +47,75 @@ function fmtRub(v: number) {
 const TIER_LABELS: Record<string, string> = {
   bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина',
 };
+
+// Быстрая навигация по разделам прямо на «Обзоре»: на телефоне боковое меню
+// спрятано под бургер, а отсюда любой раздел в один тап. Сгруппировано по смыслу.
+interface SectionLink { href: string; label: string; icon: LucideIcon }
+const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
+  {
+    title: 'Поездки',
+    items: [
+      { href: '/hub/tourist/trips',        label: 'Маршруты',     icon: Route },
+      { href: '/hub/tourist/bookings',     label: 'Брони',        icon: Calendar },
+      { href: '/hub/tourist/stays',        label: 'Проживания',   icon: BedDouble },
+      { href: '/hub/tourist/my-kamchatka', label: 'Моя Камчатка', icon: Mountain },
+    ],
+  },
+  {
+    title: 'Покупки',
+    items: [
+      { href: '/marketplace',            label: 'Найти тур',  icon: Star },
+      { href: '/hub/tourist/cart',       label: 'Корзина',    icon: ShoppingCart },
+      { href: '/hub/tourist/wishlist',   label: 'Избранное',  icon: Heart },
+    ],
+  },
+  {
+    title: 'Бонусы и общение',
+    items: [
+      { href: '/hub/tourist/loyalty',    label: 'Лояльность', icon: Trophy },
+      { href: '/hub/tourist/eco-points', label: 'Эко-баллы',  icon: Award },
+      { href: '/hub/tourist/messages',   label: 'Сообщения',  icon: Mail },
+      { href: '/hub/tourist/reviews',    label: 'Отзывы',     icon: MessageSquare },
+    ],
+  },
+  {
+    title: 'Аккаунт',
+    items: [
+      { href: '/hub/tourist/notifications', label: 'Уведомления', icon: Bell },
+      { href: '/hub/tourist/support',       label: 'Поддержка',   icon: LifeBuoy },
+      { href: '/hub/tourist/profile',       label: 'Профиль',     icon: User },
+    ],
+  },
+];
+
+function SectionTile({ href, label, icon: Icon }: SectionLink) {
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col items-center justify-center gap-2 p-3 min-h-[84px] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] hover:border-[var(--accent)] transition-all duration-200"
+    >
+      <Icon className="w-6 h-6 text-[var(--ocean)] group-hover:text-[var(--accent)] transition-colors" />
+      <span className="text-xs font-medium text-[var(--text-primary)] text-center leading-tight">{label}</span>
+    </Link>
+  );
+}
+
+function SectionsNav() {
+  return (
+    <div className="space-y-4">
+      {SECTION_GROUPS.map((group) => (
+        <div key={group.title}>
+          <p className="ds-label mb-2">{group.title}</p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+            {group.items.map((item) => (
+              <SectionTile key={item.href} {...item} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Ожидает', cls: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
@@ -116,9 +187,18 @@ export default function TouristDashboardClient() {
   ] : [];
 
   if (loading) {
+    // Показываем шапку и навигацию сразу — по разделам можно уйти, не дожидаясь
+    // загрузки статистики (данные догружаются ниже под спиннером).
     return (
-      <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 py-8 flex items-center justify-center min-h-[60vh]">
-        <div className="inline-block w-8 h-8 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
+      <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 py-6 lg:py-8 space-y-6">
+        <div>
+          <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">Обзор</h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">Ваш личный кабинет туриста</p>
+        </div>
+        <SectionsNav />
+        <div className="flex items-center justify-center py-16">
+          <div className="inline-block w-8 h-8 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
+        </div>
       </div>
     );
   }
@@ -149,6 +229,9 @@ export default function TouristDashboardClient() {
           </button>
         </div>
       </div>
+
+      {/* Быстрая навигация по разделам */}
+      <SectionsNav />
 
       {/* KPIs */}
       {kpis.length > 0 && (
