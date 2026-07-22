@@ -93,9 +93,12 @@ function SectionTile({ href, label, icon: Icon }: SectionLink) {
   return (
     <Link
       href={href}
-      className="group flex flex-col items-center justify-center gap-2 p-3 min-h-[84px] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] hover:border-[var(--accent)] transition-all duration-200"
+      className="group flex flex-col items-center justify-center gap-2.5 p-3 min-h-[96px] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg transition-all duration-200 hover:border-[var(--accent)]/50 hover:shadow-md hover:-translate-y-0.5 motion-reduce:hover:translate-y-0"
     >
-      <Icon className="w-6 h-6 text-[var(--ocean)] group-hover:text-[var(--accent)] transition-colors" />
+      {/* Тёплый чип под иконкой: холодная вода (--ocean) в покое, лава (--accent) на наведении */}
+      <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ocean)]/10 group-hover:bg-[var(--accent)]/12 transition-colors">
+        <Icon className="w-[22px] h-[22px] text-[var(--ocean)] group-hover:text-[var(--accent)] transition-colors" strokeWidth={1.75} />
+      </span>
       <span className="text-xs font-medium text-[var(--text-primary)] text-center leading-tight">{label}</span>
     </Link>
   );
@@ -103,11 +106,15 @@ function SectionTile({ href, label, icon: Icon }: SectionLink) {
 
 function SectionsNav() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {SECTION_GROUPS.map((group) => (
         <div key={group.title}>
-          <p className="ds-label mb-2">{group.title}</p>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+          {/* Editorial-заголовок группы: лавовая засечка + spaced-caps */}
+          <p className="ds-label mb-3 flex items-center gap-2">
+            <span className="w-4 h-px bg-[var(--accent)]/70" aria-hidden />
+            {group.title}
+          </p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
             {group.items.map((item) => (
               <SectionTile key={item.href} {...item} />
             ))}
