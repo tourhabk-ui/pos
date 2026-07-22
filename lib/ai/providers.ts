@@ -15,15 +15,34 @@
  *   CEREBRAS_API_KEY        — Cerebras (Llama 3.3-70B, бесплатно, US — проверить geo)
  *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
  *
+ *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
+ *                             (по умолчанию https://openrouter.ai/api/v1)
+ *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
+ *                             (по умолчанию https://api.anthropic.com)
+ *
  * Бесплатные провайдеры инертны без ключа (getter→null→ноль сокетов в гонке).
  * US/EU-провайдеры (Groq/Cerebras/Mistral) могут геоблокировать РФ-IP Timeweb —
  * перед тем как полагаться, проверить достижимость через /api/ai/debug-waterfall.
+ *
+ * Гео-обход: openrouter.ai и api.anthropic.com блокируют РФ-IP — флагманы тогда
+ * недостижимы, waterfall падает на DeepSeek/Gemini. Задать OPENROUTER_BASE_URL/
+ * ANTHROPIC_BASE_URL на релей вне РФ (Cloudflare Worker/VPS) — и флагманы снова
+ * в строю. Ключи и заголовки форвардит релей как есть.
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
+
+// ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
+// Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
+// из-за чего флагманы (Fable 5, Opus, GPT) недостижимы, и waterfall молча
+// падает на DeepSeek/Gemini. Если задан релей вне РФ (Cloudflare Worker/VPS —
+// прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
+// указывают на него. Переменные не заданы → прежнее прямое поведение.
+const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+const ANTHROPIC_BASE  = (process.env.ANTHROPIC_BASE_URL  || 'https://api.anthropic.com').replace(/\/+$/, '');
 
 // ── LLM usage tracking ────────────────────────────────────────
 // Logs token counts and estimated costs to llm_usage_log (migration 686).
@@ -204,7 +223,7 @@ export async function probeOpenRouterKeyStatus(): Promise<{
   if (!apiKey) return { key_source, both_env_set, http_status: null, detail: 'ключ не задан' };
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/key', {
+    const res = await fetch(`${OPENROUTER_BASE}/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(8_000),
     });
@@ -229,7 +248,7 @@ export async function callOpenrouter(messages: ChatMessage[]): Promise<string | 
 
   for (const { id, timeout } of OR_MODELS) {
     try {
-      const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
+      const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -311,7 +330,7 @@ export async function callOpenRouterModel(
       body.response_format = { type: 'json_object' };
     }
 
-    const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -372,7 +391,7 @@ export async function callOpenRouterWithTools(
   if (!apiKey || isOpenRouterTemporarilyDisabled()) return null;
 
   try {
-    const res = await fetchWithRetry('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetchWithRetry(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -665,7 +684,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
       content: m.content,
     }));
 
-    const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
+    const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -686,7 +705,7 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
       const errText = await res.text().catch(() => '');
       // Fable 5 safety classifier blocks (400) — retry with Opus 4.8
       if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
-        const fb = await fetch('https://api.anthropic.com/v1/messages', {
+        const fb = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
@@ -791,7 +810,7 @@ export async function callGemini(messages: ChatMessage[]): Promise<string | null
       payload.unshift({ role: 'user', content: `[System]: ${systemMsg.content}` });
     }
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1212,7 +1231,7 @@ export async function callGeminiVision(
   if (!apiKey) return null;
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -1264,7 +1283,7 @@ export async function callGeminiTranscribe(
   if (!apiKey) return null;
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -1335,7 +1354,7 @@ export async function callGeminiPDF(
   const apiKey = getOpenRouterKey();
   if (!apiKey) return null;
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1402,7 +1421,7 @@ export async function checkOpenRouterBalance(): Promise<OpenRouterBalance | null
   // ── Вариант 1: management key → /api/v1/credits ──────────────
   if (mgmtKey) {
     try {
-      const res = await fetch('https://openrouter.ai/api/v1/credits', {
+      const res = await fetch(`${OPENROUTER_BASE}/credits`, {
         headers: { Authorization: `Bearer ${mgmtKey}` },
         signal: AbortSignal.timeout(5000),
       });
@@ -1425,7 +1444,7 @@ export async function checkOpenRouterBalance(): Promise<OpenRouterBalance | null
   // ── Вариант 2: стандартный API key → /api/v1/auth/key ────────
   if (!apiKey) return null;
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/auth/key', {
+    const res = await fetch(`${OPENROUTER_BASE}/auth/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(5000),
     });
@@ -1503,7 +1522,7 @@ export async function preflightProviders(): Promise<{
     const apiKey = getOpenRouterKey();
     if (!apiKey) return { ok: false, error: 'OPENROUTER_API_KEY not set' };
     try {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1637,7 +1656,7 @@ export async function preflightProviders(): Promise<{
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { ok: false, error: 'ANTHROPIC_API_KEY not set' };
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1852,7 +1871,7 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   if (apiKey && !isOpenRouterTemporarilyDisabled()) {
     const payload = messages.map(({ role, content }) => ({ role, content }));
     calls.push(
-      fetch('https://openrouter.ai/api/v1/chat/completions', {
+      fetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1956,7 +1975,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
       for (const { id, timeout } of OR_MODELS) {
         const start = Date.now();
         try {
-          const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2127,7 +2146,7 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const clean = firstUserIdx >= 0 ? turns.slice(firstUserIdx) : turns;
         const anthropicMessages = clean.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL ?? 'claude-fable-5', max_tokens: 200, temperature: 0.4, ...(systemMsg ? { system: systemMsg.content } : {}), messages: anthropicMessages }),
