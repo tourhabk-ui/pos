@@ -15,6 +15,7 @@ import { callAIFast } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
+import { sanitizeGarbageDescriptions } from '@/lib/agents/evo/content-sanitizer';
 
 // A/B эксперимент 'editor-fugu-vs-waterfall' завершён 05.07.2026: НИЧЬЯ
 // (Waterfall 36/36, Fugu 24/24 — оба 100%). При равном качестве выбран
@@ -36,6 +37,8 @@ export interface EditorResult {
   db_update_failed: number;
   /** Первые ~5 уникальных причин ошибок — уходят в Telegram-алерт смоук-теста вместо догадок */
   error_samples: string[];
+  /** Ступень 4: сколько описаний-мусора система откатила (NULL) на этом прогоне для чистой регенерации */
+  sanitized: number;
   duration_ms: number;
 }
 
@@ -205,6 +208,22 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
   const improvedTitles: string[] = [];
   const improvedIds: string[] = [];
 
+  // Ступень 4 — самокоррекция: перед регенерацией система откатывает (NULL)
+  // описания-мусор из СВОИХ прошлых прогонов (сырой VS-JSON, отговорки модели,
+  // заглушки). NULL сразу попадает в findRoutesNeedingDescription ниже и
+  // переписывается чисто на этом же прогоне. Детерминированно, cap внутри.
+  let sanitized = 0;
+  try {
+    const s = await sanitizeGarbageDescriptions();
+    sanitized = s.cleared;
+    if (sanitized > 0) {
+      const reasons = Object.entries(s.byReason).map(([k, v]) => `${k}:${v}`).join(', ');
+      addErrorSample(`санитар: откатил ${sanitized} описаний-мусора (${reasons}) → регенерация`);
+    }
+  } catch (err) {
+    addErrorSample(`sanitize: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   let routes: RouteRow[];
   try {
     routes = await findRoutesNeedingDescription();
@@ -214,6 +233,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
       stopped_early: false,
       generation_failed: 0, db_update_failed: 0,
       error_samples: [`db_select: ${err instanceof Error ? err.message : String(err)}`],
+      sanitized,
       duration_ms: Date.now() - start,
     };
   }
@@ -251,7 +271,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     }
   }
 
-  if (improved > 0) {
+  if (improved > 0 || sanitized > 0) {
     // Два числа вместо одного: queue — сколько Editor реально возьмёт на
     // следующих прогонах (NULL + короткие «отдохнувшие»); total_short — общий
     // разрыв качества, который плато на честно-неизвестных маршрутах (их
@@ -275,9 +295,10 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     await tgSend(
       `<b>Editor</b> — улучшил ${improved} описаний\n` +
       `(обработано: ${processed}, ошибок: ${errors})\n` +
+      (sanitized > 0 ? `Санитар откатил мусор: ${sanitized} описаний → чистая регенерация\n` : '') +
       (stoppedEarly ? `Остановлен по бюджету времени — остаток доберёт следующий прогон\n` : '') +
       `В очереди на обработку: ${queue >= 0 ? queue : '?'} · всего коротких: ${totalShort >= 0 ? totalShort : '?'}\n\n` +
-      `<b>Улучшенные маршруты и локации:</b>\n${titlesList}`,
+      (titlesList ? `<b>Улучшенные маршруты и локации:</b>\n${titlesList}` : ''),
     );
   }
 
@@ -285,6 +306,7 @@ export async function runEditor(briefing?: AgentBriefing): Promise<EditorResult>
     processed, improved, improved_titles: improvedTitles, improved_ids: improvedIds, errors,
     stopped_early: stoppedEarly,
     generation_failed: generationFailed, db_update_failed: dbUpdateFailed, error_samples: errorSamples,
+    sanitized,
     duration_ms: Date.now() - start,
   };
 }
