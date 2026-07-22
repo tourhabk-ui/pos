@@ -135,7 +135,23 @@ async function updateEvolutionStrategy(learning: string, input: FeedbackInput): 
 }
 
 /**
- * Возвращает статистику эволюции для дашборда.
+ * Реальный словарь статусов пайплайна — то, что действительно записывают
+ * evolution-loop, feedback-loop, growth-agent и admin/evo/issues. Дашборд
+ * обязан считать ТОЛЬКО по этим значениям, иначе счётчик врёт нулём.
+ *
+ * История: `getEvoStats` считал `evo_growth_issues.status = 'fixed'` — но
+ * такой статус не ставит НИКТО (loop пишет accepted/suggested, фидбек —
+ * rejected, админ — ignored/accepted/rejected). «Исправлено» на дашборде
+ * было вечным 0 даже когда индекс реально уезжал в прод. Та же болезнь
+ * «мёртвых цифр», что чинили на главной. Guard: evo-stats-honesty.test.ts.
+ */
+export const EVO_ISSUE_STATUSES = ['open', 'suggested', 'accepted', 'rejected', 'ignored'] as const;
+export const EVO_LOG_STATUSES = ['pending', 'in_progress', 'merged', 'complete', 'rejected'] as const;
+
+/**
+ * Возвращает статистику эволюции для дашборда. Считаем по фактическим
+ * статусам: «решено» = evolution_log в merged/complete (реально уехало),
+ * а не по несуществующему issue.status='fixed'.
  */
 export async function getEvoStats(): Promise<Record<string, unknown>> {
   const [scanStats, issueStats, evoStats, feedbackStats] = await Promise.all([
@@ -143,18 +159,23 @@ export async function getEvoStats(): Promise<Record<string, unknown>> {
       `SELECT COUNT(*)::text AS total, COALESCE(AVG(duration_ms), 0)::text AS avg_duration
        FROM evo_growth_scans WHERE status = 'complete'`,
     ),
-    pool.query<{ open: string; fixed: string; ignored: string }>(
+    pool.query<{ open: string; suggested: string; accepted: string; rejected: string; ignored: string }>(
       `SELECT
-        COUNT(*) FILTER (WHERE status = 'open')::text AS open,
-        COUNT(*) FILTER (WHERE status = 'fixed')::text AS fixed,
-        COUNT(*) FILTER (WHERE status = 'ignored')::text AS ignored
+        COUNT(*) FILTER (WHERE status = 'open')::text      AS open,
+        COUNT(*) FILTER (WHERE status = 'suggested')::text AS suggested,
+        COUNT(*) FILTER (WHERE status = 'accepted')::text  AS accepted,
+        COUNT(*) FILTER (WHERE status = 'rejected')::text  AS rejected,
+        COUNT(*) FILTER (WHERE status = 'ignored')::text   AS ignored
        FROM evo_growth_issues`,
     ),
-    pool.query<{ pending: string; merged: string; rejected: string }>(
+    // «resolved» — честное «исправлено»: правка либо в открытом PR (merged),
+    // либо закрыта как уже применённая (complete). pending/in_progress — в работе.
+    pool.query<{ pending: string; in_progress: string; resolved: string; rejected: string }>(
       `SELECT
-        COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
-        COUNT(*) FILTER (WHERE status = 'merged')::text AS merged,
-        COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected
+        COUNT(*) FILTER (WHERE status = 'pending')::text                      AS pending,
+        COUNT(*) FILTER (WHERE status = 'in_progress')::text                  AS in_progress,
+        COUNT(*) FILTER (WHERE status IN ('merged', 'complete'))::text        AS resolved,
+        COUNT(*) FILTER (WHERE status = 'rejected')::text                     AS rejected
        FROM evo_evolution_log`,
     ),
     pool.query<{ success: string; failure: string; avg_impact: string }>(
