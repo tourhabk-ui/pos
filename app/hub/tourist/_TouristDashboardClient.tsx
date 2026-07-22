@@ -6,7 +6,7 @@ import {
   Sun, Cloud, CloudRain, CloudSnow, Wind, Droplets,
   ChevronRight, RefreshCw, Target, Star,
   Route, BedDouble, Mountain, ShoppingCart, Heart, Mail,
-  MessageSquare, Bell, LifeBuoy, Trophy, User, type LucideIcon,
+  MessageSquare, Bell, LifeBuoy, Trophy, User, ShieldCheck, type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Weather } from '@/types';
@@ -58,6 +58,7 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
       { href: '/hub/tourist/trips',        label: 'Маршруты',     icon: Route },
       { href: '/hub/tourist/bookings',     label: 'Брони',        icon: Calendar },
       { href: '/hub/tourist/stays',        label: 'Проживания',   icon: BedDouble },
+      { href: '/hub/tourist/safety',       label: 'Контр. срок',  icon: ShieldCheck },
       { href: '/hub/tourist/my-kamchatka', label: 'Моя Камчатка', icon: Mountain },
     ],
   },
