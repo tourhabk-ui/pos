@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const col = await fetchCollection(slug);
   if (!col) return { title: 'Подборка не найдена' };
   return {
-    title: `${col.title} | КамчатурХаб`,
+    title: col.title,
     description: col.description ?? `Кураторская подборка «${col.title}»`,
     openGraph: {
       title: col.title,

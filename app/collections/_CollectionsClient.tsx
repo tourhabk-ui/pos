@@ -14,6 +14,7 @@ interface Collection {
   view_count: number;
   place_count: number | null;
   route_count: number | null;
+  item_count?: number | null;
 }
 
 const TAG_ICONS: Record<string, React.ElementType> = {
@@ -27,7 +28,7 @@ const TAG_ICONS: Record<string, React.ElementType> = {
 };
 
 function CollectionCard({ col }: { col: Collection }) {
-  const itemCount = (col.place_count ?? 0) + (col.route_count ?? 0);
+  const itemCount = col.item_count ?? ((col.place_count ?? 0) + (col.route_count ?? 0));
   return (
     <Link
       href={`/collections/${col.slug}`}
