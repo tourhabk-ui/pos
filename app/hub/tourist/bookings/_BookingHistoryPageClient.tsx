@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { LoadingSpinner } from '@/components/admin/shared';
-import { Calendar, Users, ChevronDown, ChevronUp, Star } from 'lucide-react';
+import { Calendar, Users, ChevronDown, ChevronUp, Star, CalendarPlus, Ticket } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import type { BookingWithDetails, BookingStatus } from '@/types/booking.types';
 
@@ -267,6 +267,30 @@ export default function BookingHistoryPageClient() {
                       >
                         {isCancelling ? 'Отмена...' : 'Отменить'}
                       </button>
+                    )}
+
+                    {/* "В календарь" — .ics брони; не показываем для отменённых */}
+                    {!isCancelledStatus(booking.status) && (
+                      <a
+                        href={`/api/bookings/${booking.id}/calendar`}
+                        className="flex items-center gap-1 px-4 py-1.5 border border-[var(--border)] text-[var(--text-secondary)] rounded-md text-sm transition-colors hover:bg-[var(--bg-hover)]"
+                      >
+                        <CalendarPlus className="w-3.5 h-3.5" />
+                        В календарь
+                      </a>
+                    )}
+
+                    {/* "Ваучер" — PDF брони; для подтверждённых и завершённых */}
+                    {(booking.status === 'confirmed' || booking.status === 'completed') && (
+                      <a
+                        href={`/api/bookings/${booking.id}/voucher`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-4 py-1.5 border border-[var(--ocean)]/40 text-[var(--ocean)] rounded-md text-sm transition-colors hover:bg-[var(--ocean)]/10"
+                      >
+                        <Ticket className="w-3.5 h-3.5" />
+                        Ваучер
+                      </a>
                     )}
 
                     {/* "Оставить отзыв" — shown only for completed bookings, links to reviews page */}
