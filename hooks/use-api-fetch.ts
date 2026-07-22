@@ -42,6 +42,17 @@ export function useApiFetch<TRaw = unknown, T = TRaw>(
   const [error, setError] = useState('');
   const mountedRef = useRef(true);
 
+  // Держим transform и errorMessage в ref'ах: вызывающие часто передают
+  // ИНЛАЙН-функцию/объект (напр. `(d) => d ?? []`), у которых новая
+  // идентичность каждый рендер. Если завязать на них deps doFetch, эффект
+  // монтирования перезапускается каждый рендер → бесконечный цикл
+  // fetch/ре-рендер, и loading никогда не гаснет (баг «Избранного»:
+  // вечный спиннер + долбёжка API). Зависим только от url.
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+  const errorMessageRef = useRef(options?.errorMessage);
+  errorMessageRef.current = options?.errorMessage;
+
   const doFetch = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -53,14 +64,15 @@ export function useApiFetch<TRaw = unknown, T = TRaw>(
       }
       if (!mountedRef.current) return;
       const raw = json.data as TRaw;
-      setData(transform ? transform(raw) : (raw as unknown as T));
+      const fn = transformRef.current;
+      setData(fn ? fn(raw) : (raw as unknown as T));
     } catch {
       if (!mountedRef.current) return;
-      setError(options?.errorMessage ?? 'Не удалось загрузить данные');
+      setError(errorMessageRef.current ?? 'Не удалось загрузить данные');
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [url, transform, options?.errorMessage]);
+  }, [url]);
 
   useEffect(() => {
     mountedRef.current = true;
