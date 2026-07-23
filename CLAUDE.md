@@ -300,13 +300,43 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 | Агент | Тип | Что делает |
 |-------|-----|------------|
 | **Watchdog** | Cron 30 мин | **Единственный сторож** операционной безопасности: SOS-таймаут >15 мин (координаты + 112), брони без подтверждения >24ч, операторы игнорируют бронь >48ч, лиды >2ч, брони жилья >24ч, сейсмо-крон мёртв >15 мин. Алерты в Telegram. |
-| **Rescue** | В Evo (6ч) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). |
-| **Editor** | Cron 02:00 UTC | Туры с описанием <300 символов → AI переписывает → `route_description_cache`. |
+| **Rescue** | В Evo (3× off-peak) | Только то, чего нет у Watchdog: погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS/брони сюда НЕ возвращать — дубль (EVO-3). |
+| **Editor** | Cron 22:00 UTC (off-peak) | Туры с описанием <300 символов → AI переписывает → `route_description_cache`. |
 | **Scout Digest** | Cron 07:00 UTC | RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram. |
 | **Kuzmich** | Мультиканальный | Telegram, MAX, Web, Widget. Общий мозг: `lib/kuzmich/core.ts` |
 
 Файлы: `lib/agents/watchdog.ts`, `editor.ts`, `scout-digest.ts`, `evo/rescue-agent.ts`
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-evo.yml` (эволюция, `13 17,20,23 * * *` — окно скидки DeepSeek off-peak)
+
+### Система принятия решений AI (июль 2026) — Claude в репо должен это знать
+
+**Кто чем решает.** Восприятие/триаж отдан дешёвым, но сильным моделям,
+достижимым из РФ; реализацию найденного делает Claude Code (кодировщик в репо).
+
+- **Решатель эволюции — `callAIDecision()` (`lib/ai/providers.ts`).** Его зовут
+  `aiCodeReview` (Growth Scan), `generateSuggestion` (Evolution Loop) и
+  `intel-bridge`. Раньше был слабый `gemini-2.0-flash` — **больше не
+  используется для решений**. Теперь: DeepSeek (последний) первичный → Qwen
+  (последний) на подхвате; обе достижимы из РФ напрямую (OpenRouter/Anthropic
+  гео-блок).
+- **БЕЗ привязки к id.** Модель выбирается автоматически из `/v1/models`
+  провайдера — `lib/ai/model-resolver.ts` (`pickBestModel`: сильнейшая ОБЩАЯ,
+  отсекает reasoner/vl/audio/embed). НЕ хардкодить model-id в коде решателя.
+  Ручной override: env `EVO_DECISION_MODEL` / `EVO_DECISION_QWEN_MODEL`.
+- **`model-watcher` (`lib/agents/evo/model-watcher.ts`)** — появилась модель
+  сильнее текущей → intel-находка → GitHub Issue (видимость смены флагманов).
+- **`finding-guard` (`lib/agents/evo/finding-guard.ts`)** — детерминированный
+  страж достоверности находок Growth Scan (режет галлюцинации: санкционированные
+  `callAIFast`/`console.error` заклеймены нарушением, «X вместо X»).
+- **`intel-bridge` (`lib/agents/evo/intel-bridge.ts`)** — дайджест Scout →
+  находки категории `intel` в `evo_growth_issues`.
+- **Рука → GitHub Issues.** `issue-reporter` (крон `evo-report.yml`, 05:37 UTC)
+  выносит находки `suggested` в Issues (метка `evo`). Оттуда их берёт **Claude
+  Code** и реализует. Финальное решение по находке — за человеком/Claude, не за
+  движком (движок сам чинит только детерминированное — `add_index`).
+- **Релей для флагманов Claude/GPT** — `infra/ai-relay/` + env
+  `OPENROUTER_BASE_URL` / `ANTHROPIC_BASE_URL` (нужен ТОЛЬКО если хочешь именно
+  Claude/GPT; для сильного решателя достаточно DeepSeek/Qwen без релея).
 
 **Правки промптов агентов** — добавлять принципы, а не перечни кейсов. Разрастающийся список исключений в промпте — признак того, что нужен инструмент или серверный guard (пример: `lib/safety/sos-detector.ts` — детерминированная SOS-страховка вместо новых абзацев в KUZMICH_SYSTEM). Критичные факты (безопасность, цены, телефоны, наличие мест) — только из инструментов/БД, самоотчётам модели не верить.
 
