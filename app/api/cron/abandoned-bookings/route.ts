@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic     = 'force-dynamic';
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  recordCronRun('payments', Date.now(), 'success');
   const now = new Date();
   let reminded = 0;
   let cancelled = 0;

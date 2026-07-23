@@ -8,6 +8,7 @@
 import { pool } from '@/lib/db-pool';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,8 @@ export async function GET(req: Request) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  recordCronRun('llm-budget', Date.now(), 'success');
 
   const limitUsd = parseFloat(process.env.AI_DAILY_BUDGET_USD ?? '0');
   if (!limitUsd) {

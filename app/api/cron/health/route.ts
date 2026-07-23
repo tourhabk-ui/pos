@@ -13,6 +13,7 @@ import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeO
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -312,6 +313,7 @@ export async function GET(request: NextRequest) {
     await tgAlert(lines.join('\n'));
   }
 
+  recordCronRun('health', started, 'success', { items: issues.length });
   return NextResponse.json({
     ok: issues.filter(i => i.level === 'crit').length === 0,
     ms: Date.now() - started,
