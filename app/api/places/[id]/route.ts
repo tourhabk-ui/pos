@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
+import { stripSourceAttribution } from '@/lib/text/source-attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,7 +187,10 @@ export async function GET(
       data: {
         id: r.ark_id as string,
         name: r.name as string,
-        description: r.description as string | null,
+        description: (() => {
+          const cleaned = stripSourceAttribution(r.description as string | null);
+          return cleaned || null;
+        })(),
         essence: r.essence as string | null,
         category: r.category as string | null,
         locationType: r.location_type as string | null,

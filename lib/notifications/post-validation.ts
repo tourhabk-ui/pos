@@ -7,6 +7,7 @@
 
 import { query } from '@/lib/database';
 import { getPublicBaseUrl } from '@/lib/config';
+import { hasSourceAttribution } from '@/lib/text/source-attribution';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,12 @@ function checkProhibitedContent(text: string): string[] {
   // Ссылки на несуществующие домены
   if (/example\.com|placeholder\.com|unsplash\.com/i.test(text)) {
     errors.push('Текст содержит тестовые URL');
+  }
+  // Утечка атрибуции стороннего источника (кейс «Бухта Асача»: в пост/описание
+  // просочилось «ИдиЛесом» из скрейпа). Реклама конкурента в нашем канале —
+  // блокируем детерминированно, а не абзацем в промпте Кузьмича (CLAUDE.md §8).
+  if (hasSourceAttribution(text)) {
+    errors.push('Текст содержит упоминание стороннего источника (ИдиЛесом)');
   }
   return errors;
 }
