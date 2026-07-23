@@ -4,6 +4,7 @@ import RouteDetailClient from './_RouteDetailClient';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
+import { stripSourceAttribution } from '@/lib/text/source-attribution';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -27,7 +28,7 @@ async function getRoute(id: string) {
       id: r.id as string,
       category: r.category as string,
       title: r.title as string,
-      description: (r.description as string | null) ?? '',
+      description: stripSourceAttribution((r.description as string | null) ?? ''),
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl: (r.source_url as string | null) ?? null,

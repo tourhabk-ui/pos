@@ -18,6 +18,7 @@
 import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { stripSourceAttribution } from '@/lib/text/source-attribution';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
@@ -249,7 +250,9 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
     // Title
     const ogTitle = html.match(/property="og:title"\s+content="([^"]+)"/)?.[1]?.trim() ?? '';
     const titleFallback = html.match(/<title>([^<]+)/)?.[1]?.split(' Камчатский')[0]?.trim() ?? '';
-    const title = ogTitle || titleFallback;
+    // Чистим атрибуцию источника («— ИдиЛесом» в og:title/<title>) сразу на входе,
+    // чтобы она не попала в places.name / kamchatka_routes.title.
+    const title = stripSourceAttribution(ogTitle || titleFallback);
     if (!title || title.length < 3) return null;
 
     // Description
@@ -257,7 +260,8 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
     const descMatch = [...html.matchAll(/<p[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/p>/gi)]
       .map(m => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim())
       .find(t => t.length > 30);
-    const description = descMatch || ogDesc || '';
+    // «Маршрут и все подробности на ИдиЛесом» — реклама конкурента, туристу не показываем.
+    const description = stripSourceAttribution(descMatch || ogDesc || '');
 
     // Check: is this an article/non-geographic entry?
     const locationType = detectLocationType(title + ' ' + description) ?? 'other';
