@@ -9,7 +9,6 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { generateAndStoreRouteImage } from '@/lib/services/ingest/ai-image-generator';
 import { validateRoutePost } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -391,7 +390,26 @@ interface KuzmichRouteRow {
   has_track: boolean;
 }
 
-// Карта activity_type → фото из public/images/activities/ (fallback)
+// Куратор-фото по типу локации — РЕАЛЬНЫЕ снимки Камчатки из public/images.
+// Отдаются с нашего домена (Telegram/MAX точно загрузят) и НЕ являются
+// AI-пейзажем (решение владельца 2026-07-17: AI-картинки чужих мест не
+// показываем). Только файлы, которые реально лежат в public/images.
+const LOCATION_PHOTO: Record<string, string> = {
+  volcano:    '/images/categories/vulkany.jpg',
+  mountain:   '/images/categories/vulkany.jpg',
+  geyser:     '/images/bento/mutnovsky.jpg',
+  hot_spring: '/images/categories/termy.jpg',
+  thermal:    '/images/categories/termy.jpg',
+  lake:       '/images/bento/laguna.jpg',
+  river:      '/images/activities/rafting.jpg',
+  waterfall:  '/images/bento/laguna.jpg',
+  bay:        '/images/categories/morskie.jpg',
+  cape:       '/images/bento/cape.jpg',
+  island:     '/images/categories/morskie.jpg',
+  beach:      '/images/bento/khalaktyr.jpg',
+};
+
+// Карта activity_type → фото из public/images/activities/ (второй fallback)
 const ACTIVITY_PHOTO: Record<string, string> = {
   trekking:    '/images/activities/volcanoes.jpg',
   fishing:     '/images/activities/fishing.jpg',
@@ -406,41 +424,53 @@ function publicAppUrl(): string {
   return getPublicBaseUrl();
 }
 
-function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
+/**
+ * Гарантированно-достижимое честное фото для поста: куратор-снимок Камчатки
+ * по типу локации/активности (с нашего домена), а карта — лишь крайний случай.
+ * Порядок «фото раньше карты» специально: пост про озеро приходил с картой
+ * (или вовсе текстом), а не с фото воды.
+ */
+export function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
   const appUrl = publicAppUrl();
-  // 1. Яндекс Static Maps если есть координаты
+  // 1. Реальное фото по типу локации
+  const locPhoto = LOCATION_PHOTO[r.location_type ?? ''];
+  if (locPhoto) return `${appUrl}${locPhoto}`;
+  // 2. Реальное фото по типу активности
+  const actPhoto = ACTIVITY_PHOTO[r.activity_type ?? ''];
+  if (actPhoto) return `${appUrl}${actPhoto}`;
+  // 3. Крайний случай — статичная карта Яндекса с точкой (честно показывает ГДЕ)
   if (r.lat && r.lng) {
     const ll = `${r.lng},${r.lat}`;
     return `https://static-maps.yandex.ru/1.x/?ll=${ll}&z=11&size=650,400&pt=${ll},pm2rdm&l=map`;
   }
-  // 2. Тематическое фото по типу активности
-  const actPhoto = ACTIVITY_PHOTO[r.activity_type ?? ''];
-  if (actPhoto) return `${appUrl}${actPhoto}`;
   return null;
 }
 
 /**
- * Фото для поста Кузьмича — сначала РЕАЛЬНЫЙ снимок места, а не карта.
+ * Фото для поста Кузьмича — сначала РЕАЛЬНЫЙ снимок самого места (wikimedia /
+ * ручная загрузка) через /api/images/route/[id]; если его нет — куратор-фото
+ * Камчатки по типу локации с нашего домена (buildRoutePhotoUrl).
  *
- * Раньше buildRoutePhotoUrl отдавал Яндекс-карту (при наличии координат) —
- * поэтому пост про гору приходил с картой, и фото добавляли вручную. Теперь
- * Кузьмич «добавляет фото сам»: generateAndStoreRouteImage идемпотентно
- * возвращает существующее фото места (ai_route_images) или генерирует новое
- * по типу локации (Pollinations Flux) и кэширует навсегда. Пост ссылается на
- * публичный /api/images/route/[id], который отдаёт этот снимок.
- *
- * Генерация может занять до ~60с, поэтому делаем её ДО постинга (а не полагаемся
- * на ленивую генерацию при fetch'е Telegram — тот отвалится по таймауту).
- * Любой сбой генерации → фолбэк на карту/тематику, пост всё равно уходит.
+ * Раньше здесь синхронно генерилась AI-картинка (Pollinations Flux, ~60с) —
+ * ненадёжно из РФ (Timeweb) и вразрез с решением 2026-07-17 (AI-пейзажи не
+ * показываем). Когда генерация зависала/падала, а фолбэк-карта не грузилась,
+ * tgPostPhoto тихо откатывался на текст — пост уходил без фото (кейс владельца
+ * «Большой Калыгирь»). Теперь путь детерминированный, без внешней генерации.
  */
 async function resolvePostPhotoUrl(r: KuzmichRouteRow): Promise<string | null> {
+  // Реальное фото места (только wikimedia/ручная загрузка — не AI-блобы)
   try {
-    await generateAndStoreRouteImage(r.id, r.title, r.location_type, r.description ?? '');
-    return `${publicAppUrl()}/api/images/route/${r.id}`;
+    const { rows } = await query(
+      `SELECT 1 FROM ai_route_images
+       WHERE route_id = $1 AND model IN ('wikimedia', 'manual-upload')
+       LIMIT 1`,
+      [r.id],
+    );
+    if (rows.length > 0) return `${publicAppUrl()}/api/images/route/${r.id}`;
   } catch {
-    // Генерация/сеть подвели — не блокируем пост, отдаём карту/тематику
-    return buildRoutePhotoUrl(r);
+    // Нет доступа к БД — не блокируем пост, идём к куратор-фото
   }
+  return buildRoutePhotoUrl(r);
 }
 
 /**
