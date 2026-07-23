@@ -36,6 +36,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
+import { pickBestModel } from '@/lib/ai/model-resolver';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -918,48 +919,97 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
 }
 
 // ── Решатель агентов эволюции ─────────────────────────────────
-// Сильные модели, достижимые из РФ НАПРЯМУЮ (без релея): DeepSeek (последний,
-// deepseek-chat) — первичный, Qwen (последний, qwen-max-latest) — на подхвате.
-// Тиры меняются через env без правки кода: EVO_DECISION_MODEL (DeepSeek-модель),
-// EVO_DECISION_QWEN_MODEL (Qwen-модель). Заменяет прежний слабый gemini-2.0-flash
-// в aiCodeReview/generateSuggestion/intel-bridge — теперь решения принимает
-// сильная модель. Обе попытки последовательны: качество важнее latency (крон).
-const EVO_DEEPSEEK_MODEL = process.env.EVO_DECISION_MODEL || 'deepseek-chat';
-const EVO_QWEN_MODEL     = process.env.EVO_DECISION_QWEN_MODEL || 'qwen-max-latest';
+// Сильные модели, достижимые из РФ НАПРЯМУЮ (без релея): DeepSeek — первичный,
+// Qwen — на подхвате. БЕЗ привязки к id: модель определяется автоматически из
+// /v1/models провайдера (pickBestModel — сильнейшая общая, без reasoner/vl/…).
+// Провайдер сменит линейку — решатель сам подхватит новейшую. Ручной override
+// через env EVO_DECISION_MODEL / EVO_DECISION_QWEN_MODEL остаётся как escape.
+// Заменяет прежний слабый gemini-2.0-flash в aiCodeReview/generateSuggestion/
+// intel-bridge. Последовательно: качество важнее latency (крон).
+
+interface ModelCacheEntry { id: string; at: number }
+const DECISION_MODEL_CACHE = new Map<'deepseek' | 'qwen', ModelCacheEntry>();
+const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
+// Безопасные скользящие алиасы, если /v1/models недоступен.
+const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
+  deepseek: 'deepseek-chat',
+  qwen: 'qwen-max-latest',
+};
+
+async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
+  try {
+    const res = await fetchWithRetry(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    }, { timeoutMs: 12_000, maxRetries: 1, baseDelayMs: 500, label: 'models-list' });
+    if (!res.ok) return [];
+    const data = await res.json() as { data?: Array<{ id?: unknown }> };
+    return (data?.data ?? []).map((m) => m.id).filter((x): x is string => typeof x === 'string');
+  } catch { return []; }
+}
+
+/**
+ * Автоопределение модели-решателя без привязки к id: env-override → кэш →
+ * /v1/models + pickBestModel → безопасный алиас. Кэш 1ч, чтобы не дёргать
+ * список на каждый вызов.
+ */
+export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  const override = provider === 'deepseek'
+    ? process.env.EVO_DECISION_MODEL
+    : process.env.EVO_DECISION_QWEN_MODEL;
+  if (override) return override;
+
+  const cached = DECISION_MODEL_CACHE.get(provider);
+  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+
+  let ids: string[] = [];
+  if (provider === 'deepseek') {
+    const key = getDeepSeekKey();
+    if (key) ids = await fetchModelIds('https://api.deepseek.com/models', key);
+  } else {
+    const { apiKey, base } = getQwenConfig();
+    if (apiKey) ids = await fetchModelIds(`${base}/models`, apiKey);
+  }
+
+  const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
+  DECISION_MODEL_CACHE.set(provider, { id: picked, at: Date.now() });
+  return picked;
+}
 
 export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
-  // 1) DeepSeek (последний) — прямой api.deepseek.com, доступен из РФ
+  // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();
   if (dsKey) {
+    const model = await resolveDecisionModel('deepseek');
     try {
       const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model: EVO_DEEPSEEK_MODEL, temperature: 0.3, max_tokens: 1500, messages: payload }),
-      }, { timeoutMs: 30_000, label: `evo-decision:${EVO_DEEPSEEK_MODEL}` });
+        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
+      }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(EVO_DEEPSEEK_MODEL, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(model, data.usage); return text; }
       }
     } catch { /* переходим на Qwen */ }
   }
 
-  // 2) Qwen (последний) — DashScope, доступен из РФ
+  // 2) Qwen (модель определяется сама) — DashScope, доступен из РФ
   const { apiKey: qwenKey, base } = getQwenConfig();
   if (qwenKey) {
+    const model = await resolveDecisionModel('qwen');
     try {
       const res = await fetchWithRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
-        body: JSON.stringify({ model: EVO_QWEN_MODEL, temperature: 0.3, max_tokens: 1500, messages: payload }),
-      }, { timeoutMs: 30_000, label: `evo-decision:${EVO_QWEN_MODEL}` });
+        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
+      }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(`qwen:${EVO_QWEN_MODEL}`, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return text; }
       }
     } catch { /* сдаёмся — вызывающий обработает null */ }
   }
