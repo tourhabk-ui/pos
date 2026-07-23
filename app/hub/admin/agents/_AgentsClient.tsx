@@ -2,74 +2,46 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import {
-  RefreshCw, CheckCircle2, AlertTriangle, Clock, Play, Bot, Zap, Send, AlertCircle,
-  GitBranch, X, Copy, Check, Loader2, Radio, DownloadCloud,
-  type LucideIcon,
+  RefreshCw, CheckCircle2, AlertTriangle, Clock, Play, Bot, Send, AlertCircle,
+  GitBranch, X, Copy, Check, Loader2, Radio, DownloadCloud, ShieldAlert, ShieldCheck,
+  Activity, HelpCircle, ExternalLink, type LucideIcon,
 } from 'lucide-react';
 
-// Дашборд фоновых агентов в эталонном «туристском» формате (как «Модели
-// эволюции»): playfair-хедер, StatChip-строка сводки, секции-карточки с
-// icon-circle, Loader2. Данные — из живых API. Расписания сверены с
-// .github/workflows/cron-*.yml (источник правды): дашборд не должен врать
-// про то, когда агент реально запускается.
+// Дашборд «AI и автоматизации» — единая живость всех cron-агентов платформы в
+// эталонном «туристском» формате (как «Модели эволюции»). Источник статуса —
+// /api/admin/agents/liveness: реестр cron (cron-registry) × реальная телеметрия
+// agent_run_history. Честность: агент без телеметрии — «нет телеметрии», не
+// зелёный. Безопасность сортируется первой.
 
-interface AgentDef {
-  id: string;
-  name: string;
+const REPO = 'tourhabk-ui/pos';
+
+// ── Типы liveness ──────────────────────────────────────────────────────────
+
+type LivenessStatus = 'alive' | 'late' | 'dead' | 'never' | 'unknown';
+type Posture = 'calm' | 'attention' | 'alarm';
+
+interface LivenessItem {
+  key: string;
+  label: string;
   description: string;
+  workflow: string;
   schedule: string;
+  tier: string;
+  triggerable: boolean;
+  instrumented: boolean;
+  agent_id: string | null;
+  last_run: string | null;
+  last_status: string | null;
+  liveness: LivenessStatus;
+  minutes_since: number | null;
 }
-
-// Расписания — из cron-*.yml, НЕ из памяти. Меняешь workflow — обнови здесь.
-const AGENTS: AgentDef[] = [
-  {
-    id: 'watchdog',
-    name: 'Watchdog',
-    description: 'Единственный сторож операционной безопасности: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон. Алерты в Telegram.',
-    schedule: 'каждые 30 мин',
-  },
-  {
-    id: 'rescue',
-    name: 'Rescue',
-    description: 'Погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS и брони — у Watchdog, не дублирует.',
-    schedule: 'каждые 30 мин · :15/:45',
-  },
-  {
-    id: 'editor',
-    name: 'Editor',
-    description: 'Туры с описанием <300 символов → AI переписывает → route_description_cache.',
-    schedule: 'ежедневно · 22:00 UTC (off-peak)',
-  },
-  {
-    id: 'scout-digest',
-    name: 'Scout Digest',
-    description: 'RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram.',
-    schedule: 'ежедневно · 07:00 UTC',
-  },
-  {
-    id: 'intelligence',
-    name: 'Intelligence Monitor',
-    description: 'Сбор AI/тревел/конкурентных сигналов из RSS и поиска → Brain.',
-    schedule: 'каждые 6 ч · 3/9/15/21 UTC',
-  },
-  {
-    id: 'scout',
-    name: 'Scout-Innovator',
-    description: 'Читает Brain → платформу → 2-3 конкретных предложения → Telegram.',
-    schedule: 'ежедневно · 08:00 UTC',
-  },
-  {
-    id: 'evo',
-    name: 'Evo System',
-    description: 'Growth Scan + Evolution Loop + intel-bridge + model-watcher. Находки → GitHub Issues (метка evo).',
-    schedule: '3× в сутки · 17/20/23 UTC (off-peak)',
-  },
-];
-
-interface RunSummary {
-  agent_id: string;
-  status: string;
-  started_at: string;
+interface LivenessGroup { tier: string; label: string; items: LivenessItem[] }
+interface LivenessResponse {
+  success: boolean;
+  posture: Posture;
+  counts: { total: number; instrumented: number; alive: number; late: number; dead: number; unknown: number };
+  groups: LivenessGroup[];
+  generated_at: string;
 }
 
 interface RunRow {
@@ -89,12 +61,13 @@ interface TriggerState {
   error: string | null;
 }
 
-// ── Общие примитивы (в стиле «Модели эволюции») ────────────────────────────
+// ── Общие примитивы ────────────────────────────────────────────────────────
 
 function StatChip({ icon: Icon, label, value, tone = 'ocean' }: {
-  icon: LucideIcon; label: string; value: string; tone?: 'ocean' | 'success' | 'danger';
+  icon: LucideIcon; label: string; value: string; tone?: 'ocean' | 'success' | 'danger' | 'warning' | 'muted';
 }) {
-  const color = tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)' : 'var(--ocean)';
+  const color = tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)'
+    : tone === 'warning' ? 'var(--warning)' : tone === 'muted' ? 'var(--text-muted)' : 'var(--ocean)';
   return (
     <div className="flex items-center gap-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2.5">
       <span className="flex items-center justify-center w-9 h-9 rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}>
@@ -129,25 +102,11 @@ function SectionHeader({ icon: Icon, title, subtitle, action }: {
 
 function RefreshButton({ onClick, spinning }: { onClick: () => void; spinning?: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={spinning}
-      className="ds-btn ds-btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
-    >
+    <button onClick={onClick} disabled={spinning}
+      className="ds-btn ds-btn-secondary inline-flex items-center gap-2 disabled:opacity-60">
       <RefreshCw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} /> Обновить
     </button>
   );
-}
-
-function StatusDot({ status }: { status?: string }) {
-  const color = !status
-    ? 'var(--text-muted)'
-    : status === 'success'
-    ? 'var(--success)'
-    : status === 'partial'
-    ? 'var(--warning)'
-    : 'var(--danger)';
-  return <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -175,27 +134,84 @@ function formatTime(iso: string) {
   return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatAgo(minutes: number | null): string {
+  if (minutes === null) return '—';
+  if (minutes < 1) return 'только что';
+  if (minutes < 60) return `${minutes} мин назад`;
+  const h = Math.floor(minutes / 60);
+  if (h < 24) return `${h} ч назад`;
+  return `${Math.floor(h / 24)} дн назад`;
+}
+
+// ── Liveness визуал ────────────────────────────────────────────────────────
+
+const LIVENESS_META: Record<LivenessStatus, { color: string; label: string }> = {
+  alive: { color: 'var(--success)', label: 'жив' },
+  late: { color: 'var(--warning)', label: 'опоздал' },
+  dead: { color: 'var(--danger)', label: 'мёртв' },
+  never: { color: 'var(--danger)', label: 'не запускался' },
+  unknown: { color: 'var(--text-muted)', label: 'нет телеметрии' },
+};
+
+function LivenessBadge({ item }: { item: LivenessItem }) {
+  const m = LIVENESS_META[item.liveness];
+  const suffix = (item.liveness === 'late' || item.liveness === 'dead') && item.minutes_since !== null
+    ? ` · ${formatAgo(item.minutes_since)}` : '';
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+      style={{ color: m.color, backgroundColor: `color-mix(in srgb, ${m.color} 12%, transparent)` }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
+      {m.label}{suffix}
+    </span>
+  );
+}
+
+const POSTURE_META: Record<Posture, { icon: LucideIcon; color: string; title: string; text: string }> = {
+  calm: { icon: ShieldCheck, color: 'var(--success)', title: 'Спокойно', text: 'Все инструментированные агенты отмечаются вовремя.' },
+  attention: { icon: AlertTriangle, color: 'var(--warning)', title: 'Требует внимания', text: 'Есть опоздавшие или молчащие агенты — проверьте ниже.' },
+  alarm: { icon: ShieldAlert, color: 'var(--danger)', title: 'Тревога', text: 'Safety-агент не отвечает. Проверьте немедленно.' },
+};
+
+function PostureBanner({ posture }: { posture: Posture }) {
+  const m = POSTURE_META[posture];
+  return (
+    <div className="flex items-center gap-3 rounded-lg p-4 border"
+      style={{ backgroundColor: `color-mix(in srgb, ${m.color} 8%, transparent)`, borderColor: `color-mix(in srgb, ${m.color} 30%, transparent)` }}>
+      <m.icon className="w-6 h-6 flex-shrink-0" style={{ color: m.color }} strokeWidth={1.75} />
+      <div>
+        <p className="font-playfair text-lg font-bold" style={{ color: m.color }}>{m.title}</p>
+        <p className="text-sm text-[var(--text-secondary)]">{m.text}</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Главный клиент ─────────────────────────────────────────────────────────
 
 export default function AgentsClient() {
-  const [summary, setSummary] = useState<Record<string, RunSummary>>({});
+  const [liveness, setLiveness] = useState<LivenessResponse | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [triggers, setTriggers] = useState<Record<string, TriggerState>>({});
 
-  const loadHistory = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     setRefreshing(true);
     try {
-      const res = await fetch('/api/admin/agents/runs?limit=30');
-      if (!res.ok) return;
-      const data = await res.json() as { runs: RunRow[]; summary: RunSummary[] };
-      setRuns(data.runs);
-      const map: Record<string, RunSummary> = {};
-      for (const s of data.summary) map[s.agent_id] = s;
-      setSummary(map);
+      const [lvRes, runsRes] = await Promise.all([
+        fetch('/api/admin/agents/liveness'),
+        fetch('/api/admin/agents/runs?limit=30'),
+      ]);
+      if (lvRes.ok) {
+        const lv = await lvRes.json() as LivenessResponse;
+        if (lv.success) setLiveness(lv);
+      }
+      if (runsRes.ok) {
+        const data = await runsRes.json() as { runs: RunRow[] };
+        setRuns(data.runs);
+      }
     } catch {
-      // silent
+      // silent — секции сами покажут пустоту
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -203,10 +219,10 @@ export default function AgentsClient() {
   }, []);
 
   useEffect(() => {
-    void loadHistory();
-    const interval = setInterval(() => void loadHistory(), 30_000);
+    void loadAll();
+    const interval = setInterval(() => void loadAll(), 30_000);
     return () => clearInterval(interval);
-  }, [loadHistory]);
+  }, [loadAll]);
 
   async function triggerAgent(agentId: string) {
     setTriggers(prev => ({ ...prev, [agentId]: { loading: true, result: null, error: null } }));
@@ -219,7 +235,7 @@ export default function AgentsClient() {
       const data = await res.json() as { ok: boolean; result?: Record<string, unknown>; error?: string };
       if (!data.ok) throw new Error(data.error ?? 'Ошибка');
       setTriggers(prev => ({ ...prev, [agentId]: { loading: false, result: data.result ?? {}, error: null } }));
-      void loadHistory();
+      void loadAll();
     } catch (err) {
       setTriggers(prev => ({
         ...prev,
@@ -228,13 +244,7 @@ export default function AgentsClient() {
     }
   }
 
-  // Сводка по последнему запуску каждого агента
-  const ran = AGENTS.map(a => summary[a.id]).filter(Boolean) as RunSummary[];
-  const okCount = ran.filter(s => s.status === 'success').length;
-  const issueCount = ran.filter(s => s.status !== 'success').length;
-  const lastActivity = ran.length
-    ? ran.reduce((max, s) => (s.started_at > max ? s.started_at : max), ran[0].started_at)
-    : null;
+  const counts = liveness?.counts;
 
   return (
     <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 py-6 lg:py-8 space-y-6">
@@ -242,21 +252,97 @@ export default function AgentsClient() {
         <div>
           <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">AI и автоматизации</h1>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Фоновые агенты платформы: мониторинг, контент, разведка, эволюция. Статус обновляется каждые 30 секунд.
+            Живость всех cron-агентов платформы. Статус — из реальной телеметрии, обновляется каждые 30 сек.
           </p>
         </div>
-        <RefreshButton onClick={() => void loadHistory()} spinning={refreshing} />
+        <RefreshButton onClick={() => void loadAll()} spinning={refreshing} />
       </header>
 
-      {/* Сводка */}
-      <div className="flex flex-wrap gap-2.5">
-        <StatChip icon={Zap} label="Агентов" value={String(AGENTS.length)} />
-        <StatChip icon={CheckCircle2} label="Успешных" value={`${okCount} из ${ran.length || AGENTS.length}`} tone="success" />
-        {issueCount > 0 && <StatChip icon={AlertTriangle} label="С ошибкой" value={String(issueCount)} tone="danger" />}
-        <StatChip icon={Clock} label="Последняя активность" value={lastActivity ? formatTime(lastActivity) : '—'} />
-      </div>
+      {loading && !liveness ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+        </div>
+      ) : (
+        <>
+          {liveness && <PostureBanner posture={liveness.posture} />}
 
-      {/* Кузьмич */}
+          {counts && (
+            <div className="flex flex-wrap gap-2.5">
+              <StatChip icon={Activity} label="Агентов" value={String(counts.total)} />
+              <StatChip icon={CheckCircle2} label="Живы" value={String(counts.alive)} tone="success" />
+              {counts.late > 0 && <StatChip icon={Clock} label="Опоздали" value={String(counts.late)} tone="warning" />}
+              {counts.dead > 0 && <StatChip icon={AlertTriangle} label="Мёртвы" value={String(counts.dead)} tone="danger" />}
+              <StatChip icon={HelpCircle} label="Без телеметрии" value={String(counts.unknown)} tone="muted" />
+            </div>
+          )}
+
+          {/* Liveness по разрядам */}
+          {liveness?.groups.map(group => (
+            <section key={group.tier} className="ds-card">
+              <SectionHeader
+                icon={group.tier === 'safety' ? ShieldAlert : Activity}
+                title={group.label}
+                subtitle={`${group.items.length} агентов`}
+              />
+              <div className="space-y-2.5">
+                {group.items.map(item => {
+                  const trig = item.agent_id ? triggers[item.agent_id] : undefined;
+                  return (
+                    <div key={item.key} className="rounded-lg bg-[var(--bg-card)] border border-[var(--border)] p-3.5">
+                      <div className="flex items-start gap-3 justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className="font-semibold text-[var(--text-primary)]">{item.label}</span>
+                            <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">{item.schedule}</span>
+                            <LivenessBadge item={item} />
+                          </div>
+                          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{item.description}</p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-[var(--text-muted)]">
+                            {item.instrumented ? (
+                              <span>Последний запуск: {item.last_run ? formatTime(item.last_run) : 'не было'}</span>
+                            ) : (
+                              <span>Телеметрия не пишется — проверять на GitHub Actions</span>
+                            )}
+                            <a href={`https://github.com/${REPO}/actions/workflows/${item.workflow}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[var(--ocean)] hover:underline">
+                              <ExternalLink className="w-3 h-3" /> Actions
+                            </a>
+                          </div>
+                          {trig?.result && (
+                            <div className="mt-2 text-xs bg-[var(--bg-hover)] rounded-lg p-2.5 font-mono text-[var(--text-secondary)] space-y-0.5">
+                              {Object.entries(trig.result).map(([k, v]) => (
+                                <div key={k}>{k}: <span className="text-[var(--text-primary)]">{String(v)}</span></div>
+                              ))}
+                            </div>
+                          )}
+                          {trig?.error && (
+                            <div className="flex items-center gap-1.5 text-xs text-[var(--danger)] mt-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {trig.error}
+                            </div>
+                          )}
+                        </div>
+                        {item.triggerable && item.agent_id && (
+                          <button
+                            onClick={() => void triggerAgent(item.agent_id!)}
+                            disabled={trig?.loading}
+                            className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0 disabled:opacity-60"
+                          >
+                            {trig?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                            {trig?.loading ? 'Запуск…' : 'Запустить'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
+
+      {/* Кузьмич — реалтайм, не по расписанию */}
       <section className="ds-card">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
@@ -264,7 +350,7 @@ export default function AgentsClient() {
               <Bot className="w-[22px] h-[22px] text-[var(--accent)]" strokeWidth={1.75} />
             </span>
             <div>
-              <p className="ds-label">Основной AI</p>
+              <p className="ds-label">Основной AI · реалтайм</p>
               <h2 className="font-playfair text-xl font-bold text-[var(--text-primary)]">Кузьмич</h2>
               <p className="text-sm text-[var(--text-secondary)] mt-0.5">
                 AI-консьерж для туристов и операторов. Telegram, MAX, web, виджет.
@@ -278,65 +364,9 @@ export default function AgentsClient() {
         </div>
       </section>
 
-      {/* Фоновые агенты */}
-      <section className="ds-card">
-        <SectionHeader icon={Zap} title="Фоновые агенты" subtitle="Расписание из cron-workflow" />
-        <div className="space-y-3">
-          {AGENTS.map(agent => {
-            const last = summary[agent.id];
-            const trig = triggers[agent.id];
-            return (
-              <div key={agent.id} className="rounded-lg bg-[var(--bg-card)] border border-[var(--border)] p-4">
-                <div className="flex items-start gap-4 justify-between">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div className="mt-1.5"><StatusDot status={last?.status} /></div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="font-semibold text-[var(--text-primary)]">{agent.name}</span>
-                        <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">
-                          {agent.schedule}
-                        </span>
-                        {last && <StatusBadge status={last.status} />}
-                      </div>
-                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{agent.description}</p>
-                      {last && (
-                        <p className="text-xs text-[var(--text-muted)] mt-1.5">
-                          Последний запуск: {formatTime(last.started_at)}
-                        </p>
-                      )}
-                      {trig?.result && (
-                        <div className="mt-2 text-xs bg-[var(--bg-hover)] rounded-lg p-2.5 font-mono text-[var(--text-secondary)] space-y-0.5">
-                          {Object.entries(trig.result).map(([k, v]) => (
-                            <div key={k}>{k}: <span className="text-[var(--text-primary)]">{String(v)}</span></div>
-                          ))}
-                        </div>
-                      )}
-                      {trig?.error && (
-                        <div className="flex items-center gap-1.5 text-xs text-[var(--danger)] mt-1.5">
-                          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                          {trig.error}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => void triggerAgent(agent.id)}
-                    disabled={trig?.loading}
-                    className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0 disabled:opacity-60"
-                  >
-                    {trig?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                    {trig?.loading ? 'Запуск…' : 'Запустить'}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
       {/* История запусков */}
       <section className="ds-card">
-        <SectionHeader icon={Clock} title="История запусков" subtitle="Последние 30 запусков" />
+        <SectionHeader icon={Clock} title="История запусков" subtitle="Последние 30 запусков (инструментированные агенты)" />
         {loading ? (
           <div className="flex items-center justify-center py-14">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
