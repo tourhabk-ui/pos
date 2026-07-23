@@ -1,10 +1,69 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
+import {
+  SAFETY_SOURCE_EXPECTATIONS,
+  recordSourceHealth,
+  loadSourceHealth,
+  evaluateDeadSources,
+  dueForAlert,
+  markAlerted,
+  formatDeadSourceAlert,
+  type SourceHealthEntry,
+  type SourceStatus,
+} from '@/lib/services/safety/source-health';
+
+/** Статус источника по его результату: канал жив, если прислал хоть один сырой пост. */
+function entryFor(
+  key: string,
+  label: string,
+  result: ParseResult | undefined,
+  opts: { requiresEnv?: string; notFetched?: boolean } = {},
+): SourceHealthEntry {
+  let status: SourceStatus;
+  let rawItems = 0;
+  let inserted = 0;
+  if (opts.requiresEnv && !process.env[opts.requiresEnv]) {
+    status = 'not_configured';
+  } else if (opts.notFetched || !result) {
+    status = 'not_fetched';
+  } else {
+    rawItems = result.rawItems ?? result.events.length;
+    inserted = result.inserted;
+    // Жив, если пришёл хоть один сырой пост ИЛИ что-то классифицировалось.
+    status = rawItems > 0 || result.events.length > 0 ? 'ok' : 'empty';
+  }
+  return { key, label, status, rawItems, inserted };
+}
+
+/** Записать здоровье источников и, если есть мёртвые (с дебаунсом), алертнуть в Telegram. */
+async function watchSourceHealth(entries: SourceHealthEntry[]): Promise<void> {
+  try {
+    await recordSourceHealth(pool, entries);
+    const rows = await loadSourceHealth(pool);
+    const now = Date.now();
+    const dead = evaluateDeadSources(rows, SAFETY_SOURCE_EXPECTATIONS, now);
+    const due = dueForAlert(dead, rows, now);
+    if (!due.length) return;
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (token && chatId) {
+      await fetch(`${process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'}/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: formatDeadSourceAlert(due) }),
+      }).catch(() => {});
+    }
+    await markAlerted(pool, due.map((d) => d.key));
+  } catch {
+    // Мониторинг не должен ронять ingest — молча пропускаем.
+  }
+}
 
 /**
  * GET  /api/cron/safety-ingest  — сервер сам fetch'ит t.me (работает если не заблокирован)
@@ -253,6 +312,13 @@ export async function GET(req: Request) {
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  await watchSourceHealth([
+    entryFor('kbgsras', 'КБГС РАН (сейсмо)', ingestResult.kbgsras),
+    entryFor('eqkam', 'EMSD/EQKam (сейсмо)', ingestResult.eqkam),
+    entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
+    entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
+    entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
+  ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
 
@@ -325,5 +391,13 @@ export async function POST(req: Request) {
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  await watchSourceHealth([
+    entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
+    entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
+    entryFor('mchs_rss', 'МЧС RSS (41.mchs)', mchsResult),
+    entryFor('vk_mchs', 'VK — МЧС Камчатки', vkResult, { requiresEnv: 'VK_SERVICE_TOKEN' }),
+    // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
+    entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
+  ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
