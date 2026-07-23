@@ -11,6 +11,7 @@ import { runEvolutionLoop } from '@/lib/agents/evo/evolution-loop';
 import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { runEvolverAnalysis } from '@/lib/agents/evo/evolver-analysis';
 import { bridgeScoutIntel } from '@/lib/agents/evo/intel-bridge';
+import { runModelWatcher } from '@/lib/agents/evo/model-watcher';
 
 export interface OrchestratorResult {
   scan: unknown;
@@ -18,6 +19,7 @@ export interface OrchestratorResult {
   rescue: unknown;
   evolver: unknown;
   intel: unknown;
+  models: unknown;
   duration_ms: number;
   errors: string[];
 }
@@ -28,11 +30,12 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
 
   // Phase 1: параллельно — диагностика (внутрь) + безопасность + анализ логов +
   // мост разведки (наружу): дайджест Scout → находки 'intel' в общий пул.
-  const [scanRes, rescueRes, evolverRes, intelRes] = await Promise.allSettled([
+  const [scanRes, rescueRes, evolverRes, intelRes, modelsRes] = await Promise.allSettled([
     runGrowthScan(scanType),
     runRescueScan(),
     runEvolverAnalysis(),
     bridgeScoutIntel(),
+    runModelWatcher(),
   ]);
 
   // Phase 2: Evolution Loop — последовательно (применяет фиксы, пишет в БД)
@@ -55,6 +58,7 @@ export async function runEvoOrchestrator(scanType = 'full'): Promise<Orchestrato
     rescue: unwrap(rescueRes, 'RescueScan'),
     evolver: unwrap(evolverRes, 'EvolverAnalysis'),
     intel: unwrap(intelRes, 'IntelBridge'),
+    models: unwrap(modelsRes, 'ModelWatcher'),
     duration_ms: Date.now() - start,
     errors,
   };

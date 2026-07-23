@@ -947,6 +947,16 @@ async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
   } catch { return []; }
 }
 
+/** Список id моделей провайдера из /v1/models (для решателя и model-watcher). */
+export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promise<string[]> {
+  if (provider === 'deepseek') {
+    const key = getDeepSeekKey();
+    return key ? fetchModelIds('https://api.deepseek.com/models', key) : [];
+  }
+  const { apiKey, base } = getQwenConfig();
+  return apiKey ? fetchModelIds(`${base}/models`, apiKey) : [];
+}
+
 /**
  * Автоопределение модели-решателя без привязки к id: env-override → кэш →
  * /v1/models + pickBestModel → безопасный алиас. Кэш 1ч, чтобы не дёргать
@@ -961,15 +971,7 @@ export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promi
   const cached = DECISION_MODEL_CACHE.get(provider);
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
 
-  let ids: string[] = [];
-  if (provider === 'deepseek') {
-    const key = getDeepSeekKey();
-    if (key) ids = await fetchModelIds('https://api.deepseek.com/models', key);
-  } else {
-    const { apiKey, base } = getQwenConfig();
-    if (apiKey) ids = await fetchModelIds(`${base}/models`, apiKey);
-  }
-
+  const ids = await getProviderModelIds(provider);
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
   DECISION_MODEL_CACHE.set(provider, { id: picked, at: Date.now() });
   return picked;
