@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { ReviewForAnalysisRow } from '@/lib/types/db-rows';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,10 @@ export async function POST(
       },
       {
         role: 'user' as const,
-        content: `Отзыв от ${review.user_name || 'аноним'} на тур "${review.tour_name || 'неизвестен'}": рейтинг ${review.rating}/5. Текст: "${review.comment || 'без текста'}"`,
+        // 152-ФЗ: имя автора не отправляем в зарубежный LLM — модерации оно не
+        // нужно (важны тональность/спам/правила). Текст чистим от телефона/почты,
+        // если автор вписал их в отзыв.
+        content: `Отзыв на тур "${review.tour_name || 'неизвестен'}": рейтинг ${review.rating}/5. Текст: "${redactPII(review.comment) || 'без текста'}"`,
       },
     ];
 
