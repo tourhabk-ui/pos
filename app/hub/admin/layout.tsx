@@ -5,7 +5,7 @@ import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
   Briefcase, UserCheck, BarChart3, DollarSign,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
-  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin,
+  Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
@@ -14,6 +14,7 @@ import { ChatWidget } from '@/components/chat/ChatWidget';
 const SIDEBAR_ITEMS = [
   { href: '/hub/admin', label: 'Обзор', icon: Shield },
   { href: '/hub/admin/agents', label: 'AI и автоматизации', icon: Zap },
+  { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu },
   { href: '/hub/admin/brain', label: 'Volcano Brain', icon: Brain },
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe },
   { href: '/hub/admin/leads', label: 'CRM — Лиды', icon: ClipboardList },
