@@ -3,7 +3,11 @@ name: Cron — Evo System (Growth + Evolution)
 # Runs every 6 hours: scans project health, proposes fixes
 on:
   schedule:
-    - cron: '0 */6 * * *'  # каждые 6 часов: анализ здоровья проекта
+    # 3× внутри окна скидки DeepSeek off-peak (16:30–00:30 UTC): решатель эволюции
+    # (DeepSeek→Qwen) считается по off-peak-тарифу. Сканы дешёвые, кластеризуем в
+    # окно ради скидки. Срочная безопасность — на отдельном кроне Watchdog (30 мин),
+    # его не трогаем, поэтому больший разрыв в скане здоровья не влияет на SOS.
+    - cron: '13 17,20,23 * * *'
   workflow_dispatch:        # manual trigger
 
 jobs:
