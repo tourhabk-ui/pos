@@ -390,10 +390,14 @@ export async function synthesizeUserNotes(
 
     if (userTurns.length < 20) return;
 
+    // 152-ФЗ: свободный текст туриста может содержать телефон/почту, вписанные им
+    // самим — чистим перед отправкой в (зарубежный) LLM.
+    const { redactPII } = await import('@/lib/security/pii-redact');
+
     const prompt = `Ты — система памяти AI-турагента. Прочитай сообщения туриста и извлеки конкретные факты которые стоит запомнить для следующих разговоров.
 
 Сообщения туриста:
-${userTurns}
+${redactPII(userTurns)}
 
 ${existingNotes ? `Текущие заметки (дополни, не дублируй):\n${existingNotes}\n` : ''}
 

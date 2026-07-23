@@ -14,6 +14,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
+import { redactPII } from '@/lib/security/pii-redact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -247,14 +248,13 @@ export class LeadProcessorService {
 - "medium": конкретный запрос (активность/маршрут/период) без жёстких сроков.
 - "low": общий интерес без конкретики.
 
-Заявка:
-- Имя: ${lead.name}
-- Комментарий: ${lead.comment ?? 'не указан'}
+Заявка (152-ФЗ: имя/телефон туриста в модель не передаём):
+- Комментарий: ${redactPII(lead.comment) || 'не указан'}
 - Интересующий маршрут: ${lead.route_title ?? 'не указан'}
 - Размер группы: ${lead.group_size ?? 'не указан'}
 - Бюджет (руб): ${lead.budget_rub ?? 'не указан'}
 - Желаемые даты: ${lead.desired_dates ?? 'не указаны'}
-- Доп. данные: ${JSON.stringify(lead.source_data ?? {})}
+- Доп. данные: ${redactPII(JSON.stringify(lead.source_data ?? {}))}
 
 Верни ТОЛЬКО валидный JSON без markdown и комментариев:
 {
@@ -382,7 +382,7 @@ export class LeadProcessorService {
     tours: MatchedTour[]
   ): Promise<AdversarialVerdict> {
     const context = `
-Лид: ${lead.name}, ${lead.comment ?? 'нет комментария'}
+Лид: ${redactPII(lead.comment) || 'нет комментария'}
 Группа: ${intent.group_size} чел. | Бюджет: ${intent.budget_rub ? intent.budget_rub.toLocaleString('ru-RU') + ' ₽' : 'не указан'}
 Активности: ${intent.activity_types.join(', ') || 'не указаны'}
 Даты: ${intent.desired_dates ?? 'не указаны'}
@@ -514,8 +514,9 @@ urgency: "hot" если call_immediately; "warm" если send_proposal; "cold" 
 
 ТОН: тёплый, экспертный, про безопасность и природу Камчатки, без давления и рекламных штампов.
 
-Клиент: ${lead.name}
-Запрос: ${lead.comment ?? intent.qualification_notes}
+ПРИВЕТСТВИЕ: используй РОВНО плейсхолдер {name} (имя подставим сами, тебе оно не передаётся) — не выдумывай имя.
+
+Запрос: ${redactPII(lead.comment) || intent.qualification_notes}
 Группа: ${intent.group_size} чел.
 Активности: ${intent.activity_types.join(', ') || 'любые'}
 Интересы: ${intent.interests.join(', ') || 'не указаны'}
@@ -540,9 +541,9 @@ ${toursText}
       { role: 'user', content: prompt },
     ]);
 
-    return safeJSON(raw, {
-      headline: `Подбор тура на Камчатку для ${lead.name}`,
-      summary: `Здравствуйте, ${lead.name}! Мы получили ваш запрос и подберём подходящие туры на Камчатке с учётом ваших интересов и дат. Менеджер свяжется с вами, уточнит детали и поможет с организацией поездки, включая регистрацию в МЧС на серьёзных маршрутах.`,
+    const parsed = safeJSON(raw, {
+      headline: `Подбор тура на Камчатку для {name}`,
+      summary: `Здравствуйте, {name}! Мы получили ваш запрос и подберём подходящие туры на Камчатке с учётом ваших интересов и дат. Менеджер свяжется с вами, уточнит детали и поможет с организацией поездки, включая регистрацию в МЧС на серьёзных маршрутах.`,
       highlights: [
         'Подбор тура под ваш запрос',
         'Прямой контакт с проверенным оператором',
@@ -550,6 +551,14 @@ ${toursText}
         'Помощь с регистрацией в МЧС',
       ],
     });
+
+    // Имя подставляем ЛОКАЛЬНО (в модель оно не уходило) — плейсхолдер {name}.
+    const withName = (s: string): string => (s ?? '').split('{name}').join(lead.name);
+    return {
+      headline: withName(parsed.headline),
+      summary: withName(parsed.summary),
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map(withName) : [],
+    };
   }
 
   private computeScore(intent: LeadIntent, tours: MatchedTour[], verdict?: AdversarialVerdict): number {
