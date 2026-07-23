@@ -7,7 +7,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
+import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -279,9 +279,15 @@ severity: critical = утечка данных/обход auth/инъекция/
   // и выдумывала «проблемы» («import pool from '@/lib/db' строка 60»,
   // «callDeepSeek без try/catch» — ничего из этого в коде не было)
   const fileBlocks: string[] = [];
+  // Держим содержимое по пути — для верификационного прохода (сверка находки
+  // «отсутствует X» с реальным телом файла).
+  const fileContents = new Map<string, string>();
   for (const f of reviewFiles) {
     const content = await readFileForReview(f);
-    if (content) fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
+    if (content) {
+      fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
+      fileContents.set(f, content);
+    }
   }
   if (fileBlocks.length === 0) return [];
 
@@ -308,7 +314,13 @@ severity: critical = утечка данных/обход auth/инъекция/
       !AI_EXCLUDED_FILES.has(p.file) &&
       !ACCEPTED_RISKS.has(p.file) &&
       !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`) &&
-      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }),
+      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }) &&
+      // Верификационный проход: «отсутствует try/catch/auth/блокировка», когда
+      // в теле файла они ЕСТЬ — ложь (кейс booking-роута). Сверяем с исходником.
+      verifyAgainstSource(
+        { title: p.title, description: p.description, suggestion: p.suggestion },
+        fileContents.get(p.file),
+      ) === null,
     );
 
     return filtered.map(p => ({
