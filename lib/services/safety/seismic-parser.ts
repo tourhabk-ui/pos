@@ -16,7 +16,7 @@ export interface SeismicEvent {
   source_id: string;        // t.me/kbgsras/6680
   source_url: string;
   published_at: Date;
-  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure';
+  alert_type: 'volcanic_eruption' | 'earthquake' | 'seismic_bulletin' | 'ash_cloud' | 'info' | 'tsunami_warning' | 'flood' | 'fire_danger' | 'road_closure' | 'road_reopened';
   severity: 0 | 1 | 2 | 3;
   title: string;
   description: string;
@@ -139,11 +139,64 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
 const ROAD_RESTRICTION_RE =
   /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)/i;
 
+// Открытие дороги: «движение возобновлено», «открыт проезд», «ограничение снято».
+// FUTURE-страж отсекает «движение будет возобновлено 27 июля» — это ещё закрытие,
+// а не открытие. Источник правды по снятию — сам первоисточник (kamgov/МЧС).
+const ROAD_REOPEN_FUTURE_RE = /будет\s+(?:возобновл|восстановл|откр)|возобновит[а-яё]*|восстановит[а-яё]*|планир[а-яё]*\s+(?:возобнов|откр)/i;
+const ROAD_REOPEN_RE =
+  /(?:движени[ея]|проезд[а-яё]*|дорог[а-яё]*)[^.!?]{0,80}(?:возобновлен|восстановлен|открыт)|(?:возобновлен[оаы]?|восстановлен[оаы]?|открыт[оаы]?)[^.!?]{0,50}(?:движени|проезд|дорог)|ограничени[ея][^.!?]{0,30}снят|снят[ыо]?[^.!?]{0,30}ограничени/i;
+
+export function detectRoadReopening(text: string): boolean {
+  if (ROAD_REOPEN_FUTURE_RE.test(text)) return false;
+  return ROAD_REOPEN_RE.test(text);
+}
+
 export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
+  // Открытие дороги не должно классифицироваться как новое закрытие
+  // (иначе новость «движение возобновлено» заводит фантомный road_closure).
+  if (detectRoadReopening(text)) return null;
   if (!ROAD_RESTRICTION_RE.test(text)) return null;
   // Полное закрытие — красный уровень, ограничение/пропуска — жёлтый
   const severity: 1 | 2 = /закрыт|перекрыт/i.test(text) ? 2 : 1;
   return { severity };
+}
+
+// Значимые топонимы для сопоставления открытия с активным закрытием. Матчим по
+// 5-буквенным стемам (русское склонение: Вачкажец/Вачкажцу → общий стем «вачка»),
+// исключая служебные/дорожные слова. Снимаем закрытие ТОЛЬКО при пересечении
+// зоны И общего топонима-стема — иначе рискуем погасить чужое в той же зоне.
+const REOPEN_STEM_STOP = new Set([
+  'дорог', 'автод', 'движе', 'проез', 'участ', 'закры', 'перек', 'откры', 'огран',
+  'транс', 'строя', 'вечер', 'связи', 'целях', 'видов', 'напом', 'обесп', 'предо',
+  'безоп', 'разру', 'земля', 'полот', 'возоб', 'восст',
+]);
+
+function toponymStems(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^а-яёa-z]+/i)) {
+    if (raw.length < 5) continue;
+    const stem = raw.slice(0, 5);
+    if (REOPEN_STEM_STOP.has(stem)) continue;
+    out.add(stem);
+  }
+  return out;
+}
+
+/**
+ * Чистая логика сопоставления: гасить ли закрытие `alert` новостью открытия.
+ * Требует пересечение зон И общий топоним-стем (≥5 букв). Тестируемо без БД.
+ */
+export function closureMatchesReopening(
+  reopeningText: string,
+  reopeningZones: string[],
+  alertTitle: string,
+  alertZones: string[],
+): boolean {
+  const zoneOverlap = reopeningZones.some(z => alertZones.includes(z));
+  if (!zoneOverlap) return false;
+  const rStems = toponymStems(reopeningText);
+  for (const s of toponymStems(alertTitle)) if (rStems.has(s)) return true;
+  return false;
 }
 
 // ── Классификатор событий ─────────────────────────────────────────────────
@@ -339,7 +392,39 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 
 // ── Сохранение в БД ───────────────────────────────────────────────────────
 
+// Снятие ограничения: новость открытия гасит совпадающие активные road_closure
+// (пересечение зоны И общий значимый топоним, см. closureMatchesReopening).
+// Возвращает число снятых. Детерминированно, консервативно — чужое не трогаем.
+async function liftMatchingClosures(event: SeismicEvent): Promise<number> {
+  const { rows } = await query<{ id: string; title: string; affected_zones: string[] }>(
+    `SELECT id, title, affected_zones
+       FROM external_alerts
+      WHERE alert_type = 'road_closure' AND expires_at > NOW()`,
+  );
+  let lifted = 0;
+  for (const a of rows) {
+    if (closureMatchesReopening(event.description, event.affected_zones, a.title, a.affected_zones ?? [])) {
+      await query(
+        `UPDATE external_alerts SET expires_at = NOW() WHERE id = $1 AND expires_at > NOW()`,
+        [a.id],
+      );
+      lifted++;
+    }
+  }
+  return lifted;
+}
+
 async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
+  // Открытие дороги: не вставляем алерт — гасим совпадающие закрытия.
+  if (event.alert_type === 'road_reopened') {
+    try {
+      await liftMatchingClosures(event);
+    } catch (e) {
+      throw new Error(`Road reopening lift failed for ${event.source_id}: ${(e as Error).message}`);
+    }
+    return 'skipped';
+  }
+
   try {
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);
@@ -562,6 +647,26 @@ export function classifyMchsItem(
   // «учени» матчит «полУЧЕНИе пропусков» — реальный алерт был бы отброшен.
   if (/(^|[^а-яё])(учени[еяй]|тренировк)|пожарно-тактическ/.test(text)) {
     return null;
+  }
+
+  // Открытие дороги — ПЕРВОЙ проверкой (приоритет над closure-веткой):
+  // saveEvent по alert_type='road_reopened' гасит совпадающее активное
+  // road_closure и НЕ создаёт новый алерт. Так новость «движение возобновлено»
+  // честно снимает ограничение, а не висит закрытием до expires_at.
+  if (detectRoadReopening(text)) {
+    const reopenedAt = new Date(pubDate);
+    if (isNaN(reopenedAt.getTime())) return null;
+    return {
+      source_id:     `${sourcePrefix}/reopen-t${titleFingerprint(title)}`,
+      source_url:    link || 'https://41.mchs.gov.ru',
+      published_at:  reopenedAt,
+      alert_type:    'road_reopened',
+      severity:      0,
+      title:         title.slice(0, 200) || 'Движение возобновлено',
+      description:   `${title} ${description}`.slice(0, 800),
+      affected_zones: mchs_zones(`${title} ${description}`),
+      expires_hours: 0,
+    };
   }
 
   let alert_type: SeismicEvent['alert_type'] = 'info';
