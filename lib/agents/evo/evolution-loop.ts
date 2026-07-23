@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { deterministicFix } from '@/lib/agents/evo/deterministic-fix';
 
@@ -145,7 +145,8 @@ ${learningSummary ? `\nУроки из прошлых циклов (не пов�
   ];
 
   try {
-    const result = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
+    // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
+    const result = await callAIDecision(messages);
     return result?.trim() ?? null;
   } catch {
     return null;

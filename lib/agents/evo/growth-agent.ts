@@ -5,7 +5,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
 
@@ -291,7 +291,8 @@ severity: critical = утечка данных/обход auth/инъекция/
   });
 
   try {
-    const result = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
+    // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
+    const result = await callAIDecision(messages);
     if (!result) return [];
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();

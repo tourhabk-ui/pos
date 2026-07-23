@@ -18,7 +18,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIDecision } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -124,7 +124,7 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
 
   let proposals: IntelProposal[] = [];
   try {
-    proposals = parseIntelProposals(await callAIFast(messages)).slice(0, MAX_INTEL_PER_RUN);
+    proposals = parseIntelProposals(await callAIDecision(messages)).slice(0, MAX_INTEL_PER_RUN);
   } catch {
     proposals = [];
   }
