@@ -100,6 +100,7 @@ interface KpiDef {
   icon: LucideIcon;
   color: string;
   borderColor: string;
+  iconBg: string;
   format: (v: number) => string;
   suffix?: string;
 }
@@ -107,22 +108,22 @@ interface KpiDef {
 const KPI_DEFS: KpiDef[] = [
   {
     key: 'activeUsers', label: 'Пользователи', icon: Users,
-    color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]',
+    color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
     format: fmt,
   },
   {
     key: 'totalBookings', label: 'Бронирования', icon: CalendarDays,
-    color: 'text-[var(--accent)]', borderColor: 'border-l-[var(--accent)]',
+    color: 'text-[var(--accent)]', borderColor: 'border-l-[var(--accent)]', iconBg: 'bg-[var(--accent)]/12',
     format: fmt,
   },
   {
     key: 'totalRevenue', label: 'Выручка', icon: DollarSign,
-    color: 'text-[var(--success)]', borderColor: 'border-l-[var(--success)]',
+    color: 'text-[var(--success)]', borderColor: 'border-l-[var(--success)]', iconBg: 'bg-[var(--success)]/12',
     format: fmtRub, suffix: ' \u20BD',
   },
   {
     key: 'conversionRate', label: 'Конверсия', icon: Percent,
-    color: 'text-[var(--warning)]', borderColor: 'border-l-[var(--warning)]',
+    color: 'text-[var(--warning)]', borderColor: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/12',
     format: (v) => v.toFixed(1), suffix: '%',
   },
 ];
@@ -363,9 +364,12 @@ export default function AdminDashboard() {
               key={kpi.key}
               className={`bg-[var(--bg-card)] border border-[var(--border)] ${kpi.borderColor} border-l-[3px] rounded-lg px-4 py-4 relative overflow-hidden group hover:bg-[var(--bg-hover)] transition-colors`}
             >
-              {/* Icon top-right */}
-              <div className={`absolute top-3 right-3 w-8 h-8 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center ${kpi.color} opacity-60 group-hover:opacity-100 transition-opacity`}>
-                <Icon className="w-4 h-4" />
+              {/* Icon top-right — цветная плашка на полной непрозрачности.
+                  Раньше был нейтральный bg + opacity-60 с доводкой до 100% только
+                  по hover: на тач-экране hover не срабатывает → значки почти не
+                  видны (фидбэк владельца). Теперь тинт по цвету метрики. */}
+              <div className={`absolute top-3 right-3 w-8 h-8 rounded-lg ${kpi.iconBg} flex items-center justify-center ${kpi.color}`}>
+                <Icon className="w-4 h-4" strokeWidth={2} />
               </div>
 
               {/* Label */}
