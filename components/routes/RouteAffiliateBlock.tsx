@@ -140,7 +140,7 @@ export default function RouteAffiliateBlock({ activityType, routeId }: Props) {
                 <s.icon className="w-4 h-4" />
               </div>
               <div style={{ color: 'var(--text-muted)' }}>
-                <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />
+                <ExternalLink className="w-3 h-3 opacity-40 md:opacity-0 md:group-hover:opacity-40 transition-opacity" />
               </div>
             </div>
             <p className="text-xs font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>

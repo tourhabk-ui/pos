@@ -121,7 +121,7 @@ export default function YandexTravelBlock({ routeId, source = 'route_detail' }: 
               <div className="p-1.5 rounded-md" style={{ background: `color-mix(in srgb, ${card.accent} 12%, transparent)` }}>
                 <card.icon className="w-4 h-4" style={{ color: card.accent }} />
               </div>
-              <ExternalLink className="w-3 h-3 mt-0.5 opacity-0 group-hover:opacity-30 transition-opacity" style={{ color: 'var(--text-muted)' }} />
+              <ExternalLink className="w-3 h-3 mt-0.5 opacity-30 md:opacity-0 md:group-hover:opacity-30 transition-opacity" style={{ color: 'var(--text-muted)' }} />
             </div>
             <div>
               <p className="text-xs font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>

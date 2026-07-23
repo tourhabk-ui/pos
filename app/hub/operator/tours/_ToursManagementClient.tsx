@@ -427,7 +427,7 @@ export default function ToursManagementClient() {
                           {tour.next_available_date
                             ? new Date(tour.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
                             : ''}
-                          <span className="ml-1 opacity-0 group-hover:opacity-60 text-xs transition-opacity">изменить</span>
+                          <span className="ml-1 opacity-60 md:opacity-0 md:group-hover:opacity-60 text-xs transition-opacity">изменить</span>
                         </span>
                       ) : (
                         <span className="text-xs opacity-60 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-muted)' }}>
