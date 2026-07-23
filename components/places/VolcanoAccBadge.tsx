@@ -1,8 +1,9 @@
 'use client';
 
-import { Mountain, ExternalLink } from 'lucide-react';
+import { Mountain, ExternalLink, AlertTriangle } from 'lucide-react';
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
 import type { VolcanoAccStatus } from '@/components/places/types';
+import { ASHFALL_RULES, shouldShowAshfallGuidance } from '@/lib/safety/ashfall-guidance';
 
 /**
  * Бейдж авиационного цветового кода (ACC) вулкана по данным KVERT.
@@ -65,6 +66,29 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
           Код рассчитан для авиации (риск выброса пепла) и отражает уровень активности вулкана.
           Актуальную сводку сверяйте на KVERT перед выходом.
         </p>
+
+        {shouldShowAshfallGuidance(color) && (
+          <div className="mt-3 pt-3 border-t border-[var(--border)]">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-4 h-4 text-[var(--warning)] flex-shrink-0" aria-hidden />
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Если начнётся пеплопад</p>
+            </div>
+            <ul className="space-y-1.5">
+              {ASHFALL_RULES.map((rule, i) => (
+                <li key={i} className="flex gap-2 text-xs text-[var(--text-secondary)] leading-relaxed">
+                  <span
+                    className="mt-[6px] w-1 h-1 rounded-full bg-[var(--warning)] flex-shrink-0"
+                    aria-hidden
+                  />
+                  <span>{rule}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-[var(--text-muted)] mt-2 leading-snug">
+              Правила МЧС России по Камчатскому краю. Экстренная связь — 112.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
