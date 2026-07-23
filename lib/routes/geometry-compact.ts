@@ -32,14 +32,39 @@ export function maxSegmentKm(coords: Array<[number, number]>): number {
 }
 
 /**
- * Сборник, а не трек: хотя бы один прямой сегмент длиннее порога.
- * Порог 25 км: реальные пешие сегменты короче, а «прыжки» синтетики
- * между районами города/бухтами — сильно длиннее.
+ * Габарит набора точек, км: диагональ ограничивающего прямоугольника
+ * (крайний юго-запад → крайний северо-восток). Пустая/одноточечная → 0.
+ * Ловит «растянутый» набор, где отдельные прыжки короче порога, но точки
+ * разбросаны по большой площади (кейс «Вулкан Авачинский»: пляж → визит-центр
+ * → смотровая — каждый скачок < 25 км, а размах ~29 км).
+ */
+export function boundingSpanKm(coords: Array<[number, number]>): number {
+  if (coords.length < 2) return 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const [lat, lng] of coords) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  return haversineKm(minLat, minLng, maxLat, maxLng);
+}
+
+/**
+ * Сборник, а не пеший трек. Два сигнала (порог 25 км — реальные пешие
+ * сегменты/дневные маршруты короче):
+ *   1) хотя бы один прямой сегмент длиннее порога («прыжок» синтетики), ИЛИ
+ *   2) весь набор растянут шире порога по габариту (много средних скачков,
+ *      суммарно уводящих за десятки км — кейс владельца «Вулкан Авачинский»).
+ * В полевом навигаторе такой набор нельзя предлагать как «идти по маршруту» —
+ * честнее показать «это подборка мест». Осознанно консервативно: длинный
+ * линейный маршрут тоже получит предупреждение, и это безопаснее умолчания.
  */
 export function isScatteredCollection(
   coords: Array<[number, number]> | null | undefined,
   thresholdKm = 25,
+  spanKm = 25,
 ): boolean {
   if (!coords || coords.length < 2) return false;
-  return maxSegmentKm(coords) > thresholdKm;
+  return maxSegmentKm(coords) > thresholdKm || boundingSpanKm(coords) > spanKm;
 }

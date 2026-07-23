@@ -62,6 +62,16 @@ function flagsSanctionedConsoleError(text: string): boolean {
 }
 
 /**
+ * Ссылки на чужой стек. Проект — прямой SQL + свой JWT (CLAUDE.md §1): Prisma,
+ * NextAuth, getServerSession здесь не существуют. Находка, чинящая их, —
+ * галлюцинация (кейс: 10 issues по booking-роуту с «оберни в Prisma-транзакцию»
+ * и «getServerSession»). Content-free — не нужен файл.
+ */
+function flagsForeignStack(text: string): boolean {
+  return /\bprisma\b|@prisma|prismaclient|next-auth|nextauth|getserversession/i.test(text);
+}
+
+/**
  * Причина отклонить находку как недостоверную, либо null если находка проходит.
  * Строка-код причины идёт в телеметрию скана.
  */
@@ -70,9 +80,54 @@ export function findingRejectionReason(f: CandidateFinding): string | null {
   if (incoherentSameToken(text)) return 'incoherent_same_token';
   if (flagsSanctionedCallAIFast(text)) return 'sanctioned_callaifast';
   if (flagsSanctionedConsoleError(text)) return 'sanctioned_console_error';
+  if (flagsForeignStack(text)) return 'foreign_stack';
   return null;
 }
 
 export function isCredibleFinding(f: CandidateFinding): boolean {
   return findingRejectionReason(f) === null;
+}
+
+// ── Верификационный проход: сверка находки с телом файла ──────────────────────
+// Отдельный класс галлюцинаций — «отсутствует X», когда X в файле ЕСТЬ
+// (кейс: «нет try/catch»/«нет auth»/«race condition без блокировки» на
+// booking-роуте, где есть и try/catch, и verifyToken, и FOR UPDATE). Guard
+// выше content-free и такое не ловит — здесь сверяем с исходником.
+
+/** Находка о «нет обработки ошибок / нет try/catch». */
+function claimsMissingTryCatch(text: string): boolean {
+  return /try\s*\/?\s*catch|не\s*об[её]рнут|без\s+try|отсутству\w*\s+(?:try|обработк\w*\s+ошибок)|missing\s+(?:error\s+handling|try)|not\s+wrapped|unhandled\s+(?:exception|rejection)|необрабатываем/i.test(text);
+}
+/** Находка о «нет проверки авторизации/аутентификации». */
+function claimsMissingAuth(text: string): boolean {
+  return /авториз|аутентифик|auth(?:enticat|oriz)|\brequireauth\b|проверк\w*\s+прав|userid\s+(?:из|from)\s+(?:body|тела|request|запрос)|no\s+auth|unauthenticated/i.test(text);
+}
+/** Находка о «race condition / нет блокировки». */
+function claimsMissingLock(text: string): boolean {
+  return /race\s*condition|гонк\w|блокиров|locking|конкурент|concurrent|пессимист|oversell|oversell|двойн\w*\s+брон/i.test(text);
+}
+
+/** Есть ли в исходнике конструкция, наличие которой опровергает находку. */
+function sourceHasTryCatch(src: string): boolean {
+  return /\btry\s*\{/.test(src) && /\bcatch\b/.test(src);
+}
+function sourceHasAuth(src: string): boolean {
+  return /verifyToken|extractToken|requireAuth|requireAdmin|requireRole|verifyJWT|getUserFrom|auth_token|verifySession/i.test(src);
+}
+function sourceHasLock(src: string): boolean {
+  return /FOR\s+UPDATE|\bBEGIN\b|withTransaction|SERIALIZABLE|advisory_lock|pg_advisory/i.test(src);
+}
+
+/**
+ * Сверяет находку «отсутствует X» с телом файла. Возвращает код причины, если
+ * X в файле есть (значит находка ложна), иначе null. Консервативно: срабатывает
+ * только когда находка ЯВНО про отсутствие X, а X в исходнике очевидно есть.
+ */
+export function verifyAgainstSource(f: CandidateFinding, source: string | null | undefined): string | null {
+  if (!source) return null;
+  const text = `${f.title} ${f.description} ${f.suggestion}`;
+  if (claimsMissingTryCatch(text) && sourceHasTryCatch(source)) return 'source_has_try_catch';
+  if (claimsMissingAuth(text) && sourceHasAuth(source)) return 'source_has_auth';
+  if (claimsMissingLock(text) && sourceHasLock(source)) return 'source_has_lock';
+  return null;
 }

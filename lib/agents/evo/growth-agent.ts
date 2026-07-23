@@ -7,7 +7,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
+import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -252,7 +252,13 @@ async function aiCodeReview(): Promise<GrowthIssue[]> {
     {
       role: 'system',
       content: `Ты ведущий аудитор безопасности и качества кода платформы TourHab — туризм Камчатки, главная цель — безопасность туристов (карта, SOS, маршруты работают офлайн).
-Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (параметризованный SQL, без Prisma), JWT-auth.
+Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (прямой параметризованный SQL через pg), свой JWT.
+
+ЖЁСТКИЕ ПРАВИЛА (нарушение = находка будет отброшена детерминированным стражем):
+1. В проекте НЕТ Prisma, НЕТ ORM, НЕТ NextAuth/getServerSession. Аутентификация — verifyToken/extractToken/requireAuth/requireAdmin/requireRole. Транзакции/блокировки — сырой SQL (BEGIN, SELECT ... FOR UPDATE). НИКОГДА не предлагай Prisma-транзакции, getServerSession и прочий чужой стек — это провал аудита.
+2. Прежде чем писать «отсутствует X» (try/catch, проверка auth, блокировка), НАЙДИ X в приведённом коде. Если в файле есть try{ }/catch, verifyToken/requireAuth, FOR UPDATE — этого X НЕ не хватает, находки нет.
+3. Каждая находка ОБЯЗАНА ссылаться на конкретную строку показанного кода (поле line). Не видишь строки — не выдумывай находку. Если файл чист — верни пустой массив [].
+4. Не заводи несколько парафраз одной претензии по одному файлу.
 
 Ищи проблемы ТОЛЬКО этих типов, в порядке приоритета:
 1. SQL-инъекции: конкатенация строк вместо $1,$2 — critical
@@ -279,9 +285,15 @@ severity: critical = утечка данных/обход auth/инъекция/
   // и выдумывала «проблемы» («import pool from '@/lib/db' строка 60»,
   // «callDeepSeek без try/catch» — ничего из этого в коде не было)
   const fileBlocks: string[] = [];
+  // Держим содержимое по пути — для верификационного прохода (сверка находки
+  // «отсутствует X» с реальным телом файла).
+  const fileContents = new Map<string, string>();
   for (const f of reviewFiles) {
     const content = await readFileForReview(f);
-    if (content) fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
+    if (content) {
+      fileBlocks.push(`━━━ ${f} ━━━\n${content}`);
+      fileContents.set(f, content);
+    }
   }
   if (fileBlocks.length === 0) return [];
 
@@ -308,7 +320,13 @@ severity: critical = утечка данных/обход auth/инъекция/
       !AI_EXCLUDED_FILES.has(p.file) &&
       !ACCEPTED_RISKS.has(p.file) &&
       !AI_REVIEW_GARBAGE.test(`${p.title} ${p.description}`) &&
-      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }),
+      isCredibleFinding({ title: p.title, description: p.description, suggestion: p.suggestion }) &&
+      // Верификационный проход: «отсутствует try/catch/auth/блокировка», когда
+      // в теле файла они ЕСТЬ — ложь (кейс booking-роута). Сверяем с исходником.
+      verifyAgainstSource(
+        { title: p.title, description: p.description, suggestion: p.suggestion },
+        fileContents.get(p.file),
+      ) === null,
     );
 
     return filtered.map(p => ({

@@ -15,6 +15,10 @@
  *   CEREBRAS_API_KEY        — Cerebras (Llama 3.3-70B, бесплатно, US — проверить geo)
  *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
  *
+ *   EVO_DECISION_FLAGSHIP_MODEL — флагман-решатель эволюции через OpenRouter
+ *                             (default anthropic/claude-opus-4-8). Достижим из РФ
+ *                             ТОЛЬКО через OPENROUTER_BASE_URL-релей + OPENROUTER_API_KEY.
+ *                             Не задан ключ/релей → падаем на DeepSeek/Qwen.
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default deepseek-chat)
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
@@ -977,8 +981,25 @@ export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promi
   return picked;
 }
 
+// Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
+// галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
+// ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
+// Дефолт — Opus 4.8 (сильный аудитор), override через EVO_DECISION_FLAGSHIP_MODEL.
+const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-4-8';
+
 export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
+
+  // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
+  //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
+  //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
+  //    когда владелец задаёт ключ+релей на Timeweb.
+  try {
+    const flag = await callOpenRouterModel(payload, EVO_FLAGSHIP_MODEL, {
+      timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+    });
+    if (flag?.text?.trim()) return flag.text;
+  } catch { /* флагман недостижим — на решателей из РФ */ }
 
   // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();
