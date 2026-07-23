@@ -77,8 +77,10 @@ export interface DataRepairResult {
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
   fixed_route_coords: number;
-  /** Диагностика (Шаг 10, без изменений БД): waypoints дальше порога от маршрута */
+  /** Диагностика (Шаг 10): waypoints дальше порога от опорной точки маршрута */
   waypoint_outliers: number;
+  /** Шаг 10b: изолированные точки-беглецы, отвязанные от маршрута (apply) */
+  waypoint_outliers_unlinked: number;
   errors: number;
   duration_ms: number;
   items: RepairItem[];
@@ -183,6 +185,78 @@ export function shouldMergeMorphological(a: PlaceLike, b: PlaceLike): boolean {
   return nameMatchStrength(a.name, b.name) === 'strong';
 }
 
+/**
+ * Индексы точек-беглецов, которые безопасно отвязать от маршрута.
+ *
+ * Принцип: настоящее тело маршрута — самый большой кластер взаимно-близких
+ * точек (рёбра ≤ clusterKm, связные компоненты). Отвязываем ТОЛЬКО те точки,
+ * что не входят в это ядро И удалены от него ≥ strayKm (изолированный чужак —
+ * кейс «Халактырский пляж на маршруте Авачинского вулкана»).
+ *
+ * Безопасно к ложным срабатываниям:
+ *  - длинный линейный маршрут = одна связная цепочка (соседи < clusterKm) →
+ *    ядро = весь маршрут → не отвязываем ничего;
+ *  - два чужака рядом друг с другом (пляж + визит-центр) образуют свою
+ *    маленькую компоненту, но она вся далеко от ядра → оба отвязываются;
+ *  - нет явного ядра (< minMain точек в крупнейшем кластере — «подборка мест
+ *    по всему краю») → не трогаем, это не маршрут, а сборник (его ловит
+ *    geometry-compact в навигаторе).
+ *
+ * Чистая функция — под тестом.
+ */
+export function strayWaypointIndices(
+  coords: Array<[number, number]>,
+  opts: { clusterKm?: number; strayKm?: number; minMain?: number } = {},
+): number[] {
+  const clusterKm = opts.clusterKm ?? 10;
+  const strayKm = opts.strayKm ?? 25;
+  const minMain = opts.minMain ?? 3;
+  const n = coords.length;
+  // Нужно ядро (≥ minMain) плюс хотя бы один беглец — иначе судить не о чем.
+  if (n < minMain + 1) return [];
+
+  // Union-find по рёбрам ≤ clusterKm
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => {
+    let r = x;
+    while (parent[r] !== r) r = parent[r];
+    let c = x;
+    while (parent[c] !== c) { const nx = parent[c]; parent[c] = r; c = nx; }
+    return r;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (haversineKm(coords[i][0], coords[i][1], coords[j][0], coords[j][1]) <= clusterKm) {
+        parent[find(i)] = find(j);
+      }
+    }
+  }
+  const compMembers = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    (compMembers.get(r) ?? compMembers.set(r, []).get(r)!).push(i);
+  }
+  // Крупнейшая компонента — ядро маршрута
+  let main: number[] = [];
+  for (const members of compMembers.values()) {
+    if (members.length > main.length) main = members;
+  }
+  if (main.length < minMain) return []; // нет связного ядра — не маршрут, не трогаем
+
+  const inMain = new Set(main);
+  const strays: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (inMain.has(i)) continue;
+    let minToMain = Infinity;
+    for (const m of main) {
+      const d = haversineKm(coords[i][0], coords[i][1], coords[m][0], coords[m][1]);
+      if (d < minToMain) minToMain = d;
+    }
+    if (minToMain >= strayKm) strays.push(i);
+  }
+  return strays;
+}
+
 /** Классификация «статейного» имени места: скрыть / переименовать / оставить. */
 export function classifyPlaceName(name: string): { action: 'hide' | 'rename' | 'keep'; to?: string } {
   if (ARTICLE_PLACE_NAMES.includes(name)) return { action: 'hide' };
@@ -218,6 +292,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     merged_morph: 0,
     fixed_route_coords: 0,
     waypoint_outliers: 0,
+    waypoint_outliers_unlinked: 0,
     errors: 0,
     duration_ms: 0,
     items,
@@ -842,12 +917,14 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     items.push({ step: 'route_coords', detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
   }
 
-  // ── Шаг 10: ДИАГНОСТИКА кривых waypoints (без изменений БД) ──────────────
-  // Кейс владельца: у «Пиначево — Центральный» (Налычево) точками маршрута
-  // стояли Козельский и Халактырский пляж — чужие waypoints тянут за собой
-  // чужие алерты и врут навигации. Автоматически НЕ отвязываем: многодневные
-  // линейные треки легально уходят на десятки км от «координаты маршрута»,
-  // поэтому только отчёт с дистанциями — решение по каждой связке за владельцем.
+  // ── Шаг 10: кривые waypoints — отчёт + безопасный анлинк беглецов ────────
+  // Кейс владельца: у «Авачинский перевал (база 3 вулкана)» точкой маршрута
+  // стоял «Каменный лес княженика» (285 км) — чужие waypoints тянут чужие
+  // алерты и врут навигации. Отчёт (wp_outlier) — по дистанции от опорной
+  // точки, широкий (для глаз владельца). Анлинк (wp_unlink, Шаг 10b) —
+  // только по строгому критерию strayWaypointIndices: точка изолирована от
+  // СВЯЗНОГО ЯДРА маршрута ≥25 км. Линейный маршрут = одна цепочка → ядро =
+  // весь маршрут → ничего не отвязываем. dry_run — только отчёт.
   try {
     const { rows: wpRows } = await pool.query<{
       route_id: string; route_title: string; route_lat: string | null; route_lng: string | null;
@@ -914,6 +991,33 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     if (outliers.length > 60) {
       items.push({ step: 'wp_outlier', detail: `…и ещё ${outliers.length - 60} связок дальше ${WAYPOINT_SUSPECT_KM} км` });
     }
+
+    // ── Шаг 10b: анлинк изолированных беглецов ────────────────────────────
+    // Строгий критерий strayWaypointIndices: точка не входит в связное ядро
+    // маршрута и удалена от него ≥25 км. Линейный маршрут (одна цепочка) ядром
+    // покрывается целиком → 0 анлинков. dry_run — только считаем.
+    let unlinked = 0;
+    for (const rows of byRoute.values()) {
+      if (rows.length < 4) continue; // нужно ядро + беглец
+      const coords = rows.map(w => [Number(w.place_lat), Number(w.place_lng)] as [number, number]);
+      const strays = strayWaypointIndices(coords);
+      for (const idx of strays) {
+        const w = rows[idx];
+        if (!dryRun) {
+          await pool.query(
+            `DELETE FROM route_waypoints WHERE route_id = $1 AND place_id = $2`,
+            [w.route_id, w.place_id],
+          );
+        }
+        unlinked++;
+        items.push({
+          step: 'wp_unlink',
+          place: w.place_name,
+          detail: `${dryRun ? 'будет отвязана' : 'отвязана'} от «${w.route_title}» — изолирована от ядра маршрута (чужая точка)`,
+        });
+      }
+    }
+    res.waypoint_outliers_unlinked = unlinked;
   } catch (err) {
     res.errors++;
     items.push({ step: 'wp_outlier', detail: `диагностика не прошла: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });

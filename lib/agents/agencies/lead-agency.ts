@@ -3,6 +3,7 @@ import { callAIWithModel } from '@/lib/ai/providers';
 import { query } from '@/lib/database';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getModelForAgent } from '@/lib/ai/agent-models';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export interface LeadContext {
   leadId?: string;
@@ -32,17 +33,19 @@ export class LeadAgency {
       return { analyzed: 0, qualified: 0, details: 'Нет новых лидов' };
     }
 
+    // 152-ФЗ: имя/телефон туриста НЕ отправляем в (зарубежный) LLM. Лиды идут
+    // по индексу, комментарий чистим от телефонов/почты. Маппинг обратно — по index.
     const prompt = `
 Проанализируй эти лиды туристических туров и определи качество каждого.
 Выдай оценку от 1-10 и тип путешествия (fishing, trekking, thermal, boat_trip, helicopter).
 
-Лиды:
-${leads.map(l => `- ${l.name} (${l.phone}): "${l.comment || ''}"`).join('\n')}
+Лиды (по номеру):
+${leads.map((l, i) => `${i + 1}. "${redactPII(l.comment || 'без комментария')}"`).join('\n')}
 
 Ответь в JSON формате:
 {
   "analysis": [
-    { "name": "имя", "score": 8, "intent": "fishing", "reason": "..." }
+    { "lead": 1, "score": 8, "intent": "fishing", "reason": "..." }
   ],
   "recommendation": "контактировать top-3 высокого качества"
 }
@@ -52,11 +55,11 @@ ${leads.map(l => `- ${l.name} (${l.phone}): "${l.comment || ''}"`).join('\n')}
 
     try {
       const parsed = JSON.parse(response);
-      const qualified = (parsed.analysis as Array<{ score: number; name: string; intent: string }> || []).filter((a) => a.score >= 7);
+      const qualified = (parsed.analysis as Array<{ score: number; lead: number; intent: string }> || []).filter((a) => a.score >= 7);
 
-      // Обновим статусы в БД
+      // Обновим статусы в БД — лид по номеру из промпта (1-based)
       for (const item of qualified) {
-        const lead = leads.find(l => l.name === item.name);
+        const lead = leads[(Number(item.lead) || 0) - 1];
         if (lead) {
           await query(
             `UPDATE leads SET status = 'qualified', notes = $1 WHERE id = $2`,
@@ -96,7 +99,7 @@ ${leads.map(l => `- ${l.name} (${l.phone}): "${l.comment || ''}"`).join('\n')}
     const leadData = rows[0];
     const sourceInfo = leadData.source_data as { source?: string } | undefined;
     const prompt = `
-Туристу интересно: "${leadData.comment || 'неизвестно'}"
+Туристу интересно: "${redactPII(leadData.comment) || 'неизвестно'}"
 Источник: ${sourceInfo?.source || 'неизвестно'}
 
 Рекомендуй топ-3 тура с объяснением почему каждый подходит.
