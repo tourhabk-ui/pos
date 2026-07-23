@@ -16,6 +16,7 @@ interface SidebarItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  section?: string;
 }
 
 interface HubLayoutProps {
