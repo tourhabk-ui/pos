@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { syncKvertAcc } from '@/lib/agents/kvert-sync';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,11 +21,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = Date.now();
+
   try {
     const result = await syncKvertAcc();
+    recordCronRun('kvert-acc', startedAt, 'success');
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка синка KVERT';
+    recordCronRun('kvert-acc', startedAt, 'failed', { error: message });
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }
