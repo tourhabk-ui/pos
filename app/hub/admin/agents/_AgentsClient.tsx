@@ -1,7 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, CheckCircle, AlertTriangle, Clock, Play, Bot, Zap, Send, AlertCircle, CheckCircle2, GitBranch, X, Copy, Check } from 'lucide-react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import {
+  RefreshCw, CheckCircle2, AlertTriangle, Clock, Play, Bot, Zap, Send, AlertCircle,
+  GitBranch, X, Copy, Check, Loader2, Radio, DownloadCloud,
+  type LucideIcon,
+} from 'lucide-react';
+
+// Дашборд фоновых агентов в эталонном «туристском» формате (как «Модели
+// эволюции»): playfair-хедер, StatChip-строка сводки, секции-карточки с
+// icon-circle, Loader2. Данные — из живых API. Расписания сверены с
+// .github/workflows/cron-*.yml (источник правды): дашборд не должен врать
+// про то, когда агент реально запускается.
 
 interface AgentDef {
   id: string;
@@ -10,48 +20,49 @@ interface AgentDef {
   schedule: string;
 }
 
+// Расписания — из cron-*.yml, НЕ из памяти. Меняешь workflow — обнови здесь.
 const AGENTS: AgentDef[] = [
   {
     id: 'watchdog',
     name: 'Watchdog',
-    description: 'Мониторинг: бронирования без подтверждения, операторы без ответа, лиды, SOS.',
+    description: 'Единственный сторож операционной безопасности: SOS-таймаут, брони без подтверждения, лиды, мёртвый сейсмо-крон. Алерты в Telegram.',
     schedule: 'каждые 30 мин',
+  },
+  {
+    id: 'rescue',
+    name: 'Rescue',
+    description: 'Погодные угрозы ближайшим турам + отток операторов (>7 дней без броней). SOS и брони — у Watchdog, не дублирует.',
+    schedule: 'каждые 30 мин · :15/:45',
   },
   {
     id: 'editor',
     name: 'Editor',
-    description: 'AI-редактор: находит туры с короткими описаниями → переписывает через AI.',
-    schedule: 'раз в сутки (02:00 UTC)',
+    description: 'Туры с описанием <300 символов → AI переписывает → route_description_cache.',
+    schedule: 'ежедневно · 22:00 UTC (off-peak)',
   },
   {
     id: 'scout-digest',
     name: 'Scout Digest',
-    description: 'Дайджест: RSS AI/тревел/Камчатка → AI-синтез → Telegram.',
-    schedule: 'раз в сутки (07:00 UTC)',
+    description: 'RSS (Habr, RATA, Tourprom, Kamgov) → AI-синтез → дайджест в Telegram.',
+    schedule: 'ежедневно · 07:00 UTC',
   },
   {
     id: 'intelligence',
     name: 'Intelligence Monitor',
-    description: 'Сбор AI/тревел/конкурент сигналов из RSS и поиска → в Brain.',
-    schedule: 'каждые 6 часов',
+    description: 'Сбор AI/тревел/конкурентных сигналов из RSS и поиска → Brain.',
+    schedule: 'каждые 6 ч · 3/9/15/21 UTC',
   },
   {
     id: 'scout',
     name: 'Scout-Innovator',
     description: 'Читает Brain → платформу → 2-3 конкретных предложения → Telegram.',
-    schedule: 'раз в сутки (06:00 UTC)',
+    schedule: 'ежедневно · 08:00 UTC',
   },
   {
     id: 'evo',
     name: 'Evo System',
-    description: 'Growth Scan + Evolution Loop + Rescue. Сканирует код → находит проблемы → применяет фиксы.',
-    schedule: 'каждые 6 часов',
-  },
-  {
-    id: 'rescue',
-    name: 'Rescue',
-    description: 'SOS без ответа, погодные угрозы, бронирования без подтверждения, операторы без ответа.',
-    schedule: 'каждые 30 мин',
+    description: 'Growth Scan + Evolution Loop + intel-bridge + model-watcher. Находки → GitHub Issues (метка evo).',
+    schedule: '3× в сутки · 17/20/23 UTC (off-peak)',
   },
 ];
 
@@ -78,22 +89,76 @@ interface TriggerState {
   error: string | null;
 }
 
+// ── Общие примитивы (в стиле «Модели эволюции») ────────────────────────────
+
+function StatChip({ icon: Icon, label, value, tone = 'ocean' }: {
+  icon: LucideIcon; label: string; value: string; tone?: 'ocean' | 'success' | 'danger';
+}) {
+  const color = tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)' : 'var(--ocean)';
+  return (
+    <div className="flex items-center gap-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2.5">
+      <span className="flex items-center justify-center w-9 h-9 rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}>
+        <Icon className="w-[18px] h-[18px]" strokeWidth={1.75} style={{ color }} />
+      </span>
+      <div>
+        <div className="ds-label">{label}</div>
+        <div className="text-sm font-bold text-[var(--text-primary)]">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, subtitle, action }: {
+  icon: LucideIcon; title: string; subtitle?: string; action?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ocean)]/10">
+          <Icon className="w-[22px] h-[22px] text-[var(--ocean)]" strokeWidth={1.75} />
+        </span>
+        <div>
+          <h2 className="font-playfair text-xl font-bold text-[var(--text-primary)]">{title}</h2>
+          {subtitle && <p className="ds-label">{subtitle}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function RefreshButton({ onClick, spinning }: { onClick: () => void; spinning?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={spinning}
+      className="ds-btn ds-btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+    >
+      <RefreshCw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} /> Обновить
+    </button>
+  );
+}
+
 function StatusDot({ status }: { status?: string }) {
-  if (!status) return <span className="w-2 h-2 rounded-full bg-[var(--text-muted)] inline-block" />;
-  if (status === 'success') return <span className="w-2 h-2 rounded-full bg-[var(--success)] inline-block" />;
-  if (status === 'partial') return <span className="w-2 h-2 rounded-full bg-[var(--warning)] inline-block" />;
-  return <span className="w-2 h-2 rounded-full bg-[var(--danger)] inline-block" />;
+  const color = !status
+    ? 'var(--text-muted)'
+    : status === 'success'
+    ? 'var(--success)'
+    : status === 'partial'
+    ? 'var(--warning)'
+    : 'var(--danger)';
+  return <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const cls =
     status === 'success'
-      ? 'text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_10%,transparent)]'
+      ? 'text-[var(--success)] bg-[color-mix(in_srgb,var(--success)_12%,transparent)]'
       : status === 'partial'
-      ? 'text-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]'
-      : 'text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]';
+      ? 'text-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)]'
+      : 'text-[var(--danger)] bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]';
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded ${cls}`}>
+    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cls}`}>
       {status === 'success' ? 'OK' : status === 'partial' ? 'частично' : 'ошибка'}
     </span>
   );
@@ -110,13 +175,17 @@ function formatTime(iso: string) {
   return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+// ── Главный клиент ─────────────────────────────────────────────────────────
+
 export default function AgentsClient() {
   const [summary, setSummary] = useState<Record<string, RunSummary>>({});
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [triggers, setTriggers] = useState<Record<string, TriggerState>>({});
 
   const loadHistory = useCallback(async () => {
+    setRefreshing(true);
     try {
       const res = await fetch('/api/admin/agents/runs?limit=30');
       if (!res.ok) return;
@@ -129,6 +198,7 @@ export default function AgentsClient() {
       // silent
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -158,162 +228,147 @@ export default function AgentsClient() {
     }
   }
 
+  // Сводка по последнему запуску каждого агента
+  const ran = AGENTS.map(a => summary[a.id]).filter(Boolean) as RunSummary[];
+  const okCount = ran.filter(s => s.status === 'success').length;
+  const issueCount = ran.filter(s => s.status !== 'success').length;
+  const lastActivity = ran.length
+    ? ran.reduce((max, s) => (s.started_at > max ? s.started_at : max), ran[0].started_at)
+    : null;
+
   return (
-    <div className="ds-page max-w-4xl mx-auto py-8 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="ds-h1 mb-1">AI и автоматизации</h1>
-        <p className="text-[var(--text-secondary)] text-sm">
-          Фоновые агенты: мониторинг, контент, разведка. Статус обновляется каждые 30 секунд.
-        </p>
+    <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 py-6 lg:py-8 space-y-6">
+      <header className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">AI и автоматизации</h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">
+            Фоновые агенты платформы: мониторинг, контент, разведка, эволюция. Статус обновляется каждые 30 секунд.
+          </p>
+        </div>
+        <RefreshButton onClick={() => void loadHistory()} spinning={refreshing} />
+      </header>
+
+      {/* Сводка */}
+      <div className="flex flex-wrap gap-2.5">
+        <StatChip icon={Zap} label="Агентов" value={String(AGENTS.length)} />
+        <StatChip icon={CheckCircle2} label="Успешных" value={`${okCount} из ${ran.length || AGENTS.length}`} tone="success" />
+        {issueCount > 0 && <StatChip icon={AlertTriangle} label="С ошибкой" value={String(issueCount)} tone="danger" />}
+        <StatChip icon={Clock} label="Последняя активность" value={lastActivity ? formatTime(lastActivity) : '—'} />
       </div>
 
-      {/* Kuzmich card */}
-      <div className="ds-card p-5">
+      {/* Кузьмич */}
+      <section className="ds-card">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <Bot className="w-6 h-6 text-[var(--accent)] flex-shrink-0" />
+            <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--accent)]/10 flex-shrink-0">
+              <Bot className="w-[22px] h-[22px] text-[var(--accent)]" strokeWidth={1.75} />
+            </span>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">Основной AI</p>
-              <h2 className="font-semibold text-[var(--text-primary)]">Кузьмич</h2>
+              <p className="ds-label">Основной AI</p>
+              <h2 className="font-playfair text-xl font-bold text-[var(--text-primary)]">Кузьмич</h2>
               <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-                AI-консьерж для туристов и операторов. Telegram, web, виджет.
+                AI-консьерж для туристов и операторов. Telegram, MAX, web, виджет.
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0">
             <a href="/kuzmich" className="ds-btn ds-btn-secondary text-sm">Открыть</a>
             <a href="/hub/admin/ai-analytics" className="ds-btn ds-btn-secondary text-sm">Аналитика</a>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Agent cards */}
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] flex items-center gap-2">
-          <Zap className="w-3.5 h-3.5" />
-          Фоновые агенты
-        </h2>
-        {AGENTS.map(agent => {
-          const last = summary[agent.id];
-          const trig = triggers[agent.id];
-          return (
-            <div key={agent.id} className="ds-card p-4">
-              <div className="flex items-start gap-4 justify-between">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="mt-1.5">
-                    <StatusDot status={last?.status} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                      <span className="font-medium text-[var(--text-primary)]">{agent.name}</span>
-                      <span className="text-xs text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded">
-                        {agent.schedule}
-                      </span>
-                      {last && <StatusBadge status={last.status} />}
+      {/* Фоновые агенты */}
+      <section className="ds-card">
+        <SectionHeader icon={Zap} title="Фоновые агенты" subtitle="Расписание из cron-workflow" />
+        <div className="space-y-3">
+          {AGENTS.map(agent => {
+            const last = summary[agent.id];
+            const trig = triggers[agent.id];
+            return (
+              <div key={agent.id} className="rounded-lg bg-[var(--bg-card)] border border-[var(--border)] p-4">
+                <div className="flex items-start gap-4 justify-between">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="mt-1.5"><StatusDot status={last?.status} /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-semibold text-[var(--text-primary)]">{agent.name}</span>
+                        <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">
+                          {agent.schedule}
+                        </span>
+                        {last && <StatusBadge status={last.status} />}
+                      </div>
+                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{agent.description}</p>
+                      {last && (
+                        <p className="text-xs text-[var(--text-muted)] mt-1.5">
+                          Последний запуск: {formatTime(last.started_at)}
+                        </p>
+                      )}
+                      {trig?.result && (
+                        <div className="mt-2 text-xs bg-[var(--bg-hover)] rounded-lg p-2.5 font-mono text-[var(--text-secondary)] space-y-0.5">
+                          {Object.entries(trig.result).map(([k, v]) => (
+                            <div key={k}>{k}: <span className="text-[var(--text-primary)]">{String(v)}</span></div>
+                          ))}
+                        </div>
+                      )}
+                      {trig?.error && (
+                        <div className="flex items-center gap-1.5 text-xs text-[var(--danger)] mt-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                          {trig.error}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-sm text-[var(--text-secondary)]">{agent.description}</p>
-                    {last && (
-                      <p className="text-xs text-[var(--text-muted)] mt-1">
-                        Последний запуск: {formatTime(last.started_at)}
-                      </p>
-                    )}
-                    {trig?.result && (
-                      <div className="mt-2 text-xs bg-[var(--bg-hover)] rounded p-2 font-mono text-[var(--text-secondary)]">
-                        {Object.entries(trig.result).map(([k, v]) => (
-                          <div key={k}>{k}: <span className="text-[var(--text-primary)]">{String(v)}</span></div>
-                        ))}
-                      </div>
-                    )}
-                    {trig?.error && (
-                      <div className="flex items-center gap-1.5 text-xs text-[var(--danger)] mt-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                        {trig.error}
-                      </div>
-                    )}
                   </div>
+                  <button
+                    onClick={() => void triggerAgent(agent.id)}
+                    disabled={trig?.loading}
+                    className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0 disabled:opacity-60"
+                  >
+                    {trig?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    {trig?.loading ? 'Запуск…' : 'Запустить'}
+                  </button>
                 </div>
-                <button
-                  onClick={() => void triggerAgent(agent.id)}
-                  disabled={trig?.loading}
-                  className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0"
-                >
-                  {trig?.loading ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5" />
-                  )}
-                  {trig?.loading ? 'Запуск...' : 'Запустить'}
-                </button>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Run history */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5" />
-            История запусков
-          </h2>
-          <button
-            onClick={() => void loadHistory()}
-            className="text-xs text-[var(--text-muted)] flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
-          >
-            <RefreshCw className="w-3 h-3" />
-            Обновить
-          </button>
+            );
+          })}
         </div>
+      </section>
 
+      {/* История запусков */}
+      <section className="ds-card">
+        <SectionHeader icon={Clock} title="История запусков" subtitle="Последние 30 запусков" />
         {loading ? (
-          <div className="ds-card p-8 text-center text-sm text-[var(--text-muted)]">
-            Загрузка...
+          <div className="flex items-center justify-center py-14">
+            <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
           </div>
         ) : runs.length === 0 ? (
-          <div className="ds-card p-8 text-center text-sm text-[var(--text-muted)]">
+          <div className="text-center py-12 text-sm text-[var(--text-secondary)]">
             История пуста — запусков ещё не было.
-            <br />
-            <span className="text-xs">Миграция 143 должна быть применена в БД.</span>
           </div>
         ) : (
-          <div className="ds-card overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-[var(--border)] text-xs text-[var(--text-muted)]">
-                  <th className="text-left px-4 py-2.5 font-medium">Агент</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Статус</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Время</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Длит.</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Записей</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Ошибка</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Агент</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Статус</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Время</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Длит.</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Записей</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Ошибка</th>
                 </tr>
               </thead>
               <tbody>
                 {runs.map(run => (
                   <tr key={run.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)]">
-                    <td className="px-4 py-2.5 font-medium text-[var(--text-primary)]">{run.agent_id}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        {run.status === 'success' ? (
-                          <CheckCircle className="w-3.5 h-3.5 text-[var(--success)]" />
-                        ) : run.status === 'partial' ? (
-                          <AlertTriangle className="w-3.5 h-3.5 text-[var(--warning)]" />
-                        ) : (
-                          <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)]" />
-                        )}
-                        <StatusBadge status={run.status} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{formatTime(run.started_at)}</td>
-                    <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">{formatDuration(run.duration_ms)}</td>
-                    <td className="px-4 py-2.5 text-[var(--text-secondary)] text-xs">
-                      {run.items_processed ?? '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs">
+                    <td className="px-3 py-2.5 font-medium text-[var(--text-primary)]">{run.agent_id}</td>
+                    <td className="px-3 py-2.5"><StatusBadge status={run.status} /></td>
+                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatTime(run.started_at)}</td>
+                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{formatDuration(run.duration_ms)}</td>
+                    <td className="px-3 py-2.5 text-[var(--text-secondary)] text-xs">{run.items_processed ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-xs">
                       {run.error_msg ? (
-                        <span className="text-[var(--danger)] truncate max-w-[200px] block" title={run.error_msg}>
+                        <span className="text-[var(--danger)] truncate max-w-[220px] block" title={run.error_msg}>
                           {run.error_msg.slice(0, 60)}{run.error_msg.length > 60 ? '…' : ''}
                         </span>
                       ) : (
@@ -326,22 +381,16 @@ export default function AgentsClient() {
             </table>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Evo Issues */}
       <EvoIssuesSection />
-
-      {/* Channel posts */}
       <ChannelPostsSection />
-
-      {/* Route import */}
       <ImportRoutesSection />
-
     </div>
   );
 }
 
-// ── Evo Issues Section ────────────────────────────────────────────────────
+// ── Evo — Очередь проблем ──────────────────────────────────────────────────
 
 interface EvoIssue {
   id: string;
@@ -380,6 +429,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   bug: 'баг',
   tech_debt: 'tech debt',
   ux: 'UX',
+  intel: 'разведка',
+  add_index: 'индекс БД',
 };
 
 function EvoIssuesSection() {
@@ -445,26 +496,26 @@ function EvoIssuesSection() {
   const logCount = log.length;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] flex items-center gap-2">
-          <GitBranch className="w-3.5 h-3.5" />
-          Evo — Очередь проблем
-        </h2>
-        <button
-          onClick={() => { setLoading(true); void load(); }}
-          className="text-xs text-[var(--text-muted)] flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
-        >
-          <RefreshCw className="w-3 h-3" />
-          Обновить
-        </button>
-      </div>
+    <section className="ds-card">
+      <SectionHeader
+        icon={GitBranch}
+        title="Evo — очередь проблем"
+        subtitle="Находки эволюции и предложенные фиксы"
+        action={
+          <button
+            onClick={() => { setLoading(true); void load(); }}
+            className="text-xs text-[var(--text-muted)] flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Обновить
+          </button>
+        }
+      />
 
-      {/* Tabs */}
-      <div className="flex gap-2">
+      {/* Табы */}
+      <div className="flex gap-2 mb-4">
         <button
           onClick={() => setTab('issues')}
-          className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+          className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors ${
             tab === 'issues'
               ? 'bg-[var(--accent)] text-white'
               : 'text-[var(--text-secondary)] bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
@@ -474,7 +525,7 @@ function EvoIssuesSection() {
         </button>
         <button
           onClick={() => setTab('log')}
-          className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+          className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors ${
             tab === 'log'
               ? 'bg-[var(--accent)] text-white'
               : 'text-[var(--text-secondary)] bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
@@ -485,25 +536,24 @@ function EvoIssuesSection() {
       </div>
 
       {loading ? (
-        <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">Загрузка...</div>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+        </div>
       ) : tab === 'issues' ? (
         issues.length === 0 ? (
-          <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">
+          <div className="text-center py-10 text-sm text-[var(--text-secondary)]">
             Нет открытых проблем — всё чисто.
           </div>
         ) : (
-          <div className="ds-card overflow-hidden">
+          <div className="rounded-lg border border-[var(--border)] overflow-hidden">
             {issues.map((issue, idx) => (
-              <div
-                key={issue.id}
-                className={`p-4 ${idx < issues.length - 1 ? 'border-b border-[var(--border)]' : ''}`}
-              >
+              <div key={issue.id} className={`p-4 ${idx < issues.length - 1 ? 'border-b border-[var(--border)]' : ''}`}>
                 <div className="flex items-start gap-3">
                   <div className="flex flex-col gap-1 flex-shrink-0 pt-0.5">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${SEVERITY_STYLES[issue.severity] ?? SEVERITY_STYLES.low}`}>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full text-center ${SEVERITY_STYLES[issue.severity] ?? SEVERITY_STYLES.low}`}>
                       {issue.severity}
                     </span>
-                    <span className="text-xs text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded text-center">
+                    <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full text-center">
                       {CATEGORY_LABELS[issue.category] ?? issue.category}
                     </span>
                   </div>
@@ -523,17 +573,16 @@ function EvoIssuesSection() {
                     <button
                       onClick={() => void patchIssue(issue.id, 'ignored')}
                       disabled={updating === issue.id}
-                      className="text-xs px-2.5 py-1 rounded bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
                     >
                       Игнор
                     </button>
                     <button
                       onClick={() => void patchIssue(issue.id, 'rejected')}
                       disabled={updating === issue.id}
-                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
                     >
-                      <X className="w-3 h-3" />
-                      Отклонить
+                      <X className="w-3 h-3" /> Отклонить
                     </button>
                   </div>
                 </div>
@@ -543,18 +592,16 @@ function EvoIssuesSection() {
         )
       ) : (
         log.length === 0 ? (
-          <div className="ds-card p-6 text-center text-sm text-[var(--text-muted)]">
+          <div className="text-center py-10 text-sm text-[var(--text-secondary)]">
             Нет ожидающих фиксов — Evolution Loop ещё не сгенерировал дифы.
           </div>
         ) : (
           <div className="space-y-2">
             {log.map(entry => (
-              <div key={entry.id} className="ds-card p-4 space-y-2">
+              <div key={entry.id} className="rounded-lg border border-[var(--border)] p-4 space-y-2">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-[var(--text-primary)]">
-                      {entry.issue_title ?? entry.action}
-                    </p>
+                    <p className="font-medium text-sm text-[var(--text-primary)]">{entry.issue_title ?? entry.action}</p>
                     {entry.issue_file && (
                       <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5 truncate">{entry.issue_file}</p>
                     )}
@@ -564,7 +611,7 @@ function EvoIssuesSection() {
                     {entry.diff_summary && (
                       <button
                         onClick={() => setExpandedDiff(expandedDiff === entry.id ? null : entry.id)}
-                        className="text-xs px-2.5 py-1 rounded bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        className="text-xs px-2.5 py-1 rounded-lg bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                       >
                         {expandedDiff === entry.id ? 'Скрыть' : 'Диф'}
                       </button>
@@ -572,29 +619,27 @@ function EvoIssuesSection() {
                     <button
                       onClick={() => void patchLog(entry.id, 'merged')}
                       disabled={updating === entry.id}
-                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)] hover:bg-[color-mix(in_srgb,var(--success)_22%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-[color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)] hover:bg-[color-mix(in_srgb,var(--success)_22%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
                     >
-                      <CheckCircle2 className="w-3 h-3" />
-                      Применён
+                      <CheckCircle2 className="w-3 h-3" /> Применён
                     </button>
                     <button
                       onClick={() => void patchLog(entry.id, 'rejected')}
                       disabled={updating === entry.id}
-                      className="text-xs px-2.5 py-1 rounded bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition-colors disabled:opacity-50 flex items-center gap-1"
                     >
-                      <X className="w-3 h-3" />
-                      Отклонить
+                      <X className="w-3 h-3" /> Отклонить
                     </button>
                   </div>
                 </div>
                 {expandedDiff === entry.id && entry.diff_summary && (
                   <div className="relative">
-                    <pre className="text-xs font-mono bg-[var(--bg-hover)] rounded p-3 overflow-x-auto whitespace-pre-wrap text-[var(--text-secondary)] max-h-64 overflow-y-auto leading-relaxed">
+                    <pre className="text-xs font-mono bg-[var(--bg-hover)] rounded-lg p-3 overflow-x-auto whitespace-pre-wrap text-[var(--text-secondary)] max-h-64 overflow-y-auto leading-relaxed">
                       {entry.diff_summary}
                     </pre>
                     <button
                       onClick={() => void copyDiff(entry.id, entry.diff_summary!)}
-                      className="absolute top-2 right-2 p-1.5 rounded bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                       title="Скопировать диф"
                     >
                       {copied === entry.id ? <Check className="w-3 h-3 text-[var(--success)]" /> : <Copy className="w-3 h-3" />}
@@ -606,13 +651,15 @@ function EvoIssuesSection() {
           </div>
         )
       )}
-    </div>
+    </section>
   );
 }
 
+// ── Публикации в каналы ────────────────────────────────────────────────────
+
 function ChannelPostsSection() {
   const POSTS = [
-    { id: 'kuzmich_route', label: 'Маршрут', desc: 'АИ выбирает маршрут → генерирует описание → публикует в TG + MAX' },
+    { id: 'kuzmich_route', label: 'Маршрут', desc: 'AI выбирает маршрут → генерирует описание → публикует в TG + MAX' },
     { id: 'tip', label: 'Совет Кузьмича', desc: 'Полезный совет туристам о Камчатке → TG + MAX' },
     { id: 'sezon', label: 'Сезонный пост', desc: 'Актуальное время года → TG + MAX' },
     { id: 'ai_news', label: 'AI-новость', desc: 'Тестовый пост → TELEGRAM_AI_CHANNEL_ID' },
@@ -636,51 +683,46 @@ function ChannelPostsSection() {
   }
 
   return (
-    <div className="space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] flex items-center gap-2">
-        <Send className="w-3.5 h-3.5" />
-        Публикации в каналы
-      </h2>
-      {POSTS.map(p => {
-        const s = states[p.id];
-        return (
-          <div key={p.id} className="ds-card p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-[var(--text-primary)] text-sm">{p.label}</p>
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">{p.desc}</p>
-                {s?.ok === true && (
-                  <p className="text-xs text-[var(--success)] flex items-center gap-1 mt-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Опубликовано
-                  </p>
-                )}
-                {s?.error && (
-                  <p className="text-xs text-[var(--danger)] flex items-center gap-1 mt-1">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    {s.error}
-                  </p>
-                )}
+    <section className="ds-card">
+      <SectionHeader icon={Radio} title="Публикации в каналы" subtitle="Ручной запуск постов в Telegram / MAX" />
+      <div className="space-y-3">
+        {POSTS.map(p => {
+          const s = states[p.id];
+          return (
+            <div key={p.id} className="rounded-lg border border-[var(--border)] p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-[var(--text-primary)] text-sm">{p.label}</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">{p.desc}</p>
+                  {s?.ok === true && (
+                    <p className="text-xs text-[var(--success)] flex items-center gap-1 mt-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Опубликовано
+                    </p>
+                  )}
+                  {s?.error && (
+                    <p className="text-xs text-[var(--danger)] flex items-center gap-1 mt-1">
+                      <AlertCircle className="w-3.5 h-3.5" /> {s.error}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => void trigger(p.id)}
+                  disabled={s?.loading}
+                  className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0 disabled:opacity-60"
+                >
+                  {s?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  {s?.loading ? 'Публикую…' : 'Опубликовать'}
+                </button>
               </div>
-              <button
-                onClick={() => void trigger(p.id)}
-                disabled={s?.loading}
-                className="ds-btn ds-btn-secondary text-sm flex items-center gap-1.5 flex-shrink-0"
-              >
-                {s?.loading ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Send className="w-3.5 h-3.5" />
-                )}
-                {s?.loading ? 'Публикую...' : 'Опубликовать'}
-              </button>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
+
+// ── Импорт маршрутов ───────────────────────────────────────────────────────
 
 function ImportRoutesSection() {
   const [state, setState] = useState<{ loading: boolean; result: string | null; error: string | null }>({
@@ -703,28 +745,22 @@ function ImportRoutesSection() {
   }
 
   return (
-    <div className="ds-card p-5 mt-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="font-semibold text-[var(--text-primary)]">Импорт маршрутов — visitkamchatka.ru</div>
-          <div className="text-sm text-[var(--text-secondary)] mt-0.5">
-            134 официальных паспорта маршрутов Камчатки → kamchatka_routes + Кузьмич
-          </div>
-        </div>
-        <button
-          onClick={run}
-          disabled={state.loading}
-          className="ds-btn ds-btn-primary text-sm px-4 py-2 disabled:opacity-50"
-        >
-          {state.loading ? 'Импортирую...' : 'Запустить импорт'}
+    <section className="ds-card">
+      <SectionHeader icon={DownloadCloud} title="Импорт маршрутов" subtitle="visitkamchatka.ru → kamchatka_routes" />
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-sm text-[var(--text-secondary)] flex-1 min-w-[240px]">
+          134 официальных паспорта маршрутов Камчатки → kamchatka_routes + Кузьмич.
+        </p>
+        <button onClick={run} disabled={state.loading} className="ds-btn ds-btn-primary text-sm disabled:opacity-60">
+          {state.loading ? 'Импортирую…' : 'Запустить импорт'}
         </button>
       </div>
       {state.result && (
-        <div className="text-sm text-[var(--success)] bg-[var(--success)]/10 rounded px-3 py-2">{state.result}</div>
+        <div className="text-sm text-[var(--success)] bg-[var(--success)]/10 rounded-lg px-3 py-2 mt-3">{state.result}</div>
       )}
       {state.error && (
-        <div className="text-sm text-[var(--danger)] bg-[var(--danger)]/10 rounded px-3 py-2">{state.error}</div>
+        <div className="text-sm text-[var(--danger)] bg-[var(--danger)]/10 rounded-lg px-3 py-2 mt-3">{state.error}</div>
       )}
-    </div>
+    </section>
   );
 }
