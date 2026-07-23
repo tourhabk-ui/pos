@@ -822,7 +822,11 @@ function OnTrailTab() {
               /* ── Превью варианта на карте (фиксация только кнопкой) ── */
               <div>
                 <div className="rounded-xl overflow-hidden mb-3" style={{ height: 220, border: '1px solid var(--border)' }}>
-                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} />
+                  {/* height обязателен: без него LeafletMap берёт дефолт 400px в
+                      220px overflow-hidden контейнере — fitBounds центрирует
+                      маркеры в обрезанную нижнюю половину, и превью выглядит
+                      пустым (скрин владельца «Авачинский перевал»). */}
+                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" />
                 </div>
                 <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
