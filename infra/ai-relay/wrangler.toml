@@ -1,0 +1,9 @@
+# Ведар — AI-релей (Cloudflare Worker).
+# Деплой: cd infra/ai-relay && npx wrangler deploy
+# Создаст https://vedar-ai-relay.<account>.workers.dev
+# После деплоя на Timeweb (переменные окружения приложения):
+#   OPENROUTER_BASE_URL = https://vedar-ai-relay.<account>.workers.dev/or/api/v1
+#   ANTHROPIC_BASE_URL  = https://vedar-ai-relay.<account>.workers.dev/anthropic
+name = "vedar-ai-relay"
+main = "worker.js"
+compatibility_date = "2024-11-01"
