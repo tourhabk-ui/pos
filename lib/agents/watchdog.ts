@@ -9,6 +9,8 @@
  *   2. Операторы без ответа > 48ч
  *   3. Лиды без обработки > 2ч
  *   4. SOS-сигналы без реакции > 30 мин
+ *   5. Сейсмо-крон (safety-ingest) мёртв > 15 мин
+ *   6. Любой safety-крон из реестра мёртв (liveness по cron-registry)
  *
  * Все алерты → Telegram (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).
  */
@@ -16,9 +18,11 @@
 import { pool } from '@/lib/db-pool';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
+import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
+import { computeLiveness } from '@/lib/agents/cron-liveness';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead';
   count: number;
   details: string;
 }
@@ -328,24 +332,74 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Любой safety-крон из реестра, который тихо встал. Обобщение checkSeismicCronDead
+ * на весь safety-tier: liveness по cron-registry × agent_run_history. Алерт только
+ * на 'dead' (был жив, перестал) — не на 'never' (ещё ни разу не отметился после
+ * инструментирования, ложную тревогу не поднимаем). safety-ingest исключён —
+ * у него отдельный, более строгий checkSeismicCronDead.
+ */
+async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const entries = CRON_REGISTRY.filter(
+      e => e.tier === 'safety' && e.agentId !== null && e.agentId !== 'safety-ingest',
+    );
+    const ids = entries.map(e => e.agentId as string);
+    if (ids.length === 0) return null;
+
+    const { rows } = await pool.query<{ agent_id: string; last_seen: string | null }>(
+      `SELECT agent_id, MAX(ended_at)::text AS last_seen
+         FROM agent_run_history
+        WHERE agent_id = ANY($1)
+        GROUP BY agent_id`,
+      [ids],
+    );
+    const lastById = new Map(rows.map(r => [r.agent_id, r.last_seen]));
+
+    const now = Date.now();
+    const dead: string[] = [];
+    for (const e of entries) {
+      const last = lastById.get(e.agentId as string) ?? null;
+      const lastMs = last ? new Date(last).getTime() : null;
+      const lv = computeLiveness(e, lastMs, now);
+      if (lv.status === 'dead') {
+        const mins = lv.minutesSince ?? 0;
+        const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
+        dead.push(`${e.label} молчит ${ago} (норма: ${e.schedule})`);
+      }
+    }
+    if (dead.length === 0) return null;
+
+    return {
+      type: 'safety_cron_dead',
+      count: dead.length,
+      details: `КРИТИЧНО: safety-агент(ы) не отвечают — ${dead.join('; ')}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkDeadSafetyCrons failed:', err);
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, operators, leads, sos, seismic] = await Promise.all([
+  const [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
     checkSeismicCronDead(),
+    checkDeadSafetyCrons(),
   ]);
 
-  const alerts = [bookings, stayBookings, operators, leads, sos, seismic].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
-      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = getPublicBaseUrl();
