@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { sendEmail } from '@/lib/email';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,8 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  recordCronRun('route-escalation', Date.now(), 'success');
 
   try {
     const now = new Date();

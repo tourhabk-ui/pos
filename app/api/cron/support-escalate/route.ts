@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getOverdueTickets, escalateTicket } from '@/lib/support/ticket.service';
 import { notifyAdminEscalated } from '@/lib/telegram/admin-notify';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { getCronSecret } from '@/lib/auth/cron';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  recordCronRun('support-escalate', Date.now(), 'success');
 
   try {
     const overdue = await getOverdueTickets();
