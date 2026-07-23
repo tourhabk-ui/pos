@@ -252,7 +252,13 @@ async function aiCodeReview(): Promise<GrowthIssue[]> {
     {
       role: 'system',
       content: `Ты ведущий аудитор безопасности и качества кода платформы TourHab — туризм Камчатки, главная цель — безопасность туристов (карта, SOS, маршруты работают офлайн).
-Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (параметризованный SQL, без Prisma), JWT-auth.
+Стек: Next.js 15 App Router, TypeScript strict, PostgreSQL (прямой параметризованный SQL через pg), свой JWT.
+
+ЖЁСТКИЕ ПРАВИЛА (нарушение = находка будет отброшена детерминированным стражем):
+1. В проекте НЕТ Prisma, НЕТ ORM, НЕТ NextAuth/getServerSession. Аутентификация — verifyToken/extractToken/requireAuth/requireAdmin/requireRole. Транзакции/блокировки — сырой SQL (BEGIN, SELECT ... FOR UPDATE). НИКОГДА не предлагай Prisma-транзакции, getServerSession и прочий чужой стек — это провал аудита.
+2. Прежде чем писать «отсутствует X» (try/catch, проверка auth, блокировка), НАЙДИ X в приведённом коде. Если в файле есть try{ }/catch, verifyToken/requireAuth, FOR UPDATE — этого X НЕ не хватает, находки нет.
+3. Каждая находка ОБЯЗАНА ссылаться на конкретную строку показанного кода (поле line). Не видишь строки — не выдумывай находку. Если файл чист — верни пустой массив [].
+4. Не заводи несколько парафраз одной претензии по одному файлу.
 
 Ищи проблемы ТОЛЬКО этих типов, в порядке приоритета:
 1. SQL-инъекции: конкатенация строк вместо $1,$2 — critical
