@@ -373,7 +373,7 @@ export default function CompletenessClient() {
                               className="group inline-flex items-center gap-1.5 px-2 py-1 bg-[var(--danger)]/10 text-[var(--danger)] rounded text-xs hover:bg-[var(--danger)]/20 transition-colors"
                             >
                               <span>{FIELD_LABELS[field] || field}</span>
-                              <ZapIcon className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                              <ZapIcon className="w-3 h-3 opacity-100 md:opacity-0 md:group-hover:opacity-100" />
                             </button>
                           ))}
                         </div>
@@ -395,7 +395,7 @@ export default function CompletenessClient() {
                               className="group inline-flex items-center gap-1.5 px-2 py-1 bg-[var(--warning)]/10 text-[var(--warning)] rounded text-xs hover:bg-[var(--warning)]/20 transition-colors"
                             >
                               <span>{FIELD_LABELS[field] || field}</span>
-                              <ZapIcon className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                              <ZapIcon className="w-3 h-3 opacity-100 md:opacity-0 md:group-hover:opacity-100" />
                             </button>
                           ))}
                           {tour.missing_recommended.length > 5 && (

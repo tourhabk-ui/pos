@@ -164,7 +164,7 @@ export default function PhotosClient({ accommodationId }: { accommodationId: str
                 onClick={() => removePhoto(photo)}
                 disabled={busy}
                 aria-label="Удалить фотографию"
-                className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
