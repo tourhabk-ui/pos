@@ -336,13 +336,22 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
  * Любой safety-крон из реестра, который тихо встал. Обобщение checkSeismicCronDead
  * на весь safety-tier: liveness по cron-registry × agent_run_history. Алерт только
  * на 'dead' (был жив, перестал) — не на 'never' (ещё ни разу не отметился после
- * инструментирования, ложную тревогу не поднимаем). safety-ingest исключён —
- * у него отдельный, более строгий checkSeismicCronDead.
+ * инструментирования, ложную тревогу не поднимаем). Исключены:
+ *  - safety-ingest — у него отдельный, более строгий checkSeismicCronDead;
+ *  - watchdog (сам себя) — рапорт «Watchdog молчит» из работающего Watchdog
+ *    логически противоречив: раз проверка идёт, сторож жив. Свою живость сторож
+ *    сам подтвердить не может; это дело внешнего мониторинга.
+ * Порог тревоги поднят до GITHUB_DELAY_FLOOR: scheduled-cron в GitHub Actions
+ * штатно задерживается до ~95 мин, и жёсткий dead-порог (для 30-мин крона ~85
+ * мин) давал ложные КРИТ на каждой такой задержке.
  */
+const GITHUB_DELAY_FLOOR_MIN = 150;
+
 async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
   try {
     const entries = CRON_REGISTRY.filter(
-      e => e.tier === 'safety' && e.agentId !== null && e.agentId !== 'safety-ingest',
+      e => e.tier === 'safety' && e.agentId !== null
+        && e.agentId !== 'safety-ingest' && e.agentId !== 'watchdog',
     );
     const ids = entries.map(e => e.agentId as string);
     if (ids.length === 0) return null;
@@ -362,7 +371,9 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
       const last = lastById.get(e.agentId as string) ?? null;
       const lastMs = last ? new Date(last).getTime() : null;
       const lv = computeLiveness(e, lastMs, now);
-      if (lv.status === 'dead') {
+      // 'dead' по liveness И сверх floor задержки GitHub Actions — иначе штатная
+      // задержка scheduled-cron поднимала ложный КРИТ.
+      if (lv.status === 'dead' && (lv.minutesSince ?? 0) >= GITHUB_DELAY_FLOOR_MIN) {
         const mins = lv.minutesSince ?? 0;
         const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
         dead.push(`${e.label} молчит ${ago} (норма: ${e.schedule})`);

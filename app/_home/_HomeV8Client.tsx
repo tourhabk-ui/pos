@@ -44,6 +44,15 @@ function fmtAgo(iso: string | null): string {
   return `${Math.round(h / 24)} дн назад`;
 }
 
+// Абсолютная дата новости для ленты алертов: у МЧС/дорожных сводок важно ВИДЕТЬ
+// само число (июльское закрытие ≠ свежее), а не только «N дн назад».
+function fmtDate(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
 function magColor(m: number): string {
   if (m >= 6) return 'var(--brusnika)';
   if (m >= 4.5) return 'var(--shroom)';
@@ -542,7 +551,7 @@ function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
         {a.title}
         {a.description ? <span className="adesc">{a.description}</span> : null}
       </span>
-      <span className="ago">{fmtAgo(a.at)}</span>
+      <span className="ago">{fmtDate(a.at)}{a.at ? ` · ${fmtAgo(a.at)}` : ''}</span>
     </li>
   );
   return (
