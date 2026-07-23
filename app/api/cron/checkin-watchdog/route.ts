@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import {
   decideEscalation,
   resolveControlTime,
@@ -89,6 +90,7 @@ export async function GET(req: Request) {
   }
 
   const now = new Date();
+  const startedAt = Date.now();
 
   // Регистрации без отметки о возвращении с ожидаемым временем в прошлом (или дата уже прошла)
   const { rows } = await query<RegRow>(`
@@ -178,5 +180,6 @@ export async function GET(req: Request) {
     escalated++;
   }
 
+  recordCronRun('checkin-watchdog', startedAt, 'success', { items: processed });
   return NextResponse.json({ success: true, processed, escalated, ts: now.toISOString() });
 }

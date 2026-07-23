@@ -19,6 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { emitEvent, AGENT_EVENTS } from '@/lib/events/emit';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,8 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Неавторизованный доступ' }, { status: 401 });
   }
+
+  const startedAt = Date.now();
 
   try {
     // Авто-закрытие SOS старше 24ч со статусом 'sent' (без ответа МЧС)
@@ -68,12 +71,14 @@ export async function GET(request: NextRequest) {
       emittedCount++;
     }
 
+    recordCronRun('sos-bridge', startedAt, 'success', { items: emittedCount });
     return NextResponse.json({
       success: true,
       data: { sosEventsProcessed: emittedCount, staleArchived: archived ?? 0 },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+    recordCronRun('sos-bridge', startedAt, 'failed', { error: message });
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

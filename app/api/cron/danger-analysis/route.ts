@@ -1,6 +1,7 @@
 import { runDangerAnalysis } from '@/lib/agents/agencies/danger-analyst-agency';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 /**
  * GET /api/cron/danger-analysis
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
   try {
     const result = await runDangerAnalysis();
 
+    recordCronRun('danger-analysis', startedAt, 'success', { items: result.assessments.length });
     return Response.json({
       success: true,
       duration_ms: Date.now() - startedAt,
@@ -41,6 +43,7 @@ export async function GET(req: Request) {
       errors: result.errors.length > 0 ? result.errors : undefined,
     });
   } catch (error) {
+    recordCronRun('danger-analysis', startedAt, 'failed', { error: (error as Error).message });
     return Response.json(
       { success: false, error: (error as Error).message, duration_ms: Date.now() - startedAt },
       { status: 500 }
