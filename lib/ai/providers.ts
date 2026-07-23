@@ -15,6 +15,8 @@
  *   CEREBRAS_API_KEY        — Cerebras (Llama 3.3-70B, бесплатно, US — проверить geo)
  *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
  *
+ *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default deepseek-chat)
+ *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
  *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
@@ -913,6 +915,56 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
     }
     return null;
   } catch { return null; }
+}
+
+// ── Решатель агентов эволюции ─────────────────────────────────
+// Сильные модели, достижимые из РФ НАПРЯМУЮ (без релея): DeepSeek (последний,
+// deepseek-chat) — первичный, Qwen (последний, qwen-max-latest) — на подхвате.
+// Тиры меняются через env без правки кода: EVO_DECISION_MODEL (DeepSeek-модель),
+// EVO_DECISION_QWEN_MODEL (Qwen-модель). Заменяет прежний слабый gemini-2.0-flash
+// в aiCodeReview/generateSuggestion/intel-bridge — теперь решения принимает
+// сильная модель. Обе попытки последовательны: качество важнее latency (крон).
+const EVO_DEEPSEEK_MODEL = process.env.EVO_DECISION_MODEL || 'deepseek-chat';
+const EVO_QWEN_MODEL     = process.env.EVO_DECISION_QWEN_MODEL || 'qwen-max-latest';
+
+export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
+  const payload = messages.map(({ role, content }) => ({ role, content }));
+
+  // 1) DeepSeek (последний) — прямой api.deepseek.com, доступен из РФ
+  const dsKey = getDeepSeekKey();
+  if (dsKey) {
+    try {
+      const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
+        body: JSON.stringify({ model: EVO_DEEPSEEK_MODEL, temperature: 0.3, max_tokens: 1500, messages: payload }),
+      }, { timeoutMs: 30_000, label: `evo-decision:${EVO_DEEPSEEK_MODEL}` });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) { logLLMUsage(EVO_DEEPSEEK_MODEL, data.usage); return text; }
+      }
+    } catch { /* переходим на Qwen */ }
+  }
+
+  // 2) Qwen (последний) — DashScope, доступен из РФ
+  const { apiKey: qwenKey, base } = getQwenConfig();
+  if (qwenKey) {
+    try {
+      const res = await fetchWithRetry(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
+        body: JSON.stringify({ model: EVO_QWEN_MODEL, temperature: 0.3, max_tokens: 1500, messages: payload }),
+      }, { timeoutMs: 30_000, label: `evo-decision:${EVO_QWEN_MODEL}` });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) { logLLMUsage(`qwen:${EVO_QWEN_MODEL}`, data.usage); return text; }
+      }
+    } catch { /* сдаёмся — вызывающий обработает null */ }
+  }
+
+  return null;
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
