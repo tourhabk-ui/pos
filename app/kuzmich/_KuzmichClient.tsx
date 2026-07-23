@@ -10,6 +10,7 @@ import {
   Fish, Mountain, Droplets, Waves, Backpack, Binoculars, Thermometer, Map,
   type LucideIcon,
 } from 'lucide-react';
+import { compressImageToLimit } from '@/lib/images/compress-client';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -310,6 +311,8 @@ export default function KuzmichClient() {
   const [sessionId, setSessionId] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageNote, setImageNote] = useState<string | null>(null);
+  const [preparingImage, setPreparingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -352,20 +355,35 @@ export default function KuzmichClient() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Выбор изображения
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Выбор изображения. Большое фото не отклоняем, а прозрачно сжимаем в браузере
+  // под лимит 5 МБ — турист просто отправляет снимок, не думая про мегабайты.
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5_000_000) { alert('Максимальный размер фото — 5 МБ'); return; }
-    setImageFile(file);
-    const reader = new FileReader();
-    reader.onload = ev => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith('image/')) { alert('Можно загрузить только изображение'); return; }
+    setPreparingImage(true);
+    setImageNote(null);
+    try {
+      const { file: prepared, dataUrl, compressed } = await compressImageToLimit(file, 5_000_000);
+      if (prepared.size > 5_000_000) {
+        alert('Не удалось сжать фото до 5 МБ. Попробуйте снимок поменьше или сделайте скриншот.');
+        return;
+      }
+      setImageFile(prepared);
+      setImagePreview(dataUrl);
+      setImageNote(compressed ? `Фото сжато до ${(prepared.size / 1_000_000).toFixed(1)} МБ для отправки` : null);
+    } catch {
+      alert('Не удалось обработать фото. Попробуйте другое.');
+    } finally {
+      setPreparingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   }
 
   function clearImage() {
     setImageFile(null);
     setImagePreview(null);
+    setImageNote(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -583,7 +601,12 @@ export default function KuzmichClient() {
                 <X className="w-2.5 h-2.5 text-white" />
               </button>
             </div>
-            <p className="text-xs text-[var(--text-muted)]">Фото будет отправлено Кузьмичу</p>
+            <div className="min-w-0">
+              <p className="text-xs text-[var(--text-muted)]">Фото будет отправлено Кузьмичу</p>
+              {imageNote && (
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">{imageNote}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -599,10 +622,11 @@ export default function KuzmichClient() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors shrink-0"
-            title="Отправить фото"
+            disabled={preparingImage}
+            className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors shrink-0 disabled:opacity-50"
+            title={preparingImage ? 'Готовим фото...' : 'Отправить фото'}
           >
-            <Camera size={18} />
+            {preparingImage ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
           </button>
 
           <Sparkles className="w-5 h-5 text-[var(--accent)] shrink-0" />
