@@ -77,6 +77,8 @@ export default function LeafletMap({
     let userLocationWatchId: number | null = null;
     // Tile error overlay — вынесен наверх чтобы cleanup мог его удалить
     let errorOverlay: HTMLDivElement | null = null;
+    // ResizeObserver — вынесен наверх, чтобы cleanup его отключил
+    let resizeObserver: ResizeObserver | null = null;
 
     // Dynamic import — leaflet + markercluster
     Promise.all([
@@ -317,10 +319,26 @@ export default function LeafletMap({
       }
 
       // Подгоняем вид под все маркеры (через кластер)
-      if (allCoords.length > 1) {
-        map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
-          padding: [50, 50],
-        });
+      const fitAll = () => {
+        if (allCoords.length > 1) {
+          map.fitBounds(allCoords as unknown as import('leaflet').LatLngBoundsExpression, {
+            padding: [50, 50],
+          });
+        }
+      };
+      fitAll();
+
+      // Fix «пустая карта» в модалке/боттом-шите: контейнер к моменту init мог
+      // иметь неустоявшийся размер (0×0, пока шит открывается) → Leaflet считал
+      // размер нулевым, не грузил тайлы и не рисовал трек (скрин владельца
+      // «Куда идём?» — пустой бокс). После укладки пинаем invalidateSize (+
+      // повторный fitBounds под верный размер) и следим за ресайзом контейнера.
+      const kick = () => { map.invalidateSize(); fitAll(); };
+      requestAnimationFrame(kick);
+      setTimeout(kick, 250);
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        resizeObserver = new ResizeObserver(() => map.invalidateSize());
+        resizeObserver.observe(containerRef.current);
       }
 
       // GPS-позиция пользователя (синяя точка) — работает без интернета!
@@ -392,6 +410,10 @@ export default function LeafletMap({
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
       if (userLocationWatchId !== null && typeof navigator !== 'undefined') {
         navigator.geolocation.clearWatch(userLocationWatchId);
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
       }
       if (errorOverlay) {
         errorOverlay.remove();
