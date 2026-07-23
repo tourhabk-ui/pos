@@ -55,3 +55,40 @@ export function pickBestModel(ids: readonly string[]): string | null {
     .map((id) => ({ id, score: scoreModel(id) }))
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))[0].id;
 }
+
+export interface ClassifiedModel {
+  id: string;
+  eligible: boolean;
+  /** Почему модель НЕ может участвовать в эволюции (null — если может). */
+  reason: string | null;
+  score: number;
+}
+
+/** Человекочитаемая причина, почему id отсеян (для админ-дашборда). */
+function excludeReason(id: string): string {
+  const s = id.toLowerCase();
+  if (/(reasoner|thinking|[-_]r1(\b|$))/.test(s)) return 'reasoning-модель — <think>-теги ломают JSON-вывод';
+  if (/(vl(\b|[-_])|vision|audio|omni|voice|image|whisper|asr|tts|realtime)/.test(s)) return 'мультимодальная — не для текстового решателя';
+  if (/(embed|rerank)/.test(s)) return 'эмбеддинги/реранк — не генерация';
+  if (/ocr/.test(s)) return 'OCR — узкая задача';
+  if (/(\bmath\b|guard|moderation)/.test(s)) return 'узкоспециальная';
+  if (/coder/.test(s)) return 'coder-специализация — держим общий решатель';
+  return 'непригодна для решателя';
+}
+
+/** Классификация одной модели: может ли участвовать в эволюции и почему. */
+export function classifyModel(id: string): ClassifiedModel {
+  if (typeof id !== 'string' || id.length === 0) return { id: String(id), eligible: false, reason: 'пустой id', score: 0 };
+  if (EXCLUDE.test(id)) return { id, eligible: false, reason: excludeReason(id), score: 0 };
+  return { id, eligible: true, reason: null, score: scoreModel(id) };
+}
+
+/** Классифицировать список и отсортировать: годные по убыванию силы, затем отсеянные. */
+export function classifyModels(ids: readonly string[]): ClassifiedModel[] {
+  return ids
+    .map(classifyModel)
+    .sort((a, b) => {
+      if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+      return b.score - a.score || a.id.localeCompare(b.id);
+    });
+}
