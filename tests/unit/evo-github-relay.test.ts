@@ -41,4 +41,18 @@ describe('githubUrl — переписывание GitHub-URL на релей', 
     const other = 'https://openrouter.ai/api/v1/models';
     expect(githubUrl(other)).toBe(other);
   });
+
+  it('хост-самозванец не проходит как github (точное совпадение, не подстрока)', () => {
+    process.env.GITHUB_PROXY_BASE = 'https://vedar-ai-relay.tourhabk.workers.dev';
+    // startsWith("https://api.github.com") дал бы ложное срабатывание — URL.host не даёт.
+    const spoof = 'https://api.github.com.evil.example/repos/x';
+    expect(githubUrl(spoof)).toBe(spoof);
+    const spoof2 = 'https://raw.githubusercontent.com.evil.example/x';
+    expect(githubUrl(spoof2)).toBe(spoof2);
+  });
+
+  it('битый URL не роняет и не переписывается', () => {
+    process.env.GITHUB_PROXY_BASE = 'https://vedar-ai-relay.tourhabk.workers.dev';
+    expect(githubUrl('not a url')).toBe('not a url');
+  });
 });
