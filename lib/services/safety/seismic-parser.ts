@@ -39,6 +39,12 @@ export interface ParseResult {
   inserted: number;
   skipped: number;
   errors: string[];
+  /**
+   * Сколько СЫРЫХ постов дал источник до классификации (для сторожа здоровья
+   * источников: канал жив, если прислал хоть что-то, даже если ни один пост не
+   * оказался угрозой). Заполняют VK/MAX; у остальных может быть undefined.
+   */
+  rawItems?: number;
 }
 
 // ── Карта вулканов → зоны Камчатки ───────────────────────────────────────
@@ -836,6 +842,7 @@ export async function ingestVkMchs(): Promise<ParseResult> {
       response?: { items?: Array<{ id: number; owner_id: number; date: number; text?: string }> };
     };
     if (data.error) { result.errors.push(`vk: ${data.error.error_msg ?? 'api error'}`); return result; }
+    result.rawItems = data.response?.items?.length ?? 0;
     for (const post of data.response?.items ?? []) {
       const text = (post.text ?? '').trim();
       if (!text) continue;
@@ -873,7 +880,7 @@ export async function ingestVkMchs(): Promise<ParseResult> {
 export async function ingestMaxItems(
   items: Array<{ id: string; text: string; date?: string; link?: string }>,
 ): Promise<ParseResult> {
-  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [], rawItems: items.length };
   for (const item of items) {
     const text = (item.text ?? '').trim();
     if (!text) continue;

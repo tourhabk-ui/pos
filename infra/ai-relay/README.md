@@ -67,9 +67,25 @@ Nginx `proxy_pass` на `openrouter.ai` / `api.anthropic.com`, base URL → на
 
 ## Проверка
 
-После настройки: `/api/ai/debug-waterfall` (или health-крон) должен показать
-достижимость OpenRouter/Anthropic, а в `llm_usage_log` появятся вызовы
-флагманских моделей (`anthropic/claude-*`), а не только DeepSeek/Gemini.
+После настройки открой (с прод-домена, т.к. проверка идёт С РФ-сервера):
+
+```
+https://vedarai.ru/api/ai/relay-check?secret=<CRON_SECRET>
+```
+
+Эндпоинт даёт прямой вердикт: включён ли релей, достижимы ли openrouter.ai /
+api.anthropic.com с сервера (из РФ) и проходит ли реальный флагман-вызов
+(Claude через OpenRouter). Гео-блок виден как `timeout`/`network error` в
+`reachable_from_server`, а не как HTTP-статус.
+
+Ожидаемый `verdict` при исправном релее: «OK: релей включён, флагманы
+достижимы». Если «НУЖЕН РЕЛЕЙ» — воркер не задеплоен или `OPENROUTER_BASE_URL`
+не задан; если «РЕЛЕЙ НЕ ОТВЕЧАЕТ» — проверь URL воркера и что `wrangler deploy`
+прошёл.
+
+Дополнительно `/api/ai/debug-waterfall?secret=<CRON_SECRET>` прогоняет весь
+waterfall, а в `llm_usage_log` при успехе появятся вызовы `anthropic/claude-*`,
+а не только DeepSeek/Gemini.
 
 ## Как это работает в коде
 
