@@ -45,6 +45,7 @@ export interface SourceHealthRow {
   last_run_at: string | Date | null;
   last_nonempty_at: string | Date | null;
   last_alerted_at: string | Date | null;
+  first_seen_at: string | Date | null;
   raw_items: number | null;
   inserted: number | null;
 }
@@ -86,22 +87,28 @@ export function evaluateDeadSources(
   for (const exp of expectations) {
     const row = byKey.get(exp.key);
 
-    // Нет строки вообще — источник ни разу не отметился (не настроен крон/раннер).
-    if (!row) {
-      dead.push({ key: exp.key, label: exp.label, reason: 'never', silentHours: null });
-      continue;
-    }
+    // Нет строки вообще — источник ещё ни разу не наблюдался (свежая таблица /
+    // первый прогон не случился). Не судим — период привыкания.
+    if (!row) continue;
 
-    // Явно не настроен (нет env-ключа) — самый частый тихий провал (VK без токена).
+    // Явно не настроен (нет env-ключа) — детерминированно и сразу, без привыкания.
     if (row.last_status === 'not_configured') {
       dead.push({ key: exp.key, label: exp.label, reason: 'not_configured', silentHours: null });
       continue;
     }
 
+    // Период привыкания: пока источник наблюдается меньше порога тишины, вывод
+    // «never/silent» преждевременен (на свежей таблице всё выглядело бы мёртвым).
+    const firstSeen = toMs(row.first_seen_at) ?? toMs(row.last_run_at);
+    const observedHours = firstSeen === null ? Infinity : (now - firstSeen) / 3_600_000;
+
     const lastNonEmpty = toMs(row.last_nonempty_at);
     if (lastNonEmpty === null) {
-      // Опрашивался, но НИ РАЗУ не дал релевантного поста — вероятно сломан парс/скрейп.
-      dead.push({ key: exp.key, label: exp.label, reason: 'never', silentHours: null });
+      // Опрашивался, но НИ РАЗУ не дал сырых данных — «мёртв» только если наблюдаем
+      // его уже дольше порога тишины (иначе ещё рано судить).
+      if (observedHours > exp.maxSilenceHours) {
+        dead.push({ key: exp.key, label: exp.label, reason: 'never', silentHours: null });
+      }
       continue;
     }
 
@@ -136,8 +143,8 @@ export async function recordSourceHealth(pool: Pool, entries: SourceHealthEntry[
     await pool.query(
       `INSERT INTO safety_source_health
          (source_key, label, last_run_at, last_status, raw_items, inserted,
-          last_nonempty_at, updated_at)
-       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $3 = 'ok' THEN NOW() ELSE NULL END, NOW())
+          last_nonempty_at, first_seen_at, updated_at)
+       VALUES ($1, $2, NOW(), $3, $4, $5, CASE WHEN $3 = 'ok' THEN NOW() ELSE NULL END, NOW(), NOW())
        ON CONFLICT (source_key) DO UPDATE SET
          label            = EXCLUDED.label,
          last_run_at      = NOW(),
@@ -146,6 +153,7 @@ export async function recordSourceHealth(pool: Pool, entries: SourceHealthEntry[
          inserted         = EXCLUDED.inserted,
          last_nonempty_at = CASE WHEN EXCLUDED.last_status = 'ok'
                                  THEN NOW() ELSE safety_source_health.last_nonempty_at END,
+         first_seen_at    = COALESCE(safety_source_health.first_seen_at, NOW()),
          updated_at       = NOW()`,
       [e.key, e.label, e.status, e.rawItems, e.inserted],
     );
@@ -156,7 +164,7 @@ export async function recordSourceHealth(pool: Pool, entries: SourceHealthEntry[
 export async function loadSourceHealth(pool: Pool): Promise<SourceHealthRow[]> {
   const { rows } = await pool.query<SourceHealthRow>(
     `SELECT source_key, label, last_status, last_run_at, last_nonempty_at,
-            last_alerted_at, raw_items, inserted
+            last_alerted_at, first_seen_at, raw_items, inserted
        FROM safety_source_health`,
   );
   return rows;

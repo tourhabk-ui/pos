@@ -19,20 +19,18 @@ const EXP: SourceExpectation[] = [
 function row(p: Partial<SourceHealthRow> & { source_key: string }): SourceHealthRow {
   return {
     label: null, last_status: null, last_run_at: null, last_nonempty_at: null,
-    last_alerted_at: null, raw_items: 0, inserted: 0, ...p,
+    last_alerted_at: null, first_seen_at: null, raw_items: 0, inserted: 0, ...p,
   };
 }
 
 describe('evaluateDeadSources', () => {
-  it('источник без строки → never (ни разу не отметился)', () => {
-    const dead = evaluateDeadSources([], EXP, NOW);
-    expect(dead.map((d) => d.key).sort()).toEqual(['max_mchs', 'mchs_rss', 'vk_mchs']);
-    expect(dead.every((d) => d.reason === 'never')).toBe(true);
+  it('источник без строки → НЕ мёртв (период привыкания, ещё не наблюдался)', () => {
+    expect(evaluateDeadSources([], EXP, NOW)).toHaveLength(0);
   });
 
-  it('not_configured ловится (VK без токена)', () => {
+  it('not_configured ловится сразу (VK без токена), без привыкания', () => {
     const rows = [
-      row({ source_key: 'vk_mchs', last_status: 'not_configured' }),
+      row({ source_key: 'vk_mchs', last_status: 'not_configured', first_seen_at: new Date(NOW).toISOString() }),
       row({ source_key: 'max_mchs', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
       row({ source_key: 'mchs_rss', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
     ];
@@ -50,7 +48,7 @@ describe('evaluateDeadSources', () => {
 
   it('молчит дольше порога → silent с числом часов', () => {
     const rows = [
-      row({ source_key: 'vk_mchs', last_status: 'empty', last_nonempty_at: new Date(NOW - 100 * H).toISOString() }),
+      row({ source_key: 'vk_mchs', last_status: 'empty', last_nonempty_at: new Date(NOW - 100 * H).toISOString(), first_seen_at: new Date(NOW - 200 * H).toISOString() }),
       row({ source_key: 'max_mchs', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
       row({ source_key: 'mchs_rss', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
     ];
@@ -59,10 +57,21 @@ describe('evaluateDeadSources', () => {
     expect(dead[0]).toMatchObject({ key: 'vk_mchs', reason: 'silent', silentHours: 100 });
   });
 
-  it('опрашивался, но ни разу не дал данных → never', () => {
+  it('«ни разу не дал данных», но наблюдаем недолго (в привыкании) → НЕ мёртв', () => {
     const rows = [
       row({ source_key: 'vk_mchs', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
-      row({ source_key: 'max_mchs', last_status: 'empty', last_nonempty_at: null }),
+      // max: наблюдаем всего 2 ч (порог 72 ч) — рано судить
+      row({ source_key: 'max_mchs', last_status: 'empty', last_nonempty_at: null, first_seen_at: new Date(NOW - 2 * H).toISOString() }),
+      row({ source_key: 'mchs_rss', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
+    ];
+    expect(evaluateDeadSources(rows, EXP, NOW)).toHaveLength(0);
+  });
+
+  it('«ни разу не дал данных» и наблюдаем дольше порога → never', () => {
+    const rows = [
+      row({ source_key: 'vk_mchs', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
+      // max: наблюдаем 100 ч (> 72 ч), сырых данных не было ни разу — реально мёртв
+      row({ source_key: 'max_mchs', last_status: 'empty', last_nonempty_at: null, first_seen_at: new Date(NOW - 100 * H).toISOString() }),
       row({ source_key: 'mchs_rss', last_status: 'ok', last_nonempty_at: new Date(NOW - 1 * H).toISOString() }),
     ];
     const dead = evaluateDeadSources(rows, EXP, NOW);
