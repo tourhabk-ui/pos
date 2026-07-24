@@ -300,9 +300,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       headers,
       body: JSON.stringify({ role }),
     });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Не удалось переключить роль');
+    // Защита от пустого/не-JSON тела: сырой res.json() на пустом ответе бросал
+    // «Unexpected end of JSON input» вместо понятной ошибки, срывая переключение.
+    const raw = await response.text();
+    let result: { success?: boolean; error?: string; data?: unknown } | null = null;
+    try {
+      result = raw ? JSON.parse(raw) : null;
+    } catch {
+      result = null;
+    }
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error || `Не удалось переключить роль (код ${response.status})`);
     }
 
     const { role: newRole, roles, token, redirect } = result.data as {
