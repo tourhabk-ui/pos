@@ -999,7 +999,45 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
     if (flag?.text?.trim()) return flag.text;
-  } catch { /* флагман недостижим — на решателей из РФ */ }
+  } catch { /* флагман недостижим — пробуем Anthropic напрямую */ }
+
+  // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
+  //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
+  //     Anthropic есть, а OpenRouter-путь не прошёл — Claude достижим и без
+  //     посредника. Модель — та же флагманская (без префикса "anthropic/").
+  const antKey = getAnthropicKey();
+  if (antKey) {
+    const antModel = EVO_FLAGSHIP_MODEL.replace(/^anthropic\//, '');
+    try {
+      const sys = payload.find(m => m.role === 'system');
+      const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
+      if (turns.length) {
+        const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model: antModel, max_tokens: 2000, temperature: 0.2,
+            ...(sys ? { system: sys.content } : {}),
+            messages: turns,
+          }),
+        }, { timeoutMs: 45_000, label: `evo-decision-anthropic:${antModel}` });
+        if (res.ok) {
+          const data = await res.json() as {
+            content?: Array<{ text?: string }>;
+            usage?: { input_tokens?: number; output_tokens?: number };
+          };
+          const text = data?.content?.[0]?.text;
+          if (text?.trim()) {
+            logLLMUsage(`anthropic:${antModel}`, {
+              prompt_tokens: data.usage?.input_tokens,
+              completion_tokens: data.usage?.output_tokens,
+            });
+            return text;
+          }
+        }
+      }
+    } catch { /* Anthropic недостижим — на решателей из РФ */ }
+  }
 
   // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();

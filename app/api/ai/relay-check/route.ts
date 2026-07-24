@@ -156,18 +156,72 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Простой вердикт: что происходит и что делать.
+  // Тот же тест НАПРЯМУЮ через Anthropic API (второй путь к Claude, минуя
+  // OpenRouter) — решатель эволюции теперь умеет и его (callAIDecision, шаг 0b).
+  const anthropicModel = model.replace(/^anthropic\//, '');
+  let anthropicCall: typeof flagship = { ok: false, model: null, preview: null, http_status: null, error: null, note: '' };
+  if (!anthropicKey) {
+    anthropicCall.note = 'ANTHROPIC_API_KEY не задан — вызов пропущен';
+  } else {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20_000);
+      const res = await fetch(`${anthropicBase}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: anthropicModel,
+          max_tokens: 8,
+          temperature: 0,
+          messages: [{ role: 'user', content: 'Ответь одним словом: работает' }],
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      anthropicCall.http_status = res.status;
+      const bodyText = await res.text();
+      if (res.ok) {
+        const data = JSON.parse(bodyText) as { content?: Array<{ text?: string }> };
+        const text = data?.content?.[0]?.text?.trim() ?? '';
+        anthropicCall.ok = !!text;
+        anthropicCall.model = anthropicModel;
+        anthropicCall.preview = text.slice(0, 80) || null;
+        anthropicCall.note = text ? 'Claude достижим напрямую через Anthropic API' : 'HTTP 200, но пустой ответ';
+      } else {
+        anthropicCall.error = bodyText.slice(0, 300);
+        anthropicCall.note =
+          res.status === 401 ? 'ключ не принят (проверь ANTHROPIC_API_KEY)' :
+          res.status === 404 ? `модель "${anthropicModel}" не найдена` :
+          `Anthropic ответил HTTP ${res.status}`;
+      }
+    } catch (e) {
+      const name = e instanceof Error ? e.name : 'Error';
+      anthropicCall.error = name === 'AbortError' ? 'timeout' : 'network error';
+      anthropicCall.note = 'сетевая ошибка до Anthropic через релей';
+    }
+  }
+
+  // Простой вердикт: что происходит и что делать. Claude достижим ЛЮБЫМ из
+  // двух путей (OpenRouter ИЛИ Anthropic напрямую) → флагманы работают.
   let verdict: string;
-  if (flagship.ok) {
+  if (flagship.ok && anthropicCall.ok) {
+    verdict = 'OK: флагманы достижимы обоими путями (OpenRouter + Anthropic)';
+  } else if (anthropicCall.ok) {
+    verdict = 'OK: Claude достижим напрямую через Anthropic (OpenRouter-путь не прошёл — см. flagship_call)';
+  } else if (flagship.ok) {
     verdict = orIsRelay ? 'OK: релей включён, флагманы достижимы' : 'OK: флагманы достижимы напрямую (гео-блока нет)';
-  } else if (!orKey) {
-    verdict = 'НЕ ГОТОВО: нет OPENROUTER_API_KEY';
+  } else if (!orKey && !anthropicKey) {
+    verdict = 'НЕ ГОТОВО: нет ни OPENROUTER_API_KEY, ни ANTHROPIC_API_KEY';
   } else if (!orIsRelay && !orProbe.reachable) {
     verdict = 'НУЖЕН РЕЛЕЙ: openrouter.ai недостижим напрямую (гео-блок РФ). Задеплой воркер и задай OPENROUTER_BASE_URL';
   } else if (orIsRelay && !orProbe.reachable) {
     verdict = 'РЕЛЕЙ НЕ ОТВЕЧАЕТ: OPENROUTER_BASE_URL задан, но апстрим через него недостижим. Проверь деплой воркера/URL';
   } else {
-    verdict = 'ПОЧТИ: апстрим достижим, но флагман-вызов не прошёл — проверь ключ/модель';
+    verdict = 'ПОЧТИ: апстримы достижимы, но оба флагман-вызова не прошли — см. flagship_call.note и anthropic_call.note';
   }
 
   return NextResponse.json({
@@ -178,6 +232,7 @@ export async function GET(request: NextRequest) {
     },
     keys: { openrouter: !!orKey, anthropic: !!anthropicKey },
     flagship_call: flagship,
+    anthropic_call: anthropicCall,
     hint: 'Инструкция по деплою релея — infra/ai-relay/README.md',
   });
 }
