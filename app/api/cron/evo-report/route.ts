@@ -19,12 +19,53 @@ import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { decidePublish, applyPublishDecision } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
 const REPORT_LIMIT = 10; // не заваливаем трекер за один прогон
+
+/**
+ * Обратная связь: закрытые человеком issues → находки помечаются 'rejected'.
+ * Без этого вердикт человека уходил в пустоту — сегодня закрыл десять ложных,
+ * завтра пришли те же десять. Теперь каждая закрытая задача делает следующий
+ * прогон умнее (стоп-лист по классу претензии в growth-agent).
+ */
+async function syncClosedIssues(): Promise<number> {
+  const { rows } = await pool.query<{ id: string; github_issue_url: string }>(`
+    SELECT id, github_issue_url FROM evo_growth_issues
+     WHERE github_issue_url IS NOT NULL
+       AND status NOT IN ('rejected', 'ignored', 'fixed')
+     LIMIT 30
+  `);
+  if (rows.length === 0) return 0;
+
+  const closed: string[] = [];
+  for (const r of rows) {
+    const num = r.github_issue_url.match(/\/issues\/(\d+)/)?.[1];
+    if (!num) continue;
+    try {
+      const res = await githubFetch(
+        `https://api.github.com/repos/tourhabk-ui/pos/issues/${num}`,
+        { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' }, signal: AbortSignal.timeout(10_000) },
+      );
+      if (!res.ok) continue;
+      const issue = await res.json() as { state?: string; state_reason?: string };
+      // Закрыт как «не будем делать» = вердикт «находка не годится».
+      if (issue.state === 'closed' && issue.state_reason === 'not_planned') closed.push(r.id);
+    } catch { /* сеть — пропускаем, попробуем в следующий прогон */ }
+  }
+
+  if (closed.length > 0) {
+    await pool.query(
+      `UPDATE evo_growth_issues SET status = 'rejected', resolved_at = NOW() WHERE id = ANY($1::uuid[])`,
+      [closed],
+    ).catch(() => {});
+  }
+  return closed.length;
+}
 
 /** Тело файла из репозитория (для сверки находки с живым кодом). null — не достали. */
 async function fetchSource(relPath: string): Promise<string | null> {
@@ -44,6 +85,22 @@ export async function GET(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Сначала подбираем вердикты человека (закрытые issues), потом публикуем —
+  // иначе отвергнутое успеет попасть в выборку этого же прогона.
+  const synced = await syncClosedIssues().catch(() => 0);
+
+  // Цена ошибки: если точность просела, догадки модели не публикуем.
+  const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
+    SELECT
+      COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text    AS accepted,
+      COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text  AS rejected
+    FROM evo_growth_issues
+  `);
+  const decision = decidePublish({
+    accepted: Number(pr[0]?.accepted ?? 0),
+    rejected: Number(pr[0]?.rejected ?? 0),
+  });
 
   const { rows } = await pool.query<GrowthFinding & { status: string }>(`
     SELECT id, category, severity, file_path, line_number, title, description, suggestion, status
@@ -92,7 +149,11 @@ export async function GET(req: NextRequest) {
     ).catch(() => { /* чистка некритична для публикации */ });
   }
 
-  const issues = selectReportable(verified, REPORT_LIMIT).map((f) => ({
+  // Догадки модели гасим при просевшей точности; детерминированные находки
+  // (static-checks, мок-детектор, разведка) идут всегда — они не гадают.
+  const publishable = applyPublishDecision(verified, decision);
+
+  const issues = selectReportable(publishable, REPORT_LIMIT).map((f) => ({
     id: f.id,
     title: buildIssueTitle(f),
     body: buildIssueBody(f),
@@ -105,6 +166,11 @@ export async function GET(req: NextRequest) {
     count: issues.length,
     // Видно, сколько мусора отсеяно за прогон — «0 issues» перестаёт быть немым.
     rejected_by_guard: rejected.length,
+    // Обратная связь и цена ошибки — наблюдаемы, а не скрыты.
+    synced_closed_issues: synced,
+    precision: decision.precision,
+    guesses_allowed: decision.allowGuesses,
+    precision_note: decision.reason,
     issues,
   });
 }

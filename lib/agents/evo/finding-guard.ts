@@ -94,17 +94,23 @@ export function isCredibleFinding(f: CandidateFinding): boolean {
 // booking-роуте, где есть и try/catch, и verifyToken, и FOR UPDATE). Guard
 // выше content-free и такое не ловит — здесь сверяем с исходником.
 
+// ВАЖНО про русские окончания: в JS \w это [A-Za-z0-9_] — кириллицу он НЕ
+// матчит. Поэтому «отсутству\w*\s+обработк\w*», «проверк\w*\s+прав»,
+// «двойн\w*\s+брон» были мёртвыми ветками: на «проверки прав» страж молчал.
+// Инцидент 24.07 (10 ложных находок прошли наружу) — в том числе из-за этого.
+// Русская морфология — только через [а-яё]*.
+
 /** Находка о «нет обработки ошибок / нет try/catch». */
 function claimsMissingTryCatch(text: string): boolean {
-  return /try\s*\/?\s*catch|не\s*об[её]рнут|без\s+try|отсутству\w*\s+(?:try|обработк\w*\s+ошибок)|missing\s+(?:error\s+handling|try)|not\s+wrapped|unhandled\s+(?:exception|rejection)|необрабатываем/i.test(text);
+  return /try\s*\/?\s*catch|не\s*об[её]рнут|без\s+try|отсутству[а-яё]*\s+(?:try|обработк[а-яё]*\s+ошибок)|missing\s+(?:error\s+handling|try)|not\s+wrapped|unhandled\s+(?:exception|rejection)|необрабатываем/i.test(text);
 }
 /** Находка о «нет проверки авторизации/аутентификации». */
 function claimsMissingAuth(text: string): boolean {
-  return /авториз|аутентифик|auth(?:enticat|oriz)|\brequireauth\b|проверк\w*\s+прав|userid\s+(?:из|from)\s+(?:body|тела|request|запрос)|no\s+auth|unauthenticated/i.test(text);
+  return /авториз|аутентифик|auth(?:enticat|oriz)|\brequireauth\b|проверк[а-яё]*\s+прав|userid\s+(?:из|from)\s+(?:body|тела|request|запрос)|no\s+auth|unauthenticated/i.test(text);
 }
 /** Находка о «race condition / нет блокировки». */
 function claimsMissingLock(text: string): boolean {
-  return /race\s*condition|гонк\w|блокиров|locking|конкурент|concurrent|пессимист|oversell|oversell|двойн\w*\s+брон/i.test(text);
+  return /race\s*condition|гонк[а-яё]|блокиров|locking|конкурент|concurrent|пессимист|oversell|двойн[а-яё]*\s+брон/i.test(text);
 }
 
 /** Есть ли в исходнике конструкция, наличие которой опровергает находку. */

@@ -12,6 +12,8 @@ import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/ev
 import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
+import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
+import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -272,6 +274,8 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
 
 interface CodeReviewResult {
   issues: GrowthIssue[];
+  /** Детерминированные находки по тем же телам файлов — без лишних запросов. */
+  staticIssues: GrowthIssue[];
   listed: number;
   reviewed: number;
   source: RepoFilesSource;
@@ -347,8 +351,14 @@ severity: critical = утечка данных/обход auth/инъекция/
       fileContents.set(f, content);
     }
   }
+  // Детерминированные объективы по УЖЕ прочитанным телам — ни одного лишнего
+  // запроса. Они не гадают (ищут конкретный синтаксис), поэтому идут в общий
+  // пул независимо от того, что скажет модель.
+  const staticIssues: GrowthIssue[] = [];
+  for (const [p, body] of fileContents) staticIssues.push(...runStaticChecks(p, body));
+
   if (fileBlocks.length === 0) {
-    return { issues: [], listed: candidates.length, reviewed: 0, source };
+    return { issues: [], staticIssues, listed: candidates.length, reviewed: 0, source };
   }
 
   messages.push({
@@ -360,7 +370,7 @@ severity: critical = утечка данных/обход auth/инъекция/
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
     const result = await callAIDecision(messages);
     if (!result) {
-      return { issues: [], listed: candidates.length, reviewed: fileBlocks.length, source };
+      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
     }
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -399,9 +409,9 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return { issues: mapped, listed: candidates.length, reviewed: fileBlocks.length, source };
+    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   } catch {
-    return { issues: [], listed: candidates.length, reviewed: fileBlocks.length, source };
+    return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   }
 }
 
@@ -444,6 +454,24 @@ async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> 
   return { issues, scanned: reviewed.length };
 }
 
+/**
+ * Стоп-лист: сигнатуры претензий, отвергнутых человеком или стражем.
+ * Читаем из уже отвергнутых находок — отдельной таблицы не нужно.
+ */
+async function loadRejectedSignatures(): Promise<Set<string>> {
+  try {
+    const { rows } = await pool.query<{ file_path: string | null; title: string; description: string | null; suggestion: string | null }>(
+      `SELECT file_path, title, description, suggestion
+         FROM evo_growth_issues
+        WHERE status IN ('rejected', 'ignored')
+        LIMIT 500`,
+    );
+    return new Set(rows.map((r) => claimSignature(r)));
+  } catch {
+    return new Set();
+  }
+}
+
 // ── Main scan orchestrator ────────────────────────────────────────────────
 
 export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
@@ -469,6 +497,8 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   if (scanType === 'full') {
     const review = await aiCodeReview();
     issues.push(...review.issues);
+    // Детерминированные объективы — по тем же телам файлов, без лишних запросов.
+    issues.push(...review.staticIssues);
     coverage.source = review.source;
     coverage.files_listed = review.listed;
     coverage.files_reviewed = review.reviewed;
@@ -477,6 +507,18 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     issues.push(...mocks.issues);
     coverage.mock_files_scanned = mocks.scanned;
   }
+
+  // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
+  // status='rejected'), больше не предлагаем. Ключ — КЛАСС претензии на файле,
+  // а не заголовок: инцидент 24.07 показал, что модель порождает десять
+  // перефразировок одной претензии, и дедуп по title бессилен.
+  const rejectedSignatures = await loadRejectedSignatures();
+  const beforeStopList = issues.length;
+  const kept = dropRejected(issues, rejectedSignatures);
+  issues.length = 0;
+  issues.push(...kept);
+  const suppressed = beforeStopList - issues.length;
+  void suppressed;
 
   // Save scan result
   const { rows } = await pool.query<{ id: string }>(
