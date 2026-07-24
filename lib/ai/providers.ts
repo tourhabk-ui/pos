@@ -2051,6 +2051,24 @@ export function isWaterfallErrorResponse(text: string): boolean {
 // ── Fast Waterfall — race cheap providers ────────────────────
 // Для структурированных задач (JSON, бинарные ответы, голосование).
 // Races DeepSeek + MiMo + Gemini simultaneously.
+/**
+ * Заглушка callAIFast при отказе ВСЕХ быстрых провайдеров. Ровно 27 символов —
+ * именно её Editor опознавал эвристикой по длине и потому писал «вероятно
+ * заглушка». Для новых вызовов есть callAIFastOrNull: отказ виден как null,
+ * без угадывания.
+ */
+export const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
+
+/**
+ * Быстрый вызов, честный к отказу: null — не ответил НИ ОДИН провайдер.
+ * Обычный callAIFast для совместимости подставляет строку-заглушку, из-за чего
+ * вызывающий не мог отличить «модель так ответила» от «всё упало».
+ */
+export async function callAIFastOrNull(messages: ChatMessage[]): Promise<string | null> {
+  const text = await callAIFast(messages);
+  return text === AI_FAST_UNAVAILABLE ? null : text;
+}
+
 export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   const apiKey = getOpenRouterKey();
 
@@ -2096,7 +2114,7 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   }
 
   const result = await raceProviders(calls);
-  return result ?? 'Сервис временно недоступен.';
+  return result ?? AI_FAST_UNAVAILABLE;
 }
 
 // ── Waterfall Direct — алиас основного ────────────────────────

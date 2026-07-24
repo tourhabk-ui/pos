@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFast, callAIFastOrNull } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
@@ -169,8 +169,16 @@ ${verbalizedInstruction(3)}
   ];
 
   try {
-    const raw = (await callAIFast(messages))?.trim() ?? null;
-    if (!raw) return { text: null, failReason: `callAIFast: ${describeShortText(raw)}` };
+    // callAIFastOrNull даёт null, когда не ответил НИ ОДИН провайдер. Раньше сюда
+    // приходила строка-заглушка «Сервис временно недоступен.», и отказ опознавали
+    // ЭВРИСТИКОЙ по длине (27 симв.) — отсюда формулировка «вероятно заглушка».
+    // Теперь причина известна точно, а не угадывается.
+    const answer = await callAIFastOrNull(messages);
+    if (answer === null) {
+      return { text: null, failReason: 'все fast-провайдеры отказали (DeepSeek/Gemini/OpenRouter) — ответа нет' };
+    }
+    const raw = answer.trim() || null;
+    if (!raw) return { text: null, failReason: 'callAIFast: пустой ответ' };
 
     // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
     // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON. Иначе рискуем
