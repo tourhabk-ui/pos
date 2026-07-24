@@ -9,6 +9,8 @@
  * Детерминизм: title/body строятся из полей находки, без участия модели.
  */
 
+import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
+
 export interface GrowthFinding {
   id: string;
   category: string;
@@ -32,11 +34,24 @@ export function severityRank(severity: string): number {
  * Loop уже решил, что авто-фикс не выходит — нужен человек) и не 'low'
  * (косметику в трекер не выносим — шум). Уже вынесенные (есть issue_url)
  * фильтруются на уровне SQL, здесь — смысловой порог.
+ *
+ * Плюс страж достоверности. Инцидент 24.07: ночью рука вынесла в трекер 10
+ * issues — все про один booking-роут, все ложные (7 перефразировок «нет
+ * requireAuth» при живых verifyToken/extractToken, «нет try/catch» при семи
+ * блоках, «нужен FOR UPDATE» при существующем FOR UPDATE). Страж защищал только
+ * ВХОД (скан), а выход публиковал что угодно из БД — включая до-стражевый мусор.
+ * Теперь недостоверное не выходит наружу (сверку с исходником делает
+ * verifyAgainstSource на уровне раннера — там есть тело файла).
  */
-export function isReportable(f: Pick<GrowthFinding, 'severity'> & { status?: string; github_issue_url?: string | null }): boolean {
+export function isReportable(f: Pick<GrowthFinding, 'severity' | 'title' | 'description' | 'suggestion'> & { status?: string; github_issue_url?: string | null }): boolean {
   if (f.github_issue_url) return false;
   if (f.status && f.status !== 'suggested') return false;
-  return f.severity !== 'low';
+  if (f.severity === 'low') return false;
+  return isCredibleFinding({
+    title: f.title,
+    description: f.description ?? '',
+    suggestion: f.suggestion ?? '',
+  });
 }
 
 /** Заголовок issue: стабилен по одной и той же находке — служит и ключом дедупа. */
@@ -70,10 +85,44 @@ export function buildIssueBody(f: GrowthFinding): string {
   return lines.join('\n');
 }
 
-/** Отсортированные по severity (critical → low) и обрезанные до limit находки. */
+/**
+ * Категории «взгляда наружу» (разведка Scout → intel-bridge). Им держим бронь
+ * в квоте: severity у них 'medium', и при сортировке critical-первыми они
+ * встают в хвост. Инцидент 24.07: 10 критикалов (все ложные) съели весь
+ * REPORT_LIMIT, и разведка не доехала до трекера НИ РАЗУ — петля «глаза наружу
+ * → руки внутрь» была разорвана не логикой, а очередью.
+ */
+export const OUTWARD_CATEGORIES = new Set(['intel']);
+
+/** Сколько слотов квоты бронируем под разведку (если такие находки есть). */
+export const OUTWARD_RESERVE = 3;
+
+/**
+ * Отсортированные по severity (critical → low) и обрезанные до limit находки.
+ * Из квоты до OUTWARD_RESERVE слотов резервируется под разведку — но только
+ * под реально существующие intel-находки: нет разведки → всё уходит коду.
+ */
 export function selectReportable(findings: GrowthFinding[], limit: number): GrowthFinding[] {
-  return findings
-    .filter((f) => isReportable(f))
-    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
-    .slice(0, Math.max(0, limit));
+  const max = Math.max(0, limit);
+  if (max === 0) return [];
+
+  const bySeverity = (a: GrowthFinding, b: GrowthFinding) => severityRank(a.severity) - severityRank(b.severity);
+  const eligible = findings.filter((f) => isReportable(f));
+
+  const outward = eligible.filter((f) => OUTWARD_CATEGORIES.has(f.category)).sort(bySeverity);
+  const inward = eligible.filter((f) => !OUTWARD_CATEGORIES.has(f.category)).sort(bySeverity);
+
+  const outwardSlots = Math.min(outward.length, OUTWARD_RESERVE, max);
+  const picked = [
+    ...inward.slice(0, max - outwardSlots),
+    ...outward.slice(0, outwardSlots),
+  ];
+
+  // Незанятые слоты (например, кода меньше, чем места) добираем из остатка.
+  if (picked.length < max) {
+    const taken = new Set(picked.map((f) => f.id));
+    picked.push(...eligible.filter((f) => !taken.has(f.id)).sort(bySeverity).slice(0, max - picked.length));
+  }
+
+  return picked.sort(bySeverity).slice(0, max);
 }

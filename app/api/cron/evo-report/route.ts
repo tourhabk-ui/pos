@@ -18,11 +18,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
+import { verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
 const REPORT_LIMIT = 10; // не заваливаем трекер за один прогон
+
+/** Тело файла из репозитория (для сверки находки с живым кодом). null — не достали. */
+async function fetchSource(relPath: string): Promise<string | null> {
+  try {
+    const res = await githubFetch(
+      `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(req: NextRequest) {
   if (!verifyCronSecret(req)) {
@@ -41,7 +57,42 @@ export async function GET(req: NextRequest) {
     LIMIT 50
   `);
 
-  const issues = selectReportable(rows, REPORT_LIMIT).map((f) => ({
+  // Сверка с ЖИВЫМ исходником перед публикацией. Инцидент 24.07: наружу ушли
+  // 10 issues про booking-роут — «нет requireAuth/try-catch/FOR UPDATE», хотя в
+  // файле есть всё три. Страж стоял только на входе (скан), выход публиковал
+  // что лежит в БД, включая до-стражевый мусор. Не прошедшее сверку помечаем
+  // 'rejected' — оно больше не всплывёт (БД самоочищается).
+  const sourceCache = new Map<string, string | null>();
+  const verified: typeof rows = [];
+  const rejected: string[] = [];
+
+  for (const f of rows) {
+    if (!f.file_path) { verified.push(f); continue; }
+
+    let src = sourceCache.get(f.file_path);
+    if (src === undefined) {
+      src = await fetchSource(f.file_path);
+      sourceCache.set(f.file_path, src);
+    }
+    // Исходник не достали — не судим (иначе при недоступном GitHub отбросим всё).
+    if (src === null) { verified.push(f); continue; }
+
+    const reason = verifyAgainstSource(
+      { title: f.title, description: f.description ?? '', suggestion: f.suggestion ?? '' },
+      src,
+    );
+    if (reason) rejected.push(f.id);
+    else verified.push(f);
+  }
+
+  if (rejected.length > 0) {
+    await pool.query(
+      `UPDATE evo_growth_issues SET status = 'rejected', resolved_at = NOW() WHERE id = ANY($1::uuid[])`,
+      [rejected],
+    ).catch(() => { /* чистка некритична для публикации */ });
+  }
+
+  const issues = selectReportable(verified, REPORT_LIMIT).map((f) => ({
     id: f.id,
     title: buildIssueTitle(f),
     body: buildIssueBody(f),
@@ -49,7 +100,13 @@ export async function GET(req: NextRequest) {
     category: f.category,
   }));
 
-  return NextResponse.json({ success: true, count: issues.length, issues });
+  return NextResponse.json({
+    success: true,
+    count: issues.length,
+    // Видно, сколько мусора отсеяно за прогон — «0 issues» перестаёт быть немым.
+    rejected_by_guard: rejected.length,
+    issues,
+  });
 }
 
 const ReportedSchema = z.object({

@@ -85,3 +85,81 @@ describe('selectReportable', () => {
     expect(severityRank('medium')).toBeLessThan(severityRank('low'));
   });
 });
+
+/**
+ * Инцидент 24.07: ночью рука вынесла 10 issues — все про один booking-роут,
+ * все ложные, и они съели весь REPORT_LIMIT, из-за чего разведка (intel,
+ * severity medium) не доехала до трекера ни разу. Два инварианта ниже держат
+ * оба конца: недостоверное не публикуется, разведка не голодает.
+ */
+describe('страж достоверности на публикации', () => {
+  it('находка с чужим стеком (getServerSession/Prisma) не публикуется', () => {
+    const f = finding({
+      title: 'Нет проверки авторизации',
+      suggestion: 'Использовать getServerSession из next-auth для проверки сессии',
+    });
+    expect(isReportable(f)).toBe(false);
+  });
+
+  it('находка «X вместо X» (несвязная) не публикуется', () => {
+    const f = finding({
+      title: 'Неверный вызов провайдера',
+      description: 'Используется callAIWaterfall вместо callAIWaterfall — нарушение конвенции.',
+      suggestion: 'Заменить verifyToken на verifyToken.',
+    });
+    expect(isReportable(f)).toBe(false);
+  });
+
+  it('нормальная находка по-прежнему публикуется', () => {
+    expect(isReportable(finding())).toBe(true);
+  });
+
+  it('selectReportable выбрасывает недостоверные из выборки', () => {
+    const good = finding({ id: 'aaaaaaaa-1111-1111-1111-111111111111' });
+    const bad = finding({
+      id: 'bbbbbbbb-2222-2222-2222-222222222222',
+      severity: 'critical',
+      suggestion: 'Добавить getServerSession из next-auth',
+    });
+    const picked = selectReportable([bad, good], 10);
+    expect(picked.map(f => f.id)).toEqual([good.id]);
+  });
+});
+
+describe('бронь квоты под разведку (петля «глаза наружу → руки внутрь»)', () => {
+  const critical = (n: number) =>
+    Array.from({ length: n }, (_, i) => finding({
+      id: `cccccccc-${String(i).padStart(4, '0')}-1111-1111-111111111111`,
+      category: 'bug', severity: 'critical', title: `Критичная находка ${i}`,
+    }));
+  const intel = (n: number) =>
+    Array.from({ length: n }, (_, i) => finding({
+      id: `11111111-${String(i).padStart(4, '0')}-2222-2222-222222222222`,
+      category: 'intel', severity: 'medium', title: `Возможность из разведки ${i}`,
+    }));
+
+  it('поток критикалов больше НЕ вытесняет разведку целиком', () => {
+    const picked = selectReportable([...critical(20), ...intel(5)], 10);
+    const intelCount = picked.filter(f => f.category === 'intel').length;
+    expect(picked).toHaveLength(10);
+    expect(intelCount).toBe(3);            // бронь OUTWARD_RESERVE
+    expect(picked.filter(f => f.category === 'bug')).toHaveLength(7);
+  });
+
+  it('нет разведки — вся квота уходит коду (бронь не простаивает)', () => {
+    const picked = selectReportable(critical(20), 10);
+    expect(picked).toHaveLength(10);
+    expect(picked.every(f => f.category === 'bug')).toBe(true);
+  });
+
+  it('разведки меньше брони — берём сколько есть', () => {
+    const picked = selectReportable([...critical(20), ...intel(1)], 10);
+    expect(picked.filter(f => f.category === 'intel')).toHaveLength(1);
+    expect(picked).toHaveLength(10);
+  });
+
+  it('находок меньше лимита — берём все', () => {
+    const picked = selectReportable([...critical(2), ...intel(1)], 10);
+    expect(picked).toHaveLength(3);
+  });
+});
