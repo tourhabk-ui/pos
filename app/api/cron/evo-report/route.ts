@@ -102,6 +102,30 @@ export async function GET(req: NextRequest) {
     rejected: Number(pr[0]?.rejected ?? 0),
   });
 
+  // Разрез по моделям: проверяемо ли «врут слабые фоллбэк-модели». Waterfall
+  // молча съезжает с флагмана на DeepSeek/Qwen, и без этой таблицы гипотеза
+  // остаётся спором. Пусто, пока не накопятся находки с атрибуцией.
+  const { rows: byModel } = await pool.query<{ model: string | null; accepted: string; rejected: string }>(`
+    SELECT model,
+           COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
+           COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text AS rejected
+      FROM evo_growth_issues
+     WHERE model IS NOT NULL
+     GROUP BY model
+     ORDER BY COUNT(*) DESC
+     LIMIT 10
+  `).catch(() => ({ rows: [] as Array<{ model: string | null; accepted: string; rejected: string }> }));
+
+  const precisionByModel = byModel.map((r) => {
+    const a = Number(r.accepted); const rj = Number(r.rejected);
+    return {
+      model: r.model,
+      accepted: a,
+      rejected: rj,
+      precision: a + rj > 0 ? Number((a / (a + rj)).toFixed(2)) : null,
+    };
+  });
+
   const { rows } = await pool.query<GrowthFinding & { status: string }>(`
     SELECT id, category, severity, file_path, line_number, title, description, suggestion, status
     FROM evo_growth_issues
@@ -171,6 +195,8 @@ export async function GET(req: NextRequest) {
     precision: decision.precision,
     guesses_allowed: decision.allowGuesses,
     precision_note: decision.reason,
+    // Кто именно врёт: точность в разрезе моделей-авторов находок.
+    precision_by_model: precisionByModel,
     issues,
   });
 }

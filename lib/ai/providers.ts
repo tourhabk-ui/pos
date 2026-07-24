@@ -993,7 +993,29 @@ export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promi
 // DeepSeek/Qwen (CLAUDE.md §8 «БЕЗ привязки к id»).
 const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-5';
 
+/** Ответ решателя вместе с моделью, которая его дала. */
+export interface DecisionResult {
+  text: string | null;
+  /** Реальная модель ответа: флагман или фоллбэк (deepseek/qwen). null — никто не ответил. */
+  model: string | null;
+}
+
+/**
+ * Тонкая обёртка: прежний контракт (только текст) для вызывающих, которым
+ * модель не нужна.
+ */
 export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
+  return (await callAIDecisionDetailed(messages)).text;
+}
+
+/**
+ * Решатель + АТРИБУЦИЯ модели. Зачем: находки эволюции писались без указания,
+ * кто их породил, поэтому гипотезу «галлюцинации из-за слабых фоллбэк-моделей»
+ * нельзя было ни подтвердить, ни опровергнуть — waterfall молча съезжает с
+ * флагмана на DeepSeek/Qwen, если нет ключа или релея. Теперь модель едет
+ * вместе с ответом и штампуется в находку.
+ */
+export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<DecisionResult> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
   // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
@@ -1004,7 +1026,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
     const flag = await callOpenRouterModel(payload, EVO_FLAGSHIP_MODEL, {
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
-    if (flag?.text?.trim()) return flag.text;
+    if (flag?.text?.trim()) return { text: flag.text, model: EVO_FLAGSHIP_MODEL };
   } catch { /* флагман недостижим — пробуем Anthropic напрямую */ }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
@@ -1040,7 +1062,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
               prompt_tokens: data.usage?.input_tokens,
               completion_tokens: data.usage?.output_tokens,
             });
-            return text;
+            return { text, model: `anthropic:${antModel}` };
           }
         }
       }
@@ -1060,7 +1082,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(model, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
       }
     } catch { /* переходим на Qwen */ }
   }
@@ -1078,12 +1100,12 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return { text, model: `qwen:${model}` }; }
       }
     } catch { /* сдаёмся — вызывающий обработает null */ }
   }
 
-  return null;
+  return { text: null, model: null };
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в

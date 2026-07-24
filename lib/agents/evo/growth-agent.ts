@@ -5,7 +5,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIDecision } from '@/lib/ai/providers';
+import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
@@ -23,6 +23,13 @@ export interface GrowthIssue {
   title: string;
   description: string;
   suggestion: string;
+  /**
+   * Кто породил находку: реальная модель-решатель или 'deterministic'
+   * (static-checks/мок-детектор). Нужна, чтобы считать точность ПО МОДЕЛЯМ —
+   * без этого гипотеза «врут слабые фоллбэк-модели» непроверяема (waterfall
+   * молча съезжает с флагмана на DeepSeek/Qwen).
+   */
+  model?: string;
 }
 
 /**
@@ -355,7 +362,9 @@ severity: critical = утечка данных/обход auth/инъекция/
   // запроса. Они не гадают (ищут конкретный синтаксис), поэтому идут в общий
   // пул независимо от того, что скажет модель.
   const staticIssues: GrowthIssue[] = [];
-  for (const [p, body] of fileContents) staticIssues.push(...runStaticChecks(p, body));
+  for (const [p, body] of fileContents) {
+    for (const it of runStaticChecks(p, body)) staticIssues.push({ ...it, model: 'deterministic' });
+  }
 
   if (fileBlocks.length === 0) {
     return { issues: [], staticIssues, listed: candidates.length, reviewed: 0, source };
@@ -368,7 +377,7 @@ severity: critical = утечка данных/обход auth/инъекция/
 
   try {
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
-    const result = await callAIDecision(messages);
+    const { text: result, model: decisionModel } = await callAIDecisionDetailed(messages);
     if (!result) {
       return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
     }
@@ -402,6 +411,9 @@ severity: critical = утечка данных/обход auth/инъекция/
       title: p.title,
       description: p.description,
       suggestion: p.suggestion,
+      // Кто это сказал — флагман или фоллбэк. Без штампа гипотезу о слабых
+      // моделях проверить нечем.
+      model: decisionModel ?? undefined,
     }));
 
     // Фиксируем покрытие: какие файлы посмотрели и сколько находок каждый дал.
@@ -559,9 +571,9 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     }
 
     await pool.query(
-      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion],
+      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null],
     );
     newIssues++;
   }
