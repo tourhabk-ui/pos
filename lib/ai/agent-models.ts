@@ -26,7 +26,7 @@ export const AGENT_MODEL_MAP: Record<AgentId, string> = {
   content:    'google/gemini-2.0-flash-001',              // аудит: быстрый
   quality:    'openai/gpt-4o-mini',                       // качество: надёжный
   planning:   'anthropic/claude-fable-5',                 // стратегия: flagship качество
-  evo:        'anthropic/claude-opus-4-8',                // архитектор: premium reasoning
+  evo:        'anthropic/claude-opus-5',                  // архитектор: premium reasoning
   finance:    'deepseek/deepseek-chat-v3-0324',           // CFO: аналитика, дешёвый
   infra:      'google/gemini-2.0-flash-001',              // SRE: быстрый
   vibe_coder: 'anthropic/claude-fable-5',                 // кодер: flagship качество кода

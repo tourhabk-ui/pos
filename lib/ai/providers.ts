@@ -16,7 +16,7 @@
  *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
  *
  *   EVO_DECISION_FLAGSHIP_MODEL — флагман-решатель эволюции через OpenRouter
- *                             (default anthropic/claude-opus-4-8). Достижим из РФ
+ *                             (default anthropic/claude-opus-5). Достижим из РФ
  *                             ТОЛЬКО через OPENROUTER_BASE_URL-релей + OPENROUTER_API_KEY.
  *                             Не задан ключ/релей → падаем на DeepSeek/Qwen.
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default deepseek-chat)
@@ -61,6 +61,9 @@ const COST_PER_1K: Record<string, number> = {
   'deepseek-chat':                             0.00050,
   'deepseek/deepseek-chat-v3-0324':            0.00050,
   'anthropic/claude-fable-5':                  0.01500,
+  // Opus 5 (24.07.2026) — цена как у Opus 4.8. Запись 4.8 оставлена: по ней
+  // считается стоимость исторических строк llm_usage_log.
+  'anthropic/claude-opus-5':                   0.01500,
   'anthropic/claude-opus-4-8':                 0.01500,
   'anthropic/claude-haiku-4-5-20251001':       0.00025,
   'anthropic/claude-haiku-4-5':                0.00025,
@@ -187,7 +190,7 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 // Порядок: сначала быстрые и надёжные, timeout снижен до 12s
 const OR_MODELS = [
   { id: 'anthropic/claude-fable-5',                     timeout: 20_000 }, // flagship
-  { id: 'anthropic/claude-opus-4-8',                    timeout: 20_000 }, // flagship fallback (safety blocks)
+  { id: 'anthropic/claude-opus-5',                      timeout: 20_000 }, // flagship fallback (safety blocks)
   { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // fast fallback
   { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias fallback
   { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // non-anthropic backup
@@ -710,12 +713,12 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      // Fable 5 safety classifier blocks (400) — retry with Opus 4.8
+      // Fable 5 safety classifier blocks (400) — retry with Opus 5
       if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
         const fb = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
+          body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
           signal: AbortSignal.timeout(20_000),
         }).catch(() => null);
         if (fb?.ok) {
@@ -984,8 +987,11 @@ export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promi
 // Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
 // галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
 // ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
-// Дефолт — Opus 4.8 (сильный аудитор), override через EVO_DECISION_FLAGSHIP_MODEL.
-const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-4-8';
+// Дефолт — Opus 5 (24.07.2026; сильнее 4.8 при той же цене), override через
+// EVO_DECISION_FLAGSHIP_MODEL. Пин id — временный: корректнее резолвить
+// сильнейшую модель из /v1/models, как это уже делает model-resolver для
+// DeepSeek/Qwen (CLAUDE.md §8 «БЕЗ привязки к id»).
+const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-5';
 
 export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
   const payload = messages.map(({ role, content }) => ({ role, content }));

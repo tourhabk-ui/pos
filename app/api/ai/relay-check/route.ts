@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
   // а не отдельную (возможно устаревшую в каталоге) модель.
   const model = request.nextUrl.searchParams.get('model')
     || process.env.EVO_DECISION_FLAGSHIP_MODEL
-    || 'anthropic/claude-opus-4-8';
+    || 'anthropic/claude-opus-5';
   let flagship: {
     ok: boolean;
     model: string | null;
