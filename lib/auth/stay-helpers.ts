@@ -5,8 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
+
+/**
+ * Гвард роли владельца жилья — в пару к requireOperator/requireAgent.
+ * Тот же набор ролей, что гейтит кабинет в layout (['stay','admin']):
+ * гейт по роли явный, а не только по скоупу данных.
+ */
+export async function requireStayOwner(request: NextRequest): Promise<JWTPayload | NextResponse> {
+  return requireRole(request, ['stay', 'admin']);
+}
 
 /**
  * Партнёрский профиль владельца жилья по user_id.

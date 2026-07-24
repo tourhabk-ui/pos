@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
-import { requireAuth } from '@/lib/auth/middleware';
-import { getStayPartnerId } from '@/lib/auth/stay-helpers';
+import { getStayPartnerId, requireStayOwner } from '@/lib/auth/stay-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
-    const authResult = await requireAuth(request);
+    // Гейт по роли (как в layout кабинета), скоуп данных — по своему партнёру.
+    const authResult = await requireStayOwner(request);
     if (authResult instanceof NextResponse) return authResult;
     const userId = authResult.userId;
 
