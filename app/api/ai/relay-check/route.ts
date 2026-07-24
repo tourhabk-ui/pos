@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callOpenRouterModel } from '@/lib/ai/providers';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
+import { requireAdmin } from '@/lib/auth/middleware';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export const dynamic = 'force-dynamic';
@@ -57,10 +58,19 @@ async function probe(url: string, headers: Record<string, string>, timeoutMs = 8
 }
 
 export async function GET(request: NextRequest) {
+  // Доступ: либо ?secret=CRON_SECRET (для крона/скриптов), либо сессия админа
+  // (чтобы владелец мог открыть в браузере, залогинившись в админку, без секрета).
   const secret = request.nextUrl.searchParams.get('secret');
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || secret !== cronSecret) {
-    return NextResponse.json({ error: 'Forbidden. Pass ?secret=CRON_SECRET' }, { status: 403 });
+  const cronOk = !!cronSecret && secret === cronSecret;
+  if (!cronOk) {
+    const auth = await requireAdmin(request);
+    if (auth instanceof NextResponse) {
+      return NextResponse.json(
+        { error: 'Forbidden. Открой залогинившись администратором, либо передай ?secret=CRON_SECRET' },
+        { status: 403 },
+      );
+    }
   }
 
   const orBase = (process.env.OPENROUTER_BASE_URL || OPENROUTER_DEFAULT).replace(/\/+$/, '');
