@@ -9,7 +9,7 @@ import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
-import { listRepoFiles, clientComponentPaths } from '@/lib/agents/evo/repo-files';
+import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 
 export interface GrowthIssue {
@@ -22,12 +22,31 @@ export interface GrowthIssue {
   suggestion: string;
 }
 
+/**
+ * Наблюдаемость прочёса: без неё ответ скана — чёрный ящик, где «0 проблем»
+ * неотличимо от «не прочитал ни одного файла». На проде (standalone без
+ * исходников) это отличие критично: source='none' → GitHub недостижим из РФ и
+ * весь sweep пуст, а не «всё чисто».
+ */
+export interface ScanCoverage {
+  /** Откуда взят перечень файлов: disk | github | none. */
+  source: RepoFilesSource;
+  /** Сколько ревьюибельных .ts-файлов вообще перечислено. */
+  files_listed: number;
+  /** Сколько файлов реально прочитано и отдано аудитору (тело получено). */
+  files_reviewed: number;
+  /** Сколько клиент-компонентов прочёсано мок-детектором. */
+  mock_files_scanned: number;
+}
+
 export interface GrowthScanResult {
   issues: GrowthIssue[];
   /** Сколько из найденных проблем НОВЫЕ (впервые записаны в БД этим сканом). */
   new_issues: number;
   scan_id: string;
   duration_ms: number;
+  /** Что скан реально прочитал (диагностика глубины прочёса). */
+  coverage: ScanCoverage;
 }
 
 // ── Code-level scans ─────────────────────────────────────────────────────
@@ -248,13 +267,21 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
   }
 }
 
-async function aiCodeReview(): Promise<GrowthIssue[]> {
+interface CodeReviewResult {
+  issues: GrowthIssue[];
+  listed: number;
+  reviewed: number;
+  source: RepoFilesSource;
+}
+
+async function aiCodeReview(): Promise<CodeReviewResult> {
   // Леджер покрытия: систематический прочёс всей платформы, а не 2 ядровых
   // файла. candidates = все ревьюибельные .ts; selectReviewTargets берёт churn +
   // невиданные/давно-невиданные (по риску). Fallback на скользящее окно, если
   // список файлов не достали (GitHub недоступен).
   const recent = await recentlyChangedSourceFiles();
   const allFiles = await listRepoFiles();
+  const source = getLastListSource();
   const candidates = allFiles.filter(isReviewableSourcePath);
   let reviewFiles: string[];
   if (candidates.length > 0) {
@@ -317,7 +344,9 @@ severity: critical = утечка данных/обход auth/инъекция/
       fileContents.set(f, content);
     }
   }
-  if (fileBlocks.length === 0) return [];
+  if (fileBlocks.length === 0) {
+    return { issues: [], listed: candidates.length, reviewed: 0, source };
+  }
 
   messages.push({
     role: 'user',
@@ -327,7 +356,9 @@ severity: critical = утечка данных/обход auth/инъекция/
   try {
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
     const result = await callAIDecision(messages);
-    if (!result) return [];
+    if (!result) {
+      return { issues: [], listed: candidates.length, reviewed: fileBlocks.length, source };
+    }
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(jsonStr) as Array<{
@@ -365,9 +396,9 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return mapped;
+    return { issues: mapped, listed: candidates.length, reviewed: fileBlocks.length, source };
   } catch {
-    return [];
+    return { issues: [], listed: candidates.length, reviewed: fileBlocks.length, source };
   }
 }
 
@@ -380,10 +411,10 @@ severity: critical = утечка данных/обход auth/инъекция/
 // лимитом 60/час. За несколько прогонов ротация покрытия обходит все экраны.
 const MAX_MOCK_FILES = 12;
 
-async function scanMocks(): Promise<GrowthIssue[]> {
+async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> {
   const all = await listRepoFiles();
   const clients = clientComponentPaths(all);
-  if (clients.length === 0) return [];
+  if (clients.length === 0) return { issues: [], scanned: 0 };
 
   const ledger = await loadLedger(pool).catch(() => []);
   const targets = selectReviewTargets({
@@ -404,7 +435,7 @@ async function scanMocks(): Promise<GrowthIssue[]> {
     }
   }
   await recordReviewed(pool, findingsByFile, reviewed).catch(() => {});
-  return issues;
+  return { issues, scanned: reviewed.length };
 }
 
 // ── Main scan orchestrator ────────────────────────────────────────────────
@@ -412,6 +443,9 @@ async function scanMocks(): Promise<GrowthIssue[]> {
 export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
   const start = Date.now();
   const issues: GrowthIssue[] = [];
+  const coverage: ScanCoverage = {
+    source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
+  };
 
   if (scanType === 'full' || scanType === 'code') {
     const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
@@ -427,9 +461,15 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   }
 
   if (scanType === 'full') {
-    issues.push(...await aiCodeReview());
+    const review = await aiCodeReview();
+    issues.push(...review.issues);
+    coverage.source = review.source;
+    coverage.files_listed = review.listed;
+    coverage.files_reviewed = review.reviewed;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
-    issues.push(...await scanMocks().catch(() => []));
+    const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
+    issues.push(...mocks.issues);
+    coverage.mock_files_scanned = mocks.scanned;
   }
 
   // Save scan result
@@ -489,6 +529,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage };
 }
 
