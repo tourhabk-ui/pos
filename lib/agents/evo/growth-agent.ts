@@ -8,6 +8,9 @@ import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
+import { listRepoFiles, clientComponentPaths } from '@/lib/agents/evo/repo-files';
+import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -179,7 +182,9 @@ const CORE_REVIEW_FILES = [
   // excluded: lib/bookings/booking.service.ts (parameterized SQL, verified)
 ];
 
-const MAX_REVIEW_FILES = 4;
+// Сильный аудитор (Claude Opus 4.8) тянет больше файлов за прогон; прогон
+// off-peak, поэтому шире окно = быстрее прочёс всей платформы. Было 4.
+const MAX_REVIEW_FILES = 8;
 const REVIEW_REPO_SLUG = 'tourhabk-ui/pos';
 
 /**
@@ -244,9 +249,26 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
 }
 
 async function aiCodeReview(): Promise<GrowthIssue[]> {
-  // Скользящее окно: ядро + недавно изменённые исходники (EVO-4). Fallback на
-  // ядро, если GitHub API недоступен.
-  const reviewFiles = pickReviewFiles(CORE_REVIEW_FILES, await recentlyChangedSourceFiles(), MAX_REVIEW_FILES);
+  // Леджер покрытия: систематический прочёс всей платформы, а не 2 ядровых
+  // файла. candidates = все ревьюибельные .ts; selectReviewTargets берёт churn +
+  // невиданные/давно-невиданные (по риску). Fallback на скользящее окно, если
+  // список файлов не достали (GitHub недоступен).
+  const recent = await recentlyChangedSourceFiles();
+  const allFiles = await listRepoFiles();
+  const candidates = allFiles.filter(isReviewableSourcePath);
+  let reviewFiles: string[];
+  if (candidates.length > 0) {
+    const ledger = await loadLedger(pool).catch(() => []);
+    reviewFiles = selectReviewTargets({
+      candidates,
+      ledger,
+      recentChanged: [...CORE_REVIEW_FILES, ...recent].filter((f) => candidates.includes(f)),
+      now: Date.now(),
+      max: MAX_REVIEW_FILES,
+    });
+  } else {
+    reviewFiles = pickReviewFiles(CORE_REVIEW_FILES, recent, MAX_REVIEW_FILES);
+  }
 
   const messages: ChatMessage[] = [
     {
@@ -329,7 +351,7 @@ severity: critical = утечка данных/обход auth/инъекция/
       ) === null,
     );
 
-    return filtered.map(p => ({
+    const mapped: GrowthIssue[] = filtered.map(p => ({
       category: 'bug' as const,
       severity: (p.severity as GrowthIssue['severity']) || 'medium',
       file_path: p.file,
@@ -337,9 +359,52 @@ severity: critical = утечка данных/обход auth/инъекция/
       description: p.description,
       suggestion: p.suggestion,
     }));
+
+    // Фиксируем покрытие: какие файлы посмотрели и сколько находок каждый дал.
+    const findingsByFile: Record<string, number> = {};
+    for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
+    await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
+
+    return mapped;
   } catch {
     return [];
   }
+}
+
+/**
+ * Мок-детектор: детерминированный прочёс клиент-компонентов на фейк-витрины
+ * (мок-данные, кнопки-пустышки). Ротация покрытия по тому же леджеру — за
+ * несколько прогонов обходит все экраны. Не тратит LLM.
+ */
+// Каждый файл — GitHub-raw запрос; держим сумму (review + mock + tree) под
+// лимитом 60/час. За несколько прогонов ротация покрытия обходит все экраны.
+const MAX_MOCK_FILES = 12;
+
+async function scanMocks(): Promise<GrowthIssue[]> {
+  const all = await listRepoFiles();
+  const clients = clientComponentPaths(all);
+  if (clients.length === 0) return [];
+
+  const ledger = await loadLedger(pool).catch(() => []);
+  const targets = selectReviewTargets({
+    candidates: clients, ledger, recentChanged: [], now: Date.now(), max: MAX_MOCK_FILES,
+  });
+
+  const issues: GrowthIssue[] = [];
+  const reviewed: string[] = [];
+  const findingsByFile: Record<string, number> = {};
+  for (const f of targets) {
+    const content = await readFileForReview(f);
+    reviewed.push(f);
+    if (!content) continue;
+    const found = detectMockPatterns(f, content);
+    for (const it of found) {
+      issues.push(it);
+      findingsByFile[f] = (findingsByFile[f] ?? 0) + 1;
+    }
+  }
+  await recordReviewed(pool, findingsByFile, reviewed).catch(() => {});
+  return issues;
 }
 
 // ── Main scan orchestrator ────────────────────────────────────────────────
@@ -363,6 +428,8 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
 
   if (scanType === 'full') {
     issues.push(...await aiCodeReview());
+    // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
+    issues.push(...await scanMocks().catch(() => []));
   }
 
   // Save scan result
