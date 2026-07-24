@@ -389,6 +389,7 @@ export async function ingestKbgsras(): Promise<ParseResult> {
   try {
     const html = await fetchTelegramChannel('kbgsras');
     const messages = extractMessages(html);
+    result.rawItems = messages.length;
 
     for (const msg of messages) {
       const event = classifyMessage(msg.id, msg.text, msg.datetime);
@@ -416,6 +417,7 @@ export async function ingestEqkam(): Promise<ParseResult> {
   try {
     const html = await fetchTelegramChannel('eqkam');
     const messages = extractMessages(html);
+    result.rawItems = messages.length;
 
     for (const msg of messages) {
       // eqkam использует структурированный формат «Магнитуда (Ml): X»
@@ -712,8 +714,11 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
       throw new Error(`none of ${MCHS_FEED_CANDIDATES.length} MChS feed URLs returned valid RSS`);
     }
 
+    result.rawItems = 0;
     for (const xml of feeds) {
-      for (const it of parseMchsItems(xml)) {
+      const items = parseMchsItems(xml);
+      result.rawItems += items.length; // фид жив = отдал items (даже если ни один не ЧП)
+      for (const it of items) {
         const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link);
         if (!event) continue;
         result.events.push(event);
@@ -939,7 +944,9 @@ export async function ingestFromHtml(
     classify: (id: string, text: string, datetime: string) => SeismicEvent | null,
   ): Promise<ParseResult> {
     const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
-    for (const msg of extractMessages(html)) {
+    const msgs = extractMessages(html);
+    result.rawItems = msgs.length; // канал жив = прислал посты (даже если ни один не ЧП)
+    for (const msg of msgs) {
       const event = classify(msg.id, msg.text, msg.datetime);
       if (!event) continue;
       result.events.push(event);
