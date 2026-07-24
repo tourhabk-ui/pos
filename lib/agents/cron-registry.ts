@@ -40,6 +40,7 @@ export interface CronEntry {
 
 const DAY = 1440;
 const WEEK = 10080;
+const MONTH = 44640; // 31 сутки — верхняя граница для ежемесячных джоб
 
 // Порядок разрядов: сначала безопасность
 export const TIER_ORDER: CronTier[] = ['safety', 'ops', 'quality', 'growth', 'content'];
@@ -179,10 +180,24 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Качество ─────────────────────────────────────────────────────────────
   {
-    key: 'kuzmich-redteam', label: 'Kuzmich Faithfulness Eval',
+    // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
+    // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live).
+    // До этого здесь стоял agentId 'kuzmich-redteam' — телеметрия ДРУГОЙ джобы
+    // (ежемесячный red-team), из-за чего панель могла показывать недельный eval
+    // зелёным по чужим прогонам. Реестр сам запрещает врать зелёным — исправлено.
+    key: 'kuzmich-eval', label: 'Kuzmich Faithfulness Eval',
     description: 'Faithfulness-регрессия ответов Кузьмича + живые вопросы.',
     workflow: 'cron-kuzmich-eval.yml', cron: '0 5 * * 1', schedule: 'пн · 05:00 UTC',
-    everyMin: WEEK, tier: 'quality', agentId: 'kuzmich-redteam', triggerable: false,
+    everyMin: WEEK, tier: 'quality', agentId: 'kuzmich-eval', triggerable: false,
+  },
+  {
+    // Отдельная джоба: redteam-kuzmich.yml → /api/cron/kuzmich-redteam
+    // (пишет agent_id 'kuzmich-redteam'). В реестр не попадала, потому что имя
+    // файла не по шаблону cron-*.yml — значит в liveness-панели её не было вовсе.
+    key: 'kuzmich-redteam', label: 'Kuzmich Red-Team',
+    description: 'Состязательный (adversarial) прогон Кузьмича на устойчивость.',
+    workflow: 'redteam-kuzmich.yml', cron: '0 4 1 * *', schedule: '1-е число · 04:00 UTC',
+    everyMin: MONTH, tier: 'quality', agentId: 'kuzmich-redteam', triggerable: false,
   },
   {
     key: 'kb-gap', label: 'KB Gap',
