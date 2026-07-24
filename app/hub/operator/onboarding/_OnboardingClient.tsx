@@ -367,7 +367,7 @@ export default function OnboardingClient() {
       </div>
 
       {/* Step content */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
         <div className="flex items-center gap-2 mb-5">
           <StepIcon className="w-5 h-5 text-[var(--accent)]" />
           <h2 className="font-semibold text-[var(--text-primary)]">{STEPS[step].label}</h2>
