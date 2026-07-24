@@ -93,7 +93,12 @@ export async function GET(request: NextRequest) {
   // Диагностический ПРЯМОЙ fetch (мимо waterfall и его предохранителя): при
   // отказе показываем HTTP-статус и краткий текст ошибки OpenRouter — иначе
   // причина (401 ключ / 402 кредиты / 404 модель) глотается и остаётся гадание.
-  const model = request.nextUrl.searchParams.get('model') || 'anthropic/claude-3.5-haiku';
+  // Дефолт пинга = модель, которой реально пользуется решатель эволюции
+  // (EVO_FLAGSHIP_MODEL в callAIDecision) — диагностика проверяет боевой путь,
+  // а не отдельную (возможно устаревшую в каталоге) модель.
+  const model = request.nextUrl.searchParams.get('model')
+    || process.env.EVO_DECISION_FLAGSHIP_MODEL
+    || 'anthropic/claude-opus-4-8';
   let flagship: {
     ok: boolean;
     model: string | null;
