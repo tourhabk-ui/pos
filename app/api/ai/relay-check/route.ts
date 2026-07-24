@@ -173,10 +173,10 @@ export async function GET(request: NextRequest) {
           'x-api-key': anthropicKey,
           'anthropic-version': '2023-06-01',
         },
+        // temperature не шлём — новые модели (Opus 4.8+) его депрекейтнули (HTTP 400).
         body: JSON.stringify({
           model: anthropicModel,
           max_tokens: 8,
-          temperature: 0,
           messages: [{ role: 'user', content: 'Ответь одним словом: работает' }],
         }),
         signal: ctrl.signal,

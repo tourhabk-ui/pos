@@ -1015,8 +1015,10 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
         const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
+          // temperature НЕ шлём: Opus 4.8 и новее через прямой Anthropic API
+          // его депрекейтнули (HTTP 400 "temperature is deprecated").
           body: JSON.stringify({
-            model: antModel, max_tokens: 2000, temperature: 0.2,
+            model: antModel, max_tokens: 2000,
             ...(sys ? { system: sys.content } : {}),
             messages: turns,
           }),
