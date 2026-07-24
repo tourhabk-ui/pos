@@ -163,11 +163,13 @@ export async function POST(request: NextRequest) {
     const s3Key = `images/${dir}/${outFilename}`;
 
     let servePath: string;
+    let storage: 's3' | 'local';
 
     // 1. S3 — основной storage (production)
     if (isS3Configured) {
       const result = await uploadToS3(s3Key, buffer, 'image/jpeg');
       servePath = result.url;
+      storage = 's3';
     } else {
       // 2. Fallback: public/ → /tmp/
       const publicDir = path.join(process.cwd(), 'public', 'images', dir);
@@ -187,12 +189,14 @@ export async function POST(request: NextRequest) {
 
       const outPath = path.join(outDir, outFilename);
       await fs.writeFile(outPath, buffer);
+      storage = 'local';
     }
 
     return NextResponse.json({
       ok: true,
       filename: outFilename,
       savedPath: servePath,
+      storage,
       profile,
       dir,
       sizeKb: Math.round(buffer.length / 1024),
