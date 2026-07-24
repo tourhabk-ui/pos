@@ -76,7 +76,8 @@ export function parseIntelProposals(raw: string | null): IntelProposal[] {
 
 interface DigestRow { slug: string; compiled_truth: string }
 
-async function latestScoutDigest(): Promise<DigestRow | null> {
+/** Последний дайджест внешней разведки Scout (для контекста рассуждений эво). */
+export async function latestScoutDigest(): Promise<DigestRow | null> {
   try {
     const { rows } = await pool.query<DigestRow>(
       `SELECT slug, compiled_truth

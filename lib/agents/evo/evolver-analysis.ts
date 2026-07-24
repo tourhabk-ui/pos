@@ -2,6 +2,7 @@ import { pool } from '@/lib/db-pool';
 import { callAIFast } from '@/lib/ai/providers';
 import { searchExternalTools, trackToolUsage } from '@/lib/agents/tools/taaft-search';
 import { telegramService } from '@/lib/notifications/telegram';
+import { latestScoutDigest } from '@/lib/agents/evo/intel-bridge';
 
 export interface EvolverAnalysisResult {
   analyzed: number;
@@ -64,9 +65,15 @@ export async function runEvolverAnalysis(): Promise<EvolverAnalysisResult> {
      LIMIT 15`,
   );
 
+  // 1b. Внешняя разведка входит в обсуждение эволюции: последний дайджест Scout
+  //     (тренды AI / туриндустрия / Камчатка) — контекст для рассуждения. Если
+  //     он есть, эволюция обсуждает наружу даже при тихих внутренних логах.
+  const digest = await latestScoutDigest().catch(() => null);
+  const externalIntel = digest?.compiled_truth?.trim() || null;
+
   // 2. Outcomes analysis — параллельно с AI-анализом логов
   const [proposals, outcomesResult] = await Promise.all([
-    stats.length > 0 ? analyzeWithAI(stats) : Promise.resolve([] as AiProposal[]),
+    (stats.length > 0 || externalIntel) ? analyzeWithAI(stats, externalIntel) : Promise.resolve([] as AiProposal[]),
     analyzeKuzmichOutcomes(),
   ]);
 
@@ -87,8 +94,23 @@ export async function runEvolverAnalysis(): Promise<EvolverAnalysisResult> {
   };
 }
 
-async function analyzeWithAI(stats: ActionStat[]): Promise<AiProposal[]> {
-  const prompt = `Ты оптимизируешь работу AI-агентов платформы TourHab (туризм Камчатки, цель — безопасность туристов). Анализируешь агрегат ai_actions_log за 7 дней и ищешь действия, которые ломаются, тратят деньги впустую или дают пустой ответ.
+/**
+ * Промпт эволюции. Обсуждает ДВА источника: внутренние action-логи (что
+ * ломается/тратит деньги) И внешнюю разведку Scout (что происходит снаружи и
+ * что стоит внедрить). Чистая функция — под тестом. externalIntel=null → блок
+ * разведки не добавляется (прежнее поведение).
+ */
+export function buildEvolverPrompt(stats: ActionStat[], externalIntel: string | null): string {
+  const intelBlock = externalIntel
+    ? `
+
+=== ВНЕШНЯЯ РАЗВЕДКА ЗА СУТКИ (Scout: тренды AI · туриндустрия РФ · Камчатка) ===
+${externalIntel.slice(0, 5000)}
+
+Если во внешней разведке есть КОНКРЕТНАЯ, заземлённая в тексте выше возможность для НАШЕЙ платформы (безопасность туристов, маршруты/точки, бронирование, Кузьмич, офлайн, привлечение туристов на Камчатку) — добавь её отдельным issue: action_type="intel:<кратко>", problem=<что во внешнем мире произошло, дословный факт>, suggestion=<что конкретно рассмотреть/сделать>. Только заземлённое в тексте, не выдумывай и не переноси цифры.`
+    : '';
+
+  return `Ты оптимизируешь работу AI-агентов платформы TourHab (туризм Камчатки, цель — безопасность туристов). Анализируешь агрегат ai_actions_log за 7 дней и ищешь действия, которые ломаются, тратят деньги впустую или дают пустой ответ. Плюс учитываешь внешнюю разведку — что происходит в мире и что стоит внедрить.
 
 Статистика по action_type:
 ${JSON.stringify(stats, null, 2)}
@@ -99,17 +121,21 @@ ${JSON.stringify(stats, null, 2)}
 - total_cost_usd > 0.50 при error_count > 0 (платим за неудачи)
 - count > 50 при стабильных ошибках (частое массовое действие важнее редкого)
 
-Приоритет: действия Кузьмича, SOS/безопасности и бронирований важнее прочих — выноси первыми.
+Приоритет: действия Кузьмича, SOS/безопасности и бронирований важнее прочих — выноси первыми.${intelBlock}
 
 Верни JSON без markdown-обёртки:
 {"issues":[{"action_type":"...","problem":"...","suggestion":"...","need_external_tool":true,"tool_query":"..."}]}
 
 Требования:
-- problem — конкретный факт с цифрой из статистики ("error_count 18 из 40 = 45%"), не "много ошибок"
+- problem — конкретный факт с цифрой из статистики ("error_count 18 из 40 = 45%") или дословный факт из разведки, не "много ошибок"
 - suggestion — конкретное действие ("добавить retry с backoff", "снизить max_tokens до 512", "проверять пустой ответ перед сохранением", "сменить модель в waterfall"), не "оптимизировать промпт"
 - need_external_tool = true ТОЛЬКО если задачу не решает наш внутренний callAIWaterfall/callAIFast, а нужен специализированный внешний сервис (распознавание растений/животных по фото, разбор GPX, прогноз лавин, перевод)
 - tool_query — на русском, кратко ("определить растение по фото", "анализ GPX-трека")
-- Включай только реально проблемные action_type. Не более 5 issues.`;
+- Включай только реально проблемные action_type или заземлённые intel-возможности. Не более 5 issues.`;
+}
+
+async function analyzeWithAI(stats: ActionStat[], externalIntel: string | null = null): Promise<AiProposal[]> {
+  const prompt = buildEvolverPrompt(stats, externalIntel);
 
   try {
     const raw = await callAIFast([{ role: 'user', content: prompt }]);
