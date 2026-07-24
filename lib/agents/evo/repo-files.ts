@@ -7,6 +7,8 @@
  * Возвращает repo-relative пути. Кэш в памяти на процесс (дерево меняется редко,
  * а прогон раз в несколько часов).
  */
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
+
 const REPO_SLUG = 'tourhabk-ui/pos';
 const WALK_ROOTS = ['app', 'lib'];
 const SKIP_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'coverage']);
@@ -54,7 +56,7 @@ async function walkLocal(): Promise<string[]> {
 
 async function fetchTree(): Promise<string[]> {
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/${REPO_SLUG}/git/trees/main?recursive=1`,
       { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' }, signal: AbortSignal.timeout(15_000) },
     );

@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +89,38 @@ export async function GET(request: NextRequest) {
       'anthropic-version': '2023-06-01',
     }),
   ]);
+
+  // Чтение репозитория эволюцией: на проде (standalone) исходников нет, скан
+  // тянет перечень и тела файлов из GitHub. Тот же гео-блок РФ. Пробуем оба
+  // хоста ЧЕРЕЗ githubFetch — тем же путём, что и боевой скан (с релеем, если
+  // GITHUB_PROXY_BASE задан). Любой HTTP-ответ = достижим; таймаут = блок.
+  const ghProxyBase = process.env.GITHUB_PROXY_BASE?.trim().replace(/\/+$/, '') || null;
+  const ghConfigured = !!ghProxyBase;
+  async function ghProbe(rawUrl: string): Promise<ProbeResult> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const started = Date.now();
+    try {
+      const res = await githubFetch(rawUrl, {
+        headers: { 'User-Agent': 'kamchatour-evo', Accept: 'application/vnd.github+json' },
+        signal: ctrl.signal,
+      });
+      return { reachable: true, http_status: res.status, latency_ms: Date.now() - started, error: null };
+    } catch (e) {
+      const name = e instanceof Error ? e.name : 'Error';
+      return {
+        reachable: false, http_status: null, latency_ms: Date.now() - started,
+        error: name === 'AbortError' ? 'timeout (гео-блок или релей недоступен)' : 'network error (сброс / DNS / гео-блок)',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const [ghApiProbe, ghRawProbe] = await Promise.all([
+    ghProbe('https://api.github.com/repos/tourhabk-ui/pos'),
+    ghProbe('https://raw.githubusercontent.com/tourhabk-ui/pos/main/next-env.d.ts'),
+  ]);
+  const ghReadable = ghApiProbe.reachable && ghRawProbe.reachable;
 
   // Реальный флагман-вызов через OpenRouter (то, ради чего релей и нужен).
   // Диагностический ПРЯМОЙ fetch (мимо waterfall и его предохранителя): при
@@ -233,6 +266,18 @@ export async function GET(request: NextRequest) {
     keys: { openrouter: !!orKey, anthropic: !!anthropicKey },
     flagship_call: flagship,
     anthropic_call: anthropicCall,
+    github_read: {
+      configured: ghConfigured,
+      proxy_base: ghProxyBase,
+      api_token: !!process.env.GITHUB_API_TOKEN,
+      api: ghApiProbe,
+      raw: ghRawProbe,
+      verdict: ghReadable
+        ? (ghConfigured ? 'OK: репо читается через релей — прочёс эволюции не ослепнет'
+                        : 'OK: GitHub достижим напрямую (гео-блока для чтения репо нет)')
+        : (ghConfigured ? 'РЕЛЕЙ НЕ ОТДАЁТ GITHUB: GITHUB_PROXY_BASE задан, но gh-api/gh-raw недостижимы — обнови воркер (npx wrangler deploy) и проверь URL'
+                        : 'НУЖЕН РЕЛЕЙ ДЛЯ РЕПО: GitHub недостижим из РФ — задай GITHUB_PROXY_BASE на воркер (см. infra/ai-relay/README.md)'),
+    },
     hint: 'Инструкция по деплою релея — infra/ai-relay/README.md',
   });
 }

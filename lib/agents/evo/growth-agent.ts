@@ -11,6 +11,7 @@ import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
 import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -181,7 +182,7 @@ async function readFileForReview(relPath: string): Promise<string | null> {
   } catch { /* фоллбэк ниже */ }
 
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
       { signal: AbortSignal.timeout(10_000) },
     );
@@ -242,7 +243,7 @@ export function pickReviewFiles(core: string[], recent: string[], max: number): 
 async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]> {
   try {
     const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' };
-    const listRes = await fetch(
+    const listRes = await githubFetch(
       `https://api.github.com/repos/${REVIEW_REPO_SLUG}/commits?per_page=${windowCommits}&sha=main`,
       { headers, signal: AbortSignal.timeout(10_000) },
     );
@@ -251,7 +252,7 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
     if (!Array.isArray(commits) || commits.length < 2) return [];
     const base = commits[commits.length - 1].sha;
     const head = commits[0].sha;
-    const cmpRes = await fetch(
+    const cmpRes = await githubFetch(
       `https://api.github.com/repos/${REVIEW_REPO_SLUG}/compare/${base}...${head}`,
       { headers, signal: AbortSignal.timeout(10_000) },
     );
