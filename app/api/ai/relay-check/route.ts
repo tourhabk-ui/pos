@@ -17,10 +17,8 @@
  * нужна. Ключи не логируются и в ответ не попадают.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { callOpenRouterModel } from '@/lib/ai/providers';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { requireAdmin } from '@/lib/auth/middleware';
-import type { ChatMessage } from '@/lib/ai/prompts';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,24 +90,69 @@ export async function GET(request: NextRequest) {
   ]);
 
   // Реальный флагман-вызов через OpenRouter (то, ради чего релей и нужен).
-  const model = request.nextUrl.searchParams.get('model') || 'anthropic/claude-3.5-haiku';
-  let flagship: { ok: boolean; model: string | null; preview: string | null; note: string } = {
-    ok: false,
-    model: null,
-    preview: null,
-    note: '',
-  };
+  // Диагностический ПРЯМОЙ fetch (мимо waterfall и его предохранителя): при
+  // отказе показываем HTTP-статус и краткий текст ошибки OpenRouter — иначе
+  // причина (401 ключ / 402 кредиты / 404 модель) глотается и остаётся гадание.
+  // Дефолт пинга = модель, которой реально пользуется решатель эволюции
+  // (EVO_FLAGSHIP_MODEL в callAIDecision) — диагностика проверяет боевой путь,
+  // а не отдельную (возможно устаревшую в каталоге) модель.
+  const model = request.nextUrl.searchParams.get('model')
+    || process.env.EVO_DECISION_FLAGSHIP_MODEL
+    || 'anthropic/claude-opus-4-8';
+  let flagship: {
+    ok: boolean;
+    model: string | null;
+    preview: string | null;
+    http_status: number | null;
+    error: string | null;
+    note: string;
+  } = { ok: false, model: null, preview: null, http_status: null, error: null, note: '' };
+
   if (!orKey) {
     flagship.note = 'OPENROUTER_API_KEY не задан — флагман-вызов пропущен';
   } else {
-    const msgs: ChatMessage[] = [{ role: 'user', content: 'Ответь одним словом: работает', timestamp: Date.now() }];
-    const out = await callOpenRouterModel(msgs, model, { timeoutMs: 20_000, maxTokens: 8, temperature: 0 });
-    if (out) {
-      flagship = { ok: true, model: out.model_used, preview: out.text.slice(0, 80), note: 'флагман достижим через OpenRouter' };
-    } else {
-      flagship.note = orIsRelay
-        ? 'вызов не прошёл: проверь, что релей задеплоен и base_url верный, ключ активен'
-        : 'вызов не прошёл: OPENROUTER_BASE_URL не задан → идём напрямую, а РФ-IP заблокирован. Настрой релей.';
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20_000);
+      const res = await fetch(`${orBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${orKey}`,
+          'HTTP-Referer': 'https://vedarai.ru',
+          'X-Title': 'Vedarai Kamchatka',
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0,
+          max_tokens: 8,
+          messages: [{ role: 'user', content: 'Ответь одним словом: работает' }],
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      flagship.http_status = res.status;
+      const bodyText = await res.text();
+      if (res.ok) {
+        const data = JSON.parse(bodyText) as { choices?: Array<{ message?: { content?: string } }> };
+        const text = data?.choices?.[0]?.message?.content?.trim() ?? '';
+        flagship.ok = !!text;
+        flagship.model = model;
+        flagship.preview = text.slice(0, 80) || null;
+        flagship.note = text ? 'флагман достижим через OpenRouter' : 'HTTP 200, но пустой ответ модели';
+      } else {
+        // Текст ошибки OpenRouter (без ключей): 401 — ключ, 402 — кредиты, 404 — модель.
+        flagship.error = bodyText.slice(0, 300);
+        flagship.note =
+          res.status === 401 ? 'ключ не принят (проверь OPENROUTER_API_KEY)' :
+          res.status === 402 ? 'нет кредитов на OpenRouter (пополни баланс)' :
+          res.status === 404 ? `модель "${model}" не найдена — попробуй ?model=<id из /or/api/v1/models>` :
+          `OpenRouter ответил HTTP ${res.status}`;
+      }
+    } catch (e) {
+      const name = e instanceof Error ? e.name : 'Error';
+      flagship.error = name === 'AbortError' ? 'timeout' : 'network error';
+      flagship.note = 'сетевая ошибка до OpenRouter через релей';
     }
   }
 
