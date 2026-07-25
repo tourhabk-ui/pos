@@ -22,6 +22,7 @@ interface Stats {
   total: string;
   verified: string;
   expired: string;
+  reattestation_needed?: string;
 }
 
 export default function AdminGuideCertifications() {
@@ -60,6 +61,8 @@ export default function AdminGuideCertifications() {
     { label: 'Всего', value: stats.total, cls: 'text-[var(--text-primary)]' },
     { label: 'Подтверждено', value: stats.verified, cls: 'text-[var(--success)]' },
     { label: 'Просрочено', value: stats.expired, cls: 'text-[var(--danger)]' },
+    // Все аттестации гида до 01.07.2024 → переаттестация до 1 октября (реестр)
+    { label: 'Нужна переаттестация', value: stats.reattestation_needed ?? '0', cls: 'text-[var(--warning)]' },
   ];
 
   return (
@@ -79,7 +82,7 @@ export default function AdminGuideCertifications() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {kpis.map(kpi => (
           <div key={kpi.label} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3">
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">{kpi.label}</p>

@@ -4,10 +4,11 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Map, CalendarDays, Users, CreditCard, Star, User,
-  Cloud, Wind, Droplets, Eye, Loader2, type LucideIcon,
+  Cloud, Wind, Droplets, Eye, Loader2, ShieldAlert, Info, type LucideIcon,
 } from 'lucide-react';
 import { Weather } from '@/types';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
+import { FEDERATIONS, REATTESTATION_DEADLINE, type ReattestationStatus } from '@/lib/guides/reattestation';
 
 // Быстрая навигация по разделам прямо на «Обзоре» — тот же формат, что в ЛК
 // туриста: на телефоне сайдбар спрятан под бургер, а отсюда любой раздел в
@@ -74,6 +75,85 @@ function SectionsNav() {
   );
 }
 
+// Переаттестация — свойство доверия платформы (vedar §7): после 1 октября бейдж
+// «аттестован» у непереаттестованного гида — ложь туристу. Баннер показываем
+// только когда статус посчитан по датам сертификатов ('needed') или когда дат
+// нет и честно нечем судить ('unknown' — мягкое напоминание проверить реестр).
+const DEADLINE_HUMAN = new Date(`${REATTESTATION_DEADLINE}T00:00:00`).toLocaleDateString('ru-RU', {
+  day: 'numeric', month: 'long', year: 'numeric',
+});
+
+const REATTESTATION_STEPS = [
+  'Проверить свой статус в Едином федеральном реестре инструкторов-проводников',
+  'Собрать документы: заявление, паспорт, документы об образовании и квалификации, подтверждение опыта категорийных маршрутов, медицинское заключение',
+  'Подать документы в федерацию по своему виду туризма',
+];
+
+interface ReattestationInfo {
+  status: ReattestationStatus;
+  deadline_passed: boolean;
+}
+
+function ReattestationBanner({ info }: { info: ReattestationInfo }) {
+  if (info.status === 'unknown') {
+    return (
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 flex items-start gap-3">
+        <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ocean)]/10 shrink-0">
+          <Info className="w-[22px] h-[22px] text-[var(--ocean)]" strokeWidth={1.75} />
+        </span>
+        <div className="text-sm text-[var(--text-secondary)]">
+          <p className="font-semibold text-[var(--text-primary)]">Проверьте статус аттестации</p>
+          <p className="mt-1">
+            У ваших сертификатов не указана дата выдачи, поэтому мы не можем проверить это за вас.
+            Аттестованным до 1 июля 2024 нужна переаттестация до {DEADLINE_HUMAN} — иначе исключение
+            из Единого федерального реестра.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const overdue = info.deadline_passed;
+  // Полные статичные классы (Tailwind не видит собранные из шаблонов строки)
+  const tone = overdue
+    ? { border: 'border-[var(--danger)]/40', chip: 'bg-[var(--danger)]/10', icon: 'text-[var(--danger)]' }
+    : { border: 'border-[var(--warning)]/40', chip: 'bg-[var(--warning)]/10', icon: 'text-[var(--warning)]' };
+  return (
+    <div className={`bg-[var(--bg-card)] border rounded-lg p-4 sm:p-5 ${tone.border}`}>
+      <div className="flex items-start gap-3">
+        <span className={`flex items-center justify-center w-11 h-11 rounded-full shrink-0 ${tone.chip}`}>
+          <ShieldAlert className={`w-[22px] h-[22px] ${tone.icon}`} strokeWidth={1.75} />
+        </span>
+        <div className="min-w-0">
+          <p className="font-semibold text-[var(--text-primary)]">
+            {overdue
+              ? `Срок переаттестации истёк ${DEADLINE_HUMAN}`
+              : `Нужна переаттестация до ${DEADLINE_HUMAN}`}
+          </p>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">
+            Все ваши аттестации получены до 1 июля 2024. По новым правилам включённые в Единый
+            федеральный реестр до этой даты обязаны пройти переаттестацию — иначе исключение из
+            реестра, ограниченный допуск на сложные маршруты и штрафы за работу без подтверждённой
+            квалификации.
+          </p>
+          <ol className="mt-3 space-y-1.5 text-sm text-[var(--text-secondary)] list-decimal list-inside">
+            {REATTESTATION_STEPS.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <div className="mt-3 text-xs text-[var(--text-muted)] space-y-0.5">
+            {FEDERATIONS.map((f) => (
+              <p key={f.name}>
+                <span className="font-medium text-[var(--text-secondary)]">{f.name}</span> — {f.scope}
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Погода зоны — это СВОЙСТВО безопасности гида, а не украшение (vedar §7): гид
 // ведёт группу в поле и обязан знать условия. Уровень безопасности красится
 // строго семантично (success/warning/danger), не «для красоты».
@@ -115,6 +195,7 @@ export default function GuideDashboardClient() {
   // Гейт онбординга: незаполненный профиль гида уводит в визард.
   const onboardingReady = useOnboardingGuard('/hub/guide/onboarding');
   const [weather, setWeather] = useState<Weather | null>(null);
+  const [reattestation, setReattestation] = useState<ReattestationInfo | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -122,6 +203,10 @@ export default function GuideDashboardClient() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (active && d?.success) setWeather(d.data); })
       .catch(() => { /* погода необязательна — без неё карточка просто не рендерится */ });
+    fetch('/api/guide/reattestation')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (active && d?.success) setReattestation(d.data); })
+      .catch(() => { /* не смогли проверить — не пугаем, баннер просто не рендерится */ });
     return () => { active = false; };
   }, []);
 
@@ -139,6 +224,11 @@ export default function GuideDashboardClient() {
         <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">Обзор</h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">Кабинет гида</p>
       </header>
+
+      {/* Переаттестация до 1 октября — только для тех, кого касается по датам */}
+      {reattestation && (reattestation.status === 'needed' || reattestation.status === 'unknown') && (
+        <ReattestationBanner info={reattestation} />
+      )}
 
       {/* Погода зоны как свойство безопасности гида (честно: нет данных — нет карточки) */}
       {weather && <WeatherStrip weather={weather} />}
