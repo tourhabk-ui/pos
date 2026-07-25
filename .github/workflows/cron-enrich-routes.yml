@@ -19,4 +19,16 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/enrich-routes")
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
-          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+          [ "$HTTP" = "200" ] || { echo "FAIL $HTTP"; exit 1; }
+          # HTTP 200 — ещё не успех: месяц подряд эндпоинт отвечал 200 с
+          # errors=20/20 (TypeError на NUMERIC-строке), а прогон был «зелёным».
+          # Партия, где не улучшено НИЧЕГО при наличии ошибок, — это поломка.
+          PROCESSED=$(jq -r '.processed // 0' /tmp/out.json)
+          IMPROVED=$(jq -r '.improved // 0' /tmp/out.json)
+          ERRORS=$(jq -r '.errors // 0' /tmp/out.json)
+          echo "processed=$PROCESSED improved=$IMPROVED errors=$ERRORS remaining=$(jq -r '.remaining // "?"' /tmp/out.json)"
+          if [ "$PROCESSED" -gt 0 ] && [ "$IMPROVED" -eq 0 ] && [ "$ERRORS" -gt 0 ]; then
+            echo "FAIL: партия целиком в ошибках — обогащение сломано, не молчим"
+            exit 1
+          fi
+          echo "OK"
