@@ -12,7 +12,20 @@ import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegis
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
 import { OperatorDashboardData, OperatorBooking } from '@/types/operator';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
-  CheckCircle2, Circle, ArrowRight, Plus } from 'lucide-react';
+  CheckCircle2, Circle, ArrowRight, Plus,
+  Wallet, TrendingUp, CalendarDays, CalendarClock, Trophy, ClipboardList,
+  type LucideIcon } from 'lucide-react';
+
+// ─── Заголовок секции с иконкой (единый вид дашборда) ─────────────────────────
+
+function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+      <Icon className="w-3.5 h-3.5" />
+      {children}
+    </p>
+  );
+}
 
 // ─── First-steps checklist for new operators ─────────────────────────────────
 
@@ -193,18 +206,18 @@ export default function OperatorDashboardClient() {
 
           {/* Доходы и партнёрская монетизация */}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Доходы за 30 дней</p>
+            <SectionLabel icon={Wallet}>Доходы за 30 дней</SectionLabel>
             <OperatorEarningsCard />
           </div>
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Выручка</p>
+              <SectionLabel icon={TrendingUp}>Выручка</SectionLabel>
               <SimpleChart data={data.revenueChart} type="bar" color="var(--accent)" />
             </div>
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Бронирования</p>
+              <SectionLabel icon={CalendarDays}>Бронирования</SectionLabel>
               <SimpleChart data={data.bookingsChart} type="line" color="var(--success)" />
             </div>
           </div>
@@ -212,7 +225,7 @@ export default function OperatorDashboardClient() {
           {/* Upcoming tours */}
           {data.upcomingTours.length > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Предстоящие туры</p>
+              <SectionLabel icon={CalendarClock}>Предстоящие туры</SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {data.upcomingTours.map(tour => (
                   <div key={`${tour.tourId}-${tour.date.toString()}`}
@@ -238,7 +251,7 @@ export default function OperatorDashboardClient() {
 
           {/* Top tours */}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Топ-5 туров</p>
+            <SectionLabel icon={Trophy}>Топ-5 туров</SectionLabel>
             {data.topTours.length > 0 ? (
               <TopToursTable tours={data.topTours} />
             ) : (
@@ -259,7 +272,7 @@ export default function OperatorDashboardClient() {
 
           {/* Recent bookings */}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Последние бронирования</p>
+            <SectionLabel icon={ClipboardList}>Последние бронирования</SectionLabel>
             {data.recentBookings.length > 0 ? (
               <RecentBookingsTable bookings={data.recentBookings} onViewDetails={handleViewBookingDetails} />
             ) : (

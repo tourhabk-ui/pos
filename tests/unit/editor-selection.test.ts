@@ -13,6 +13,20 @@ import { runEditor, type RouteRow } from '@/lib/agents/editor';
 const callAIFastMock = vi.fn<(...args: unknown[]) => Promise<string | null>>();
 vi.mock('@/lib/ai/providers', () => ({
   callAIFast: (...args: unknown[]) => callAIFastMock(...args),
+  AI_FAST_UNAVAILABLE: 'Сервис временно недоступен.',
+  // Editor опрашивает провайдеров через callAIFastOrNull: отказ ВСЕХ = null.
+  callAIFastOrNull: async (...args: unknown[]) => {
+    const text = await callAIFastMock(...args);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
+  // Editor переведён на КАЧЕСТВЕННЫЙ путь (callAIQualityOrNull): контент пишет
+  // сильнейшая доступная модель по очереди, а не победитель гонки на скорость.
+  // Мок сохраняет прежний контракт: отказ ВСЕХ провайдеров = null.
+  callAIQuality: (...a: unknown[]) => callAIFastMock(...a),
+  callAIQualityOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
 }));
 
 const poolQueryMock = vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>();

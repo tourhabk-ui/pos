@@ -14,8 +14,26 @@ import { runEditor, type RouteRow } from '@/lib/agents/editor';
 // ── Моки провайдеров ─────────────────────────────────────────────────────────
 const callAIFastMock = vi.fn<(...args: unknown[]) => Promise<string | null>>();
 
+// Editor перешёл на callAIFastOrNull: отказ ВСЕХ провайдеров виден как null,
+// а не как строка-заглушка, которую раньше опознавали эвристикой по длине.
+// Мок повторяет реальный контракт: заглушка → null.
+const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
+
 vi.mock('@/lib/ai/providers', () => ({
   callAIFast: (...args: unknown[]) => callAIFastMock(...args),
+  AI_FAST_UNAVAILABLE: 'Сервис временно недоступен.',
+  callAIFastOrNull: async (...args: unknown[]) => {
+    const text = await callAIFastMock(...args);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
+  // Editor переведён на КАЧЕСТВЕННЫЙ путь (callAIQualityOrNull): контент пишет
+  // сильнейшая доступная модель по очереди, а не победитель гонки на скорость.
+  // Мок сохраняет прежний контракт: отказ ВСЕХ провайдеров = null.
+  callAIQuality: (...a: unknown[]) => callAIFastMock(...a),
+  callAIQualityOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
 }));
 
 // ── Мок пула БД ──────────────────────────────────────────────────────────────
@@ -55,7 +73,7 @@ beforeEach(() => {
 // ── runEditor: раздельные счётчики и причины ─────────────────────────────────
 
 describe('runEditor: наблюдаемость ошибок', () => {
-  it('генерация вернула null → generation_failed + sample с причиной', async () => {
+  it('провайдер не дал ответа (null) → generation_failed + внятная причина', async () => {
     mockDb({ routes: [ROUTE] });
     callAIFastMock.mockResolvedValue(null);
 
@@ -67,19 +85,36 @@ describe('runEditor: наблюдаемость ошибок', () => {
     expect(result.generation_failed).toBe(1);
     expect(result.db_update_failed).toBe(0);
     expect(result.error_samples).toHaveLength(1);
-    expect(result.error_samples[0]).toContain('пустой ответ');
+    expect(result.error_samples[0]).toContain('все провайдеры отказали');
   });
 
-  it('apology-заглушка waterfall (все провайдеры отказали) → generation_failed с внятной причиной', async () => {
+  it('пустая строка от провайдера → отдельная причина «пустой ответ»', async () => {
     mockDb({ routes: [ROUTE] });
-    // Ровно то, что возвращает callAIFast при отказе ВСЕХ fast-провайдеров
-    callAIFastMock.mockResolvedValue('Сервис временно недоступен.');
+    callAIFastMock.mockResolvedValue('   ');
 
     const result = await runEditor();
 
     expect(result.generation_failed).toBe(1);
-    expect(result.error_samples[0]).toContain('короткий ответ 27 симв.');
-    expect(result.error_samples[0]).toContain('fast-провайдеры отказали');
+    expect(result.error_samples[0]).toContain('пустой ответ');
+  });
+
+  it('отказ ВСЕХ fast-провайдеров → точная причина, а не догадка по длине', async () => {
+    mockDb({ routes: [ROUTE] });
+    // Ровно то, что возвращает callAIFast при отказе ВСЕХ fast-провайдеров
+    callAIFastMock.mockResolvedValue(AI_FAST_UNAVAILABLE);
+
+    const result = await runEditor();
+
+    expect(result.generation_failed).toBe(1);
+    // Живой алерт 24.07 гласил «короткий ответ 27 симв. (ВЕРОЯТНО заглушка)» —
+    // причина угадывалась по длине строки. Теперь она известна точно.
+    expect(result.error_samples[0]).toContain('все провайдеры отказали');
+    expect(result.error_samples[0]).not.toContain('вероятно');
+    expect(result.error_samples[0]).not.toContain('27 симв');
+    // Причина называет, КТО именно отказал, — иначе диагностика опять сведётся
+    // к догадке. Editor теперь на качественном пути: DeepSeek → Qwen → waterfall.
+    expect(result.error_samples[0]).toMatch(/DeepSeek/);
+    expect(result.error_samples[0]).toMatch(/Qwen/);
   });
 
   it('UPDATE бросает → db_update_failed + sample с названием маршрута и сообщением БД', async () => {

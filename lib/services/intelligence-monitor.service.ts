@@ -566,10 +566,44 @@ ${config.ai_filter}
 
 // ── Telegram Notification ────────────────────────────────────────────────────
 
+/**
+ * Внутренний отчёт разведки — во ВНУТРЕННЮЮ группу (TELEGRAM_CHAT_ID).
+ *
+ * Он содержит не новости, а наши планы: action_items вида «Проанализировать
+ * документацию X для интеграции в TourHab», «Протестировать на агентах Watchdog
+ * и Editor». Для подписчиков это бессмыслица, а для нас — публикация дорожной
+ * карты и внутренних имён.
+ *
+ * 25.07.2026 такой отчёт увидели в публичном канале. Код был прав — виновата
+ * конфигурация: TELEGRAM_CHAT_ID совпал с id канала. Поэтому здесь стоит
+ * проверка: совпало — не отправляем и говорим, что именно перепутано. Ошибку
+ * окружения нельзя исправить кодом, но можно не дать ей выйти на публику.
+ */
+function isPublicChannelId(chatId: string): string | null {
+  const pairs: Array<[string, string | undefined]> = [
+    ['TELEGRAM_AI_CHANNEL_ID', process.env.TELEGRAM_AI_CHANNEL_ID],
+    ['TELEGRAM_CHANNEL_ID', process.env.TELEGRAM_CHANNEL_ID],
+  ];
+  for (const [name, value] of pairs) {
+    if (value && value === chatId) return name;
+  }
+  return null;
+}
+
 async function sendTelegramAlert(findings: IntelligenceFinding[]): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
+
+  const clash = isPublicChannelId(chatId);
+  if (clash) {
+    console.error(
+      `[intelligence] Внутренний отчёт НЕ отправлен: TELEGRAM_CHAT_ID совпадает с ${clash}. ` +
+      'Отчёт содержит внутренние задачи и имена агентов — в публичный канал он не идёт. ' +
+      'Разведите переменные: TELEGRAM_CHAT_ID — служебная группа, каналы — отдельные id.',
+    );
+    return;
+  }
 
   const domainLabels: Record<string, string> = {
     ai_tech: 'AI & Tech',

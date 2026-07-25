@@ -9,7 +9,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus } from '@/lib/ai/providers';
+import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeDeepSeekKeyStatus, explainDeepSeekFailure } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -244,7 +245,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -257,6 +258,9 @@ export async function GET(request: NextRequest) {
     probeOpenRouterKeyStatus().catch(() => null),
     // Диагностика Qwen: точный статус (401/402 ключ-баланс, 404 модель, conn база/RF)
     process.env.DASHSCOPE_API_KEY ? probeQwenKeyStatus().catch(() => null) : Promise.resolve(null),
+    // Диагностика DeepSeek: первичный решатель эволюции, а алерт про него был
+    // единственным без причины («недоступен» — и всё).
+    probeDeepSeekKeyStatus().catch(() => null),
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
@@ -268,7 +272,13 @@ export async function GET(request: NextRequest) {
     // — Anthropic-direct блокируется регионом, но Claude доступен через OpenRouter,
     //   поэтому это проблема, только если и OpenRouter лёг
     if (process.env.DASHSCOPE_API_KEY && !qwenOk) issues.push({ level: 'warn', text: 'Qwen недоступен (ключ задан — проверь RF-доступность/базу/модель)' });
-    if (!deepseekOk) issues.push({ level: 'warn', text: 'DeepSeek недоступен' });
+    // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не
+    // задан (как для Qwen/Fugu/Anthropic: не настроен ≠ сбой), а если задан —
+    // называем причину, а не просто «недоступен».
+    if (!deepseekOk && dsKeyDiag?.key_set !== false) {
+      const why = dsKeyDiag ? `: ${explainDeepSeekFailure(dsKeyDiag)}` : '';
+      issues.push({ level: 'warn', text: `DeepSeek недоступен${why}` });
+    }
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
       issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
@@ -293,6 +303,17 @@ export async function GET(request: NextRequest) {
   // Сейсмо-heartbeat (монитор-над-монитором)
   const seismic = await checkSafetyIngest();
   if (seismic.issue) issues.push(seismic.issue);
+
+  // Инвариант реестра эко: сумма по всем счетам обязана быть нулём. Не сошлась —
+  // значит эко родились из воздуха или исчезли, и обещание «не врать цифрами»
+  // нарушено прямо сейчас. Это crit, а не предупреждение.
+  const eco = await checkEcoInvariant().catch(() => null);
+  if (eco && !eco.ok) {
+    issues.push({
+      level: 'crit',
+      text: `Реестр эко не сходится: SUM(balance) = ${eco.sum} вместо 0 (счетов: ${eco.accounts}, в обращении: ${eco.circulating})`,
+    });
+  }
 
   // Отправить алерт если есть проблемы
   if (issues.length > 0) {
@@ -322,7 +343,9 @@ export async function GET(request: NextRequest) {
     integrations: { github_token: !!process.env.GITHUB_TOKEN },
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,
+    deepseek_key_diag: dsKeyDiag,
     safety_ingest_age_min: seismic.ageMin,
+    eco_ledger: eco,
     issues,
   });
 }

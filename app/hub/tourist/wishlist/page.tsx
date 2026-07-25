@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import WishlistClient from './_WishlistClient';
 
 export const metadata: Metadata = {
-  title: 'Избранное | Kamchatour',
+  title: 'Избранное',
   robots: 'noindex, nofollow',
 };
 

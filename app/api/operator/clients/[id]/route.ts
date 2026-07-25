@@ -47,14 +47,19 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Клиент не найден' }, { status: 404 });
     }
 
-    // 1. Инфо о клиенте + теги из preferences + экобаллы
+    // 1. Инфо о клиенте + теги из preferences + экобаллы.
+    // Эко берём из реестра (eco_balances), а не из user_eco_points: последней
+    // не создаёт ни одна миграция, поэтому JOIN ронял ВЕСЬ запрос — карточка
+    // клиента у оператора отдавала 500 независимо от эко. Оператору показываем
+    // вклад (contrib:) — накопленную историю поступков туриста, а не остаток
+    // к трате: остаток — кошелёк туриста, оператору он не нужен.
     const userRes = await query(
       `SELECT
          u.id, u.name, u.email, u.phone,
          u.preferences,
-         COALESCE(ep.total_points, 0)::int AS eco_points
+         COALESCE(eb.balance, 0)::int AS eco_points
        FROM users u
-       LEFT JOIN user_eco_points ep ON ep.user_id = u.id
+       LEFT JOIN eco_balances eb ON eb.account = 'contrib:' || u.id::text
        WHERE u.id = $1`,
       [id]
     );

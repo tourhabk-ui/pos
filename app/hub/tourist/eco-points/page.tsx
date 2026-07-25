@@ -1,11 +1,22 @@
-import { Metadata } from 'next';
-import EcoPointsClient from './_EcoPointsClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Эко-баллы | Kamchatour',
-  robots: 'noindex, nofollow',
-};
-
-export default function EcoPointsPage() {
-  return <EcoPointsClient />;
+/**
+ * Экран эко-баллов удалён (аудит кабинета туриста 25.07.2026).
+ *
+ * Он показывал захардкоженный прейскурант, разошедшийся с реальностью: обещал
+ * 100 эко за уборку территории и 40 за отказ от вертолётной экскурсии —
+ * источников с такими названиями не существует, начислиться не могло ничего.
+ * Фото значилось за 30 при реальных 20. Настоящие источники (первое
+ * бронирование, рефералы, начисление за заказ) не показывались вовсе.
+ *
+ * Баланс он читал из user_eco_points — таблицы, которую не создаёт ни одна
+ * миграция: она есть только в неприменяемом lib/database/schema.sql. Тот же
+ * дефект, что чинила миграция 713 для лояльности.
+ *
+ * Всё это теперь на /hub/tourist/loyalty: два слоя (вклад и польза) из реестра
+ * эко, а список способов заработать приходит из действующих EMISSION_RULES и
+ * разойтись с ними не может.
+ */
+export default function EcoPointsRedirect() {
+  redirect('/hub/tourist/loyalty');
 }

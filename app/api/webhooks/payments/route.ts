@@ -1,201 +1,37 @@
 /**
- * Payment Webhook Handler
- * POST /api/webhooks/payments - Handle payment gateway webhooks
- */
-
-import { NextRequest, NextResponse } from 'next/server'
-import { paymentService } from '@/lib/services'
-import crypto from 'crypto'
-
-type PaymentServiceWithWebhook = {
-  handleWebhook(gateway: string, data: Record<string, unknown>): Promise<void>;
-};
-const ps = paymentService as unknown as PaymentServiceWithWebhook;
-
-/**
- * POST /api/webhooks/payments
- * Handle webhooks from payment gateways (Yandex Kassa, Stripe, etc.)
- * Verifies webhook signature and processes payment status updates
+ * POST /api/webhooks/payments — НЕ РАБОТАЕТ, отвечает 501.
  *
- * AUTH: Public by design — webhooks protected by x-signature/x-signature-256 headers.
+ * История (аудит бизнес-процессов 25.07): маршрут изображал мульти-шлюзовой
+ * приём вебхуков (Yandex Kassa / Stripe / Sberbank), но:
+ *  - подпись читалась из заголовка и НИКОГДА не проверялась (проверка жила
+ *    только в комментарии);
+ *  - вся обработка звала `paymentService.handleWebhook(...)`, которого у
+ *    PaymentService нет — метод был выдуман приведением
+ *    `paymentService as unknown as { handleWebhook(...) }`, поэтому tsc молчал,
+ *    а рантайм падал на TypeError;
+ *  - падение ловилось и наружу уходило 200 OK, так что шлюз считал уведомление
+ *    принятым и не повторял его.
+ *
+ * То есть маршрут молча терял платежи и рапортовал об успехе. Для платформы,
+ * которая обещает «не врать», честный 501 лучше красивого 200.
+ *
+ * Живые приёмники платежей:
+ *  - CloudPayments: /api/payments/webhook и /api/hub/operator/payments/webhook
+ *    (HMAC X-Content-HMAC + сверка суммы с operator_bookings.final_price);
+ *  - СБП Точка: /api/payments/tochka/webhook (факт оплаты подтверждается
+ *    обратным запросом в банк).
  */
-export async function POST(request: NextRequest) {
-  try {
-    // Get webhook signature from headers
-    const signature = request.headers.get('x-signature') || request.headers.get('x-signature-256')
-    const gateway = request.headers.get('x-gateway') || 'yandex_kassa'
 
-    // Parse body
-    const body = await request.json()
+import { NextResponse } from 'next/server';
 
-    // Verify signature (implementation depends on gateway)
-    // For Yandex Kassa:
-    // 1. Get secretKey from config
-    // 2. Create SHA1 hash: sha1(body.notification_type;body.operation_id;body.amount;body.currency;body.datetime;body.sender;body.receiver;body.label;secretKey)
-    // 3. Compare with x-signature header
+const NOT_IMPLEMENTED =
+  'Мульти-шлюзовой приём вебхуков не реализован. CloudPayments — ' +
+  '/api/payments/webhook, СБП Точка — /api/payments/tochka/webhook.';
 
-    // Handle webhook based on gateway
-    switch (gateway) {
-      case 'yandex_kassa':
-        await handleYandexKassaWebhook(body, signature)
-        break
-      case 'stripe':
-        await handleStripeWebhook(body, signature)
-        break
-      case 'sberbank':
-        await handleSberbankWebhook(body, signature)
-        break
-      default:
-        // Generic handling
-        await ps.handleWebhook(gateway, body)
-    }
-
-    // Return 200 OK to acknowledge receipt
-    return NextResponse.json({ status: 'ok' }, { status: 200 })
-  } catch (error) {
-
-    // Always return 200 to prevent gateway retry
-    // Log error for investigation
-    return NextResponse.json(
-      { status: 'error', message: error instanceof Error ? error.message : 'Processing failed' },
-      { status: 200 }
-    )
-  }
+export async function POST() {
+  return NextResponse.json({ status: 'not_implemented', message: NOT_IMPLEMENTED }, { status: 501 });
 }
 
-/**
- * Handle Yandex Kassa webhook
- */
-async function handleYandexKassaWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
-  // Yandex Kassa sends notifications in XML format
-  // Body structure:
-  // {
-  //   "notification_type": "payment.succeeded" | "payment.failed",
-  //   "operation_id": "...",
-  //   "amount": 1000.00,
-  //   "currency": "RUB",
-  //   "datetime": "2024-01-01T12:00:00Z",
-  //   "sender": "...",
-  //   "receiver": "...",
-  //   "label": "booking_123",
-  //   "sha1_hash": "..."
-  // }
-
-  const transactionId = body.label || body.operation_id
-
-  if (body.notification_type === 'payment.succeeded') {
-    await ps.handleWebhook('yandex_kassa', {
-      transaction_id: transactionId,
-      status: 'success',
-      amount: body.amount,
-      currency: body.currency,
-      datetime: body.datetime,
-    })
-  } else if (body.notification_type === 'payment.failed') {
-    await ps.handleWebhook('yandex_kassa', {
-      transaction_id: transactionId,
-      status: 'failed',
-      amount: body.amount,
-      currency: body.currency,
-      datetime: body.datetime,
-    })
-  }
-}
-
-/**
- * Handle Stripe webhook
- */
-async function handleStripeWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
-  // Stripe sends events in this structure:
-  // {
-  //   "id": "evt_...",
-  //   "object": "event",
-  //   "type": "charge.succeeded" | "charge.failed",
-  //   "data": {
-  //     "object": {
-  //       "id": "ch_...",
-  //       "amount": 100000,  // in cents
-  //       "currency": "rub",
-  //       "status": "succeeded",
-  //       "metadata": { "booking_id": "..." }
-  //     }
-  //   }
-  // }
-
-  const eventType = body.type
-  const bodyData = body.data as Record<string, unknown> | undefined
-  const charge = bodyData?.object as Record<string, unknown> | undefined
-
-  if (!charge) return
-
-  const chargeMetadata = charge.metadata as Record<string, unknown> | undefined
-
-  if (eventType === 'charge.succeeded') {
-    await ps.handleWebhook('stripe', {
-      transaction_id: charge.id,
-      status: 'completed',
-      amount: typeof charge.amount === 'number' ? charge.amount / 100 : 0,
-      currency: typeof charge.currency === 'string' ? charge.currency.toUpperCase() : 'RUB',
-      booking_id: chargeMetadata?.booking_id,
-    })
-  } else if (eventType === 'charge.failed') {
-    await ps.handleWebhook('stripe', {
-      transaction_id: charge.id,
-      status: 'failed',
-      amount: typeof charge.amount === 'number' ? charge.amount / 100 : 0,
-      currency: typeof charge.currency === 'string' ? charge.currency.toUpperCase() : 'RUB',
-      booking_id: chargeMetadata?.booking_id,
-    })
-  }
-}
-
-/**
- * Handle Sberbank webhook
- */
-async function handleSberbankWebhook(body: Record<string, unknown>, signature: string | null): Promise<void> {
-  // Sberbank sends notifications like:
-  // {
-  //   "order": {
-  //     "orderNumber": "booking_123",
-  //     "orderStatus": 2,  // 0 = created, 1 = approved, 2 = deposited, 3 = declined, 4 = cancelled, 5 = refunded
-  //     "orderAmount": 100000,  // in kopecks
-  //     "orderCurrency": 810,  // RUB
-  //     "orderDate": 1234567890000
-  //   }
-  // }
-
-  const order = (body.order ?? body) as Record<string, unknown>
-
-  if (!order) return
-
-  let status = 'pending'
-  const orderStatus = order.orderStatus as number | undefined
-
-  if (orderStatus === 2) {
-    status = 'completed'
-  } else if (orderStatus === 3 || orderStatus === 4) {
-    status = 'failed'
-  } else if (orderStatus === 5) {
-    status = 'refunded'
-  }
-
-  await ps.handleWebhook('sberbank', {
-    transaction_id: order.orderNumber,
-    status,
-    amount: typeof order.orderAmount === 'number' ? order.orderAmount / 100 : 0,
-    currency: 'RUB',
-    datetime: new Date(order.orderDate as string | number),
-  })
-}
-
-/**
- * GET /api/webhooks/payments
- * Health check endpoint
- */
-export async function GET(request: NextRequest) {
-  return NextResponse.json({
-    status: 'ok',
-    message: 'Webhook endpoint is active',
-    timestamp: new Date(),
-  })
+export async function GET() {
+  return NextResponse.json({ status: 'not_implemented', message: NOT_IMPLEMENTED }, { status: 501 });
 }

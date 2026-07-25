@@ -6,10 +6,16 @@
  * Для стабильной регрессии задай EDITOR_EVAL_SEED_IDS (через запятую).
  *
  * On-demand (не по расписанию): запускать до/после изменения промпта Editor'а.
+ *
+ * ?compare=1 — held-out A/B двух вариантов системного промпта (full vs lean) по
+ * ОДНОМУ набору входов. Два оракула сразу: TSR (умеет ли писать) и доля
+ * выдуманной числовой конкретики (не сочиняет ли). По одной длине короткий
+ * вариант выигрывает заведомо — и замер показал бы улучшение там, где качество
+ * упало.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { runEditorRegression } from '@/lib/agents/eval/editor-regression';
+import { runEditorRegression, runEditorAB } from '@/lib/agents/eval/editor-regression';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 
@@ -29,7 +35,13 @@ export async function GET(request: NextRequest) {
   const limit = limitRaw ? Math.min(50, Math.max(1, parseInt(limitRaw, 10) || 12)) : undefined;
   const judge = request.nextUrl.searchParams.get('judge') === '1';
 
+  const compare = request.nextUrl.searchParams.get('compare') === '1';
+
   try {
+    if (compare) {
+      const ab = await runEditorAB({ limit, judge });
+      return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), mode: 'ab', ...ab });
+    }
     const report = await runEditorRegression({ limit, judge });
     return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), ...report });
   } catch (err) {

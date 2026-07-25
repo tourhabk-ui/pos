@@ -26,6 +26,10 @@ interface Provider {
   total_count: number;
   has_key: boolean;
   models: Model[];
+  /** Флагман: id запинен, а не резолвится из /v1/models — списка кандидатов нет. */
+  pinned?: boolean;
+  /** Пояснение к запиненному провайдеру (пути доступа, чем проверить). */
+  note?: string;
 }
 
 function StatChip({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
@@ -109,11 +113,19 @@ function ProviderCard({ p }: { p: Provider }) {
             <StatChip icon={Check} label="Годных" value={`${p.eligible_count} из ${p.total_count}`} />
             {p.override && <StatChip icon={KeyRound} label={p.override_env} value={p.override} />}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {p.models.map((m) => (
-              <ModelTile key={m.id} m={m} active={m.id === p.active} />
-            ))}
-          </div>
+          {p.pinned ? (
+            // У флагмана нет списка кандидатов — вместо пустой сетки честно
+            // объясняем, что id запинен и как проверить достижимость.
+            <p className="text-sm text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3">
+              {p.note}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {p.models.map((m) => (
+                <ModelTile key={m.id} m={m} active={m.id === p.active} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>

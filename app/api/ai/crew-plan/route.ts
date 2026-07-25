@@ -1,70 +1,48 @@
 /**
- * POST /api/ai/crew-plan
- * 5-агентный AI-пайплайн для планирования туров по Камчатке
+ * /api/ai/crew-plan — выведен из употребления 25.07.2026.
  *
- * Публичный эндпоинт — доступен без авторизации.
- * Вызывается из AIChatWidget при обнаружении tour-planning запроса.
+ * Планирование поездки: POST /api/ai/chat (Кузьмич зовёт lib/planner).
+ *
+ * Это был пятый агентный пайплайн подбора (intent → research → planner →
+ * validator → formatter) поверх прямых вызовов api.anthropic.com. Закрыт по
+ * четырём независимым основаниям, каждое достаточно само по себе.
+ *
+ * 1. В проде он не работал ни разу. Ходил в api.anthropic.com напрямую, минуя
+ *    ANTHROPIC_BASE_URL, а этот хост гео-блокирует РФ-IP — там, где стоит наш
+ *    Timeweb. callClaude возвращал null на каждом шаге.
+ *
+ * 2. Молчаливый провал выдавал выдумку за результат. Каждый шаг падал в
+ *    fallback, и турист получал план с придуманными сложностью «Средний»,
+ *    сезоном «Июнь–Сентябрь», списком вещей и ценой 0 — под анимацию «5
+ *    агентов работают» по 4 секунды на шаг. Ошибка была не видна: она
+ *    выглядела как работа.
+ *
+ * 3. Он спрашивал у модели то, чего у модели спрашивать нельзя. Промпт
+ *    планировщика требовал total_price_rub, промпт валидатора — вердикт «нет
+ *    опасных комбинаций?». CLAUDE.md §8: критичные факты (безопасность, цены,
+ *    наличие мест) берутся из инструментов и БД, самоотчёту модели не верят.
+ *    Починить сеть значило бы пустить в прод генератор цен и оценок
+ *    безопасности, под которыми нет ни одного источника.
+ *
+ * 4. Это четвёртый движок подбора. CLAUDE.md: подбор живёт в трёх (ЛИДЫ,
+ *    ПЛАНЕР, ПОИСК), заводить новый запрещено — расширять существующий.
+ *    Плюс чтение из agent_route_knowledge, что §4.1 запрещает новому коду.
+ *
+ * 410, а не удаление файла: 404 неотличим от опечатки в пути.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-import { runCrewPipeline } from '@/lib/ai/crew-agents';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const crewPlanLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
-
-const Schema = z.object({
-  query: z
-    .string({ required_error: 'Запрос обязателен' })
-    .min(3, 'Минимум 3 символа')
-    .max(500, 'Максимум 500 символов'),
-  groupSize:    z.number().int().min(1).max(50).optional().default(1),
-  budget:       z.number().min(0).optional(),
-  durationDays: z.number().int().min(1).max(30).optional().default(3),
-  difficulty:   z.enum(['Лёгкий', 'Средний', 'Сложный', 'Очень сложный']).optional(),
-});
-
-// AUTH: Public — открытый доступ для туристов
-export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
-  if (!crewPlanLimiter.check(ip)) {
-    return NextResponse.json(
-      { success: false, error: 'Слишком много запросов. Попробуйте позже.' },
-      { status: 429 }
-    );
-  }
-
-  try {
-    const body: unknown = await request.json();
-    const parsed = Schema.safeParse(body);
-
-    if (!parsed.success) {
-      const firstError = parsed.error.errors[0];
-      return NextResponse.json(
-        { success: false, error: firstError?.message ?? 'Неверный формат запроса' },
-        { status: 400 }
-      );
-    }
-
-    const result = await runCrewPipeline(parsed.data);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        formatted:       result.formatted,
-        intent:          result.intent,
-        matches:         result.matches,
-        plan:            result.plan,
-        validation:      result.validation,
-        processingSteps: result.processingSteps,
-      },
-    });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: 'Внутренняя ошибка сервера' },
-      { status: 500 }
-    );
-  }
+// AUTH: Public — остаётся в белом списке, чтобы старый клиент увидел 410
+// с объяснением, а не 401 без него.
+export async function POST() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'Планирование переехало в чат Кузьмича: POST /api/ai/chat',
+    },
+    { status: 410 },
+  );
 }

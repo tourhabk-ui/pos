@@ -16,9 +16,10 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { generateRouteDescription, type RouteRow } from '@/lib/agents/editor';
+import { generateRouteDescription, type RouteRow, type EditorPromptVariant } from '@/lib/agents/editor';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import { judgeDescription } from '@/lib/agents/eval/editor-judge';
+import { detectFabrication } from '@/lib/agents/eval/fabrication';
 
 const GOAL_MIN = 300;       // контракт платформы (CLAUDE.md)
 const DEFAULT_LIMIT = 12;
@@ -29,6 +30,8 @@ export interface RegressionCase {
   generated_len: number;
   passed: boolean;
   quality_score?: number | null; // 1..5 от LLM-судьи (если включён judge)
+  /** Числа, которых не было во входных данных: выдуманная конкретика. */
+  invented?: string[];
 }
 
 const QUALITY_GOOD_MIN = 4; // балл судьи >= 4 считаем качественным
@@ -44,6 +47,11 @@ export interface RegressionReport {
   quality_avg?: number | null;
   quality_good?: number;
   cases: RegressionCase[];
+  /** Доля прогонов с выдуманной числовой конкретикой (0..1). */
+  fabrication_rate?: number;
+  /** Всего выдуманных чисел по всем прогонам. */
+  invented_total?: number;
+  variant?: EditorPromptVariant;
   reason?: string;
 }
 
@@ -60,6 +68,10 @@ export function summarizeRegression(cases: RegressionCase[], goalMin = GOAL_MIN)
   const passed = cases.filter(c => c.passed).length;
   const tsr = total > 0 ? passed / total : 0;
   const report: RegressionReport = { total, passed, tsr, ci: wilsonInterval(passed, total), goal_min: goalMin, cases };
+
+  const withFabrication = cases.filter(c => (c.invented?.length ?? 0) > 0).length;
+  report.fabrication_rate = total > 0 ? withFabrication / total : 0;
+  report.invented_total = cases.reduce((sum, c) => sum + (c.invented?.length ?? 0), 0);
 
   const scored = cases.map(c => c.quality_score).filter((s): s is number => typeof s === 'number');
   if (scored.length > 0) {
@@ -104,7 +116,7 @@ async function loadSeedRoutes(seedIds: string[], limit: number): Promise<RouteRo
 
 // ── Оркестратор ──────────────────────────────────────────────────────────────
 
-export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: number; judge?: boolean }): Promise<RegressionReport> {
+export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: number; judge?: boolean; variant?: EditorPromptVariant }): Promise<RegressionReport> {
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const seedIds = resolveSeedIds(opts?.seedIds);
 
@@ -123,12 +135,17 @@ export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: n
   for (const route of routes) {
     let text: string | null = null;
     try {
-      text = (await generateRouteDescription(route)).text; // dry-run, без записи и без A/B
+      text = (await generateRouteDescription(route, opts?.variant ?? 'full')).text; // dry-run, без записи
     } catch {
       text = null;
     }
     const passed = scoreGeneration(text);
     const c: RegressionCase = { id: route.id, title: route.title, generated_len: text?.trim().length ?? 0, passed };
+    if (text) {
+      // Источник — ровно то, что модели дали на вход.
+      const source = `${route.title} ${route.category ?? ''} ${route.description ?? ''}`;
+      c.invented = detectFabrication(text, source).invented;
+    }
     if (opts?.judge && text) {
       const verdict = await judgeDescription(route, text);
       c.quality_score = verdict.score;
@@ -136,5 +153,55 @@ export async function runEditorRegression(opts?: { seedIds?: string[]; limit?: n
     cases.push(c);
   }
 
-  return summarizeRegression(cases);
+  const report = summarizeRegression(cases);
+  report.variant = opts?.variant ?? 'full';
+  return report;
+}
+
+// ── A/B двух вариантов промпта ───────────────────────────────────────────────
+
+export interface ABVerdict {
+  /** Пересекаются ли доверительные интервалы TSR: да — разницы не доказано. */
+  tsr_inconclusive: boolean;
+  tsr_delta: number;
+  fabrication_delta: number;
+  verdict: string;
+}
+
+/**
+ * Сравнение вариантов — чистая функция, под тестом.
+ *
+ * Правило намеренно консервативное: улучшением считается только то, что
+ * выиграло по длине и НЕ проиграло по выдумкам. Рост TSR при росте выдумок —
+ * это не улучшение, а более уверенное враньё, и метрика обязана называть его
+ * так, иначе замер станет способом доказать себе желаемое.
+ */
+export function compareVariants(a: RegressionReport, b: RegressionReport): ABVerdict {
+  const overlap = a.ci.low <= b.ci.high && b.ci.low <= a.ci.high;
+  const tsrDelta = Math.round((b.tsr - a.tsr) * 1000) / 1000;
+  const fabDelta = Math.round(((b.fabrication_rate ?? 0) - (a.fabrication_rate ?? 0)) * 1000) / 1000;
+
+  let verdict: string;
+  if (fabDelta > 0) {
+    verdict = 'вариант B выдумывает чаще — не принимать независимо от TSR';
+  } else if (overlap) {
+    verdict = 'разница по TSR не доказана (интервалы пересекаются) — нужна выборка больше';
+  } else if (tsrDelta > 0) {
+    verdict = 'вариант B лучше по TSR и не хуже по выдумкам — можно принимать';
+  } else {
+    verdict = 'вариант B хуже по TSR — оставить A';
+  }
+
+  return { tsr_inconclusive: overlap, tsr_delta: tsrDelta, fabrication_delta: fabDelta, verdict };
+}
+
+/** Прогон обоих вариантов по ОДНОМУ И ТОМУ ЖЕ набору входов. */
+export async function runEditorAB(opts?: { seedIds?: string[]; limit?: number; judge?: boolean }): Promise<{
+  full: RegressionReport;
+  lean: RegressionReport;
+  comparison: ABVerdict;
+}> {
+  const full = await runEditorRegression({ ...opts, variant: 'full' });
+  const lean = await runEditorRegression({ ...opts, variant: 'lean' });
+  return { full, lean, comparison: compareVariants(full, lean) };
 }

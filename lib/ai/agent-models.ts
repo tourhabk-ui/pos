@@ -26,7 +26,7 @@ export const AGENT_MODEL_MAP: Record<AgentId, string> = {
   content:    'google/gemini-2.0-flash-001',              // аудит: быстрый
   quality:    'openai/gpt-4o-mini',                       // качество: надёжный
   planning:   'anthropic/claude-fable-5',                 // стратегия: flagship качество
-  evo:        'anthropic/claude-opus-4-8',                // архитектор: premium reasoning
+  evo:        'anthropic/claude-opus-5',                  // архитектор: premium reasoning
   finance:    'deepseek/deepseek-chat-v3-0324',           // CFO: аналитика, дешёвый
   infra:      'google/gemini-2.0-flash-001',              // SRE: быстрый
   vibe_coder: 'anthropic/claude-fable-5',                 // кодер: flagship качество кода
@@ -41,36 +41,20 @@ export const AGENT_MODEL_MAP: Record<AgentId, string> = {
 export const CONSENSUS_MODEL = 'anthropic/claude-fable-5';
 
 /**
- * Cheaper models for background/cron tasks where quality is less critical.
- * Used by cron jobs, scheduled reports, and non-interactive agent work.
- */
-export const CRON_MODEL_MAP: Partial<Record<AgentId, string>> = {
-  admin:      'google/gemini-2.0-flash-001',
-  legal:      'google/gemini-2.0-flash-001',
-  security:   'google/gemini-2.0-flash-001',
-  hacker:     'deepseek/deepseek-chat-v3-0324',
-  rescue:     'google/gemini-2.0-flash-001',
-  eco:        'google/gemini-2.0-flash-001',
-  content:    'google/gemini-2.0-flash-001',
-  quality:    'google/gemini-2.0-flash-001',
-  planning:   'anthropic/claude-sonnet-4-6',
-  evo:        'anthropic/claude-sonnet-4-6',
-  finance:    'deepseek/deepseek-chat-v3-0324',
-  infra:      'google/gemini-2.0-flash-001',
-  vibe_coder: 'anthropic/claude-sonnet-4-6',
-};
-
-/**
  * Get the preferred OpenRouter model for an agent.
- * @param agentId - agent identifier
- * @param isCron - if true, returns cheaper cron model when available
  * Returns null if agent ID is unknown (fallback to waterfall).
+ *
+ * Здесь была CRON_MODEL_MAP — «дешёвые модели для cron-задач» на 13 записей.
+ * Сверка 24.07: `getModelForAgent(..., true)` не вызывался НИ РАЗУ во всём репо,
+ * то есть карта не влияла ни на один прогон, а её комментарий утверждал
+ * обратное («Used by cron jobs, scheduled reports»). Мёртвая конфигурация,
+ * описывающая несуществующее поведение, удалена.
+ *
+ * Если удешевление cron-прогонов понадобится — это отдельное осознанное
+ * изменение: нужно И вернуть карту, И реально прокинуть признак cron в места
+ * вызова (сейчас таких мест нет).
  */
-export function getModelForAgent(agentId: string, isCron = false): string | null {
-  if (isCron) {
-    const cronModel = (CRON_MODEL_MAP as Record<string, string>)[agentId];
-    if (cronModel) return cronModel;
-  }
+export function getModelForAgent(agentId: string): string | null {
   return (AGENT_MODEL_MAP as Record<string, string>)[agentId] ?? null;
 }
 

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Upload, CheckCircle, XCircle, Loader2, ImageIcon, Copy } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, Loader2, ImageIcon, Copy, Cloud, HardDrive } from 'lucide-react';
 
 // ── Client-side resize ────────────────────────────────────────────────────────
 
@@ -77,6 +77,7 @@ interface UploadResult {
   ok: true;
   filename: string;
   savedPath: string;
+  storage?: 's3' | 'local';
   profile: Profile;
   dir: string;
   sizeKb: number;
@@ -303,28 +304,45 @@ export function PhotosPageClient() {
       )}
 
       {/* Итог если всё загружено */}
-      {items.length > 0 && doneCount === items.length && (
-        <div className="ds-card mt-6 border border-[var(--success)]">
-          <h2 className="ds-h2 mb-3">Все загружены</h2>
-          <p className="text-sm text-[var(--text-secondary)] mb-3">
-            Сохранённые пути. Закоммить изменения чтобы они появились на сайте:
-          </p>
-          <div className="space-y-1">
-            {items.map(item => item.result && (
-              <div key={item.id} className="flex items-center gap-2 font-mono text-sm">
-                <span className="text-[var(--text-primary)]">{item.result.savedPath}</span>
-                <button onClick={() => copyPath(item.result!.savedPath)}>
-                  <Copy className="w-3.5 h-3.5 text-[var(--text-muted)] hover:text-[var(--accent)]" />
-                </button>
-                <span className="text-[var(--text-muted)]">{item.result.sizeKb} KB</span>
-              </div>
-            ))}
+      {items.length > 0 && doneCount === items.length && (() => {
+        const results = items.map(i => i.result).filter((r): r is UploadResult => !!r);
+        const hasLocal = results.some(r => r.storage === 'local');
+        const allS3 = results.length > 0 && results.every(r => r.storage === 's3');
+        return (
+          <div className="ds-card mt-6 border border-[var(--success)]">
+            <h2 className="ds-h2 mb-3">Все загружены</h2>
+            <p className="text-sm text-[var(--text-secondary)] mb-3 flex items-center gap-2">
+              {allS3 ? (
+                <>
+                  <Cloud className="w-4 h-4 text-[var(--success)]" />
+                  Фото в облачном хранилище S3 — уже на сайте, коммит не нужен.
+                </>
+              ) : (
+                <>
+                  <HardDrive className="w-4 h-4 text-[var(--warning)]" />
+                  Сохранены локально (S3 не подключён) — файлы пропадут при следующем деплое.
+                </>
+              )}
+            </p>
+            <div className="space-y-1">
+              {results.map((result, idx) => (
+                <div key={idx} className="flex items-center gap-2 font-mono text-sm">
+                  <span className="text-[var(--text-primary)] break-all">{result.savedPath}</span>
+                  <button onClick={() => copyPath(result.savedPath)}>
+                    <Copy className="w-3.5 h-3.5 text-[var(--text-muted)] hover:text-[var(--accent)]" />
+                  </button>
+                  <span className="text-[var(--text-muted)] whitespace-nowrap">{result.sizeKb} KB</span>
+                </div>
+              ))}
+            </div>
+            {hasLocal && (
+              <p className="mt-4 text-xs text-[var(--text-muted)]">
+                git add public/images/ &amp;&amp; git commit -m &quot;photos: update&quot; &amp;&amp; git push
+              </p>
+            )}
           </div>
-          <p className="mt-4 text-xs text-[var(--text-muted)]">
-            git add public/images/ &amp;&amp; git commit -m &quot;photos: update&quot; &amp;&amp; git push
-          </p>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

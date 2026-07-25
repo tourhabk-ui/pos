@@ -5,6 +5,7 @@ import { scanSource } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
+  LLM_EGRESS_FILES,
   unregisteredHosts,
   extractLLMHosts,
 } from '@/lib/agents/compliance/provider-registry';
@@ -118,12 +119,12 @@ describe('D1 — CI-гард: ни один промпт в репо не шлё
 });
 
 describe('D2 — CI-гард: реестр LLM-провайдеров заморожен', () => {
-  it('нет незарегистрированных LLM-хостов в providers.ts (новый провайдер = осознанное решение)', () => {
-    const src = readFileSync(resolve(REPO_ROOT, 'lib/ai/providers.ts'), 'utf8');
+  it.each(LLM_EGRESS_FILES)('нет незарегистрированных LLM-хостов в %s (новый провайдер = осознанное решение)', (file) => {
+    const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
     const unknown = unregisteredHosts(src);
     if (unknown.length) {
       throw new Error(
-        `Новый LLM-эндпоинт в providers.ts не в реестре: ${unknown.join(', ')}.\n` +
+        `Новый LLM-эндпоинт в ${file} не в реестре: ${unknown.join(', ')}.\n` +
           `Добавь его в LLM_ENDPOINTS (lib/agents/compliance/provider-registry.ts) ` +
           `с юрисдикцией и флагом domestic — это признание «ещё один приёмник ПД, 152-ФЗ учтён».`,
       );
@@ -131,11 +132,41 @@ describe('D2 — CI-гард: реестр LLM-провайдеров замор
     expect(unknown).toHaveLength(0);
   });
 
-  it('все хосты providers.ts покрыты реестром', () => {
-    const src = readFileSync(resolve(REPO_ROOT, 'lib/ai/providers.ts'), 'utf8');
-    const hosts = extractLLMHosts(src);
+  it('все хосты всех точек егресса покрыты реестром', () => {
     const registered = new Set(LLM_ENDPOINTS.map((e) => e.host));
-    for (const h of hosts) expect(registered.has(h), `хост ${h} не в реестре`).toBe(true);
+    for (const file of LLM_EGRESS_FILES) {
+      const hosts = extractLLMHosts(readFileSync(resolve(REPO_ROOT, file), 'utf8'));
+      for (const h of hosts) expect(registered.has(h), `${file}: хост ${h} не в реестре`).toBe(true);
+    }
+  });
+
+  /**
+   * Сторож самого сканера. Дыра была именно здесь: регулярка требовала слеш
+   * после хоста, и база без пути ('https://api.anthropic.com') не находилась —
+   * тест был зелёный, а зарубежный приёмник ПД шёл мимо реестра.
+   */
+  it('сканер находит хост и без пути после него', () => {
+    expect(extractLLMHosts(`const B = 'https://api.anthropic.com';`)).toContain('api.anthropic.com');
+    expect(extractLLMHosts(`fetch('https://api.deepseek.com/v1/chat')`)).toContain('api.deepseek.com');
+  });
+
+  /**
+   * Реестр — про реальный сток ПД. Ссылка в пояснении ничего не отправляет, и
+   * если требовать её регистрации (console.groq.com — «где взять ключ»), запись
+   * «зарубежный приёмник ПД» перестаёт значить то, что написано.
+   */
+  it('адрес из комментария приёмником не считается', () => {
+    expect(extractLLMHosts(`// ключ берётся на https://console.groq.com/keys`)).toHaveLength(0);
+    expect(extractLLMHosts(`/* см. https://api.deepseek.com/docs */`)).toHaveLength(0);
+    // Но живой код рядом с комментарием — виден.
+    const mixed = `// панель: https://console.groq.com/keys\nconst U = 'https://api.groq.com/openai/v1';`;
+    expect(extractLLMHosts(mixed)).toEqual(['api.groq.com']);
+  });
+
+  it('api.anthropic.com зарегистрирован как зарубежный приёмник', () => {
+    const anthropic = LLM_ENDPOINTS.find((e) => e.host === 'api.anthropic.com');
+    expect(anthropic, 'api.anthropic.com обязан быть в реестре').toBeDefined();
+    expect(anthropic?.domestic).toBe(false);
   });
 
   it('реестр без дублей хостов', () => {

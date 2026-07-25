@@ -7,9 +7,9 @@
  */
 
 import { query } from '@/lib/database';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost } from '@/lib/notifications/post-validation';
+import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -120,12 +120,31 @@ async function maxChannelPost(
   }
 }
 
-/** Публикация в основной TG-канал + MAX канал с кросс-ссылками */
+/**
+ * Публикация в основной TG-канал + MAX канал с кросс-ссылками.
+ *
+ * Здесь же — последний рубеж перед подписчиками. Валидация постов
+ * (post-validation.ts) существует давно, и её шапка требует «каждый пост ОБЯЗАН
+ * пройти валидацию», но звать её должен был каждый публикатор сам. 25.07.2026
+ * один не позвал, и в канал ушёл пост «Сервис временно недоступен.» — заглушка,
+ * которую waterfall возвращает СТРОКОЙ при отказе всех провайдеров.
+ *
+ * Обязанность, которую легко забыть, рано или поздно забывают. Все восемь
+ * публикаторов идут через эту функцию, поэтому проверка стоит тут: дешёвая,
+ * синхронная, без сети — и обойти её, не тронув эту строку, нельзя.
+ */
 async function postToAllChannels(
   mainChannelId: string,
   text: string,
   photoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  const issue = blockingTextIssue(text);
+  if (issue) {
+    const error = `Публикация отменена: ${issue}`;
+    console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
+    return { ok: false, error };
+  }
+
   const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
   const maxLink = process.env.MAX_CHANNEL_LINK ?? '';
 
@@ -487,7 +506,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
   // кандидат логируется и заменяется следующим, до 3 попыток.
   const rejectedIds: string[] = [];
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     // Берём маршрут, который не постили последние 30 дней. Приоритет — местам
     // с реальным GPS-треком: пост «Гора Красная поляна» вёл на карточку без
     // маршрута («место есть, трека нет» — владелец, 12.07), обещание в тексте
@@ -550,6 +569,23 @@ ${r.has_track
 
     const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
 
+    // Условие выше — строка в промпте, а её можно не выполнить: именно так
+    // 12.07 вышел пост про место без трека. Проверяем результат, а не надеемся
+    // на послушание модели (CLAUDE.md §8: инструмент вместо абзаца в промпте).
+    if (!r.has_track && promisesRouteOrTrack(text)) {
+      rejectedIds.push(r.id);
+      try {
+        await query(
+          `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+          ['kuzmich_post_rejected', JSON.stringify({
+            route_id: r.id, route_title: r.title,
+            errors: ['пост обещает маршрут или трек, а у карточки трека нет'],
+          })],
+        );
+      } catch { /* не блокируем перевыбор */ }
+      continue;
+    }
+
     const validation = await validateRoutePost(r.id, text);
     if (!validation.valid) {
       rejectedIds.push(r.id);
@@ -580,17 +616,39 @@ ${r.has_track
   return { ok: false, error: `Все кандидаты не прошли валидацию поста: ${rejectedIds.join(', ')}` };
 }
 
-const KUZMICH_TIP_TOPICS = [
-  'как правильно выбрать время для поездки на Камчатку',
-  'что взять с собой на вулкан — и чего точно не стоит',
-  'почему рыбалка на Камчатке — это не только про рыбу',
-  'как не облажаться с погодой на Камчатке',
-  'чем Камчатка отличается от любого другого путешествия',
-  'почему термальные источники лучше любого пятизвёздочного спа',
-  'как местные относятся к медведям — и как надо вести себя туристу',
-  'зачем ехать на Камчатку не в август, а в другое время',
-  'что туристы чаще всего недооценивают в поездке на Камчатку',
+/**
+ * Темы советов Кузьмича — каждая со своим РЕАЛЬНЫМ снимком Камчатки.
+ *
+ * Раньше советы уходили в канал текстом: postKuzmichTip звал postToAllChannels
+ * без photoUrl, хотя фото-путь (tgPostPhoto, снимки в public/images) давно
+ * работал у постов о местах. В ленте это заметно — соседние каналы идут с
+ * картинкой, наш совет выглядит голым.
+ *
+ * Картинка привязана к теме жёстко, а не выбирается моделью и не генерируется:
+ * решение 2026-07-17 — AI-пейзажи не показываем. Лучше честный снимок наших
+ * термов под совет про термы, чем красивый нарисованный мозг под пост о
+ * Камчатке.
+ */
+interface TipTopic {
+  topic: string;
+  /** Путь в public/images — проверяется тестом на существование файла. */
+  photo: string;
+}
+
+const KUZMICH_TIP_TOPICS: TipTopic[] = [
+  { topic: 'как правильно выбрать время для поездки на Камчатку',        photo: '/images/categories/vulkany.jpg' },
+  { topic: 'что взять с собой на вулкан — и чего точно не стоит',        photo: '/images/activities/volcanoes.jpg' },
+  { topic: 'почему рыбалка на Камчатке — это не только про рыбу',        photo: '/images/activities/fishing.jpg' },
+  { topic: 'как не облажаться с погодой на Камчатке',                    photo: '/images/categories/morskie.jpg' },
+  { topic: 'чем Камчатка отличается от любого другого путешествия',      photo: '/images/bento/khalaktyr.jpg' },
+  { topic: 'почему термальные источники лучше любого пятизвёздочного спа', photo: '/images/categories/termy.jpg' },
+  { topic: 'как местные относятся к медведям — и как надо вести себя туристу', photo: '/images/hero/bears-kurilskoye.jpg' },
+  { topic: 'зачем ехать на Камчатку не в август, а в другое время',      photo: '/images/activities/snowmobile.jpg' },
+  { topic: 'что туристы чаще всего недооценивают в поездке на Камчатку', photo: '/images/activities/volcanoes.jpg' },
 ];
+
+/** Темы — для теста и для админки. */
+export const KUZMICH_TIP_TOPIC_LIST: ReadonlyArray<TipTopic> = KUZMICH_TIP_TOPICS;
 
 /**
  * Генерирует практичный совет от Кузьмича и публикует в канал.
@@ -599,7 +657,8 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  const topic = KUZMICH_TIP_TOPICS[Math.floor(Math.random() * KUZMICH_TIP_TOPICS.length)];
+  const picked = KUZMICH_TIP_TOPICS[Math.floor(Math.random() * KUZMICH_TIP_TOPICS.length)];
+  const topic = picked.topic;
   const appUrl = getPublicBaseUrl();
 
   const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши практичный совет для Telegram-канала.
@@ -614,13 +673,13 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 - В конце можно добавить: ${appUrl}/routes`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-  const result = await postToAllChannels(channelId, text);
+  const result = await postToAllChannels(channelId, text, `${appUrl}${picked.photo}`);
 
   if (result.ok) {
     try {
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_tip', JSON.stringify({ topic })]
+        ['kuzmich_tip', JSON.stringify({ topic, photo: picked.photo })]
       );
     } catch { /* таблица ещё не создана */ }
   }
@@ -669,18 +728,40 @@ ${signalCtx}
 - Без markdown (* ** # \`\`\`), без эмодзи
 - Пиши на русском`;
 
+  // Запасной текст собирается из самой находки — без модели, поэтому годен
+  // всегда. Нужен и при исключении, и при заглушке отказа (см. ниже).
+  const fromFinding = (): string => {
+    let t = `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
+    if (finding.action_items.length > 0) {
+      t += '\n\n' + finding.action_items.map(a => `- ${esc(a)}`).join('\n');
+    }
+    return t;
+  };
+
   let postText: string;
   try {
-    postText = await callAIWithModelDirect(
-      [{ role: 'user', content: postPrompt }],
-      'google/gemini-2.0-flash-001',
-    );
+    // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
+    // генератора были единственными в файле на захардкоженной старой модели —
+    // остальное давно на флагмане. Публичные посты писала самая слабая модель
+    // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
+    postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
   } catch {
-    // Fallback: use raw summary
-    postText = `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
-    if (finding.action_items.length > 0) {
-      postText += '\n\n' + finding.action_items.map(a => `- ${esc(a)}`).join('\n');
-    }
+    postText = fromFinding();
+  }
+
+  // Отказ AI приходит СТРОКОЙ, а не исключением: callAIWithModelDirect →
+  // callAIWithModel → (модель недоступна) → callAIWaterfall → при отказе всех
+  // провайдеров возвращается заглушка. catch выше при этом не срабатывает.
+  // Именно так 25.07.2026 в AI-канал ушёл пост «Сервис временно недоступен.».
+  if (blockingTextIssue(postText)) {
+    postText = fromFinding();
+  }
+  // Находка тоже могла оказаться пустой — тогда публиковать нечего.
+  const issue = blockingTextIssue(postText);
+  if (issue) {
+    const error = `Публикация отменена: ${issue}`;
+    console.error('[postAINewsToChannel]', error);
+    return { ok: false, error };
   }
 
   // 3. Generate image
@@ -746,10 +827,11 @@ ${signalCtx}
 
   let postText: string;
   try {
-    postText = await callAIWithModelDirect(
-      [{ role: 'user', content: postPrompt }],
-      'google/gemini-2.0-flash-001',
-    );
+    // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
+    // генератора были единственными в файле на захардкоженной старой модели —
+    // остальное давно на флагмане. Публичные посты писала самая слабая модель
+    // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
+    postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
   } catch {
     // Fallback: use raw summary
     postText = `<b>Новости туризма</b>\n\n${esc(finding.summary)}`;

@@ -14,8 +14,13 @@ import {
 } from '@/lib/planner/engine';
 import type { ZoneId } from '@/lib/planner/engine';
 import { SEASON_BLOCKED } from '@/lib/planner/interests';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+// Публичный на Edge POST без рубежа — соседние /api/planner/* давно за
+// лимитером, этот оставался открытым.
+const validateLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
 const DaySchema = z.object({
   day:              z.number(),
@@ -45,6 +50,10 @@ const FITNESS_ORDER: Record<string, number> = {
 };
 
 export async function POST(req: NextRequest) {
+  if (!validateLimiter.check(getClientIp(req.headers))) {
+    return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
+  }
+
   let body: unknown;
   try { body = await req.json(); } catch {
     return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });

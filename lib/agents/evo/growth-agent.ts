@@ -5,12 +5,15 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIDecision } from '@/lib/ai/providers';
+import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
 import { selectReviewTargets, loadLedger, recordReviewed } from '@/lib/agents/evo/coverage-ledger';
-import { listRepoFiles, clientComponentPaths } from '@/lib/agents/evo/repo-files';
+import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesSource } from '@/lib/agents/evo/repo-files';
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
+import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
+import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -20,6 +23,30 @@ export interface GrowthIssue {
   title: string;
   description: string;
   suggestion: string;
+  /**
+   * Кто породил находку: реальная модель-решатель или 'deterministic'
+   * (static-checks/мок-детектор). Нужна, чтобы считать точность ПО МОДЕЛЯМ —
+   * без этого гипотеза «врут слабые фоллбэк-модели» непроверяема (waterfall
+   * молча съезжает с флагмана на DeepSeek/Qwen).
+   */
+  model?: string;
+}
+
+/**
+ * Наблюдаемость прочёса: без неё ответ скана — чёрный ящик, где «0 проблем»
+ * неотличимо от «не прочитал ни одного файла». На проде (standalone без
+ * исходников) это отличие критично: source='none' → GitHub недостижим из РФ и
+ * весь sweep пуст, а не «всё чисто».
+ */
+export interface ScanCoverage {
+  /** Откуда взят перечень файлов: disk | github | none. */
+  source: RepoFilesSource;
+  /** Сколько ревьюибельных .ts-файлов вообще перечислено. */
+  files_listed: number;
+  /** Сколько файлов реально прочитано и отдано аудитору (тело получено). */
+  files_reviewed: number;
+  /** Сколько клиент-компонентов прочёсано мок-детектором. */
+  mock_files_scanned: number;
 }
 
 export interface GrowthScanResult {
@@ -28,6 +55,8 @@ export interface GrowthScanResult {
   new_issues: number;
   scan_id: string;
   duration_ms: number;
+  /** Что скан реально прочитал (диагностика глубины прочёса). */
+  coverage: ScanCoverage;
 }
 
 // ── Code-level scans ─────────────────────────────────────────────────────
@@ -152,17 +181,52 @@ function clampForReview(text: string): string {
     : text;
 }
 
+/**
+ * Барьер в точке чтения (CodeQL 143: file data → исходящий запрос к LLM).
+ *
+ * Пути на ревью приходят из ОТВЕТОВ GitHub API (список коммитов, дерево
+ * репозитория) — то есть из внешних данных. Строковый isReviewableSourcePath
+ * их не сдерживает: `lib/../../x.ts` начинается с `lib/` и кончается `.ts`,
+ * фильтр пройден — а path.join выходит ЗА корень репозитория. Тогда в
+ * зарубежный LLM уехал бы файл, который мы читать не собирались. Практическую
+ * эксплуатацию сдерживало лишь то, что git запрещает `..` в путях дерева, —
+ * то есть чужая гарантия, а не наша. Сегодня это уже четвёртый случай «фильтр
+ * есть, но не в точке использования».
+ *
+ * Правила барьера:
+ *  1) ни одного сегмента `.`/`..` и никаких абсолютных путей и обратных
+ *     слэшей — это закрывает И чтение с диска, И URL-фоллбэк на raw
+ *     (там `..` схлопывает нормализация URL, выводя за пределы репозитория);
+ *  2) резолв обязан остаться внутри process.cwd() — страховка от того, чего
+ *     правило 1 не предусмотрело;
+ *  3) сам isReviewableSourcePath — теперь ЗДЕСЬ, а не только при составлении
+ *     списка: точка чтения не доверяет вызывающему.
+ */
+export function containedReviewPath(relPath: string, root: string, path: typeof import('path')): string | null {
+  if (!isReviewableSourcePath(relPath)) return null;
+  if (relPath.includes('\\') || path.isAbsolute(relPath)) return null;
+  const segments = relPath.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
+  const full = path.resolve(root, relPath);
+  if (full !== path.join(root, relPath) || !full.startsWith(root + path.sep)) return null;
+  return full;
+}
+
 // Прод — standalone-образ без исходников .ts, поэтому диск -> фоллбэк на
 // GitHub raw (репо публичный). Без содержимого файл не ревьюится вовсе.
 async function readFileForReview(relPath: string): Promise<string | null> {
+  const [fs, path] = await Promise.all([import('fs'), import('path')]);
+  const full = containedReviewPath(relPath, process.cwd(), path);
+  if (!full) return null;
+
   try {
-    const [fs, path] = await Promise.all([import('fs'), import('path')]);
-    const full = path.join(process.cwd(), relPath);
     if (fs.existsSync(full)) return clampForReview(fs.readFileSync(full, 'utf8'));
   } catch { /* фоллбэк ниже */ }
 
   try {
-    const res = await fetch(
+    const res = await githubFetch(
+      // relPath здесь уже прошёл барьер выше: сегментов `..` нет, за пределы
+      // репозитория URL-нормализацией не выйти.
       `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
       { signal: AbortSignal.timeout(10_000) },
     );
@@ -183,8 +247,10 @@ const CORE_REVIEW_FILES = [
 ];
 
 // Сильный аудитор (Claude Opus 4.8) тянет больше файлов за прогон; прогон
-// off-peak, поэтому шире окно = быстрее прочёс всей платформы. Было 4.
-const MAX_REVIEW_FILES = 8;
+// off-peak, поэтому шире окно = быстрее прочёс всей платформы. Было 4 → 8 → 20.
+// Цена: все тела идут ОДНИМ промптом (каждое ≤24k симв.), 20×24k ≈ 120k токенов —
+// держим модель с большим контекстом; кап находок в промпте остаётся 5.
+const MAX_REVIEW_FILES = 20;
 const REVIEW_REPO_SLUG = 'tourhabk-ui/pos';
 
 /**
@@ -223,7 +289,7 @@ export function pickReviewFiles(core: string[], recent: string[], max: number): 
 async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]> {
   try {
     const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' };
-    const listRes = await fetch(
+    const listRes = await githubFetch(
       `https://api.github.com/repos/${REVIEW_REPO_SLUG}/commits?per_page=${windowCommits}&sha=main`,
       { headers, signal: AbortSignal.timeout(10_000) },
     );
@@ -232,7 +298,7 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
     if (!Array.isArray(commits) || commits.length < 2) return [];
     const base = commits[commits.length - 1].sha;
     const head = commits[0].sha;
-    const cmpRes = await fetch(
+    const cmpRes = await githubFetch(
       `https://api.github.com/repos/${REVIEW_REPO_SLUG}/compare/${base}...${head}`,
       { headers, signal: AbortSignal.timeout(10_000) },
     );
@@ -248,13 +314,23 @@ async function recentlyChangedSourceFiles(windowCommits = 12): Promise<string[]>
   }
 }
 
-async function aiCodeReview(): Promise<GrowthIssue[]> {
+interface CodeReviewResult {
+  issues: GrowthIssue[];
+  /** Детерминированные находки по тем же телам файлов — без лишних запросов. */
+  staticIssues: GrowthIssue[];
+  listed: number;
+  reviewed: number;
+  source: RepoFilesSource;
+}
+
+async function aiCodeReview(): Promise<CodeReviewResult> {
   // Леджер покрытия: систематический прочёс всей платформы, а не 2 ядровых
   // файла. candidates = все ревьюибельные .ts; selectReviewTargets берёт churn +
   // невиданные/давно-невиданные (по риску). Fallback на скользящее окно, если
   // список файлов не достали (GitHub недоступен).
   const recent = await recentlyChangedSourceFiles();
   const allFiles = await listRepoFiles();
+  const source = getLastListSource();
   const candidates = allFiles.filter(isReviewableSourcePath);
   let reviewFiles: string[];
   if (candidates.length > 0) {
@@ -317,7 +393,17 @@ severity: critical = утечка данных/обход auth/инъекция/
       fileContents.set(f, content);
     }
   }
-  if (fileBlocks.length === 0) return [];
+  // Детерминированные объективы по УЖЕ прочитанным телам — ни одного лишнего
+  // запроса. Они не гадают (ищут конкретный синтаксис), поэтому идут в общий
+  // пул независимо от того, что скажет модель.
+  const staticIssues: GrowthIssue[] = [];
+  for (const [p, body] of fileContents) {
+    for (const it of runStaticChecks(p, body)) staticIssues.push({ ...it, model: 'deterministic' });
+  }
+
+  if (fileBlocks.length === 0) {
+    return { issues: [], staticIssues, listed: candidates.length, reviewed: 0, source };
+  }
 
   messages.push({
     role: 'user',
@@ -326,8 +412,10 @@ severity: critical = утечка данных/обход auth/инъекция/
 
   try {
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
-    const result = await callAIDecision(messages);
-    if (!result) return [];
+    const { text: result, model: decisionModel } = await callAIDecisionDetailed(messages);
+    if (!result) {
+      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
+    }
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const parsed = JSON.parse(jsonStr) as Array<{
@@ -358,6 +446,9 @@ severity: critical = утечка данных/обход auth/инъекция/
       title: p.title,
       description: p.description,
       suggestion: p.suggestion,
+      // Кто это сказал — флагман или фоллбэк. Без штампа гипотезу о слабых
+      // моделях проверить нечем.
+      model: decisionModel ?? undefined,
     }));
 
     // Фиксируем покрытие: какие файлы посмотрели и сколько находок каждый дал.
@@ -365,9 +456,9 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return mapped;
+    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   } catch {
-    return [];
+    return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   }
 }
 
@@ -377,13 +468,16 @@ severity: critical = утечка данных/обход auth/инъекция/
  * несколько прогонов обходит все экраны. Не тратит LLM.
  */
 // Каждый файл — GitHub-raw запрос; держим сумму (review + mock + tree) под
-// лимитом 60/час. За несколько прогонов ротация покрытия обходит все экраны.
-const MAX_MOCK_FILES = 12;
+// лимитом api.github.com. review 20 + mock 20 + дерево/коммиты/сравнение ≈ 43
+// запроса/прогон: без токена (60/час) хватает на ~1 прогон, при частых ручных
+// запусках задать GITHUB_API_TOKEN (5000/час, см. github-fetch.ts). Мок-детектор
+// детерминированный (без LLM) — рост окна тут дёшев. Ротация по леджеру.
+const MAX_MOCK_FILES = 20;
 
-async function scanMocks(): Promise<GrowthIssue[]> {
+async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> {
   const all = await listRepoFiles();
   const clients = clientComponentPaths(all);
-  if (clients.length === 0) return [];
+  if (clients.length === 0) return { issues: [], scanned: 0 };
 
   const ledger = await loadLedger(pool).catch(() => []);
   const targets = selectReviewTargets({
@@ -404,7 +498,25 @@ async function scanMocks(): Promise<GrowthIssue[]> {
     }
   }
   await recordReviewed(pool, findingsByFile, reviewed).catch(() => {});
-  return issues;
+  return { issues, scanned: reviewed.length };
+}
+
+/**
+ * Стоп-лист: сигнатуры претензий, отвергнутых человеком или стражем.
+ * Читаем из уже отвергнутых находок — отдельной таблицы не нужно.
+ */
+async function loadRejectedSignatures(): Promise<Set<string>> {
+  try {
+    const { rows } = await pool.query<{ file_path: string | null; title: string; description: string | null; suggestion: string | null }>(
+      `SELECT file_path, title, description, suggestion
+         FROM evo_growth_issues
+        WHERE status IN ('rejected', 'ignored')
+        LIMIT 500`,
+    );
+    return new Set(rows.map((r) => claimSignature(r)));
+  } catch {
+    return new Set();
+  }
 }
 
 // ── Main scan orchestrator ────────────────────────────────────────────────
@@ -412,6 +524,9 @@ async function scanMocks(): Promise<GrowthIssue[]> {
 export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
   const start = Date.now();
   const issues: GrowthIssue[] = [];
+  const coverage: ScanCoverage = {
+    source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
+  };
 
   if (scanType === 'full' || scanType === 'code') {
     const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
@@ -427,10 +542,30 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   }
 
   if (scanType === 'full') {
-    issues.push(...await aiCodeReview());
+    const review = await aiCodeReview();
+    issues.push(...review.issues);
+    // Детерминированные объективы — по тем же телам файлов, без лишних запросов.
+    issues.push(...review.staticIssues);
+    coverage.source = review.source;
+    coverage.files_listed = review.listed;
+    coverage.files_reviewed = review.reviewed;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
-    issues.push(...await scanMocks().catch(() => []));
+    const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
+    issues.push(...mocks.issues);
+    coverage.mock_files_scanned = mocks.scanned;
   }
+
+  // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
+  // status='rejected'), больше не предлагаем. Ключ — КЛАСС претензии на файле,
+  // а не заголовок: инцидент 24.07 показал, что модель порождает десять
+  // перефразировок одной претензии, и дедуп по title бессилен.
+  const rejectedSignatures = await loadRejectedSignatures();
+  const beforeStopList = issues.length;
+  const kept = dropRejected(issues, rejectedSignatures);
+  issues.length = 0;
+  issues.push(...kept);
+  const suppressed = beforeStopList - issues.length;
+  void suppressed;
 
   // Save scan result
   const { rows } = await pool.query<{ id: string }>(
@@ -471,9 +606,9 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     }
 
     await pool.query(
-      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion],
+      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null],
     );
     newIssues++;
   }
@@ -489,6 +624,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage };
 }
 

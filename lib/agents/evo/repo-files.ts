@@ -7,12 +7,26 @@
  * Возвращает repo-relative пути. Кэш в памяти на процесс (дерево меняется редко,
  * а прогон раз в несколько часов).
  */
+import { githubFetch } from '@/lib/agents/evo/github-fetch';
+
 const REPO_SLUG = 'tourhabk-ui/pos';
 const WALK_ROOTS = ['app', 'lib'];
 const SKIP_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'coverage']);
 
 let cache: { at: number; files: string[] } | null = null;
 const CACHE_MS = 30 * 60 * 1000;
+
+/**
+ * Откуда взят последний перечень файлов: 'disk' (локальный обход, dev/CI),
+ * 'github' (git/trees API — прод-standalone) или 'none' (не достали ниоткуда,
+ * прочёс покрытия пуст). Диагностика: на проде 'none' = GitHub недостижим из
+ * Timeweb/РФ, и весь sweep коллапсирует в ноль — это видно в ответе скана.
+ */
+export type RepoFilesSource = 'disk' | 'github' | 'none';
+let _lastSource: RepoFilesSource = 'none';
+export function getLastListSource(): RepoFilesSource {
+  return _lastSource;
+}
 
 async function walkLocal(): Promise<string[]> {
   try {
@@ -42,7 +56,7 @@ async function walkLocal(): Promise<string[]> {
 
 async function fetchTree(): Promise<string[]> {
   try {
-    const res = await fetch(
+    const res = await githubFetch(
       `https://api.github.com/repos/${REPO_SLUG}/git/trees/main?recursive=1`,
       { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kamchatour-evo' }, signal: AbortSignal.timeout(15_000) },
     );
@@ -61,7 +75,12 @@ async function fetchTree(): Promise<string[]> {
 export async function listRepoFiles(): Promise<string[]> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.files;
   let files = await walkLocal();
-  if (files.length === 0) files = await fetchTree();
+  if (files.length > 0) {
+    _lastSource = 'disk';
+  } else {
+    files = await fetchTree();
+    _lastSource = files.length > 0 ? 'github' : 'none';
+  }
   if (files.length > 0) cache = { at: Date.now(), files };
   return files;
 }

@@ -13,18 +13,27 @@
  * Хранит результат в agent_memory для истории.
  */
 
-import { callAIFast, fetchWithRetry } from '@/lib/ai/providers';
+import { callAIFast, callAIQuality, fetchWithRetry } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
 import { readAgentBriefing } from '@/lib/agents/warmup';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
+import {
+  SCOUT_SOURCE_EXPECTATIONS, applyRun, mapToRows, markAlertedInMap,
+  evaluateDeadSources, dueForAlert, formatScoutDeadSources,
+  type ScoutHealthMap, type SourceHealthEntry, type SourceStatus,
+} from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface DigestResult {
   signals_found: number;
   digest_sent: boolean;
   duration_ms: number;
+  /** Здоровье источников за прогон: сколько живых из всех и какие молчат. */
+  sources_ok?: number;
+  sources_total?: number;
+  dead_sources?: string[];
 }
 
 interface RssItem {
@@ -33,20 +42,20 @@ interface RssItem {
   source: string;
 }
 
-const RSS_SOURCES: Array<{ url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }> = [
+const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }> = [
   // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
-  { url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
-  { url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
-  { url: 'https://www.marktechpost.com/feed/',         label: 'MarkTechPost',   category: 'ai' },
-  { url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
+  { key: 'simonwillison', url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
+  { key: 'huggingface',   url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
+  { key: 'marktechpost',  url: 'https://www.marktechpost.com/feed/',         label: 'MarkTechPost',   category: 'ai' },
+  { key: 'hackernews',    url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
   // AI & Tech — русский слой
-  { url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
+  { key: 'habr_ai',       url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
   // Travel
-  { url: 'https://www.rata-news.ru/rss', label: 'RATA',     category: 'travel' },
-  { url: 'https://tourprom.ru/rss',      label: 'Tourprom', category: 'travel' },
+  { key: 'rata',          url: 'https://www.rata-news.ru/rss', label: 'RATA',     category: 'travel' },
+  { key: 'tourprom',      url: 'https://tourprom.ru/rss',      label: 'Tourprom', category: 'travel' },
   // Kamchatka
-  { url: 'https://www.kamgov.ru/rss',    label: 'Kamgov',        category: 'kamchatka' },
-  { url: 'https://41.mchs.gov.ru/rss',   label: 'МЧС Камчатка',  category: 'kamchatka' },
+  { key: 'kamgov',        url: 'https://www.kamgov.ru/rss',    label: 'Kamgov',        category: 'kamchatka' },
+  { key: 'mchs_rss',      url: 'https://41.mchs.gov.ru/rss',   label: 'МЧС Камчатка',  category: 'kamchatka' },
 ];
 
 // Метки AI-источников — для отдельного поста в @ai_hub_money
@@ -60,36 +69,59 @@ async function fetchRssWithRetry(url: string, options: RequestInit, label: strin
   return fetchWithRetry(url, options, { timeoutMs: 8000, maxRetries: 2, baseDelayMs: 1000, label: `rss:${label}` });
 }
 
-async function fetchRss(url: string, label: string): Promise<RssItem[]> {
-  try {
-    const res = await fetchRssWithRetry(url, {
-      headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
-    }, label);
-    const xml = await res.text();
-    const items: RssItem[] = [];
-    // RSS использует <item>, Atom (напр. Simon Willison) — <entry>. Поддерживаем оба.
-    const blockRegex = /<(item|entry)[^>]*>([\s\S]*?)<\/\1>/gi;
-    let match;
-    while ((match = blockRegex.exec(xml)) !== null && items.length < 5) {
-      const block = match[2];
-      const title = (
-        /<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title[^>]*>([\s\S]*?)<\/title>/i.exec(block)
-          ?.slice(1).find(Boolean) ?? ''
-      ).trim();
-      // RSS: <link>URL</link> | Atom: <link href="URL"/> | fallback: <guid>
-      const link = (
-        /<link[^>]*href=["']([^"']+)["']/i.exec(block)?.[1]      // Atom
-        ?? /<link[^>]*>(https?[^<]+)<\/link>/i.exec(block)?.[1]   // RSS
-        ?? /<guid[^>]*>(https?[^<]+)<\/guid>/i.exec(block)?.[1]   // fallback
-        ?? ''
-      ).trim();
-      if (title && title.length > 5) {
-        items.push({ title, url: link, source: label });
-      }
+/** Разбор RSS/Atom в items (чистая, без сети). */
+function parseRssItems(xml: string, label: string): RssItem[] {
+  const items: RssItem[] = [];
+  // RSS использует <item>, Atom (напр. Simon Willison) — <entry>. Поддерживаем оба.
+  const blockRegex = /<(item|entry)[^>]*>([\s\S]*?)<\/\1>/gi;
+  let match;
+  while ((match = blockRegex.exec(xml)) !== null && items.length < 5) {
+    const block = match[2];
+    const title = (
+      /<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title[^>]*>([\s\S]*?)<\/title>/i.exec(block)
+        ?.slice(1).find(Boolean) ?? ''
+    ).trim();
+    // RSS: <link>URL</link> | Atom: <link href="URL"/> | fallback: <guid>
+    const link = (
+      /<link[^>]*href=["']([^"']+)["']/i.exec(block)?.[1]      // Atom
+      ?? /<link[^>]*>(https?[^<]+)<\/link>/i.exec(block)?.[1]   // RSS
+      ?? /<guid[^>]*>(https?[^<]+)<\/guid>/i.exec(block)?.[1]   // fallback
+      ?? ''
+    ).trim();
+    if (title && title.length > 5) {
+      items.push({ title, url: link, source: label });
     }
-    return items;
+  }
+  return items;
+}
+
+interface SourceFetch {
+  key: string;
+  label: string;
+  category: 'ai' | 'travel' | 'kamchatka';
+  items: RssItem[];
+  /** Честный исход: 'ok' (фид отдал items), 'empty' (0 items), 'error' (упал/не-200). */
+  status: SourceStatus;
+}
+
+/**
+ * Тянет один источник и КЛАССИФИЦИРУЕТ исход — чтобы «нет сигналов» перестало
+ * быть немым: видно, фид отдал материал, отдал пусто или упал. Раньше упавший
+ * фид молча давал [] и был неотличим от «сегодня тихо».
+ */
+async function fetchSource(s: { key: string; url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }): Promise<SourceFetch> {
+  try {
+    const res = await fetchRssWithRetry(s.url, {
+      headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
+    }, s.label);
+    if (!res.ok) {
+      return { key: s.key, label: s.label, category: s.category, items: [], status: 'error' };
+    }
+    const xml = await res.text();
+    const items = parseRssItems(xml, s.label);
+    return { key: s.key, label: s.label, category: s.category, items, status: items.length > 0 ? 'ok' : 'empty' };
   } catch {
-    return [];
+    return { key: s.key, label: s.label, category: s.category, items: [], status: 'error' };
   }
 }
 
@@ -155,7 +187,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
  * Процент считается выдуманным, если ни одно из его чисел не встречается в источнике.
  * Так как в AI-пост подаются только заголовки, любой неподтверждённый процент — галлюцинация.
  */
-function unsourcedPercents(post: string, source: string): string[] {
+export function unsourcedPercents(post: string, source: string): string[] {
   const claims = post.match(/\d+(?:[.,]\d+)?\s*[–-]\s*\d+(?:[.,]\d+)?\s*%|\d+(?:[.,]\d+)?\s*%/g) ?? [];
   const srcNums = new Set((source.match(/\d+(?:[.,]\d+)?/g) ?? []).map(n => n.replace(',', '.')));
   return claims.filter(claim => {
@@ -211,6 +243,55 @@ async function unsupportedClaims(post: string, sources: string): Promise<string[
   } catch { return []; }
 }
 
+/**
+ * Учитывает здоровье источников за прогон, персистит в agent_memory и алертит
+ * про молчащие фиды (дебаунс). Переиспользует детерминированный evaluateDeadSources
+ * из safety. Не критично для дайджеста — ошибки глотаем.
+ */
+async function recordSourceHealthAndAlert(
+  fetched: SourceFetch[],
+): Promise<{ sources_ok: number; sources_total: number; dead_sources: string[] }> {
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const entries: SourceHealthEntry[] = fetched.map(f => ({
+    key: f.key, label: f.label, status: f.status, rawItems: f.items.length, inserted: 0,
+  }));
+
+  let deadLabels: string[] = [];
+  try {
+    const stored = await agentMemory.recall('scout-digest', 'source_health', 1).catch(() => []);
+    const prevMap = ((stored[0]?.value as { map?: ScoutHealthMap } | undefined)?.map) ?? {};
+    let map = applyRun(prevMap, entries, nowIso);
+
+    const rows = mapToRows(map);
+    const dead = evaluateDeadSources(rows, SCOUT_SOURCE_EXPECTATIONS, nowMs);
+    deadLabels = dead.map(d => d.label);
+
+    const toAlert = dueForAlert(dead, rows, nowMs);
+    if (toAlert.length > 0) {
+      await tgSend(formatScoutDeadSources(toAlert));
+      map = markAlertedInMap(map, toAlert.map(d => d.key), nowIso);
+    }
+
+    await agentMemory.remember({
+      agent_id: 'scout-digest',
+      memory_type: 'source_health',
+      key: 'sources',
+      value: { map } as unknown as Record<string, unknown>,
+      source: 'scout_digest_cron',
+      expires_at: new Date(nowMs + 90 * 24 * 60 * 60 * 1000),
+    });
+  } catch {
+    // health — вспомогательное, не роняем дайджест
+  }
+
+  return {
+    sources_ok: entries.filter(e => e.status === 'ok').length,
+    sources_total: entries.length,
+    dead_sources: deadLabels,
+  };
+}
+
 export async function runScoutDigest(): Promise<DigestResult> {
   const start = Date.now();
 
@@ -218,17 +299,17 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // recentRuns tells the agent what it already processed so it avoids duplicates.
   const briefing = await readAgentBriefing('scout-digest');
 
-  // Collect RSS in parallel
+  // Collect RSS in parallel — с честным статусом каждого источника
+  const fetched = await Promise.all(RSS_SOURCES.map(fetchSource));
   const allItems: RssItem[] = [];
-  const results = await Promise.allSettled(
-    RSS_SOURCES.map(s => fetchRss(s.url, s.label))
-  );
-  for (const r of results) {
-    if (r.status === 'fulfilled') allItems.push(...r.value);
-  }
+  for (const f of fetched) allItems.push(...f.items);
+
+  // Здоровье источников: делает «нет сигналов» диагностируемым (живой фид без
+  // новостей vs мёртвый фид) и алертит про молчащие. До любых ранних выходов.
+  const health = await recordSourceHealthAndAlert(fetched);
 
   if (allItems.length === 0) {
-    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start };
+    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
   }
 
   // Cross-run dedup: filter URLs already seen in the last 30 days
@@ -247,7 +328,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     const sent = await tgSend(
       `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
-    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start };
+    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start, ...health };
   }
 
   // Дедупликация: одна история из нескольких источников → одна запись
@@ -276,11 +357,25 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен.
 - "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
 
+НЕ ВРАТЬ. Пиши только то, что есть в сигналах:
+- Цифры, цены, версии, названия фич и технический механизм — ДОСЛОВНО из сигнала. Нет в сигнале — не пиши.
+- Особенно про цены и тарифы: "без изменения цены", "дешевле", "бесплатно" — только если это сказано в сигнале. Не выводи из общих соображений.
+- Если известен только заголовок — пиши общо, что появилось, без выдуманной конкретики.
+- Лучше скромный честный пункт, чем эффектный с выдумкой. Выдуманный факт = провал.
+
+Связь с платформой добавляй, ТОЛЬКО если она настоящая и конкретная.
+Натянутая привязка ("может быть полезно для рекомендаций в туризме") хуже её
+отсутствия: она ничего не сообщает и обесценивает остальной текст. Нет связи —
+просто скажи, что произошло.
+
+Пустых обещаний не давать: "стоит следить за обновлениями", "может изменить
+рынок" — это не инсайт. Либо конкретика из сигнала, либо пункт не нужен.
+
 Формат ответа — только HTML для Telegram, без markdown:
 <b>Дайджест [дата]</b>
 
 <b>AI & Tech</b>
-- [краткий инсайт 1-2 предложения, что это значит для платформы]
+- [что произошло, конкретика из сигнала]
 
 <b>Туриндустрия</b>
 - [краткий инсайт]
@@ -298,20 +393,58 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
   let digest: string | null = null;
   try {
-    digest = await callAIFast(messages);
+    digest = await callAIQuality(messages, { maxTokens: 1600 });
   } catch {
     digest = null;
   }
 
   if (!digest) {
-    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start };
+    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
   }
 
-  // If AI returned "no signals" for ALL sections — don't poison seen_urls, try again tomorrow
+  // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
+  // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
+  // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
+  // и приучает пролистывать. seen_urls тоже не трогаем — вернёмся завтра.
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 3;
   if (allEmpty) {
-    const sent = await tgSend(digest);
-    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start };
+    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
+  }
+
+  // ── Фактчек основного дайджеста ────────────────────────────────────────────
+  // Те же два гейта, что давно стоят на посте в AI-канал. Здесь их не было — и
+  // 25.07.2026 в дайджест ушло «Claude Opus 5 — без изменения цены», хотя цена
+  // изменилась вдвое. Модель не врала злонамеренно: ей просто не запретили
+  // додумывать, и никто не сверял результат с источником.
+  {
+    let bad = unsourcedPercents(digest, signalsList);
+    if (bad.length > 0) {
+      const fix: ChatMessage[] = [
+        ...messages,
+        { role: 'assistant', content: digest },
+        { role: 'user', content: `В тексте есть проценты, которых НЕТ в сигналах: ${bad.join(', ')}. Перепиши дайджест, убрав все неподтверждённые числа (формулируй без них). Верни только исправленный текст.` },
+      ];
+      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
+    }
+    if (bad.length > 0) {
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    }
+
+    let claims = await unsupportedClaims(digest, signalsList);
+    if (claims.length > 0) {
+      const fix: ChatMessage[] = [
+        ...messages,
+        { role: 'assistant', content: digest },
+        { role: 'user', content: `Эти утверждения НЕ подтверждаются сигналами (выдумка или искажение): ${claims.join(' | ')}. Перепиши дайджест строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
+      ];
+      const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
+      if (retry) { digest = retry; claims = await unsupportedClaims(digest, signalsList); }
+    }
+    if (claims.length > 0) {
+      // Лучше не выпустить дайджест, чем выпустить с выдумкой.
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    }
   }
 
   // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
@@ -389,7 +522,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           content: `Сигналы:\n\n${aiSignals}`,
         },
       ];
-      let aiDigest = await callAIFast(aiMessages).catch(() => null);
+      let aiDigest = await callAIQuality(aiMessages, { maxTokens: 1600 }).catch(() => null);
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
       // У модели только заголовки, поэтому любой процент, которого нет в источнике, — выдумка.
@@ -402,7 +535,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `В тексте есть проценты, которых НЕТ в исходных заголовках: ${bad.join(', ')}. Это запрещено. Перепиши пост, полностью убрав все цифры и проценты, не подтверждённые заголовками (формулируй без чисел). Верни только исправленный пост.` },
           ];
-          const retry = await callAIFast(fix).catch(() => null);
+          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; bad = unsourcedPercents(aiDigest, aiSignals); }
         }
         if (bad.length > 0) {
@@ -420,7 +553,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
             { role: 'assistant', content: aiDigest },
             { role: 'user', content: `Эти утверждения НЕ подтверждаются текстом статей (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост, убрав или исправив их строго по источникам. Не добавляй новых непроверенных фактов. Верни только исправленный пост.` },
           ];
-          const retry = await callAIFast(fix).catch(() => null);
+          const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
         }
         if (claims.length > 0) {
@@ -448,7 +581,14 @@ export async function runScoutDigest(): Promise<DigestResult> {
       type: 'intel',
       title: `Scout Digest ${dateKey}`,
       compiled_truth: digest,
-      metadata: { signals: dedupedItems.length, raw_signals: allItems.length, fresh_signals: freshItems.length, sources: RSS_SOURCES.map(s => s.label), sent_to_tg: sent },
+      metadata: {
+        signals: dedupedItems.length, raw_signals: allItems.length, fresh_signals: freshItems.length,
+        sources: RSS_SOURCES.map(s => s.label),
+        // Честный per-source статус: какой фид отдал материал, а какой молчит/упал.
+        source_health: fetched.map(f => ({ label: f.label, category: f.category, status: f.status, items: f.items.length })),
+        dead_sources: health.dead_sources,
+        sent_to_tg: sent,
+      },
       agent_id: 'scout',
     });
     // Also keep short-term memory for agents that scan recent intel
@@ -465,5 +605,5 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // Non-critical
   }
 
-  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start };
+  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start, ...health };
 }

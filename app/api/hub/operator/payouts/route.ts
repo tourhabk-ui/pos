@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
+import { encryptPayoutDetails } from '@/lib/operators/payout-details';
 import { z } from 'zod';
 
 const PayoutDetailsSchema = z.discriminatedUnion('method', [
@@ -133,6 +134,17 @@ export async function PATCH(request: NextRequest) {
 
   const { method, ...details } = parsed.data;
 
+  // Реквизиты (р/с, ИНН, БИК, телефон СБП) — финансовые ПД. UI обещает шифрование,
+  // схема помечена «encrypted by app layer» — шифруем перед записью. Нет ключа →
+  // честная ошибка, а не тихий plaintext под обещанием шифрования.
+  const encrypted = encryptPayoutDetails(details);
+  if (encrypted === null) {
+    return NextResponse.json(
+      { error: 'Шифрование реквизитов недоступно. Обратитесь к администратору.' },
+      { status: 503 }
+    );
+  }
+
   await query(
     `UPDATE partners
      SET payout_method  = $1,
@@ -140,7 +152,7 @@ export async function PATCH(request: NextRequest) {
          payout_verified = FALSE,
          updated_at = NOW()
      WHERE id = $3`,
-    [method, JSON.stringify(details), operatorId]
+    [method, encrypted, operatorId]
   );
 
   return NextResponse.json({ success: true, message: 'Реквизиты сохранены. Верификация пройдёт в течение 1 рабочего дня.' });

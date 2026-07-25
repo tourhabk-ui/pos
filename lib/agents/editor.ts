@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIQualityOrNull } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
@@ -134,12 +134,36 @@ function describeShortText(text: string | null): string {
   return `короткий ответ ${text.length} симв. (вероятно fallback-заглушка — все fast-провайдеры отказали)`;
 }
 
-export async function generateRouteDescription(route: RouteRow): Promise<GenerationOutcome> {
+/**
+ * Варианты системного промпта Editor — для held-out эксперимента.
+ *
+ * `full`  — действующий: блок «КРИТИЧНО — запрет на выдумывание» + стиль.
+ * `lean`  — цель и формат без перечня запретов. Проверяем ходовое утверждение
+ *           «умной модели длинные инструкции мешают»: держится ли качество,
+ *           когда запреты убраны.
+ *
+ * Сравнивать варианты можно ТОЛЬКО двумя оракулами сразу (см.
+ * lib/agents/eval/editor-regression.ts): по одной длине короткий вариант
+ * заведомо выигрывает — без запретов модель пишет охотнее и длиннее, а растёт
+ * при этом выдуманная конкретика, которой длина не видит.
+ */
+export type EditorPromptVariant = 'full' | 'lean';
+
+const SYSTEM_LEAN = `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab, главная задача которой — безопасность туристов.
+
+Стиль и формат:
+- Фактически точный, спокойный, без рекламных штампов ("захватывающий", "незабываемый", "уникальный", "райский", "must-see").
+- Без emoji, без markdown, без списков — связный текст, 2–3 абзаца, 200–350 слов, на русском.`;
+
+export async function generateRouteDescription(
+  route: RouteRow,
+  variant: EditorPromptVariant = 'full',
+): Promise<GenerationOutcome> {
   const categoryLabel = route.category ? (CATEGORY_LABELS[route.category] ?? route.category) : '';
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
+      content: variant === 'lean' ? SYSTEM_LEAN : `Ты эксперт по туризму на Камчатке. Пишешь описания природных объектов и маршрутов для платформы TourHab. Главная задача платформы — безопасность туристов, поэтому каждое слово должно быть либо проверяемым фактом, либо честным обобщением без выдуманной конкретики.
 
 КРИТИЧНО — запрет на выдумывание:
 - НЕ придумывай конкретные числа, которых тебе не дали: высоту, координаты, длину маршрута, перепад, температуру источника, расстояние до жилья, время в пути.
@@ -169,8 +193,19 @@ ${verbalizedInstruction(3)}
   ];
 
   try {
-    const raw = (await callAIFast(messages))?.trim() ?? null;
-    if (!raw) return { text: null, failReason: `callAIFast: ${describeShortText(raw)}` };
+    // callAIQualityOrNull даёт null, когда не ответил НИ ОДИН провайдер. Раньше сюда
+    // приходила строка-заглушка «Сервис временно недоступен.», и отказ опознавали
+    // ЭВРИСТИКОЙ по длине (27 симв.) — отсюда формулировка «вероятно заглушка».
+    // Теперь причина известна точно, а не угадывается.
+    // Описания читают туристы — это контент, а не структурный ответ. Поэтому
+    // качественный путь (сильнейшая модель по очереди), а не гонка на скорость,
+    // где побеждала мелкая быстрая модель.
+    const answer = await callAIQualityOrNull(messages, { maxTokens: 1600 });
+    if (answer === null) {
+      return { text: null, failReason: 'все провайдеры отказали (DeepSeek/Qwen/waterfall) — ответа нет' };
+    }
+    const raw = answer.trim() || null;
+    if (!raw) return { text: null, failReason: 'пустой ответ модели' };
 
     // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
     // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON. Иначе рискуем
@@ -182,7 +217,7 @@ ${verbalizedInstruction(3)}
     const result = picked ?? (looksLikeVerbalizedJson(raw) ? null : raw);
 
     if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
-    return { text: null, failReason: `callAIFast: ${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
+    return { text: null, failReason: `${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
   } catch (err) {
     return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
   }

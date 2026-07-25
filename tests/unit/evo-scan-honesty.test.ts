@@ -109,3 +109,54 @@ describe('buildEvoAlert: алерт только когда есть новое'
     expect(text).toContain('Ошибки: GrowthScan: db down');
   });
 });
+
+describe('buildEvoAlert: ослепший прочёс — видимый алерт, а не тишина', () => {
+  const cleanScan = (over: Record<string, unknown> = {}) => ({
+    issues: [], new_issues: 0, duration_ms: 13000, ...over,
+  });
+
+  it('source=none при 0 новых — алерт всё равно уходит и говорит «ослеп»', () => {
+    const text = buildEvoAlert({
+      scan: cleanScan({ coverage: { source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0 } }),
+      evolution: { processed: 0, auto_fixes: 0 },
+      rescue: { alerts: [] },
+      errors: [],
+    });
+    expect(text).not.toBeNull();
+    expect(text).toContain('Прочёс ослеп');
+    expect(text).toContain('source=none');
+  });
+
+  it('перечислил файлы, но прочитал 0 (тела недостижимы) — тоже ослеп', () => {
+    const text = buildEvoAlert({
+      scan: cleanScan({ coverage: { source: 'github', files_listed: 340, files_reviewed: 0, mock_files_scanned: 0 } }),
+      evolution: { processed: 0, auto_fixes: 0 },
+      rescue: { alerts: [] },
+      errors: [],
+    });
+    expect(text).not.toBeNull();
+    expect(text).toContain('Прочёс ослеп');
+  });
+
+  it('здоровый прочёс без новых проблем — по-прежнему тишина (null)', () => {
+    const text = buildEvoAlert({
+      scan: cleanScan({ coverage: { source: 'disk', files_listed: 340, files_reviewed: 8, mock_files_scanned: 12 } }),
+      evolution: { processed: 0, auto_fixes: 0 },
+      rescue: { alerts: [] },
+      errors: [],
+    });
+    expect(text).toBeNull();
+  });
+
+  it('здоровый прочёс с новыми проблемами — показывает строку покрытия', () => {
+    const text = buildEvoAlert({
+      scan: cleanScan({ new_issues: 1, issues: [{ severity: 'high', title: 'X' }], coverage: { source: 'disk', files_listed: 340, files_reviewed: 8, mock_files_scanned: 12 } }),
+      evolution: { processed: 0, auto_fixes: 0 },
+      rescue: { alerts: [] },
+      errors: [],
+    });
+    expect(text).toContain('source=disk');
+    expect(text).toContain('отревьюено 8');
+    expect(text).toContain('мок-скан 12');
+  });
+});

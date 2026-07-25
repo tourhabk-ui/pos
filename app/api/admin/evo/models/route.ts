@@ -8,12 +8,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { getProviderModelIds } from '@/lib/ai/providers';
+import { getOpenRouterKey, getAnthropicKey } from '@/lib/ai/provider-config';
 import { classifyModels, pickBestModel } from '@/lib/ai/model-resolver';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Экран показывал только DeepSeek и Qwen и звал DeepSeek «первичным», хотя с
+ * PR #751-753 ПЕРВЫМ в callAIDecision идёт флагман (Claude через OpenRouter, а
+ * при отказе — напрямую через Anthropic). То есть страница врала о собственном
+ * решателе: владелец видел два фоллбэка и не видел главного звена.
+ *
+ * Флагман устроен иначе, чем DeepSeek/Qwen: его id ЗАПИНЕН (EVO_FLAGSHIP_MODEL),
+ * а не выбирается из /v1/models, поэтому в списке моделей у него пусто —
+ * показываем сам пин и наличие ключей.
+ */
+const FLAGSHIP_ENV = 'EVO_DECISION_FLAGSHIP_MODEL';
+const FLAGSHIP_DEFAULT = 'anthropic/claude-opus-5';
+
 const PROVIDERS: Array<{ key: 'deepseek' | 'qwen'; label: string; overrideEnv: string; role: string }> = [
-  { key: 'deepseek', label: 'DeepSeek', overrideEnv: 'EVO_DECISION_MODEL', role: 'первичный' },
+  { key: 'deepseek', label: 'DeepSeek', overrideEnv: 'EVO_DECISION_MODEL', role: 'резерв (доступен из РФ)' },
   { key: 'qwen', label: 'Qwen (DashScope)', overrideEnv: 'EVO_DECISION_QWEN_MODEL', role: 'на подхвате' },
 ];
 
@@ -44,5 +58,31 @@ export async function GET(request: NextRequest) {
     }),
   );
 
-  return NextResponse.json({ success: true, providers });
+  // Флагман — первое звено waterfall. Ключ есть у любого из двух путей:
+  // OpenRouter (через релей) или Anthropic напрямую (тоже через релей).
+  const flagshipOverride = process.env[FLAGSHIP_ENV] || null;
+  const flagshipActive = flagshipOverride || FLAGSHIP_DEFAULT;
+  const hasOr = !!getOpenRouterKey();
+  const hasAnthropic = !!getAnthropicKey();
+
+  const flagship = {
+    key: 'flagship' as const,
+    label: 'Claude (флагман)',
+    role: 'первичный',
+    override_env: FLAGSHIP_ENV,
+    override: flagshipOverride,
+    active: flagshipActive,
+    auto_pick: null,
+    eligible_count: hasOr || hasAnthropic ? 1 : 0,
+    total_count: 1,
+    has_key: hasOr || hasAnthropic,
+    // id запинен, а не резолвится из /v1/models — списка кандидатов нет.
+    models: [] as ReturnType<typeof classifyModels>,
+    pinned: true,
+    note: hasOr || hasAnthropic
+      ? `id запинен (${FLAGSHIP_ENV}); пути: ${[hasOr && 'OpenRouter', hasAnthropic && 'Anthropic напрямую'].filter(Boolean).join(' + ')}. Достижимость — /api/ai/relay-check`
+      : 'нет ни OPENROUTER_API_KEY, ни ANTHROPIC_API_KEY — решение уходит на DeepSeek/Qwen',
+  };
+
+  return NextResponse.json({ success: true, providers: [flagship, ...providers] });
 }

@@ -11,7 +11,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { callAIFastMock } = vi.hoisted(() => ({ callAIFastMock: vi.fn() }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
-vi.mock('@/lib/ai/providers', () => ({ callAIFast: (...a: unknown[]) => callAIFastMock(...a) }));
+vi.mock('@/lib/ai/providers', () => ({
+  callAIFast: (...a: unknown[]) => callAIFastMock(...a),
+  AI_FAST_UNAVAILABLE: 'Сервис временно недоступен.',
+  // Editor опрашивает провайдеров через callAIFastOrNull: отказ ВСЕХ = null.
+  callAIFastOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
+  // Editor переведён на КАЧЕСТВЕННЫЙ путь (callAIQualityOrNull): контент пишет
+  // сильнейшая доступная модель по очереди, а не победитель гонки на скорость.
+  // Мок сохраняет прежний контракт: отказ ВСЕХ провайдеров = null.
+  callAIQuality: (...a: unknown[]) => callAIFastMock(...a),
+  callAIQualityOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
+}));
 
 import { generateRouteDescription, type RouteRow } from '@/lib/agents/editor';
 

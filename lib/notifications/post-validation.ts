@@ -8,6 +8,7 @@
 import { query } from '@/lib/database';
 import { getPublicBaseUrl } from '@/lib/config';
 import { hasSourceAttribution } from '@/lib/text/source-attribution';
+import { isWaterfallErrorResponse } from '@/lib/ai/providers';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -92,16 +93,119 @@ function extractInternalLinks(text: string): string[] {
   return links;
 }
 
+const MIN_POST_CHARS = 30;
+const MAX_POST_CHARS = 2000;
+
 /**
- * Правило 4: Текст поста не пустой и разумной длины.
+ * Сколько текста должно быть на карточке, чтобы на неё имело смысл вести.
+ *
+ * 25.07.2026: пост про Озеро Державина вышел живым и подробным — «секрет от
+ * местных», «приходить надо рано утром». Турист переходил и видел: «Это Озеро
+ * Державина в Камчатском крае. Место, которое стоит посмотреть.» Две строки.
+ * Обещание в канале и содержимое страницы разошлись, а это прямой удар по
+ * доверию — тому единственному, ради чего платформа существует.
+ *
+ * Прежний порог был 20 символов и стоял в warnings, то есть заглушка в ~70
+ * символов проходила МОЛЧА. Порог поднят и переведён в errors: Editor доводит
+ * описания до 300+, так что 180 — это «хотя бы началось», а не «дотягивает».
  */
+const MIN_DESTINATION_CHARS = 180;
+
+/**
+ * Тексты-заглушки, которые формально длинные, но ничего не сообщают. Ловим
+ * отдельно от длины: «Это X в Камчатском крае. Место, которое стоит
+ * посмотреть.» можно раздуть до любого размера, оставшись пустым.
+ */
+// ВНИМАНИЕ: \w и \b в JS не покрывают кириллицу (\w — это [A-Za-z0-9_]).
+// Поэтому здесь везде явные классы [а-яё], а не \w и не границы слова.
+const FILLER_DESCRIPTION = /мест[оа],?\s*котор[а-яё]*\s+стоит\s+(посмотреть|увидеть|посетить)|^это\s+.{3,60}\s+в\s+камчатском\s+крае\.?\s*$/i;
+
+/**
+ * Видимый текст: убрать разметку, схлопнуть пробелы. Нужен ТОЛЬКО для замеров
+ * (длина, поиск шаблона) — результат никуда не выводится и санитайзером НЕ
+ * является. Название выбрано так, чтобы это было очевидно следующему читателю.
+ *
+ * Почему в цикле, а не одним `replace`. Одиночный проход по `<[^>]+>` —
+ * известная ловушка: во входе `<scr<script>ipt>` он удалит внутренний тег и
+ * СОБЕРЁТ из остатков `<script>`. Нам это не грозит (мы ничего не рендерим),
+ * но CodeQL справедливо метит сам шаблон: тот, кто позовёт функцию позже,
+ * может принять её за очистку. Повтор до неподвижной точки убирает и повод для
+ * находки, и саму ловушку. Счётчик ограничивает работу на вырожденном входе.
+ */
+export function visibleText(input: string): string {
+  let text = input;
+  for (let pass = 0; pass < 8; pass++) {
+    const next = text.replace(/<[^>]*>/g, ' ');
+    if (next === text) break;
+    text = next;
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** Годится ли описание для страницы, на которую ведёт публичный пост. */
+export function destinationTextIssue(description: string | null | undefined): string | null {
+  const text = visibleText(description ?? '');
+  if (!text) return 'у карточки нет описания — вести на неё некуда';
+  if (FILLER_DESCRIPTION.test(text)) {
+    return 'описание карточки — заглушка («место, которое стоит посмотреть»), турист не узнает ничего';
+  }
+  if (text.length < MIN_DESTINATION_CHARS) {
+    return `описание карточки слишком короткое (${text.length} символов, нужно от ${MIN_DESTINATION_CHARS})`;
+  }
+  return null;
+}
+
+/**
+ * Пост обещает трек или маршрут? Детерминированная проверка вместо надежды на
+ * промпт.
+ *
+ * 12.07.2026 пост «Гора Красная поляна» вёл на карточку без трека. Тогда
+ * добавили условие В ПРОМПТ: «НЕ обещай маршрут или трек, на странице их нет».
+ * Инструкция в промпте — не гвард: модель её просто не выполняет, и никто не
+ * замечает. CLAUDE.md §8 прямо требует в таких случаях инструмент, а не абзац.
+ */
+export function promisesRouteOrTrack(text: string): boolean {
+  // \b здесь применим только к латинскому GPS: для кириллицы границы слова в
+  // JS не существует (\w = [A-Za-z0-9_]), поэтому «трек» перед пробелом \b НЕ
+  // даёт. Отсюда явные классы. «Треккинг» и «трекинг» — вид активности, а не
+  // обещание файла с треком, поэтому исключены.
+  return /\bGPS\b|трек(?!к|инг)[а-яё]*|маршрут[а-яё]*/i.test(visibleText(text));
+}
+
+/**
+ * Правило 4: причины НЕ публиковать, видимые по одному тексту — без сети и БД.
+ *
+ * Вынесено отдельно и синхронным, чтобы этим же правилом мог закрыться сам
+ * канал публикации (postToAllChannels), а не только те публикаторы, которые
+ * не забыли позвать валидацию.
+ *
+ * Отдельная проверка на заглушку отказа AI — не роскошь. 25.07.2026 в канал
+ * ушёл пост «Сервис временно недоступен.»: waterfall при отказе ВСЕХ
+ * провайдеров возвращает строку, а не бросает исключение, и публикатор принял
+ * её за текст. Ловить это длиной нельзя: у callAIFast заглушка 27 символов и
+ * случайно не проходит порог в 30, а у callAIWaterfall — «Извините, сервис
+ * временно недоступен. Попробуйте позже.», 54 символа, и порог она проходит.
+ * Поэтому сверяемся с реестром заглушек (isWaterfallErrorResponse), а не с
+ * длиной: один источник правды с providers.ts.
+ */
+export function blockingTextIssue(text: string): string | null {
+  const stripped = visibleText(text);
+  if (!stripped) return 'текст поста пустой';
+  if (isWaterfallErrorResponse(stripped)) {
+    return 'это заглушка отказа AI, а не пост';
+  }
+  if (stripped.length < MIN_POST_CHARS) {
+    return `текст слишком короткий (${stripped.length} символов, мин. ${MIN_POST_CHARS})`;
+  }
+  if (stripped.length > MAX_POST_CHARS) {
+    return `текст слишком длинный (${stripped.length} символов, макс. ${MAX_POST_CHARS})`;
+  }
+  return null;
+}
+
 function checkTextQuality(text: string): string[] {
-  const errors: string[] = [];
-  const stripped = text.replace(/<[^>]+>/g, '').trim();
-  if (!stripped) errors.push('Текст поста пустой');
-  if (stripped.length < 30) errors.push(`Текст слишком короткий (${stripped.length} символов, мин. 30)`);
-  if (stripped.length > 2000) errors.push(`Текст слишком длинный (${stripped.length} символов, макс. 2000)`);
-  return errors;
+  const issue = blockingTextIssue(text);
+  return issue ? [issue] : [];
 }
 
 /**
@@ -226,9 +330,11 @@ export async function validateRoutePost(routeId: string, text: string): Promise<
   errors.push(...linkCheck.errors);
   warnings.push(...linkCheck.warnings);
 
-  // 5. Маршрут имеет описание
-  if (!route!.description || route!.description.trim().length < 20) {
-    warnings.push('У маршрута нет полноценного описания');
+  // 5. На карточке есть что читать. Это ERROR, а не warning: вести живой пост
+  //    на страницу-заглушку хуже, чем не постить вовсе (см. MIN_DESTINATION_CHARS).
+  const destIssue = destinationTextIssue(route!.description);
+  if (destIssue) {
+    errors.push(`Карточка не готова к публикации: ${destIssue}`);
   }
 
   return {

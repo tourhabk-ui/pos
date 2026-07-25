@@ -77,21 +77,33 @@ export async function POST(request: NextRequest) {
 
   const newOwned = nextOwnedRoles(user.role, owned, target);
 
-  // Меняем активную роль + сохраняем расширенный owned (god-mode admin бутстрапит admin+target).
-  await pool.query(
-    `UPDATE users
-        SET role = $2,
-            preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{roles}', $3::jsonb),
-            updated_at = NOW()
-      WHERE id = $1`,
-    [user.id, target, JSON.stringify(newOwned)],
-  );
+  // Мутация + токен под try/catch: без него сбой UPDATE/createToken давал
+  // необработанный 500 с ПУСТЫМ телом, и клиент падал на res.json()
+  // («Unexpected end of JSON input»), а переключение молча срывалось. Теперь
+  // всегда возвращаем JSON — клиент видит понятную ошибку, а не сырой JS-эксепшн.
+  let token: string;
+  try {
+    // Меняем активную роль + сохраняем расширенный owned (god-mode admin бутстрапит admin+target).
+    await pool.query(
+      `UPDATE users
+          SET role = $2,
+              preferences = jsonb_set(COALESCE(preferences, '{}'::jsonb), '{roles}', $3::jsonb),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [user.id, target, JSON.stringify(newOwned)],
+    );
 
-  // Партнёрским ролям — партнёрский профиль (иначе кабинет пуст). Не блокируем при сбое.
-  await ensurePartnerForRole(user.id, target).catch(() => null);
+    // Партнёрским ролям — партнёрский профиль (иначе кабинет пуст). Не блокируем при сбое.
+    await ensurePartnerForRole(user.id, target).catch(() => null);
 
-  // Пере-выпуск JWT под новую активную роль.
-  const token = await createToken({ userId: user.id, email: user.email, role: target });
+    // Пере-выпуск JWT под новую активную роль.
+    token = await createToken({ userId: user.id, email: user.email, role: target });
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Не удалось переключить роль. Попробуйте ещё раз.' } as ApiResponse<null>,
+      { status: 500 },
+    );
+  }
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);

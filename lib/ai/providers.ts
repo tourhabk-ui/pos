@@ -16,7 +16,7 @@
  *   MISTRAL_API_KEY         — Mistral La Plateforme (бесплатно, EU — проверить geo)
  *
  *   EVO_DECISION_FLAGSHIP_MODEL — флагман-решатель эволюции через OpenRouter
- *                             (default anthropic/claude-opus-4-8). Достижим из РФ
+ *                             (default anthropic/claude-opus-5). Достижим из РФ
  *                             ТОЛЬКО через OPENROUTER_BASE_URL-релей + OPENROUTER_API_KEY.
  *                             Не задан ключ/релей → падаем на DeepSeek/Qwen.
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default deepseek-chat)
@@ -49,7 +49,10 @@ import { pickBestModel } from '@/lib/ai/model-resolver';
 // прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
 // указывают на него. Переменные не заданы → прежнее прямое поведение.
 const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-const ANTHROPIC_BASE  = (process.env.ANTHROPIC_BASE_URL  || 'https://api.anthropic.com').replace(/\/+$/, '');
+// Экспортируется: прямой вызов Anthropic нужен там, где waterfall не годится
+// (image-tagger — ему нужно зрение, а waterfall текстовый). Такие места обязаны
+// брать базу отсюда, иначе релей их не спасёт и они останутся мертвы в РФ.
+export const ANTHROPIC_BASE = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 
 // ── LLM usage tracking ────────────────────────────────────────
 // Logs token counts and estimated costs to llm_usage_log (migration 686).
@@ -61,6 +64,13 @@ const COST_PER_1K: Record<string, number> = {
   'deepseek-chat':                             0.00050,
   'deepseek/deepseek-chat-v3-0324':            0.00050,
   'anthropic/claude-fable-5':                  0.01500,
+  // Opus 5 — ВДВОЕ дешевле Fable 5: $5/$25 за млн против $10/$50
+  // (анонс Anthropic 25.07.2026). До анонса цена стояла как у Opus 4.8, то
+  // есть равной Fable 5, — это была догадка, и она завышала расход вдвое.
+  // Таблица блендовая (одно число на 1К всех токенов); доля вывода в ней ~12.5%,
+  // что и даёт 0.015 для Fable 5. Тот же бленд для вдвое меньших ставок — 0.0075.
+  'anthropic/claude-opus-5':                   0.00750,
+  // 4.8 оставлена: по ней считается стоимость исторических строк llm_usage_log.
   'anthropic/claude-opus-4-8':                 0.01500,
   'anthropic/claude-haiku-4-5-20251001':       0.00025,
   'anthropic/claude-haiku-4-5':                0.00025,
@@ -115,6 +125,43 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Последняя причина отказа по каждому провайдеру.
+ *
+ * Зачем: провайдеры устроены одинаково — `if (!res.ok) return null` и
+ * `catch { return null }`. Причина не сохраняется НИГДЕ, поэтому на вопрос
+ * «почему сервис недоступен, ключ и баланс на месте» ответить было нечем:
+ * в логе есть только перечень настроенных ключей, то есть «ключ есть»,
+ * а не «что ответил провайдер».
+ *
+ * Пишется здесь, а не в пятнадцати вызовах: через fetchWithRetry ходят все,
+ * и у неё уже есть label с именем провайдера.
+ *
+ * Тело ответа НЕ читается — его должен получить вызывающий. Одного статуса
+ * хватает, чтобы различить основные случаи: 401 — ключ, 402 — кончился
+ * баланс (так отвечает DeepSeek), 429 — лимит, 400 — устаревший model-id,
+ * 403 — гео-блок.
+ */
+interface ProviderFailure { at: number; reason: string }
+const lastProviderFailure = new Map<string, ProviderFailure>();
+
+function noteProviderFailure(label: string | undefined, reason: string): void {
+  if (!label) return;
+  lastProviderFailure.set(label, { at: Date.now(), reason });
+}
+
+/** Свежие отказы провайдеров — для логов и health. Ключ: label провайдера. */
+export function recentProviderFailures(maxAgeMs = 10 * 60_000): Record<string, string> {
+  const out: Record<string, string> = {};
+  const now = Date.now();
+  for (const [label, f] of lastProviderFailure) {
+    if (now - f.at <= maxAgeMs) {
+      out[label] = `${f.reason} (${Math.round((now - f.at) / 1000)}с назад)`;
+    }
+  }
+  return out;
+}
+
+/**
  * fetch с ретраями транзиентных сбоев. timeoutMs задаётся отдельным
  * параметром (не через init.signal) — каждая попытка получает свежий
  * AbortSignal.timeout, а не урезанный остаток от предыдущей попытки.
@@ -135,11 +182,16 @@ export async function fetchWithRetry(
       const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       const retryable = RETRYABLE_STATUS.has(res.status);
       if (res.ok || attempt === maxRetries || !retryable) {
+        // Тело не трогаем — его читает вызывающий. Статуса достаточно.
+        if (!res.ok) noteProviderFailure(label, `HTTP ${res.status}`);
         return res;
       }
       lastErr = new Error(`HTTP ${res.status}`);
     } catch (err) {
-      if (attempt === maxRetries || !isRetryableNetworkError(err)) throw err;
+      if (attempt === maxRetries || !isRetryableNetworkError(err)) {
+        noteProviderFailure(label, err instanceof Error ? err.message : 'сетевая ошибка');
+        throw err;
+      }
       lastErr = err;
     }
     const delay = baseDelayMs * 2 ** attempt + Math.random() * baseDelayMs;
@@ -187,7 +239,7 @@ export async function callMiMo(messages: ChatMessage[]): Promise<string | null> 
 // Порядок: сначала быстрые и надёжные, timeout снижен до 12s
 const OR_MODELS = [
   { id: 'anthropic/claude-fable-5',                     timeout: 20_000 }, // flagship
-  { id: 'anthropic/claude-opus-4-8',                    timeout: 20_000 }, // flagship fallback (safety blocks)
+  { id: 'anthropic/claude-opus-5',                      timeout: 20_000 }, // flagship fallback (safety blocks)
   { id: 'anthropic/claude-haiku-4-5-20251001',          timeout: 15_000 }, // fast fallback
   { id: 'anthropic/claude-haiku-4-5',                   timeout: 15_000 }, // alias fallback
   { id: 'openai/gpt-4o-mini',                           timeout: 12_000 }, // non-anthropic backup
@@ -710,12 +762,12 @@ export async function callAnthropic(messages: ChatMessage[]): Promise<string | n
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      // Fable 5 safety classifier blocks (400) — retry with Opus 4.8
+      // Fable 5 safety classifier blocks (400) — retry with Opus 5
       if (res.status === 400 && errText.includes('safety') && (process.env.ANTHROPIC_MODEL ?? 'claude-fable-5') === 'claude-fable-5') {
         const fb = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
+          body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 800, temperature: 0.4, ...(systemMsg ? { system: [{ type: 'text', text: systemMsg.content }] } : {}), messages: anthropicMessages }),
           signal: AbortSignal.timeout(20_000),
         }).catch(() => null);
         if (fb?.ok) {
@@ -932,7 +984,7 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
 // intel-bridge. Последовательно: качество важнее latency (крон).
 
 interface ModelCacheEntry { id: string; at: number }
-const DECISION_MODEL_CACHE = new Map<'deepseek' | 'qwen', ModelCacheEntry>();
+const PURPOSE_MODEL_CACHE = new Map<string, ModelCacheEntry>();
 const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
 // Безопасные скользящие алиасы, если /v1/models недоступен.
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
@@ -962,32 +1014,87 @@ export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promis
 }
 
 /**
- * Автоопределение модели-решателя без привязки к id: env-override → кэш →
- * /v1/models + pickBestModel → безопасный алиас. Кэш 1ч, чтобы не дёргать
- * список на каждый вызов.
+ * Автоопределение сильнейшей модели провайдера без привязки к id:
+ * env-override → кэш → /v1/models + pickBestModel → безопасный алиас.
+ * Кэш 1ч, чтобы не дёргать список на каждый вызов.
+ *
+ * Ключ кэша включает назначение: у решателя и у контента разные override,
+ * и подсовывать одному кэш другого нельзя.
  */
-export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
-  const override = provider === 'deepseek'
-    ? process.env.EVO_DECISION_MODEL
-    : process.env.EVO_DECISION_QWEN_MODEL;
+async function resolveBestModel(
+  provider: 'deepseek' | 'qwen',
+  purpose: 'decision' | 'content',
+  override: string | undefined,
+): Promise<string> {
   if (override) return override;
 
-  const cached = DECISION_MODEL_CACHE.get(provider);
+  const cacheKey = `${purpose}:${provider}` as const;
+  const cached = PURPOSE_MODEL_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
 
   const ids = await getProviderModelIds(provider);
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
-  DECISION_MODEL_CACHE.set(provider, { id: picked, at: Date.now() });
+  PURPOSE_MODEL_CACHE.set(cacheKey, { id: picked, at: Date.now() });
   return picked;
+}
+
+export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  return resolveBestModel(provider, 'decision', provider === 'deepseek'
+    ? process.env.EVO_DECISION_MODEL
+    : process.env.EVO_DECISION_QWEN_MODEL);
+}
+
+/**
+ * Модель для ГЕНЕРАЦИИ КОНТЕНТА (дайджест, описания Editor, посты в каналы).
+ *
+ * До 25.07.2026 такого понятия не было: контент писал callAIFast — гонка трёх
+ * провайдеров, где побеждает самый БЫСТРЫЙ, а не самый сильный. Двое из трёх
+ * были прибиты к снапшотам начала 2025 года (gemini-2.0-flash-001,
+ * deepseek-chat-v3-0324). Быстрая мелкая модель выигрывала гонку почти всегда,
+ * и публичные тексты писала она. Отсюда «наша LLM не дотягивает».
+ *
+ * Здесь id не хардкодится сознательно (CLAUDE.md §8): провайдер обновит
+ * линейку — pickBestModel подхватит сам, и разговор не повторится через
+ * полгода. Override — CONTENT_MODEL / CONTENT_QWEN_MODEL.
+ */
+export async function resolveContentModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  return resolveBestModel(provider, 'content', provider === 'deepseek'
+    ? process.env.CONTENT_MODEL
+    : process.env.CONTENT_QWEN_MODEL);
 }
 
 // Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
 // галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
 // ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
-// Дефолт — Opus 4.8 (сильный аудитор), override через EVO_DECISION_FLAGSHIP_MODEL.
-const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-4-8';
+// Дефолт — Opus 5 (24.07.2026; сильнее 4.8 при той же цене), override через
+// EVO_DECISION_FLAGSHIP_MODEL. Пин id — временный: корректнее резолвить
+// сильнейшую модель из /v1/models, как это уже делает model-resolver для
+// DeepSeek/Qwen (CLAUDE.md §8 «БЕЗ привязки к id»).
+const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-5';
 
+/** Ответ решателя вместе с моделью, которая его дала. */
+export interface DecisionResult {
+  text: string | null;
+  /** Реальная модель ответа: флагман или фоллбэк (deepseek/qwen). null — никто не ответил. */
+  model: string | null;
+}
+
+/**
+ * Тонкая обёртка: прежний контракт (только текст) для вызывающих, которым
+ * модель не нужна.
+ */
 export async function callAIDecision(messages: ChatMessage[]): Promise<string | null> {
+  return (await callAIDecisionDetailed(messages)).text;
+}
+
+/**
+ * Решатель + АТРИБУЦИЯ модели. Зачем: находки эволюции писались без указания,
+ * кто их породил, поэтому гипотезу «галлюцинации из-за слабых фоллбэк-моделей»
+ * нельзя было ни подтвердить, ни опровергнуть — waterfall молча съезжает с
+ * флагмана на DeepSeek/Qwen, если нет ключа или релея. Теперь модель едет
+ * вместе с ответом и штампуется в находку.
+ */
+export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<DecisionResult> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
   // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
@@ -998,7 +1105,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
     const flag = await callOpenRouterModel(payload, EVO_FLAGSHIP_MODEL, {
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
-    if (flag?.text?.trim()) return flag.text;
+    if (flag?.text?.trim()) return { text: flag.text, model: EVO_FLAGSHIP_MODEL };
   } catch { /* флагман недостижим — пробуем Anthropic напрямую */ }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
@@ -1034,7 +1141,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
               prompt_tokens: data.usage?.input_tokens,
               completion_tokens: data.usage?.output_tokens,
             });
-            return text;
+            return { text, model: `anthropic:${antModel}` };
           }
         }
       }
@@ -1054,7 +1161,7 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(model, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
       }
     } catch { /* переходим на Qwen */ }
   }
@@ -1072,12 +1179,12 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
       if (res.ok) {
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return text; }
+        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return { text, model: `qwen:${model}` }; }
       }
     } catch { /* сдаёмся — вызывающий обработает null */ }
   }
 
-  return null;
+  return { text: null, model: null };
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
@@ -1111,6 +1218,57 @@ export async function probeQwenKeyStatus(): Promise<{
       detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
     };
   }
+}
+
+/**
+ * Диагностика DeepSeek — та же форма, что у probeQwenKeyStatus /
+ * probeOpenRouterKeyStatus.
+ *
+ * Зачем: DeepSeek — первичный решатель эволюции (CLAUDE.md §8), но в
+ * cron/health он единственный проверялся обезличенным probeAI (true/false).
+ * Алерт «WARN: DeepSeek недоступен» приходил без причины: не отличить «ключ не
+ * задан» от «401/402 по балансу» и от «сеть/таймаут». У соседей по водопаду
+ * диагностика была, у главного — нет.
+ */
+export async function probeDeepSeekKeyStatus(): Promise<{
+  key_set: boolean;
+  http_status: number | null;
+  detail: string;
+}> {
+  const apiKey = getDeepSeekKey();
+  if (!apiKey) return { key_set: false, http_status: null, detail: 'ключ не задан' };
+
+  try {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text()).slice(0, 300);
+    return { key_set: true, http_status: res.status, detail: body };
+  } catch (e) {
+    return {
+      key_set: true,
+      http_status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+    };
+  }
+}
+
+/** Человекочитаемая причина отказа DeepSeek для алерта. */
+export function explainDeepSeekFailure(probe: {
+  key_set: boolean;
+  http_status: number | null;
+  detail: string;
+}): string {
+  if (!probe.key_set) return 'DEEPSEEK_API_KEY не задан на Timeweb';
+  if (probe.http_status === 401 || probe.http_status === 403) return 'ключ отвергнут (401/403)';
+  if (probe.http_status === 402) return 'нет средств на балансе (402)';
+  if (probe.http_status === 429) return 'лимит запросов (429)';
+  if (probe.http_status === null) return probe.detail;
+  if (probe.http_status >= 500) return `сбой на стороне DeepSeek (${probe.http_status})`;
+  return `HTTP ${probe.http_status}: ${probe.detail.slice(0, 120)}`;
 }
 
 // ── GLM 5.1 (ZhipuAI direct API — bigmodel.cn) ────────────────
@@ -2003,6 +2161,9 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
     MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
     OR_disabled_until: openRouterDisabledUntil > 0 ? new Date(openRouterDisabledUntil).toISOString() : 'none',
+    // Перечень ключей отвечает «ключ есть», но не «что ответил провайдер».
+    // Без этого на вопрос «баланс на месте, почему недоступен» ответить нечем.
+    failures: recentProviderFailures(),
   });
   return 'Извините, сервис временно недоступен. Попробуйте позже.';
 }
@@ -2020,9 +2181,105 @@ export function isWaterfallErrorResponse(text: string): boolean {
   return WATERFALL_ERROR_PREFIXES.some(p => text.startsWith(p));
 }
 
+/**
+ * Путь для ГЕНЕРАЦИИ КОНТЕНТА: сильнейшее из доступного, а не самое быстрое.
+ *
+ * Отличие от callAIFast принципиальное, и оно не в моделях, а в устройстве.
+ * callAIFast — ГОНКА: побеждает тот, кто ответил первым, то есть маленькая
+ * быстрая модель. Для JSON-ответов и голосования это правильно. Для текста,
+ * который прочитают люди, — нет: мы систематически выбирали скорость вместо
+ * качества и получали слабые тексты при живых сильных провайдерах.
+ *
+ * Здесь провайдеры идут ПО ОЧЕРЕДИ: DeepSeek (сильнейший из достижимых из РФ
+ * напрямую), затем Qwen, и лишь потом общий waterfall. Модель у обоих не
+ * захардкожена — resolveContentModel спрашивает провайдера (CLAUDE.md §8).
+ *
+ * Флагманы Claude/GPT сюда не ставим: из РФ они гео-блокируются и без релея
+ * дают только задержку. Появится релей — waterfall в конце их и подхватит.
+ */
+export async function callAIQuality(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number; temperature?: number } = {},
+): Promise<string> {
+  const { maxTokens = 1600, temperature = 0.5 } = opts;
+  const payload = messages.map(({ role, content }) => ({ role, content }));
+
+  // 1. DeepSeek — сильнейший прямо достижимый из РФ.
+  const dsKey = getDeepSeekKey();
+  if (dsKey) {
+    try {
+      const model = await resolveContentModel('deepseek');
+      const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+      }, { timeoutMs: 45_000, label: 'deepseek:content' });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) {
+          logLLMUsage(model, data.usage);
+          return text;
+        }
+      }
+    } catch { /* следующий провайдер */ }
+  }
+
+  // 2. Qwen — второй сильный, тоже без гео-блока.
+  const qwen = getQwenConfig();
+  if (qwen.apiKey) {
+    try {
+      const model = await resolveContentModel('qwen');
+      const res = await fetchWithRetry(`${qwen.base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwen.apiKey}` },
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+      }, { timeoutMs: 45_000, label: 'qwen:content' });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) {
+          logLLMUsage(model, data.usage);
+          return text;
+        }
+      }
+    } catch { /* следующий провайдер */ }
+  }
+
+  // 3. Общий waterfall — включая флагманы, если релей настроен.
+  return callAIWaterfall(messages);
+}
+
+/** Как callAIQuality, но отказ виден как null, а не строкой-заглушкой. */
+export async function callAIQualityOrNull(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number; temperature?: number } = {},
+): Promise<string | null> {
+  const text = await callAIQuality(messages, opts);
+  return isWaterfallErrorResponse(text) ? null : text;
+}
+
 // ── Fast Waterfall — race cheap providers ────────────────────
 // Для структурированных задач (JSON, бинарные ответы, голосование).
 // Races DeepSeek + MiMo + Gemini simultaneously.
+/**
+ * Заглушка callAIFast при отказе ВСЕХ быстрых провайдеров. Ровно 27 символов —
+ * именно её Editor опознавал эвристикой по длине и потому писал «вероятно
+ * заглушка». Для новых вызовов есть callAIFastOrNull: отказ виден как null,
+ * без угадывания.
+ */
+export const AI_FAST_UNAVAILABLE = 'Сервис временно недоступен.';
+
+/**
+ * Быстрый вызов, честный к отказу: null — не ответил НИ ОДИН провайдер.
+ * Обычный callAIFast для совместимости подставляет строку-заглушку, из-за чего
+ * вызывающий не мог отличить «модель так ответила» от «всё упало».
+ */
+export async function callAIFastOrNull(messages: ChatMessage[]): Promise<string | null> {
+  const text = await callAIFast(messages);
+  return text === AI_FAST_UNAVAILABLE ? null : text;
+}
+
 export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   const apiKey = getOpenRouterKey();
 
@@ -2068,7 +2325,7 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   }
 
   const result = await raceProviders(calls);
-  return result ?? 'Сервис временно недоступен.';
+  return result ?? AI_FAST_UNAVAILABLE;
 }
 
 // ── Waterfall Direct — алиас основного ────────────────────────

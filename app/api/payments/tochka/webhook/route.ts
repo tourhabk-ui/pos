@@ -5,10 +5,17 @@
  * Настройка вебхука: ЛК Точки → Интеграции → Уведомления →
  *   URL: https://vedarai.ru/api/payments/tochka/webhook
  *   События: payment.completed
+ *
+ * Доверие: тело запроса НЕ является доказательством оплаты. qrcId уезжает
+ * клиенту вместе с QR (qrLink = qr.nspk.ru/<qrcId>), поэтому payload может
+ * подделать любой плательщик. Факт и сумму спрашиваем у самой Точки
+ * (getSBPPaymentStatus) и сверяем с final_price брони — как это давно
+ * сделано в CloudPayments-вебхуке (HMAC + сверка суммы).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { getSBPPaymentStatus } from '@/lib/payments/tochka';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,17 +54,32 @@ export async function POST(req: NextRequest) {
     }
 
     const booking = rows[0];
-    const paidAmount = payload.amount / 100; // копейки → рубли
 
-    // Подтверждаем бронирование
+    // Спрашиваем у Точки, что реально произошло с этим QR. Нет ответа —
+    // не подтверждаем: лучше повтор вебхука, чем бронь «оплачена» без денег.
+    const status = await getSBPPaymentStatus(qrId);
+    if (!status || status.status !== 'paid') {
+      return NextResponse.json({ ok: true, confirmed: false });
+    }
+
+    // Сумма — из банка (или из брони, если банк её не вернул), не из тела запроса.
+    const expected = Number(booking.final_price);
+    const paidAmount = status.amount ?? expected;
+    if (Math.abs(paidAmount - expected) > 1) {
+      return NextResponse.json({ ok: true, confirmed: false });
+    }
+    const paidAt = status.paidAt ?? new Date();
+
+    // Подтверждаем бронирование. Условие по статусу в WHERE — идемпотентность
+    // при повторной доставке вебхука.
     await pool.query(
       `UPDATE operator_bookings
        SET booking_status = 'confirmed',
            paid_at = $1,
            paid_amount = $2,
            updated_at = NOW()
-       WHERE id = $3`,
-      [new Date(payload.transactionDate), paidAmount, booking.id],
+       WHERE id = $3 AND booking_status = 'pending_payment'`,
+      [paidAt, paidAmount, booking.id],
     );
 
     // Пишем в лог AI-действий для аналитики

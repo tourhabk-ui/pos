@@ -40,7 +40,21 @@ compatibility_date = "2024-11-01"
 ```
 OPENROUTER_BASE_URL = https://vedar-ai-relay.<account>.workers.dev/or/api/v1
 ANTHROPIC_BASE_URL  = https://vedar-ai-relay.<account>.workers.dev/anthropic
+GITHUB_PROXY_BASE   = https://vedar-ai-relay.<account>.workers.dev
 ```
+
+`GITHUB_PROXY_BASE` (без хвостового `/`) включает чтение репозитория эволюцией
+через релей — тот же гео-блок. На проде (standalone-бандл) исходников `.ts` нет,
+и Growth Scan тянет перечень файлов и их тела из GitHub
+(`api.github.com`/`raw.githubusercontent.com`); из РФ они могут не достаться, и
+прочёс «слепнет» (в ответе скана `coverage.source = none`). Воркер проксирует и
+это чтение (сегменты `/gh-api/` и `/gh-raw/`). Переменная не задана → скан ходит
+на GitHub напрямую (dev/CI — как раньше).
+
+(Необязательно) `GITHUB_API_TOKEN` — classic PAT без scopes (репо публичный)
+поднимает лимит `api.github.com` с 60 до 5000 запросов/час: за один прогон скан
+делает до ~25 GitHub-запросов, без токена это меньше 3 прогонов в час. Токен
+уходит с сервера через релей наружу — из РФ ничего не светится.
 
 (Необязательно) защита от чужого использования: задайте секрет воркеру
 (`wrangler secret put RELAY_SECRET`) — тогда воркер требует заголовок

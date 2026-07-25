@@ -5,18 +5,32 @@ import {
   Award, ArrowUpRight, ArrowDownRight,
   Clock, RotateCcw, Loader2, AlertCircle,
   ShoppingBag, MessageSquare, Camera, UserPlus,
-  Zap, Copy, Share2, Check,
+  Zap, Copy, Share2, Check, Leaf,
 } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import { useState, useCallback } from 'react';
-import { AchievementBadge } from '@/components/loyalty/AchievementBadge';
-import { EcoLevel } from '@/components/loyalty/EcoLevel';
 
-interface EcoData {
-  userId: string;
-  totalPoints: number;
-  level: number;
-  achievements: Array<{ id: string; name: string; description: string; points: number; unlockedAt: string }>;
+/**
+ * Кошелёк эко — единственный источник. До этого экран тянул ещё и
+ * /api/eco-points/user поверх user_eco_points: таблицы, которую не создаёт ни
+ * одна миграция. На одной странице соседствовали два разных «баланса баллов».
+ */
+interface EcoWallet {
+  /** Вклад: накопленная история поступков. Не тратится и не сгорает. */
+  contribution: number;
+  /** Польза: тратится на скидку, сгорает по сроку. */
+  utility: number;
+  earning: Array<{
+    source: string;
+    description: string;
+    amount: number | null;
+    perDayLimit: number;
+    oncePerUser: boolean;
+    requiresModeration: boolean;
+  }>;
+  spending: Array<{ key: string; label: string; description: string; maxShareOfCheck: number }>;
+  dailyCap: number;
+  payer: 'platform' | 'operator' | null;
 }
 
 interface UserLevel {
@@ -64,13 +78,20 @@ const TX_CONFIG: Record<string, { icon: typeof ArrowUpRight; label: string; sign
   refund: { icon: RotateCcw,      label: 'Возврат',  sign: '+', cls: 'text-[var(--ocean)]' },
 };
 
-const EARN_WAYS = [
-  { icon: ShoppingBag,   label: 'Бронирование тура',    detail: '1% от суммы' },
-  { icon: MessageSquare,  label: 'Написать отзыв',      detail: '+50 баллов' },
-  { icon: Camera,         label: 'Добавить фото',       detail: '+20 баллов' },
-  { icon: UserPlus,       label: 'Пригласить друга',     detail: '+500 баллов' },
-  { icon: Zap,            label: 'Первое бронирование',  detail: '+100 баллов' },
-];
+/**
+ * Иконка по источнику начисления. Сам список способов приходит с сервера из
+ * EMISSION_RULES — захардкоженный прейскурант на соседнем экране обещал 100 за
+ * уборку территории (источника нет) и 30 за фото (реально 20), потому что
+ * сверять его было не с чем.
+ */
+const EARN_ICON: Record<string, typeof ShoppingBag> = {
+  booking:           ShoppingBag,
+  review:            MessageSquare,
+  photo:             Camera,
+  referral_referrer: UserPlus,
+  referral_referred: UserPlus,
+  first_booking:     Zap,
+};
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
@@ -91,7 +112,7 @@ export default function LoyaltyClient() {
     { errorMessage: 'Не удалось загрузить данные программы лояльности' },
   );
   const { data: levels } = useApiFetch<UserLevel[]>('/api/loyalty/levels');
-  const { data: eco } = useApiFetch<EcoData>('/api/eco-points/user');
+  const { data: wallet } = useApiFetch<EcoWallet>('/api/eco/wallet');
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [refCode, setRefCode] = useState<string | null>(null);
@@ -129,7 +150,7 @@ export default function LoyaltyClient() {
   }, [displayRefCode, copyCode]);
 
   const currentLevelName = stats?.currentLevel?.name ?? 'Новичок';
-  const currentColor = stats?.currentLevel?.color ?? '#6B7280';
+  const currentColor = stats?.currentLevel?.color ?? 'var(--text-muted)';
   const nextLevel = stats?.nextLevel;
 
   const progressPercent = nextLevel && stats
@@ -217,23 +238,42 @@ export default function LoyaltyClient() {
               ))}
             </div>
 
-            {/* ── How to earn ── */}
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <h2 className="font-semibold text-[var(--text-primary)] mb-3">Как заработать баллы</h2>
-              <div className="space-y-2.5">
-                {EARN_WAYS.map(w => (
-                  <div key={w.label} className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center flex-shrink-0">
-                      <w.icon className="w-4.5 h-4.5 text-[var(--accent)]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[var(--text-primary)]">{w.label}</p>
-                    </div>
-                    <span className="text-sm font-medium text-[var(--success)] flex-shrink-0">{w.detail}</span>
-                  </div>
-                ))}
+            {/* ── Как заработать: список приходит из действующих правил ── */}
+            {(wallet?.earning?.length ?? 0) > 0 && (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                <h2 className="font-semibold text-[var(--text-primary)] mb-1">Как заработать эко</h2>
+                <p className="text-sm text-[var(--text-secondary)] mb-4">
+                  Только за проверенное действие. Каждое начисление даёт и пользу, и вклад.
+                </p>
+                <div className="space-y-2.5">
+                  {wallet!.earning.map(w => {
+                    const Icon = EARN_ICON[w.source] ?? Zap;
+                    return (
+                      <div key={w.source} className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center flex-shrink-0">
+                          <Icon className="w-4 h-4 text-[var(--accent)]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-[var(--text-primary)]">{w.description}</p>
+                          <p className="text-[11px] text-[var(--text-muted)]">
+                            {w.oncePerUser
+                              ? 'один раз'
+                              : `не больше ${w.perDayLimit} в сутки`}
+                            {w.requiresModeration ? ' · после проверки' : ''}
+                          </p>
+                        </div>
+                        <span className="text-sm font-medium text-[var(--success)] flex-shrink-0">
+                          {w.amount === null ? 'от суммы заказа' : `+${w.amount}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-[var(--text-muted)] mt-4">
+                  Не больше {wallet!.dailyCap} эко в сутки суммарно.
+                </p>
               </div>
-            </div>
+            )}
 
             {/* ── Referral program ── */}
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
@@ -346,24 +386,50 @@ export default function LoyaltyClient() {
               </div>
             )}
 
-            {/* ── Eco-уровень ── */}
-            {eco && (
-              <EcoLevel level={eco.level} totalPoints={eco.totalPoints} />
+            {/* ── Вклад: то, что не тратится ── */}
+            {wallet && (
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-full bg-[var(--success)]/15 flex items-center justify-center flex-shrink-0">
+                    <Leaf className="w-6 h-6 text-[var(--success)]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-semibold text-[var(--text-primary)]">Ваш вклад</h2>
+                    <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+                      Накопленная история поступков для края. Не тратится и не сгорает — остаётся с вами,
+                      даже когда пользу вы потратили на скидку.
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-3xl font-bold font-playfair text-[var(--text-primary)]">
+                      {fmtPoints(wallet.contribution)}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)]">эко вклада</p>
+                  </div>
+                </div>
+              </div>
             )}
 
-            {/* ── Достижения ── */}
-            {(eco?.achievements?.length ?? 0) > 0 && (
+            {/* ── На что потратить: доля чека одна и та же всегда (15%).
+                От числа активных операторов зависит только плательщик, и
+                туристу это знать незачем — для него условия не меняются. ── */}
+            {(wallet?.spending?.length ?? 0) > 0 && (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-                <h2 className="font-semibold text-[var(--text-primary)] mb-4">Достижения</h2>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {eco!.achievements.map(a => (
-                    <AchievementBadge
-                      key={a.id}
-                      name={a.name}
-                      description={a.description}
-                      points={a.points}
-                      unlockedAt={a.unlockedAt}
-                    />
+                <h2 className="font-semibold text-[var(--text-primary)] mb-1">На что потратить</h2>
+                <p className="text-sm text-[var(--text-secondary)] mb-4">
+                  Эко закрывают часть чека — не весь. Потолок нужен, чтобы скидка не съедала того, кто её обеспечивает.
+                </p>
+                <div className="space-y-2.5">
+                  {wallet!.spending.map(sink => (
+                    <div key={sink.key} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-[var(--text-primary)]">{sink.label}</p>
+                        <p className="text-xs text-[var(--text-muted)] truncate">{sink.description}</p>
+                      </div>
+                      <span className="text-sm font-medium text-[var(--ocean)] flex-shrink-0">
+                        до {(sink.maxShareOfCheck * 100).toFixed(0)}% чека
+                      </span>
+                    </div>
                   ))}
                 </div>
               </div>

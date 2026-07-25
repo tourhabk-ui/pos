@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BarChart3, Home, ClipboardList, CalendarCheck, Wallet } from 'lucide-react';
+import { BarChart3, Home, ClipboardList, CalendarCheck, Wallet, CalendarDays, PlusCircle } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 /**
@@ -92,8 +92,26 @@ export default function StayDashboardClient() {
   const metrics = [
     { label: 'Объекты', value: `${stats.accommodations.active} / ${stats.accommodations.total}`, hint: 'на витрине / всего', icon: Home },
     { label: 'Новые брони', value: String(stats.bookings.pending), hint: 'ждут подтверждения', icon: ClipboardList },
-    { label: 'Ближайшие заезды', value: String(stats.bookings.upcomingCheckins), hint: `завершено: ${stats.bookings.completed}`, icon: CalendarCheck },
+    // Хинт про заезды — про заезды: подтверждённые брони, из которых они и берутся
+    // (раньше здесь показывалось «завершено» — другая метрика в чужой карточке).
+    { label: 'Ближайшие заезды', value: String(stats.bookings.upcomingCheckins), hint: `подтверждено: ${stats.bookings.confirmed}`, icon: CalendarCheck },
     { label: 'Оплачено', value: formatMoney(stats.revenue.paid), hint: `ожидается: ${formatMoney(stats.revenue.expected)}`, icon: Wallet },
+  ];
+
+  // Остальные счётчики API приходили, но нигде не показывались — выносим честной
+  // сводкой, чтобы владелец видел всю картину по броням, а не три числа из семи.
+  const breakdown = [
+    { label: 'всего', value: stats.bookings.total },
+    { label: 'завершено', value: stats.bookings.completed },
+    { label: 'отменено', value: stats.bookings.cancelled },
+    { label: 'не заехали', value: stats.bookings.noShow },
+  ];
+
+  const quickActions = [
+    { href: '/hub/stay/accommodations', label: 'Мои объекты', icon: Home },
+    { href: '/hub/stay/bookings',       label: 'Входящие брони', icon: ClipboardList },
+    { href: '/hub/stay/calendar',       label: 'Календарь', icon: CalendarDays },
+    { href: '/hub/stay/onboarding',     label: 'Добавить объект', icon: PlusCircle },
   ];
 
   return (
@@ -120,20 +138,35 @@ export default function StayDashboardClient() {
       </div>
 
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+        <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+          <ClipboardList className="w-3.5 h-3.5" />
+          Брони — всего
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {breakdown.map(b => (
+            <div key={b.label}>
+              <p className="text-lg font-bold text-[var(--text-primary)]">{b.value}</p>
+              <p className="text-xs text-[var(--text-secondary)]">{b.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
         <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Быстрые действия</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => router.push('/hub/stay/accommodations')}
-            className="flex flex-col items-center gap-2 p-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors text-center">
-            <Home className="w-4 h-4 text-[var(--text-muted)]" />
-            <span className="text-xs text-[var(--text-secondary)]">Мои объекты</span>
-          </button>
-          <button
-            onClick={() => router.push('/hub/stay/bookings')}
-            className="flex flex-col items-center gap-2 p-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors text-center">
-            <ClipboardList className="w-4 h-4 text-[var(--text-muted)]" />
-            <span className="text-xs text-[var(--text-secondary)]">Входящие брони</span>
-          </button>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {quickActions.map(a => {
+            const Icon = a.icon;
+            return (
+              <button
+                key={a.href}
+                onClick={() => router.push(a.href)}
+                className="flex flex-col items-center gap-2 p-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors text-center">
+                <Icon className="w-4 h-4 text-[var(--text-muted)]" />
+                <span className="text-xs text-[var(--text-secondary)]">{a.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

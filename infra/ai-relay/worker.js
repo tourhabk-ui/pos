@@ -11,10 +11,17 @@
  * Маршрутизация по первому сегменту пути:
  *   /or/<путь>        → https://openrouter.ai/<путь>
  *   /anthropic/<путь> → https://api.anthropic.com/<путь>
+ *   /gh-api/<путь>    → https://api.github.com/<путь>
+ *   /gh-raw/<путь>    → https://raw.githubusercontent.com/<путь>
+ *
+ * gh-api/gh-raw нужны эволюции: прод на Timeweb (РФ), исходников в
+ * standalone-бандле нет, скан читает репо из GitHub — а он из РФ может не
+ * достаться. Релей (edge вне РФ) проксирует и это чтение.
  *
  * Настройка на Timeweb (переменные окружения приложения):
  *   OPENROUTER_BASE_URL = https://<ваш-воркер>.workers.dev/or/api/v1
  *   ANTHROPIC_BASE_URL  = https://<ваш-воркер>.workers.dev/anthropic
+ *   GITHUB_PROXY_BASE   = https://<ваш-воркер>.workers.dev   (без хвостового /)
  *
  * Деплой: `npx wrangler deploy` (см. README.md рядом).
  *
@@ -26,6 +33,8 @@
 const UPSTREAMS = {
   or: 'https://openrouter.ai',
   anthropic: 'https://api.anthropic.com',
+  'gh-api': 'https://api.github.com',
+  'gh-raw': 'https://raw.githubusercontent.com',
 };
 
 // Заголовки, которые нельзя переносить в исходящий запрос (hop-by-hop / хостовые).
@@ -50,7 +59,7 @@ export default {
     const key = seg[0];
     const base = UPSTREAMS[key];
     if (!base) {
-      return json({ error: 'unknown_upstream', hint: 'use /or/... or /anthropic/...' }, 404);
+      return json({ error: 'unknown_upstream', hint: 'use /or/, /anthropic/, /gh-api/ or /gh-raw/' }, 404);
     }
 
     const rest = '/' + seg.slice(1).join('/');

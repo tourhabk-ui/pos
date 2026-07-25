@@ -11,10 +11,37 @@
  */
 import type { GrowthIssue } from '@/lib/agents/evo/growth-agent';
 
-/** Массив-литерал из ≥2 объектов со строковыми полями — похоже на захардкоженные данные. */
-const HARDCODED_DATA_ARRAY = /=\s*\[\s*\{[\s\S]{0,400}?\}\s*,\s*\{/;
-/** Одиночный объект в setState-моке тоже считается (напр. один фейковый маршрут). */
-const HARDCODED_SINGLE = /set[A-Z]\w*\(\s*\[\s*\{[\s\S]{0,200}?['"][\s\S]{0,200}?\}\s*\]\s*\)/;
+/**
+ * Имитация загрузки: setTimeout, ВНУТРИ которого стейт заполняется литералом
+ * объекта/массива. Раньше признаком считался любой setTimeout рядом с
+ * захардкоженным массивом — и детектор клеймил экраны с таймером кнопки
+ * «скопировано» (`setTimeout(() => setCopied(false), 2000)`) плюс статическим
+ * конфигом. Аудит админки 24.07: 3 находки из 3 оказались ложными.
+ */
+const FAKE_LOAD = /setTimeout\s*\(\s*(?:async\s*)?\(\s*\)\s*=>\s*\{?[\s\S]{0,200}?set[A-Z]\w*\s*\(\s*\[?\s*\{/;
+
+/**
+ * Кнопка сохранения, которая ничего не сохраняет: обработчик крутит спиннер
+ * через setTimeout и на этом всё. Аудит 25.07: форма «Профиль гида» полгода
+ * показывала выдуманного «Ивана Петрова» и кнопку «Сохранить», не трогающую БД,
+ * при живом и защищённом /api/guide/profile.
+ */
+const FAKE_SAVE = /set(?:Saving|Loading|Submitting|Sending)\s*\(\s*true\s*\)[\s\S]{0,300}?setTimeout\s*\(\s*\(\s*\)\s*=>\s*set(?:Saving|Loading|Submitting|Sending)\s*\(\s*false/;
+
+/**
+ * Компонент принимает типизированные пропсы — данные приходят из СЕРВЕРНОГО
+ * компонента (канонический паттерн App Router: page.tsx делает SQL и передаёт
+ * результат в клиент). Отсутствие fetch у такого экрана — норма, а не фейк.
+ */
+const RECEIVES_SERVER_PROPS = /\}\s*:\s*\{[^{}]*\}\s*\)\s*\{/;
+
+/** Кнопки, которые НЕ должны мутировать БД по своей природе. */
+const NON_MUTATING_UI = /navigator\.clipboard|router\.(push|replace|back)|window\.open|scrollTo|setOpen|setExpanded|setCopied/;
+
+/** JSX-атрибут placeholder — подсказка в поле ввода, а не заглушка в данных. */
+function stripPlaceholderAttrs(src: string): string {
+  return src.replace(/placeholder\s*=\s*(?:"[^"]*"|'[^']*'|\{[^}]*\})/g, 'placeholder=""');
+}
 
 function lineOf(content: string, index: number): number {
   return content.slice(0, index).split('\n').length;
@@ -31,11 +58,20 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
 
   const isClient = content.includes("'use client'") || content.includes('"use client"');
   const hasFetch = /\bfetch\s*\(|useSWR|useQuery\(|\baxios\b/.test(content);
-  const hasTimeoutData = /setTimeout\s*\(/.test(content) && (HARDCODED_DATA_ARRAY.test(content) || HARDCODED_SINGLE.test(content));
+  // Данные могут приходить пропсами из серверного компонента — это не фейк.
+  const serverProps = RECEIVES_SERVER_PROPS.test(content);
+  // FAKE_LOAD сам по себе — уже полная подпись имитации: setTimeout, внутри
+  // которого стейт заполняется литералом объекта. Прежде дополнительно
+  // требовался ОТДЕЛЬНЫЙ короткий литерал (HARDCODED_*), и мок тем вернее
+  // ускользал, чем он крупнее: «Профиль гида» (один объект в форме) и «Отзывы
+  // гида» (три длинных объекта) не ловились ни разу. Обратный путь — считать
+  // признаком любой литерал-массив рядом с useState — даёт ложняки на статике
+  // (шаги онбординга, колонки таблицы), проверено на 262 экранах кабинетов.
+  const hasTimeoutData = FAKE_LOAD.test(content);
 
-  // 1) Экран-обманка: клиент-компонент грузит захардкоженные данные через
-  //    setTimeout и НЕ ходит в API. Классическая фейк-витрина.
-  if (isClient && hasTimeoutData && !hasFetch) {
+  // 1) Экран-обманка: клиент-компонент ИМИТИРУЕТ загрузку (setTimeout →
+  //    setState литералом), не ходит в API и не получает данные пропсами.
+  if (isClient && hasTimeoutData && !hasFetch && !serverProps) {
     const m = content.match(/setTimeout\s*\(/);
     issues.push({
       category: 'ux',
@@ -53,7 +89,11 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
   const hasActionWords = /(подтверд|отклон|отмен|принять|одобр|approve|confirm|reject|accept)/i.test(content);
   const hasMutation = /fetch\s*\([^)]*\{[\s\S]{0,120}?method\s*:\s*['"](POST|PUT|PATCH|DELETE)/i.test(content)
     || /method\s*:\s*['"](POST|PUT|PATCH|DELETE)/i.test(content);
-  if (isClient && hasActionWords && /onClick=/.test(content) && !hasFetch && !hasMutation) {
+  // Кнопки копирования/навигации/раскрытия мутаций не делают по замыслу, а
+  // экран на серверных пропсах может мутировать через server action.
+  const onlyUiButtons = NON_MUTATING_UI.test(content);
+  if (isClient && hasActionWords && /onClick=/.test(content)
+      && !hasFetch && !hasMutation && !onlyUiButtons && !serverProps) {
     issues.push({
       category: 'ux',
       severity: 'medium',
@@ -64,8 +104,26 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
     });
   }
 
+  // 2b) Форма «сохраняет» таймером: спиннер включается и гасится setTimeout,
+  //     мутации нет. Отдельный признак — слово «сохранить» слишком частое,
+  //     чтобы ловить по нему, а вот эта связка однозначна.
+  if (isClient && FAKE_SAVE.test(content) && !hasMutation) {
+    const m = content.match(FAKE_SAVE);
+    issues.push({
+      category: 'ux',
+      severity: 'high',
+      file_path: filePath,
+      line_number: m ? lineOf(content, m.index ?? 0) : undefined,
+      title: 'Форма сохраняет в никуда',
+      description: 'Обработчик сохранения только переключает спиннер через setTimeout и не делает ни одного мутирующего запроса — пользователь считает данные сохранёнными, а их нет.',
+      suggestion: 'Отправлять данные в соответствующий /api/... (PUT/PATCH) и показывать реальный результат либо убрать форму.',
+    });
+  }
+
   // 3) Явные маркеры-заглушки в проде (не в комментах-TODO общего вида).
-  const stub = content.match(/placeholder\.com|example\.com\/(?!\s)|\bзаглушк|\bMOCK_[A-Z]|const\s+mockData\b/);
+  // placeholder="https://example.com/rss.xml" — подсказка в поле ввода, не мок.
+  const stub = stripPlaceholderAttrs(content)
+    .match(/placeholder\.com|example\.com\/(?!\s)|\bзаглушк|\bMOCK_[A-Z]|const\s+mockData\b/);
   if (stub) {
     issues.push({
       category: 'tech_debt',

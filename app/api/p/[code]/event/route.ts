@@ -6,8 +6,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+// Анонимный INSERT в статистику: без рубежа один клиент мог накрутить
+// просмотры подборки. Порог щедрый — обычная сессия столько не даёт.
+const eventLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 
 interface RouteParams { params: Promise<{ code: string }> }
 
@@ -17,6 +22,9 @@ const EventSchema = z.object({
 });
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
+  // 204 как и на прочие отказы: трекинг не должен ломать страницу.
+  if (!eventLimiter.check(getClientIp(req.headers))) return new NextResponse(null, { status: 204 });
+
   const { code } = await params;
   if (!code || code.length > 20) return new NextResponse(null, { status: 204 });
 
