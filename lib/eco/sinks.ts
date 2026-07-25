@@ -23,11 +23,21 @@ export interface EcoSink {
   /** Что именно получает держатель. */
   description: string;
   /**
-   * Максимальная доля чека, которую можно закрыть эко. Ограничение защищает
-   * маржу оператора: без потолка эмиссия съедает того, кто её обеспечивает
-   * (Закон 5 — эмиссия обеспечена стоком, а сток должен кто-то выдержать).
+   * Максимальная доля чека, которую можно закрыть эко — своя для каждой фазы
+   * (решение владельца 25.07.2026, см. lib/eco/compensation.ts):
+   *
+   *   platform — пока активных операторов < 20, платит платформа из комиссии;
+   *   operator — с двадцатого платят операторы, и доля МЕНЬШЕ: обязательство
+   *              переходит к тому, кто уже получает поток, но и просить с
+   *              него столько же нельзя.
+   *
+   * Потолок нужен в обеих фазах: без него скидка съедает того, кто её
+   * обеспечивает (Закон 5 — эмиссия обеспечена стоком, а сток кто-то несёт).
+   *
+   * Конкретные доли — дело владельца, не разработчика. Ниже перенесены
+   * действующие значения, операторская фаза задана вдвое меньшей.
    */
-  maxShareOfCheck: number;
+  maxShareOfCheck: Record<'platform' | 'operator', number>;
 }
 
 export const ECO_SINKS: Record<string, EcoSink> = {
@@ -35,19 +45,19 @@ export const ECO_SINKS: Record<string, EcoSink> = {
     key: 'tour_discount',
     label: 'Скидка на тур',
     description: 'Часть стоимости тура оператора оплачивается накопленной пользой',
-    maxShareOfCheck: 0.3,
+    maxShareOfCheck: { platform: 0.3, operator: 0.15 },
   },
   stay_discount: {
     key: 'stay_discount',
     label: 'Скидка на жильё',
     description: 'Часть стоимости проживания оплачивается накопленной пользой',
-    maxShareOfCheck: 0.3,
+    maxShareOfCheck: { platform: 0.3, operator: 0.15 },
   },
   gear_discount: {
     key: 'gear_discount',
     label: 'Скидка на прокат снаряжения',
     description: 'Часть стоимости аренды снаряжения оплачивается накопленной пользой',
-    maxShareOfCheck: 0.5,
+    maxShareOfCheck: { platform: 0.5, operator: 0.25 },
   },
 };
 
@@ -85,8 +95,15 @@ export function validateSink(sink: EcoSink): SinkVerdict {
       reason: `Сток «${sink.label}» задевает контур безопасности («${hit[0]}»). Закон 6: безопасность не продаётся.`,
     };
   }
-  if (sink.maxShareOfCheck <= 0 || sink.maxShareOfCheck > 1) {
-    return { ok: false, reason: `Некорректная доля чека у стока «${sink.label}»` };
+  for (const [phase, share] of Object.entries(sink.maxShareOfCheck)) {
+    if (share <= 0 || share > 1) {
+      return { ok: false, reason: `Некорректная доля чека у стока «${sink.label}» в фазе ${phase}` };
+    }
+  }
+  // Обязательство переходит к операторам вместе со снижением доли: просить с
+  // них столько же, сколько платформа платила из комиссии, — не договор.
+  if (sink.maxShareOfCheck.operator > sink.maxShareOfCheck.platform) {
+    return { ok: false, reason: `В операторской фазе доля чека у «${sink.label}» обязана быть не больше платформенной` };
   }
   return { ok: true };
 }
@@ -102,11 +119,6 @@ export function resolveSink(key: string): { ok: true; sink: EcoSink } | { ok: fa
   return { ok: true, sink };
 }
 
-/**
- * Сколько эко примет чек. Потолок доли — не украшение: без него скидка
- * съедает маржу того, кто её обеспечивает.
- */
-export function maxEcoForCheck(sink: EcoSink, checkAmountRub: number): number {
-  if (checkAmountRub <= 0) return 0;
-  return Math.floor(checkAmountRub * sink.maxShareOfCheck);
-}
+// Расчёт «сколько эко примет чек» живёт в lib/eco/compensation.ts: он зависит
+// от фазы, а фаза — от числа активных операторов, то есть от состояния БД.
+// Здесь остаётся только реестр и его гвард — чистые, без сети и запросов.

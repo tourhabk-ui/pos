@@ -30,9 +30,14 @@ import {
   ECO_SINKS,
   validateSink,
   resolveSink,
-  maxEcoForCheck,
   type EcoSink,
 } from '@/lib/eco/sinks';
+import {
+  resolvePayer,
+  termsFor,
+  maxEcoForCheck,
+  ACTIVE_OPERATOR_THRESHOLD,
+} from '@/lib/eco/compensation';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -154,12 +159,13 @@ describe('Закон 6 — безопасность не продаётся', ()
     }
   });
 
+  const full = { platform: 1, operator: 1 };
   const forbidden: EcoSink[] = [
-    { key: 'skip_mchs', label: 'Пропустить регистрацию МЧС', description: 'Выход без регистрации', maxShareOfCheck: 1 },
-    { key: 'no_guide', label: 'Маршрут без гида', description: 'Снятие требования сопровождения', maxShareOfCheck: 1 },
-    { key: 'closed_route', label: 'Доступ к закрытому маршруту', description: 'Проход на закрытый участок', maxShareOfCheck: 1 },
-    { key: 'boost', label: 'Приоритет в выдаче', description: 'Поднятие оператора без верификации', maxShareOfCheck: 1 },
-    { key: 'hide_alert', label: 'Скрыть предупреждение', description: 'Убрать тревогу о состоянии тропы', maxShareOfCheck: 1 },
+    { key: 'skip_mchs', label: 'Пропустить регистрацию МЧС', description: 'Выход без регистрации', maxShareOfCheck: full },
+    { key: 'no_guide', label: 'Маршрут без гида', description: 'Снятие требования сопровождения', maxShareOfCheck: full },
+    { key: 'closed_route', label: 'Доступ к закрытому маршруту', description: 'Проход на закрытый участок', maxShareOfCheck: full },
+    { key: 'boost', label: 'Приоритет в выдаче', description: 'Поднятие оператора без верификации', maxShareOfCheck: full },
+    { key: 'hide_alert', label: 'Скрыть предупреждение', description: 'Убрать тревогу о состоянии тропы', maxShareOfCheck: full },
   ];
 
   it.each(forbidden)('сток «$label» отвергается гвардом', (sink) => {
@@ -175,11 +181,47 @@ describe('Закон 6 — безопасность не продаётся', ()
     expect(resolveSink('tour_discount').ok).toBe(true);
   });
 
-  it('доля чека ограничена: скидка не съедает маржу того, кто её обеспечивает', () => {
+  it('доля чека ограничена в обеих фазах', () => {
     const tour = ECO_SINKS.tour_discount;
-    expect(maxEcoForCheck(tour, 10_000)).toBe(3_000);
-    expect(maxEcoForCheck(tour, 0)).toBe(0);
-    expect(validateSink({ ...tour, maxShareOfCheck: 1.5 }).ok).toBe(false);
+    expect(maxEcoForCheck(tour, 10_000, 0)).toBe(3_000);   // платит платформа
+    expect(maxEcoForCheck(tour, 10_000, 25)).toBe(1_500);  // платят операторы
+    expect(maxEcoForCheck(tour, 0, 0)).toBe(0);
+    expect(validateSink({ ...tour, maxShareOfCheck: { platform: 1.5, operator: 0.1 } }).ok).toBe(false);
+  });
+});
+
+/**
+ * Закон 5 — эмиссия обеспечена стоком. Решение владельца 25.07.2026: пока
+ * активных операторов меньше двадцати, скидку несёт платформа из комиссии;
+ * с двадцатого обязательство переходит к операторам, но доля чека МЕНЬШЕ.
+ */
+describe('Закон 5 — кто платит за скидку', () => {
+  it('до порога платит платформа', () => {
+    expect(resolvePayer(0)).toBe('platform');
+    expect(resolvePayer(ACTIVE_OPERATOR_THRESHOLD - 1)).toBe('platform');
+  });
+
+  it('с двадцатого активного оператора платят операторы', () => {
+    expect(resolvePayer(ACTIVE_OPERATOR_THRESHOLD)).toBe('operator');
+    expect(resolvePayer(100)).toBe('operator');
+  });
+
+  it('переход обязательства снижает долю чека, а не сохраняет её', () => {
+    for (const sink of Object.values(ECO_SINKS)) {
+      const before = termsFor(sink, ACTIVE_OPERATOR_THRESHOLD - 1);
+      const after = termsFor(sink, ACTIVE_OPERATOR_THRESHOLD);
+      expect(before.payer).toBe('platform');
+      expect(after.payer).toBe('operator');
+      expect(after.maxShareOfCheck).toBeLessThan(before.maxShareOfCheck);
+    }
+  });
+
+  it('сток с операторской долей выше платформенной не проходит гвард', () => {
+    const greedy = { ...ECO_SINKS.tour_discount, maxShareOfCheck: { platform: 0.1, operator: 0.4 } };
+    const verdict = validateSink(greedy);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.reason).toContain('не больше платформенной');
   });
 });
 
