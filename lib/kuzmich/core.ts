@@ -1610,6 +1610,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
   }
 }
 
+// Публичный MCP-сервер (/api/mcp) делегирует сюда: один мозг — два протокола.
+// Внешний агент через MCP видит те же данные, что турист через Кузьмича.
+export { executeTool as executeKuzmichTool };
+
 export async function aiChatAgentLoop(
   userText: string,
   systemContent: string,
