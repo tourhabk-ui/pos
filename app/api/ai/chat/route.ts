@@ -49,13 +49,14 @@ interface SessionRow {
   user_message_count: number;
   interests_encrypted: string | null;
   is_authenticated: boolean;
+  user_id: string | null;
 }
 
 async function loadSession(sessionId: string): Promise<SessionRow | null> {
   if (!sessionId) return null;
   try {
     const result = await query<SessionRow>(
-      `SELECT messages, user_message_count, interests_encrypted, is_authenticated
+      `SELECT messages, user_message_count, interests_encrypted, is_authenticated, user_id
        FROM chat_sessions WHERE session_id = $1 LIMIT 1`,
       [sessionId]
     );
@@ -63,6 +64,19 @@ async function loadSession(sessionId: string): Promise<SessionRow | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Сессия ЧУЖАЯ, если она уже закреплена за аккаунтом, а спрашивает не он.
+ *
+ * Чат начинается анонимным (FREE_MESSAGE_LIMIT сообщений до входа), поэтому
+ * пока user_id пуст, id сессии работает как предъявительский ключ — иначе
+ * анонимную переписку было бы не продолжить. Но как только за сессией закреплён
+ * аккаунт, одного знания id мало: переписка содержит имя, телефон и планы.
+ * Без этой проверки любой, кто раздобыл id, читал чужой разговор целиком.
+ */
+function isForeignSession(session: SessionRow | null, requesterId: string | null): boolean {
+  return !!session && session.user_id !== null && session.user_id !== requesterId;
 }
 
 // ── Save session with all fields ──────────────────────────────────
@@ -172,7 +186,12 @@ export async function POST(request: NextRequest) {
     const safeRole: ChatRole = validRoles.includes(role as ChatRole) ? (role as ChatRole) : 'tourist';
 
     // Load session from DB; fall back to client-provided history if DB has nothing
-    const session = sessionId ? await loadSession(sessionId) : null;
+    const loaded = sessionId ? await loadSession(sessionId) : null;
+    // Чужую сессию не читаем и не перезаписываем: ON CONFLICT DO UPDATE в
+    // saveSession иначе затёр бы переписку владельца по одному лишь знанию id.
+    const foreign = isForeignSession(loaded, user?.userId ?? null);
+    const session = foreign ? null : loaded;
+    const storableSessionId = foreign ? null : (sessionId ?? null);
     const currentCount = session?.user_message_count ?? 0;
     const history: ChatMessage[] = (session?.messages?.length ? session.messages : null)
       ?? (clientHistory as ChatMessage[] | undefined)
@@ -366,7 +385,7 @@ export async function POST(request: NextRequest) {
       // Трекинг просмотренного тура (для re-engagement + smart memory)
       if (bookingFormTour) {
         void addViewedTour(userId, bookingFormTour.id);
-        void recordEngagementSignal(userId, bookingFormTour.id, sessionId ?? null, 'viewed');
+        void recordEngagementSignal(userId, bookingFormTour.id, storableSessionId, 'viewed');
       }
     }
 
@@ -385,13 +404,13 @@ export async function POST(request: NextRequest) {
         travelStyle: extracted.travel_style ?? null,
         budgetLevel: extracted.budget_level ?? null,
         bookingIntentDetected: intentResult.detected,
-        sessionId: sessionId ?? null,
+        sessionId: storableSessionId,
       });
     }
 
     // Save
-    if (sessionId) {
-      await saveSession(sessionId, user?.userId ?? null, safeRole, history, newCount, isAuthenticated, interestsEncrypted,
+    if (storableSessionId) {
+      await saveSession(storableSessionId, user?.userId ?? null, safeRole, history, newCount, isAuthenticated, interestsEncrypted,
         { referrerSource, utmSource, utmMedium, utmCampaign });
     }
 
@@ -401,7 +420,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         answer,
-        sessionId: sessionId ?? null,
+        sessionId: storableSessionId,
         role: safeRole,
         messagesInHistory: history.length,
         remainingFree: remaining,
@@ -432,7 +451,10 @@ export async function GET(request: NextRequest) {
     const user = await getUserFromRequest(request);
     const isAuthenticated = !!user;
 
-    const session = await loadSession(sessionId);
+    const loaded = await loadSession(sessionId);
+    // Чужая сессия выглядит как пустая, а не как чужая переписка и не как
+    // ошибка: отвечать 403 значило бы подтвердить, что такой id существует.
+    const session = isForeignSession(loaded, user?.userId ?? null) ? null : loaded;
     const history = session?.messages ?? [];
     const publicHistory = history.filter((m) => m.role !== 'system');
     const count = session?.user_message_count ?? 0;

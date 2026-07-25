@@ -45,11 +45,35 @@ function toAIRole(dbRole?: string): string {
  * живёт в трёх движках, а Кузьмич — поверхность, которая их зовёт.
  */
 
+/**
+ * Идентификатор сессии чата — это предъявительский ключ, а не просто метка.
+ * По нему GET /api/ai/chat отдаёт всю переписку: чат анонимный (до входа даёт
+ * FREE_MESSAGE_LIMIT сообщений), поэтому привязать сессию к пользователю на
+ * этом этапе не к чему, и знание id = доступ к разговору. А в разговоре
+ * турист называет имя, телефон и планы — ровно те данные, ради которых в репо
+ * живут гварды 152-ФЗ.
+ *
+ * Поэтому id обязан быть непредсказуемым. Прежний запасной путь давал
+ * `session-<Date.now()>-<8 знаков Math.random()>`: время угадывается, а
+ * Math.random не криптостойкий и восстанавливается по нескольким выдачам.
+ * И путь этот был не теоретический — `crypto.randomUUID` существует ТОЛЬКО в
+ * защищённом контексте (HTTPS/localhost), то есть по обычному http выполнялась
+ * именно слабая ветка. Нашёл CodeQL (alert 144).
+ *
+ * `crypto.getRandomValues`, в отличие от `randomUUID`, доступен и в
+ * незащищённом контексте — он и становится запасным путём. Если крипто нет
+ * вовсе, id не выдаём: лучше сессия без истории, чем угадываемый ключ к чужой.
+ */
 function createSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+  const c: Crypto | undefined = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (typeof c?.randomUUID === 'function') {
+    return c.randomUUID();
   }
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  if (typeof c?.getRandomValues === 'function') {
+    const bytes = c.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return '';
 }
 
 export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIChatWidgetProps) {
@@ -71,6 +95,9 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
       return;
     }
     const nextId = createSessionId();
+    // Пустая строка = крипто недоступно. Не сохраняем и не шлём: сервер тогда
+    // не заводит сессию, чат работает без истории. Это честная деградация.
+    if (!nextId) return;
     window.localStorage.setItem(SESSION_STORAGE_KEY, nextId);
     setSessionId(nextId);
   }, []);
