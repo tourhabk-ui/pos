@@ -580,17 +580,39 @@ ${r.has_track
   return { ok: false, error: `Все кандидаты не прошли валидацию поста: ${rejectedIds.join(', ')}` };
 }
 
-const KUZMICH_TIP_TOPICS = [
-  'как правильно выбрать время для поездки на Камчатку',
-  'что взять с собой на вулкан — и чего точно не стоит',
-  'почему рыбалка на Камчатке — это не только про рыбу',
-  'как не облажаться с погодой на Камчатке',
-  'чем Камчатка отличается от любого другого путешествия',
-  'почему термальные источники лучше любого пятизвёздочного спа',
-  'как местные относятся к медведям — и как надо вести себя туристу',
-  'зачем ехать на Камчатку не в август, а в другое время',
-  'что туристы чаще всего недооценивают в поездке на Камчатку',
+/**
+ * Темы советов Кузьмича — каждая со своим РЕАЛЬНЫМ снимком Камчатки.
+ *
+ * Раньше советы уходили в канал текстом: postKuzmichTip звал postToAllChannels
+ * без photoUrl, хотя фото-путь (tgPostPhoto, снимки в public/images) давно
+ * работал у постов о местах. В ленте это заметно — соседние каналы идут с
+ * картинкой, наш совет выглядит голым.
+ *
+ * Картинка привязана к теме жёстко, а не выбирается моделью и не генерируется:
+ * решение 2026-07-17 — AI-пейзажи не показываем. Лучше честный снимок наших
+ * термов под совет про термы, чем красивый нарисованный мозг под пост о
+ * Камчатке.
+ */
+interface TipTopic {
+  topic: string;
+  /** Путь в public/images — проверяется тестом на существование файла. */
+  photo: string;
+}
+
+const KUZMICH_TIP_TOPICS: TipTopic[] = [
+  { topic: 'как правильно выбрать время для поездки на Камчатку',        photo: '/images/categories/vulkany.jpg' },
+  { topic: 'что взять с собой на вулкан — и чего точно не стоит',        photo: '/images/activities/volcanoes.jpg' },
+  { topic: 'почему рыбалка на Камчатке — это не только про рыбу',        photo: '/images/activities/fishing.jpg' },
+  { topic: 'как не облажаться с погодой на Камчатке',                    photo: '/images/categories/morskie.jpg' },
+  { topic: 'чем Камчатка отличается от любого другого путешествия',      photo: '/images/bento/khalaktyr.jpg' },
+  { topic: 'почему термальные источники лучше любого пятизвёздочного спа', photo: '/images/categories/termy.jpg' },
+  { topic: 'как местные относятся к медведям — и как надо вести себя туристу', photo: '/images/hero/bears-kurilskoye.jpg' },
+  { topic: 'зачем ехать на Камчатку не в август, а в другое время',      photo: '/images/activities/snowmobile.jpg' },
+  { topic: 'что туристы чаще всего недооценивают в поездке на Камчатку', photo: '/images/activities/volcanoes.jpg' },
 ];
+
+/** Темы — для теста и для админки. */
+export const KUZMICH_TIP_TOPIC_LIST: ReadonlyArray<TipTopic> = KUZMICH_TIP_TOPICS;
 
 /**
  * Генерирует практичный совет от Кузьмича и публикует в канал.
@@ -599,7 +621,8 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  const topic = KUZMICH_TIP_TOPICS[Math.floor(Math.random() * KUZMICH_TIP_TOPICS.length)];
+  const picked = KUZMICH_TIP_TOPICS[Math.floor(Math.random() * KUZMICH_TIP_TOPICS.length)];
+  const topic = picked.topic;
   const appUrl = getPublicBaseUrl();
 
   const prompt = `Ты — Кузьмич, камчадал в третьем поколении. Напиши практичный совет для Telegram-канала.
@@ -614,13 +637,13 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 - В конце можно добавить: ${appUrl}/routes`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
-  const result = await postToAllChannels(channelId, text);
+  const result = await postToAllChannels(channelId, text, `${appUrl}${picked.photo}`);
 
   if (result.ok) {
     try {
       await query(
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-        ['kuzmich_tip', JSON.stringify({ topic })]
+        ['kuzmich_tip', JSON.stringify({ topic, photo: picked.photo })]
       );
     } catch { /* таблица ещё не создана */ }
   }
