@@ -1141,6 +1141,57 @@ export async function probeQwenKeyStatus(): Promise<{
   }
 }
 
+/**
+ * Диагностика DeepSeek — та же форма, что у probeQwenKeyStatus /
+ * probeOpenRouterKeyStatus.
+ *
+ * Зачем: DeepSeek — первичный решатель эволюции (CLAUDE.md §8), но в
+ * cron/health он единственный проверялся обезличенным probeAI (true/false).
+ * Алерт «WARN: DeepSeek недоступен» приходил без причины: не отличить «ключ не
+ * задан» от «401/402 по балансу» и от «сеть/таймаут». У соседей по водопаду
+ * диагностика была, у главного — нет.
+ */
+export async function probeDeepSeekKeyStatus(): Promise<{
+  key_set: boolean;
+  http_status: number | null;
+  detail: string;
+}> {
+  const apiKey = getDeepSeekKey();
+  if (!apiKey) return { key_set: false, http_status: null, detail: 'ключ не задан' };
+
+  try {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await res.text()).slice(0, 300);
+    return { key_set: true, http_status: res.status, detail: body };
+  } catch (e) {
+    return {
+      key_set: true,
+      http_status: null,
+      detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`,
+    };
+  }
+}
+
+/** Человекочитаемая причина отказа DeepSeek для алерта. */
+export function explainDeepSeekFailure(probe: {
+  key_set: boolean;
+  http_status: number | null;
+  detail: string;
+}): string {
+  if (!probe.key_set) return 'DEEPSEEK_API_KEY не задан на Timeweb';
+  if (probe.http_status === 401 || probe.http_status === 403) return 'ключ отвергнут (401/403)';
+  if (probe.http_status === 402) return 'нет средств на балансе (402)';
+  if (probe.http_status === 429) return 'лимит запросов (429)';
+  if (probe.http_status === null) return probe.detail;
+  if (probe.http_status >= 500) return `сбой на стороне DeepSeek (${probe.http_status})`;
+  return `HTTP ${probe.http_status}: ${probe.detail.slice(0, 120)}`;
+}
+
 // ── GLM 5.1 (ZhipuAI direct API — bigmodel.cn) ────────────────
 // ZhipuAI OpenAI-compatible endpoint. Env: GLM_API_KEY
 export async function callGLM(messages: ChatMessage[]): Promise<string | null> {
