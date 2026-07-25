@@ -11,11 +11,6 @@
  */
 import type { GrowthIssue } from '@/lib/agents/evo/growth-agent';
 
-/** Массив-литерал из ≥2 объектов со строковыми полями — похоже на захардкоженные данные. */
-const HARDCODED_DATA_ARRAY = /=\s*\[\s*\{[\s\S]{0,400}?\}\s*,\s*\{/;
-/** Одиночный объект в setState-моке тоже считается (напр. один фейковый маршрут). */
-const HARDCODED_SINGLE = /set[A-Z]\w*\(\s*\[\s*\{[\s\S]{0,200}?['"][\s\S]{0,200}?\}\s*\]\s*\)/;
-
 /**
  * Имитация загрузки: setTimeout, ВНУТРИ которого стейт заполняется литералом
  * объекта/массива. Раньше признаком считался любой setTimeout рядом с
@@ -24,6 +19,14 @@ const HARDCODED_SINGLE = /set[A-Z]\w*\(\s*\[\s*\{[\s\S]{0,200}?['"][\s\S]{0,200}
  * конфигом. Аудит админки 24.07: 3 находки из 3 оказались ложными.
  */
 const FAKE_LOAD = /setTimeout\s*\(\s*(?:async\s*)?\(\s*\)\s*=>\s*\{?[\s\S]{0,200}?set[A-Z]\w*\s*\(\s*\[?\s*\{/;
+
+/**
+ * Кнопка сохранения, которая ничего не сохраняет: обработчик крутит спиннер
+ * через setTimeout и на этом всё. Аудит 25.07: форма «Профиль гида» полгода
+ * показывала выдуманного «Ивана Петрова» и кнопку «Сохранить», не трогающую БД,
+ * при живом и защищённом /api/guide/profile.
+ */
+const FAKE_SAVE = /set(?:Saving|Loading|Submitting|Sending)\s*\(\s*true\s*\)[\s\S]{0,300}?setTimeout\s*\(\s*\(\s*\)\s*=>\s*set(?:Saving|Loading|Submitting|Sending)\s*\(\s*false/;
 
 /**
  * Компонент принимает типизированные пропсы — данные приходят из СЕРВЕРНОГО
@@ -57,7 +60,14 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
   const hasFetch = /\bfetch\s*\(|useSWR|useQuery\(|\baxios\b/.test(content);
   // Данные могут приходить пропсами из серверного компонента — это не фейк.
   const serverProps = RECEIVES_SERVER_PROPS.test(content);
-  const hasTimeoutData = FAKE_LOAD.test(content) && (HARDCODED_DATA_ARRAY.test(content) || HARDCODED_SINGLE.test(content));
+  // FAKE_LOAD сам по себе — уже полная подпись имитации: setTimeout, внутри
+  // которого стейт заполняется литералом объекта. Прежде дополнительно
+  // требовался ОТДЕЛЬНЫЙ короткий литерал (HARDCODED_*), и мок тем вернее
+  // ускользал, чем он крупнее: «Профиль гида» (один объект в форме) и «Отзывы
+  // гида» (три длинных объекта) не ловились ни разу. Обратный путь — считать
+  // признаком любой литерал-массив рядом с useState — даёт ложняки на статике
+  // (шаги онбординга, колонки таблицы), проверено на 262 экранах кабинетов.
+  const hasTimeoutData = FAKE_LOAD.test(content);
 
   // 1) Экран-обманка: клиент-компонент ИМИТИРУЕТ загрузку (setTimeout →
   //    setState литералом), не ходит в API и не получает данные пропсами.
@@ -91,6 +101,22 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
       title: 'Кнопки действий без мутации',
       description: 'Есть кнопки подтвердить/отменить/принять, но компонент не делает ни одного мутирующего запроса — действия, вероятно, ничего не меняют в БД (кнопки-пустышки).',
       suggestion: 'Привязать обработчики к реальным API-мутациям (POST/PATCH) либо убрать вводящие в заблуждение кнопки.',
+    });
+  }
+
+  // 2b) Форма «сохраняет» таймером: спиннер включается и гасится setTimeout,
+  //     мутации нет. Отдельный признак — слово «сохранить» слишком частое,
+  //     чтобы ловить по нему, а вот эта связка однозначна.
+  if (isClient && FAKE_SAVE.test(content) && !hasMutation) {
+    const m = content.match(FAKE_SAVE);
+    issues.push({
+      category: 'ux',
+      severity: 'high',
+      file_path: filePath,
+      line_number: m ? lineOf(content, m.index ?? 0) : undefined,
+      title: 'Форма сохраняет в никуда',
+      description: 'Обработчик сохранения только переключает спиннер через setTimeout и не делает ни одного мутирующего запроса — пользователь считает данные сохранёнными, а их нет.',
+      suggestion: 'Отправлять данные в соответствующий /api/... (PUT/PATCH) и показывать реальный результат либо убрать форму.',
     });
   }
 

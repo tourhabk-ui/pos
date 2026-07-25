@@ -18,7 +18,7 @@
 import { readFile } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
-import { join, dirname, relative, resolve } from 'node:path';
+import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -77,6 +77,13 @@ function getStagedFiles() {
   }
 }
 
+/**
+ * Файлы, которые обязаны СОДЕРЖАТЬ запрещённые строки, потому что ищут их:
+ * детерминированные объективы эволюции и их тесты. Без исключения аудит
+ * клеймит собственных сторожей — ровно та ложь, ради отлова которой они есть.
+ */
+const PATTERN_HOLDERS = /agents\/evo\/(static-checks|mock-detector|finding-guard|claim-signature)\.ts$/;
+
 // --- Checks definition ---
 const checks = [
   {
@@ -94,7 +101,7 @@ const checks = [
     exts: ['.ts', '.tsx'],
     pattern: /console\.log\(/,
     // migrate.ts is a CLI runner — console.log there is intentional
-    exclude: /database\/migrate\.ts$/,
+    exclude: new RegExp(`database\\/migrate\\.ts$|${PATTERN_HOLDERS.source}`),
     severity: 'КРИТИЧНО',
   },
   {
@@ -117,7 +124,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+bookings\b/i,
-    exclude: /mcp\/dev-tools\//,
+    exclude: new RegExp(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
     severity: 'КРИТИЧНО',
   },
   {
@@ -125,7 +132,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /FROM\s+tours\b/i,
-    exclude: /mcp\/dev-tools\//,
+    exclude: new RegExp(`mcp\\/dev-tools\\/|${PATTERN_HOLDERS.source}`),
     severity: 'КРИТИЧНО',
   },
   {
@@ -133,6 +140,7 @@ const checks = [
     dirs: ['app', 'lib'],
     exts: ['.ts', '.tsx'],
     pattern: /import\s+pool\s+from/,
+    exclude: PATTERN_HOLDERS,
     severity: 'КРИТИЧНО',
   },
   {
@@ -193,8 +201,12 @@ for (const check of checks) {
   let files;
   if (filesToScan !== null) {
     // Staged/files mode: filter the given list by the check's exts
+    // Тот же охват, что при полном скане: проверка смотрит только свои dirs.
+    // Иначе staged-режим цеплял tests/ и клеймил тестовые фикстуры, которые
+    // намеренно содержат запрещённые строки.
     files = filesToScan.filter(f =>
       check.exts.some(ext => f.endsWith(ext)) &&
+      check.dirs.some(dir => f.startsWith(join(ROOT, dir) + sep)) &&
       !(check.exclude && check.exclude.test(f))
     );
   } else {

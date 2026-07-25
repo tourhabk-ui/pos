@@ -74,9 +74,12 @@ describe('static-checks: факт по синтаксису вместо дог�
     expect(checkRouteAuthGate('app/api/hub/bookings/create/route.ts', authedRoute)).toEqual([]);
   });
 
-  it('мутирующий роут БЕЗ защиты — находка critical', () => {
+  // Путь обязан быть ПУБЛИЧНЫМ на Edge — иначе анонима отсекает middleware и
+  // находки нет (см. блок «знание реальных рубежей репо» ниже). /api/discovery
+  // объявлен публичным для GET и POST.
+  it('мутирующий публичный роут БЕЗ защиты — находка critical', () => {
     const naked = `export async function POST(req: Request) { return Response.json({}); }`;
-    const found = checkRouteAuthGate('app/api/hub/secret/route.ts', naked);
+    const found = checkRouteAuthGate('app/api/discovery/route.ts', naked);
     expect(found).toHaveLength(1);
     expect(found[0].severity).toBe('critical');
     expect(found[0].title).toContain('POST');
@@ -183,5 +186,76 @@ export async function POST(req: NextRequest) {
   it('роут действительно без защиты — по-прежнему находка', () => {
     const src = `export async function DELETE() { return NextResponse.json({}); }`;
     expect(checkRouteAuthGate('app/api/admin/wipe/route.ts', src)).toHaveLength(1);
+  });
+});
+
+/**
+ * Регрессия по итогам аудита бизнес-процессов 25.07.
+ *
+ * Объектив auth знал только часть реальных хелперов репо и ничего не знал про
+ * Edge-гвард. Результат: 66 «критичных дыр» на 623 роутах, из которых honest —
+ * четыре. Оба перекоса ниже зафиксированы: не клеймить защищённое и не
+ * оправдывать по-настоящему открытое.
+ */
+describe('checkRouteAuthGate — знание реальных рубежей репо', () => {
+  it('verifyAuth (брони) — не находка', () => {
+    const src = `import { verifyAuth } from '@/lib/auth';
+export async function POST(req: NextRequest) {
+  const auth = await verifyAuth(req);
+  if (!auth.isAuthenticated) return NextResponse.json({}, { status: 401 });
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/bookings/[id]/cancel/route.ts', src)).toEqual([]);
+  });
+
+  it('authenticateUser/authorizeRole (платежи) — не находка', () => {
+    const src = `import { authenticateUser, authorizeRole } from '@/lib/auth';
+export async function POST(req: NextRequest) {
+  const userId = await authenticateUser(req);
+  if (!userId) return NextResponse.json({}, { status: 401 });
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/bookings/payments/route.ts', src)).toEqual([]);
+  });
+
+  it('requireOctoAuth (партнёрский Bearer-ключ) — не находка', () => {
+    const src = `import { requireOctoAuth } from '@/lib/octo/auth';
+export async function POST(req: NextRequest) {
+  const a = await requireOctoAuth(req);
+  if (a instanceof NextResponse) return a;
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/octo/bookings/route.ts', src)).toEqual([]);
+  });
+
+  it('путь закрыт Edge-гвардом (нет в реестре публичных) — не находка', () => {
+    const naked = `export async function POST() { return NextResponse.json({}); }`;
+    // /api/stay/* отсутствует в PUBLIC_API_ROUTES → аноним получает 401 на Edge
+    expect(checkRouteAuthGate('app/api/stay/accommodations/route.ts', naked)).toEqual([]);
+  });
+
+  it('публичный на Edge и совсем без рубежа — находка', () => {
+    const naked = `export async function POST() { return NextResponse.json({}); }`;
+    // /api/planner/validate объявлен публичным — значит рубеж обязан быть в файле
+    const found = checkRouteAuthGate('app/api/planner/validate/route.ts', naked);
+    expect(found).toHaveLength(1);
+    expect(found[0].severity).toBe('critical');
+  });
+
+  it('публичный на Edge, но с лимитером — не находка (аноним по замыслу)', () => {
+    const src = `import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+const limiter = createRateLimiter({ windowMs: 60000, max: 20 });
+export async function POST(req: NextRequest) {
+  if (!limiter.check(getClientIp(req.headers))) return NextResponse.json({}, { status: 429 });
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/planner/validate/route.ts', src)).toEqual([]);
+  });
+
+  it('маршрут-заглушка (501) — не находка, мутировать нечего', () => {
+    const src = `export async function POST() {
+  return NextResponse.json({ status: 'not_implemented' }, { status: 501 });
+}`;
+    expect(checkRouteAuthGate('app/api/webhooks/payments/route.ts', src)).toEqual([]);
   });
 });

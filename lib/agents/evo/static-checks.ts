@@ -13,6 +13,7 @@
  * Чистые функции: (путь, содержимое) → находки. Ни сети, ни БД.
  */
 import type { GrowthIssue } from '@/lib/agents/evo/growth-agent';
+import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 
 /**
  * Признаки реальной auth-защиты в этом проекте (НЕ выдуманные NextAuth/Prisma).
@@ -21,9 +22,42 @@ import type { GrowthIssue } from '@/lib/agents/evo/growth-agent';
  * именованным хелпером — `issue-token` сверяет ADMIN_TOKEN_SECRET через
  * timingSafeEqual из crypto, `max-send` сравнивает Authorization с CRON_SECRET
  * инлайном. Гвард обязан знать и такие формы, иначе сам порождает ложь.
+ *
+ * Аудит бизнес-процессов 25.07 показал, что список всё ещё был уже реальности:
+ * защищённые брони (`verifyAuth`), платежи (`authenticateUser`/`authorizeRole`),
+ * жильё (`requireAccommodationAccess`) и все `verify*Ownership` клеймились как
+ * дыры. Список ниже собран по фактическому экспорту `lib/auth.ts` +
+ * `lib/auth/*.ts`, а не по памяти модели.
  */
 const AUTH_MARKERS =
-  /requireAuth|requireAdmin|requireRole|requireOperator|requireAgent|requireTransferOperator|requireStayOwner|verifyToken|extractToken|verifyCronSecret|getCronSecret|timingSafeCompare|timingSafeEqual|CRON_SECRET|ADMIN_TOKEN_SECRET|WEBHOOK_SECRET|createHmac/;
+  /require(?:Auth|Admin|Role|Operator|Agent|TransferOperator|StayOwner|AccommodationAccess)/.source +
+  '|' +
+  /verifyAuth|verifyToken|extractToken|getUserFrom(?:Request|Token)|getTokenFromRequest/.source +
+  '|' +
+  /authenticateUser|authorizeRole|verify\w*Ownership/.source +
+  '|' +
+  /verifyCronSecret|getCronSecret|timingSafeCompare|timingSafeEqual/.source +
+  '|' +
+  /CRON_SECRET|ADMIN_TOKEN_SECRET|WEBHOOK_SECRET|createHmac/.source +
+  '|' +
+  // Партнёрские протоколы со своей схемой доступа: OCTO — Bearer-ключ
+  // ресейлера, CloudPayments — HMAC X-Content-HMAC внутри обработчика.
+  /requireOctoAuth|processCloudPaymentsWebhook/.source;
+
+const AUTH_MARKERS_RE = new RegExp(AUTH_MARKERS);
+
+/**
+ * Для анонимного по замыслу эндпоинта (форма, трекинг, публичный AI-чат)
+ * рубеж — не JWT, а лимит частоты: он и держит спам и счёт за LLM. Публичный
+ * путь совсем без рубежа — вот это находка.
+ */
+const RATE_LIMIT_MARKERS = /createRateLimiter|checkRateLimit|Ratelimit|rateLimit\(/;
+
+/**
+ * Заглушка, а не обработчик: маршрут отвечает 410/501 и ничего не делает.
+ * Отсутствие auth у такого экспорта — не дыра (мутировать нечего).
+ */
+const STUB_ONLY = /status:\s*(?:410|501)/;
 
 /** Мутирующие HTTP-методы: именно их незащищённость опасна. */
 const MUTATING_EXPORT = /export\s+async\s+function\s+(POST|PUT|PATCH|DELETE)\s*\(/g;
@@ -47,15 +81,29 @@ const PUBLIC_MUTATING_ROUTES = [
   'app/api/reviews/',
   'app/api/subscribe',
   'app/api/contact',
+  // MCP-сервер: POST — это JSON-RPC на чтение (tools/list, tools/call поверх
+  // SELECT'ов), мутаций в файле нет. Публичен намеренно — его зовёт AI-агент
+  // Timeweb; middleware пропускает его отдельной веткой.
+  'app/api/mcp/',
 ];
 
 function isPublicMutatingRoute(path: string): boolean {
   return PUBLIC_MUTATING_ROUTES.some((p) => path.startsWith(p));
 }
 
+/** `app/api/hub/x/route.ts` → `/api/hub/x` (динамические сегменты как есть). */
+function urlOf(path: string): string {
+  return '/' + path.replace(/^app\//, '').replace(/\/route\.ts$/, '');
+}
+
 /**
- * Мутирующий API-роут без единого маркера аутентификации.
- * Ровно та проверка, которую LLM пыталась делать «на глаз» и врала.
+ * Мутирующий API-роут без единого маркера аутентификации И не закрытый Edge-гвардом.
+ *
+ * Оба условия обязательны. Проверка «только по содержимому файла» — та самая,
+ * которую LLM делала «на глаз» и врала; но и она сама по себе врёт: аудит
+ * бизнес-процессов 25.07 показал 37 «дыр», где анонима не пускает middleware
+ * (маршрута нет в PUBLIC_API_ROUTES → 401 ещё до обработчика). Реальная дыра —
+ * это публичный на Edge путь без проверки внутри.
  */
 export function checkRouteAuthGate(path: string, content: string): GrowthIssue[] {
   if (!/^app\/api\/.*\/route\.ts$/.test(path)) return [];
@@ -63,7 +111,11 @@ export function checkRouteAuthGate(path: string, content: string): GrowthIssue[]
 
   const methods = [...content.matchAll(MUTATING_EXPORT)].map((m) => m[1]);
   if (methods.length === 0) return [];
-  if (AUTH_MARKERS.test(content)) return [];
+  if (AUTH_MARKERS_RE.test(content)) return [];
+  if (STUB_ONLY.test(content)) return [];
+  // Edge требует JWT для любого метода этого пути — обработчику ничего не грозит.
+  if (!methods.some((m) => isPublicApiPath(urlOf(path), m))) return [];
+  if (RATE_LIMIT_MARKERS.test(content)) return [];
 
   return [{
     category: 'security',

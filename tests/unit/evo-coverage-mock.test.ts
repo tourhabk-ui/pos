@@ -159,3 +159,92 @@ export default function Fake() {
     expect(found.map(f => f.title)).toContain('Экран на мок-данных');
   });
 });
+
+/**
+ * Регрессия на ПРОПУСКИ (аудит бизнес-процессов 25.07).
+ *
+ * Обратная сторона вчерашней правки: убирая ложняки, детектор стал требовать
+ * ОТДЕЛЬНЫЙ короткий литерал рядом с setTimeout — и мок тем вернее ускользал,
+ * чем он крупнее. На 262 экранах кабинетов детектор дал 0 находок, при этом
+ * три экрана были доказанным фейком: «Профиль гида» (один объект в форме +
+ * кнопка «Сохранить» на таймере), «Отзывы гида» (три выдуманных отзыва с
+ * именами) и «Гиды оператора» (три выдуманных гида). Кейсы — копии этих
+ * паттернов.
+ */
+describe('detectMockPatterns — пропуски, найденные аудитом кабинетов', () => {
+  it('мок ОДНОГО объекта в форме (профиль гида) — находка', () => {
+    const src = `'use client';
+export default function C() {
+  const [form, setForm] = useState({ name: '' });
+  useEffect(() => {
+    setTimeout(() => {
+      setForm({ name: 'Иван Петров', email: 'guide@example.com' });
+      setLoading(false);
+    }, 500);
+  }, []);
+  return null;
+}`;
+    expect(detectMockPatterns('app/hub/guide/profile/_Client.tsx', src)
+      .map((f) => f.title)).toContain('Экран на мок-данных');
+  });
+
+  it('кнопка «Сохранить» на таймере без мутации — находка', () => {
+    const src = `'use client';
+export default function C() {
+  function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    setTimeout(() => setSaving(false), 1000);
+  }
+  return <form onSubmit={handleSave}><button type="submit">Сохранить</button></form>;
+}`;
+    expect(detectMockPatterns('app/hub/guide/profile/_Client.tsx', src)
+      .map((f) => f.title)).toContain('Форма сохраняет в никуда');
+  });
+
+  it('форма с настоящим PUT — НЕ находка', () => {
+    const src = `'use client';
+export default function C() {
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    await fetch('/api/guide/profile', { method: 'PUT', body: JSON.stringify({}) });
+    setSaving(false);
+  }
+  return <form onSubmit={handleSave}><button type="submit">Сохранить</button></form>;
+}`;
+    expect(detectMockPatterns('app/hub/guide/profile/_Client.tsx', src)).toHaveLength(0);
+  });
+
+  it('крупный мок из трёх длинных объектов (отзывы гида) — находка', () => {
+    const src = `'use client';
+export default function C() {
+  const [reviews, setReviews] = useState([]);
+  useEffect(() => {
+    setTimeout(() => {
+      setReviews([
+        { id: '1', touristName: 'Анна М.', tourName: 'Восхождение на Авачинский', rating: 5, text: 'Отличный гид, всё рассказал про вулкан и обеспечил безопасность группы.', date: '2026-02-20' },
+        { id: '2', touristName: 'Дмитрий К.', tourName: 'Рыбалка на Жупанова', rating: 4, text: 'Хорошая организация, но погода подвела, гид нашёл отличное место.', date: '2026-02-15' },
+      ]);
+      setLoading(false);
+    }, 500);
+  }, []);
+  return null;
+}`;
+    expect(detectMockPatterns('app/hub/guide/reviews/_Client.tsx', src)
+      .map((f) => f.title)).toContain('Экран на мок-данных');
+  });
+
+  it('статический конфиг рядом с useState — НЕ находка (шаги онбординга)', () => {
+    const src = `'use client';
+const STEPS = [
+  { id: 'profile', title: 'Профиль', desc: 'Заполните данные компании' },
+  { id: 'tours', title: 'Туры', desc: 'Добавьте первый тур' },
+];
+export default function C() {
+  const [step, setStep] = useState(0);
+  return <div>{STEPS[step].title}</div>;
+}`;
+    expect(detectMockPatterns('app/hub/gear/onboarding/_Client.tsx', src)).toHaveLength(0);
+  });
+});

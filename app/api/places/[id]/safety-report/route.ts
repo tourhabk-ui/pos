@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+
+// Анонимный UGC на поверхности безопасности: рубеж — частота, как в
+// /api/safety/reports. Без него один клиент мог залить ленту наблюдений.
+const reportLimiter = createRateLimiter({ windowMs: 60_000 * 60, max: 10 }); // 10 в час с IP
 
 const BodySchema = z.object({
   is_ok:      z.boolean(),
@@ -11,6 +16,10 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!reportLimiter.check(getClientIp(req.headers))) {
+    return Response.json({ error: 'Слишком много наблюдений. Попробуйте позже.' }, { status: 429 });
+  }
+
   const { id: placeId } = await params;
 
   if (!/^[0-9a-f-]{36}$/i.test(placeId)) {
