@@ -9,7 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost } from '@/lib/notifications/post-validation';
+import { validateRoutePost, blockingTextIssue } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -120,12 +120,31 @@ async function maxChannelPost(
   }
 }
 
-/** Публикация в основной TG-канал + MAX канал с кросс-ссылками */
+/**
+ * Публикация в основной TG-канал + MAX канал с кросс-ссылками.
+ *
+ * Здесь же — последний рубеж перед подписчиками. Валидация постов
+ * (post-validation.ts) существует давно, и её шапка требует «каждый пост ОБЯЗАН
+ * пройти валидацию», но звать её должен был каждый публикатор сам. 25.07.2026
+ * один не позвал, и в канал ушёл пост «Сервис временно недоступен.» — заглушка,
+ * которую waterfall возвращает СТРОКОЙ при отказе всех провайдеров.
+ *
+ * Обязанность, которую легко забыть, рано или поздно забывают. Все восемь
+ * публикаторов идут через эту функцию, поэтому проверка стоит тут: дешёвая,
+ * синхронная, без сети — и обойти её, не тронув эту строку, нельзя.
+ */
 async function postToAllChannels(
   mainChannelId: string,
   text: string,
   photoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  const issue = blockingTextIssue(text);
+  if (issue) {
+    const error = `Публикация отменена: ${issue}`;
+    console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
+    return { ok: false, error };
+  }
+
   const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
   const maxLink = process.env.MAX_CHANNEL_LINK ?? '';
 

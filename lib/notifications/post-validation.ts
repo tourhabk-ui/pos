@@ -8,6 +8,7 @@
 import { query } from '@/lib/database';
 import { getPublicBaseUrl } from '@/lib/config';
 import { hasSourceAttribution } from '@/lib/text/source-attribution';
+import { isWaterfallErrorResponse } from '@/lib/ai/providers';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -92,16 +93,43 @@ function extractInternalLinks(text: string): string[] {
   return links;
 }
 
+const MIN_POST_CHARS = 30;
+const MAX_POST_CHARS = 2000;
+
 /**
- * Правило 4: Текст поста не пустой и разумной длины.
+ * Правило 4: причины НЕ публиковать, видимые по одному тексту — без сети и БД.
+ *
+ * Вынесено отдельно и синхронным, чтобы этим же правилом мог закрыться сам
+ * канал публикации (postToAllChannels), а не только те публикаторы, которые
+ * не забыли позвать валидацию.
+ *
+ * Отдельная проверка на заглушку отказа AI — не роскошь. 25.07.2026 в канал
+ * ушёл пост «Сервис временно недоступен.»: waterfall при отказе ВСЕХ
+ * провайдеров возвращает строку, а не бросает исключение, и публикатор принял
+ * её за текст. Ловить это длиной нельзя: у callAIFast заглушка 27 символов и
+ * случайно не проходит порог в 30, а у callAIWaterfall — «Извините, сервис
+ * временно недоступен. Попробуйте позже.», 54 символа, и порог она проходит.
+ * Поэтому сверяемся с реестром заглушек (isWaterfallErrorResponse), а не с
+ * длиной: один источник правды с providers.ts.
  */
-function checkTextQuality(text: string): string[] {
-  const errors: string[] = [];
+export function blockingTextIssue(text: string): string | null {
   const stripped = text.replace(/<[^>]+>/g, '').trim();
-  if (!stripped) errors.push('Текст поста пустой');
-  if (stripped.length < 30) errors.push(`Текст слишком короткий (${stripped.length} символов, мин. 30)`);
-  if (stripped.length > 2000) errors.push(`Текст слишком длинный (${stripped.length} символов, макс. 2000)`);
-  return errors;
+  if (!stripped) return 'текст поста пустой';
+  if (isWaterfallErrorResponse(stripped)) {
+    return 'это заглушка отказа AI, а не пост';
+  }
+  if (stripped.length < MIN_POST_CHARS) {
+    return `текст слишком короткий (${stripped.length} символов, мин. ${MIN_POST_CHARS})`;
+  }
+  if (stripped.length > MAX_POST_CHARS) {
+    return `текст слишком длинный (${stripped.length} символов, макс. ${MAX_POST_CHARS})`;
+  }
+  return null;
+}
+
+function checkTextQuality(text: string): string[] {
+  const issue = blockingTextIssue(text);
+  return issue ? [issue] : [];
 }
 
 /**
