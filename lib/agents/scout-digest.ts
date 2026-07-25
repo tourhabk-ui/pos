@@ -187,7 +187,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
  * Процент считается выдуманным, если ни одно из его чисел не встречается в источнике.
  * Так как в AI-пост подаются только заголовки, любой неподтверждённый процент — галлюцинация.
  */
-function unsourcedPercents(post: string, source: string): string[] {
+export function unsourcedPercents(post: string, source: string): string[] {
   const claims = post.match(/\d+(?:[.,]\d+)?\s*[–-]\s*\d+(?:[.,]\d+)?\s*%|\d+(?:[.,]\d+)?\s*%/g) ?? [];
   const srcNums = new Set((source.match(/\d+(?:[.,]\d+)?/g) ?? []).map(n => n.replace(',', '.')));
   return claims.filter(claim => {
@@ -357,11 +357,25 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен.
 - "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
 
+НЕ ВРАТЬ. Пиши только то, что есть в сигналах:
+- Цифры, цены, версии, названия фич и технический механизм — ДОСЛОВНО из сигнала. Нет в сигнале — не пиши.
+- Особенно про цены и тарифы: "без изменения цены", "дешевле", "бесплатно" — только если это сказано в сигнале. Не выводи из общих соображений.
+- Если известен только заголовок — пиши общо, что появилось, без выдуманной конкретики.
+- Лучше скромный честный пункт, чем эффектный с выдумкой. Выдуманный факт = провал.
+
+Связь с платформой добавляй, ТОЛЬКО если она настоящая и конкретная.
+Натянутая привязка ("может быть полезно для рекомендаций в туризме") хуже её
+отсутствия: она ничего не сообщает и обесценивает остальной текст. Нет связи —
+просто скажи, что произошло.
+
+Пустых обещаний не давать: "стоит следить за обновлениями", "может изменить
+рынок" — это не инсайт. Либо конкретика из сигнала, либо пункт не нужен.
+
 Формат ответа — только HTML для Telegram, без markdown:
 <b>Дайджест [дата]</b>
 
 <b>AI & Tech</b>
-- [краткий инсайт 1-2 предложения, что это значит для платформы]
+- [что произошло, конкретика из сигнала]
 
 <b>Туриндустрия</b>
 - [краткий инсайт]
@@ -388,11 +402,49 @@ export async function runScoutDigest(): Promise<DigestResult> {
     return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
   }
 
-  // If AI returned "no signals" for ALL sections — don't poison seen_urls, try again tomorrow
+  // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
+  // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
+  // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
+  // и приучает пролистывать. seen_urls тоже не трогаем — вернёмся завтра.
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 3;
   if (allEmpty) {
-    const sent = await tgSend(digest);
-    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start, ...health };
+    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
+  }
+
+  // ── Фактчек основного дайджеста ────────────────────────────────────────────
+  // Те же два гейта, что давно стоят на посте в AI-канал. Здесь их не было — и
+  // 25.07.2026 в дайджест ушло «Claude Opus 5 — без изменения цены», хотя цена
+  // изменилась вдвое. Модель не врала злонамеренно: ей просто не запретили
+  // додумывать, и никто не сверял результат с источником.
+  {
+    let bad = unsourcedPercents(digest, signalsList);
+    if (bad.length > 0) {
+      const fix: ChatMessage[] = [
+        ...messages,
+        { role: 'assistant', content: digest },
+        { role: 'user', content: `В тексте есть проценты, которых НЕТ в сигналах: ${bad.join(', ')}. Перепиши дайджест, убрав все неподтверждённые числа (формулируй без них). Верни только исправленный текст.` },
+      ];
+      const retry = await callAIFast(fix).catch(() => null);
+      if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
+    }
+    if (bad.length > 0) {
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    }
+
+    let claims = await unsupportedClaims(digest, signalsList);
+    if (claims.length > 0) {
+      const fix: ChatMessage[] = [
+        ...messages,
+        { role: 'assistant', content: digest },
+        { role: 'user', content: `Эти утверждения НЕ подтверждаются сигналами (выдумка или искажение): ${claims.join(' | ')}. Перепиши дайджест строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
+      ];
+      const retry = await callAIFast(fix).catch(() => null);
+      if (retry) { digest = retry; claims = await unsupportedClaims(digest, signalsList); }
+    }
+    if (claims.length > 0) {
+      // Лучше не выпустить дайджест, чем выпустить с выдумкой.
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    }
   }
 
   // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
