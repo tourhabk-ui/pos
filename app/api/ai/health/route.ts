@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveDeepSeekModel } from '@/lib/ai/providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,11 +64,11 @@ export async function GET(request: NextRequest) {
       : { name: 'OpenRouter', ok: false, status: 0, error: 'OPENROUTER_API_KEY MISSING' },
 
     deepseekKey
-      ? testProvider('DeepSeek', () =>
+      ? testProvider('DeepSeek', async () =>
           fetch('https://api.deepseek.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${deepseekKey}` },
-            body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
+            body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 20, messages: [{ role: 'user', content: 'ping' }] }),
           })
         )
       : { name: 'DeepSeek', ok: false, status: 0, error: 'DEEPSEEK_API_KEY MISSING' },

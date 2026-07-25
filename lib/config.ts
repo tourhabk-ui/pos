@@ -54,7 +54,10 @@ export const config = {
     deepseek: {
       apiKey: process.env.DEEPSEEK_API_KEY || '',
       baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-chat',
+      // Синхронный конфиг не может спросить /v1/models. deepseek-chat умер
+      // 26.07.2026 вместе с линейкой v3 — дефолт из списка поддерживаемых,
+      // override через DEEPSEEK_MODEL (как у резолвера в providers).
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
       maxTokens: parseInt(process.env.AI_MAX_TOKENS || '4000'),
       temperature: 0.7,
       timeout: 30000,
