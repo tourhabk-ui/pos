@@ -19,7 +19,7 @@
  * месте, а не искать по коду.
  */
 import { pool } from '@/lib/db-pool';
-import { emit, userAccount, type PostResult } from '@/lib/eco/ledger';
+import { emit, creditContribution, userAccount, type PostResult } from '@/lib/eco/ledger';
 
 export interface EmissionRule {
   /** Ключ источника — он же попадает в журнал. */
@@ -192,12 +192,15 @@ export async function award(req: AwardRequest): Promise<AwardOutcome> {
     ? null
     : new Date(Date.now() + rule.expiresInDays * 86_400_000);
 
+  const description = req.description ?? rule.description;
+
+  // Слой пользы: то, что можно потратить и что сгорает по сроку.
   const result = await emit({
     userId: req.userId,
     amount,
     source: rule.source,
     sourceRef: req.sourceRef ?? null,
-    description: req.description ?? rule.description,
+    description,
     expiresAt,
   });
 
@@ -207,6 +210,18 @@ export async function award(req: AwardRequest): Promise<AwardOutcome> {
   if (!result.applied) {
     return { ok: false, awarded: 0, reason: 'duplicate', message: 'Эко за это событие уже начислены' };
   }
+
+  // Слой вклада: то же действие, зафиксированное навсегда. Потратив пользу,
+  // человек не теряет вклад — именно это отличает свидетельство от валюты.
+  // Отдельный ключ идемпотентности (суффикс :c), потому что дедуп в БД
+  // работает по паре (source, source_ref), а проводки здесь две.
+  await creditContribution({
+    userId: req.userId,
+    amount,
+    source: rule.source,
+    sourceRef: req.sourceRef ? `${req.sourceRef}:c` : null,
+    description,
+  });
 
   return { ok: true, awarded: amount, result };
 }

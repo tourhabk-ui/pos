@@ -253,10 +253,16 @@ export class LoyaltySystem {
     await this.earnActivityPoints(userId, 'photo', reviewId);
   }
 
+  /**
+   * Списание эко. `sink` — ключ из реестра стоков (lib/eco/sinks): списание
+   * мимо реестра невозможно, потому что там живёт Закон 6 «безопасность не
+   * продаётся». По умолчанию — скидка на тур, исторический единственный сток.
+   */
   async redeemPoints(
     userId: string,
     pointsToRedeem: number,
-    description: string
+    description: string,
+    sink: string = 'tour_discount'
   ): Promise<{ success: boolean; pointsRedeemed: number; discountAmount: number; message: string }> {
     // Проверка достаточности и само списание — одна атомарная операция.
     // Раньше между чтением баланса и вставкой был зазор, в который проходило
@@ -264,7 +270,7 @@ export class LoyaltySystem {
     const result = await ledger.redeem({
       userId,
       amount: pointsToRedeem,
-      source: 'redeem',
+      source: sink,
       sourceRef: `redeem_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
       description,
     });

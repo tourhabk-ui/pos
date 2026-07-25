@@ -19,10 +19,13 @@
  */
 import { pool } from '@/lib/db-pool';
 import type { PoolClient } from 'pg';
+import { resolveSink } from '@/lib/eco/sinks';
 
 export const SYSTEM_ACCOUNTS = {
-  /** Выпуск за полезные действия. */
+  /** Выпуск пользы за полезные действия. */
   emission: 'system:emission',
+  /** Контр-счёт слоя вклада (миграция 773). */
+  contribution: 'system:contribution',
   /** Сжигание при трате. */
   burn: 'system:burn',
   /** Открывающие проводки переноса (миграция 772). */
@@ -51,13 +54,38 @@ export type PostResult =
   | { ok: true; applied: false; reason: 'duplicate' }
   | { ok: false; reason: 'insufficient_funds' | 'invalid' | 'error'; message: string };
 
-/** `user:<uuid>` — счёт держателя. */
+/** `user:<uuid>` — счёт пользы: тратится, сгорает. */
 export function userAccount(userId: string): string {
   return `user:${userId}`;
 }
 
+/** `contrib:<uuid>` — счёт вклада: не тратится, не передаётся, не сгорает. */
+export function contribAccount(userId: string): string {
+  return `contrib:${userId}`;
+}
+
 export function isSystemAccount(account: string): boolean {
   return account.startsWith('system:');
+}
+
+export function isContributionAccount(account: string): boolean {
+  return account.startsWith('contrib:');
+}
+
+/**
+ * Закон 8 (docs/ECO.md): вклад не отчуждается. Проданный вклад перестаёт быть
+ * вкладом, поэтому списание с contrib-счёта запрещено — кроме видимого
+ * исправления владельца. То же правило продублировано триггером в БД
+ * (миграция 773): здесь оно даёт понятную ошибку, там — неотменяемую.
+ */
+export function violatesContributionRule(entry: LedgerEntry): string | null {
+  if (isContributionAccount(entry.debitAccount) && entry.operation !== 'adjust') {
+    return 'Вклад не отчуждается: списать эко со счёта вклада нельзя';
+  }
+  if (isContributionAccount(entry.creditAccount) && !['emit', 'opening', 'adjust'].includes(entry.operation)) {
+    return 'На счёт вклада можно только начислять за поступок';
+  }
+  return null;
 }
 
 // ── Чистое ядро (под тестами) ────────────────────────────────────────────────
@@ -69,6 +97,8 @@ export function validateEntry(entry: LedgerEntry): { ok: true } | { ok: false; m
   if (entry.debitAccount === entry.creditAccount) return { ok: false, message: 'Счёт списания и счёт зачисления совпадают' };
   if (!entry.debitAccount || !entry.creditAccount) return { ok: false, message: 'Не указан счёт операции' };
   if (!entry.description.trim()) return { ok: false, message: 'Проводка без описания недопустима' };
+  const contribViolation = violatesContributionRule(entry);
+  if (contribViolation) return { ok: false, message: contribViolation };
   return { ok: true };
 }
 
@@ -209,10 +239,20 @@ export function emit(args: {
   });
 }
 
-/** Трата: эко сжигаются, а не «переходят платформе». */
+/**
+ * Трата: эко сжигаются, а не «переходят платформе».
+ *
+ * Тратится только слой пользы — вклад остаётся при держателе. `source` обязан
+ * быть ключом стока из lib/eco/sinks: списание мимо реестра стоков невозможно,
+ * иначе Закон 6 («безопасность не продаётся») держался бы на честном слове.
+ */
 export function redeem(args: {
   userId: string; amount: number; source: string; sourceRef?: string | null; description: string;
 }): Promise<PostResult> {
+  const sink = resolveSink(args.source);
+  if (!sink.ok) {
+    return Promise.resolve({ ok: false, reason: 'invalid', message: sink.reason });
+  }
   return post({
     debitAccount: userAccount(args.userId),
     creditAccount: SYSTEM_ACCOUNTS.burn,
@@ -264,6 +304,34 @@ export async function getBalance(userId: string): Promise<number> {
     [userAccount(userId)],
   );
   return rows[0] ? Number(rows[0].balance) : 0;
+}
+
+/**
+ * Накопленный вклад — то, что человек сделал для края. Не уменьшается от
+ * трат: потратив пользу, вклад не теряют. Это и отличает свидетельство от
+ * валюты.
+ */
+export async function getContribution(userId: string): Promise<number> {
+  const { rows } = await pool.query<{ balance: string }>(
+    `SELECT balance FROM eco_balances WHERE account = $1`,
+    [contribAccount(userId)],
+  );
+  return rows[0] ? Number(rows[0].balance) : 0;
+}
+
+/** Начисление в слой вклада — только через выпуск за поступок. */
+export function creditContribution(args: {
+  userId: string; amount: number; source: string; sourceRef?: string | null; description: string;
+}): Promise<PostResult> {
+  return post({
+    debitAccount: SYSTEM_ACCOUNTS.contribution,
+    creditAccount: contribAccount(args.userId),
+    amount: args.amount,
+    operation: 'emit',
+    source: args.source,
+    sourceRef: args.sourceRef,
+    description: args.description,
+  });
 }
 
 export interface LedgerRow {
