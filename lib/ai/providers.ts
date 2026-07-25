@@ -984,7 +984,7 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
 // intel-bridge. Последовательно: качество важнее latency (крон).
 
 interface ModelCacheEntry { id: string; at: number }
-const DECISION_MODEL_CACHE = new Map<'deepseek' | 'qwen', ModelCacheEntry>();
+const PURPOSE_MODEL_CACHE = new Map<string, ModelCacheEntry>();
 const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
 // Безопасные скользящие алиасы, если /v1/models недоступен.
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
@@ -1014,23 +1014,53 @@ export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promis
 }
 
 /**
- * Автоопределение модели-решателя без привязки к id: env-override → кэш →
- * /v1/models + pickBestModel → безопасный алиас. Кэш 1ч, чтобы не дёргать
- * список на каждый вызов.
+ * Автоопределение сильнейшей модели провайдера без привязки к id:
+ * env-override → кэш → /v1/models + pickBestModel → безопасный алиас.
+ * Кэш 1ч, чтобы не дёргать список на каждый вызов.
+ *
+ * Ключ кэша включает назначение: у решателя и у контента разные override,
+ * и подсовывать одному кэш другого нельзя.
  */
-export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
-  const override = provider === 'deepseek'
-    ? process.env.EVO_DECISION_MODEL
-    : process.env.EVO_DECISION_QWEN_MODEL;
+async function resolveBestModel(
+  provider: 'deepseek' | 'qwen',
+  purpose: 'decision' | 'content',
+  override: string | undefined,
+): Promise<string> {
   if (override) return override;
 
-  const cached = DECISION_MODEL_CACHE.get(provider);
+  const cacheKey = `${purpose}:${provider}` as const;
+  const cached = PURPOSE_MODEL_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
 
   const ids = await getProviderModelIds(provider);
   const picked = pickBestModel(ids) ?? DECISION_FALLBACK[provider];
-  DECISION_MODEL_CACHE.set(provider, { id: picked, at: Date.now() });
+  PURPOSE_MODEL_CACHE.set(cacheKey, { id: picked, at: Date.now() });
   return picked;
+}
+
+export async function resolveDecisionModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  return resolveBestModel(provider, 'decision', provider === 'deepseek'
+    ? process.env.EVO_DECISION_MODEL
+    : process.env.EVO_DECISION_QWEN_MODEL);
+}
+
+/**
+ * Модель для ГЕНЕРАЦИИ КОНТЕНТА (дайджест, описания Editor, посты в каналы).
+ *
+ * До 25.07.2026 такого понятия не было: контент писал callAIFast — гонка трёх
+ * провайдеров, где побеждает самый БЫСТРЫЙ, а не самый сильный. Двое из трёх
+ * были прибиты к снапшотам начала 2025 года (gemini-2.0-flash-001,
+ * deepseek-chat-v3-0324). Быстрая мелкая модель выигрывала гонку почти всегда,
+ * и публичные тексты писала она. Отсюда «наша LLM не дотягивает».
+ *
+ * Здесь id не хардкодится сознательно (CLAUDE.md §8): провайдер обновит
+ * линейку — pickBestModel подхватит сам, и разговор не повторится через
+ * полгода. Override — CONTENT_MODEL / CONTENT_QWEN_MODEL.
+ */
+export async function resolveContentModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  return resolveBestModel(provider, 'content', provider === 'deepseek'
+    ? process.env.CONTENT_MODEL
+    : process.env.CONTENT_QWEN_MODEL);
 }
 
 // Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
@@ -2149,6 +2179,84 @@ const WATERFALL_ERROR_PREFIXES = [
 
 export function isWaterfallErrorResponse(text: string): boolean {
   return WATERFALL_ERROR_PREFIXES.some(p => text.startsWith(p));
+}
+
+/**
+ * Путь для ГЕНЕРАЦИИ КОНТЕНТА: сильнейшее из доступного, а не самое быстрое.
+ *
+ * Отличие от callAIFast принципиальное, и оно не в моделях, а в устройстве.
+ * callAIFast — ГОНКА: побеждает тот, кто ответил первым, то есть маленькая
+ * быстрая модель. Для JSON-ответов и голосования это правильно. Для текста,
+ * который прочитают люди, — нет: мы систематически выбирали скорость вместо
+ * качества и получали слабые тексты при живых сильных провайдерах.
+ *
+ * Здесь провайдеры идут ПО ОЧЕРЕДИ: DeepSeek (сильнейший из достижимых из РФ
+ * напрямую), затем Qwen, и лишь потом общий waterfall. Модель у обоих не
+ * захардкожена — resolveContentModel спрашивает провайдера (CLAUDE.md §8).
+ *
+ * Флагманы Claude/GPT сюда не ставим: из РФ они гео-блокируются и без релея
+ * дают только задержку. Появится релей — waterfall в конце их и подхватит.
+ */
+export async function callAIQuality(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number; temperature?: number } = {},
+): Promise<string> {
+  const { maxTokens = 1600, temperature = 0.5 } = opts;
+  const payload = messages.map(({ role, content }) => ({ role, content }));
+
+  // 1. DeepSeek — сильнейший прямо достижимый из РФ.
+  const dsKey = getDeepSeekKey();
+  if (dsKey) {
+    try {
+      const model = await resolveContentModel('deepseek');
+      const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+      }, { timeoutMs: 45_000, label: 'deepseek:content' });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) {
+          logLLMUsage(model, data.usage);
+          return text;
+        }
+      }
+    } catch { /* следующий провайдер */ }
+  }
+
+  // 2. Qwen — второй сильный, тоже без гео-блока.
+  const qwen = getQwenConfig();
+  if (qwen.apiKey) {
+    try {
+      const model = await resolveContentModel('qwen');
+      const res = await fetchWithRetry(`${qwen.base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwen.apiKey}` },
+        body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: payload }),
+      }, { timeoutMs: 45_000, label: 'qwen:content' });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) {
+          logLLMUsage(model, data.usage);
+          return text;
+        }
+      }
+    } catch { /* следующий провайдер */ }
+  }
+
+  // 3. Общий waterfall — включая флагманы, если релей настроен.
+  return callAIWaterfall(messages);
+}
+
+/** Как callAIQuality, но отказ виден как null, а не строкой-заглушкой. */
+export async function callAIQualityOrNull(
+  messages: ChatMessage[],
+  opts: { maxTokens?: number; temperature?: number } = {},
+): Promise<string | null> {
+  const text = await callAIQuality(messages, opts);
+  return isWaterfallErrorResponse(text) ? null : text;
 }
 
 // ── Fast Waterfall — race cheap providers ────────────────────

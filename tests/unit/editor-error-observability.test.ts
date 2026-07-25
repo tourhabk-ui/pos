@@ -26,6 +26,14 @@ vi.mock('@/lib/ai/providers', () => ({
     const text = await callAIFastMock(...args);
     return text === 'Сервис временно недоступен.' ? null : text;
   },
+  // Editor переведён на КАЧЕСТВЕННЫЙ путь (callAIQualityOrNull): контент пишет
+  // сильнейшая доступная модель по очереди, а не победитель гонки на скорость.
+  // Мок сохраняет прежний контракт: отказ ВСЕХ провайдеров = null.
+  callAIQuality: (...a: unknown[]) => callAIFastMock(...a),
+  callAIQualityOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
 }));
 
 // ── Мок пула БД ──────────────────────────────────────────────────────────────
@@ -77,7 +85,7 @@ describe('runEditor: наблюдаемость ошибок', () => {
     expect(result.generation_failed).toBe(1);
     expect(result.db_update_failed).toBe(0);
     expect(result.error_samples).toHaveLength(1);
-    expect(result.error_samples[0]).toContain('все fast-провайдеры отказали');
+    expect(result.error_samples[0]).toContain('все провайдеры отказали');
   });
 
   it('пустая строка от провайдера → отдельная причина «пустой ответ»', async () => {
@@ -100,10 +108,13 @@ describe('runEditor: наблюдаемость ошибок', () => {
     expect(result.generation_failed).toBe(1);
     // Живой алерт 24.07 гласил «короткий ответ 27 симв. (ВЕРОЯТНО заглушка)» —
     // причина угадывалась по длине строки. Теперь она известна точно.
-    expect(result.error_samples[0]).toContain('все fast-провайдеры отказали');
+    expect(result.error_samples[0]).toContain('все провайдеры отказали');
     expect(result.error_samples[0]).not.toContain('вероятно');
     expect(result.error_samples[0]).not.toContain('27 симв');
-    expect(result.error_samples[0]).toContain('fast-провайдеры отказали');
+    // Причина называет, КТО именно отказал, — иначе диагностика опять сведётся
+    // к догадке. Editor теперь на качественном пути: DeepSeek → Qwen → waterfall.
+    expect(result.error_samples[0]).toMatch(/DeepSeek/);
+    expect(result.error_samples[0]).toMatch(/Qwen/);
   });
 
   it('UPDATE бросает → db_update_failed + sample с названием маршрута и сообщением БД', async () => {

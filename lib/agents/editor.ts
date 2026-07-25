@@ -11,7 +11,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIFast, callAIFastOrNull } from '@/lib/ai/providers';
+import { callAIQualityOrNull } from '@/lib/ai/providers';
 import type { AgentBriefing } from '@/lib/agents/warmup';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verbalizedInstruction, parseVerbalizedSamples, pickLeastTypical, looksLikeVerbalizedJson } from '@/lib/ai/verbalized-sampling';
@@ -193,16 +193,19 @@ ${verbalizedInstruction(3)}
   ];
 
   try {
-    // callAIFastOrNull даёт null, когда не ответил НИ ОДИН провайдер. Раньше сюда
+    // callAIQualityOrNull даёт null, когда не ответил НИ ОДИН провайдер. Раньше сюда
     // приходила строка-заглушка «Сервис временно недоступен.», и отказ опознавали
     // ЭВРИСТИКОЙ по длине (27 симв.) — отсюда формулировка «вероятно заглушка».
     // Теперь причина известна точно, а не угадывается.
-    const answer = await callAIFastOrNull(messages);
+    // Описания читают туристы — это контент, а не структурный ответ. Поэтому
+    // качественный путь (сильнейшая модель по очереди), а не гонка на скорость,
+    // где побеждала мелкая быстрая модель.
+    const answer = await callAIQualityOrNull(messages, { maxTokens: 1600 });
     if (answer === null) {
-      return { text: null, failReason: 'все fast-провайдеры отказали (DeepSeek/Gemini/OpenRouter) — ответа нет' };
+      return { text: null, failReason: 'все провайдеры отказали (DeepSeek/Qwen/waterfall) — ответа нет' };
     }
     const raw = answer.trim() || null;
-    if (!raw) return { text: null, failReason: 'callAIFast: пустой ответ' };
+    if (!raw) return { text: null, failReason: 'пустой ответ модели' };
 
     // Verbalized Sampling: берём наименее шаблонный валидный вариант из распределения.
     // Fallback на сырой ответ — ТОЛЬКО если это НЕ (битый) VS-JSON. Иначе рискуем
@@ -214,7 +217,7 @@ ${verbalizedInstruction(3)}
     const result = picked ?? (looksLikeVerbalizedJson(raw) ? null : raw);
 
     if (result && result.length >= MIN_GENERATION_LENGTH) return { text: result };
-    return { text: null, failReason: `callAIFast: ${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
+    return { text: null, failReason: `${result ? describeShortText(result) : 'битый VS-JSON — не сохранён'}` };
   } catch (err) {
     return { text: null, failReason: `exception: ${err instanceof Error ? err.message : String(err)}` };
   }

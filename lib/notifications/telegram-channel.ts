@@ -7,7 +7,7 @@
  */
 
 import { query } from '@/lib/database';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { validateRoutePost, blockingTextIssue } from '@/lib/notifications/post-validation';
 
@@ -723,10 +723,11 @@ ${signalCtx}
 
   let postText: string;
   try {
-    postText = await callAIWithModelDirect(
-      [{ role: 'user', content: postPrompt }],
-      'google/gemini-2.0-flash-001',
-    );
+    // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
+    // генератора были единственными в файле на захардкоженной старой модели —
+    // остальное давно на флагмане. Публичные посты писала самая слабая модель
+    // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
+    postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
   } catch {
     postText = fromFinding();
   }
@@ -809,10 +810,11 @@ ${signalCtx}
 
   let postText: string;
   try {
-    postText = await callAIWithModelDirect(
-      [{ role: 'user', content: postPrompt }],
-      'google/gemini-2.0-flash-001',
-    );
+    // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
+    // генератора были единственными в файле на захардкоженной старой модели —
+    // остальное давно на флагмане. Публичные посты писала самая слабая модель
+    // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
+    postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
   } catch {
     // Fallback: use raw summary
     postText = `<b>Новости туризма</b>\n\n${esc(finding.summary)}`;

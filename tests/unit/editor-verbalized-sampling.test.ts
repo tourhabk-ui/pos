@@ -19,6 +19,14 @@ vi.mock('@/lib/ai/providers', () => ({
     const text = await callAIFastMock(...a);
     return text === 'Сервис временно недоступен.' ? null : text;
   },
+  // Editor переведён на КАЧЕСТВЕННЫЙ путь (callAIQualityOrNull): контент пишет
+  // сильнейшая доступная модель по очереди, а не победитель гонки на скорость.
+  // Мок сохраняет прежний контракт: отказ ВСЕХ провайдеров = null.
+  callAIQuality: (...a: unknown[]) => callAIFastMock(...a),
+  callAIQualityOrNull: async (...a: unknown[]) => {
+    const text = await callAIFastMock(...a);
+    return text === 'Сервис временно недоступен.' ? null : text;
+  },
 }));
 
 import { generateRouteDescription, type RouteRow } from '@/lib/agents/editor';
