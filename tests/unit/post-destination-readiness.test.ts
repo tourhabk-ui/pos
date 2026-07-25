@@ -1,0 +1,99 @@
+/**
+ * Пост не ведёт на пустую страницу и не обещает того, чего там нет.
+ *
+ * Инцидент 25.07.2026. В канал вышел живой пост про Озеро Державина: «секрет
+ * от местных — приходить надо рано утром, часов до восьми», «тропа несложная,
+ * но без трека городские умудряются уйти не туда». В конце — «Маршрут с
+ * GPS-треком — тут». Турист переходил и видел карточку без фото и с описанием
+ * в две строки: «Это Озеро Державина в Камчатском крае. Место, которое стоит
+ * посмотреть.»
+ *
+ * Два разных провала, и оба «уже были предусмотрены»:
+ *
+ * 1. Заглушка вместо описания. validateRoutePost проверял описание, но порогом
+ *    в 20 символов И в warnings. Заглушка на ~70 символов проходила молча.
+ *
+ * 2. Обещание трека. После инцидента 12.07 («Гора Красная поляна» — место есть,
+ *    трека нет) условие добавили В ПРОМПТ: «НЕ обещай маршрут или трек». Модель
+ *    инструкцию не выполнила. Правило в промпте не гвард — CLAUDE.md §8 требует
+ *    инструмент, а не абзац.
+ *
+ * Обещание в канале, разошедшееся с содержимым страницы, бьёт по единственному,
+ * ради чего платформа существует, — по доверию.
+ */
+import { describe, it, expect } from 'vitest';
+import { destinationTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+describe('карточка готова к тому, чтобы на неё вести', () => {
+  it('реальная заглушка из инцидента отвергается', () => {
+    const stub = 'Это Озеро Державина в Камчатском крае. Место, которое стоит посмотреть.';
+    expect(destinationTextIssue(stub)).toContain('заглушка');
+  });
+
+  it('заглушку не спасает длина', () => {
+    // Приписать воды можно сколько угодно — сообщать она не начнёт.
+    const padded = 'Это Озеро Державина в Камчатском крае. Место, которое стоит посмотреть. '
+      + 'Красивая природа. Хорошее место. Приезжайте. '.repeat(6);
+    expect(destinationTextIssue(padded)).toContain('заглушка');
+  });
+
+  it('пустое описание отвергается', () => {
+    expect(destinationTextIssue(null)).toContain('нет описания');
+    expect(destinationTextIssue('   ')).toContain('нет описания');
+  });
+
+  it('короткое, но не шаблонное — тоже не годится', () => {
+    expect(destinationTextIssue('Озеро в кальдере, вода прогревается к июлю.')).toContain('слишком короткое');
+  });
+
+  it('настоящее описание проходит', () => {
+    const real =
+      'Озеро Державина лежит в кальдере и почти всё лето остаётся холодным: прогревается только у южного '
+      + 'берега, куда солнце достаёт с полудня. Подход от парковки занимает около часа по сухой тропе, '
+      + 'дальше начинается курумник — там лучше идти в ботинках с жёсткой подошвой. В безветрие вода '
+      + 'отражает вулканы, ветер поднимается обычно к девяти утра.';
+    expect(real.length).toBeGreaterThanOrEqual(180);
+    expect(destinationTextIssue(real)).toBeNull();
+  });
+});
+
+describe('обещание трека проверяется, а не доверяется промпту', () => {
+  it('фраза из инцидента ловится', () => {
+    expect(promisesRouteOrTrack('Маршрут с GPS-треком — тут')).toBe(true);
+  });
+
+  it('ловятся и другие формулировки', () => {
+    expect(promisesRouteOrTrack('Скачай трек и не заблудишься')).toBe(true);
+    expect(promisesRouteOrTrack('Весь маршрут выложен на сайте')).toBe(true);
+    expect(promisesRouteOrTrack('GPS на странице')).toBe(true);
+  });
+
+  it('честная подпись без обещаний проходит', () => {
+    expect(promisesRouteOrTrack('Подробнее о месте — тут')).toBe(false);
+    expect(promisesRouteOrTrack('Тропа несложная, идти около часа')).toBe(false);
+  });
+});
+
+describe('проверка стоит в публикаторе, а не только в промпте', () => {
+  const SRC = readFileSync(join(process.cwd(), 'lib/notifications/telegram-channel.ts'), 'utf-8');
+  const body = SRC.match(/export async function postKuzmichRoute[\s\S]*?\n\}/)?.[0] ?? '';
+
+  it('publisher найден', () => {
+    expect(body).not.toBe('');
+  });
+
+  it('текст сверяется с наличием трека ПОСЛЕ генерации', () => {
+    expect(body).toMatch(/!r\.has_track && promisesRouteOrTrack\(text\)/);
+    // И именно до отправки.
+    const guardAt = body.indexOf('promisesRouteOrTrack');
+    const postAt = body.indexOf('postToAllChannels');
+    expect(guardAt).toBeGreaterThanOrEqual(0);
+    expect(guardAt).toBeLessThan(postAt);
+  });
+
+  it('отклонённый кандидат заменяется следующим, а не роняет публикацию', () => {
+    expect(body).toMatch(/rejectedIds\.push\(r\.id\)[\s\S]{0,400}continue;/);
+  });
+});

@@ -9,7 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost, blockingTextIssue } from '@/lib/notifications/post-validation';
+import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -506,7 +506,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
   // кандидат логируется и заменяется следующим, до 3 попыток.
   const rejectedIds: string[] = [];
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     // Берём маршрут, который не постили последние 30 дней. Приоритет — местам
     // с реальным GPS-треком: пост «Гора Красная поляна» вёл на карточку без
     // маршрута («место есть, трека нет» — владелец, 12.07), обещание в тексте
@@ -568,6 +568,23 @@ ${r.has_track
 - Не начинай с "Привет" или своего имени`;
 
     const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
+
+    // Условие выше — строка в промпте, а её можно не выполнить: именно так
+    // 12.07 вышел пост про место без трека. Проверяем результат, а не надеемся
+    // на послушание модели (CLAUDE.md §8: инструмент вместо абзаца в промпте).
+    if (!r.has_track && promisesRouteOrTrack(text)) {
+      rejectedIds.push(r.id);
+      try {
+        await query(
+          `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+          ['kuzmich_post_rejected', JSON.stringify({
+            route_id: r.id, route_title: r.title,
+            errors: ['пост обещает маршрут или трек, а у карточки трека нет'],
+          })],
+        );
+      } catch { /* не блокируем перевыбор */ }
+      continue;
+    }
 
     const validation = await validateRoutePost(r.id, text);
     if (!validation.valid) {
