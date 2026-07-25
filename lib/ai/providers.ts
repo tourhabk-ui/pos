@@ -1291,6 +1291,39 @@ export function explainDeepSeekFailure(probe: {
   return `HTTP ${probe.http_status}: ${probe.detail.slice(0, 120)}`;
 }
 
+/**
+ * Причина падения Qwen — человеком, в текст алерта.
+ *
+ * Диагностика qwen_key_diag лежала в JSON health с самого начала, но в
+ * Telegram уходило только «Qwen недоступен (проверь RF-доступность/базу/
+ * модель)» — то есть перечень ГИПОТЕЗ вместо ответа, при том что ответ уже
+ * был собран. Ровно эта разница у DeepSeek 26.07 сократила диагностику смены
+ * линейки с гадания «ключ или баланс?» до одного взгляда на алерт.
+ *
+ * База и модель включены в текст: у Qwen два региональных шлюза
+ * (dashscope / dashscope-intl), и ошибка «ключ не от этого региона»
+ * неотличима от прочих 401 без указания, КУДА ходили.
+ */
+export function explainQwenFailure(probe: {
+  key_set: boolean;
+  base: string;
+  model: string;
+  http_status: number | null;
+  detail: string;
+}): string {
+  const where = `${probe.base.includes('-intl') ? 'intl' : 'cn'}/${probe.model}`;
+  if (!probe.key_set) return 'DASHSCOPE_API_KEY не задан на Timeweb';
+  if (probe.http_status === 401 || probe.http_status === 403) {
+    return `ключ отвергнут (${probe.http_status}, шлюз ${where}) — проверь регион консоли`;
+  }
+  if (probe.http_status === 402) return `нет средств на балансе (402, ${where})`;
+  if (probe.http_status === 404) return `модель не найдена (404, ${where}) — линейка сменилась?`;
+  if (probe.http_status === 429) return `лимит запросов (429, ${where})`;
+  if (probe.http_status === null) return `${probe.detail} (шлюз ${where})`;
+  if (probe.http_status >= 500) return `сбой на стороне Qwen (${probe.http_status})`;
+  return `HTTP ${probe.http_status} (${where}): ${probe.detail.slice(0, 120)}`;
+}
+
 // ── GLM 5.1 (ZhipuAI direct API — bigmodel.cn) ────────────────
 // ZhipuAI OpenAI-compatible endpoint. Env: GLM_API_KEY
 export async function callGLM(messages: ChatMessage[]): Promise<string | null> {
