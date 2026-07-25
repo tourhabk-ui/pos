@@ -125,6 +125,43 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Последняя причина отказа по каждому провайдеру.
+ *
+ * Зачем: провайдеры устроены одинаково — `if (!res.ok) return null` и
+ * `catch { return null }`. Причина не сохраняется НИГДЕ, поэтому на вопрос
+ * «почему сервис недоступен, ключ и баланс на месте» ответить было нечем:
+ * в логе есть только перечень настроенных ключей, то есть «ключ есть»,
+ * а не «что ответил провайдер».
+ *
+ * Пишется здесь, а не в пятнадцати вызовах: через fetchWithRetry ходят все,
+ * и у неё уже есть label с именем провайдера.
+ *
+ * Тело ответа НЕ читается — его должен получить вызывающий. Одного статуса
+ * хватает, чтобы различить основные случаи: 401 — ключ, 402 — кончился
+ * баланс (так отвечает DeepSeek), 429 — лимит, 400 — устаревший model-id,
+ * 403 — гео-блок.
+ */
+interface ProviderFailure { at: number; reason: string }
+const lastProviderFailure = new Map<string, ProviderFailure>();
+
+function noteProviderFailure(label: string | undefined, reason: string): void {
+  if (!label) return;
+  lastProviderFailure.set(label, { at: Date.now(), reason });
+}
+
+/** Свежие отказы провайдеров — для логов и health. Ключ: label провайдера. */
+export function recentProviderFailures(maxAgeMs = 10 * 60_000): Record<string, string> {
+  const out: Record<string, string> = {};
+  const now = Date.now();
+  for (const [label, f] of lastProviderFailure) {
+    if (now - f.at <= maxAgeMs) {
+      out[label] = `${f.reason} (${Math.round((now - f.at) / 1000)}с назад)`;
+    }
+  }
+  return out;
+}
+
+/**
  * fetch с ретраями транзиентных сбоев. timeoutMs задаётся отдельным
  * параметром (не через init.signal) — каждая попытка получает свежий
  * AbortSignal.timeout, а не урезанный остаток от предыдущей попытки.
@@ -145,11 +182,16 @@ export async function fetchWithRetry(
       const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       const retryable = RETRYABLE_STATUS.has(res.status);
       if (res.ok || attempt === maxRetries || !retryable) {
+        // Тело не трогаем — его читает вызывающий. Статуса достаточно.
+        if (!res.ok) noteProviderFailure(label, `HTTP ${res.status}`);
         return res;
       }
       lastErr = new Error(`HTTP ${res.status}`);
     } catch (err) {
-      if (attempt === maxRetries || !isRetryableNetworkError(err)) throw err;
+      if (attempt === maxRetries || !isRetryableNetworkError(err)) {
+        noteProviderFailure(label, err instanceof Error ? err.message : 'сетевая ошибка');
+        throw err;
+      }
       lastErr = err;
     }
     const delay = baseDelayMs * 2 ** attempt + Math.random() * baseDelayMs;
@@ -2089,6 +2131,9 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
     Yandex: !!(process.env.YANDEX_API_KEY && process.env.YANDEX_FOLDER_ID),
     MiniMax: !!(process.env.MINIMAX_API_KEY && process.env.MINIMAX_GROUP_ID),
     OR_disabled_until: openRouterDisabledUntil > 0 ? new Date(openRouterDisabledUntil).toISOString() : 'none',
+    // Перечень ключей отвечает «ключ есть», но не «что ответил провайдер».
+    // Без этого на вопрос «баланс на месте, почему недоступен» ответить нечем.
+    failures: recentProviderFailures(),
   });
   return 'Извините, сервис временно недоступен. Попробуйте позже.';
 }
