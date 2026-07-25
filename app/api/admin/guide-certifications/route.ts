@@ -2,6 +2,7 @@ import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
+import { REGISTRY_CUTOFF } from '@/lib/guides/reattestation';
 import { z } from 'zod';
 
 const VerifyCertificationSchema = z.object({
@@ -60,11 +61,27 @@ export async function GET(request: NextRequest) {
       []
     );
 
+    // Гиды, которым нужна переаттестация до 1 октября: есть датированные
+    // сертификаты и все — до порога реестра (логика = lib/guides/reattestation.ts)
+    const reattestationResult = await query<{ needed: string }>(
+      `SELECT COUNT(*) as needed FROM (
+         SELECT guide_id
+         FROM guide_certifications
+         GROUP BY guide_id
+         HAVING COUNT(*) FILTER (WHERE issue_date IS NOT NULL) > 0
+            AND COUNT(*) FILTER (WHERE issue_date >= $1::date) = 0
+       ) g`,
+      [REGISTRY_CUTOFF]
+    );
+
     return NextResponse.json({
       success: true,
       data: {
         items: result.rows,
-        stats: statsResult.rows[0] ?? { total: '0', verified: '0', expired: '0' },
+        stats: {
+          ...(statsResult.rows[0] ?? { total: '0', verified: '0', expired: '0' }),
+          reattestation_needed: reattestationResult.rows[0]?.needed ?? '0',
+        },
       },
     });
   } catch (error) {
