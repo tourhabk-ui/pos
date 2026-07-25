@@ -1,232 +1,54 @@
 /**
- * MCP Server (Streamable HTTP) для Timeweb Cloud AI Agent
- * Протокол: JSON-RPC 2.0 (MCP spec)
- * Даёт агенту доступ к 259 маршрутам Камчатки в реальном времени
+ * MCP Server (Streamable HTTP) — внешний протокольный вход в мозг Кузьмича.
+ * Протокол: JSON-RPC 2.0 (MCP spec). URL: https://vedarai.ru/api/mcp
  *
- * URL: https://vedarai.ru/api/mcp
+ * Один мозг — два протокола: инструменты НЕ дублируются здесь своим SQL,
+ * а делегируются реестру Кузьмича (lib/kuzmich/tool-schemas.ts + executor в
+ * core.ts). До этого сервер держал параллельный набор из 4 инструментов
+ * со своим SQL по legacy-VIEW и отставал от Кузьмича: внешний агент видел
+ * платформу беднее и иначе, чем турист в чате.
+ *
+ * Подмножество read-only и анонимное: наружу НЕ отдаём инструменты, которые
+ * жгут внешние квоты или пишут (search_kamchatka — платный веб-поиск,
+ * search_taaft — внешний каталог с трекингом использования). Ничего, что
+ * требует личности пользователя, здесь нет by construction — у Кузьмича
+ * такие поверхности живут вне tool-реестра.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
+import { TOOL_REGISTRY, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { executeKuzmichTool } from '@/lib/kuzmich/core';
 
 export const dynamic = 'force-dynamic';
 
-// ── MCP Tool definitions ─────────────────────────────────────
-const TOOLS = [
-  {
-    name: 'search_routes',
-    description: 'Поиск туристических маршрутов Камчатки по категории или ключевым словам',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        category: {
-          type: 'string',
-          description: 'Категория: vulkani, geyzery, termalnye_istochniki, rybalka, medvedi, morskie_progulki, vertoletnye_tury, trekking, snegohod, dzhip, ozera, gory, reki, eko, kombo',
-        },
-        query: {
-          type: 'string',
-          description: 'Поисковый запрос (название или описание)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Максимальное количество результатов (по умолчанию 5)',
-        },
-      },
-    },
-  },
-  {
-    name: 'get_route_details',
-    description: 'Получить подробную информацию о конкретном маршруте по ID',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        route_id: { type: 'string', description: 'UUID маршрута' },
-      },
-      required: ['route_id'],
-    },
-  },
-  {
-    name: 'list_categories',
-    description: 'Список всех 14 категорий маршрутов с количеством',
-    inputSchema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'get_tours',
-    description: 'Получить коммерческие туры с ценами и ближайшими датами отправления',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        category: { type: 'string', description: 'Фильтр по категории' },
-        limit: { type: 'number', description: 'Кол-во туров (по умолчанию 5)' },
-      },
-    },
-  },
-];
+/** Не для анонимного публичного входа: внешние квоты/запись использования. */
+const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
 
-// ── Tool handlers ────────────────────────────────────────────
-async function searchRoutes(args: Record<string, unknown>): Promise<string> {
-  const category = typeof args.category === 'string' ? args.category : null;
-  const searchQuery = typeof args.query === 'string' ? args.query : null;
-  const limit = typeof args.limit === 'number' ? Math.min(args.limit, 10) : 5;
+// ── MCP Tool definitions — из реестра Кузьмича, не руками ────
+const TOOLS = Object.values(TOOL_REGISTRY)
+  .filter((t) => !EXCLUDED_TOOLS.has(t.definition.function.name))
+  .map((t) => ({
+    name: t.definition.function.name,
+    description: t.definition.function.description,
+    // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
+    inputSchema: t.definition.function.parameters,
+  }));
 
-  let sql = `
-    SELECT id, title, category, description, source_url,
-           payload->>'difficulty' as difficulty,
-           payload->>'duration' as duration,
-           payload->>'season' as season,
-           payload->>'price_from' as price_from
-    FROM agent_route_knowledge
-    WHERE is_visible = TRUE
-  `;
-  const params: (string | number)[] = [];
-  let idx = 1;
-
-  if (category) {
-    sql += ` AND category = $${idx++}`;
-    params.push(category);
-  }
-  if (searchQuery) {
-    sql += ` AND (title ILIKE $${idx} OR description ILIKE $${idx})`;
-    params.push(`%${searchQuery}%`);
-    idx++;
-  }
-  sql += ` ORDER BY title LIMIT $${idx}`;
-  params.push(limit);
-
-  const result = await query<{
-    id: string; title: string; category: string;
-    description: string | null; difficulty: string | null;
-    duration: string | null; season: string | null;
-    price_from: string | null; source_url: string | null;
-  }>(sql, params);
-
-  if (!result.rows.length) return 'Маршруты не найдены.';
-
-  return result.rows.map(r =>
-    `**${r.title}** (${r.category})\n` +
-    (r.description ? r.description.slice(0, 200) + '...\n' : '') +
-    [r.difficulty && `Сложность: ${r.difficulty}`,
-     r.duration && `Длительность: ${r.duration}`,
-     r.season && `Сезон: ${r.season}`,
-     r.price_from && `От: ${r.price_from} ₽`,
-    ].filter(Boolean).join(' | ')
-  ).join('\n\n');
-}
-
-async function getRouteDetails(args: Record<string, unknown>): Promise<string> {
-  const routeId = String(args.route_id);
-  const result = await query<{
-    id: string; title: string; category: string;
-    description: string | null; difficulty: string | null;
-    duration: string | null; season: string | null; price_from: string | null;
-    highlights: string | null; source_url: string | null;
-  }>(
-    `SELECT id, title, category, description, source_url,
-            payload->>'difficulty' as difficulty,
-            payload->>'duration' as duration,
-            payload->>'season' as season,
-            payload->>'price_from' as price_from,
-            payload->>'highlights' as highlights
-     FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE LIMIT 1`,
-    [routeId]
-  );
-
-  if (!result.rows.length) return `Маршрут с ID "${routeId}" не найден.`;
-  const r = result.rows[0];
-
-  return [
-    `# ${r.title}`,
-    `Категория: ${r.category}`,
-    r.difficulty ? `Сложность: ${r.difficulty}` : null,
-    r.duration ? `Длительность: ${r.duration}` : null,
-    r.season ? `Лучший сезон: ${r.season}` : null,
-    r.price_from ? `Цена от: ${r.price_from} ₽` : null,
-    r.description ? `\n${r.description}` : null,
-    r.source_url ? `\nПодробнее: ${r.source_url}` : null,
-  ].filter(Boolean).join('\n');
-}
-
-async function listCategories(): Promise<string> {
-  const result = await query<{ category: string; count: string }>(
-    `SELECT category, COUNT(*) as count FROM agent_route_knowledge WHERE is_visible = TRUE GROUP BY category ORDER BY count DESC`
-  );
-
-  const labels: Record<string, string> = {
-    eco: 'Эко-туры', vulkani: 'Вулканы', trekking: 'Треккинг',
-    termalnye_istochniki: 'Термальные источники', mountains: 'Горы',
-    morskie_progulki: 'Морские прогулки', lakes: 'Озёра',
-    rybalka: 'Рыбалка', geyzery: 'Гейзеры', dzhip: 'Джип-туры',
-    snegohod: 'Снегоходы', rivers: 'Реки',
-    vertoletnye_tury: 'Вертолётные туры', medvedi: 'Медведи',
-  };
-
-  return result.rows
-    .map(r => `- ${labels[r.category] || r.category} (${r.count} маршрутов)`)
-    .join('\n');
-}
-
-async function getTours(args: Record<string, unknown>): Promise<string> {
-  const category = typeof args.category === 'string' ? args.category : null;
-  const limit = typeof args.limit === 'number' ? Math.min(args.limit, 10) : 5;
-
-  // Ближайшая дата — из tour_availability (живой календарь), а не из
-  // полу-мёртвой tour_departures (счётчик занятости никогда не заполнялся)
-  let sql = `
-    SELECT t.id, t.title, t.description, t.base_price AS price, t.multi_day_count AS duration_days,
-           td.date AS start_date, td.available_slots, td.base_price_override AS price_override
-    FROM operator_tours t
-    LEFT JOIN LATERAL (
-      SELECT ta.date, ta.available_slots, ta.base_price_override
-      FROM tour_availability ta
-      WHERE ta.operator_tour_id = t.id
-        AND ta.date >= CURRENT_DATE
-        AND ta.is_cancelled = FALSE
-        AND ta.deleted_at IS NULL
-      ORDER BY ta.date ASC
-      LIMIT 1
-    ) td ON TRUE
-    WHERE t.is_active = TRUE AND t.deleted_at IS NULL
-  `;
-  const params: (string | number)[] = [];
-  let idx = 1;
-
-  if (category) {
-    sql += ` AND t.category = $${idx++}`;
-    params.push(category);
-  }
-  sql += ` ORDER BY t.title, td.date LIMIT $${idx}`;
-  params.push(limit);
-
-  const result = await query<{
-    id: string; title: string; description: string | null;
-    price: string | null; duration_days: number | null;
-    start_date: Date | null; available_slots: number | null;
-    price_override: string | null;
-  }>(sql, params);
-
-  if (!result.rows.length) return 'Активные туры не найдены.';
-
-  return result.rows.map(r => {
-    const price = r.price_override || r.price;
-    const date = r.start_date ? r.start_date.toLocaleDateString('ru-RU') : null;
-    return `**${r.title}**\n` +
-      [price && `Цена: ${price} ₽`,
-       r.duration_days && `Дней: ${r.duration_days}`,
-       date && `Ближайший заезд: ${date}`,
-       r.available_slots && `Мест: ${r.available_slots}`,
-      ].filter(Boolean).join(' | ');
-  }).join('\n\n');
-}
+const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 
 // ── Execute tool by name ─────────────────────────────────────
-async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
-  switch (name) {
-    case 'search_routes': return searchRoutes(args);
-    case 'get_route_details': return getRouteDetails(args);
-    case 'list_categories': return listCategories();
-    case 'get_tours': return getTours(args);
-    default: throw new Error(`Unknown tool: ${name}`);
+async function executeTool(name: string, rawArgs: Record<string, unknown>): Promise<string> {
+  if (!TOOL_NAMES.has(name)) {
+    throw new Error(`Unknown tool: ${name}`);
   }
+  // Аргументы от внешнего клиента — та же граница недоверия, что
+  // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
+  // trim, обрезка длины), затем тот же исполнитель.
+  const validation = validateToolArgs(name, rawArgs as Record<string, string>);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+  return executeKuzmichTool(name, validation.args);
 }
 
 // ── JSON-RPC helpers ─────────────────────────────────────────
@@ -248,9 +70,9 @@ function jsonrpcError(id: string | number | null | undefined, code: number, mess
 // ── MCP Protocol: GET = server info ──────────────────────────
 export async function GET() {
   return NextResponse.json({
-    name: 'kamchatour-mcp',
-    version: '1.0.0',
-    description: 'KamchatourHub — 260 маршрутов и туры Камчатки',
+    name: 'vedar-mcp',
+    version: '2.0.0',
+    description: 'Ведар — данные Камчатки: места и безопасность, туры, жильё, снаряжение, трансферы, погода',
     tools: TOOLS,
   });
 }
@@ -277,8 +99,8 @@ export async function POST(request: NextRequest) {
           protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
           serverInfo: {
-            name: 'kamchatour-mcp',
-            version: '1.0.0',
+            name: 'vedar-mcp',
+            version: '2.0.0',
           },
         }));
 
