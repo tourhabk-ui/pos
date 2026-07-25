@@ -103,3 +103,59 @@ describe('detectMockPatterns — фейк-витрины', () => {
     expect(detectMockPatterns('app/x/page.tsx', src).some((f) => f.category === 'tech_debt')).toBe(true);
   });
 });
+
+/**
+ * Регрессия на ЛОЖНЫЕ срабатывания мок-детектора.
+ *
+ * Аудит админки 24.07: детектор дал 3 находки из 3 — и все три оказались
+ * ложью (проверено чтением файлов). Он клеймил корректно построенные экраны,
+ * то есть сам делал то, ради предотвращения чего создан. Кейсы ниже — точные
+ * копии реальных паттернов, на которых он ошибся.
+ */
+describe('detectMockPatterns — ложняки, найденные аудитом админки', () => {
+  it('данные из серверного компонента пропсами — НЕ фейк (channels)', () => {
+    const src = `'use client';
+import { useState } from 'react';
+const CHANNELS = [
+  { id: 'avito', name: 'Авито', steps: [{ done: true, text: 'фид готов' }] },
+  { id: 'yandex', name: 'Яндекс', steps: [{ done: true, text: 'YML готов' }] },
+];
+export function ChannelsDashboardClient({ orders, tours }: { orders: OrderStat[]; tours: TourStats }) {
+  const [copied, setCopied] = useState(false);
+  return <button onClick={() => { navigator.clipboard.writeText('x'); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>Копировать</button>;
+}`;
+    expect(detectMockPatterns('app/hub/admin/channels/_ChannelsDashboardClient.tsx', src)).toHaveLength(0);
+  });
+
+  it('таймер кнопки «скопировано» — не имитация загрузки', () => {
+    const src = `'use client';
+const ROWS = [{ a: '1' }, { a: '2' }];
+export default function C({ data }: { data: string[] }) {
+  return <span onClick={() => setTimeout(() => setCopied(false), 2000)}>Отменить</span>;
+}`;
+    expect(detectMockPatterns('app/hub/x/_C.tsx', src)).toHaveLength(0);
+  });
+
+  it('placeholder="https://example.com/rss.xml" — подсказка поля, не заглушка', () => {
+    const src = `'use client';
+export default function S() {
+  return <input placeholder="https://example.com/rss.xml" />;
+}`;
+    expect(detectMockPatterns('app/hub/admin/intelligence/_S.tsx', src)).toHaveLength(0);
+  });
+
+  it('НАСТОЯЩИЙ мок по-прежнему ловится (детектор не оглушён)', () => {
+    const src = `'use client';
+import { useState, useEffect } from 'react';
+export default function Fake() {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    setTimeout(() => { setRows([{ id: 1, name: 'Иван' }, { id: 2, name: 'Пётр' }]); }, 500);
+  }, []);
+  return <button onClick={() => alert('ок')}>Подтвердить</button>;
+}`;
+    const found = detectMockPatterns('app/hub/x/_FakeClient.tsx', src);
+    expect(found.length).toBeGreaterThanOrEqual(1);
+    expect(found.map(f => f.title)).toContain('Экран на мок-данных');
+  });
+});

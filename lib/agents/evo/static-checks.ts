@@ -14,9 +14,16 @@
  */
 import type { GrowthIssue } from '@/lib/agents/evo/growth-agent';
 
-/** Признаки реальной auth-защиты в этом проекте (НЕ выдуманные NextAuth/Prisma). */
+/**
+ * Признаки реальной auth-защиты в этом проекте (НЕ выдуманные NextAuth/Prisma).
+ *
+ * Аудит админки 24.07 показал два ложных срабатывания: роуты защищены, но не
+ * именованным хелпером — `issue-token` сверяет ADMIN_TOKEN_SECRET через
+ * timingSafeEqual из crypto, `max-send` сравнивает Authorization с CRON_SECRET
+ * инлайном. Гвард обязан знать и такие формы, иначе сам порождает ложь.
+ */
 const AUTH_MARKERS =
-  /requireAuth|requireAdmin|requireRole|requireOperator|requireAgent|requireTransferOperator|requireStayOwner|verifyToken|extractToken|verifyCronSecret|getCronSecret|timingSafeCompare/;
+  /requireAuth|requireAdmin|requireRole|requireOperator|requireAgent|requireTransferOperator|requireStayOwner|verifyToken|extractToken|verifyCronSecret|getCronSecret|timingSafeCompare|timingSafeEqual|CRON_SECRET|ADMIN_TOKEN_SECRET|WEBHOOK_SECRET|createHmac/;
 
 /** Мутирующие HTTP-методы: именно их незащищённость опасна. */
 const MUTATING_EXPORT = /export\s+async\s+function\s+(POST|PUT|PATCH|DELETE)\s*\(/g;

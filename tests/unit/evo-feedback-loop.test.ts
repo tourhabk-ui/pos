@@ -153,3 +153,35 @@ describe('precision: цена ошибки', () => {
     expect(isModelGuess('intel')).toBe(false);
   });
 });
+
+/**
+ * Регрессия по итогам аудита админки 24.07: auth-объектив клеймил защищённые
+ * роуты, потому что знал только именованные хелперы. Реальные формы защиты в
+ * репо шире — гвард обязан их знать, иначе сам становится источником лжи.
+ */
+describe('checkRouteAuthGate — формы защиты без именованного хелпера', () => {
+  it('сверка секрета через timingSafeEqual (issue-token) — не находка', () => {
+    const src = `import { timingSafeEqual } from 'crypto';
+export async function POST(req: NextRequest) {
+  const a = Buffer.from(process.env.ADMIN_TOKEN_SECRET!);
+  const b = Buffer.from(parsed.data.secret);
+  if (!(a.length === b.length && timingSafeEqual(a, b))) return NextResponse.json({}, { status: 401 });
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/admin/auth/issue-token/route.ts', src)).toEqual([]);
+  });
+
+  it('инлайн-сверка Authorization с CRON_SECRET (max-send) — не находка', () => {
+    const src = `export async function POST(req: NextRequest) {
+  const auth = req.headers.get('authorization') ?? '';
+  if (auth !== \`Bearer \${process.env.CRON_SECRET}\`) return NextResponse.json({}, { status: 401 });
+  return NextResponse.json({ ok: true });
+}`;
+    expect(checkRouteAuthGate('app/api/admin/max-send/route.ts', src)).toEqual([]);
+  });
+
+  it('роут действительно без защиты — по-прежнему находка', () => {
+    const src = `export async function DELETE() { return NextResponse.json({}); }`;
+    expect(checkRouteAuthGate('app/api/admin/wipe/route.ts', src)).toHaveLength(1);
+  });
+});
