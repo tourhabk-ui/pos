@@ -120,9 +120,31 @@ const MIN_DESTINATION_CHARS = 180;
 // Поэтому здесь везде явные классы [а-яё], а не \w и не границы слова.
 const FILLER_DESCRIPTION = /мест[оа],?\s*котор[а-яё]*\s+стоит\s+(посмотреть|увидеть|посетить)|^это\s+.{3,60}\s+в\s+камчатском\s+крае\.?\s*$/i;
 
+/**
+ * Видимый текст: убрать разметку, схлопнуть пробелы. Нужен ТОЛЬКО для замеров
+ * (длина, поиск шаблона) — результат никуда не выводится и санитайзером НЕ
+ * является. Название выбрано так, чтобы это было очевидно следующему читателю.
+ *
+ * Почему в цикле, а не одним `replace`. Одиночный проход по `<[^>]+>` —
+ * известная ловушка: во входе `<scr<script>ipt>` он удалит внутренний тег и
+ * СОБЕРЁТ из остатков `<script>`. Нам это не грозит (мы ничего не рендерим),
+ * но CodeQL справедливо метит сам шаблон: тот, кто позовёт функцию позже,
+ * может принять её за очистку. Повтор до неподвижной точки убирает и повод для
+ * находки, и саму ловушку. Счётчик ограничивает работу на вырожденном входе.
+ */
+export function visibleText(input: string): string {
+  let text = input;
+  for (let pass = 0; pass < 8; pass++) {
+    const next = text.replace(/<[^>]*>/g, ' ');
+    if (next === text) break;
+    text = next;
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 /** Годится ли описание для страницы, на которую ведёт публичный пост. */
 export function destinationTextIssue(description: string | null | undefined): string | null {
-  const text = (description ?? '').replace(/<[^>]+>/g, '').trim();
+  const text = visibleText(description ?? '');
   if (!text) return 'у карточки нет описания — вести на неё некуда';
   if (FILLER_DESCRIPTION.test(text)) {
     return 'описание карточки — заглушка («место, которое стоит посмотреть»), турист не узнает ничего';
@@ -147,7 +169,7 @@ export function promisesRouteOrTrack(text: string): boolean {
   // JS не существует (\w = [A-Za-z0-9_]), поэтому «трек» перед пробелом \b НЕ
   // даёт. Отсюда явные классы. «Треккинг» и «трекинг» — вид активности, а не
   // обещание файла с треком, поэтому исключены.
-  return /\bGPS\b|трек(?!к|инг)[а-яё]*|маршрут[а-яё]*/i.test(text.replace(/<[^>]+>/g, ' '));
+  return /\bGPS\b|трек(?!к|инг)[а-яё]*|маршрут[а-яё]*/i.test(visibleText(text));
 }
 
 /**
@@ -167,7 +189,7 @@ export function promisesRouteOrTrack(text: string): boolean {
  * длиной: один источник правды с providers.ts.
  */
 export function blockingTextIssue(text: string): string | null {
-  const stripped = text.replace(/<[^>]+>/g, '').trim();
+  const stripped = visibleText(text);
   if (!stripped) return 'текст поста пустой';
   if (isWaterfallErrorResponse(stripped)) {
     return 'это заглушка отказа AI, а не пост';

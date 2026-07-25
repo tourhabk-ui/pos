@@ -22,9 +22,36 @@
  * ради чего платформа существует, — по доверию.
  */
 import { describe, it, expect } from 'vitest';
-import { destinationTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
+import { destinationTextIssue, promisesRouteOrTrack, visibleText } from '@/lib/notifications/post-validation';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+
+/**
+ * CodeQL alert 145: одиночный `replace(/<[^>]+>/g,'')` — известная ловушка.
+ * На входе `<scr<script>ipt>` он вырезает внутренний тег и СОБИРАЕТ из остатков
+ * `<script>`. У нас результат нигде не рендерится (это замер длины, не очистка),
+ * но шаблон опасен для того, кто позовёт функцию следующим и примет её за
+ * санитайзер. Поэтому снятие тегов идёт до неподвижной точки.
+ */
+describe('снятие разметки не собирает тег из остатков', () => {
+  it('вложенный сломанный тег не превращается в <script>', () => {
+    expect(visibleText('<scr<script>ipt>alert(1)')).not.toContain('<script');
+    expect(visibleText('<<div>div>текст')).not.toContain('<div');
+  });
+
+  it('обычная разметка снимается, текст остаётся', () => {
+    expect(visibleText('<b>Озеро</b> в <i>кальдере</i>')).toBe('Озеро в кальдере');
+  });
+
+  it('слова не склеиваются при снятии тегов', () => {
+    // Замена на пустую строку дала бы «однодва» и исказила и длину, и поиск.
+    expect(visibleText('<p>одно</p><p>два</p>')).toBe('одно два');
+  });
+
+  it('вырожденный вход не зацикливает', () => {
+    expect(() => visibleText('<'.repeat(5000))).not.toThrow();
+  });
+});
 
 describe('карточка готова к тому, чтобы на неё вести', () => {
   it('реальная заглушка из инцидента отвергается', () => {
