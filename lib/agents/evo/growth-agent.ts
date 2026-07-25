@@ -181,17 +181,52 @@ function clampForReview(text: string): string {
     : text;
 }
 
+/**
+ * Барьер в точке чтения (CodeQL 143: file data → исходящий запрос к LLM).
+ *
+ * Пути на ревью приходят из ОТВЕТОВ GitHub API (список коммитов, дерево
+ * репозитория) — то есть из внешних данных. Строковый isReviewableSourcePath
+ * их не сдерживает: `lib/../../x.ts` начинается с `lib/` и кончается `.ts`,
+ * фильтр пройден — а path.join выходит ЗА корень репозитория. Тогда в
+ * зарубежный LLM уехал бы файл, который мы читать не собирались. Практическую
+ * эксплуатацию сдерживало лишь то, что git запрещает `..` в путях дерева, —
+ * то есть чужая гарантия, а не наша. Сегодня это уже четвёртый случай «фильтр
+ * есть, но не в точке использования».
+ *
+ * Правила барьера:
+ *  1) ни одного сегмента `.`/`..` и никаких абсолютных путей и обратных
+ *     слэшей — это закрывает И чтение с диска, И URL-фоллбэк на raw
+ *     (там `..` схлопывает нормализация URL, выводя за пределы репозитория);
+ *  2) резолв обязан остаться внутри process.cwd() — страховка от того, чего
+ *     правило 1 не предусмотрело;
+ *  3) сам isReviewableSourcePath — теперь ЗДЕСЬ, а не только при составлении
+ *     списка: точка чтения не доверяет вызывающему.
+ */
+export function containedReviewPath(relPath: string, root: string, path: typeof import('path')): string | null {
+  if (!isReviewableSourcePath(relPath)) return null;
+  if (relPath.includes('\\') || path.isAbsolute(relPath)) return null;
+  const segments = relPath.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
+  const full = path.resolve(root, relPath);
+  if (full !== path.join(root, relPath) || !full.startsWith(root + path.sep)) return null;
+  return full;
+}
+
 // Прод — standalone-образ без исходников .ts, поэтому диск -> фоллбэк на
 // GitHub raw (репо публичный). Без содержимого файл не ревьюится вовсе.
 async function readFileForReview(relPath: string): Promise<string | null> {
+  const [fs, path] = await Promise.all([import('fs'), import('path')]);
+  const full = containedReviewPath(relPath, process.cwd(), path);
+  if (!full) return null;
+
   try {
-    const [fs, path] = await Promise.all([import('fs'), import('path')]);
-    const full = path.join(process.cwd(), relPath);
     if (fs.existsSync(full)) return clampForReview(fs.readFileSync(full, 'utf8'));
   } catch { /* фоллбэк ниже */ }
 
   try {
     const res = await githubFetch(
+      // relPath здесь уже прошёл барьер выше: сегментов `..` нет, за пределы
+      // репозитория URL-нормализацией не выйти.
       `https://raw.githubusercontent.com/tourhabk-ui/pos/main/${relPath}`,
       { signal: AbortSignal.timeout(10_000) },
     );
