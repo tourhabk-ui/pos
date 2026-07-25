@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import ProfileClient from './_ProfileClient';
 
 export const metadata: Metadata = {
-  title: 'Профиль | Kamchatour',
+  title: 'Профиль',
   robots: 'noindex, nofollow',
 };
 

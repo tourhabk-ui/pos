@@ -20,14 +20,22 @@ export async function GET(req: Request) {
          WHERE tourist_email = $1 AND deleted_at IS NULL`,
         [email],
       ),
-      pool.query<{ total_points: number; level: number; last_activity: string }>(
-        `SELECT total_points, level, last_activity FROM user_eco_points WHERE user_id = $1`,
-        [userId],
+      // Реестр эко — единственный источник. Раньше здесь читалась таблица
+      // user_eco_points, которую не создаёт ни одна миграция (она есть только
+      // в неприменяемом lib/database/schema.sql). Запрос стоял в Promise.all,
+      // поэтому падал ВЕСЬ ответ: /my-kamchatka не получал даже число броней.
+      pool.query<{ utility: string; contribution: string }>(
+        `SELECT
+           COALESCE(MAX(balance) FILTER (WHERE account = $1), 0)::text AS utility,
+           COALESCE(MAX(balance) FILTER (WHERE account = $2), 0)::text AS contribution
+         FROM eco_balances
+         WHERE account IN ($1, $2)`,
+        [`user:${userId}`, `contrib:${userId}`],
       ),
     ]);
 
     const bookings = bookingsRes.rows[0] ?? { count: '0', completed: '0', total_spent: '0' };
-    const eco = ecoRes.rows[0] ?? { total_points: 0, level: 1, last_activity: null };
+    const eco = ecoRes.rows[0] ?? { utility: '0', contribution: '0' };
 
     return NextResponse.json({
       ok: true,
@@ -35,8 +43,9 @@ export async function GET(req: Request) {
         bookings_count: parseInt(bookings.count),
         bookings_completed: parseInt(bookings.completed),
         total_spent: parseFloat(bookings.total_spent),
-        eco_points: eco.total_points,
-        eco_level: eco.level,
+        // Два слоя раздельно (docs/ECO.md): вклад не тратится, польза тратится.
+        eco_utility: Number(eco.utility),
+        eco_contribution: Number(eco.contribution),
       },
     });
   } catch (err) {

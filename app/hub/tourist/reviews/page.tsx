@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import ReviewsClient from './_ReviewsClient';
 
 export const metadata: Metadata = {
-  title: 'Мои отзывы | Kamchatour',
+  title: 'Мои отзывы',
   robots: 'noindex, nofollow',
 };
 

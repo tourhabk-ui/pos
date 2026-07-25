@@ -4,28 +4,15 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Star, Calendar, MessageCircle, Trophy, Leaf, ArrowRight, TrendingUp } from 'lucide-react';
 import { EcoLevel } from '@/components/loyalty/EcoLevel';
-import { AchievementBadge } from '@/components/loyalty/AchievementBadge';
 
 interface Summary {
   bookings_count: number;
   bookings_completed: number;
   total_spent: number;
-  eco_points: number;
-  eco_level: number;
-}
-
-interface Achievement {
-  id: string;
-  name: string;
-  description: string;
-  points: number;
-  unlockedAt?: string;
-}
-
-interface EcoData {
-  totalPoints: number;
-  level: number;
-  achievements: Achievement[];
+  /** Польза: тратится на скидку. */
+  eco_utility: number;
+  /** Вклад: накопленная история поступков, не тратится (docs/ECO.md). */
+  eco_contribution: number;
 }
 
 const QUICK_LINKS = [
@@ -37,17 +24,18 @@ const QUICK_LINKS = [
 
 export function MyKamchatkaClient() {
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [eco, setEco] = useState<EcoData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Один запрос вместо двух: /api/eco-points/user читал user_eco_points —
+  // таблицу, которой нет ни в одной миграции. Оба слоя эко приходят в summary
+  // из реестра.
   useEffect(() => {
-    Promise.all([
-      fetch('/api/tourist/summary').then(r => r.json()).then(j => j.ok ? setSummary(j.data) : null).catch(() => {}),
-      fetch('/api/eco-points/user').then(r => r.json()).then(j => j.success ? setEco(j.data) : null).catch(() => {}),
-    ]).finally(() => setLoading(false));
+    fetch('/api/tourist/summary')
+      .then(r => r.json())
+      .then(j => (j.ok ? setSummary(j.data) : null))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
-
-  const unlockedAchievements = eco?.achievements ?? [];
 
   return (
     <div className="ds-page py-6 space-y-6 max-w-2xl mx-auto">
@@ -57,7 +45,7 @@ export function MyKamchatkaClient() {
         {[
           { label: 'Туров', value: loading ? '—' : String(summary?.bookings_count ?? 0), icon: Calendar },
           { label: 'Завершено', value: loading ? '—' : String(summary?.bookings_completed ?? 0), icon: TrendingUp },
-          { label: 'Eco-баллы', value: loading ? '—' : String(summary?.eco_points ?? 0), icon: Leaf },
+          { label: 'Эко к трате', value: loading ? '—' : String(summary?.eco_utility ?? 0), icon: Leaf },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="ds-card p-4 text-center">
             <Icon size={18} className="text-[var(--accent)] mx-auto mb-1" />
@@ -67,40 +55,19 @@ export function MyKamchatkaClient() {
         ))}
       </div>
 
-      {/* Eco level */}
-      {eco && (
-        <div className="ds-card p-4 space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Trophy size={16} className="text-[var(--accent)]" />
-            <span className="text-sm font-semibold text-[var(--text-primary)]">Eco-уровень</span>
-          </div>
-          <EcoLevel level={eco.level} totalPoints={eco.totalPoints} />
-        </div>
-      )}
-
-      {/* Achievements */}
-      {unlockedAchievements.length > 0 && (
+      {/* Вклад — то, что не тратится и остаётся с человеком */}
+      {summary && summary.eco_contribution > 0 && (
         <div className="ds-card p-4">
-          <p className="text-sm font-semibold text-[var(--text-primary)] mb-3">Достижения</p>
-          <div className="grid grid-cols-2 gap-2">
-            {unlockedAchievements.slice(0, 4).map(a => (
-              <AchievementBadge
-                key={a.id}
-                name={a.name}
-                description={a.description}
-                points={a.points}
-                unlockedAt={a.unlockedAt}
-              />
-            ))}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Trophy size={16} className="text-[var(--accent)]" />
+              <div>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Ваш вклад</p>
+                <p className="text-[11px] text-[var(--text-muted)]">Не тратится и не сгорает</p>
+              </div>
+            </div>
+            <p className="text-2xl font-bold text-[var(--text-primary)]">{summary.eco_contribution}</p>
           </div>
-          {unlockedAchievements.length > 4 && (
-            <Link
-              href="/hub/tourist/loyalty"
-              className="flex items-center gap-1 mt-3 text-xs text-[var(--accent)] hover:underline"
-            >
-              Все достижения <ArrowRight size={12} />
-            </Link>
-          )}
         </div>
       )}
 
@@ -129,12 +96,12 @@ export function MyKamchatkaClient() {
         </div>
       </div>
 
-      {/* Loyalty link if no achievements yet */}
-      {unlockedAchievements.length === 0 && !loading && (
+      {/* Призыв, пока вклада нет */}
+      {!loading && (summary?.eco_contribution ?? 0) === 0 && (
         <div className="ds-card p-4 text-center space-y-2">
           <Leaf size={24} className="text-[var(--success)] mx-auto" />
-          <p className="text-sm font-medium text-[var(--text-primary)]">Начни зарабатывать Eco-баллы</p>
-          <p className="text-xs text-[var(--text-muted)]">Бронируй туры, пиши отзывы, приглашай друзей</p>
+          <p className="text-sm font-medium text-[var(--text-primary)]">Начните копить эко</p>
+          <p className="text-xs text-[var(--text-muted)]">Бронируйте туры, пишите отзывы, приглашайте друзей</p>
           <Link href="/hub/tourist/loyalty" className="ds-btn ds-btn-primary text-xs px-4 py-2 inline-block mt-1">
             Программа лояльности
           </Link>

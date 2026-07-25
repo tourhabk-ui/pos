@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import NotificationsClient from './_NotificationsClient';
 
 export const metadata: Metadata = {
-  title: 'Уведомления | Kamchatour',
+  title: 'Уведомления',
   robots: 'noindex, nofollow',
 };
 

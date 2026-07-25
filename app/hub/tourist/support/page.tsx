@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import SupportClient from './_SupportClient';
 
 export const metadata: Metadata = {
-  title: 'Поддержка | Kamchatour',
+  title: 'Поддержка',
   robots: 'noindex, nofollow',
 };
 
