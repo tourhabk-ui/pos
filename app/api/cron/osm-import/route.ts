@@ -32,7 +32,10 @@ function intParam(raw: string | null, fallback: number, min: number, max: number
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // v — маркер билда для probe workflow: старый и новый код оба отвечают 401,
+    // и только по v цикл понимает, что деплой с апгрейдом синтетики уже накатился
+    // (миграция 776 применяется тем же деплоем до старта сервера).
+    return NextResponse.json({ error: 'Unauthorized', v: 2 }, { status: 401 });
   }
 
   const sp = request.nextUrl.searchParams;
@@ -51,6 +54,8 @@ export async function GET(request: NextRequest) {
       errors: result.errors.length,
       error_details: result.errors.slice(0, 10),
       routes_without_geometry: result.routes_without_geometry,
+      routes_synthetic: result.routes_synthetic,
+      remaining_total: result.remaining_total,
       processed: result.processed,
       details: result.details,
     });

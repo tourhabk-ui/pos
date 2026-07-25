@@ -85,9 +85,10 @@ async function main() {
         const pts = geojson.coordinates.length;
 
         if (!isDryRun) {
+          // source in-band — та же конвенция, что у idilesom/visitkamchatka
           await pool.query(
             `UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2`,
-            [JSON.stringify(geojson), r.id],
+            [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
           );
         }
 

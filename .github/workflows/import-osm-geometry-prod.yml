@@ -65,16 +65,19 @@ jobs:
 
           BASE="https://vedarai.ru/api/cron/osm-import"
 
-          # Ждём, пока задеплоится эндпоинт: без авторизации новый билд отвечает
-          # 401, старый — 404. До 30 минут (Docker-сборка Timeweb ~10 мин).
+          # Ждём НУЖНЫЙ билд, а не просто живой эндпоинт: старый билд тоже
+          # отвечает 401, поэтому в 401-теле новый код несёт маркер v=2
+          # (апгрейд синтетики + миграция 776 накатываются тем же деплоем).
+          # До 30 минут (Docker-сборка Timeweb ~10 мин).
           READY=""
           for i in $(seq 1 30); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE" || echo 000)
-            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
-            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            BODY=$(curl -s --max-time 30 "$BASE" || echo '{}')
+            V=$(echo "$BODY" | jq -r '.v // 0' 2>/dev/null || echo 0)
+            if [ "$V" = "2" ]; then READY=1; echo "endpoint deployed (401 c v=2 — билд с апгрейдом синтетики)"; break; fi
+            echo "нужный билд ещё не задеплоен (v=$V), жду 60с ($i/30)"
             sleep 60
           done
-          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+          if [ -z "$READY" ]; then echo "билд с v=2 так и не задеплоился за 30 мин"; exit 1; fi
 
           TOTAL_IMPORTED=0; TOTAL_SKIPPED=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
           for i in $(seq 1 80); do
@@ -85,7 +88,7 @@ jobs:
               echo "партия $i упала: $RESP"
               exit 1
             fi
-            echo "партия $i: $(echo "$RESP" | jq -c '{offset,imported,skipped,errors,processed,routes_without_geometry}')"
+            echo "партия $i: $(echo "$RESP" | jq -c '{offset,imported,skipped,errors,processed,routes_without_geometry,routes_synthetic,remaining_total}')"
             echo "$RESP" | jq -r '.details[] | "  [\(.status)] \(.title)\(if .pts then " (\(.pts) точек)" else "" end)"'
             echo "$RESP" | jq -r '.error_details[]? | "  ! \(.)"'
 
@@ -93,7 +96,9 @@ jobs:
             SKIP=$(echo "$RESP" | jq -r '.skipped')
             ERRS=$(echo "$RESP" | jq -r '.errors')
             PROC=$(echo "$RESP" | jq -r '.processed')
-            REMAIN=$(echo "$RESP" | jq -r '.routes_without_geometry')
+            # remaining_total = NULL-геометрия + синтетика (пул апгрейда);
+            # fallback на старое поле, если вдруг откатились на прежний билд
+            REMAIN=$(echo "$RESP" | jq -r '.remaining_total // .routes_without_geometry')
             TOTAL_IMPORTED=$((TOTAL_IMPORTED + IMP))
             TOTAL_SKIPPED=$((TOTAL_SKIPPED + SKIP))
             TOTAL_ERRORS=$((TOTAL_ERRORS + ERRS))
@@ -105,4 +110,4 @@ jobs:
           done
 
           echo "=================================================="
-          echo "ИТОГО: imported=$TOTAL_IMPORTED skipped=$TOTAL_SKIPPED errors=$TOTAL_ERRORS remaining_without_geometry=$REMAIN dry_run=$DRY"
+          echo "ИТОГО: imported=$TOTAL_IMPORTED skipped=$TOTAL_SKIPPED errors=$TOTAL_ERRORS remaining_pool=$REMAIN dry_run=$DRY"
