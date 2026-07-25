@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
 import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeDeepSeekKeyStatus, explainDeepSeekFailure } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -303,6 +304,17 @@ export async function GET(request: NextRequest) {
   const seismic = await checkSafetyIngest();
   if (seismic.issue) issues.push(seismic.issue);
 
+  // Инвариант реестра эко: сумма по всем счетам обязана быть нулём. Не сошлась —
+  // значит эко родились из воздуха или исчезли, и обещание «не врать цифрами»
+  // нарушено прямо сейчас. Это crit, а не предупреждение.
+  const eco = await checkEcoInvariant().catch(() => null);
+  if (eco && !eco.ok) {
+    issues.push({
+      level: 'crit',
+      text: `Реестр эко не сходится: SUM(balance) = ${eco.sum} вместо 0 (счетов: ${eco.accounts}, в обращении: ${eco.circulating})`,
+    });
+  }
+
   // Отправить алерт если есть проблемы
   if (issues.length > 0) {
     const crits = issues.filter(i => i.level === 'crit');
@@ -333,6 +345,7 @@ export async function GET(request: NextRequest) {
     qwen_key_diag: qwenKeyDiag,
     deepseek_key_diag: dsKeyDiag,
     safety_ingest_age_min: seismic.ageMin,
+    eco_ledger: eco,
     issues,
   });
 }

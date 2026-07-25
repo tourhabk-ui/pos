@@ -1,5 +1,19 @@
+/**
+ * Система лояльности поверх реестра «эко» (миграция 772).
+ *
+ * Внешний контракт класса не менялся — 6 мест вызова снаружи трогать не надо.
+ * Изменилось то, ЧЕМ он считает: раньше баланс был SUM(earn) - SUM(redeem) на
+ * лету, списание — прочитать-потом-вставить без транзакции, а отрицательный
+ * баланс прятался через Math.max(0, ...). Теперь любое движение проходит
+ * проводкой lib/eco/ledger: минус физически невозможен, дедуп начислений
+ * держит UNIQUE в БД, а сходимость проверяется инвариантом.
+ *
+ * loyalty_transactions остаётся архивом: из него сделан перенос, писать туда
+ * больше нельзя — иначе снова появятся два расходящихся источника правды.
+ */
 import { query } from '@/lib/database';
 import crypto from 'crypto';
+import * as ledger from '@/lib/eco/ledger';
 
 interface UserLevel {
   name: string;
@@ -40,6 +54,17 @@ interface LoyaltyStats {
   };
 }
 
+/** Операция реестра → тип, который витрина знает исторически. */
+const LEDGER_OP_TO_TYPE: Record<ledger.EcoOperation, BonusTransaction['type']> = {
+  opening:  'earn',
+  emit:     'earn',
+  transfer: 'earn',
+  redeem:   'redeem',
+  expire:   'expire',
+  refund:   'refund',
+  adjust:   'earn',
+};
+
 const ACTIVITY_POINTS: Record<string, { points: number; description: string }> = {
   review: { points: 50, description: 'Отзыв' },
   photo: { points: 20, description: 'Фото к отзыву' },
@@ -71,42 +96,27 @@ export class LoyaltySystem {
     const currentLevel = this.getUserLevel(totalSpent);
     const nextLevel = this.getNextLevel(totalSpent);
 
-    // Points aggregation
-    const pointsResult = await query<{ total_earned: string; total_redeemed: string; available_points: string }>(
-      `SELECT
-        COALESCE(SUM(CASE WHEN type = 'earn' THEN amount ELSE 0 END), 0) as total_earned,
-        COALESCE(SUM(CASE WHEN type = 'redeem' THEN amount ELSE 0 END), 0) as total_redeemed,
-        COALESCE(SUM(CASE WHEN type = 'earn' THEN amount ELSE 0 END), 0) -
-        COALESCE(SUM(CASE WHEN type = 'redeem' THEN amount ELSE 0 END), 0) as available_points
-      FROM loyalty_transactions
-      WHERE user_id = $1 AND (expires_at IS NULL OR expires_at > NOW()) AND type != 'expire'`,
-      [userId]
-    );
+    // Баланс — зафиксированное состояние счёта, а не сумма, пересчитанная
+    // при каждом чтении. Итоги — из журнала.
+    const [availablePoints, totals, history] = await Promise.all([
+      ledger.getBalance(userId),
+      ledger.getUserTotals(userId),
+      ledger.getHistory(userId, 20),
+    ]);
 
-    const totalEarned = parseInt(pointsResult.rows[0]?.total_earned ?? '0');
-    const totalRedeemed = parseInt(pointsResult.rows[0]?.total_redeemed ?? '0');
-    const availablePoints = parseInt(pointsResult.rows[0]?.available_points ?? '0');
+    const totalEarned = totals.earned;
+    const totalRedeemed = totals.redeemed;
 
-    // Recent transactions
-    const txResult = await query<{
-      id: string; user_id: string; type: string; source: string;
-      amount: string; description: string; booking_id: string | null;
-      created_at: Date; expires_at: Date | null;
-    }>(
-      `SELECT id, user_id, type, source, amount, description, booking_id, created_at, expires_at FROM loyalty_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
-      [userId]
-    );
-
-    const transactions: BonusTransaction[] = txResult.rows.map(r => ({
+    const transactions: BonusTransaction[] = history.map(r => ({
       id: r.id,
-      userId: r.user_id,
-      type: r.type as BonusTransaction['type'],
+      userId,
+      type: LEDGER_OP_TO_TYPE[r.operation],
       source: r.source,
-      amount: parseInt(r.amount),
+      amount: r.amount,
       description: r.description,
-      bookingId: r.booking_id ?? undefined,
-      createdAt: r.created_at,
-      expiresAt: r.expires_at ?? undefined,
+      bookingId: r.sourceRef ?? undefined,
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt ?? undefined,
     }));
 
     // Referral stats
@@ -137,7 +147,9 @@ export class LoyaltySystem {
 
     return {
       totalPoints: totalEarned,
-      availablePoints: Math.max(0, availablePoints),
+      // Без Math.max(0, ...): минус теперь невозможен на уровне БД, а не
+      // замазан на витрине.
+      availablePoints,
       currentLevel,
       nextLevel,
       pointsToNextLevel: nextLevel ? nextLevel.minSpent - totalSpent : 0,
@@ -169,21 +181,29 @@ export class LoyaltySystem {
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + this.expirationDays);
-      const txId = `lt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
       const multiplierNote = level.earnMultiplier > 1
         ? ` (уровень «${level.name}», ×${level.earnMultiplier})`
         : '';
 
-      await query(
-        `INSERT INTO loyalty_transactions (id, user_id, type, amount, source, description, booking_id, expires_at)
-         VALUES ($1, $2, 'earn', $3, $4, $5, $6, $7)`,
-        [txId, userId, pointsEarned, source,
-         `Начислено ${pointsEarned} баллов за заказ на сумму ${amount} руб.${multiplierNote}`,
-         bookingId, expiresAt]
-      );
+      const result = await ledger.emit({
+        userId,
+        amount: pointsEarned,
+        source,
+        sourceRef: bookingId,
+        description: `Начислено ${pointsEarned} эко за заказ на сумму ${amount} руб.${multiplierNote}`,
+        expiresAt,
+      });
 
-      return { success: true, pointsEarned, message: `Начислено ${pointsEarned} баллов` };
+      if (!result.ok) {
+        return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${result.message}` };
+      }
+      if (!result.applied) {
+        // Дедуп сработал в БД: за это событие уже начисляли.
+        return { success: true, pointsEarned: 0, message: 'Эко за этот заказ уже начислены' };
+      }
+
+      return { success: true, pointsEarned, message: `Начислено ${pointsEarned} эко` };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${msg}` };
@@ -198,39 +218,32 @@ export class LoyaltySystem {
     const config = ACTIVITY_POINTS[source];
     if (!config) return { success: false, pointsEarned: 0, message: 'Неизвестный тип активности' };
 
-    // Dedup check
-    if (entityId) {
-      const existing = await query<{ id: string }>(
-        `SELECT id FROM loyalty_transactions WHERE user_id = $1 AND source = $2 AND booking_id = $3 LIMIT 1`,
-        [userId, source, entityId]
-      );
-      if (existing.rows.length > 0) {
-        return { success: false, pointsEarned: 0, message: 'Баллы за эту активность уже начислены' };
-      }
-    }
-
-    // For first_booking: check if user has ANY earn transaction with source=booking
-    if (source === 'first_booking') {
-      const hasPrev = await query<{ id: string }>(
-        `SELECT id FROM loyalty_transactions WHERE user_id = $1 AND source = 'first_booking' LIMIT 1`,
-        [userId]
-      );
-      if (hasPrev.rows.length > 0) {
-        return { success: false, pointsEarned: 0, message: 'Бонус за первое бронирование уже получен' };
-      }
-    }
-
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + this.expirationDays);
-    const txId = `lt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    await query(
-      `INSERT INTO loyalty_transactions (id, user_id, type, amount, source, description, booking_id, expires_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, $7)`,
-      [txId, userId, config.points, source, config.description, entityId ?? null, expiresAt]
-    );
+    // Ключ идемпотентности. Для разовых бонусов вроде первого бронирования
+    // сущность-источник роли не играет — «одно на пользователя» и есть ключ.
+    // Прежняя проверка SELECT-перед-INSERT допускала двойное начисление при
+    // двух одновременных вызовах; теперь это ловит UNIQUE в БД.
+    const sourceRef = source === 'first_booking' ? userId : (entityId ?? null);
 
-    return { success: true, pointsEarned: config.points, message: `+${config.points} баллов: ${config.description}` };
+    const result = await ledger.emit({
+      userId,
+      amount: config.points,
+      source,
+      sourceRef,
+      description: config.description,
+      expiresAt,
+    });
+
+    if (!result.ok) {
+      return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${result.message}` };
+    }
+    if (!result.applied) {
+      return { success: false, pointsEarned: 0, message: 'Эко за эту активность уже начислены' };
+    }
+
+    return { success: true, pointsEarned: config.points, message: `+${config.points} эко: ${config.description}` };
   }
 
   /**
@@ -260,26 +273,30 @@ export class LoyaltySystem {
     pointsToRedeem: number,
     description: string
   ): Promise<{ success: boolean; pointsRedeemed: number; discountAmount: number; message: string }> {
-    try {
-      const stats = await this.getUserLoyaltyStats(userId);
+    // Проверка достаточности и само списание — одна атомарная операция.
+    // Раньше между чтением баланса и вставкой был зазор, в который проходило
+    // параллельное списание, и баланс уходил в минус.
+    const result = await ledger.redeem({
+      userId,
+      amount: pointsToRedeem,
+      source: 'redeem',
+      sourceRef: `redeem_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      description,
+    });
 
-      if (stats.availablePoints < pointsToRedeem) {
-        return { success: false, pointsRedeemed: 0, discountAmount: 0, message: 'Недостаточно баллов' };
-      }
-
-      const discountAmount = pointsToRedeem;
-      const txId = `lt_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-      await query(
-        `INSERT INTO loyalty_transactions (id, user_id, type, amount, source, description)
-         VALUES ($1, $2, 'redeem', $3, 'redeem', $4)`,
-        [txId, userId, pointsToRedeem, description]
-      );
-
-      return { success: true, pointsRedeemed: pointsToRedeem, discountAmount, message: `Списано ${pointsToRedeem} баллов` };
-    } catch {
-      return { success: false, pointsRedeemed: 0, discountAmount: 0, message: 'Ошибка списания баллов' };
+    if (!result.ok) {
+      const message = result.reason === 'insufficient_funds'
+        ? 'Недостаточно эко'
+        : `Ошибка списания эко: ${result.message}`;
+      return { success: false, pointsRedeemed: 0, discountAmount: 0, message };
     }
+
+    return {
+      success: true,
+      pointsRedeemed: pointsToRedeem,
+      discountAmount: pointsToRedeem,
+      message: `Списано ${pointsToRedeem} эко`,
+    };
   }
 
   async generateReferralCode(userId: string): Promise<string> {
