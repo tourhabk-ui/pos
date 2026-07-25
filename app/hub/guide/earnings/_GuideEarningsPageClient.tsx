@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { LoadingSpinner } from '@/components/admin/shared';
-import { DollarSign, TrendingUp, Calendar, Download } from 'lucide-react';
+import { CreditCard, Wallet, TrendingUp, Calendar, Download, type LucideIcon } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 
 interface EarningsSummary {
@@ -39,6 +39,30 @@ const EMPTY_SUMMARY: EarningsSummary = {
 
 const SELECT = 'px-3.5 py-2.5 text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors';
 
+
+/**
+ * Статы в языке «Обзора»: иконка в чипе (--ocean на подложке), а не серый
+ * глиф в углу — до этого четыре карточки выглядели чужими рядом с новым
+ * дашбордом. Цвет цифры остаётся строго семантичным (vedar §7).
+ */
+function StatCard({ icon: Icon, value, label, valueColor }: {
+  icon: LucideIcon; value: string; label: string; valueColor?: string;
+}) {
+  return (
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+      <div className="flex items-center justify-between mb-3">
+        <span className="flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ocean)]/10">
+          <Icon className="w-[22px] h-[22px] text-[var(--ocean)]" strokeWidth={1.75} />
+        </span>
+        <span className="text-2xl font-bold" style={valueColor ? { color: valueColor } : undefined}>
+          {value}
+        </span>
+      </div>
+      <div className="text-xs text-[var(--text-muted)]">{label}</div>
+    </div>
+  );
+}
+
 export default function GuideEarningsPageClient() {
   const [period, setPeriod] = useState('month');
 
@@ -55,7 +79,10 @@ export default function GuideEarningsPageClient() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-[var(--text-primary)]">Заработок</h1>
+          <h1 className="ds-h1 flex items-center gap-2">
+            <CreditCard className="w-6 h-6 text-[var(--ocean)]" />
+            Заработок
+          </h1>
           <p className="text-sm text-[var(--text-muted)] mt-0.5">
             Ваши доходы от проведения туров
           </p>
@@ -78,54 +105,10 @@ export default function GuideEarningsPageClient() {
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <div className="flex items-center justify-between mb-3">
-                <DollarSign className="w-7 h-7 text-[var(--text-muted)]" />
-                <span
-                  className="text-2xl font-bold"
-                  style={{ color: 'var(--success)' }}
-                >
-                  {summary.totalEarnings.toLocaleString('ru-RU')} ₽
-                </span>
-              </div>
-              <div className="text-xs text-[var(--text-muted)]">Всего заработано</div>
-            </div>
-
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <div className="flex items-center justify-between mb-3">
-                <DollarSign className="w-7 h-7 text-[var(--text-muted)]" />
-                <span
-                  className="text-2xl font-bold"
-                  style={{ color: 'var(--warning)' }}
-                >
-                  {summary.pendingPayment.toLocaleString('ru-RU')} ₽
-                </span>
-              </div>
-              <div className="text-xs text-[var(--text-muted)]">Ожидает выплаты</div>
-            </div>
-
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <div className="flex items-center justify-between mb-3">
-                <Calendar className="w-7 h-7 text-[var(--text-muted)]" />
-                <span
-                  className="text-2xl font-bold"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  {summary.toursCompleted}
-                </span>
-              </div>
-              <div className="text-xs text-[var(--text-muted)]">Туров проведено</div>
-            </div>
-
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-              <div className="flex items-center justify-between mb-3">
-                <TrendingUp className="w-7 h-7 text-[var(--text-muted)]" />
-                <span className="text-2xl font-bold text-[var(--text-primary)]">
-                  {summary.averagePerTour.toLocaleString('ru-RU')} ₽
-                </span>
-              </div>
-              <div className="text-xs text-[var(--text-muted)]">Средний доход за тур</div>
-            </div>
+            <StatCard icon={Wallet} value={`${summary.totalEarnings.toLocaleString('ru-RU')} ₽`} label="Всего заработано" valueColor="var(--success)" />
+            <StatCard icon={CreditCard} value={`${summary.pendingPayment.toLocaleString('ru-RU')} ₽`} label="Ожидает выплаты" valueColor="var(--warning)" />
+            <StatCard icon={Calendar} value={String(summary.toursCompleted)} label="Туров проведено" valueColor="var(--accent)" />
+            <StatCard icon={TrendingUp} value={`${summary.averagePerTour.toLocaleString('ru-RU')} ₽`} label="Средний доход за тур" />
           </div>
 
           {/* Earnings List */}

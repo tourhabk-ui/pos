@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Users } from 'lucide-react';
 import { DataTable } from '@/components/admin/shared/DataTable';
 import { LoadingSpinner } from '@/components/admin/shared/LoadingSpinner';
 import { StatusBadge } from '@/components/admin/shared/StatusBadge';
@@ -173,7 +174,10 @@ export default function AgentClientsPageClient() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-[var(--text-primary)]">Управление клиентами</h1>
+          <h1 className="ds-h1 flex items-center gap-2">
+        <Users className="w-6 h-6 text-[var(--ocean)]" />
+        Управление клиентами
+      </h1>
           <p className="text-[var(--text-secondary)] text-sm mt-0.5">
             CRM система для работы с клиентами
           </p>

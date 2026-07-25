@@ -1,5 +1,6 @@
 'use client';
 
+import { Handshake } from 'lucide-react';
 import { DataTable } from '@/components/admin/shared/DataTable';
 import { LoadingSpinner } from '@/components/admin/shared/LoadingSpinner';
 import { StatusBadge } from '@/components/admin/shared/StatusBadge';
@@ -82,7 +83,10 @@ export default function AgentBookingsPageClient() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
-      <h1 className="text-xl font-bold text-[var(--text-primary)]">Бронирования</h1>
+      <h1 className="ds-h1 flex items-center gap-2">
+        <Handshake className="w-6 h-6 text-[var(--ocean)]" />
+        Бронирования
+      </h1>
       {loading ? (
         <LoadingSpinner message="Загрузка..." />
       ) : (

@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeDeepSeekKeyStatus, explainDeepSeekFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -271,7 +271,12 @@ export async function GET(request: NextRequest) {
     // — провайдеры без ключа = не настроены, это не сбой
     // — Anthropic-direct блокируется регионом, но Claude доступен через OpenRouter,
     //   поэтому это проблема, только если и OpenRouter лёг
-    if (process.env.DASHSCOPE_API_KEY && !qwenOk) issues.push({ level: 'warn', text: 'Qwen недоступен (ключ задан — проверь RF-доступность/базу/модель)' });
+    // Причина — в текст алерта, а не только в JSON: qwen_key_diag собирался и
+    // раньше, но в Telegram уходил перечень гипотез вместо готового ответа.
+    if (process.env.DASHSCOPE_API_KEY && !qwenOk) {
+      const why = qwenKeyDiag ? `: ${explainQwenFailure(qwenKeyDiag)}` : ' (ключ задан, диагностика недоступна)';
+      issues.push({ level: 'warn', text: `Qwen недоступен${why}` });
+    }
     // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не
     // задан (как для Qwen/Fugu/Anthropic: не настроен ≠ сбой), а если задан —
     // называем причину, а не просто «недоступен».

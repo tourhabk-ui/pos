@@ -34,7 +34,10 @@ export default function GuideGroupsPageClient() {
     <div className="p-5 lg:p-6 space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-[var(--text-primary)]">Мои группы</h1>
+        <h1 className="ds-h1 flex items-center gap-2">
+            <Users className="w-6 h-6 text-[var(--ocean)]" />
+            Мои группы
+          </h1>
         <p className="text-sm text-[var(--text-muted)] mt-0.5">
           Участники предстоящих туров
         </p>
