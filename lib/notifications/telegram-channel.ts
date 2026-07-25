@@ -711,6 +711,16 @@ ${signalCtx}
 - Без markdown (* ** # \`\`\`), без эмодзи
 - Пиши на русском`;
 
+  // Запасной текст собирается из самой находки — без модели, поэтому годен
+  // всегда. Нужен и при исключении, и при заглушке отказа (см. ниже).
+  const fromFinding = (): string => {
+    let t = `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
+    if (finding.action_items.length > 0) {
+      t += '\n\n' + finding.action_items.map(a => `- ${esc(a)}`).join('\n');
+    }
+    return t;
+  };
+
   let postText: string;
   try {
     postText = await callAIWithModelDirect(
@@ -718,11 +728,22 @@ ${signalCtx}
       'google/gemini-2.0-flash-001',
     );
   } catch {
-    // Fallback: use raw summary
-    postText = `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
-    if (finding.action_items.length > 0) {
-      postText += '\n\n' + finding.action_items.map(a => `- ${esc(a)}`).join('\n');
-    }
+    postText = fromFinding();
+  }
+
+  // Отказ AI приходит СТРОКОЙ, а не исключением: callAIWithModelDirect →
+  // callAIWithModel → (модель недоступна) → callAIWaterfall → при отказе всех
+  // провайдеров возвращается заглушка. catch выше при этом не срабатывает.
+  // Именно так 25.07.2026 в AI-канал ушёл пост «Сервис временно недоступен.».
+  if (blockingTextIssue(postText)) {
+    postText = fromFinding();
+  }
+  // Находка тоже могла оказаться пустой — тогда публиковать нечего.
+  const issue = blockingTextIssue(postText);
+  if (issue) {
+    const error = `Публикация отменена: ${issue}`;
+    console.error('[postAINewsToChannel]', error);
+    return { ok: false, error };
   }
 
   // 3. Generate image

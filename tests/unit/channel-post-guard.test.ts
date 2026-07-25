@@ -74,8 +74,6 @@ describe('проверка стоит в самой точке публикац�
   const SRC = readFileSync(join(process.cwd(), 'lib/notifications/telegram-channel.ts'), 'utf-8');
 
   it('postToAllChannels спрашивает blockingTextIssue до отправки', () => {
-    // Все публикаторы идут через эту функцию, поэтому обойти проверку,
-    // не тронув её, нельзя — в отличие от прежней добровольной валидации.
     const body = SRC.match(/async function postToAllChannels[\s\S]*?\n\}/)?.[0] ?? '';
     expect(body).not.toBe('');
     expect(body).toMatch(/blockingTextIssue\(text\)/);
@@ -87,5 +85,35 @@ describe('проверка стоит в самой точке публикац�
     );
     expect(guardAt).toBeGreaterThanOrEqual(0);
     expect(guardAt).toBeLessThan(sendAt);
+  });
+
+  /**
+   * Урок инцидента, который дороже самого инцидента.
+   *
+   * Гвард сначала поставили в postToAllChannels, считая её единственной точкой
+   * выхода. Она ею не была: postAINewsToChannel звал tgPostPhoto напрямую — и
+   * это ровно тот публикатор, который отправил заглушку в AI-канал. «Единая
+   * точка» держалась на вере, что все ходят через неё.
+   *
+   * Здесь эта вера заменена проверкой: любой публикатор, который сам зовёт
+   * tgPost/tgPostPhoto, обязан сам же спросить blockingTextIssue. Забыть
+   * теперь нельзя — тест назовёт имя функции.
+   */
+  it('ни один публикатор не шлёт в обход гварда', () => {
+    const offenders: string[] = [];
+    const fnRe = /export async function (post\w+)\(([\s\S]*?)\n\}/g;
+
+    for (const m of SRC.matchAll(fnRe)) {
+      const [, name, body] = m;
+      const sendsDirectly = /\btgPost(Photo)?\(/.test(body);
+      if (!sendsDirectly) continue; // идёт через postToAllChannels — уже закрыт
+      if (!body.includes('blockingTextIssue')) offenders.push(name);
+    }
+
+    expect(
+      offenders,
+      `публикуют напрямую без проверки текста: ${offenders.join(', ')}. ` +
+        'Позовите blockingTextIssue перед отправкой либо публикуйте через postToAllChannels.',
+    ).toEqual([]);
   });
 });
