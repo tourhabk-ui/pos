@@ -410,7 +410,9 @@ export default function LoyaltyClient() {
               </div>
             )}
 
-            {/* ── На что потратить: доля чека зависит от того, кто её несёт ── */}
+            {/* ── На что потратить: доля чека одна и та же всегда (15%).
+                От числа активных операторов зависит только плательщик, и
+                туристу это знать незачем — для него условия не меняются. ── */}
             {(wallet?.spending?.length ?? 0) > 0 && (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
                 <h2 className="font-semibold text-[var(--text-primary)] mb-1">На что потратить</h2>

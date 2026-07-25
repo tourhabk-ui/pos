@@ -10,8 +10,14 @@
  *   операторы просто не подключатся, и эко станут фантиком.
  *
  *   Фаза 2 — ОПЕРАТОРЫ. С двадцатого активного оператора обязательство
- *   переходит к ним — но доля чека под эко становится МЕНЬШЕ. К этому моменту
- *   программа уже приносит поток, и участие в ней окупается.
+ *   переходит к ним. К этому моменту программа уже приносит поток, и участие
+ *   в ней окупается.
+ *
+ * Фазы различаются ТОЛЬКО плательщиком. Доля чека под эко — 15% на все стоки
+ * в обеих фазах (MAX_SHARE_OF_CHECK в sinks.ts). Первоначально операторская
+ * фаза задавалась вдвое меньшей, но тогда потолок для туриста обрывался вдвое
+ * в день появления двадцатого оператора: копил под одни условия, тратил под
+ * другие. Обрыва больше нет — и не может появиться, потому что делить нечего.
  *
  * Порог — не оценочное суждение, а счётное: активным считается оператор,
  * который реально продаёт. Иначе обязательство переложили бы на витрину из
@@ -64,24 +70,23 @@ export async function countActiveOperators(): Promise<number> {
 
 export interface CompensationTerms {
   payer: EcoPayer;
-  /** Доля чека, которую можно закрыть эко в текущей фазе. */
+  /** Доля чека, которую можно закрыть эко. От фазы не зависит — см. шапку. */
   maxShareOfCheck: number;
   activeOperators: number;
   threshold: number;
 }
 
-/** Условия стока в текущей фазе. */
+/** Условия стока в текущей фазе: меняется плательщик, доля — нет. */
 export function termsFor(sink: EcoSink, activeOperators: number): CompensationTerms {
-  const payer = resolvePayer(activeOperators);
   return {
-    payer,
-    maxShareOfCheck: sink.maxShareOfCheck[payer],
+    payer: resolvePayer(activeOperators),
+    maxShareOfCheck: sink.maxShareOfCheck,
     activeOperators,
     threshold: ACTIVE_OPERATOR_THRESHOLD,
   };
 }
 
-/** Сколько эко примет чек — с учётом того, кто сейчас платит. */
+/** Сколько эко примет чек. Одинаково в обеих фазах — платит только разный. */
 export function maxEcoForCheck(sink: EcoSink, checkAmountRub: number, activeOperators: number): number {
   if (checkAmountRub <= 0) return 0;
   return Math.floor(checkAmountRub * termsFor(sink, activeOperators).maxShareOfCheck);

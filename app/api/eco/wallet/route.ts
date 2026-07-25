@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       key: sink.key,
       label: sink.label,
       description: sink.description,
-      maxShareOfCheck: terms?.sinks[sink.key]?.maxShareOfCheck ?? sink.maxShareOfCheck.platform,
+      maxShareOfCheck: terms?.sinks[sink.key]?.maxShareOfCheck ?? sink.maxShareOfCheck,
     }));
 
     return NextResponse.json({

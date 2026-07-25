@@ -30,6 +30,7 @@ import {
   ECO_SINKS,
   validateSink,
   resolveSink,
+  MAX_SHARE_OF_CHECK,
   type EcoSink,
 } from '@/lib/eco/sinks';
 import {
@@ -159,7 +160,7 @@ describe('Закон 6 — безопасность не продаётся', ()
     }
   });
 
-  const full = { platform: 1, operator: 1 };
+  const full = 1;
   const forbidden: EcoSink[] = [
     { key: 'skip_mchs', label: 'Пропустить регистрацию МЧС', description: 'Выход без регистрации', maxShareOfCheck: full },
     { key: 'no_guide', label: 'Маршрут без гида', description: 'Снятие требования сопровождения', maxShareOfCheck: full },
@@ -181,19 +182,29 @@ describe('Закон 6 — безопасность не продаётся', ()
     expect(resolveSink('tour_discount').ok).toBe(true);
   });
 
-  it('доля чека ограничена в обеих фазах', () => {
+  it('доля чека ограничена, и одинаково в обеих фазах', () => {
     const tour = ECO_SINKS.tour_discount;
-    expect(maxEcoForCheck(tour, 10_000, 0)).toBe(3_000);   // платит платформа
+    expect(maxEcoForCheck(tour, 10_000, 0)).toBe(1_500);   // платит платформа
     expect(maxEcoForCheck(tour, 10_000, 25)).toBe(1_500);  // платят операторы
     expect(maxEcoForCheck(tour, 0, 0)).toBe(0);
-    expect(validateSink({ ...tour, maxShareOfCheck: { platform: 1.5, operator: 0.1 } }).ok).toBe(false);
+    expect(validateSink({ ...tour, maxShareOfCheck: 1.5 }).ok).toBe(false);
+    expect(validateSink({ ...tour, maxShareOfCheck: 0 }).ok).toBe(false);
+  });
+
+  it('сток не может закрывать чек целиком — эко не средство платежа', () => {
+    const greedy = { ...ECO_SINKS.tour_discount, maxShareOfCheck: 0.9 };
+    const verdict = validateSink(greedy);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.reason).toContain('потолок единый');
   });
 });
 
 /**
  * Закон 5 — эмиссия обеспечена стоком. Решение владельца 25.07.2026: пока
  * активных операторов меньше двадцати, скидку несёт платформа из комиссии;
- * с двадцатого обязательство переходит к операторам, но доля чека МЕНЬШЕ.
+ * с двадцатого обязательство переходит к операторам. Доля чека при этом НЕ
+ * меняется — 15% на все стоки в обеих фазах.
  */
 describe('Закон 5 — кто платит за скидку', () => {
   it('до порога платит платформа', () => {
@@ -206,22 +217,28 @@ describe('Закон 5 — кто платит за скидку', () => {
     expect(resolvePayer(100)).toBe('operator');
   });
 
-  it('переход обязательства снижает долю чека, а не сохраняет её', () => {
+  /**
+   * Главный сторож против обрыва. Первая редакция роняла долю чека вдвое в
+   * день появления двадцатого активного оператора: турист копил под одни
+   * условия, а тратил под другие. Здесь проверяется, что смена фазы меняет
+   * ТОЛЬКО плательщика — витрине нечего пересчитывать, а держателю нечего
+   * замечать.
+   */
+  it('переход обязательства не трогает долю чека — меняется только плательщик', () => {
     for (const sink of Object.values(ECO_SINKS)) {
       const before = termsFor(sink, ACTIVE_OPERATOR_THRESHOLD - 1);
       const after = termsFor(sink, ACTIVE_OPERATOR_THRESHOLD);
       expect(before.payer).toBe('platform');
       expect(after.payer).toBe('operator');
-      expect(after.maxShareOfCheck).toBeLessThan(before.maxShareOfCheck);
+      expect(after.maxShareOfCheck).toBe(before.maxShareOfCheck);
     }
   });
 
-  it('сток с операторской долей выше платформенной не проходит гвард', () => {
-    const greedy = { ...ECO_SINKS.tour_discount, maxShareOfCheck: { platform: 0.1, operator: 0.4 } };
-    const verdict = validateSink(greedy);
-    expect(verdict.ok).toBe(false);
-    if (verdict.ok) return;
-    expect(verdict.reason).toContain('не больше платформенной');
+  it('доля чека одинакова у всех стоков и равна решению владельца', () => {
+    for (const sink of Object.values(ECO_SINKS)) {
+      expect(sink.maxShareOfCheck, `сток ${sink.key}`).toBe(MAX_SHARE_OF_CHECK);
+    }
+    expect(MAX_SHARE_OF_CHECK).toBe(0.15);
   });
 });
 
