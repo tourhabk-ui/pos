@@ -19,7 +19,7 @@
  *                             (default anthropic/claude-opus-5). Достижим из РФ
  *                             ТОЛЬКО через OPENROUTER_BASE_URL-релей + OPENROUTER_API_KEY.
  *                             Не задан ключ/релей → падаем на DeepSeek/Qwen.
- *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default deepseek-chat)
+ *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default: авторезолв из /v1/models)
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
@@ -500,13 +500,14 @@ export async function callOpenRouterWithTools(
 export async function callDeepSeekWithTools(
   messages: ToolMsg[],
   tools: ToolDefinition[],
-  modelId = 'deepseek-chat',
+  modelId?: string,
   timeoutMs = 25_000,
 ): Promise<ToolsCallResult | null> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) return null;
 
   try {
+    const model = modelId ?? await resolveDeepSeekModel();
     const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -514,14 +515,14 @@ export async function callDeepSeekWithTools(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: modelId,
+        model,
         temperature: 0.3,
         max_tokens: 1000,
         messages,
         tools,
         tool_choice: 'auto',
       }),
-    }, { timeoutMs, label: `deepseek-tools:${modelId}` });
+    }, { timeoutMs, label: `deepseek-tools:${model}` });
 
     if (!res.ok) return null;
 
@@ -900,6 +901,7 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
   if (!apiKey) return null;
 
   try {
+    const model = await resolveDeepSeekModel();
     const payload = messages.map(({ role, content }) => ({ role, content }));
     const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -908,7 +910,7 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model,
         temperature: 0.4,
         max_tokens: 800,
         messages: payload,
@@ -921,7 +923,7 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
     };
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (text?.trim()) {
-      logLLMUsage('deepseek-chat', data.usage);
+      logLLMUsage(model, data.usage);
       return text;
     }
     return null;
@@ -986,11 +988,29 @@ export async function callQwen(messages: ChatMessage[]): Promise<string | null> 
 interface ModelCacheEntry { id: string; at: number }
 const PURPOSE_MODEL_CACHE = new Map<string, ModelCacheEntry>();
 const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
-// Безопасные скользящие алиасы, если /v1/models недоступен.
+// Крайний фоллбэк, если /v1/models недоступен. НЕ «безопасный алиас»:
+// 26.07.2026 DeepSeek вывел deepseek-chat из эксплуатации (HTTP 400:
+// «supported API model names are deepseek-v4-pro or deepseek-v4-flash»), и
+// «вечный» алиас умер вместе с линейкой v3. Значение ниже — из текста той
+// самой ошибки провайдера, и оно ТОЖЕ протухнет: это последняя соломинка на
+// случай недоступного /models, а не рабочий путь. Рабочий путь — резолв.
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
-  deepseek: 'deepseek-chat',
+  deepseek: 'deepseek-v4-pro',
   qwen: 'qwen-max-latest',
 };
+
+/**
+ * Действующая chat-модель DeepSeek — через /v1/models, БЕЗ хардкода id.
+ *
+ * До 26.07.2026 весь прямой путь DeepSeek (waterfall, health-проба, tools,
+ * debug) хардкодил 'deepseek-chat' и лёг целиком в момент, когда провайдер
+ * сменил линейку. Диагностика из health назвала причину за минуты — но
+ * чинить хардкод хардкодом значит повторить это через полгода. Override —
+ * env DEEPSEEK_MODEL.
+ */
+export async function resolveDeepSeekModel(): Promise<string> {
+  return resolveBestModel('deepseek', 'chat', process.env.DEEPSEEK_MODEL);
+}
 
 async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
   try {
@@ -1023,7 +1043,7 @@ export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promis
  */
 async function resolveBestModel(
   provider: 'deepseek' | 'qwen',
-  purpose: 'decision' | 'content',
+  purpose: 'decision' | 'content' | 'chat',
   override: string | undefined,
 ): Promise<string> {
   if (override) return override;
@@ -1242,7 +1262,7 @@ export async function probeDeepSeekKeyStatus(): Promise<{
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
       signal: AbortSignal.timeout(10_000),
     });
     const body = (await res.text()).slice(0, 300);
@@ -1871,7 +1891,7 @@ export async function preflightProviders(): Promise<{
       const res = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'deepseek-chat', max_tokens: 5, messages: testMsg }),
+        body: JSON.stringify({ model: await resolveDeepSeekModel(), max_tokens: 5, messages: testMsg }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) {
@@ -2469,26 +2489,27 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
     const start = Date.now();
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
-      results.push({ provider: 'deepseek', model: 'deepseek-chat', status: 'no_key', latency_ms: 0 });
+      results.push({ provider: 'deepseek', model: 'unresolved', status: 'no_key', latency_ms: 0 });
     } else {
       try {
+        const dsModel = await resolveDeepSeekModel();
         const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: 'deepseek-chat', temperature: 0.4, max_tokens: 200, messages: payload }),
+          body: JSON.stringify({ model: dsModel, temperature: 0.4, max_tokens: 200, messages: payload }),
           signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          results.push({ provider: 'deepseek', model: 'deepseek-chat', status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
+          results.push({ provider: 'deepseek', model: dsModel, status: 'http_error', http_status: res.status, error: errText.slice(0, 200), latency_ms: ms });
         } else {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          results.push({ provider: 'deepseek', model: 'deepseek-chat', status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
+          results.push({ provider: 'deepseek', model: dsModel, status: text ? 'success' : 'empty_response', answer_preview: text?.slice(0, 100), latency_ms: ms });
         }
       } catch (e) {
-        results.push({ provider: 'deepseek', model: 'deepseek-chat', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
+        results.push({ provider: 'deepseek', model: 'unresolved', status: 'exception', error: String(e).slice(0, 200), latency_ms: Date.now() - start });
       }
     }
   }

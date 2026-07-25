@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveDeepSeekModel } from '@/lib/ai/providers';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { pool } from '@/lib/db-pool';
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: await resolveDeepSeekModel(),
         messages,
         temperature: 0.7,
         max_tokens: 500,
@@ -150,7 +151,7 @@ export async function GET(request: NextRequest) {
     success: true,
     data: {
       configured: !!apiKey,
-      model: 'deepseek-chat',
+      model: await resolveDeepSeekModel(),
       endpoint: 'https://api.deepseek.com/v1/chat/completions',
     },
   });
