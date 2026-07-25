@@ -1,5 +1,6 @@
 'use client';
 
+import { CreditCard } from 'lucide-react';
 import { DataTable } from '@/components/admin/shared/DataTable';
 import { LoadingSpinner } from '@/components/admin/shared/LoadingSpinner';
 import { StatusBadge } from '@/components/admin/shared/StatusBadge';
@@ -88,7 +89,10 @@ export default function AgentCommissionsPageClient() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
-      <h1 className="text-xl font-bold text-[var(--text-primary)]">Комиссионные</h1>
+      <h1 className="ds-h1 flex items-center gap-2">
+        <CreditCard className="w-6 h-6 text-[var(--ocean)]" />
+        Комиссионные
+      </h1>
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 text-center">

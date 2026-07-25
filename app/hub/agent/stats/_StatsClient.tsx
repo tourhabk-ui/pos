@@ -40,7 +40,10 @@ export default function StatsClient() {
       <div className="max-w-5xl mx-auto p-6">
         <div className="flex items-center gap-3 mb-6">
           <BarChart3 className="w-6 h-6 text-[var(--accent)]" />
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Статистика</h1>
+          <h1 className="ds-h1 flex items-center gap-2">
+        <TrendingUp className="w-6 h-6 text-[var(--ocean)]" />
+        Статистика
+      </h1>
         </div>
 
         {loading ? (

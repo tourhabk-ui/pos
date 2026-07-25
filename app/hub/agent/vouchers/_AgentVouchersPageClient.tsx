@@ -1,5 +1,6 @@
 'use client';
 
+import { Ticket } from 'lucide-react';
 import { DataTable } from '@/components/admin/shared/DataTable';
 import { LoadingSpinner } from '@/components/admin/shared/LoadingSpinner';
 import { useApiFetch } from '@/hooks/use-api-fetch';
@@ -71,7 +72,10 @@ export default function AgentVouchersPageClient() {
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
-      <h1 className="text-xl font-bold text-[var(--text-primary)]">Ваучеры</h1>
+      <h1 className="ds-h1 flex items-center gap-2">
+        <Ticket className="w-6 h-6 text-[var(--ocean)]" />
+        Ваучеры
+      </h1>
       {loading ? (
         <LoadingSpinner message="Загрузка..." />
       ) : (

@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Compass, Calendar, TrendingUp, Award, MapPin,
-  Sun, Cloud, CloudRain, CloudSnow, Wind, Droplets,
+  Sun, Cloud, CloudRain, CloudSnow, Wind, Droplets, Eye,
   ChevronRight, RefreshCw, Target, Star,
   Route, BedDouble, Mountain, ShoppingCart, Heart, Mail,
-  MessageSquare, Bell, LifeBuoy, Trophy, User, ShieldCheck, type LucideIcon,
+  MessageSquare, Bell, LifeBuoy, User, ShieldCheck, type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Weather } from '@/types';
@@ -73,8 +73,7 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
   {
     title: 'Бонусы и общение',
     items: [
-      { href: '/hub/tourist/loyalty',    label: 'Лояльность', icon: Trophy },
-      { href: '/hub/tourist/eco-points', label: 'Эко-баллы',  icon: Award },
+      { href: '/hub/tourist/loyalty',    label: 'Эко и бонусы', icon: Award },
       { href: '/hub/tourist/messages',   label: 'Сообщения',  icon: Mail },
       { href: '/hub/tourist/reviews',    label: 'Отзывы',     icon: MessageSquare },
     ],
@@ -190,7 +189,7 @@ export default function TouristDashboardClient() {
   const kpis = ps ? [
     { label: 'Поездок', value: String(ps.total_trips), icon: MapPin },
     { label: 'Потрачено', value: fmtRub(ps.total_spent), icon: TrendingUp },
-    { label: 'Баллы', value: new Intl.NumberFormat('ru-RU').format(ps.loyalty_points), icon: Award },
+    { label: 'Эко', value: new Intl.NumberFormat('ru-RU').format(ps.loyalty_points), icon: Award },
     { label: 'Уровень', value: TIER_LABELS[ps.loyalty_tier] ?? ps.loyalty_tier, icon: Compass },
   ] : [];
 
@@ -291,7 +290,7 @@ export default function TouristDashboardClient() {
               <p className="ds-label mt-1">Влажность</p>
             </div>
             <div>
-              <Sun className="w-6 h-6 text-[var(--text-secondary)] mx-auto mb-2" />
+              <Eye className="w-6 h-6 text-[var(--text-secondary)] mx-auto mb-2" />
               <p className="text-xl font-semibold text-[var(--text-primary)]">{weather.visibility}</p>
               <p className="ds-label mt-1">Видимость, км</p>
             </div>

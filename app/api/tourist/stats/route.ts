@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getTouristProfile, getTouristTravelStats } from '@/lib/auth/tourist-helpers';
+import { getBalance } from '@/lib/eco/ledger';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,13 +66,20 @@ export async function GET(request: NextRequest) {
       [profile.id]
     );
 
+    // Эко — из реестра, а не из tourist_profiles.loyalty_points. Этот столбец
+    // оказался ЧЕТВЁРТЫМ независимым счётчиком баллов (после eco_ledger,
+    // loyalty_transactions и user_eco_points, сведённых 25.07): его копил
+    // awardAchievement своим UPDATE ... + N мимо правил эмиссии и лимитов.
+    // Витрина обязана показывать то же число, что кошелёк (/api/eco/wallet).
+    const ecoBalance = await getBalance(userOrResponse.userId).catch(() => 0);
+
     return NextResponse.json({
       success: true,
       data: {
         overview: travelStats,
         profile_summary: {
           loyalty_tier: profile.loyalty_tier,
-          loyalty_points: profile.loyalty_points,
+          loyalty_points: ecoBalance,
           total_trips: profile.total_trips,
           total_spent: profile.total_spent,
           average_rating: profile.average_rating,
