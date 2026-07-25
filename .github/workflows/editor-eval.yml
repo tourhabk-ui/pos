@@ -1,0 +1,65 @@
+name: Editor eval — held-out регрессия и A/B промпта
+
+# Не по расписанию: это инструмент, а не сторож. Запускается руками до и после
+# изменения промпта Editor.
+#
+# compare=true — сравнение двух вариантов системного промпта (full против lean)
+# по ОДНОМУ набору входов. Два оракула сразу: TSR по длине и доля выдуманной
+# числовой конкретики. По одной длине короткий вариант выигрывает заведомо —
+# без блока запретов модель пишет охотнее и длиннее, а качество падает.
+#
+# Раннер GitHub, а не наш: у него есть CRON_SECRET и доступ к vedarai.ru.
+
+on:
+  workflow_dispatch:
+    inputs:
+      compare:
+        description: 'A/B двух вариантов промпта (иначе одиночная регрессия)'
+        type: boolean
+        default: true
+      limit:
+        description: 'Размер выборки (1-50). Меньше 12 — интервалы будут широкими'
+        type: string
+        default: '12'
+      judge:
+        description: 'Добавить LLM-судью качества (дольше и дороже)'
+        type: boolean
+        default: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Прогнать регрессию Editor
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          COMPARE: ${{ inputs.compare }}
+          LIMIT: ${{ inputs.limit }}
+          JUDGE: ${{ inputs.judge }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "ERROR: CRON_SECRET не настроен"; exit 1; fi
+
+          URL="https://vedarai.ru/api/cron/editor-eval?limit=${LIMIT}"
+          [ "$COMPARE" = "true" ] && URL="${URL}&compare=1"
+          [ "$JUDGE" = "true" ] && URL="${URL}&judge=1"
+
+          HTTP=$(curl -s -o /tmp/eval.json -w "%{http_code}" --max-time 900 \
+            -H "Authorization: Bearer $CRON_SECRET" "$URL")
+          echo "HTTP: $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "FAIL $HTTP"; cat /tmp/eval.json 2>/dev/null; exit 1
+          fi
+
+          # Итог в summary — чтобы вердикт был виден без раскапывания JSON.
+          {
+            echo '### Editor eval'
+            echo
+            echo '```json'
+            cat /tmp/eval.json
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat /tmp/eval.json
