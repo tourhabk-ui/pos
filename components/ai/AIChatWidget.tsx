@@ -27,13 +27,23 @@ function toAIRole(dbRole?: string): string {
   return valid.includes(dbRole ?? '') ? dbRole! : 'tourist';
 }
 
-const CREW_KEYWORDS = ['вулкан','маршрут','тур','рыбалк','поход','термы','гейзер','планир','поездк','путешеств'];
-const CREW_STEPS = ['Анализирую запрос...', 'Ищу маршруты...', 'Составляю план...', 'Проверяю план...', 'Форматирую...'];
-
-function isTourPlanningQuery(text: string): boolean {
-  const lower = text.toLowerCase();
-  return text.trim().length > 15 && CREW_KEYWORDS.some(kw => lower.includes(kw));
-}
+/**
+ * Здесь стоял перехват «планирующих» вопросов в /api/ai/crew-plan — отдельный
+ * пятиагентный пайплайн. Убран 25.07.2026, эндпоинт выведен из употребления.
+ *
+ * Перехват срабатывал на словах вулкан/маршрут/тур/рыбалк/поход/термы/гейзер/
+ * планир/поездк/путешеств при длине >15, то есть на БОЛЬШИНСТВЕ живых вопросов
+ * туриста Камчатки. И уводил их из работающего Кузьмича в пайплайн, который
+ * ходил в api.anthropic.com напрямую — а он гео-блокирует РФ-IP, где стоит
+ * наш прод. Все шесть шагов молча падали в fallback, и турист получал
+ * выдуманный план (сложность «Средний», сезон «Июнь–Сентябрь», список вещей,
+ * цена 0) под анимацию «5 агентов работают». Выдумка выглядела результатом
+ * анализа — на платформе, которая обещает не врать.
+ *
+ * Теперь всё идёт в /api/ai/chat: Кузьмич с инструментами, RAG, гео-контекстом
+ * и SOS-страховщиком, на waterfall, достижимом из РФ. По CLAUDE.md подбор
+ * живёт в трёх движках, а Кузьмич — поверхность, которая их зовёт.
+ */
 
 function createSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -48,10 +58,7 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isCrewMode, setIsCrewMode] = useState(false);
-  const [crewStepIdx, setCrewStepIdx] = useState(0);
   const [sessionId, setSessionId] = useState('');
-  const crewIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -104,13 +111,6 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Cleanup crew interval on unmount
-  useEffect(() => {
-    return () => {
-      if (crewIntervalRef.current) clearInterval(crewIntervalRef.current);
-    };
-  }, []);
-
   const callAI = async (text: string) => {
     if (!text || isLoading) return;
 
@@ -120,110 +120,56 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
     ]);
     setIsLoading(true);
 
-    const crewMode = isTourPlanningQuery(text);
-    setIsCrewMode(crewMode);
+    // Один путь для всех вопросов — Кузьмич. См. комментарий выше о том,
+    // почему второй путь (crew-plan) убран.
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          sessionId: sessionId || createSessionId(),
+          role: aiRole,
+          userId: userId ?? null,
+        }),
+      });
 
-    if (crewMode) {
-      // Crew pipeline — 5-агентный пайплайн планирования
-      setCrewStepIdx(0);
-      crewIntervalRef.current = setInterval(() => {
-        setCrewStepIdx(prev => Math.min(prev + 1, CREW_STEPS.length - 1));
-      }, 4000);
-
-      try {
-        const response = await fetch('/api/ai/crew-plan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: text, groupSize: 1, durationDays: 3 }),
-        });
-
-        if (crewIntervalRef.current) { clearInterval(crewIntervalRef.current); crewIntervalRef.current = null; }
-
-        if (!response.ok) throw new Error(`crew-plan error: ${response.status}`);
-
-        const payload: unknown = await response.json();
-        let aiText = 'Не удалось получить ответ агентов. Попробуйте снова.';
-
-        if (payload && typeof payload === 'object') {
-          const obj = payload as Record<string, unknown>;
-          if (obj.success && obj.data && typeof obj.data === 'object') {
-            const data = obj.data as Record<string, unknown>;
-            if (typeof data.formatted === 'string' && data.formatted.trim()) {
-              aiText = data.formatted;
-            }
-          }
-        }
-
-        setMessages(prev => [
-          ...prev,
-          { id: (Date.now() + 1).toString(), text: aiText, role: 'ai', timestamp: new Date() },
-        ]);
-      } catch {
-        if (crewIntervalRef.current) { clearInterval(crewIntervalRef.current); crewIntervalRef.current = null; }
-        setMessages(prev => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            text: 'Сервис планирования временно недоступен. Попробуйте снова через минуту.',
-            role: 'ai',
-            timestamp: new Date(),
-          },
-        ]);
-      } finally {
-        setIsLoading(false);
-        setIsCrewMode(false);
+      if (!response.ok) {
+        throw new Error(`AI endpoint error: ${response.status}`);
       }
-    } else {
-      // Обычный AI-чат
-      try {
-        const response = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: text,
-            sessionId: sessionId || createSessionId(),
-            role: aiRole,
-            userId: userId ?? null,
-          }),
-        });
 
-        if (!response.ok) {
-          throw new Error(`AI endpoint error: ${response.status}`);
+      const payload: unknown = await response.json();
+      let aiText = 'Не удалось получить ответ. Попробуйте снова.';
+
+      if (payload && typeof payload === 'object') {
+        const obj = payload as Record<string, unknown>;
+        if (typeof obj.answer === 'string' && obj.answer.trim()) {
+          aiText = obj.answer;
+        } else if (
+          obj.data &&
+          typeof obj.data === 'object' &&
+          typeof (obj.data as Record<string, unknown>).answer === 'string'
+        ) {
+          aiText = (obj.data as Record<string, unknown>).answer as string;
         }
-
-        const payload: unknown = await response.json();
-        let aiText = 'Не удалось получить ответ. Попробуйте снова.';
-
-        if (payload && typeof payload === 'object') {
-          const obj = payload as Record<string, unknown>;
-          if (typeof obj.answer === 'string' && obj.answer.trim()) {
-            aiText = obj.answer;
-          } else if (
-            obj.data &&
-            typeof obj.data === 'object' &&
-            typeof (obj.data as Record<string, unknown>).answer === 'string'
-          ) {
-            aiText = (obj.data as Record<string, unknown>).answer as string;
-          }
-        }
-
-        setMessages(prev => [
-          ...prev,
-          { id: (Date.now() + 1).toString(), text: aiText, role: 'ai', timestamp: new Date() },
-        ]);
-      } catch {
-        setMessages(prev => [
-          ...prev,
-          {
-            id: (Date.now() + 1).toString(),
-            text: 'Сервис временно недоступен. Попробуйте снова через минуту.',
-            role: 'ai',
-            timestamp: new Date(),
-          },
-        ]);
-      } finally {
-        setIsLoading(false);
       }
+
+      setMessages(prev => [
+        ...prev,
+        { id: (Date.now() + 1).toString(), text: aiText, role: 'ai', timestamp: new Date() },
+      ]);
+    } catch {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          text: 'Сервис временно недоступен. Попробуйте снова через минуту.',
+          role: 'ai',
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -310,23 +256,8 @@ export function AIChatWidget({ isOpen = false, onClose, className, userId }: AIC
                 <div className="bg-[var(--bg-card)] px-4 py-3 rounded-lg">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-[var(--accent)]" />
-                    <span className="text-sm text-[var(--text-muted)]">
-                      {isCrewMode ? 'Агенты думают...' : 'AI думает...'}
-                    </span>
+                    <span className="text-sm text-[var(--text-muted)]">Кузьмич думает...</span>
                   </div>
-                  {isCrewMode && (
-                    <>
-                      <div className="flex gap-1 mt-2">
-                        {CREW_STEPS.map((_, i) => (
-                          <div
-                            key={i}
-                            className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${i <= crewStepIdx ? 'bg-[var(--accent)]' : 'bg-[var(--bg-card)]'}`}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-xs text-[var(--text-muted)] mt-1 block">{CREW_STEPS[crewStepIdx]}</span>
-                    </>
-                  )}
                 </div>
               </div>
             )}

@@ -41,16 +41,15 @@ const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
 
 /**
  * Файлы, из которых уходит трафик в LLM. Сканировать только `providers.ts`
- * недостаточно: `crew-agents.ts` и `image-tagger.ts` ходят в api.anthropic.com
- * напрямую, минуя waterfall, и оба живые (за ними API-роуты
- * `/api/ai/crew-plan` и `/api/operator/tours/[id]/generate-tags`).
+ * недостаточно: `image-tagger.ts` ходит в Anthropic напрямую, минуя waterfall
+ * (нужно зрение, а waterfall текстовый), и за ним живой роут
+ * `/api/operator/tours/[id]/generate-tags`.
  *
  * Список — часть гварда: новый файл с прямым вызовом провайдера надо внести
  * сюда, иначе его егресс останется вне проверки на 152-ФЗ.
  */
 export const LLM_EGRESS_FILES: readonly string[] = [
   'lib/ai/providers.ts',
-  'lib/ai/crew-agents.ts',
   'lib/ai/image-tagger.ts',
 ] as const;
 

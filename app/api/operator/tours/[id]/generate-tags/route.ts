@@ -84,14 +84,26 @@ export async function POST(
     }
 
     // Генерируем теги
-    const tags = await tagTourPhotos(photoUrls);
+    const result = await tagTourPhotos(photoUrls);
 
-    // Сохраняем в БД
+    // Ни один снимок не разобран — сообщаем причину и НЕ пишем пустые теги
+    // поверх существующих. Раньше здесь молча сохранялся пустой объект, а
+    // ответ рапортовал «проанализировано N фото», хотя не удалось ни одно.
+    if (result.analyzed === 0) {
+      return NextResponse.json(
+        { success: false, error: `Не удалось разобрать фотографии: ${result.reason}` },
+        { status: 502 }
+      );
+    }
+
+    // Сохраняем в БД. Раньше UPDATE шёл в таблицу tours, которой в схеме нет
+    // (CLAUDE.md: только operator_tours) — то есть теги терялись даже тогда,
+    // когда модель их возвращала.
     await query(
-      `UPDATE tours
+      `UPDATE operator_tours
        SET ai_tags = $1::jsonb, updated_at = NOW()
-       WHERE id = $2 AND operator_id = $3`,
-      [JSON.stringify(tags), tourId, operatorId]
+       WHERE id = $2 AND operator_id = $3 AND deleted_at IS NULL`,
+      [JSON.stringify(result.tags), tourId, operatorId]
     );
 
     return NextResponse.json({
@@ -99,8 +111,10 @@ export async function POST(
       data: {
         tourId,
         tourTitle: tour.title,
-        tags,
-        photosAnalyzed: Math.min(photoUrls.length, 3),
+        tags: result.tags,
+        // Факт, а не замысел: сколько снимков реально дали теги.
+        photosAnalyzed: result.analyzed,
+        photosAttempted: result.attempted,
       },
     });
   } catch (error) {

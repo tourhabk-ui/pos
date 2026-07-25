@@ -49,7 +49,10 @@ import { pickBestModel } from '@/lib/ai/model-resolver';
 // прозрачный прокси, форвардит путь и Authorization как есть), базовые URL
 // указывают на него. Переменные не заданы → прежнее прямое поведение.
 const OPENROUTER_BASE = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-const ANTHROPIC_BASE  = (process.env.ANTHROPIC_BASE_URL  || 'https://api.anthropic.com').replace(/\/+$/, '');
+// Экспортируется: прямой вызов Anthropic нужен там, где waterfall не годится
+// (image-tagger — ему нужно зрение, а waterfall текстовый). Такие места обязаны
+// брать базу отсюда, иначе релей их не спасёт и они останутся мертвы в РФ.
+export const ANTHROPIC_BASE = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 
 // ── LLM usage tracking ────────────────────────────────────────
 // Logs token counts and estimated costs to llm_usage_log (migration 686).
