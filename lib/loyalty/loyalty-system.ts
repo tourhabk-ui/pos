@@ -14,6 +14,7 @@
 import { query } from '@/lib/database';
 import crypto from 'crypto';
 import * as ledger from '@/lib/eco/ledger';
+import { award, EMISSION_RULES } from '@/lib/eco/emission';
 
 interface UserLevel {
   name: string;
@@ -65,13 +66,11 @@ const LEDGER_OP_TO_TYPE: Record<ledger.EcoOperation, BonusTransaction['type']> =
   adjust:   'earn',
 };
 
-const ACTIVITY_POINTS: Record<string, { points: number; description: string }> = {
-  review: { points: 50, description: 'Отзыв' },
-  photo: { points: 20, description: 'Фото к отзыву' },
-  first_booking: { points: 100, description: 'Первое бронирование' },
-  referral_referrer: { points: 500, description: 'Реферал: друг забронировал тур' },
-  referral_referred: { points: 200, description: 'Бонус за регистрацию по приглашению' },
-};
+/**
+ * Ставки активностей переехали в lib/eco/emission.ts (Этап 2): там же квоты,
+ * анти-фарм и срок сгорания. Дубля таблицы здесь больше нет — иначе два
+ * источника правды разъедутся, как уже было со схемой лояльности.
+ */
 
 export class LoyaltySystem {
   private levels: UserLevel[] = [
@@ -179,31 +178,27 @@ export class LoyaltySystem {
       const pointsEarned = Math.floor(amount * this.earnRate * level.earnMultiplier);
       if (pointsEarned <= 0) return { success: true, pointsEarned: 0, message: 'Сумма слишком мала для начисления' };
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + this.expirationDays);
-
       const multiplierNote = level.earnMultiplier > 1
         ? ` (уровень «${level.name}», ×${level.earnMultiplier})`
         : '';
 
-      const result = await ledger.emit({
+      // Через ту же дверь, что и активности: сумма считается от чека, но
+      // квоты, срок сгорания и дедуп — общие для всей эмиссии.
+      const outcome = await award({
         userId,
-        amount: pointsEarned,
         source,
         sourceRef: bookingId,
+        amount: pointsEarned,
         description: `Начислено ${pointsEarned} эко за заказ на сумму ${amount} руб.${multiplierNote}`,
-        expiresAt,
       });
 
-      if (!result.ok) {
-        return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${result.message}` };
-      }
-      if (!result.applied) {
-        // Дедуп сработал в БД: за это событие уже начисляли.
-        return { success: true, pointsEarned: 0, message: 'Эко за этот заказ уже начислены' };
+      if (!outcome.ok) {
+        // Повтор за ту же бронь — не ошибка вызывающего, а ожидаемый исход.
+        const success = outcome.reason === 'duplicate';
+        return { success, pointsEarned: 0, message: outcome.message };
       }
 
-      return { success: true, pointsEarned, message: `Начислено ${pointsEarned} эко` };
+      return { success: true, pointsEarned: outcome.awarded, message: `Начислено ${outcome.awarded} эко` };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${msg}` };
@@ -215,35 +210,25 @@ export class LoyaltySystem {
     source: string,
     entityId?: string
   ): Promise<{ success: boolean; pointsEarned: number; message: string }> {
-    const config = ACTIVITY_POINTS[source];
-    if (!config) return { success: false, pointsEarned: 0, message: 'Неизвестный тип активности' };
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + this.expirationDays);
+    const rule = EMISSION_RULES[source];
+    if (!rule) return { success: false, pointsEarned: 0, message: 'Неизвестный тип активности' };
 
     // Ключ идемпотентности. Для разовых бонусов вроде первого бронирования
     // сущность-источник роли не играет — «одно на пользователя» и есть ключ.
-    // Прежняя проверка SELECT-перед-INSERT допускала двойное начисление при
-    // двух одновременных вызовах; теперь это ловит UNIQUE в БД.
-    const sourceRef = source === 'first_booking' ? userId : (entityId ?? null);
+    const sourceRef = rule.oncePerUser ? userId : (entityId ?? null);
 
-    const result = await ledger.emit({
-      userId,
-      amount: config.points,
-      source,
-      sourceRef,
-      description: config.description,
-      expiresAt,
-    });
+    // Единственная дверь эмиссии: квоты, срок сгорания и гео — внутри award.
+    const outcome = await award({ userId, source, sourceRef });
 
-    if (!result.ok) {
-      return { success: false, pointsEarned: 0, message: `Ошибка начисления: ${result.message}` };
-    }
-    if (!result.applied) {
-      return { success: false, pointsEarned: 0, message: 'Эко за эту активность уже начислены' };
+    if (!outcome.ok) {
+      return { success: false, pointsEarned: 0, message: outcome.message };
     }
 
-    return { success: true, pointsEarned: config.points, message: `+${config.points} эко: ${config.description}` };
+    return {
+      success: true,
+      pointsEarned: outcome.awarded,
+      message: `+${outcome.awarded} эко: ${rule.description}`,
+    };
   }
 
   /**

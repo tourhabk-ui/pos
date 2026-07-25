@@ -172,6 +172,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: DAY, tier: 'ops', agentId: 'booking-stall', triggerable: false,
   },
   {
+    key: 'eco-expire', label: 'Сгорание эко',
+    description: 'Истёкшие эко сжигаются проводкой; после прогона сверяется инвариант реестра.',
+    workflow: 'cron-eco-expire.yml', cron: '7 2 * * *', schedule: 'ежедневно · 02:00 UTC',
+    everyMin: DAY, tier: 'ops', agentId: 'eco-expire', triggerable: false,
+  },
+  {
     key: 'ssr-sentinel', label: 'SSR-сторож листингов',
     description: 'Проверка SSR листингов /routes, /operators (SEO).',
     workflow: 'cron-ssr-sentinel.yml', cron: '0 5 * * 1', schedule: 'пн · 05:00 UTC',

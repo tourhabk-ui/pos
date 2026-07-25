@@ -1,0 +1,30 @@
+name: Cron — Сгорание эко по сроку
+
+# Реестр «эко» (миграция 772): сгорание — это проводка, а не побочный эффект
+# фильтра в запросе баланса. Идемпотентен в пределах суток, поэтому повторный
+# запуск безопасен.
+
+on:
+  schedule:
+    - cron: '7 2 * * *'  # ежедневно 02:00 UTC (нечётная минута — GitHub дропает :00)
+  workflow_dispatch:
+
+concurrency:
+  group: eco-expire
+  cancel-in-progress: false
+
+jobs:
+  eco-expire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Сжечь истёкшие эко
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 0; fi
+          HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/eco-expire")
+          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }

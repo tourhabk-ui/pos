@@ -25,29 +25,36 @@ vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
-const emitMock = vi.fn();
 const redeemMock = vi.fn();
 vi.mock('@/lib/eco/ledger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/eco/ledger')>();
-  return {
-    ...actual,
-    emit:   (...args: unknown[]) => emitMock(...args),
-    redeem: (...args: unknown[]) => redeemMock(...args),
-  };
+  return { ...actual, redeem: (...args: unknown[]) => redeemMock(...args) };
+});
+
+// Этап 2: единственная дверь эмиссии — award(). Квоты, гео и срок сгорания
+// живут там же, поэтому и наблюдаем начисление здесь.
+const awardMock = vi.fn();
+vi.mock('@/lib/eco/emission', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/eco/emission')>();
+  return { ...actual, award: (...args: unknown[]) => awardMock(...args) };
 });
 
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
 
-/** Аргумент единственного вызова ledger.emit. */
-function emitArg(): { amount: number; source: string; sourceRef: string | null; description: string } {
-  const call = emitMock.mock.calls[0];
+/** Аргумент единственного вызова award(). */
+function awardArg(): { amount?: number; source: string; sourceRef: string | null; description?: string } {
+  const call = awardMock.mock.calls[0];
   expect(call).toBeTruthy();
   return call[0];
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  emitMock.mockResolvedValue({ ok: true, applied: true, id: '1' });
+  awardMock.mockImplementation((req: { amount?: number; source: string }) => Promise.resolve({
+    ok: true,
+    awarded: req.amount ?? 20,
+    result: { ok: true, applied: true, id: '1' },
+  }));
   redeemMock.mockResolvedValue({ ok: true, applied: true, id: '2' });
 });
 
@@ -73,9 +80,9 @@ describe('earnPoints — множитель уровня', () => {
     const res = await loyaltySystem.earnPoints('u1', 'b1', 10_000);
     expect(res.pointsEarned).toBe(200);
 
-    const arg = emitArg();
+    const arg = awardArg();
     expect(arg.amount).toBe(200);
-    expect(arg.description).toContain('×2');
+    expect(String(arg.description)).toContain('×2');
     // Ключ идемпотентности — сама бронь: повтор не начислит дважды.
     expect(arg.sourceRef).toBe('b1');
   });
@@ -88,7 +95,7 @@ describe('earnPoints — множитель уровня', () => {
 
   it('повторное начисление за ту же бронь: реестр отвечает duplicate, эко не выдаются', async () => {
     mockSpent(0);
-    emitMock.mockResolvedValue({ ok: true, applied: false, reason: 'duplicate' });
+    awardMock.mockResolvedValue({ ok: false, awarded: 0, reason: 'duplicate', message: 'Эко за это событие уже начислены' });
     const res = await loyaltySystem.earnPoints('u1', 'b1', 10_000);
     expect(res.pointsEarned).toBe(0);
   });
@@ -109,8 +116,7 @@ describe('awardPhotoBonusIfEligible — фото-бонус только пос�
     expect(reviewCall[0]).toContain('is_verified = true');
     expect(reviewCall[0]).toContain('review_assets');
 
-    const arg = emitArg();
-    expect(arg.amount).toBe(20);
+    const arg = awardArg();
     expect(arg.source).toBe('photo');
     expect(arg.sourceRef).toBe('42');
   });
@@ -123,7 +129,7 @@ describe('awardPhotoBonusIfEligible — фото-бонус только пос�
 
     await loyaltySystem.awardPhotoBonusIfEligible('42');
 
-    expect(emitMock).not.toHaveBeenCalled();
+    expect(awardMock).not.toHaveBeenCalled();
   });
 
   it('повторное одобрение → дедуп в БД, второй раз не начисляется', async () => {
@@ -131,14 +137,14 @@ describe('awardPhotoBonusIfEligible — фото-бонус только пос�
       if (sql.includes('FROM reviews')) return Promise.resolve({ rows: [{ user_id: 'u1' }] });
       throw new Error('unexpected SQL: ' + sql);
     });
-    emitMock.mockResolvedValue({ ok: true, applied: false, reason: 'duplicate' });
+    awardMock.mockResolvedValue({ ok: false, awarded: 0, reason: 'duplicate', message: 'Эко за это событие уже начислены' });
 
     const before = await loyaltySystem.earnActivityPoints('u1', 'photo', '42');
     expect(before.pointsEarned).toBe(0);
 
     await loyaltySystem.awardPhotoBonusIfEligible('42');
     // Проводка запрошена, но реестр её отклонил как повтор — баланс не изменился.
-    expect(emitMock.mock.calls.every(([a]) => (a as { sourceRef: string }).sourceRef === '42')).toBe(true);
+    expect(awardMock.mock.calls.every(([a]) => (a as { sourceRef: string }).sourceRef === '42')).toBe(true);
   });
 });
 
