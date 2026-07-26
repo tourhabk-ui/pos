@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { aiNewsImagePrompt, travelNewsImagePrompt, hashStr } from '@/lib/notifications/post-image';
+import { aiNewsImagePrompt, travelNewsImagePrompt, hashStr, themeHint } from '@/lib/notifications/post-image';
 
 const SUMMARIES = Array.from({ length: 30 }, (_, i) =>
   `Новость номер ${i}: ${['MCP в продуктах', 'цены DeepSeek', 'новые правила туризма', 'рост бронирований'][i % 4]} — вариант ${i * 7}`,
@@ -35,6 +35,34 @@ describe('вариативность обложек', () => {
   it('hashStr детерминирован и различает строки', () => {
     expect(hashStr('a')).toBe(hashStr('a'));
     expect(hashStr('a')).not.toBe(hashStr('b'));
+  });
+});
+
+describe('themeHint: чистый заголовок в theme', () => {
+  const POST = '<b>Путин подписал закон о больших ИИ-моделях: появились «суверенные» нейросети</b>\n\nРоссия задала правовую рамку.';
+
+  it('снимает HTML-теги', () => {
+    const hint = themeHint(POST);
+    expect(hint).not.toMatch(/[<>]/);
+    expect(hint).not.toContain('<b>');
+  });
+
+  it('берёт заголовок до первого двоеточия, а не абзацы', () => {
+    expect(themeHint(POST)).toBe('Путин подписал закон о больших ИИ-моделях');
+  });
+
+  it('короткий префикс до двоеточия не считается заголовком — берётся строка целиком', () => {
+    expect(themeHint('ИИ: краткая сводка недели')).toBe('ИИ: краткая сводка недели');
+  });
+
+  it('без двоеточия и тегов — первая строка, ограниченная длиной', () => {
+    expect(themeHint('Ruff 0.16 вышел с новыми правилами')).toBe('Ruff 0.16 вышел с новыми правилами');
+    expect(themeHint('x'.repeat(200)).length).toBe(80);
+  });
+
+  it('HTML-теги из текста поста не утекают в промпт обложки', () => {
+    expect(aiNewsImagePrompt(POST)).not.toMatch(/<[^>]+>/);
+    expect(travelNewsImagePrompt(POST)).not.toMatch(/<[^>]+>/);
   });
 });
 

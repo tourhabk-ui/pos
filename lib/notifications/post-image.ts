@@ -26,6 +26,22 @@ function pick<T>(pool: readonly T[], hash: number, slot: number): T {
   return pool[Math.floor(hash / Math.pow(pool.length, slot)) % pool.length];
 }
 
+/**
+ * Чистая тема для промпта обложки. Текст поста — это HTML с <b>…</b> и
+ * несколькими абзацами; сырой `slice(0, 80)` тащил в промпт теги и обрезок
+ * подзаголовка («theme: <b>Заголовок: появил…»). Pollinations проглатывал
+ * этот шум молча, но в коммите он выглядел неряшливо. Берём заголовок:
+ * снимаем теги, берём первую строку и лид до первого двоеточия (если он
+ * содержательный), ограничиваем длину.
+ */
+export function themeHint(summary: string): string {
+  const firstLine = summary.replace(/<[^>]+>/g, ' ').split('\n')[0].replace(/\s+/g, ' ').trim();
+  const beforeColon = firstLine.split(':')[0].trim();
+  // Короткий префикс до двоеточия («ИИ:», «GPT:») — не заголовок, берём строку целиком.
+  const headline = beforeColon.length >= 12 ? beforeColon : firstLine;
+  return headline.slice(0, 80).trim();
+}
+
 // ── AI-канал ──────────────────────────────────────────────────────────────
 
 const AI_SUBJECTS = [
@@ -65,7 +81,7 @@ export function aiNewsImagePrompt(summary: string): string {
   const h = hashStr(summary);
   return [
     pick(AI_SUBJECTS, h, 0),
-    `theme: ${summary.slice(0, 80)}`,
+    `theme: ${themeHint(summary)}`,
     pick(AI_STYLES, h, 1),
     pick(AI_PALETTES, h, 2),
     'high detail, no text, no watermarks',
@@ -99,7 +115,7 @@ export function travelNewsImagePrompt(summary: string): string {
   const h = hashStr(summary);
   return [
     pick(TRAVEL_SUBJECTS, h, 0),
-    `theme: ${summary.slice(0, 80)}`,
+    `theme: ${themeHint(summary)}`,
     pick(TRAVEL_LIGHT, h, 1),
     'national geographic style photography, cinematic, 8K, no people, no text, no watermarks',
   ].join(', ');
