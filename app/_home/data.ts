@@ -58,7 +58,7 @@ export interface Quake { magnitude: number; place: string; time: number; depth: 
 export interface SeismicSnapshot { events: Quake[]; source: 'kbgsras' | 'usgs' | 'none'; updatedAt: string | null }
 
 export type HazardLevel = 'critical' | 'danger' | 'warning';
-export type HazardKind = 'volcano' | 'thermal' | 'quake';
+export type HazardKind = 'volcano' | 'thermal' | 'quake' | 'bear' | 'report';
 export interface Hazard {
   lat: number; lng: number;
   level: HazardLevel; kind: HazardKind;
@@ -273,13 +273,48 @@ async function fetchRadarBase(): Promise<Hazard[]> {
 
 const ACC_LABEL_SHORT: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
 
+const REPORT_HAZARD_LABEL: Record<string, string> = {
+  bear: 'Медведь', rockfall: 'Камнепад', weather: 'Опасная погода', other: 'Наблюдение',
+};
+
+// Наблюдения туристов на радаре. API /api/safety/reports при отправке обещает
+// «появится в радаре после модерации» — здесь это обещание выполняется.
+// Только approved (ручная модерация владельцем) и только свежие: медведь,
+// замеченный неделю назад, — уже не точка на радаре, а свойство района.
+async function fetchReportHazards(): Promise<Hazard[]> {
+  try {
+    const res = await query<{ report_type: string; text: string; lat: number; lng: number; hours_ago: number }>(
+      `SELECT report_type, text, lat, lng,
+              EXTRACT(EPOCH FROM (NOW() - created_at))::float8 / 3600 AS hours_ago
+         FROM trail_reports
+        WHERE status = 'approved' AND lat IS NOT NULL AND lng IS NOT NULL
+          AND created_at > NOW() - INTERVAL '7 days'
+        ORDER BY created_at DESC
+        LIMIT 12`,
+    );
+    return res.rows.map((r) => {
+      const ago = r.hours_ago < 24
+        ? `${Math.max(1, Math.round(r.hours_ago))} ч назад`
+        : `${Math.round(r.hours_ago / 24)} дн назад`;
+      return {
+        lat: r.lat, lng: r.lng,
+        level: (r.report_type === 'bear' ? 'danger' : 'warning') as HazardLevel,
+        kind: (r.report_type === 'bear' ? 'bear' : 'report') as HazardKind,
+        label: REPORT_HAZARD_LABEL[r.report_type] ?? 'Наблюдение',
+        note: `${r.text.slice(0, 90)} · ${ago} · наблюдение туриста, прошло модерацию.`,
+      };
+    });
+  } catch { return []; }
+}
+
 export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [safety, feedResult, zones, plates, feedItems, counts, radarBase] = await Promise.all([
+  const [safety, feedResult, zones, plates, feedItems, counts, radarBase, reportHazards] = await Promise.all([
     fetchSafety(),
     getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
     fetchZones(), fetchPlates(), fetchFeed(),
     getPlatformCounts().catch(() => null),
     fetchRadarBase(),
+    fetchReportHazards(),
   ]);
 
   const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
@@ -297,7 +332,7 @@ export async function getHomeV8Data(): Promise<HomeV8Data> {
       note: `Землетрясение${e.depth != null ? `, глубина ${Math.round(e.depth)} км` : ''}.`,
     }));
 
-  const radar: RadarSnapshot = { hazards: [...radarBase, ...quakeHazards], center: PETROPAVLOVSK };
+  const radar: RadarSnapshot = { hazards: [...radarBase, ...quakeHazards, ...reportHazards], center: PETROPAVLOVSK };
 
   return { safety, seismic, radar, zones, plates, feed: feedItems, stats, elements };
 }
