@@ -42,7 +42,9 @@ interface RssItem {
   source: string;
 }
 
-const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }> = [
+type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
+
+const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: SourceCategory }> = [
   // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
   { key: 'simonwillison', url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
   { key: 'huggingface',   url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
@@ -53,6 +55,12 @@ const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: 'a
   // Travel
   { key: 'rata',          url: 'https://www.rata-news.ru/rss', label: 'RATA',     category: 'travel' },
   { key: 'tourprom',      url: 'https://tourprom.ru/rss',      label: 'Tourprom', category: 'travel' },
+  { key: 'ator',          url: 'https://www.atorus.ru/rss/news.xml', label: 'АТОР', category: 'travel' },
+  // Референсы и рынок — передовые travel-tech продукты и новинки, откуда берём
+  // фичи/паттерны «сделать у себя». Раньше жили только в intelligence-monitor и
+  // упирались в каналы — в эволюцию (evo_growth_issues) не доходили.
+  { key: 'skift',         url: 'https://skift.com/feed/',            label: 'Skift',        category: 'reference' },
+  { key: 'producthunt',   url: 'https://www.producthunt.com/feed',   label: 'Product Hunt', category: 'reference' },
   // Kamchatka
   { key: 'kamgov',        url: 'https://www.kamgov.ru/rss',    label: 'Kamgov',        category: 'kamchatka' },
   { key: 'mchs_rss',      url: 'https://41.mchs.gov.ru/rss',   label: 'МЧС Камчатка',  category: 'kamchatka' },
@@ -98,7 +106,7 @@ function parseRssItems(xml: string, label: string): RssItem[] {
 interface SourceFetch {
   key: string;
   label: string;
-  category: 'ai' | 'travel' | 'kamchatka';
+  category: SourceCategory;
   items: RssItem[];
   /** Честный исход: 'ok' (фид отдал items), 'empty' (0 items), 'error' (упал/не-200). */
   status: SourceStatus;
@@ -109,7 +117,7 @@ interface SourceFetch {
  * быть немым: видно, фид отдал материал, отдал пусто или упал. Раньше упавший
  * фид молча давал [] и был неотличим от «сегодня тихо».
  */
-async function fetchSource(s: { key: string; url: string; label: string; category: 'ai' | 'travel' | 'kamchatka' }): Promise<SourceFetch> {
+async function fetchSource(s: { key: string; url: string; label: string; category: SourceCategory }): Promise<SourceFetch> {
   try {
     const res = await fetchRssWithRetry(s.url, {
       headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
@@ -354,6 +362,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 ПРАВИЛА ВКЛЮЧЕНИЯ (широкие — лучше включить лишнее, чем потерять нужное):
 - Раздел "AI & Tech" — любые новые модели, инструменты, агенты, обновления Claude/GPT/Gemini/Cursor, автоматизация, веб-разработка. Мы активно используем AI в разработке — даже косвенно полезное включай.
 - Раздел "Туриндустрия" — туризм в РФ и мире, онлайн-бронирование, OTA, CRM для туроператоров, новые тренды. Другие регионы — допустимы как контекст или аналогия.
+- Раздел "Референсы и рынок" — передовые travel-tech продукты и новинки (Skift, Product Hunt): конкретные фичи/паттерны, которые можно перенять на нашу платформу (планировщик, бронирование, ИИ-помощник, офлайн, карты). Пиши, ЧТО именно сделали и что из этого нам стоит рассмотреть.
 - Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен.
 - "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
 
@@ -379,6 +388,9 @@ export async function runScoutDigest(): Promise<DigestResult> {
 
 <b>Туриндустрия</b>
 - [краткий инсайт]
+
+<b>Референсы и рынок</b>
+- [какую фичу/паттерн внедрил передовой продукт и что нам стоит рассмотреть]
 
 <b>Камчатка</b>
 - [краткий инсайт про Камчатский край]
@@ -406,7 +418,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // канал уходил дайджест из трёх строк «Нет значимых сигналов за сегодня».
   // Сообщение «сегодня новостей нет» не стоит публикации: оно ничего не несёт
   // и приучает пролистывать. seen_urls тоже не трогаем — вернёмся завтра.
-  const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 3;
+  // Порог = число разделов дайджеста (AI, Туриндустрия, Референсы, Камчатка).
+  // Иначе, добавив раздел, мы бы глушили дайджест, где пусты 3 из 4 — а в
+  // четвёртом (напр. «Референсы») есть настоящий сигнал.
+  const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
   if (allEmpty) {
     return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
   }
