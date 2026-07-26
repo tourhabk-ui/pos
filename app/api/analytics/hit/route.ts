@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 
 const HitSchema = z.object({
   path:     z.string().min(1).max(500),
@@ -36,10 +37,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Суточный хэш посетителя вместо сырых IP/UA (152-ФЗ) — считаем
+  // уникальных за день, длинного профиля не строим by design
+  const hash = visitorHash(
+    ip,
+    req.headers.get('user-agent') ?? '',
+    currentDay(),
+    process.env.CRON_SECRET ?? 'vedar',
+  );
+
   await pool.query(
-    `INSERT INTO page_views (path, referrer) VALUES ($1, $2)`,
-    [path, referrer ?? null]
-  ).catch(() => { /* не критично */ });
+    `INSERT INTO page_views (path, referrer, visitor_hash) VALUES ($1, $2, $3)`,
+    [path, referrer ?? null, hash]
+  ).catch(() => { /* не критично: страница не должна страдать из-за счётчика */ });
 
   return NextResponse.json({ ok: true });
 }

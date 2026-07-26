@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
-  Briefcase, UserCheck, BarChart3, DollarSign,
+  Briefcase, UserCheck, BarChart3, DollarSign, Footprints,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
@@ -44,6 +44,7 @@ const SIDEBAR_ITEMS = [
 
   // Аналитика
   { href: '/hub/admin/analytics', label: 'Аналитика', icon: BarChart3, section: 'Аналитика' },
+  { href: '/hub/admin/traffic', label: 'Посещаемость', icon: Footprints, section: 'Аналитика' },
   { href: '/hub/admin/routes-analysis', label: 'Анализ маршрутов', icon: LineChart, section: 'Аналитика' },
   { href: '/hub/admin/ai-analytics', label: 'AI Кузьмич', icon: Sparkles, section: 'Аналитика' },
   { href: '/hub/admin/activity', label: 'Активность', icon: Activity, section: 'Аналитика' },
