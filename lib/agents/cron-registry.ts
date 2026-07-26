@@ -317,6 +317,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-kuzmich-sezon.yml', cron: '23 16 * * 2,6', schedule: 'вт/сб · 16:23 UTC',
     everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
   },
+  {
+    key: 'place-images', label: 'Place Images Backfill',
+    description: 'Догоняет точки без фото: Qwen-Image обложки пачками до remaining=0.',
+    workflow: 'cron-place-images.yml', cron: '17 21 * * *', schedule: 'ежедневно · 21:17 UTC',
+    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+  },
 ];
 
 export function entriesByTier(): Array<{ tier: CronTier; label: string; entries: CronEntry[] }> {
