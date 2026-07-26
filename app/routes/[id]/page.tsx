@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import RouteDetailClient from './_RouteDetailClient';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
+import { isUuid } from '@/lib/text/slugify';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -13,16 +14,54 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-async function getRoute(id: string) {
+/**
+ * Резолвит slug ИЛИ uuid → uuid. slug живёт на мастер-таблицах (places/
+ * kamchatka_routes), а VIEW agent_route_knowledge его не содержит — поэтому
+ * сначала находим id по slug, дальше карточка работает как раньше по id.
+ */
+async function resolveToId(idOrSlug: string): Promise<string | null> {
+  if (isUuid(idOrSlug)) return idOrSlug;
+  try {
+    // VIEW agent_route_knowledge ключуется по ark_id для мест и COALESCE(ark_id,id)
+    // для маршрутов (миграция 677) — резолвим slug именно в этот id.
+    const r = await query(
+      `SELECT ark_id::text AS id FROM places WHERE slug = $1
+       UNION ALL SELECT COALESCE(ark_id, id)::text AS id FROM kamchatka_routes WHERE slug = $1
+       LIMIT 1`,
+      [idOrSlug]
+    );
+    return (r.rows[0]?.id as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getRoute(idOrSlug: string) {
+  const realId = await resolveToId(idOrSlug);
+  if (!realId) return null;
   try {
     const result = await query(
       `SELECT id, category, title, description, lat, lng, source_url, payload,
               location_type, activity_type
        FROM agent_route_knowledge WHERE id = $1 AND is_visible = TRUE`,
-      [id]
+      [realId]
     );
     if (!result.rows[0]) return null;
     const r = result.rows[0];
+    // slug — из мастер-таблиц (во VIEW его нет). Пришли по slug — знаем сразу.
+    let slug: string | null = isUuid(idOrSlug) ? null : idOrSlug;
+    if (slug === null) {
+      try {
+        // realId — это id из VIEW: ark_id для мест, COALESCE(ark_id,id) для маршрутов.
+        const s = await query(
+          `SELECT slug FROM places WHERE ark_id::text = $1
+           UNION ALL SELECT slug FROM kamchatka_routes WHERE COALESCE(ark_id, id)::text = $1
+           LIMIT 1`,
+          [realId]
+        );
+        slug = (s.rows[0]?.slug as string | null) ?? null;
+      } catch { /* slug необязателен */ }
+    }
     const payload = (r.payload as Record<string, unknown>) ?? {};
     return {
       id: r.id as string,
@@ -40,6 +79,7 @@ async function getRoute(id: string) {
       photos: Array.isArray(payload.photos) ? payload.photos as string[] : null,
       locationType: (r.location_type as string | null) ?? null,
       activityType: (r.activity_type as string | null) ?? null,
+      slug,
     };
   } catch {
     return null;
@@ -68,11 +108,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     };
   }
 
-  // Individual route metadata
-  if (!/^[0-9a-f-]{36}$/.test(id)) return { title: 'Маршрут не найден' };
-
+  // Individual route metadata — id может быть UUID или slug
   const route = await getRoute(id);
   if (!route) return { title: 'Маршрут не найден' };
+  // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
+  const canonicalId = route.slug ?? id;
 
   const title = `${route.title} — маршрут на Камчатке`;
   const desc = route.description
@@ -118,11 +158,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description: desc,
     keywords,
-    alternates: { canonical: `https://vedarai.ru/routes/${id}` },
+    alternates: { canonical: `https://vedarai.ru/routes/${canonicalId}` },
     openGraph: {
       title,
       description: desc,
-      url: `https://vedarai.ru/routes/${id}`,
+      url: `https://vedarai.ru/routes/${canonicalId}`,
       siteName: 'Ведар',
       locale: 'ru_RU',
       type: 'article',
@@ -163,11 +203,18 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     );
   }
 
-  // ── Individual route page ──────────────────────────────────
-  if (!id || !/^[0-9a-f-]{36}$/.test(id)) notFound();
+  // ── Individual route page (id = UUID или slug) ─────────────
+  if (!id) notFound();
 
   const route = await getRoute(id);
   if (!route) notFound();
+
+  // Пришли по UUID, а у объекта есть человекочитаемый slug → 301 на slug
+  // (канонический ЧПУ-URL). Так поисковики индексируют один адрес, старые
+  // UUID-ссылки продолжают работать через редирект.
+  if (isUuid(id) && route.slug && route.slug !== id) {
+    permanentRedirect(`/routes/${route.slug}`);
+  }
 
   const cleanDesc = route.description
     ? route.description.replace(/<[^>]+>/g, '').slice(0, 500)
@@ -310,7 +357,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <RouteDetailClient id={id} />
+      <RouteDetailClient id={route.id} />
     </>
   );
 }

@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import { permanentRedirect } from 'next/navigation';
 import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
 import PlaceSOS from '@/components/places/PlaceSOS';
+import { isUuid } from '@/lib/text/slugify';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
               (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai WHERE ai.route_id = p.ark_id)
                     THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS ai_photo
        FROM places p
-       WHERE (p.ark_id::text = $1 OR p.id = $1) AND p.is_visible = true`,
+       WHERE (p.ark_id::text = $1 OR p.id = $1 OR p.slug = $1) AND p.is_visible = true`,
       [id]
     );
     const r = result.rows[0];
@@ -54,6 +56,28 @@ const PLACE_TYPE_LABEL: Record<string, string> = {
 export default async function PlaceDetailPage({ params }: Props) {
   const { id } = await params;
 
+  // Резолв ссылки: принимаем ark_id | id | slug → реальный ark_id + slug.
+  // Клиенту всегда отдаём ark_id (он и его API не меняются), канонический URL —
+  // по slug. Пришли по UUID, а slug есть → 301 на ЧПУ.
+  let arkId = id;
+  let slug: string | null = null;
+  try {
+    const ref = await query(
+      `SELECT ark_id::text AS ark_id, slug FROM places
+       WHERE (ark_id::text = $1 OR id = $1 OR slug = $1) AND is_visible = true
+       LIMIT 1`,
+      [id]
+    );
+    if (ref.rows[0]) {
+      arkId = (ref.rows[0].ark_id as string) ?? id;
+      slug = (ref.rows[0].slug as string | null) ?? null;
+    }
+  } catch { /* резолв не критичен — работаем по исходному id */ }
+  if (isUuid(id) && slug && slug !== id) {
+    permanentRedirect(`/places/${slug}`);
+  }
+  const canonicalId = slug ?? id;
+
   // JSON-LD для поисковых систем
   let jsonLd: Record<string, unknown> | null = null;
   try {
@@ -63,7 +87,7 @@ export default async function PlaceDetailPage({ params }: Props) {
               lsp.altitude_m, lsp.difficulty_level
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
-       WHERE (p.ark_id::text = $1 OR p.id = $1) AND p.is_visible = true
+       WHERE (p.ark_id::text = $1 OR p.id = $1 OR p.slug = $1) AND p.is_visible = true
        LIMIT 1`,
       [id]
     );
@@ -80,10 +104,10 @@ export default async function PlaceDetailPage({ params }: Props) {
       jsonLd = {
         '@context': 'https://schema.org',
         '@type': 'TouristAttraction',
-        '@id': `${BASE}/places/${id}`,
+        '@id': `${BASE}/places/${canonicalId}`,
         name: r.name as string,
         description: desc,
-        url: `${BASE}/places/${id}`,
+        url: `${BASE}/places/${canonicalId}`,
         inLanguage: 'ru',
         image: [{ '@type': 'ImageObject', url: fullImgUrl, name: r.name as string }],
         address: {
@@ -111,7 +135,7 @@ export default async function PlaceDetailPage({ params }: Props) {
           itemListElement: [
             { '@type': 'ListItem', position: 1, name: 'Главная', item: BASE },
             { '@type': 'ListItem', position: 2, name: 'Карта мест', item: `${BASE}/map` },
-            { '@type': 'ListItem', position: 3, name: r.name as string, item: `${BASE}/places/${id}` },
+            { '@type': 'ListItem', position: 3, name: r.name as string, item: `${BASE}/places/${canonicalId}` },
           ],
         },
       };
@@ -126,7 +150,7 @@ export default async function PlaceDetailPage({ params }: Props) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       )}
-      <PlaceDetailClient id={id} />
+      <PlaceDetailClient id={arkId} />
       <PlaceSOS />
     </>
   );
