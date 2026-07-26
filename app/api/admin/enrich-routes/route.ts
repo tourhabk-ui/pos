@@ -4,13 +4,17 @@
  *   body: { mode?: 'description' | 'payload'; batch?: number; force?: boolean; dryRun?: boolean }
  *
  * mode=description — генерирует текстовые описания для маршрутов без/с короткими описаниями
- * mode=payload    — генерирует price_from, duration_days, season, difficulty и т.д.
+ * mode=payload    — генерирует duration_days, season, difficulty и т.д.
+ *
+ * Цены НЕ генерируются: цена — критичный факт, а критичные факты только из
+ * БД/инструментов (CLAUDE.md §8). Выдуманная моделью «реалистичная» цена на
+ * витрине — ровно то враньё, которое платформа обещает не делать.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
-import { callAIFast } from '@/lib/ai/providers';
+import { callAIFast, callAIQualityOrNull } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { z } from 'zod';
 
@@ -79,7 +83,6 @@ interface RouteRow {
 }
 
 interface PayloadEnrichment {
-  price_from: number | null;
   duration_days: number | null;
   season: string | null;
   difficulty: string | null;
@@ -104,7 +107,7 @@ export async function GET(req: NextRequest) {
       COUNT(CASE WHEN description IS NOT NULL AND description != '' AND LENGTH(description) < 300 THEN 1 END) as short_desc,
       COUNT(CASE WHEN LENGTH(COALESCE(description,'')) < 300 THEN 1 END) as needs_desc,
       COUNT(CASE WHEN LENGTH(description) >= 300 THEN 1 END) as good_desc,
-      COUNT(CASE WHEN payload->>'price_from' IS NULL AND payload->>'duration_days' IS NULL THEN 1 END) as needs_payload
+      COUNT(CASE WHEN payload->>'duration_days' IS NULL AND payload->>'season' IS NULL THEN 1 END) as needs_payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4
   `);
@@ -153,8 +156,12 @@ export async function enrichDescriptions(batchSize: number, force: boolean, dryR
     ? `(description IS NULL OR LENGTH(description) < 300)`
     : `(description IS NULL OR description = '' OR LENGTH(description) < 300)`;
 
+  // lat/lng::float8 — NUMERIC приходит из pg строкой, и .toFixed() на ней
+  // ронял КАЖДЫЙ объект партии (ночной крон месяц отчитывался success при
+  // errors=20/20). float8 драйвер парсит в number.
   const { rows } = await pool.query<RouteRow>(`
-    SELECT id, title, description, category, location_type, activity_type, lat, lng,
+    SELECT id, title, description, category, location_type, activity_type,
+           lat::float8 as lat, lng::float8 as lng,
            COALESCE(payload, '{}'::jsonb) as payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4 AND ${condition}
@@ -215,12 +222,17 @@ async function generateDescription(route: RouteRow): Promise<string | null> {
     ?? (route.category && CATEGORY_LABELS[route.category])
     ?? 'природный объект';
 
-  const coordsHint = route.lat != null && route.lng != null
-    ? ` (${route.lat.toFixed(3)}°N, ${route.lng.toFixed(3)}°E)` : '';
+  // Number(...) — страховка от NUMERIC-строки, даже если SQL-каст потеряют
+  const lat = route.lat == null ? null : Number(route.lat);
+  const lng = route.lng == null ? null : Number(route.lng);
+  const coordsHint = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+    ? ` (${lat.toFixed(3)}°N, ${lng.toFixed(3)}°E)` : '';
 
   const existing = route.description?.trim() ?? '';
 
-  const text = await callAIFast([{
+  // Описание читает человек на карточке — качественный путь (DeepSeek→Qwen→
+  // waterfall), а не гонка дешёвых моделей. null = все провайдеры отказали.
+  const text = await callAIQualityOrNull([{
     role: 'user',
     content: `Напиши описание туристического объекта Камчатки на русском языке.
 
@@ -230,10 +242,12 @@ ${existing ? `Дополни имеющееся: ${existing}` : ''}
 
 Требования:
 - 300–500 символов, сплошной текст без заголовков и списков
-- Включи координаты если есть, высоту/температуру/площадь
-- Укажи как добраться и лучший сезон
+- Только то, что достоверно известно об объекте этого типа. НЕ выдумывай
+  конкретные числа (высоту, температуру, площадь, цены, расстояния), если
+  их нет в данных выше — лучше без числа, чем с выдуманным
+- Сезонность и характер подъезда — в общих чертах, без выдуманных деталей
 - Стиль: информативно, без пафоса`,
-  }] as ChatMessage[]);
+  }] as ChatMessage[], { maxTokens: 700 });
 
   const result = text?.trim();
   return result && result.length >= 100 ? result : null;
@@ -244,10 +258,11 @@ ${existing ? `Дополни имеющееся: ${existing}` : ''}
 async function enrichPayload(batchSize: number, dryRun: boolean) {
   const { rows } = await pool.query<RouteRow>(`
     SELECT id, title, description, location_type, activity_type,
-           lat, lng, category, COALESCE(payload, '{}'::jsonb) as payload
+           lat::float8 as lat, lng::float8 as lng, category,
+           COALESCE(payload, '{}'::jsonb) as payload
     FROM agent_route_knowledge
     WHERE is_visible = true AND LENGTH(title) >= 4
-      AND (payload->>'price_from' IS NULL AND payload->>'duration_days' IS NULL AND payload->>'season' IS NULL)
+      AND (payload->>'duration_days' IS NULL AND payload->>'season' IS NULL)
     ORDER BY location_type, title
     LIMIT $1
   `, [batchSize]);
@@ -266,7 +281,6 @@ async function enrichPayload(batchSize: number, dryRun: boolean) {
       }
       if (!dryRun) {
         const merged = { ...route.payload };
-        if (data.price_from != null)    merged.price_from    = data.price_from;
         if (data.duration_days != null) merged.duration_days = data.duration_days;
         if (data.season != null)        merged.season        = data.season;
         if (data.difficulty != null)    merged.difficulty    = data.difficulty;
@@ -299,27 +313,21 @@ function buildPayloadPrompt(route: RouteRow): ChatMessage[] {
   return [
     {
       role: 'system',
-      content: `You are a Kamchatka tourism expert. Generate realistic tourist data for locations.
-Respond ONLY with valid JSON, no markdown, no explanation. All prices in RUB. Text in Russian.
+      content: `You are a Kamchatka tourism expert. Classify locations by type and geography.
+Respond ONLY with valid JSON, no markdown, no explanation. Text in Russian.
+
+Do NOT invent prices or exact figures — prices come from the platform database only.
+If a field cannot be judged from the location type and coordinates, return null.
 
 JSON schema:
 {
-  "price_from": number|null,
   "duration_days": number|null,
   "season": "summer"|"winter"|"year-round"|null,
   "difficulty": "easy"|"moderate"|"hard"|"extreme"|null,
   "best_months": [6,7,8,9]|null,
-  "how_to_get": "string in Russian"|null,
+  "how_to_get": "string in Russian, general (road type/transport), no invented distances or prices"|null,
   "what_to_bring": ["item1","item2"]|null
-}
-
-Price guidelines:
-- Museums/cultural: 300-1500 RUB entry
-- Volcano treks with guide: 15000-80000 RUB
-- Helicopter tours: 40000-95000 RUB
-- Hot springs entry: 500-3000 RUB; remote with transfer: 15000-40000 RUB
-- Fishing tours: 25000-80000 RUB
-- Beaches, viewpoints: null (free)`,
+}`,
     },
     {
       role: 'user',
@@ -339,7 +347,6 @@ function parsePayloadResponse(text: string): PayloadEnrichment | null {
     if (!jsonMatch) return null;
     const data = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
     return {
-      price_from:    typeof data.price_from    === 'number' ? data.price_from    : null,
       duration_days: typeof data.duration_days === 'number' ? data.duration_days : null,
       season:        typeof data.season        === 'string' ? data.season        : null,
       difficulty:    typeof data.difficulty    === 'string' ? data.difficulty    : null,

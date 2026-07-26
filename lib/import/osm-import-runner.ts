@@ -9,9 +9,16 @@
  * Чистая геометрия (bbox, выбор пути, LineString) — в lib/import/osm-geometry.ts.
  * Здесь — сеть (Overpass) + БД (выборка маршрутов без geometry, UPDATE).
  *
+ * Пул импорта: geometry IS NULL ИЛИ синтетика миграции 168 (прямые линии по
+ * waypoints, geometry->>'source' = 'waypoints_synthetic' после бэкфилла 776) —
+ * реальный OSM-трек её перекрывает, как и обещал комментарий 168-й. Реальные
+ * треки (source 'osm'/'idilesom'/'visitkamchatka' или без source) не трогаем.
+ * Импортированный трек помечается in-band: source='osm' внутри GeoJSON — эту
+ * конвенцию уже читает дедуп idilesom-скрипта.
+ *
  * offset нужен batched-прогону: маршруты, для которых в OSM не нашлось трека
- * (skipped) или случилась ошибка, остаются с geometry IS NULL и без offset
- * попадали бы в каждую следующую партию, зацикливая перебор.
+ * (skipped) или случилась ошибка, остаются в пуле и без offset попадали бы
+ * в каждую следующую партию, зацикливая перебор.
  */
 
 import { pool } from '@/lib/db-pool';
@@ -54,7 +61,12 @@ export interface OsmImportResult {
   imported: number;
   skipped: number;
   errors: string[];
+  /** Совсем без геометрии (geometry IS NULL). */
   routes_without_geometry: number;
+  /** С синтетической геометрией миграции 168 — кандидаты на апгрейд. */
+  routes_synthetic: number;
+  /** Весь оставшийся пул (NULL + синтетика) — по нему цикл workflow решает, продолжать ли. */
+  remaining_total: number;
   processed: number;
   details: OsmImportDetail[];
 }
@@ -89,6 +101,7 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
   const offset = params.offset ?? 0;
   const delayMs = params.delayMs ?? DEFAULT_DELAY_MS;
 
+  // Сначала маршруты совсем без геометрии, потом апгрейд синтетики
   const { rows: routes } = await pool.query<{
     id: string; title: string; lat: string; lng: string;
   }>(`
@@ -96,14 +109,17 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
     FROM kamchatka_routes
     WHERE is_visible = true
       AND lat IS NOT NULL AND lng IS NOT NULL
-      AND geometry IS NULL
-    ORDER BY title
+      AND (geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic')
+    ORDER BY (geometry IS NULL) DESC, title
     LIMIT $1 OFFSET $2
   `, [limit, offset]);
 
-  const totalWithoutGeometry = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM kamchatka_routes
-     WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL AND geometry IS NULL`
+  const totals = await pool.query<{ without_geometry: string; synthetic: string }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE geometry IS NULL)::text AS without_geometry,
+       COUNT(*) FILTER (WHERE geometry->>'source' = 'waypoints_synthetic')::text AS synthetic
+     FROM kamchatka_routes
+     WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL`
   );
 
   let imported = 0;
@@ -128,7 +144,7 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
         if (!dryRun) {
           await pool.query(
             `UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2`,
-            [JSON.stringify(geojson), r.id],
+            [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
           );
         }
         imported++;
@@ -145,12 +161,17 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
     }
   }
 
+  const withoutGeometry = parseInt(totals.rows[0].without_geometry);
+  const synthetic = parseInt(totals.rows[0].synthetic);
+
   return {
     dry_run: dryRun,
     imported,
     skipped,
     errors,
-    routes_without_geometry: parseInt(totalWithoutGeometry.rows[0].count),
+    routes_without_geometry: withoutGeometry,
+    routes_synthetic: synthetic,
+    remaining_total: withoutGeometry + synthetic,
     processed: routes.length,
     details,
   };
