@@ -52,7 +52,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         urgency: 'notable',
         action_items: ['Проверить оформление поста', 'Убедиться что фото загружается'],
       };
-      result = await postAINewsToChannel(testFinding);
+      // skipLLM: тест проверяет канал (пост+фото), а не генерацию текста —
+      // без ожидания LLM цепочка укладывается в таймаут (иначе «Failed to fetch»).
+      result = await postAINewsToChannel(testFinding, { skipLLM: true });
     } else {
       switch (type) {
         case 'kuzmich_route': result = await postKuzmichRoute(); break;
