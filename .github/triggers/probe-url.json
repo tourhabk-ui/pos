@@ -1,7 +1,8 @@
 {
-  "note": "Проверка радара на главной после мержа #802 (радар обстановки)",
-  "run": 18,
-  "bytes": 1500,
+  "note": "Проверка радара на главной телефонным UA (радар — только для телефонов, page.tsx isMobile)",
+  "run": 19,
+  "bytes": 1200,
+  "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
   "urls": [
     "https://vedarai.ru/"
   ],
