@@ -2,7 +2,11 @@
 
 import Script from 'next/script';
 
-const id = process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID;
+// ID счётчика — НЕ секрет: он публично виден в HTML каждой страницы любого
+// сайта с Метрикой. Дефолт зашит в код, потому что NEXT_PUBLIC_* вшивается
+// на этапе сборки, а Dockerfile не пробрасывает env панели Timeweb в build —
+// переменная окружения остаётся переопределением (пустая строка = выключить).
+const id = process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID ?? '103522218';
 
 export default function YandexMetrika() {
   if (!id) return null;
