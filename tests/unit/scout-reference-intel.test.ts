@@ -16,8 +16,8 @@ const BRIDGE = readFileSync(resolve(__dirname, '../../lib/agents/evo/intel-bridg
 
 describe('Scout: источники-референсы заведены', () => {
   it('Skift и Product Hunt — в источниках с категорией reference', () => {
-    expect(SCOUT).toMatch(/skift\.com\/feed/);
-    expect(SCOUT).toMatch(/producthunt\.com\/feed/);
+    expect(SCOUT).toMatch(/https:\/\/skift\.com\/feed/);
+    expect(SCOUT).toMatch(/https:\/\/www\.producthunt\.com\/feed/);
     expect(SCOUT).toMatch(/category:\s*'reference'/);
   });
 
