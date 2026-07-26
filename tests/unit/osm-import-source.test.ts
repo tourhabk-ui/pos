@@ -84,6 +84,23 @@ describe('runOsmGeometryImport — маркер источника', () => {
   });
 });
 
+describe('структурно: миграция 777 чинит битую синтетику 168-й', () => {
+  it('сигнатура — скалярное начало coordinates (|| расплющил первую пару), чужие source не трогаются', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync('migrations/777_fix_synthetic_geometry_and_mark.sql', 'utf8');
+    // Железный признак продукта 168-й: первый элемент coordinates — число
+    expect(src).toMatch(/jsonb_typeof\(geometry->'coordinates'->0\) = 'number'/);
+    expect(src).toMatch(/jsonb_typeof\(geometry->'coordinates'->1\) = 'number'/);
+    // Только немаркированные: реальные треки с source не затрагиваются
+    expect(src).toMatch(/geometry->>'source' IS NULL/);
+    // Починка структуры: скаляры сворачиваются в пару, хвост — без первых двух
+    expect(src).toMatch(/jsonb_build_array\(jsonb_build_array\(/);
+    expect(src).toMatch(/- 0 - 0/);
+    // Маркер для пула апгрейда OSM-раннера
+    expect(src).toMatch(/'source', 'waypoints_synthetic'/);
+  });
+});
+
 describe('структурно: бэкфилл синтетики осторожный', () => {
   it('миграция 776 требует сигнатуру целиком: точное совпадение первой точки И малое число точек И отсутствие source', async () => {
     const fs = await import('node:fs');

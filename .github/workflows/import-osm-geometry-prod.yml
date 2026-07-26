@@ -66,18 +66,18 @@ jobs:
           BASE="https://vedarai.ru/api/cron/osm-import"
 
           # Ждём НУЖНЫЙ билд, а не просто живой эндпоинт: старый билд тоже
-          # отвечает 401, поэтому в 401-теле новый код несёт маркер v=2
-          # (апгрейд синтетики + миграция 776 накатываются тем же деплоем).
+          # отвечает 401, поэтому в 401-теле новый код несёт маркер v=3
+          # (починка битой синтетики + миграция 777 накатываются тем же деплоем).
           # До 30 минут (Docker-сборка Timeweb ~10 мин).
           READY=""
           for i in $(seq 1 30); do
             BODY=$(curl -s --max-time 30 "$BASE" || echo '{}')
             V=$(echo "$BODY" | jq -r '.v // 0' 2>/dev/null || echo 0)
-            if [ "$V" = "2" ]; then READY=1; echo "endpoint deployed (401 c v=2 — билд с апгрейдом синтетики)"; break; fi
+            if [ "$V" = "3" ]; then READY=1; echo "endpoint deployed (401 c v=3 — билд с миграцией 777)"; break; fi
             echo "нужный билд ещё не задеплоен (v=$V), жду 60с ($i/30)"
             sleep 60
           done
-          if [ -z "$READY" ]; then echo "билд с v=2 так и не задеплоился за 30 мин"; exit 1; fi
+          if [ -z "$READY" ]; then echo "билд с v=3 так и не задеплоился за 30 мин"; exit 1; fi
 
           TOTAL_IMPORTED=0; TOTAL_SKIPPED=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
           for i in $(seq 1 80); do
