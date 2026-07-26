@@ -233,7 +233,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section>
-          <div className="shead"><h2>Радар безопасности</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
+          <div className="shead"><h2>Радар обстановки</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
 
@@ -415,17 +415,25 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 const LEVEL_COLOR: Record<string, string> = {
   critical: 'var(--brusnika)', danger: 'var(--shroom)', warning: 'var(--amber)',
 };
-const KIND_LABEL: Record<string, string> = { volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика' };
+const KIND_LABEL: Record<string, string> = {
+  volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика',
+  bear: 'Медведь', report: 'Наблюдение',
+};
 const MAX_KM = 200; // внешнее кольцо
 
 interface RadarHazard { lat: number; lng: number; level: string; kind: string; label: string; note: string }
 interface Placed extends RadarHazard { x: number; y: number; dist: number }
 
 /**
- * Радар безопасности: реальные опасные точки (вулканы KVERT, термы, сейсмика)
- * по настоящему азимуту и расстоянию от центра. Центр — геолокация (если
- * разрешена) или Петропавловск. Луч-развёртка декоративен поверх реальных
- * блипов; несуществующих точек не рисуем.
+ * Радар обстановки: реальные точки (вулканы KVERT, сейсмика, модерированные
+ * наблюдения туристов) по настоящему азимуту и расстоянию от центра. Центр —
+ * геолокация (если разрешена) или Петропавловск. Луч-развёртка декоративен
+ * поверх реальных блипов; несуществующих точек не рисуем.
+ *
+ * Радар НЕ обещает «безопасность»: медведей техника не отслеживает, а на
+ * Камчатке медведь — главная реальная опасность и он может быть где угодно.
+ * Отсюда постоянная приписка про медведей и пустое состояние, которое говорит
+ * только о том, что радар реально видит, — не «опасностей нет».
  */
 function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat: number; lng: number; label: string } }) {
   const [c, setC] = useState(center);
@@ -451,6 +459,9 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
 
   const R = 92, CX = 100, CY = 100;
   const kmLat = 111.32, kmLng = 111.32 * Math.cos((c.lat * Math.PI) / 180);
+  // В SVG последний нарисованный — сверху, поэтому критичные рисуем ПОСЛЕДНИМИ:
+  // красный блип не должен прятаться под жёлтым
+  const LEVEL_RANK: Record<string, number> = { warning: 0, danger: 1, critical: 2 };
   const placed: Placed[] = hazards
     .map((h) => {
       const north = (h.lat - c.lat) * kmLat;
@@ -459,14 +470,14 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
       return { ...h, dist, x: CX + (east / MAX_KM) * R, y: CY - (north / MAX_KM) * R };
     })
     .filter((h) => h.dist <= MAX_KM)
-    .sort((a, b) => (a.level === 'critical' ? -1 : 0) - (b.level === 'critical' ? -1 : 0));
+    .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
 
   const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
 
   return (
     <div className="radar">
       <div className="scope">
-        <svg viewBox="0 0 200 200" aria-label="Радар безопасности">
+        <svg viewBox="0 0 200 200" aria-label="Радар обстановки">
           <defs>
             <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
@@ -493,7 +504,7 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
             </g>
           ))}
         </svg>
-        {placed.length === 0 && <div className="clean">Рядом опасностей нет</div>}
+        {placed.length === 0 && <div className="clean">Сейсмики и тревог вулканов рядом нет</div>}
       </div>
 
       <div className="rmeta">
@@ -521,6 +532,13 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
             <span className="rcount">{placed.length} рядом</span>
           </div>
         )}
+        {/* Честность радара: медведей техника не видит, а это главная реальная
+            опасность края. Приписка постоянная — пустой радар не значит «безопасно» */}
+        <div className="rhint">
+          Радар видит сейсмику, вулканы КВЕРТ и наблюдения туристов. Медведей он не видит —
+          на Камчатке медведь может быть рядом всегда: шумите на тропе, держите дистанцию.{' '}
+          <Link href="/safety/offline">Протокол встречи →</Link>
+        </div>
       </div>
     </div>
   );
@@ -832,6 +850,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .radar .rc b{color:var(--ink);font-weight:600}
 .v7 .radar .rgeo{font:600 9px/1 var(--fb);letter-spacing:.1em;text-transform:uppercase;color:var(--tide);background:none;border:1px solid color-mix(in srgb,var(--tide) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
 .v7 .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--faint)}
+.v7 .radar .rhint a{color:var(--tide);text-decoration:none}
 .v7 .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--ink);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .v7 .radar .rcoord span{font:600 8px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
 .v7 .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
