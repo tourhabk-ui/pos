@@ -56,3 +56,18 @@ describe('структурно: сток счётчика существует',
     expect(layout).toContain("'/hub/admin/traffic'");
   });
 });
+
+describe('честность уникальных: подпись «считаются с даты»', () => {
+  it('API даёт uniques_since только при наличии строк без хэша (не хардкод даты)', () => {
+    const api = readFileSync('app/api/admin/analytics/traffic/route.ts', 'utf8');
+    expect(api).toMatch(/MIN\(created_at\) FILTER \(WHERE visitor_hash IS NOT NULL\)/);
+    expect(api).toMatch(/has_unhashed/);
+    expect(api).toMatch(/uniques_since:\s*cov\?\.has_unhashed/);
+  });
+
+  it('страница показывает подпись, когда uniques_since есть', () => {
+    const page = readFileSync('app/hub/admin/traffic/page.tsx', 'utf8');
+    expect(page).toMatch(/Уникальные считаются с/);
+    expect(page).toMatch(/data\?\.uniques_since/);
+  });
+});
