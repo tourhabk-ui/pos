@@ -32,11 +32,26 @@ jobs:
         run: |
           URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json'))['urls']))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
+          # Необязательный список строк-маркеров: для каждой печатаем НАЙДЕНО/НЕТ
+          # (удобно проверять деплой большого HTML, где нужный текст не в первых
+          # байтах — грепаем всё тело, а не только head).
+          GREP=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('grep', [])))")
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
             CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time 60 -A 'Mozilla/5.0 (compatible; VedarProbe/1.0)' -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
+            if [ -n "$GREP" ]; then
+              echo "── маркеры ──"
+              while IFS= read -r marker; do
+                [ -z "$marker" ] && continue
+                if grep -qF -- "$marker" /tmp/body; then
+                  echo "  НАЙДЕНО: $marker"
+                else
+                  echo "  НЕТ:     $marker"
+                fi
+              done <<< "$GREP"
+            fi
             echo "── первые ${BYTES} байт ──"
             head -c "${BYTES}" /tmp/body | tr -d '\r'
             echo ""
