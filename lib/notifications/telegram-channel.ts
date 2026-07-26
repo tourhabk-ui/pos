@@ -700,7 +700,10 @@ import { getPublicBaseUrl } from '@/lib/config';
  * Generates an engaging post via AI + a Pollinations.ai image.
  * Only called for ai_tech domain, notable/critical urgency.
  */
-export async function postAINewsToChannel(finding: IntelligenceFinding): Promise<{ ok: boolean; error?: string }> {
+export async function postAINewsToChannel(
+  finding: IntelligenceFinding,
+  opts: { skipLLM?: boolean } = {},
+): Promise<{ ok: boolean; error?: string }> {
   const channelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_AI_CHANNEL_ID not set' };
 
@@ -741,14 +744,23 @@ ${signalCtx}
   };
 
   let postText: string;
-  try {
-    // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
-    // генератора были единственными в файле на захардкоженной старой модели —
-    // остальное давно на флагмане. Публичные посты писала самая слабая модель
-    // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
-    postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
-  } catch {
+  if (opts.skipLLM) {
+    // Тест канала из админки: НЕ ждём LLM. Синхронная генерация текста
+    // (callAIQuality: DeepSeek→Qwen→waterfall) плюс постинг с ретраями
+    // перелезала таймаут прокси Timeweb → кнопка отдавала «Failed to fetch».
+    // Тест проверяет сам канал (пост + фото доходят), а не качество текста —
+    // берём детерминированный текст из находки и укладываемся в таймаут.
     postText = fromFinding();
+  } else {
+    try {
+      // Качественный путь, а не gemini-2.0-flash-001 (февраль 2025). Эти два
+      // генератора были единственными в файле на захардкоженной старой модели —
+      // остальное давно на флагмане. Публичные посты писала самая слабая модель
+      // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
+      postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
+    } catch {
+      postText = fromFinding();
+    }
   }
 
   // Отказ AI приходит СТРОКОЙ, а не исключением: callAIWithModelDirect →
