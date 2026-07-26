@@ -9,6 +9,12 @@ interface TrafficData {
   daily: Array<{ day: string; hits: number; uniques: number }>;
   top_paths: Array<{ path: string; hits: number }>;
   top_referrers: Array<{ referrer: string; hits: number }>;
+  uniques_since: string | null;
+}
+
+function fmtDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${d}.${m}`;
 }
 
 export default function AdminTrafficPage() {
@@ -59,6 +65,10 @@ export default function AdminTrafficPage() {
       <p className="text-xs text-[var(--text-muted)]">
         Первичный счётчик платформы (page_views). Уникальные — по суточному хэшу,
         сырые IP не хранятся. Пути /hub/admin и служебные не учитываются.
+        {data?.uniques_since && (
+          <> Уникальные считаются с {fmtDate(data.uniques_since)} (раньше хэш не
+          писался, ретроактивно посчитать нельзя — только просмотры).</>
+        )}
       </p>
 
       {loading ? (

@@ -32,9 +32,12 @@ describe('verifyToken пинит HS256', () => {
 
   it('битая подпись отвергается', async () => {
     const token = await createToken(payload);
-    // Портим последний символ подписи
-    const tampered = token.slice(0, -1) + (token.at(-1) === 'A' ? 'B' : 'A');
-    expect(await verifyToken(tampered)).toBeNull();
+    // Портим символ в НАЧАЛЕ подписи (значащие биты). Последний base64url-символ
+    // 43-символьной HMAC-подписи несёт padding-биты — флип там мог не менять
+    // декодированные байты и подпись оставалась валидной (флейки CI).
+    const [h, p, sig] = token.split('.');
+    const flippedSig = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+    expect(await verifyToken(`${h}.${p}.${flippedSig}`)).toBeNull();
   });
 });
 

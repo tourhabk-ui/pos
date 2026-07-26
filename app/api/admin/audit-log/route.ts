@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
 
   try {
     // Union from all 3 audit sources
-    const conditions: string[] = [];
     const params: (string | number)[] = [];
     let paramIdx = 1;
 
@@ -56,18 +55,6 @@ export async function GET(request: NextRequest) {
     }
 
     const whereClause = typeFilter + searchFilter;
-
-    // Count total
-    const countResult = await query<{ total: string }>(`
-      SELECT COUNT(*) as total FROM (
-        SELECT id FROM audit_logs
-        UNION ALL
-        SELECT id::text FROM audit_log
-        UNION ALL
-        SELECT id::text FROM booking_logs
-      ) combined_count${conditions.length ? '' : ''}
-    `, []);
-    // Simplified count — for filtered count we use CTE
 
     const cte = `
       WITH unified AS (

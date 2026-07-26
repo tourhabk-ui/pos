@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [totals, daily, topPaths, topReferrers] = await Promise.all([
+    const [totals, daily, topPaths, topReferrers, coverage] = await Promise.all([
       pool.query<{
         today_hits: string; today_uniques: string;
         week_hits: string; week_uniques: string;
@@ -61,9 +61,19 @@ export async function GET(request: NextRequest) {
         ORDER BY hits DESC
         LIMIT 10
       `),
+      // С какой даты у строк есть суточный хэш: до неё уники посчитать нельзя
+      // (сырые IP не хранятся, 152-ФЗ). Дата — из данных, не хардкод.
+      pool.query<{ uniques_since: string | null; has_unhashed: boolean }>(`
+        SELECT
+          to_char(MIN(created_at) FILTER (WHERE visitor_hash IS NOT NULL), 'YYYY-MM-DD') AS uniques_since,
+          bool_or(visitor_hash IS NULL) AS has_unhashed
+        FROM page_views
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+      `),
     ]);
 
     const t = totals.rows[0];
+    const cov = coverage.rows[0];
     return NextResponse.json({
       success: true,
       data: {
@@ -75,6 +85,9 @@ export async function GET(request: NextRequest) {
         daily: daily.rows.map(r => ({ day: r.day, hits: Number(r.hits), uniques: Number(r.uniques) })),
         top_paths: topPaths.rows.map(r => ({ path: r.path, hits: Number(r.hits) })),
         top_referrers: topReferrers.rows.map(r => ({ referrer: r.referrer, hits: Number(r.hits) })),
+        // Показываем подпись, только если есть строки БЕЗ хэша (значит уники
+        // начались позже просмотров и раннее посчитать нельзя)
+        uniques_since: cov?.has_unhashed ? (cov.uniques_since ?? null) : null,
       },
     });
   } catch (error) {
