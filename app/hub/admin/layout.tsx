@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import {
   Shield, Users, Calendar, CalendarDays, FileText, MessageSquareText,
-  Briefcase, UserCheck, BarChart3, DollarSign, Footprints,
+  Briefcase, UserCheck, BarChart3, DollarSign, Footprints, Coins,
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Zap, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Radar, Database, Image as ImageIcon, Globe, MapPin, Cpu,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
@@ -52,6 +52,7 @@ const SIDEBAR_ITEMS = [
 
   // AI
   { href: '/hub/admin/agents', label: 'AI и автоматизации', icon: Zap, section: 'AI' },
+  { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
   { href: '/hub/admin/evo/models', label: 'Модели эволюции', icon: Cpu, section: 'AI' },
   { href: '/hub/admin/brain', label: 'Volcano Brain', icon: Brain, section: 'AI' },
   { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
