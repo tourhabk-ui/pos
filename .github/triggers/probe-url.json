@@ -1,10 +1,14 @@
 {
-  "note": "Маркер запуска probe-url.yml",
-  "run": 17,
-  "bytes": 16000,
+  "note": "Проверка радара на главной после мержа #802 (радар обстановки)",
+  "run": 18,
+  "bytes": 1500,
   "urls": [
-    "https://vedarai.ru/version.json",
-    "https://vedarai.ru/sw.js",
-    "https://vedarai.ru/offline"
+    "https://vedarai.ru/"
+  ],
+  "grep": [
+    "Радар обстановки",
+    "Медведей он не видит",
+    "Сейсмики и тревог вулканов рядом нет",
+    "Радар безопасности"
   ]
 }
