@@ -50,7 +50,11 @@ export async function createToken(payload: JWTPayload): Promise<string> {
  */
 export async function verifyToken(token: string): Promise<JWTPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getJWTSecret());
+    // Пин алгоритма: принимаем ТОЛЬКО HS256. Без этого jose доверяет полю alg
+    // из заголовка токена — защита в глубину против algorithm-confusion, если
+    // однажды изменится тип ключа (симметричный ключ уже отсекает RS*/ES*/none,
+    // но пин снимает зависимость от этого неявного свойства).
+    const { payload } = await jwtVerify(token, getJWTSecret(), { algorithms: [JWT_ALGORITHM] });
     if (
       typeof payload.userId !== 'string' ||
       typeof payload.email !== 'string' ||

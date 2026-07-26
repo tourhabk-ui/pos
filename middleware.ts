@@ -14,6 +14,8 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis/cloudflare';
 import { isPathMatch, isPublicApiPath } from '@/lib/auth/public-api-routes';
 
+const JWT_ALGORITHM = 'HS256';
+
 // JWT_SECRET читается в runtime, не при сборке
 function getJWTSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -224,7 +226,10 @@ export async function middleware(request: NextRequest) {
   // Verify JWT token
   if (token) {
     try {
-      const { payload } = await jwtVerify(token, getJWTSecret());
+      // Пин алгоритма HS256 (защита в глубину против algorithm-confusion) —
+      // тот же контракт, что в lib/auth/jwt.ts, чтобы Edge и Node проверяли
+      // токен одинаково строго.
+      const { payload } = await jwtVerify(token, getJWTSecret(), { algorithms: [JWT_ALGORITHM] });
 
       const userRole = typeof payload.role === 'string' ? payload.role : null;
 
