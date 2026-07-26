@@ -60,8 +60,9 @@ async function tgPost(chatId: string, text: string, botToken?: string): Promise<
   return { ok: data.ok, error: data.description };
 }
 
-// sendPhoto — caption до 1024 символов
-async function tgPostPhoto(chatId: string, photoUrl: string, caption: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
+// sendPhoto — caption до 1024 символов. Экспорт — для ручных постов
+// (lib/notifications/manual-channel-post.ts), не только для генераторов ниже.
+export async function tgPostPhoto(chatId: string, photoUrl: string, caption: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return { ok: false, error: 'not configured' };
   const data = await tgFetchWithRetry(
