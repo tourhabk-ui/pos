@@ -1,0 +1,62 @@
+name: Data — KML-инбокс (треки сообщества)
+
+# Постит .kml из data/tracks-inbox/ на прод-эндпоинт /api/cron/kml-inbox
+# (прод видит БД нативно, раннер — нет; паттерн osm-import). Импорт
+# идемпотентен: уже привязанные треки отдают kept/imported повторно.
+#
+# Запуск: push в main, меняющий data/tracks-inbox/**, или Run workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'data/tracks-inbox/**'
+
+jobs:
+  kml-inbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Post KML tracks to prod
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          BASE="https://vedarai.ru/api/cron/kml-inbox"
+
+          # Ждём деплой эндпоинта: новый билд отвечает 401 на GET/POST без
+          # ключа, старый — 404/405 (до 30 мин, Docker-сборка Timeweb ~10 мин)
+          READY=""
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$BASE" -d '{}' || echo 000)
+            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+
+          FAIL=0
+          shopt -s nullglob
+          for f in data/tracks-inbox/*.kml; do
+            NAME=$(basename "$f")
+            BODY=$(jq -n --arg filename "$NAME" --rawfile kml "$f" '{filename: $filename, kml: $kml}')
+            RESP=$(curl -s --max-time 60 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "Content-Type: application/json" \
+              -d "$BODY" "$BASE" || echo '')
+            if echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
+              echo "$NAME: $(echo "$RESP" | jq -c '{status,track_name,matched_route,match_by,points,existing_source}')"
+              # parse_error/no_coords — это плохой файл в инбоксе, честно краснеем
+              ST=$(echo "$RESP" | jq -r '.status')
+              if [ "$ST" = "parse_error" ] || [ "$ST" = "no_coords" ]; then FAIL=1; fi
+            else
+              echo "$NAME: FAIL $RESP"
+              FAIL=1
+            fi
+          done
+          exit $FAIL
