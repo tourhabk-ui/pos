@@ -7,6 +7,8 @@
  * страницы /catalog/tours/[id] и /marketplace/tours/[id] не расходились.
  */
 
+import { stripHtmlTags } from '@/lib/text/strip-html';
+
 export interface TourSeoInput {
   id: string | number;
   title: string;
@@ -110,7 +112,7 @@ export function buildTourStructuredData(
     '@id': `${canonicalUrl}#product`,
     name: tour.title,
     ...(tour.description
-      ? { description: String(tour.description).replace(/<[^>]+>/g, '').slice(0, 400) }
+      ? { description: stripHtmlTags(tour.description).slice(0, 400) }
       : {}),
     ...(images.length ? { image: images } : {}),
     brand: { '@type': 'Organization', name: tour.operator_name },
