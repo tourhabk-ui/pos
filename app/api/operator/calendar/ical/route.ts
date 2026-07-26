@@ -31,6 +31,14 @@ function icalDate(dateStr: string): string {
   return dateStr.replace(/-/g, '');
 }
 
+function nextDay(dateStr: string): string {
+  // DTEND у all-day события ЭКСКЛЮЗИВНЫЙ (RFC 5545): равный DTSTART он даёт
+  // событие нулевой длины, которое часть календарей вовсе не показывает
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
 function icalDateTime(dt: Date): string {
   return dt.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
 }
@@ -139,16 +147,18 @@ export async function GET(request: NextRequest) {
 
     return [
       'BEGIN:VEVENT',
-      foldLine(`UID:booking-${b.id}@kamchatourhub`),
+      // UID сменил домен вместе с брендом: при повторном импорте старого и
+      // нового файла событие может задублироваться — разовая цена ребренда
+      foldLine(`UID:booking-${b.id}@vedarai.ru`),
       foldLine(`DTSTART;VALUE=DATE:${startDay}`),
-      foldLine(`DTEND;VALUE=DATE:${startDay}`),
+      foldLine(`DTEND;VALUE=DATE:${nextDay(b.booking_date)}`),
       foldLine(`DTSTAMP:${icalDateTime(now)}`),
       foldLine(`CREATED:${icalDateTime(b.created_at)}`),
       foldLine(`SUMMARY:${summary}`),
       description ? foldLine(`DESCRIPTION:${description}`) : '',
       'LOCATION:Камчатка',
       `STATUS:${status}`,
-      foldLine(`CATEGORIES:Туры\\,KamchatourHub`),
+      foldLine(`CATEGORIES:Туры\\,Ведар`),
       'END:VEVENT',
     ].filter(Boolean).join('\r\n');
   });
@@ -156,17 +166,17 @@ export async function GET(request: NextRequest) {
   const calendar = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//KamchatourHub//TourCalendar//RU',
+    'PRODID:-//Vedar//TourCalendar//RU',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     foldLine(`X-WR-CALNAME:Туры — ${escapeIcal(operatorName)}`),
     'X-WR-TIMEZONE:Asia/Kamchatka',
-    'X-WR-CALDESC:Бронирования туров на KamchatourHub',
+    'X-WR-CALDESC:Бронирования туров на платформе Ведар',
     ...events,
     'END:VCALENDAR',
   ].join('\r\n');
 
-  const filename = `kamchatourhub-tours-${dateFrom}.ics`;
+  const filename = `vedar-tours-${dateFrom}.ics`;
 
   return new NextResponse(calendar, {
     status: 200,
