@@ -1,0 +1,61 @@
+name: Channel — ручной пост через бота
+
+# Доставляет .github/triggers/channel-post.json на прод-эндпоинт
+# /api/cron/channel-post (паттерн kml-inbox: токен бота живёт только на
+# проде). Публикация идемпотентна по тексту — повторный прогон с тем же
+# триггером отвечает duplicate:true и пост не задваивает.
+#
+# Запуск: push в main, меняющий триггер-файл, или Run workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/channel-post.json'
+
+jobs:
+  channel-post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish post to channel via prod
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          FILE=".github/triggers/channel-post.json"
+          jq -e . "$FILE" >/dev/null || { echo "триггер-файл не JSON"; exit 1; }
+
+          BASE="https://vedarai.ru/api/cron/channel-post"
+
+          # Ждём деплой эндпоинта: новый билд отвечает 401 на POST без ключа,
+          # старый — 404/405 (до 30 мин, Docker-сборка Timeweb ~10 мин)
+          READY=""
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$BASE" -d '{}' || echo 000)
+            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+
+          RESP=$(curl -s --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d @"$FILE" "$BASE" || echo '')
+          echo "$RESP"
+          if echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
+            if echo "$RESP" | jq -e '.duplicate == true' >/dev/null 2>&1; then
+              echo "пост уже публиковался ранее (дедуп по тексту) — пропуск"
+            else
+              echo "пост опубликован"
+            fi
+          else
+            echo "публикация не удалась"
+            exit 1
+          fi
