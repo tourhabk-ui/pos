@@ -9,10 +9,30 @@ import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Обёртка запроса: при ошибке отдаёт пустые строки и пишет причину в errors —
+ * чтобы один недоступный источник (нет таблицы/колонки на проде) не ронял всю
+ * страницу «AI Кузьмич». Тот же приём устойчивости, что в /api/admin/dashboard.
+ */
+async function safeRows<T>(
+  label: string,
+  errors: string[],
+  fn: () => Promise<{ rows: T[] }>,
+): Promise<{ rows: T[] }> {
+  try {
+    return await fn();
+  } catch (e) {
+    errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+    return { rows: [] };
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAdmin(req);
     if (auth instanceof NextResponse) return auth;
+
+    const errors: string[] = [];
 
     const [
       tgStats,
@@ -26,13 +46,13 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
 
       // ── Telegram + Max статистика ────────────────────────────────────────────
-      pool.query<{
+      safeRows<{
         platform: string;
         unique_chats: string;
         total_msgs: string;
         user_msgs: string;
         last_msg: string;
-      }>(`
+      }>('tgStats', errors, () => pool.query(`
         SELECT
           platform,
           COUNT(DISTINCT chat_id)::text                  AS unique_chats,
@@ -42,10 +62,10 @@ export async function GET(req: NextRequest) {
         FROM tg_conversations
         WHERE created_at >= NOW() - INTERVAL '30 days'
         GROUP BY platform
-      `),
+      `)),
 
       // ── Тренд Telegram+Max за 14 дней ────────────────────────────────────────
-      pool.query<{ day: string; platform: string; chats: string; msgs: string }>(`
+      safeRows<{ day: string; platform: string; chats: string; msgs: string }>('tgTrend', errors, () => pool.query(`
         SELECT
           TO_CHAR(DATE_TRUNC('day', created_at), 'DD.MM') AS day,
           platform,
@@ -55,20 +75,20 @@ export async function GET(req: NextRequest) {
         WHERE created_at >= NOW() - INTERVAL '14 days'
         GROUP BY DATE_TRUNC('day', created_at), platform
         ORDER BY DATE_TRUNC('day', created_at)
-      `),
+      `)),
 
       // ── Рейтинги (👍/👎) ──────────────────────────────────────────────────────
-      pool.query<{ rating: string; cnt: string }>(`
+      safeRows<{ rating: string; cnt: string }>('tgRatings', errors, () => pool.query(`
         SELECT rating::text, COUNT(*)::text AS cnt
         FROM tg_ratings
         GROUP BY rating
-      `).catch(() => ({ rows: [] as { rating: string; cnt: string }[] })),
+      `)),
 
       // ── Сайт: статистика chat_sessions ───────────────────────────────────────
-      pool.query<{
+      safeRows<{
         total: string; authenticated: string; guests: string;
         avg_messages: string; total_messages: string;
-      }>(`
+      }>('webStats', errors, () => pool.query(`
         SELECT
           COUNT(*)                                              AS total,
           COUNT(*) FILTER (WHERE is_authenticated = true)      AS authenticated,
@@ -77,10 +97,10 @@ export async function GET(req: NextRequest) {
           SUM(user_message_count)                              AS total_messages
         FROM chat_sessions
         WHERE created_at >= NOW() - INTERVAL '30 days'
-      `),
+      `)),
 
       // ── Тренд сайта за 14 дней ───────────────────────────────────────────────
-      pool.query<{ day: string; total: string; auth: string }>(`
+      safeRows<{ day: string; total: string; auth: string }>('webTrend', errors, () => pool.query(`
         SELECT
           TO_CHAR(DATE_TRUNC('day', created_at), 'DD.MM') AS day,
           COUNT(*)                                         AS total,
@@ -89,22 +109,22 @@ export async function GET(req: NextRequest) {
         WHERE created_at >= NOW() - INTERVAL '14 days'
         GROUP BY DATE_TRUNC('day', created_at)
         ORDER BY DATE_TRUNC('day', created_at)
-      `),
+      `)),
 
       // ── Память пользователей ─────────────────────────────────────────────────
-      pool.query<{
+      safeRows<{
         total_with_memory: string; with_notes: string; avg_sessions: string;
-      }>(`
+      }>('memoryStats', errors, () => pool.query(`
         SELECT
           COUNT(*)                                          AS total_with_memory,
           COUNT(*) FILTER (WHERE ai_notes IS NOT NULL
             AND ai_notes != '')                             AS with_notes,
           ROUND(AVG(sessions_count), 1)                    AS avg_sessions
         FROM user_ai_memory
-      `),
+      `)),
 
       // ── События AI за 30 дней ────────────────────────────────────────────────
-      pool.query<{ action_type: string; cnt: string }>(`
+      safeRows<{ action_type: string; cnt: string }>('actionsStats', errors, () => pool.query(`
         SELECT action_type, COUNT(*) AS cnt
         FROM ai_actions_log
         WHERE created_at >= NOW() - INTERVAL '30 days'
@@ -115,17 +135,17 @@ export async function GET(req: NextRequest) {
           )
         GROUP BY action_type
         ORDER BY cnt DESC
-      `),
+      `)),
 
       // ── Топ активностей из памяти ─────────────────────────────────────────────
-      pool.query<{ activity: string; cnt: string }>(`
+      safeRows<{ activity: string; cnt: string }>('topActivities', errors, () => pool.query(`
         SELECT UNNEST(preferred_activities) AS activity, COUNT(*) AS cnt
         FROM user_ai_memory
         WHERE preferred_activities IS NOT NULL
         GROUP BY activity
         ORDER BY cnt DESC
         LIMIT 8
-      `),
+      `)),
     ]);
 
     // UTM (опционально, migration 136)
@@ -215,6 +235,7 @@ export async function GET(req: NextRequest) {
         cnt: parseInt(r.cnt, 10),
       })),
       utmSources,
+      ...(errors.length > 0 ? { _errors: errors } : {}),
     });
 
   } catch (err) {
