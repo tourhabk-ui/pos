@@ -691,6 +691,7 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 
 import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.service';
 import { buildPollinationsUrl } from '@/lib/services/ingest/ai-image-generator';
+import { aiNewsImagePrompt, travelNewsImagePrompt, hashStr } from '@/lib/notifications/post-image';
 import { getPublicBaseUrl } from '@/lib/config';
 
 /**
@@ -764,9 +765,10 @@ ${signalCtx}
     return { ok: false, error };
   }
 
-  // 3. Generate image
-  const imagePromptText = `futuristic AI technology concept, neural network visualization, glowing blue and purple data streams, abstract digital brain, ${finding.summary.slice(0, 60)}, dark background, cinematic, 8K, no text, no watermarks`;
-  const seed = Math.floor(Math.random() * 9_999_999);
+  // 3. Generate image — сюжет/стиль/палитра от хэша новости, а не один и тот
+  // же «неоновый мозг» на каждый пост (см. lib/notifications/post-image.ts)
+  const imagePromptText = aiNewsImagePrompt(finding.summary);
+  const seed = hashStr(finding.summary) % 9_999_999;
   const imageUrl = buildPollinationsUrl(imagePromptText, seed, 1280, 720);
 
   // 4. Publish to AI channel (photo + caption)
@@ -841,9 +843,10 @@ ${signalCtx}
     postText += '\n\n<a href="https://vedarai.ru/routes">Наши маршруты →</a>';
   }
 
-  // 3. Generate image (Kamchatka nature focus)
-  const imagePromptText = `wild Kamchatka landscape photography, dramatic volcanic mountains, bears fishing, snow-capped peaks, pristine wilderness, turquoise geysers, cinematic, 8K, no people, no text, no watermarks`;
-  const seed = Math.floor(Math.random() * 9_999_999);
+  // 3. Generate image — камчатский сюжет от хэша новости, а не один и тот же
+  // фиксированный коллаж «вулканы+медведи+гейзеры» на каждый пост
+  const imagePromptText = travelNewsImagePrompt(finding.summary);
+  const seed = hashStr(finding.summary) % 9_999_999;
   const imageUrl = buildPollinationsUrl(imagePromptText, seed, 1280, 720);
 
   // 4. Publish to TourHub channel (with MAX parallel post)
