@@ -133,6 +133,47 @@ const SECTIONS: SectionQuery[] = [
           FROM kamchatka_routes GROUP BY 1 ORDER BY n DESC`,
   },
   {
+    id: 'routes_synthetic_probe',
+    title: 'Немаркированные треки: диагностика сигнатуры синтетики (бэкфилл 776 нашёл 0)',
+    sql: `SELECT
+            COUNT(*)::int AS unmarked_tracks,
+            COUNT(*) FILTER (WHERE jsonb_array_length(geometry->'coordinates') <= 12)::int AS short_le12,
+            COUNT(*) FILTER (WHERE lat IS NOT NULL AND lng IS NOT NULL
+              AND (geometry->'coordinates'->0->>0)::float8 = lng::float8
+              AND (geometry->'coordinates'->0->>1)::float8 = lat::float8)::int AS first_pt_eq_latlng,
+            COUNT(*) FILTER (WHERE EXISTS (
+              SELECT 1 FROM route_waypoints rw JOIN places p ON p.id = rw.place_id
+              WHERE rw.route_id = kamchatka_routes.id
+                AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+                AND (kamchatka_routes.geometry->'coordinates'->1->>0)::float8 = p.lng::float8
+                AND (kamchatka_routes.geometry->'coordinates'->1->>1)::float8 = p.lat::float8
+            ))::int AS second_pt_is_waypoint,
+            COUNT(*) FILTER (WHERE EXISTS (
+              SELECT 1 FROM route_waypoints rw JOIN places p ON p.id = rw.place_id
+              WHERE rw.route_id = kamchatka_routes.id
+                AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+                AND (kamchatka_routes.geometry->'coordinates'->0->>0)::float8 = p.lng::float8
+                AND (kamchatka_routes.geometry->'coordinates'->0->>1)::float8 = p.lat::float8
+            ))::int AS first_pt_is_waypoint
+          FROM kamchatka_routes
+          WHERE geometry IS NOT NULL AND geometry->>'source' IS NULL
+            AND geometry->>'type' = 'LineString'`,
+  },
+  {
+    id: 'routes_unmarked_sample',
+    title: 'Немаркированные треки: образцы (короткие первыми)',
+    sql: `SELECT title,
+                 jsonb_array_length(geometry->'coordinates') AS pts,
+                 geometry->'coordinates'->0 AS first_pt,
+                 lng::float8 AS lng, lat::float8 AS lat,
+                 (SELECT COUNT(*)::int FROM route_waypoints rw WHERE rw.route_id = kamchatka_routes.id) AS waypoints
+          FROM kamchatka_routes
+          WHERE geometry IS NOT NULL AND geometry->>'source' IS NULL
+            AND geometry->>'type' = 'LineString'
+          ORDER BY jsonb_array_length(geometry->'coordinates') ASC
+          LIMIT 15`,
+  },
+  {
     id: 'routes_place_links',
     title: 'Треки: привязка к местам (metadata.place_ark_id) по источникам',
     sql: `SELECT COALESCE(source_name,'(без источника)') AS source,
