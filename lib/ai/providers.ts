@@ -40,7 +40,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
-import { pickBestModel } from '@/lib/ai/model-resolver';
+import { pickBestModel, pickBestFlagship } from '@/lib/ai/model-resolver';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -1023,6 +1023,24 @@ async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
   } catch { return []; }
 }
 
+/**
+ * Список id моделей Anthropic из /v1/models. Заголовок авторизации у Anthropic
+ * иной (x-api-key + anthropic-version), поэтому не через fetchModelIds. Работает
+ * и через релей (ANTHROPIC_BASE_URL). Нет ключа/недостижим → пустой список.
+ */
+export async function getAnthropicModelIds(): Promise<string[]> {
+  const key = getAnthropicKey();
+  if (!key) return [];
+  try {
+    const res = await fetchWithRetry(`${ANTHROPIC_BASE}/v1/models?limit=100`, {
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    }, { timeoutMs: 12_000, maxRetries: 1, baseDelayMs: 500, label: 'anthropic-models-list' });
+    if (!res.ok) return [];
+    const data = await res.json() as { data?: Array<{ id?: unknown }> };
+    return (data?.data ?? []).map((m) => m.id).filter((x): x is string => typeof x === 'string');
+  } catch { return []; }
+}
+
 /** Список id моделей провайдера из /v1/models (для решателя и model-watcher). */
 export async function getProviderModelIds(provider: 'deepseek' | 'qwen'): Promise<string[]> {
   if (provider === 'deepseek') {
@@ -1086,11 +1104,32 @@ export async function resolveContentModel(provider: 'deepseek' | 'qwen'): Promis
 // Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
 // галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
 // ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
-// Дефолт — Opus 5 (24.07.2026; сильнее 4.8 при той же цене), override через
-// EVO_DECISION_FLAGSHIP_MODEL. Пин id — временный: корректнее резолвить
-// сильнейшую модель из /v1/models, как это уже делает model-resolver для
-// DeepSeek/Qwen (CLAUDE.md §8 «БЕЗ привязки к id»).
-const EVO_FLAGSHIP_MODEL = process.env.EVO_DECISION_FLAGSHIP_MODEL || 'anthropic/claude-opus-5';
+// override — EVO_DECISION_FLAGSHIP_MODEL. Пин — крайний фоллбэк, если авто-
+// резолв недоступен (нет ключа/релея).
+const EVO_FLAGSHIP_FALLBACK = 'anthropic/claude-opus-5';
+
+/**
+ * Сильнейший флагман БЕЗ привязки к id (CLAUDE.md §8) — как для DeepSeek/Qwen.
+ * env override → кэш → Anthropic /v1/models + pickBestFlagship → пин-фоллбэк.
+ * Возвращает id с префиксом anthropic/ (для OpenRouter-пути; Anthropic-прямой
+ * путь сам срежет префикс). Раньше флагман был прибит к 'claude-opus-5' и не
+ * подхватывал новую линейку (Opus 6…) без правки кода — теперь подхватит сам.
+ */
+export async function resolveFlagshipModel(): Promise<string> {
+  const override = process.env.EVO_DECISION_FLAGSHIP_MODEL;
+  if (override) return override;
+
+  const cached = PURPOSE_MODEL_CACHE.get('decision:flagship');
+  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+
+  const ids = await getAnthropicModelIds();
+  const picked = pickBestFlagship(ids);
+  const resolved = picked ? `anthropic/${picked}` : EVO_FLAGSHIP_FALLBACK;
+  // Кэшируем только реальный резолв, не фоллбэк — чтобы недоступность не
+  // «залипала» на час и авто-резолв поднялся, как только ключ/релей появятся.
+  if (picked) PURPOSE_MODEL_CACHE.set('decision:flagship', { id: resolved, at: Date.now() });
+  return resolved;
+}
 
 /** Ответ решателя вместе с моделью, которая его дала. */
 export interface DecisionResult {
@@ -1117,15 +1156,18 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
 export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<DecisionResult> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
 
+  // Сильнейший флагман без привязки к id (авто-резолв из /v1/models, §8).
+  const flagshipModel = await resolveFlagshipModel();
+
   // 0) Флагман (Claude/GPT) через relay-aware OpenRouter — приоритет качества.
   //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
   //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
   //    когда владелец задаёт ключ+релей на Timeweb.
   try {
-    const flag = await callOpenRouterModel(payload, EVO_FLAGSHIP_MODEL, {
+    const flag = await callOpenRouterModel(payload, flagshipModel, {
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
-    if (flag?.text?.trim()) return { text: flag.text, model: EVO_FLAGSHIP_MODEL };
+    if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel };
   } catch { /* флагман недостижим — пробуем Anthropic напрямую */ }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
@@ -1134,7 +1176,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   //     посредника. Модель — та же флагманская (без префикса "anthropic/").
   const antKey = getAnthropicKey();
   if (antKey) {
-    const antModel = EVO_FLAGSHIP_MODEL.replace(/^anthropic\//, '');
+    const antModel = flagshipModel.replace(/^anthropic\//, '');
     try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
