@@ -33,9 +33,10 @@ export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     // v — маркер билда для probe workflow: старый и новый код оба отвечают 401,
-    // и только по v цикл понимает, что деплой с апгрейдом синтетики уже накатился
-    // (миграция 776 применяется тем же деплоем до старта сервера).
-    return NextResponse.json({ error: 'Unauthorized', v: 2 }, { status: 401 });
+    // и только по v цикл понимает, что нужный деплой уже накатился (миграции
+    // применяются тем же деплоем до старта сервера). v=3 — билд с миграцией 777
+    // (починка битой синтетики 168 + маркер waypoints_synthetic).
+    return NextResponse.json({ error: 'Unauthorized', v: 3 }, { status: 401 });
   }
 
   const sp = request.nextUrl.searchParams;
