@@ -16,8 +16,11 @@ const BRIDGE = readFileSync(resolve(__dirname, '../../lib/agents/evo/intel-bridg
 
 describe('Scout: источники-референсы заведены', () => {
   it('Skift и Product Hunt — в источниках с категорией reference', () => {
-    expect(SCOUT).toMatch(/https:\/\/skift\.com\/feed/);
-    expect(SCOUT).toMatch(/https:\/\/www\.producthunt\.com\/feed/);
+    // Проверяем наличие фидов подстрокой (не regex): CodeQL «missing anchor»
+    // срабатывает на любом RegExp-литерале с host-подобным `.com`, а тут это
+    // просто grep исходника, не валидация URL.
+    expect(SCOUT).toContain('https://skift.com/feed');
+    expect(SCOUT).toContain('https://www.producthunt.com/feed');
     expect(SCOUT).toMatch(/category:\s*'reference'/);
   });
 
