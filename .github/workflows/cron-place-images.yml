@@ -1,0 +1,67 @@
+name: Cron — фото точек (Qwen-Image backfill)
+
+# Догоняет точки без фото: зовёт /api/cron/backfill-place-images пачками до
+# remaining=0 либо до бюджета времени. Генерация медленная (Qwen-Image async),
+# поэтому по ~6 шт за вызов и много вызовов за прогон. Идемпотентно: эндпоинт
+# берёт только точки без изображений, повтор безопасен.
+
+on:
+  schedule:
+    - cron: '17 21 * * *'   # 21:17 UTC, off-peak
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: 'Сколько точек за один вызов (1–10)'
+        required: false
+        default: '6'
+
+concurrency:
+  group: place-images
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Backfill place images via prod
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BATCH: ${{ github.event.inputs.batch || '6' }}
+        run: |
+          set -uo pipefail
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set"; exit 1; fi
+
+          BASE="https://vedarai.ru/api/cron/backfill-place-images"
+
+          # Ждём деплой эндпоинта: новый билд отвечает 401 на POST без ключа.
+          READY=""
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$BASE" -d '{}' || echo 000)
+            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
+            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/20)"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then echo "эндпоинт не задеплоился"; exit 1; fi
+
+          # Бюджет времени ~42 минуты (оставляем запас от timeout 50 мин).
+          DEADLINE=$(( $(date +%s) + 2520 ))
+          TOTAL=0
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            RESP=$(curl -s --max-time 290 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "Content-Type: application/json" \
+              -d "{\"batch\": $BATCH}" "$BASE" || echo '')
+            echo "$RESP"
+            GEN=$(echo "$RESP" | jq -r '.generated // 0' 2>/dev/null || echo 0)
+            REMAIN=$(echo "$RESP" | jq -r '.remaining // 0' 2>/dev/null || echo 0)
+            TOTAL=$(( TOTAL + GEN ))
+            if ! echo "$RESP" | jq -e '.success == true' >/dev/null 2>&1; then
+              echo "вызов не удался — стоп"; break
+            fi
+            echo "сгенерировано за прогон: $TOTAL; осталось: $REMAIN"
+            if [ "$REMAIN" = "0" ]; then echo "все точки с фото — готово"; break; fi
+            if [ "$GEN" = "0" ]; then echo "прогресса нет — стоп во избежание пустого цикла"; break; fi
+            sleep 5
+          done
+          echo "итог прогона: сгенерировано $TOTAL"

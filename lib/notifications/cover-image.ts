@@ -24,7 +24,7 @@ import {
   travelNewsImagePrompt,
   themeHint,
 } from '@/lib/notifications/post-image';
-import { buildPollinationsUrl } from '@/lib/services/ingest/ai-image-generator';
+import { buildPollinationsUrl } from '@/lib/services/ingest/pollinations-url';
 import { callAIFastOrNull } from '@/lib/ai/providers';
 
 export type CoverChannel = 'ai' | 'travel';
@@ -107,10 +107,11 @@ const NEGATIVE_PROMPT =
 
 /**
  * Рисует картинку через async text2image DashScope: создать задачу → опрашивать
- * статус до SUCCEEDED. Возвращает URL картинки (OSS, живёт ~24ч — Telegram
- * успевает забрать при постинге) либо null при любом сбое/таймауте.
+ * статус до SUCCEEDED. Возвращает URL картинки (OSS, живёт ~24ч — потребитель
+ * успевает забрать) либо null при любом сбое/таймауте. Экспортируется для
+ * переиспользования (обложки постов + фото точек через ai-image-generator).
  */
-async function generateDashScopeImage(prompt: string): Promise<string | null> {
+export async function generateQwenImageUrl(prompt: string): Promise<string | null> {
   const { apiKey, base, model, size } = getDashScopeImageConfig();
   if (!apiKey || !model) return null;
 
@@ -187,7 +188,7 @@ export async function resolveCoverImage(
 
   if (!opts.skipSmartImage && dashScopeImageEnabled()) {
     const smartPrompt = opts.explicitPrompt ?? (await composeCoverPrompt(text, channel));
-    const url = await generateDashScopeImage(smartPrompt);
+    const url = await generateQwenImageUrl(smartPrompt);
     if (url) return { url, source: 'qwen-image', prompt: smartPrompt };
   }
 

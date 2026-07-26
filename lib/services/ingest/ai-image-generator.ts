@@ -5,6 +5,10 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { dashScopeImageEnabled, generateQwenImageUrl } from '@/lib/notifications/cover-image';
+import { buildPollinationsUrl } from '@/lib/services/ingest/pollinations-url';
+
+export { buildPollinationsUrl };
 
 // ──────────────────────────────────────────────────────────────
 // Prompt builder — English prompts for Kamchatka locations
@@ -77,20 +81,6 @@ function routeSeed(routeId: string): number {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Pollinations.ai URL builder (free, Flux model, no API key)
-// ──────────────────────────────────────────────────────────────
-
-export function buildPollinationsUrl(
-  prompt: string,
-  seed: number,
-  width = 1280,
-  height = 720,
-): string {
-  const encodedPrompt = encodeURIComponent(prompt);
-  return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&model=flux&nologo=true`;
-}
-
-// ──────────────────────────────────────────────────────────────
 // Fetch image bytes from Pollinations
 // ──────────────────────────────────────────────────────────────
 
@@ -136,18 +126,32 @@ export async function generateAndStoreRouteImage(
 
   const prompt = buildImagePrompt(title, locationType, description);
   const seed = routeSeed(routeId);
-  const url = buildPollinationsUrl(prompt, seed);
 
-  const imageData = await fetchImageBytes(url);
+  // Умный путь: image-модель Qwen-Image (DashScope) при включённой QWEN_IMAGE_MODEL —
+  // качество выше, чем у flux. Любой сбой (нет ключа, таймаут, отказ) — тихий
+  // откат на бесплатный Pollinations, чтобы фото у точки появилось всегда.
+  let imageData: Buffer | null = null;
+  let model = 'pollinations-flux';
+  if (dashScopeImageEnabled()) {
+    const qwenUrl = await generateQwenImageUrl(prompt).catch(() => null);
+    if (qwenUrl) {
+      imageData = await fetchImageBytes(qwenUrl).catch(() => null);
+      if (imageData) model = 'qwen-image';
+    }
+  }
+  if (!imageData) {
+    imageData = await fetchImageBytes(buildPollinationsUrl(prompt, seed));
+  }
 
   await pool.query(
     `INSERT INTO ai_route_images (route_id, image_data, mime_type, prompt, model, width, height)
-     VALUES ($1, $2, 'image/jpeg', $3, 'pollinations-flux', 1280, 720)
+     VALUES ($1, $2, 'image/jpeg', $3, $4, 1280, 720)
      ON CONFLICT (route_id) DO UPDATE
        SET image_data = EXCLUDED.image_data,
            prompt     = EXCLUDED.prompt,
+           model      = EXCLUDED.model,
            created_at = NOW()`,
-    [routeId, imageData, prompt],
+    [routeId, imageData, prompt, model],
   );
 
   return { routeId, prompt, bytes: imageData.length, cached: false };
