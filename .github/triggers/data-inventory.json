@@ -1,4 +1,5 @@
 {
   "note": "Маркер запуска data-inventory.yml: правка этого файла в main запускает инвентаризацию данных прямо сейчас.",
-  "run": 4
+  "run": 5,
+  "reason": "Снять факты для миграции 777: routes_synthetic_probe + routes_unmarked_sample (секции задеплоены PR #784)."
 }
