@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 23 * * *'  # 23:00 UTC — DeepSeek off-peak window
   workflow_dispatch:
+  # Запуск мержем в main (у Claude-интеграции нет actions:write, а мерж PR
+  # есть) — паттерн import-osm-geometry-prod.yml
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/enrich-routes.json'
 
 jobs:
   enrich:
