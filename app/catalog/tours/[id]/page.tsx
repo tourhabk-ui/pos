@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { pool } from '@/lib/db-pool';
 import TourDetailClient from '@/app/marketplace/tours/[id]/_TourDetailClient';
+import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 
 export const revalidate = 3600;
 
@@ -99,56 +100,11 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   const [tour, reviews] = await Promise.all([getTour(tourId), getReviews(tourId)]);
   if (!tour) notFound();
 
-  const structuredData = {
-    '@context': 'https://schema.org',
-    '@type': 'TouristTrip',
-    '@id': `${SITE}/catalog/tours/${tour.id}`,
-    name: tour.title,
-    description: tour.description ?? undefined,
-    inLanguage: 'ru',
-    touristType: ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type,
-    ...(tour.tour_image ? { image: [tour.tour_image, ...(tour.photos ?? [])] } : {}),
-    ...(tour.duration_hours ? { duration: `PT${Math.round(Number(tour.duration_hours))}H` } : {}),
-    ...(tour.multi_day_count ? { duration: `P${tour.multi_day_count}D` } : {}),
-    provider: {
-      '@type': 'TouristInformationCenter',
-      name: tour.operator_name,
-      url: SITE,
-    },
-    offers: {
-      '@type': 'Offer',
-      price: parseFloat(tour.base_price),
-      priceCurrency: 'RUB',
-      availability: 'https://schema.org/InStock',
-      url: `${SITE}/catalog/tours/${tour.id}`,
-    },
-    ...(tour.rating && Number(tour.rating) > 0 ? {
-      aggregateRating: {
-        '@type': 'AggregateRating',
-        ratingValue: Number(tour.rating),
-        reviewCount: tour.review_count ?? 0,
-        bestRating: 5,
-        worstRating: 1,
-      },
-    } : {}),
-    location: {
-      '@type': 'Place',
-      name: tour.location_name ?? 'Камчатка',
-      address: {
-        '@type': 'PostalAddress',
-        addressLocality: tour.location_name ?? 'Камчатка',
-        addressRegion: 'Камчатский край',
-        addressCountry: 'RU',
-      },
-      ...(tour.latitude && tour.longitude ? {
-        geo: {
-          '@type': 'GeoCoordinates',
-          latitude: Number(tour.latitude),
-          longitude: Number(tour.longitude),
-        },
-      } : {}),
-    },
-  };
+  const structuredData = buildTourStructuredData(tour, reviews, {
+    canonicalUrl: `${SITE}/catalog/tours/${tour.id}`,
+    siteUrl: SITE,
+    activityLabel: ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type,
+  });
 
   return (
     <>
