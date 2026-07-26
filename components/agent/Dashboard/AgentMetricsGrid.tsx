@@ -1,8 +1,23 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import {
+  Wallet, CreditCard, Users, Handshake, Receipt, Percent, Clock, XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import { MetricCard } from '../../admin/shared/MetricCard';
 import { LoadingSpinner } from '../../admin/shared/LoadingSpinner';
+
+// Икон-чип метрики — тот же язык, что чипы разделов кабинетов (vedar §9:
+// lucide через --ocean, не эмодзи; здесь до этого жили огрызки вырезанных
+// эмодзи — пустые строки и "[]" в слотах иконок).
+function MetricIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="flex items-center justify-center w-9 h-9 rounded-full bg-[var(--ocean)]/10">
+      <Icon className="w-[18px] h-[18px] text-[var(--ocean)]" strokeWidth={1.75} />
+    </span>
+  );
+}
 
 interface AgentMetrics {
   totalClients: number;
@@ -62,11 +77,11 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
 
   if (error) {
     return (
-      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center">
-        <p className="text-red-400 mb-4">Ошибка загрузки метрик</p>
+      <div className="bg-[var(--bg-card)] border border-[var(--danger)]/30 rounded-lg p-6 text-center">
+        <p className="text-[var(--danger)] mb-4">Ошибка загрузки метрик</p>
         <button
           onClick={fetchMetrics}
-          className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+          className="px-4 py-2 border border-[var(--danger)]/30 text-[var(--danger)] rounded-md text-sm transition-colors hover:bg-[var(--bg-hover)]"
         >
           Повторить
         </button>
@@ -82,7 +97,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Общий доход"
         value={`${metrics.totalRevenue.toLocaleString('ru-RU')} ₽`}
         subtitle={`за ${period} дней`}
-        icon=" "
+        icon={<MetricIcon icon={Wallet} />}
         trend={metrics.totalRevenue > 0 ? 'up' : 'neutral'}
       />
 
@@ -90,7 +105,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Комиссионные"
         value={`${metrics.totalCommission.toLocaleString('ru-RU')} ₽`}
         subtitle={`${metrics.pendingCommission.toLocaleString('ru-RU')} ₽ ожидает`}
-        icon=""
+        icon={<MetricIcon icon={CreditCard} />}
         trend={metrics.totalCommission > 0 ? 'up' : 'neutral'}
       />
 
@@ -98,7 +113,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Клиенты"
         value={metrics.totalClients.toString()}
         subtitle={`${metrics.activeClients} активных`}
-        icon=" "
+        icon={<MetricIcon icon={Users} />}
         trend={metrics.totalClients > 0 ? 'up' : 'neutral'}
       />
 
@@ -106,7 +121,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Бронирования"
         value={metrics.totalBookings.toString()}
         subtitle={`${metrics.completedBookings} завершено`}
-        icon=" "
+        icon={<MetricIcon icon={Handshake} />}
         trend={metrics.totalBookings > 0 ? 'up' : 'neutral'}
       />
 
@@ -114,7 +129,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Средний чек"
         value={`${metrics.averageBookingValue.toLocaleString('ru-RU')} ₽`}
         subtitle="на бронирование"
-        icon=" "
+        icon={<MetricIcon icon={Receipt} />}
         trend={metrics.averageBookingValue > 5000 ? 'up' : 'neutral'}
       />
 
@@ -122,7 +137,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Конверсия"
         value={`${metrics.conversionRate.toFixed(1)}%`}
         subtitle="завершенных бронирований"
-        icon=" "
+        icon={<MetricIcon icon={Percent} />}
         trend={metrics.conversionRate > 70 ? 'up' : 'down'}
       />
 
@@ -130,7 +145,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Ожидает оплаты"
         value={metrics.pendingBookings.toString()}
         subtitle="бронирований"
-        icon=" "
+        icon={<MetricIcon icon={Clock} />}
         trend={metrics.pendingBookings > 5 ? 'down' : 'neutral'}
       />
 
@@ -138,7 +153,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         title="Отменено"
         value={metrics.cancelledBookings.toString()}
         subtitle="бронирований"
-        icon="[]"
+        icon={<MetricIcon icon={XCircle} />}
         trend={metrics.cancelledBookings > metrics.totalBookings * 0.1 ? 'down' : 'neutral'}
       />
     </div>
