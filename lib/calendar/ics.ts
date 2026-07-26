@@ -57,13 +57,13 @@ export function buildBookingIcs(b: BookingIcsInput, now: Date = new Date()): str
   const descParts = [
     b.operatorName ? `Оператор: ${b.operatorName}` : '',
     b.participants ? `Участников: ${b.participants}` : '',
-    'Бронирование на Ведар (KamchatourHub)',
+    'Бронирование на платформе Ведар',
   ].filter(Boolean).map(escapeIcs);
 
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//KamchatourHub//Booking//RU',
+    'PRODID:-//Vedar//Booking//RU',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
