@@ -66,11 +66,23 @@ describe('themeHint: чистый заголовок в theme', () => {
   });
 });
 
-describe('структурно: фиксированные промпты выпилены из генераторов', () => {
+describe('структурно: фиксированные промпты выпилены, обложка через resolveCoverImage', () => {
   it('в telegram-channel.ts не осталось «digital brain» и «bears fishing»', () => {
     const src = readFileSync('lib/notifications/telegram-channel.ts', 'utf8');
     expect(src).not.toMatch(/abstract digital brain/);
     expect(src).not.toMatch(/bears fishing/);
+  });
+
+  it('оба поста канала берут обложку через общий resolveCoverImage', () => {
+    const src = readFileSync('lib/notifications/telegram-channel.ts', 'utf8');
+    // Вариативные генераторы теперь живут за resolveCoverImage (умный путь
+    // Qwen-Image + детерминированный Pollinations-фолбэк), а не вызываются в лоб.
+    expect(src).toMatch(/resolveCoverImage/);
+    expect(src).not.toMatch(/buildPollinationsUrl/);
+  });
+
+  it('cover-image.ts переиспользует вариативные генераторы для фолбэка', () => {
+    const src = readFileSync('lib/notifications/cover-image.ts', 'utf8');
     expect(src).toMatch(/aiNewsImagePrompt/);
     expect(src).toMatch(/travelNewsImagePrompt/);
   });

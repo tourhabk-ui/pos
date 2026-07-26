@@ -691,8 +691,8 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 // ── AI News channel post ─────────────────────────────────────────────────────
 
 import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.service';
-import { buildPollinationsUrl } from '@/lib/services/ingest/ai-image-generator';
-import { aiNewsImagePrompt, travelNewsImagePrompt, hashStr } from '@/lib/notifications/post-image';
+import { hashStr } from '@/lib/notifications/post-image';
+import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { getPublicBaseUrl } from '@/lib/config';
 
 /**
@@ -780,12 +780,16 @@ ${signalCtx}
 
   // 3. Generate image — сюжет/стиль/палитра от хэша новости, а не один и тот
   // же «неоновый мозг» на каждый пост (см. lib/notifications/post-image.ts)
-  const imagePromptText = aiNewsImagePrompt(finding.summary);
+  // 3. Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
+  // детерминированный Pollinations. В тест-режиме (skipLLM) — сразу Pollinations,
+  // чтобы не растянуть цепочку и не словить таймаут («Failed to fetch»).
   const seed = hashStr(finding.summary) % 9_999_999;
-  const imageUrl = buildPollinationsUrl(imagePromptText, seed, 1280, 720);
+  const cover = await resolveCoverImage(finding.summary, 'ai', seed, {
+    skipSmartImage: opts.skipLLM,
+  });
 
   // 4. Publish to AI channel (photo + caption)
-  const result = await tgPostPhoto(channelId, imageUrl, postText);
+  const result = await tgPostPhoto(channelId, cover.url, postText);
 
   // 5. Log action
   if (result.ok) {
@@ -856,14 +860,13 @@ ${signalCtx}
     postText += '\n\n<a href="https://vedarai.ru/routes">Наши маршруты →</a>';
   }
 
-  // 3. Generate image — камчатский сюжет от хэша новости, а не один и тот же
-  // фиксированный коллаж «вулканы+медведи+гейзеры» на каждый пост
-  const imagePromptText = travelNewsImagePrompt(finding.summary);
+  // 3. Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
+  // детерминированный камчатский сюжет от хэша новости через Pollinations.
   const seed = hashStr(finding.summary) % 9_999_999;
-  const imageUrl = buildPollinationsUrl(imagePromptText, seed, 1280, 720);
+  const cover = await resolveCoverImage(finding.summary, 'travel', seed);
 
   // 4. Publish to TourHub channel (with MAX parallel post)
-  const result = await postToAllChannels(channelId, postText, imageUrl);
+  const result = await postToAllChannels(channelId, postText, cover.url);
 
   // 5. Log action
   if (result.ok) {

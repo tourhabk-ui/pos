@@ -13,8 +13,8 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { query } from '@/lib/database';
-import { buildPollinationsUrl } from '@/lib/services/ingest/ai-image-generator';
-import { aiNewsImagePrompt, travelNewsImagePrompt, hashStr } from '@/lib/notifications/post-image';
+import { hashStr } from '@/lib/notifications/post-image';
+import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { tgPostPhoto } from '@/lib/notifications/telegram-channel';
 
 export const ManualChannelPostSchema = z.object({
@@ -64,12 +64,14 @@ export async function publishManualChannelPost(
     if (dup.rows.length > 0) return { ok: true, duplicate: true };
   } catch { /* лог недоступен — публикуем без дедупа, это лучше молчания */ }
 
-  const prompt = post.imagePrompt
-    ?? (post.channel === 'ai' ? aiNewsImagePrompt(post.text) : travelNewsImagePrompt(post.text));
+  // Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
+  // детерминированный Pollinations. Явный imagePrompt из триггера имеет приоритет.
   const seed = post.seed ?? hashStr(post.text) % 9_999_999;
-  const imageUrl = buildPollinationsUrl(prompt, seed, 1280, 720);
+  const cover = await resolveCoverImage(post.text, post.channel, seed, {
+    explicitPrompt: post.imagePrompt,
+  });
 
-  const result = await tgPostPhoto(channelId, imageUrl, post.text);
+  const result = await tgPostPhoto(channelId, cover.url, post.text);
 
   if (result.ok) {
     try {
@@ -79,6 +81,7 @@ export async function publishManualChannelPost(
           channel: post.channel,
           text_hash: textHash,
           text_preview: post.text.slice(0, 200),
+          image_source: cover.source,
         })],
       );
     } catch { /* not critical */ }

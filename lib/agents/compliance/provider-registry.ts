@@ -35,6 +35,10 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // Anthropic. Хост был в providers.ts с самого начала, но сканер его не видел
   // (см. extractLLMHosts) — то есть зарубежный приёмник ПД проходил мимо D2.
   { host: 'api.anthropic.com', jurisdiction: 'USA', domestic: false, provider: 'Anthropic (Claude, прямой; из РФ гео-блок)' },
+  // Alibaba DashScope: текстовый Qwen (providers.ts) + image-модель обложек
+  // (cover-image.ts). Как и Anthropic, хост давно жил в providers.ts, но
+  // доменный фильтр сканера его не знал — егресс шёл мимо D2. Внесён явно.
+  { host: 'dashscope-intl.aliyuncs.com', jurisdiction: 'China', domestic: false, provider: 'Alibaba DashScope (Qwen текст + Qwen-Image обложки)' },
 ] as const;
 
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
@@ -51,6 +55,10 @@ const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
 export const LLM_EGRESS_FILES: readonly string[] = [
   'lib/ai/providers.ts',
   'lib/ai/image-tagger.ts',
+  // Обложки постов: сочиняет визуальный промпт через текстовый водопад и шлёт
+  // его в image-модель DashScope. ПД в промпте нет (только текст новости), но
+  // егресс зарубежный — под надзором D2.
+  'lib/notifications/cover-image.ts',
 ] as const;
 
 /**
@@ -89,7 +97,7 @@ export function extractLLMHosts(providersSource: string): string[] {
     const host = m[1].toLowerCase().replace(/[.-]+$/, '');
     // LLM-эндпоинты — по известным доменам моделей. Прочее (доки в коментах,
     // github и т.п.) не считаем приёмником ПД.
-    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices/.test(host)) {
+    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs/.test(host)) {
       hosts.add(host);
     }
   }
