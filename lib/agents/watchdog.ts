@@ -22,7 +22,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking';
   count: number;
   details: string;
 }
@@ -310,6 +310,86 @@ async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
   }
 }
 
+async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
+  try {
+    // Замыкает симметрию сторожа: туры, жильё и снаряжение уже под
+    // >24ч-проверкой, брони трансферов оставались слепым пятном.
+    // operator_id в transfer_bookings ссылается на operators (транспортная
+    // подсистема), у которых нет telegram_chat_id — чат берём из partners
+    // по совпадению email (LATERAL с LIMIT 1, чтобы дубли email не
+    // размножали группы).
+    const { rows } = await pool.query<{
+      operator_name: string | null;
+      telegram_chat_id: string | null;
+      count: string;
+      oldest: string;
+    }>(
+      `SELECT COALESCE(o.name, 'Оператор не привязан') AS operator_name,
+              p.telegram_chat_id,
+              COUNT(*)::text AS count,
+              MIN(tb.created_at)::date::text AS oldest
+       FROM transfer_bookings tb
+       LEFT JOIN operators o ON o.id = tb.operator_id
+       LEFT JOIN LATERAL (
+         SELECT telegram_chat_id FROM partners
+         WHERE LOWER(email) = LOWER(o.email)
+           AND telegram_chat_id IS NOT NULL
+         LIMIT 1
+       ) p ON true
+       WHERE tb.status = 'pending'
+         AND tb.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY o.name, p.telegram_chat_id`,
+    );
+    if (rows.length === 0) return null;
+
+    let total = 0;
+    for (const row of rows) {
+      total += parseInt(row.count, 10) || 0;
+      if (row.telegram_chat_id && row.operator_name) {
+        notifyTransferOperatorDirectly(
+          row.telegram_chat_id,
+          row.operator_name,
+          parseInt(row.count, 10),
+          row.oldest,
+        ).catch(() => {});
+      }
+    }
+
+    return {
+      type: 'pending_transfer_booking',
+      count: total,
+      details: `${total} бронь(и) трансфера без подтверждения > 24ч у ${rows.length} оператор(ов).`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function notifyTransferOperatorDirectly(
+  chatId: string,
+  operatorName: string,
+  count: number,
+  oldest: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  const appUrl = getPublicBaseUrl();
+  const text = [
+    `<b>Привет, ${operatorName}!</b>`,
+    '',
+    `${count} бронь(и) трансфера ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    '',
+    `Подтверди или отклони: <a href="${appUrl}/hub/transfer-operator/bookings">Брони</a>`,
+  ].join('\n');
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+  } catch { /* не блокируем */ }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -467,10 +547,11 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
+    checkPendingTransferBookings(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
@@ -478,7 +559,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkDeadSafetyCrons(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
