@@ -27,4 +27,13 @@ export interface MapMarker {
   id?: string;
   preset?: string;
   suppressBalloon?: boolean;
+  /**
+   * Активные ограничения места: дорога закрыта, пропускной режим, пожар
+   * (issue #836). Показываются в попапе отдельным красным блоком — в поле
+   * это важнее описания. Источник — location_real_time_status; в офлайне
+   * приходят из скачанного пакета.
+   */
+  restrictions?: string[];
+  /** Когда сняты ограничения (мс). В офлайне показываем возраст данных. */
+  restrictionsAt?: number | null;
 }

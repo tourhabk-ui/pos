@@ -105,6 +105,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       const routesWithRegion: OfflineRoute[] = routes.map((r) => ({
         ...r,
         regionId,
+        // Дефолты на случай ответа старого билда (#836): пустой список честнее
+        // undefined — «ограничений не зафиксировано», а не «поле сломано».
+        activeAlerts: r.activeAlerts ?? [],
+        alertSeverity: r.alertSeverity ?? 0,
+        alertsAt: r.alertsAt ?? null,
         cachedAt: Date.now(),
       }));
       await saveRoutes(routesWithRegion);

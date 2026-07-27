@@ -86,31 +86,42 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await query(
+      // Все колонки ark.* квалифицированы: после LEFT JOIN неквалифицированные
+      // id/updated_at есть в обеих таблицах → «column reference is ambiguous»
+      // и 500 на скачивании пакета (тот же класс, что чинил аудит Stay 27.07).
       `SELECT
-         id,
-         route_dedupe_key,
-         kind,
-         category,
-         location_type,
-         activity_type,
-         title,
-         description,
-         lat,
-         lng,
-         source_url,
-         source_name,
-         payload->>'difficulty'      AS difficulty,
-         payload->>'duration_days'   AS duration_days_raw,
-         payload->'best_months'      AS best_months,
-         payload->'geometry'         AS geometry
-       FROM agent_route_knowledge
+         ark.id,
+         ark.route_dedupe_key,
+         ark.kind,
+         ark.category,
+         ark.location_type,
+         ark.activity_type,
+         ark.title,
+         ark.description,
+         ark.lat,
+         ark.lng,
+         ark.source_url,
+         ark.source_name,
+         ark.payload->>'difficulty'      AS difficulty,
+         ark.payload->>'duration_days'   AS duration_days_raw,
+         ark.payload->'best_months'      AS best_months,
+         ark.payload->'geometry'         AS geometry,
+         -- Ограничения в офлайн-пакет (#836): перекрытая дорога, пропускной
+         -- режим, пожар. Без них скачавший регион турист в поле не знал,
+         -- что подъезд закрыт. LEFT JOIN — место без реалтайм-строки просто
+         -- едет с пустым списком, а не выпадает из пакета.
+         lrs.active_alerts               AS active_alerts,
+         lrs.alert_severity              AS alert_severity,
+         lrs.updated_at                  AS alerts_at
+       FROM agent_route_knowledge ark
+       LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
        WHERE
-         is_visible = TRUE
-         AND lat IS NOT NULL
-         AND lng IS NOT NULL
-         AND lat BETWEEN $1 AND $2
-         AND lng BETWEEN $3 AND $4
-       ORDER BY title ASC
+         ark.is_visible = TRUE
+         AND ark.lat IS NOT NULL
+         AND ark.lng IS NOT NULL
+         AND ark.lat BETWEEN $1 AND $2
+         AND ark.lng BETWEEN $3 AND $4
+       ORDER BY ark.title ASC
        LIMIT $5`,
       [south, north, west, east, limit]
     );
@@ -132,6 +143,9 @@ export async function GET(request: NextRequest) {
       durationDays: r.duration_days_raw != null ? Number(r.duration_days_raw) : null,
       bestMonths:   (r.best_months as number[] | null) ?? null,
       geometry:     (r.geometry as { type: string; coordinates: [number, number][] } | null) ?? null,
+      activeAlerts:  (r.active_alerts as string[] | null) ?? [],
+      alertSeverity: r.alert_severity != null ? Number(r.alert_severity) : 0,
+      alertsAt:      r.alerts_at ? new Date(r.alerts_at as string).getTime() : null,
     }));
 
     return NextResponse.json({
