@@ -555,7 +555,18 @@ async function scanStructural(): Promise<GrowthIssue[]> {
     const body = await readFileForReview(p);
     if (body) layouts.set(p, body);
   }
-  issues.push(...findOrphanHubPages(files, layouts));
+  // Два прохода: первый находит кандидатов, затем читаем ТОЛЬКО их тела
+  // (единицы файлов) — чтобы отличить сироту от страницы-редиректа
+  // (сохранённый старый URL: eco-points → loyalty). Бюджет: +N raw-запросов,
+  // где N = число кандидатов, в норме 0.
+  const candidates = findOrphanHubPages(files, layouts);
+  const pageBodies = new Map<string, string>();
+  for (const c of candidates) {
+    if (!c.file_path) continue;
+    const body = await readFileForReview(c.file_path);
+    if (body) pageBodies.set(c.file_path, body);
+  }
+  issues.push(...findOrphanHubPages(files, layouts, pageBodies));
 
   // 2. POST без формы — только при дисковых исходниках (чтение бесплатно).
   if (getLastListSource() === 'disk') {
