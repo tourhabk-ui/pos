@@ -345,7 +345,9 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 
 // ── Сохранение в БД ───────────────────────────────────────────────────────
 
-async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
+// export — переиспользует wildfire-firms.ts (пожарный слой пишет в те же
+// external_alerts тем же путём, а не дублирует INSERT со своими нюансами).
+export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   try {
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);

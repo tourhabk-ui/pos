@@ -33,6 +33,10 @@ export const SAFETY_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'mchs_rss', label: 'МЧС RSS (41.mchs)',    maxSilenceHours: 96 },
   { key: 'kbgsras',  label: 'КБГС РАН (сейсмо)',    maxSilenceHours: 48 },
   { key: 'eqkam',    label: 'EMSD/EQKam (сейсмо)',  maxSilenceHours: 48 },
+  // 'firms' (NASA FIRMS, пожары) сюда НЕ входит осознанно: «нет термоточек»
+  // неотличимо от «нет пожаров» (зимой месяцами пусто) — dead-алерт по
+  // тишине был бы ложью. Health-запись пишется (видно в админке), env-ключ
+  // FIRMS_MAP_KEY, ingest — lib/services/safety/wildfire-firms.ts.
 ] as const;
 
 /** Как часто повторять алерт по одному источнику. */

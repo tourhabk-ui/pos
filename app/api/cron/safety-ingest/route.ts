@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -165,12 +166,19 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     let dispatched = 0;
     for (const alert of rows) {
       const isTsunami = alert.alert_type === 'tsunami_warning';
+      // fire_danger попадает сюда при severity>=2 (крупный очаг): без своей
+      // ветки пуш назывался бы «Землетрясение M?» — чужой заголовок про пожар.
+      const isFire = alert.alert_type === 'fire_danger';
       const pushTitle = isTsunami
         ? 'УГРОЗА ЦУНАМИ — Камчатка'
-        : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
+        : isFire
+          ? 'Природный пожар — Камчатка'
+          : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
       const pushBody = isTsunami
         ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
-        : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+        : isFire
+          ? `${alert.title}. Сверьте маршрут — возможны перекрытия и задымление.`
+          : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
 
       const result = await sendPushBroadcast({
         title: pushTitle,
@@ -226,6 +234,7 @@ function buildResponse(
     minec?: ParseResultSummary;
     vk?: ParseResultSummary;
     max?: ParseResultSummary;
+    firms?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -240,6 +249,7 @@ function buildResponse(
     ...(ingestResult.minec?.errors ?? []),
     ...(ingestResult.vk?.errors ?? []),
     ...(ingestResult.max?.errors ?? []),
+    ...(ingestResult.firms?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -286,6 +296,11 @@ function buildResponse(
       inserted: ingestResult.max.inserted,
       skipped: ingestResult.max.skipped,
     } : undefined,
+    firms: ingestResult.firms ? {
+      events_found: ingestResult.firms.events.length,
+      inserted: ingestResult.firms.inserted,
+      skipped: ingestResult.firms.skipped,
+    } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
@@ -308,7 +323,12 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const ingestResult = await ingestAll();
+  const [ingestAllResult, firmsResult] = await Promise.all([ingestAll(), ingestFirmsWildfires()]);
+  const ingestResult = {
+    ...ingestAllResult,
+    firms: firmsResult,
+    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted,
+  };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
@@ -318,6 +338,10 @@ export async function GET(req: Request) {
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
+    // FIRMS пишется в health для видимости в админке, но НЕ входит в
+    // SAFETY_SOURCE_EXPECTATIONS: «нет термоточек» неотличимо от «нет пожаров»
+    // (сезонность) — dead-алерт по тишине был бы ложью.
+    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
@@ -363,7 +387,7 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult, maxResult] = await Promise.all([
+  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
@@ -375,6 +399,7 @@ export async function POST(req: Request) {
     parsed.data.max_items && parsed.data.max_items.length > 0
       ? ingestMaxItems(parsed.data.max_items)
       : Promise.resolve(undefined),
+    ingestFirmsWildfires(),
   ]);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
@@ -385,8 +410,10 @@ export async function POST(req: Request) {
     minec: minecResult,
     vk: vkResult,
     max: maxResult,
+    firms: firmsResult,
     total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0),
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0)
+      + firmsResult.inserted,
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
@@ -398,6 +425,8 @@ export async function POST(req: Request) {
     entryFor('vk_mchs', 'VK — МЧС Камчатки', vkResult, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
+    // FIRMS: в health для видимости, вне EXPECTATIONS (сезонная пустота — норма).
+    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
