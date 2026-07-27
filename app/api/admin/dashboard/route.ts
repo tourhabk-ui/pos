@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import {
   DashboardMetricsRow, TopTourRow, ActivityRow,
+  RevenueChartRow, CategoryCountRow, UserGrowthRow,
 } from '@/lib/types/db-rows';
 
 export const dynamic = 'force-dynamic';
@@ -97,6 +98,54 @@ export async function GET(request: NextRequest) {
     return r.rows;
   });
 
+  // Три графика ниже страница /hub/admin/analytics читала всегда, а эндпоинт их
+  // никогда не отдавал: в charts был только topTours. Клиент падал на
+  // charts.revenueByMonth.map (TypeError) и весь раздел админки уезжал в
+  // error.tsx. Данные строим на реальных колонках, пустой ряд — честный ноль,
+  // а не заглушка.
+  const revenueByMonth = await safeQuery<RevenueChartRow[]>('revenueByMonth', errors, [], async () => {
+    const r = await pool.query<RevenueChartRow>(`
+      SELECT
+        to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+        COALESCE(SUM(COALESCE(final_price, base_total_price)), 0)::text AS revenue
+      FROM operator_bookings
+      WHERE booking_status = 'confirmed'
+        AND created_at >= NOW() - ($1::int || ' days')::INTERVAL
+      GROUP BY 1
+      ORDER BY 1
+    `, [period]);
+    return r.rows;
+  });
+
+  // Категория = activity_type тура (треккинг, рыбалка, термальные…), а не роль
+  // партнёра: для аналитики бронирований содержательнее продукт, чем владелец.
+  const bookingsByCategory = await safeQuery<CategoryCountRow[]>('bookingsByCategory', errors, [], async () => {
+    const r = await pool.query<CategoryCountRow>(`
+      SELECT
+        COALESCE(NULLIF(t.activity_type, ''), 'other') AS category,
+        COUNT(b.id)::text AS count
+      FROM operator_bookings b
+      JOIN operator_tours t ON t.id = b.operator_tour_id
+      WHERE b.created_at >= NOW() - ($1::int || ' days')::INTERVAL
+      GROUP BY 1
+      ORDER BY COUNT(b.id) DESC
+    `, [period]);
+    return r.rows;
+  });
+
+  const userGrowth = await safeQuery<UserGrowthRow[]>('userGrowth', errors, [], async () => {
+    const r = await pool.query<UserGrowthRow>(`
+      SELECT
+        to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS date,
+        COUNT(*)::text AS count
+      FROM users
+      WHERE created_at >= NOW() - ($1::int || ' days')::INTERVAL
+      GROUP BY 1
+      ORDER BY 1
+    `, [period]);
+    return r.rows;
+  });
+
   const recentActivity = await safeQuery<ActivityRow[]>('recentActivity', errors, [], async () => {
     const r = await pool.query<ActivityRow>(`
       SELECT
@@ -146,6 +195,18 @@ export async function GET(request: NextRequest) {
         conversionRate: { value: convRate, change: 0, trend: 'neutral' as const },
       },
       charts: {
+        revenueByMonth: revenueByMonth.map(r => ({
+          date: r.month,
+          value: parseFloat(r.revenue),
+        })),
+        bookingsByCategory: bookingsByCategory.map(c => ({
+          category: c.category,
+          value: parseInt(c.count, 10),
+        })),
+        userGrowth: userGrowth.map(u => ({
+          date: u.date,
+          value: parseInt(u.count, 10),
+        })),
         topTours: topTours.map(t => ({
           id: t.id,
           title: t.title,
