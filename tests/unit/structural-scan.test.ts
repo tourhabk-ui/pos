@@ -47,6 +47,15 @@ describe('findOrphanHubPages (синтетика)', () => {
     const titles = findOrphanHubPages(files, layouts).map((f) => f.title);
     expect(titles.join()).not.toContain('nolayout');
   });
+
+  it('страница-редирект (сохранённый старый URL) — не сирота', () => {
+    const pageBodies = new Map([
+      ['app/hub/demo/orphan/page.tsx', "import { redirect } from 'next/navigation';\nexport default function R() { redirect('/hub/demo/linked'); }"],
+    ]);
+    expect(findOrphanHubPages(files, layouts, pageBodies)).toHaveLength(0);
+    // Без тела страницы находка сохраняется — лучше находка, чем молчание.
+    expect(findOrphanHubPages(files, layouts, new Map())).toHaveLength(1);
+  });
 });
 
 describe('findPostWithoutClientUsage (синтетика)', () => {
@@ -101,29 +110,21 @@ describe('живой прогон по дереву репозитория', () 
     }
   }
 
-  it('после аудита 27.07 сироты закрыты или осознанно исключены — кроме известного бэклога', () => {
+  it('сирот в хабах НОЛЬ: аудит 27.07 закрыл все (нав/редирект), новая — регресс', () => {
     const files: string[] = [];
     walkPages(join(process.cwd(), 'app/hub'), files);
     const layouts = new Map<string, string>();
     for (const p of hubLayoutPaths(files)) {
       layouts.set(p, readFileSync(join(process.cwd(), p), 'utf-8'));
     }
-    const found = findOrphanHubPages(files, layouts).map((f) => f.title);
-
-    // Трансфер-оператор починен в #838 — его сирот быть не должно.
-    expect(found.join()).not.toContain('/hub/transfer-operator');
-
-    // Известный бэклог на момент внедрения объектива (найден им же 27.07):
-    // движок заведёт issues, чинить будем по приоритету владельца. Новая
-    // сирота сверх списка — регресс, тест падает.
-    const KNOWN_BACKLOG = new Set([
-      'Страница вне сайдбара хаба: /hub/operator/ai-assist',
-      'Страница вне сайдбара хаба: /hub/operator/booking-intake',
-      'Страница вне сайдбара хаба: /hub/operator/guides',
-      'Страница вне сайдбара хаба: /hub/operator/register',
-      'Страница вне сайдбара хаба: /hub/tourist/eco-points',
-    ]);
-    const unexpected = found.filter((t) => !KNOWN_BACKLOG.has(t));
-    expect(unexpected, `новые сироты: ${unexpected.join('; ')}`).toEqual([]);
+    // Тот же двухпроходный протокол, что в scanStructural: кандидаты →
+    // чтение их тел → redirect-страницы отсеяны.
+    const candidates = findOrphanHubPages(files, layouts);
+    const pageBodies = new Map<string, string>();
+    for (const c of candidates) {
+      if (c.file_path) pageBodies.set(c.file_path, readFileSync(join(process.cwd(), c.file_path), 'utf-8'));
+    }
+    const found = findOrphanHubPages(files, layouts, pageBodies).map((f) => f.title);
+    expect(found, `сироты: ${found.join('; ')}`).toEqual([]);
   });
 });

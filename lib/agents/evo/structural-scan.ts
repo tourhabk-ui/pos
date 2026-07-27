@@ -40,6 +40,7 @@ export function hubLayoutPaths(files: string[]): string[] {
 export function findOrphanHubPages(
   files: string[],
   layoutBodies: Map<string, string>,
+  pageBodies?: Map<string, string>,
 ): GrowthIssue[] {
   const issues: GrowthIssue[] = [];
 
@@ -56,6 +57,13 @@ export function findOrphanHubPages(
 
     const href = `/hub/${role}/${segment}`;
     if (layout.includes(href)) continue;
+
+    // Страница-редирект — не сирота, а сохранённый старый URL (прецеденты:
+    // eco-points → loyalty, operator/register → /auth/register-operator).
+    // Тело страницы передаёт вызывающий (читаются только кандидаты — их
+    // единицы); без тела считаем страницей — лучше находка, чем молчание.
+    const body = pageBodies?.get(p);
+    if (body && /\bredirect\(/.test(body)) continue;
 
     issues.push({
       category: 'ux',

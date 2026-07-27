@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import {
   BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
   Settings, Bell, FileText, ArrowLeftRight, HelpCircle, CheckCircle, Inbox, User,
-  Download, Bus, BookMarked,
+  Download, Bus, BookMarked, MessageSquareText, Contact, Bot,
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { ChatWidget } from '@/components/chat/ChatWidget';
@@ -20,6 +20,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/operator/tours', label: 'Туры', icon: Map, section: 'Продажи' },
   { href: '/hub/operator/completeness', label: 'Полнота туров', icon: CheckCircle, section: 'Продажи' },
   { href: '/hub/operator/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи' },
+  // Сирота-аудит 27.07: страница жила без пункта меню — разбор входящего
+  // текста заявки через AI, отличен от списка лидов ниже.
+  { href: '/hub/operator/booking-intake', label: 'AI Приём', icon: MessageSquareText, section: 'Продажи' },
   { href: '/hub/operator/leads', label: 'AI Заявки', icon: Inbox, section: 'Продажи' },
   { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи' },
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи' },
@@ -31,7 +34,11 @@ const SIDEBAR_ITEMS = [
 
   { href: '/hub/operator/transfers', label: 'Трансферы', icon: ArrowLeftRight, section: 'Логистика' },
   { href: '/hub/transfer-operator', label: 'Автопарк', icon: Bus, section: 'Логистика' },
+  // Сирота-аудит 27.07: живой CRUD гидов (GET+POST) без пункта меню.
+  { href: '/hub/operator/guides', label: 'Гиды', icon: Contact, section: 'Логистика' },
 
+  // Сирота-аудит 27.07: AI-помощник оператора жил без пункта меню.
+  { href: '/hub/operator/ai-assist', label: 'AI Помощник', icon: Bot, section: 'Кабинет' },
   { href: '/hub/operator/notifications', label: 'Уведомления', icon: Bell, section: 'Кабинет' },
   { href: '/hub/operator/integrations', label: 'Интеграции', icon: Settings, section: 'Кабинет' },
   { href: '/hub/operator/help', label: 'Справка', icon: HelpCircle, section: 'Кабинет' },
