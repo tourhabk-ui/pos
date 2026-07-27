@@ -22,7 +22,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental';
   count: number;
   details: string;
 }
@@ -238,6 +238,78 @@ async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
   }
 }
 
+async function notifyGearPartnerDirectly(
+  chatId: string,
+  partnerName: string,
+  count: number,
+  oldest: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  const appUrl = getPublicBaseUrl();
+  const text = [
+    `<b>Привет, ${partnerName}!</b>`,
+    '',
+    `${count} заявк(и) на аренду снаряжения ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    '',
+    `Подтверди или отклони: <a href="${appUrl}/hub/gear/rentals">Аренды</a>`,
+  ].join('\n');
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+  } catch { /* не блокируем */ }
+}
+
+async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
+  try {
+    // Симметрия с турами и жильём: заявка на аренду снаряжения без реакции
+    // проката > 24ч. До этого gear был слепым пятном сторожа — заявка могла
+    // висеть в pending неделями, и никто об этом не узнавал.
+    const { rows } = await pool.query<{
+      partner_name: string | null;
+      telegram_chat_id: string | null;
+      count: string;
+      oldest: string;
+    }>(
+      `SELECT COALESCE(p.company_name, p.name) AS partner_name,
+              p.telegram_chat_id,
+              COUNT(*)::text AS count,
+              MIN(gr.created_at)::date::text AS oldest
+       FROM gear_rentals gr
+       JOIN gear_items gi ON gi.id = gr.gear_id
+       LEFT JOIN partners p ON p.id = gi.partner_id
+       WHERE gr.status = 'pending'
+         AND gr.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY p.company_name, p.name, p.telegram_chat_id`,
+    );
+    if (rows.length === 0) return null;
+
+    let total = 0;
+    for (const row of rows) {
+      total += parseInt(row.count, 10) || 0;
+      if (row.telegram_chat_id && row.partner_name) {
+        notifyGearPartnerDirectly(
+          row.telegram_chat_id,
+          row.partner_name,
+          parseInt(row.count, 10),
+          row.oldest,
+        ).catch(() => {});
+      }
+    }
+
+    return {
+      type: 'pending_gear_rental',
+      count: total,
+      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -395,9 +467,10 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
+    checkPendingGearRentals(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
@@ -405,7 +478,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkDeadSafetyCrons(),
   ]);
 
-  const alerts = [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];

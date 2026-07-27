@@ -150,98 +150,11 @@ export async function verifyGearRentalOwnership(userId: string, rentalId: string
   }
 }
 
-/**
- * Check gear availability for date range
- */
-export async function checkGearAvailability(
-  gearItemId: string,
-  startDate: string,
-  endDate: string,
-  quantity: number = 1
-): Promise<boolean> {
-  try {
-    const result = await query(
-      `SELECT MIN(available_quantity) as min_available
-       FROM gear_availability
-       WHERE gear_item_id = $1 
-         AND date >= $2 
-         AND date < $3`,
-      [gearItemId, startDate, endDate]
-    );
-    
-    const minAvailable = parseInt(String(result.rows[0]?.min_available ?? 0));
-    return minAvailable >= quantity;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Calculate rental cost
- */
-export async function calculateRentalCost(
-  gearItemId: string,
-  startDate: string,
-  endDate: string,
-  quantity: number = 1,
-  includeInsurance: boolean = false
-): Promise<{ rentalCost: number; depositAmount: number; insuranceCost: number; totalAmount: number } | null> {
-  try {
-    const gearResult = await query(
-      `SELECT 
-        price_per_day,
-        price_per_week,
-        price_per_month,
-        deposit_amount,
-        insurance_cost_per_day
-      FROM gear_items
-      WHERE id = $1`,
-      [gearItemId]
-    );
-    
-    if (gearResult.rows.length === 0) {
-      return null;
-    }
-    
-    const gear = gearResult.rows[0];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    
-    // Calculate rental cost (optimize for week/month rates)
-    let rentalCost = 0;
-    let remainingDays = days;
-    
-    if (gear.price_per_month && remainingDays >= 30) {
-      const months = Math.floor(remainingDays / 30);
-      rentalCost += months * parseFloat(gear.price_per_month as string);
-      remainingDays -= months * 30;
-    }
-    
-    if (gear.price_per_week && remainingDays >= 7) {
-      const weeks = Math.floor(remainingDays / 7);
-      rentalCost += weeks * parseFloat(gear.price_per_week as string);
-      remainingDays -= weeks * 7;
-    }
-    
-    rentalCost += remainingDays * parseFloat(gear.price_per_day as string);
-    rentalCost *= quantity;
-    
-    const depositAmount = parseFloat(String(gear.deposit_amount ?? 0)) * quantity;
-    const insuranceCost = includeInsurance
-      ? days * parseFloat(String(gear.insurance_cost_per_day ?? 0)) * quantity
-      : 0;
-    
-    return {
-      rentalCost,
-      depositAmount,
-      insuranceCost,
-      totalAmount: rentalCost + insuranceCost
-    };
-  } catch (error) {
-    return null;
-  }
-}
+// checkGearAvailability / calculateRentalCost / updateGearAvailability удалены:
+// они опирались на календарь gear_availability, который никто не заполнял, и не
+// имели ни одного вызова. Доступность по датам теперь считается честно — пиком
+// пересекающихся аренд прямо из gear_rentals (POST /api/gear/rentals и
+// findAvailableGear ниже), цена — единым модулем lib/gear/pricing.
 
 /**
  * Get gear partner statistics
@@ -362,7 +275,7 @@ export async function findAvailableGear(
 ): Promise<Record<string, unknown>[]> {
   try {
     let queryStr = `
-      SELECT 
+      SELECT
         gi.id,
         gi.name,
         gi.description,
@@ -371,6 +284,9 @@ export async function findAvailableGear(
         gi.brand,
         gi.price_per_day,
         gi.price_per_week,
+        gi.price_per_month,
+        gi.deposit_amount,
+        gi.insurance_cost_per_day,
         gi.images,
         gi.condition,
         gi.available_quantity,
@@ -411,15 +327,23 @@ export async function findAvailableGear(
       paramIndex++;
     }
     
-    // Check availability for date range if provided
+    // Доступность по датам — честно, из пересечения живых аренд, а не из
+    // календаря gear_availability, который никто не заполнял (проверка по нему
+    // была вечным «всё свободно»). Позиция скрывается, если в КАЖДЫЙ из дней
+    // окна пик занятых единиц выбирает весь сток... точнее: если есть хотя бы
+    // один день, где занят весь сток, — позицию не предлагаем на эти даты.
     if (startDate && endDate) {
       queryStr += `
         AND NOT EXISTS (
-          SELECT 1 FROM gear_availability ga
-          WHERE ga.gear_item_id = gi.id
-            AND ga.date >= $${paramIndex}
-            AND ga.date < $${paramIndex + 1}
-            AND ga.available_quantity <= 0
+          SELECT 1
+          FROM generate_series($${paramIndex}::date, $${paramIndex + 1}::date - 1, '1 day') AS d(day)
+          JOIN gear_rentals gr
+            ON gr.gear_id = gi.id
+           AND gr.status IN ('pending', 'confirmed', 'active', 'overdue')
+           AND gr.start_date <= d.day
+           AND gr.end_date > d.day
+          GROUP BY d.day
+          HAVING SUM(gr.quantity) >= gi.quantity
         )
       `;
       params.push(startDate, endDate);
@@ -439,6 +363,9 @@ export async function findAvailableGear(
       brand: row.brand,
       pricePerDay: parseFloat(row.price_per_day as string),
       pricePerWeek: row.price_per_week ? parseFloat(row.price_per_week as string) : null,
+      pricePerMonth: row.price_per_month ? parseFloat(row.price_per_month as string) : null,
+      depositAmount: row.deposit_amount ? parseFloat(row.deposit_amount as string) : null,
+      insurancePerDay: row.insurance_cost_per_day ? parseFloat(row.insurance_cost_per_day as string) : null,
       images: row.images,
       condition: row.condition,
       availableQuantity: row.available_quantity,
@@ -449,47 +376,5 @@ export async function findAvailableGear(
     }));
   } catch (error) {
     return [];
-  }
-}
-
-/**
- * Update gear item availability
- */
-export async function updateGearAvailability(
-  gearItemId: string,
-  dateFrom: string,
-  dateTo: string
-): Promise<boolean> {
-  try {
-    // Get gear item total quantity
-    const gearResult = await query(
-      'SELECT quantity FROM gear_items WHERE id = $1',
-      [gearItemId]
-    );
-    
-    if (gearResult.rows.length === 0) {
-      return false;
-    }
-    
-    const totalQuantity = gearResult.rows[0].quantity;
-    
-    // Generate dates and upsert availability
-    await query(
-      `INSERT INTO gear_availability (gear_item_id, date, total_quantity, rented_quantity, available_quantity)
-       SELECT 
-         $1,
-         date::DATE,
-         $2,
-         0,
-         $2
-       FROM generate_series($3::DATE, $4::DATE, '1 day'::interval) AS date
-       ON CONFLICT (gear_item_id, date) DO UPDATE
-       SET total_quantity = $2`,
-      [gearItemId, totalQuantity, dateFrom, dateTo]
-    );
-    
-    return true;
-  } catch (error) {
-    return false;
   }
 }
