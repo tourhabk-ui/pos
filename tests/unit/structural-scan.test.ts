@@ -127,4 +127,30 @@ describe('живой прогон по дереву репозитория', () 
     const found = findOrphanHubPages(files, layouts, pageBodies).map((f) => f.title);
     expect(found, `сироты: ${found.join('; ')}`).toEqual([]);
   });
+
+  it('POST-без-формы в кабинетах НОЛЬ: у каждого создания есть форма в UI', () => {
+    function walkSources(dir: string, acc: string[]): void {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) walkSources(full, acc);
+        else if ((name.endsWith('.ts') || name.endsWith('.tsx')) && !name.includes('.test.')) {
+          acc.push(full.replace(process.cwd() + '/', ''));
+        }
+      }
+    }
+    const files: string[] = [];
+    walkSources(join(process.cwd(), 'app'), files);
+    walkSources(join(process.cwd(), 'components'), files);
+
+    const routeBodies = new Map<string, string>();
+    for (const p of files.filter((f) => /^app\/api\/.*\/route\.ts$/.test(f))) {
+      routeBodies.set(p, readFileSync(join(process.cwd(), p), 'utf-8'));
+    }
+    const clientBodies = new Map<string, string>();
+    for (const p of files.filter((f) => f.endsWith('.tsx'))) {
+      clientBodies.set(p, readFileSync(join(process.cwd(), p), 'utf-8'));
+    }
+    const found = findPostWithoutClientUsage(routeBodies, clientBodies).map((f) => f.title);
+    expect(found, `POST без формы: ${found.join('; ')}`).toEqual([]);
+  });
 });
