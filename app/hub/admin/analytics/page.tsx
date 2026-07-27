@@ -32,9 +32,13 @@ const MONTH_NAMES: Record<string, string> = {
   '07': 'Июл', '08': 'Авг', '09': 'Сен', '10': 'Окт', '11': 'Ноя', '12': 'Дек',
 };
 
+// Категории = activity_type туров (как в маркетплейсе), а не роли партнёров:
+// эндпоинт группирует бронирования по продукту. Неизвестный тип показываем
+// как есть — лучше сырое значение, чем молча потерянная категория.
 const CATEGORY_LABELS: Record<string, string> = {
-  operator: 'Операторы', guide: 'Гиды', transfer: 'Трансферы',
-  stay: 'Размещение', other: 'Прочее',
+  trekking: 'Треккинг', fishing: 'Рыбалка', thermal: 'Термальные',
+  helicopter: 'Вертолётные', boat_trip: 'Морские', bears: 'Медведи',
+  rafting: 'Сплав', snowmobile: 'Снегоходы', other: 'Прочее',
 };
 
 function BarChart({ items, label }: { items: Array<{ name: string; value: number }>; label: string }) {
@@ -42,6 +46,9 @@ function BarChart({ items, label }: { items: Array<{ name: string; value: number
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">{label}</p>
+      {items.length === 0 && (
+        <p className="text-xs text-[var(--text-muted)] text-center py-4">Нет данных за период</p>
+      )}
       <div className="space-y-2">
         {items.map((item) => (
           <div key={item.name} className="flex items-center gap-3">
@@ -114,22 +121,51 @@ export default function AdminAnalytics() {
 
   if (!data) return null;
 
-  const revenueItems = data.charts.revenueByMonth.map(r => ({
+  // Читаем защитно: ответ приходит из res.json() как any, поэтому объявленный
+  // выше интерфейс ничего не гарантирует. Ровно на этом раздел и падал — API
+  // отдавал charts без трёх полей, .map по undefined ронял весь /hub/admin в
+  // error.tsx. Отсутствующий ряд теперь означает пустой график, а не белый экран.
+  const charts = data.charts ?? ({} as Partial<ChartData>);
+
+  const revenueItems = (charts.revenueByMonth ?? []).map(r => ({
     name: MONTH_NAMES[r.date.split('-')[1]] ?? r.date,
     value: r.value,
   }));
 
-  const categoryItems = data.charts.bookingsByCategory.map(c => ({
+  const categoryItems = (charts.bookingsByCategory ?? []).map(c => ({
     name: CATEGORY_LABELS[c.category] ?? c.category,
     value: c.value,
   }));
 
-  const userItems = data.charts.userGrowth.slice(-14).map(u => ({
+  const userItems = (charts.userGrowth ?? []).slice(-14).map(u => ({
     name: new Date(u.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }),
     value: u.value,
   }));
 
+  const topTours = charts.topTours ?? [];
+
+  // Метрики — суть страницы, подставлять нули вместо них нечестно. Но и ронять
+  // раздел нельзя: отсутствие показываем своей карточкой ошибки.
   const metrics = data.metrics;
+  if (!metrics?.totalRevenue) {
+    return (
+      <div className="p-6">
+        <div className="max-w-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertCircle className="w-4 h-4 text-[var(--danger)]" />
+            <span className="text-sm text-[var(--text-primary)]">Ответ без метрик</span>
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mb-3">
+            Эндпоинт вернул данные без блока метрик. Проверьте /api/admin/dashboard.
+          </p>
+          <button onClick={fetchData} className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> Повторить
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const summaryItems = [
     { label: 'Выручка', value: fmtRub(metrics.totalRevenue.value), change: metrics.totalRevenue.change, trend: metrics.totalRevenue.trend },
     { label: 'Бронирования', value: String(metrics.totalBookings.value), change: metrics.totalBookings.change, trend: metrics.totalBookings.trend },
@@ -190,7 +226,7 @@ export default function AdminAnalytics() {
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
           <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Топ-5 туров по выручке</p>
           <div className="space-y-2">
-            {data.charts.topTours.map((tour, idx) => (
+            {topTours.map((tour, idx) => (
               <div key={tour.id} className="flex items-center gap-2">
                 <span className="text-xs font-mono text-[var(--text-muted)] w-4">{idx + 1}</span>
                 <span className="text-xs text-[var(--text-primary)] flex-1 truncate">{tour.title}</span>
@@ -198,7 +234,7 @@ export default function AdminAnalytics() {
                 <span className="text-xs font-mono text-[var(--text-primary)] font-medium">{fmtRub(tour.revenue)}</span>
               </div>
             ))}
-            {data.charts.topTours.length === 0 && (
+            {topTours.length === 0 && (
               <p className="text-xs text-[var(--text-muted)] text-center py-4">Нет данных</p>
             )}
           </div>

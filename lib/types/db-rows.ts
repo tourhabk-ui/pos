@@ -68,8 +68,12 @@ export interface DashboardMetricsRow {
   conversion_rate: string;
 }
 
+// Графики аналитики. Даты приходят строками (to_char в SQL), а не Date:
+// клиент рисует подписи из 'YYYY-MM' и 'YYYY-MM-DD' напрямую, и промежуточная
+// сериализация Date через JSON только добавляла бы расхождение форматов.
 export interface RevenueChartRow {
-  month: Date;
+  /** 'YYYY-MM' */
+  month: string;
   revenue: string;
 }
 
@@ -79,7 +83,8 @@ export interface CategoryCountRow {
 }
 
 export interface UserGrowthRow {
-  date: Date;
+  /** 'YYYY-MM-DD' */
+  date: string;
   count: string;
 }
 
