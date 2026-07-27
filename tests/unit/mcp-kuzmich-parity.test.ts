@@ -33,12 +33,18 @@ beforeEach(() => {
 });
 
 describe('/api/mcp — паритет с реестром Кузьмича', () => {
-  it('tools/list == реестр Кузьмича минус исключения, схемы на месте', async () => {
+  it('tools/list == реестр Кузьмича минус исключения (+ MCP-only create_lead), схемы на месте', async () => {
     const res = await rpc('tools/list');
     const json = await res.json();
     const tools = json.result.tools as Array<{ name: string; description: string; inputSchema: unknown }>;
 
-    const expected = Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)).sort();
+    // create_lead — единственный НЕ-реестровый инструмент (заявка на подбор,
+    // сознательно MCP-only: у Кузьмича лид-поверхности живут вне tool-реестра).
+    // Любой другой инструмент вне реестра — возврат параллельного набора, падение.
+    const expected = [
+      ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
+      'create_lead',
+    ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);
     // Реестр не должен схлопнуться до старых 4 инструментов
     expect(tools.length).toBeGreaterThanOrEqual(7);

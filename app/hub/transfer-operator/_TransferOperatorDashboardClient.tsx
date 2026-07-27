@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { TransferOperatorMetricsGrid } from '@/components/transfer-operator/Dashboard/TransferOperatorMetricsGrid';
-import { Bus, UserPlus, ClipboardList, BarChart3, Map } from 'lucide-react';
+import { Bus, UserPlus, ClipboardList, BarChart3, Map, Loader2 } from 'lucide-react';
+import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 
 // Ссылки только на реально существующие разделы (bookings/drivers/routes/
 // vehicles). Раньше «Создать трансфер»→/transfers и «Заявки»→/requests вели
@@ -19,6 +20,16 @@ const QUICK_ACTIONS = [
 export default function TransferOperatorDashboardClient() {
   const router = useRouter();
   const [period, setPeriod] = useState('30');
+  // Незавершённый онбординг уводит в визард (как у gear/stay).
+  const onboardingReady = useOnboardingGuard('/hub/transfer-operator/onboarding');
+
+  if (!onboardingReady) {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-5 lg:p-6 space-y-5">
