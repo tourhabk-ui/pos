@@ -187,7 +187,9 @@ export async function POST(
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       };
-      const paymentResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'}/api/payments/create`, {
+      // URL платёжного роута — от текущего запроса (тот же фикс, что в
+      // бронировании жилья): localhost-фолбэк бил мимо прод-порта.
+      const paymentResponse = await fetch(new URL('/api/payments/create', request.url), {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -210,21 +212,22 @@ export async function POST(
       // Не прерываем выполнение при ошибке платежа
     }
 
-    // Отправляем email подтверждение бронирования
+    // Email гостю — честный: заявка создана и ждёт подтверждения оператора,
+    // прежний текст объявлял бронь подтверждённой на первом же касании.
     if (userEmail) {
     try {
       await emailService.sendEmail({
         to: userEmail,
-        subject: `Подтверждение бронирования: ${tour.name}`,
+        subject: `Заявка на бронирование принята: ${tour.name}`,
         html: `
-          <h2>Ваше бронирование подтверждено!</h2>
+          <h2>Заявка на бронирование принята</h2>
+          <p>Оператор подтвердит её в ближайшее время — мы сообщим.</p>
           <p><strong>Тур:</strong> ${tour.name}</p>
           <p><strong>Оператор:</strong> ${tour.operator_name}</p>
           <p><strong>Дата:</strong> ${date}</p>
           <p><strong>Участники:</strong> ${adults} взрослых, ${children} детей</p>
           <p><strong>Итого:</strong> ${totalPrice.toLocaleString('ru-RU')} ₽</p>
-          <p><strong>ID бронирования:</strong> ${bookingId}</p>
-          <p>Ожидайте дальнейших инструкций по оплате.</p>
+          <p><strong>ID заявки:</strong> ${bookingId}</p>
         `
       });
     } catch (_emailError) {

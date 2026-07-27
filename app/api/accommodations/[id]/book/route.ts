@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
 import { requireAuth } from '@/lib/auth/middleware';
@@ -142,32 +142,6 @@ export async function POST(
       );
     }
     
-    // Проверяем доступность на выбранные даты
-    const availabilityCheck = await query<{ bookings: string }>(
-      `SELECT COUNT(*) as bookings
-       FROM accommodation_bookings
-       WHERE room_id = $1
-         AND status NOT IN ('cancelled')
-         AND (
-           (check_in_date <= $2 AND check_out_date > $2)
-           OR (check_in_date < $3 AND check_out_date >= $3)
-           OR (check_in_date >= $2 AND check_out_date <= $3)
-         )`,
-      [roomId, checkInDate, checkOutDate]
-    );
-    
-    const existingBookings = parseInt(availabilityCheck.rows[0]?.bookings || '0');
-
-    if (existingBookings >= room.available_rooms) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'К сожалению, на выбранные даты нет свободных номеров',
-        },
-        { status: 409 }
-      );
-    }
-
     // Тарифный календарь владельца (accommodation_availability):
     // блокировки закрывают продажу, price_override меняет цену ночи.
     // Строка уровня объекта (room_id IS NULL) действует на все номера,
@@ -212,50 +186,86 @@ export async function POST(
     }
     // room_price_per_night в брони — средняя за ночь (тарифы по датам могут различаться)
     const pricePerNight = Math.round((totalPrice / nights) * 100) / 100;
-    
-    // Создаём бронирование
-    const bookingResult = await query<{ id: string }>(
-      `INSERT INTO accommodation_bookings (
-        user_id,
-        accommodation_id,
-        room_id,
-        check_in_date,
-        check_out_date,
-        nights,
-        adults,
-        children,
-        room_price_per_night,
-        total_price,
-        currency,
-        status,
-        payment_status,
-        special_requests,
-        guest_notes,
-        created_at,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
-      RETURNING id`,
-      [
-        userId,
-        accommodationId,
-        roomId,
-        checkInDate,
-        checkOutDate,
-        nights,
-        adults,
-        children,
-        pricePerNight,
-        totalPrice,
-        'RUB',
-        'pending', // статус
-        'pending', // payment_status
-        specialRequests || null,
-        guestNotes || null,
-      ]
-    );
-    
-    const bookingId = bookingResult.rows[0].id;
+
+    // Проверка занятости и INSERT — в одной транзакции под advisory-lock по
+    // номеру: раньше COUNT и INSERT шли отдельными запросами, и две
+    // одновременные брони последнего номера проходили обе (гонка овербукинга).
+    // Lock снимается автоматически на COMMIT/ROLLBACK.
+    const bookingOutcome = await transaction(async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [roomId]);
+
+      const availabilityCheck = await client.query(
+        `SELECT COUNT(*) as bookings
+         FROM accommodation_bookings
+         WHERE room_id = $1
+           AND status NOT IN ('cancelled')
+           AND (
+             (check_in_date <= $2 AND check_out_date > $2)
+             OR (check_in_date < $3 AND check_out_date >= $3)
+             OR (check_in_date >= $2 AND check_out_date <= $3)
+           )`,
+        [roomId, checkInDate, checkOutDate]
+      );
+
+      const existingBookings = parseInt(String(availabilityCheck.rows[0]?.bookings ?? '0'), 10);
+      if (existingBookings >= room.available_rooms) {
+        return { conflict: true as const };
+      }
+
+      const bookingResult = await client.query(
+        `INSERT INTO accommodation_bookings (
+          user_id,
+          accommodation_id,
+          room_id,
+          check_in_date,
+          check_out_date,
+          nights,
+          adults,
+          children,
+          room_price_per_night,
+          total_price,
+          currency,
+          status,
+          payment_status,
+          special_requests,
+          guest_notes,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+        RETURNING id`,
+        [
+          userId,
+          accommodationId,
+          roomId,
+          checkInDate,
+          checkOutDate,
+          nights,
+          adults,
+          children,
+          pricePerNight,
+          totalPrice,
+          'RUB',
+          'pending', // статус
+          'pending', // payment_status
+          specialRequests || null,
+          guestNotes || null,
+        ]
+      );
+      return { conflict: false as const, bookingId: bookingResult.rows[0].id as string };
+    });
+
+    if (bookingOutcome.conflict) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'К сожалению, на выбранные даты нет свободных номеров',
+        },
+        { status: 409 }
+      );
+    }
+
+    const bookingId = bookingOutcome.bookingId;
 
     // Получаем email пользователя из базы
     const userResult = await query<{ email: string; name: string; phone: string | null }>(
@@ -291,22 +301,25 @@ export async function POST(
       // Уведомление владельцу не должно ломать бронь
     }
 
-    // Отправляем email подтверждение бронирования
+    // Email гостю. Письмо ЧЕСТНОЕ: бронь в статусе pending — владелец её ещё
+    // не подтвердил. Прежний текст объявлял бронь подтверждённой и врал
+    // гостю на первом же касании платформы.
     if (userEmail) {
     try {
       await emailService.sendEmail({
         to: userEmail,
-        subject: `Подтверждение бронирования: ${room.accommodation_name}`,
+        subject: `Заявка на бронирование принята: ${room.accommodation_name}`,
         html: `
-          <h2>Ваше бронирование подтверждено!</h2>
+          <h2>Заявка на бронирование принята</h2>
+          <p>Владелец объекта подтвердит её в ближайшее время — мы сообщим.</p>
           <p><strong>Объект:</strong> ${room.accommodation_name}</p>
           <p><strong>Номер:</strong> ${room.name}</p>
           <p><strong>Заезд:</strong> ${checkInDate}</p>
           <p><strong>Выезд:</strong> ${checkOutDate}</p>
           <p><strong>Гости:</strong> ${adults} взрослых, ${children} детей</p>
           <p><strong>Итого:</strong> ${totalPrice.toLocaleString('ru-RU')} ₽</p>
-          <p><strong>ID бронирования:</strong> ${bookingId}</p>
-          <p>Ожидайте дальнейших инструкций по оплате.</p>
+          <p><strong>ID заявки:</strong> ${bookingId}</p>
+          <p>Статус можно смотреть в личном кабинете, раздел «Мои проживания».</p>
         `
       });
     } catch (_emailError) {
@@ -322,7 +335,10 @@ export async function POST(
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       };
-      const paymentResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'}/api/payments/create`, {
+      // URL платёжного роута — от текущего запроса: прежний localhost-фолбэк
+      // бил мимо прод-порта, и без env-переменной создание платежа молча
+      // падало на каждой брони (catch глотал).
+      const paymentResponse = await fetch(new URL('/api/payments/create', request.url), {
         method: 'POST',
         headers,
         body: JSON.stringify({

@@ -22,6 +22,10 @@ vi.mock('@/lib/db-pool', () => ({
 const queryMock = vi.fn();
 vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
+  // Гонка овербукинга закрыта транзакцией с advisory-lock: в тестах она
+  // прозрачно исполняет колбэк тем же queryMock (client.query → queryMock).
+  transaction: async (fn: (client: { query: (...args: unknown[]) => unknown }) => unknown) =>
+    fn({ query: (...args: unknown[]) => queryMock(...args) }),
 }));
 
 const requireAuthMock = vi.fn();
@@ -282,11 +286,13 @@ describe('POST /api/accommodations/[id]/book — календарь владел
 
   function mockBookingQueries(rates: unknown[]) {
     queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
       if (sql.includes('FROM accommodation_rooms r')) return Promise.resolve({ rows: [ROOM_ROW] });
       if (sql.includes('COUNT(*) as bookings')) return Promise.resolve({ rows: [{ bookings: '0' }] });
       if (sql.includes('FROM accommodation_availability')) return Promise.resolve({ rows: rates });
       if (sql.includes('INSERT INTO accommodation_bookings')) return Promise.resolve({ rows: [{ id: 'booking-1' }] });
       if (sql.includes('FROM users')) return Promise.resolve({ rows: [{ email: null, name: 'Гость' }] });
+      if (sql.includes('telegram_chat_id')) return Promise.resolve({ rows: [] });
       throw new Error('unexpected SQL: ' + sql);
     });
   }
