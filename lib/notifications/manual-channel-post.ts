@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { hashStr } from '@/lib/notifications/post-image';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
-import { tgPostPhoto } from '@/lib/notifications/telegram-channel';
+import { tgPostPhoto, maxChannelPost } from '@/lib/notifications/telegram-channel';
 
 export const ManualChannelPostSchema = z.object({
   /** ai → TELEGRAM_AI_CHANNEL_ID, travel → TELEGRAM_CHANNEL_ID */
@@ -25,6 +25,9 @@ export const ManualChannelPostSchema = z.object({
     .max(1024, 'Telegram обрезает caption после 1024 символов'),
   imagePrompt: z.string().min(10).max(500).optional(),
   seed: z.number().int().nonnegative().optional(),
+  /** Кросс-пост в MAX-канал (госмессенджер). Автоматические публикаторы
+   * зеркалят в MAX всегда; у ручных это опция владельца. */
+  toMax: z.boolean().optional(),
 });
 
 export type ManualChannelPost = z.infer<typeof ManualChannelPostSchema>;
@@ -72,6 +75,14 @@ export async function publishManualChannelPost(
   });
 
   const result = await tgPostPhoto(channelId, cover.url, post.text);
+
+  // MAX — после успешного TG-поста, fire-and-forget (как у автоматических
+  // публикаторов): сбой MAX не должен ронять доставку и логирование TG.
+  if (result.ok && post.toMax) {
+    maxChannelPost(post.text, cover.url).then(r => {
+      if (!r.ok) console.error('[manual-channel-post] MAX error:', r.error);
+    }).catch(() => {});
+  }
 
   if (result.ok) {
     try {

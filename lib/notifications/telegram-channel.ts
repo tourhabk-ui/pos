@@ -79,8 +79,10 @@ export async function tgPostPhoto(chatId: string, photoUrl: string, caption: str
   return { ok: true };
 }
 
-/** Отправка в MAX канал через MAX Platform API */
-async function maxChannelPost(
+/** Отправка в MAX канал через MAX Platform API.
+ * Экспорт — для ручных постов (manual-channel-post.ts), не только для
+ * автоматических публикаторов через postToAllChannels. */
+export async function maxChannelPost(
   text: string,
   photoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
