@@ -157,7 +157,11 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     }>(`
       SELECT id, alert_type, magnitude, title, description
       FROM external_alerts
-      WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
+      -- road_closure добавлен по issue #836: перекрытие подъезда приходит с
+      -- severity 1 и под общий порог >=2 не попадало — турист узнавал о
+      -- закрытой дороге, уже стоя перед шлагбаумом. Это единственный тип,
+      -- где решение «ехать/не ехать» принимается ДО выезда.
+      WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
         AND push_sent_at IS NULL
         AND created_at > NOW() - INTERVAL '2 hours'
       ORDER BY severity DESC, created_at DESC
@@ -169,16 +173,21 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       // fire_danger попадает сюда при severity>=2 (крупный очаг): без своей
       // ветки пуш назывался бы «Землетрясение M?» — чужой заголовок про пожар.
       const isFire = alert.alert_type === 'fire_danger';
+      const isRoad = alert.alert_type === 'road_closure';
       const pushTitle = isTsunami
         ? 'УГРОЗА ЦУНАМИ — Камчатка'
         : isFire
           ? 'Природный пожар — Камчатка'
-          : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
+          : isRoad
+            ? 'Ограничение проезда — Камчатка'
+            : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
       const pushBody = isTsunami
         ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
         : isFire
           ? `${alert.title}. Сверьте маршрут — возможны перекрытия и задымление.`
-          : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+          : isRoad
+            ? `${alert.title}. Проверьте подъезд до выезда.`
+            : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
 
       const result = await sendPushBroadcast({
         title: pushTitle,
