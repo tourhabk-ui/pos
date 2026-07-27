@@ -21,6 +21,9 @@
  *                             Не задан ключ/релей → падаем на DeepSeek/Qwen.
  *   EVO_DECISION_MODEL      — модель-решатель эволюции (DeepSeek, default: авторезолв из /v1/models)
  *   EVO_DECISION_QWEN_MODEL — фоллбэк-решатель (Qwen, default qwen-max-latest)
+ *   QWEN_MODEL              — override модели Qwen. Без него callQwen резолвит
+ *                             сильнейшую из /v1/models; tools-цикл Кузьмича
+ *                             остаётся на быстром тире (см. callQwenWithTools).
  *   OPENROUTER_BASE_URL     — необязательно: релей вне РФ для openrouter.ai
  *                             (по умолчанию https://openrouter.ai/api/v1)
  *   ANTHROPIC_BASE_URL      — необязательно: релей вне РФ для api.anthropic.com
@@ -546,6 +549,12 @@ export async function callDeepSeekWithTools(
 // Qwen tool-calling (OpenAI-совместимый, Alibaba DashScope). Первичный
 // провайдер tools-цикла: доступен из РФ (китайский, как DeepSeek), сильный
 // агентный function-calling. База/модель — из env.
+//
+// Модель здесь СОЗНАТЕЛЬНО не резолвится через /v1/models, в отличие от
+// callQwen: это живой путь Кузьмича, где ответа ждёт человек — в поле, иногда
+// на плохой связи. Резолв добавил бы сетевой round-trip на холодном кэше, а
+// сильная модель ещё и отвечает дольше. Качество ответа здесь вытягивают
+// инструменты и заземление в БД, а не тир модели. Нужен другой тир — QWEN_MODEL.
 export async function callQwenWithTools(
   messages: ToolMsg[],
   tools: ToolDefinition[],
@@ -944,10 +953,12 @@ export function getQwenConfig(): { apiKey: string | null; base: string; model: s
 }
 
 export async function callQwen(messages: ChatMessage[]): Promise<string | null> {
-  const { apiKey, base, model } = getQwenConfig();
+  const { apiKey, base } = getQwenConfig();
   if (!apiKey) return null;
 
   try {
+    // Сильнейшая доступная, а не прибитый средний тир (CLAUDE.md §8).
+    const model = await resolveChatModel('qwen');
     const payload = messages.map(({ role, content }) => ({ role, content }));
     const res = await fetchWithRetry(`${base}/chat/completions`, {
       method: 'POST',
@@ -1099,6 +1110,25 @@ export async function resolveContentModel(provider: 'deepseek' | 'qwen'): Promis
   return resolveBestModel(provider, 'content', provider === 'deepseek'
     ? process.env.CONTENT_MODEL
     : process.env.CONTENT_QWEN_MODEL);
+}
+
+/**
+ * Модель для ОДИНОЧНОГО вызова провайдера вне гонки (callQwen).
+ *
+ * Последний путь, где id ещё был прибит: `QWEN_MODEL || 'qwen-plus'` — средний
+ * тир, тогда как решатель и контент рядом уже брали сильнейшее из /v1/models.
+ * Значение имело: на callQwen висит первая фаза scout-innovator, которая рождает
+ * предложения эволюции, — там качество модели превращается в качество задач.
+ *
+ * Назначение 'chat' — свой ключ кэша, чтобы override одного пути не протекал в
+ * другой. Override сохранён прежним (`QWEN_MODEL`): у кого он выставлен, ничего
+ * не меняется. Живой tools-цикл Кузьмича сюда НЕ подключён сознательно —
+ * см. комментарий над callQwenWithTools.
+ */
+export async function resolveChatModel(provider: 'deepseek' | 'qwen'): Promise<string> {
+  return resolveBestModel(provider, 'chat', provider === 'deepseek'
+    ? process.env.CHAT_MODEL
+    : process.env.QWEN_MODEL);
 }
 
 // Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
