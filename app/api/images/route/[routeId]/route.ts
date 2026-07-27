@@ -21,8 +21,16 @@ export async function GET(_req: NextRequest, { params }: Props) {
   }
 
   try {
+    // Порядок детерминированный: сначала реальные снимки (wikimedia/ручная
+    // загрузка), потом legacy-блобы. Раньше без ORDER BY какая строка
+    // попадалась первой — та и уходила, включая случаи, когда постер канала
+    // выбирал этот URL ради wikimedia-фото, а эндпоинт отдавал другой блоб.
     const { rows } = await pool.query(
-      'SELECT image_data, mime_type FROM ai_route_images WHERE route_id = $1',
+      `SELECT image_data, mime_type FROM ai_route_images
+       WHERE route_id = $1
+       ORDER BY CASE WHEN model IN ('wikimedia', 'manual-upload') THEN 0 ELSE 1 END,
+                created_at DESC
+       LIMIT 1`,
       [routeId],
     );
 
