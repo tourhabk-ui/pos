@@ -14,6 +14,7 @@ import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
+import { findOrphanHubPages, findPostWithoutClientUsage, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
 export interface GrowthIssue {
   category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
@@ -530,6 +531,71 @@ async function loadRejectedSignatures(): Promise<Set<string>> {
   }
 }
 
+/**
+ * Структурный прочёс: кросс-файловые факты (сироты-страницы хабов,
+ * POST без формы в UI). Родился из ручного аудита 27.07 — обе дыры жили в
+ * старом коде без свежих диффов, и ни git-окно, ни per-file объективы их
+ * не видели by construction.
+ *
+ * Бюджет: список файлов уже закэширован (1 запрос к git/trees на прогон),
+ * сироты-проверка читает только layout'ы хабов (≤11 файлов — на проде это
+ * GitHub raw). POST-без-формы требует тел ВСЕХ клиентов — гоняем её только
+ * когда исходники на диске (dev/CI, source='disk'): там чтение бесплатно,
+ * а на проде она молчит, не сжигая лимит api.github.com (60/час без токена).
+ */
+async function scanStructural(): Promise<GrowthIssue[]> {
+  const files = await listRepoFiles();
+  if (files.length === 0) return [];
+
+  const issues: GrowthIssue[] = [];
+
+  // 1. Сироты: страницы хабов вне сайдбара собственного layout.
+  const layouts = new Map<string, string>();
+  for (const p of hubLayoutPaths(files)) {
+    const body = await readFileForReview(p);
+    if (body) layouts.set(p, body);
+  }
+  issues.push(...findOrphanHubPages(files, layouts));
+
+  // 2. POST без формы — только при дисковых исходниках (чтение бесплатно).
+  if (getLastListSource() === 'disk') {
+    const routeBodies = new Map<string, string>();
+    for (const p of files.filter((f) => /^app\/api\/.*\/route\.ts$/.test(f))) {
+      const body = await readFileForReview(p);
+      if (body) routeBodies.set(p, body);
+    }
+    const clientBodies = new Map<string, string>();
+    for (const p of clientComponentPaths(files)) {
+      const body = await readFileForReview(p);
+      if (body) clientBodies.set(p, body);
+    }
+    // Формы живут не только в app/: витринные (GearBookingForm и т.п.) — в
+    // components/, которого нет в WALK_ROOTS repo-files. Без них проверка
+    // клеймила бы живые воронки (первый прогон: /api/gear/rentals — ложь).
+    // Ветка дисковая, поэтому читаем components/ напрямую.
+    try {
+      const [fs, path] = await Promise.all([import('fs'), import('path')]);
+      const walk = (dir: string) => {
+        let entries: string[] = [];
+        try { entries = fs.readdirSync(dir); } catch { return; }
+        for (const name of entries) {
+          const full = path.join(dir, name);
+          let st; try { st = fs.statSync(full); } catch { continue; }
+          if (st.isDirectory()) walk(full);
+          else if (name.endsWith('.tsx') && !name.includes('.test.')) {
+            const rel = path.relative(process.cwd(), full).split(path.sep).join('/');
+            try { clientBodies.set(rel, fs.readFileSync(full, 'utf8')); } catch { /* пропуск */ }
+          }
+        }
+      };
+      walk(path.join(process.cwd(), 'components'));
+    } catch { /* нет components — работаем по app/ */ }
+    issues.push(...findPostWithoutClientUsage(routeBodies, clientBodies));
+  }
+
+  return issues.map((it) => ({ ...it, model: 'deterministic' }));
+}
+
 // ── Main scan orchestrator ────────────────────────────────────────────────
 
 export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthScanResult> {
@@ -564,6 +630,8 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
     issues.push(...mocks.issues);
     coverage.mock_files_scanned = mocks.scanned;
+    // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
+    issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
   }
 
   // Обратная связь: то, что человек уже отверг (закрыл issue как not planned →
