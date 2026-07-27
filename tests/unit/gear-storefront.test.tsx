@@ -26,6 +26,9 @@ vi.stubGlobal('fetch', fetchMock);
 
 import GearClient from '@/app/gear/_GearClient';
 
+// Форма ответа — ровно то, что маппит findAvailableGear (camelCase).
+// Прежний мок использовал snake_case, которого API никогда не отдавал, —
+// тест был зелёным при витрине, показывавшей бы «NaN ₽» на живых данных.
 const GEAR_ROW = {
   id: 'g-1',
   name: 'Палатка MSR Hubba 2',
@@ -33,14 +36,17 @@ const GEAR_ROW = {
   category: 'tent',
   subcategory: null,
   brand: 'MSR',
-  price_per_day: '800',
-  price_per_week: '4500',
+  pricePerDay: 800,
+  pricePerWeek: 4500,
+  pricePerMonth: null,
+  depositAmount: 5000,
+  insurancePerDay: null,
   images: [],
   condition: 'good',
-  available_quantity: 3,
-  rating: '4.8',
-  review_count: 12,
-  partner_name: 'Камчатка Прокат',
+  availableQuantity: 3,
+  rating: 4.8,
+  reviewCount: 12,
+  partnerName: 'Камчатка Прокат',
 };
 
 beforeEach(() => {
