@@ -32,6 +32,12 @@ export type { DeadSource, SourceHealthEntry, SourceStatus };
  * «фид мёртв, а не просто тихо» — несколько дней. Считаем по СЫРОЙ выдаче фида
  * (вернул ли items вообще), а не по свежим-после-дедупа: живой фид без новостей —
  * это 'ok', мёртвый фид — 0 сырых.
+ *
+ * Список обязан покрывать ВСЕ ключи RSS_SOURCES: `evaluateDeadSources` идёт по
+ * ожиданиям, и источник без строки здесь не сторожится вообще. Так три фида
+ * (АТОР, Skift, Product Hunt) были добавлены в разведку, но не сюда — и могли
+ * молчать бесконечно, а `dead_sources` физически не мог их назвать. Сходимость
+ * держит инвариант-тест `scout-source-coverage`.
  */
 export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'simonwillison', label: 'Simon Willison',   maxSilenceHours: 168 },
@@ -41,6 +47,9 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'habr_ai',       label: 'Habr AI',           maxSilenceHours: 120 },
   { key: 'rata',          label: 'RATA',              maxSilenceHours: 168 },
   { key: 'tourprom',      label: 'Tourprom',          maxSilenceHours: 168 },
+  { key: 'ator',          label: 'АТОР',              maxSilenceHours: 168 },
+  { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
+  { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
   { key: 'kamgov',        label: 'Kamgov',            maxSilenceHours: 168 },
   { key: 'mchs_rss',      label: 'МЧС Камчатка (RSS)', maxSilenceHours: 168 },
 ] as const;
@@ -106,6 +115,49 @@ export function markAlertedInMap(map: ScoutHealthMap, keys: string[], nowIso: st
     if (next[k]) next[k] = { ...next[k], last_alerted_at: nowIso };
   }
   return next;
+}
+
+/**
+ * Строка отчёта по одному фиду. Агрегат «6 из 12» говорит, что половина
+ * разведки молчит, и не говорит какая — а без имени источника разбирать нечего:
+ * доступа к фидам из среды сборки нет, единственный свидетель — сам прогон.
+ */
+export interface ScoutSourceReport {
+  key: string;
+  label: string;
+  category?: string;
+  status: SourceStatus;
+  /** Сколько сырых items отдал фид в этом прогоне. */
+  items: number;
+  /** Когда фид последний раз давал материал (ISO), null — если ни разу. */
+  last_ok: string | null;
+  /** Часов с последней непустой выдачи; null — если ни разу не давал. */
+  silent_hours: number | null;
+}
+
+/**
+ * Собирает пофидовый отчёт за прогон (чистая). `map` — уже обновлённая карта
+ * здоровья: для живых фидов last_nonempty_at == сейчас, то есть silent_hours 0.
+ * Память недоступна → пустая карта, и отчёт всё равно честен по status/items.
+ */
+export function buildSourceReport(
+  entries: Array<SourceHealthEntry & { category?: string }>,
+  map: ScoutHealthMap,
+  now: number,
+): ScoutSourceReport[] {
+  return entries.map((e) => {
+    const lastOk = map[e.key]?.last_nonempty_at ?? null;
+    const ms = lastOk ? new Date(lastOk).getTime() : NaN;
+    return {
+      key: e.key,
+      label: e.label,
+      category: e.category,
+      status: e.status,
+      items: e.rawItems,
+      last_ok: lastOk,
+      silent_hours: Number.isNaN(ms) ? null : Math.round((now - ms) / 3_600_000),
+    };
+  });
 }
 
 /** Человекочитаемый алерт для Telegram (формулировка разведки, не safety). */

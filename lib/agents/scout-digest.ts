@@ -20,9 +20,9 @@ import { deduplicateBySimilarity, jaccardFromTokens, tokenizeForSimilarity } fro
 import { readAgentBriefing } from '@/lib/agents/warmup';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import {
-  SCOUT_SOURCE_EXPECTATIONS, applyRun, mapToRows, markAlertedInMap,
+  SCOUT_SOURCE_EXPECTATIONS, applyRun, mapToRows, markAlertedInMap, buildSourceReport,
   evaluateDeadSources, dueForAlert, formatScoutDeadSources,
-  type ScoutHealthMap, type SourceHealthEntry, type SourceStatus,
+  type ScoutHealthMap, type ScoutSourceReport, type SourceHealthEntry, type SourceStatus,
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -34,6 +34,12 @@ export interface DigestResult {
   sources_ok?: number;
   sources_total?: number;
   dead_sources?: string[];
+  /**
+   * Пофидовая расшифровка того же прогона. Без неё «6 из 12» — это сигнал
+   * тревоги без адреса: половина разведки молчит, а какая именно и по какой
+   * причине (упал / отдал пусто) — неизвестно, и разбирать нечего.
+   */
+  sources?: ScoutSourceReport[];
   /** Сколько сигналов отсеяно как уже показанные (URL + похожий заголовок). */
   repeats_suppressed?: number;
 }
@@ -46,7 +52,8 @@ interface RssItem {
 
 type SourceCategory = 'ai' | 'travel' | 'kamchatka' | 'reference';
 
-const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: SourceCategory }> = [
+/** Экспортирован ради инвариант-теста: каждый фид обязан сторожиться. */
+export const RSS_SOURCES: Array<{ key: string; url: string; label: string; category: SourceCategory }> = [
   // AI & Tech — фронтир (англоязычные практические источники для тех, кто строит с LLM/агентами)
   { key: 'simonwillison', url: 'https://simonwillison.net/atom/everything/', label: 'Simon Willison', category: 'ai' },
   { key: 'huggingface',   url: 'https://huggingface.co/blog/feed.xml',       label: 'Hugging Face',   category: 'ai' },
@@ -311,18 +318,21 @@ async function unsupportedClaims(post: string, sources: string): Promise<string[
  */
 async function recordSourceHealthAndAlert(
   fetched: SourceFetch[],
-): Promise<{ sources_ok: number; sources_total: number; dead_sources: string[] }> {
+): Promise<{ sources_ok: number; sources_total: number; dead_sources: string[]; sources: ScoutSourceReport[] }> {
   const nowIso = new Date().toISOString();
   const nowMs = Date.now();
-  const entries: SourceHealthEntry[] = fetched.map(f => ({
-    key: f.key, label: f.label, status: f.status, rawItems: f.items.length, inserted: 0,
+  const entries: Array<SourceHealthEntry & { category: SourceCategory }> = fetched.map(f => ({
+    key: f.key, label: f.label, category: f.category, status: f.status, rawItems: f.items.length, inserted: 0,
   }));
 
   let deadLabels: string[] = [];
+  // Память может быть недоступна — тогда отчёт строим по одному этому прогону:
+  // статус и число items честны и без истории, теряется только «молчит N часов».
+  let map: ScoutHealthMap = applyRun({}, entries, nowIso);
   try {
     const stored = await agentMemory.recall('scout-digest', 'source_health', 1).catch(() => []);
     const prevMap = ((stored[0]?.value as { map?: ScoutHealthMap } | undefined)?.map) ?? {};
-    let map = applyRun(prevMap, entries, nowIso);
+    map = applyRun(prevMap, entries, nowIso);
 
     const rows = mapToRows(map);
     const dead = evaluateDeadSources(rows, SCOUT_SOURCE_EXPECTATIONS, nowMs);
@@ -350,6 +360,7 @@ async function recordSourceHealthAndAlert(
     sources_ok: entries.filter(e => e.status === 'ok').length,
     sources_total: entries.length,
     dead_sources: deadLabels,
+    sources: buildSourceReport(entries, map, nowMs),
   };
 }
 
@@ -653,7 +664,9 @@ export async function runScoutDigest(): Promise<DigestResult> {
         signals: dedupedItems.length, raw_signals: allItems.length, fresh_signals: freshItems.length,
         sources: RSS_SOURCES.map(s => s.label),
         // Честный per-source статус: какой фид отдал материал, а какой молчит/упал.
-        source_health: fetched.map(f => ({ label: f.label, category: f.category, status: f.status, items: f.items.length })),
+        // Тот же отчёт, что уезжает в ответ крона — чтобы история и разбор по
+        // горячим следам показывали одно и то же, а не две похожие таблицы.
+        source_health: health.sources,
         dead_sources: health.dead_sources,
         sent_to_tg: sent,
       },
