@@ -20,11 +20,19 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
+import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle';
   count: number;
   details: string;
+  /**
+   * Явная критичность там, где её не вывести из типа. У холостых кронов вес
+   * зависит от того, кто именно встал: слепой слой вулканов — КРИТ, трое суток
+   * без сигналов разведки — внимание. Ровнять их одной меткой значит либо
+   * недооценить первое, либо приучить пролистывать второе.
+   */
+  critical?: boolean;
 }
 
 export interface WatchdogResult {
@@ -585,10 +593,49 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Кроны, которые запускаются и ничего не делают. Второй вопрос после «жив ли»:
+ * liveness видит только факт запуска, а KVERT в день выброса Шивелуча был жив,
+ * зелен и слеп. Судим лишь там, где ноль объявлен ненормальным, и лишь по серии
+ * подряд — разбор порога и оговорок в lib/agents/cron-idle.ts.
+ */
+async function checkIdleCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
+    if (ids.length === 0) return null;
+
+    // Берём с запасом по прогонам на агента: окно среза — в чистой функции.
+    const { rows } = await pool.query<CronRunRow>(
+      `SELECT agent_id, items_processed AS items, ended_at::text AS ended_at
+         FROM agent_run_history
+        WHERE agent_id = ANY($1) AND status = 'success' AND ended_at IS NOT NULL
+        ORDER BY ended_at DESC
+        LIMIT $2`,
+      [ids, ids.length * IDLE_RUNS_THRESHOLD * 4],
+    );
+
+    const idle = findIdleCrons(CRON_REGISTRY, rows);
+    if (idle.length === 0) return null;
+
+    const safetyKeys = new Set(CRON_REGISTRY.filter(e => e.tier === 'safety').map(e => e.key));
+    const critical = idle.some(c => safetyKeys.has(c.key));
+
+    return {
+      type: 'cron_idle',
+      count: idle.length,
+      critical,
+      details: `Крон отчитывается успехом, не делая работы — ${formatIdleCrons(idle)}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkIdleCrons failed:', err);
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
@@ -599,15 +646,16 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkSeismicCronDead(),
     checkDeadSafetyCrons(),
     checkUndeliveredSafetyPush(),
+    checkIdleCrons(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
       // push_undelivered — КРИТ: турист не получил предупреждение об опасности.
-      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = getPublicBaseUrl();
