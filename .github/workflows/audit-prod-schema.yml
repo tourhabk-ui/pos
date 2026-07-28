@@ -136,44 +136,22 @@ jobs:
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
         run: |
+          # ID приложения выяснен через GET /api/v1/apps 29.07: name=Tourhab.
+          # Прежний 175477 отдавал 404 — приложение пересоздавали, а константа
+          # осталась старой, и шаг молча печатал «статус неизвестен».
+          APP_ID="198048"
+
           if [ -z "$TIMEWEB_TOKEN" ]; then
             echo "TIMEWEB_TOKEN не задан — пропускаем"
             exit 0
           fi
           HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" --max-time 30 \
             -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/175477")
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
           if [ "$HTTP" = "200" ]; then
             python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
-            exit 0
+          else
+            # 403 = ключ отвергнут, 404 = приложения нет по этому id.
+            # Различать важно: раньше оба случая печатались одинаково.
+            echo "Timeweb API вернул HTTP $HTTP для apps/$APP_ID — статус деплоя неизвестен"
           fi
-
-          # 28.07 отдавал 403 — ключ отвергался. После перевыпуска пришёл 404:
-          # авторизация проходит, а приложения 175477 по этому пути нет. ID
-          # захардкожен и здесь, и в deploy.yml, поэтому спрашиваем настоящий
-          # список вместо того, чтобы гадать. Наружу идут только id, имя и
-          # статус приложения — инфраструктурные метаданные, не данные людей.
-          echo "apps/175477 вернул HTTP $HTTP — спрашиваю список приложений"
-          LIST=$(curl -s -o /tmp/apps.json -w "%{http_code}" --max-time 30 \
-            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps")
-          echo "GET /apps: HTTP $LIST"
-          if [ "$LIST" != "200" ]; then
-            echo "Список тоже недоступен — проверить права токена"
-            head -c 400 /tmp/apps.json
-            exit 0
-          fi
-          python3 - <<'PYAPPS'
-          import json
-          d = json.load(open('/tmp/apps.json'))
-          items = d.get('apps') if isinstance(d, dict) else None
-          if items is None and isinstance(d, dict):
-              # Форма ответа заранее не известна — показываем ключи, а не молчим.
-              print('неожиданная форма ответа, ключи:', list(d.keys()))
-              items = []
-          for a in items or []:
-              print(f"  id={a.get('id')} name={a.get('name')} status={a.get('status')} "
-                    f"commit={(a.get('commit_sha') or '?')[:8]}")
-          if not items:
-              print('  приложений не вернулось')
-          PYAPPS

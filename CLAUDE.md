@@ -14,7 +14,7 @@
 | Frontend | Next.js 15 App Router, TypeScript strict, Tailwind CSS |
 | Database | PostgreSQL — прямой SQL (`lib/database.ts`, `lib/db-pool.ts`), без Prisma |
 | Auth | JWT — `lib/auth.ts`, middleware — `lib/auth/middleware.ts` |
-| Deploy | Timeweb Cloud — приложение **Fair Polydeuces** (репо: `tourhabk-ui/pos`) |
+| Deploy | Timeweb Cloud — приложение **Tourhab**, id `198048` (репо: `tourhabk-ui/pos`) |
 | CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
 
 **Масштаб:** 204 стр / 622 API routes / 169 компонентов / 268 миграций
@@ -275,7 +275,10 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 1. Push в `tourhabk-ui/pos main`
 2. Timeweb видит пуш → собирает Docker → `start.js` накатывает миграции → поднимает сервер
 
-**Timeweb:** приложение **Fair Polydeuces**, репо `tourhabk-ui/pos`, ветка `main`
+**Timeweb:** приложение **Tourhab**, id `198048`, репо `tourhabk-ui/pos`, ветка `main`
+(имя и id получены из `GET /api/v1/apps` 29.07; прежние «Fair Polydeuces» и
+`175477` устарели — старый id отдавал 404, и проверка статуса деплоя в
+`deploy.yml` из-за этого молчала)
 **Переменные окружения:** в настройках приложения на Timeweb Cloud панели, не в коде.
 **Build config:** `ignoreBuildErrors=true` на Timeweb (Docker), локально — строгая проверка.
 
