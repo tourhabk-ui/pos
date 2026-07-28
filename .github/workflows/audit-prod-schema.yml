@@ -1,0 +1,59 @@
+name: Audit prod schema (read-only)
+
+# Отвечает фактами на вопросы, на которые до сих пор отвечали рассуждением:
+# что реально лежит в боевой базе и какие миграции применились.
+#
+# Только чтение. Из базы выходят метаданные и счётчики — ни одного значения
+# пользовательских данных.
+#
+# Триггер по пушу в рабочую ветку нужен потому, что workflow_dispatch под
+# токеном агента отдаёт 403. На main этот workflow не запускается.
+
+on:
+  push:
+    branches: [claude/fable-5-announcement-77tv1b]
+    paths:
+      - 'scripts/audit-prod-schema.js'
+      - '.github/workflows/audit-prod-schema.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Какой коммит реально живёт на проде
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+        run: |
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "TIMEWEB_TOKEN не задан — пропускаем"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/175477")
+          if [ "$HTTP" = "200" ]; then
+            python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
+          else
+            echo "Timeweb API вернул HTTP $HTTP"
+          fi
+
+      - name: Спросить у базы, что в ней есть
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL не задан в секретах — аудит невозможен"
+            exit 1
+          fi
+          node scripts/audit-prod-schema.js
