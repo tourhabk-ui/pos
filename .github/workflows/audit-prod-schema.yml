@@ -14,9 +14,9 @@ name: Audit prod schema (read-only)
 # Триггер по пушу в рабочую ветку нужен потому, что workflow_dispatch под
 # токеном агента отдаёт 403. На main этот workflow не запускается.
 #
-# Прогон 28.07 после мержа #869 отвечает на вопрос,
-# почему не применились восемь миграций: спрашивает таблицы и функции, на
-# которые они опираются.
+# Прогон 28.07 после мержа #870: спрашиваем настоящие причины отказа миграций
+# из _migration_failures и ключи places — то, что раньше выводилось из формы
+# схемы догадками.
 
 on:
   push:
@@ -125,6 +125,17 @@ jobs:
               print('   ни PRIMARY KEY, ни UNIQUE — внешний ключ на places невозможен в принципе')
           for k in keys:
               print(f"   {k.get('name')}: {k.get('type')} {k.get('columns')}")
+
+          shape = d.get('placesIdShape', {})
+          print('\n=== КАК ЗАПОЛНЯЕТСЯ places.id ===')
+          print(f"   DEFAULT: {shape.get('columnDefault')}")
+          for s in shape.get('samples', []):
+              print(f'   пример: {s}')
+
+          print('\n=== v_kamchatka_routes_api ===')
+          print('   колонки: ' + ', '.join(d.get('routeViewColumns', [])))
+          deps = d.get('routeViewDependents', [])
+          print(f"   зависимые объекты: {', '.join(deps) if deps else 'нет'}")
 
           print('\n=== СЧЁТЧИКИ ===')
           for k, v in sorted(d.get('counts', {}).items()):

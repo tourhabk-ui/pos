@@ -10,6 +10,14 @@
 -- Транслитерация зеркалит lib/text/slugify.ts (та же карта), чтобы новые строки
 -- из приложения и бэкфилл давали одинаковый результат. Идемпотентно: колонки
 -- через IF NOT EXISTS, бэкфилл только там, где slug ещё NULL.
+--
+-- Правка 28.07: миграция падала при каждом деплое с «UNION types text and uuid
+-- cannot be matched». Причина — ключи двух таблиц разного типа: `places.id`
+-- TEXT, `kamchatka_routes.id` UUID, а бэкфилл объединяет их одним UNION ALL.
+-- Настоящий текст ошибки стал виден только после того, как раннер миграций
+-- начал сохранять причину в `_migration_failures`; до этого гипотеза была
+-- другая (переполнение VARCHAR(80) числовым суффиксом) и была бы неверной.
+-- Оба ключа приводятся к TEXT, сравнение в UPDATE — тоже.
 
 -- 1. Детерминированная транслитерация RU→latin (как в lib/text/slugify.ts)
 CREATE OR REPLACE FUNCTION translit_ru_slug(txt TEXT) RETURNS TEXT AS $$
@@ -45,11 +53,11 @@ ALTER TABLE kamchatka_routes  ADD COLUMN IF NOT EXISTS slug VARCHAR(80);
 
 -- 3. Бэкфилл с глобальной дедупликацией (только там, где slug ещё не задан)
 WITH named AS (
-  SELECT id, 'place'::text AS src, translit_ru_slug(name)  AS base
+  SELECT id::text AS id, 'place'::text AS src, translit_ru_slug(name)  AS base
     FROM places
    WHERE slug IS NULL AND name IS NOT NULL AND translit_ru_slug(name) <> ''
   UNION ALL
-  SELECT id, 'route'::text AS src, translit_ru_slug(title) AS base
+  SELECT id::text AS id, 'route'::text AS src, translit_ru_slug(title) AS base
     FROM kamchatka_routes
    WHERE slug IS NULL AND title IS NOT NULL AND translit_ru_slug(title) <> ''
 ),
@@ -72,16 +80,16 @@ finalized AS (
 UPDATE places p
    SET slug = f.slug
   FROM finalized f
- WHERE f.src = 'place' AND f.id = p.id
+ WHERE f.src = 'place' AND f.id = p.id::text
    AND p.slug IS NULL
    AND f.slug NOT IN (SELECT slug FROM taken);
 
 WITH named AS (
-  SELECT id, 'place'::text AS src, translit_ru_slug(name)  AS base
+  SELECT id::text AS id, 'place'::text AS src, translit_ru_slug(name)  AS base
     FROM places
    WHERE slug IS NULL AND name IS NOT NULL AND translit_ru_slug(name) <> ''
   UNION ALL
-  SELECT id, 'route'::text AS src, translit_ru_slug(title) AS base
+  SELECT id::text AS id, 'route'::text AS src, translit_ru_slug(title) AS base
     FROM kamchatka_routes
    WHERE slug IS NULL AND title IS NOT NULL AND translit_ru_slug(title) <> ''
 ),
@@ -103,7 +111,7 @@ finalized AS (
 UPDATE kamchatka_routes k
    SET slug = f.slug
   FROM finalized f
- WHERE f.src = 'route' AND f.id = k.id
+ WHERE f.src = 'route' AND f.id = k.id::text
    AND k.slug IS NULL
    AND f.slug NOT IN (SELECT slug FROM taken);
 
