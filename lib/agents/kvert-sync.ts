@@ -24,7 +24,9 @@ export interface KvertSyncResult {
   unmatched: string[]; // имена вулканов без привязки к точке
   /** Диагностика при fetched=0: сколько байт отдал источник. */
   source_bytes?: number;
-  /** Диагностика при fetched=0: начало ответа без разметки — видно, что пришло. */
+  /** Диагностика при fetched=0: Content-Type ответа — сразу видно HTML это или текст. */
+  source_type?: string | null;
+  /** Диагностика при fetched=0: сырое начало ответа — видно, что пришло вместо VONA. */
   source_sample?: string;
 }
 
@@ -100,17 +102,22 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   // пепел на 12 км. Поэтому здесь диагностика: что именно пришло вместо VONA.
   if (parsed.length === 0) {
     result.source_bytes = text.length;
-    // Скрипты и стили выкидываем целиком: иначе в 300 символов диагностики
-    // попадёт инлайн-JS шапки и толку от образца не будет. Закрывающий тег
-    // допускает пробелы («</script >») — без \s* такой тег не ловится, и
-    // остаток страницы утекает в образец (замечено CodeQL).
+    result.source_type = res.headers.get('content-type');
+    // Сырое начало ответа, без попыток «почистить HTML».
+    //
+    // Сперва тут стояла регулярка, выкусывающая <script>/<style>, и CodeQL
+    // дважды показал, почему это тупик: закрывающий тег бывает и «</script >»,
+    // и «</script foo>», и догонять его шаблоном можно бесконечно. А главное —
+    // фильтровать нечего: для ответа на вопрос «что пришло вместо VONA» первые
+    // же символы и есть ответ. «<!DOCTYPE html>» скажет, что это веб-страница,
+    // «403 Forbidden» — что нас не пустили, обрывок VONA — что сломался парсер.
+    // Управляющие символы схлопываем, чтобы строка читалась в логе.
     result.source_sample = text
-      .replace(/<script[\s\S]*?<\/script\s*>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style\s*>/gi, ' ')
-      .replace(/<[^>]*>/g, ' ')
+      .slice(0, 300)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]+/g, ' ')
       .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 300);
+      .trim();
   }
 
   for (const v of parsed) {

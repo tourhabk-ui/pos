@@ -51,17 +51,26 @@ describe('диагностика вместо гадания', () => {
     expect(SYNC).toContain('if (parsed.length === 0)');
   });
 
-  it('образец очищен от разметки и обрезан — это диагностика, не дамп', () => {
+  it('в ответ едет сырое начало и Content-Type — этого хватает для диагноза', () => {
     const block = SYNC.slice(SYNC.indexOf('if (parsed.length === 0)'));
-    expect(block).toContain('.slice(0, 300)');
-    expect(block).toContain('<script');
+    expect(block).toContain('source_type');
+    expect(block).toContain(".slice(0, 300)");
   });
 
-  it('закрывающий тег с пробелом тоже ловится', () => {
-    // «</script >» — валидный HTML. Без \\s* такой тег не совпадал, скрипт
-    // оставался в образце целиком и вытеснял полезный текст (нашёл CodeQL).
-    const block = SYNC.slice(SYNC.indexOf('if (parsed.length === 0)'));
-    expect(block).toContain('<\\/script\\s*>');
-    expect(block).toContain('<\\/style\\s*>');
+  it('HTML регуляркой не фильтруем — это тупик, а не защита', () => {
+    // CodeQL дважды показал почему: закрывающий тег бывает «</script >» и
+    // «</script foo>», догонять шаблоном можно бесконечно. И фильтровать
+    // нечего: первые символы ответа и ЕСТЬ диагноз — «<!DOCTYPE html>» значит
+    // веб-страница, «403 Forbidden» значит не пустили, обрывок VONA значит
+    // сломался парсер.
+    // Проверяем КОД, а не комментарии: комментарий рядом объясняет решение и
+    // сам эти слова цитирует.
+    const code = SYNC
+      .slice(SYNC.indexOf('if (parsed.length === 0)'))
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n');
+    expect(code).not.toContain('script');
+    expect(code).not.toContain('style');
   });
 });
