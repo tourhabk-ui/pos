@@ -14,10 +14,12 @@ import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
-import { findOrphanHubPages, findPostWithoutClientUsage, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
+import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
 export interface GrowthIssue {
-  category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux';
+  // 'compliance' — требования закона (маркировка рекламы, 152-ФЗ): не баг и не
+  // долг, а внешняя обязанность, у которой своя цена ошибки.
+  category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux' | 'compliance';
   severity: 'critical' | 'high' | 'medium' | 'low';
   file_path?: string;
   line_number?: number;
@@ -602,6 +604,10 @@ async function scanStructural(): Promise<GrowthIssue[]> {
       walk(path.join(process.cwd(), 'components'));
     } catch { /* нет components — работаем по app/ */ }
     issues.push(...findPostWithoutClientUsage(routeBodies, clientBodies));
+
+    // 3. Партнёрские ссылки без атрибуции и без маркировки рекламы.
+    // Те же тела клиентов — лишних чтений не делаем.
+    issues.push(...findUnattributedAffiliateLinks(clientBodies));
   }
 
   return issues.map((it) => ({ ...it, model: 'deterministic' }));
