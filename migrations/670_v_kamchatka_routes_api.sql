@@ -1,51 +1,17 @@
--- Migration 670: создание VIEW v_kamchatka_routes_api для публичного доступа к маршрутам
--- Created: 2026-06-04
+-- Migration 670: ЗАМЕНЕНА миграцией 787 — no-op.
+--
+-- Исходная версия делала CREATE OR REPLACE VIEW v_kamchatka_routes_api и не
+-- применялась НИ РАЗУ с 04.06.2026. Настоящая причина стала известна только
+-- 28.07, когда раннер миграций начал сохранять текст ошибки в
+-- _migration_failures:
+--
+--   cannot change name of view column "route_id" to "id"
+--
+-- CREATE OR REPLACE VIEW не умеет переименовывать колонки, а на проде жило
+-- представление с колонкой route_id. Нужен DROP, и он есть в 787 — вместе с
+-- пересозданием единственного зависимого объекта.
+--
+-- Файл оставлен безвредной заглушкой (как 735), чтобы не падать на каждом
+-- деплое и не мозолить список отказов.
 
-BEGIN;
-
--- ============================================================
--- Публичный VIEW — скрывает is_visible=false и legacy-поля
--- ============================================================
-
-CREATE OR REPLACE VIEW v_kamchatka_routes_api AS
-SELECT
-  id,
-  ark_id,
-  title,
-  description,
-  category,
-  activity_type,
-  zone,
-  lat,
-  lng,
-  source_url,
-  source_name,
-  difficulty,
-  distance_km,
-  duration_hours,
-  elevation_gain_m,
-  season,
-  route_type,
-  is_visible,
-  view_count,
-  geometry,
-  hazards,
-  equipment,
-  mchs_registration_required,
-  park_name,
-  park_approval_url,
-  flora_fauna,
-  accessibility,
-  mchs_phone,
-  duration_days,
-  created_at,
-  updated_at
-FROM kamchatka_routes
-WHERE is_visible = true OR is_visible IS NULL;
-
-COMMIT;
-
--- Rollback:
--- BEGIN;
--- DROP VIEW IF EXISTS v_kamchatka_routes_api;
--- COMMIT;
+SELECT 1;

@@ -28,13 +28,32 @@ import { join } from 'path';
 
 const ROOT = process.cwd();
 
-/** Колонки живого представления — снято аудитом боевой схемы 28.07. */
-const LIVE_VIEW_COLUMNS = new Set([
-  'route_id', 'route_dedupe_key', 'category', 'title', 'description',
-  'lat', 'lng', 'source_url', 'source_name', 'import_source',
-  'has_coordinates', 'category_total', 'category_position', 'metadata',
-  'created_at', 'source_updated_at',
-]);
+/**
+ * Колонки представления берём из миграции 787, а не из списка в тесте.
+ *
+ * Снимок «как на проде 28.07» здесь уже был и протух бы при первой же правке
+ * представления. Разбор объявления не протухает: меняется 787 — меняется и то,
+ * что считается допустимым.
+ */
+function declaredViewColumns(): Set<string> {
+  const sql = readFileSync(join(ROOT, 'migrations/787_route_view_rebuild.sql'), 'utf-8');
+  const body = /CREATE VIEW v_kamchatka_routes_api AS\s*SELECT([\s\S]*?)\nFROM kamchatka_routes/i.exec(sql)?.[1];
+  if (!body) throw new Error('не разобрать объявление v_kamchatka_routes_api в миграции 787');
+
+  const cols = new Set<string>();
+  for (const raw of body.split('\n')) {
+    const line = raw.replace(/--.*$/, '').trim().replace(/,$/, '');
+    if (!line) continue;
+    // `x AS alias` → alias; иначе последнее слово строки — имя колонки.
+    const alias = /\bAS\s+([a-z_][a-z0-9_]*)\s*$/i.exec(line)?.[1];
+    const plain = /^([a-z_][a-z0-9_]*)$/i.exec(line)?.[1];
+    if (alias) cols.add(alias.toLowerCase());
+    else if (plain) cols.add(plain.toLowerCase());
+  }
+  return cols;
+}
+
+const LIVE_VIEW_COLUMNS = declaredViewColumns();
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {

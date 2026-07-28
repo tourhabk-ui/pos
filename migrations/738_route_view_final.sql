@@ -1,25 +1,18 @@
--- Migration 738: пересоздание VIEW v_kamchatka_routes_api (после 734/736)
+-- Migration 738: ЗАМЕНЕНА миграцией 787 — no-op.
 --
--- Все колонки, которые селектит view, уже добавлены: базовые давно, остальные
--- — миграцией 734 (kamchatka_routes ADD COLUMN, без places/FK — та часть 734
--- проходила), duration_days — миграцией 736. Поэтому CREATE VIEW проходит.
--- Отдельным файлом: даже если он упадёт, колонки из 734/736 уже на месте
--- (enrich работает), в отличие от 733, где падение view уносило колонки.
+-- Исходная версия делала DROP+CREATE VIEW v_kamchatka_routes_api и не
+-- применялась ни разу. Её собственный комментарий утверждал: «Зависимых
+-- объектов у v_kamchatka_routes_api нет — DROP безопасен». Утверждение было
+-- ложным, и цена этого — месяц ежедневных падений. Настоящий текст ошибки
+-- (из _migration_failures, 28.07):
 --
--- DROP+CREATE (не REPLACE): на проде мог остаться старый VIEW с иным набором
--- колонок. Зависимых объектов у v_kamchatka_routes_api нет — DROP безопасен.
+--   cannot drop view v_kamchatka_routes_api because other objects depend on it
+--
+-- Зависимый объект ровно один — v_kamchatka_route_groups_api. Он не объявлен
+-- ни одной миграцией репозитория и не используется кодом: существовал только
+-- в проде, поэтому в файлах его никто и не искал. 787 сносит оба в правильном
+-- порядке и собирает обратно.
+--
+-- Файл оставлен безвредной заглушкой (как 735).
 
-BEGIN;
-
-DROP VIEW IF EXISTS v_kamchatka_routes_api;
-CREATE VIEW v_kamchatka_routes_api AS
-SELECT
-  id, ark_id, title, description, category, activity_type, zone, lat, lng,
-  source_url, source_name, difficulty, distance_km, duration_hours,
-  elevation_gain_m, season, route_type, is_visible, view_count, geometry,
-  hazards, equipment, mchs_registration_required, park_name, park_approval_url,
-  flora_fauna, accessibility, mchs_phone, duration_days, created_at, updated_at
-FROM kamchatka_routes
-WHERE is_visible = true OR is_visible IS NULL;
-
-COMMIT;
+SELECT 1;
