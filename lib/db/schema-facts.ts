@@ -95,6 +95,19 @@ export interface SchemaFacts {
    * нет, дело не в типах.
    */
   placesKeys: Array<{ name: string; type: string; columns: string }>;
+  /**
+   * Как заполняется `places.id`. Миграция 780 падала на
+   * «null value in column "id" violates not-null constraint» — значит DEFAULT
+   * либо отсутствует, либо не срабатывает, и та же беда у
+   * `lib/services/ingest/idilesom-importer.ts`, который тоже вставляет place
+   * без id. Чтобы дать колонке правильное значение, нужно знать её DEFAULT и
+   * принятый в данных формат. Идентификатор места — не персональные данные:
+   * это вулканы и озёра, не люди.
+   */
+  placesIdShape: { columnDefault: string | null; samples: string[] };
+  /** Колонки представления и объекты, которые от него зависят (миграции 670/738). */
+  routeViewColumns: string[];
+  routeViewDependents: string[];
   /** null — колонки telegram_id нет, считать нечего. */
   telegramIdDuplicates: number | null;
   counts: Record<string, number>;
@@ -178,6 +191,33 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
       ORDER BY c.conname`,
   );
 
+  const { rows: defRows } = await pool.query<{ column_default: string | null }>(
+    `SELECT column_default FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'places' AND column_name = 'id'`,
+  );
+  const { rows: idRows } = await pool.query<{ id: string }>(
+    'SELECT id FROM places ORDER BY created_at NULLS LAST LIMIT 3',
+  );
+
+  const { rows: viewColRows } = await pool.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'v_kamchatka_routes_api'
+      ORDER BY ordinal_position`,
+  );
+
+  // Миграция 738 падает на «cannot drop view because other objects depend on
+  // it», хотя её собственный комментарий утверждает, что зависимых нет.
+  const { rows: depRows } = await pool.query<{ dependent: string }>(
+    `SELECT DISTINCT dependent_view.relname AS dependent
+       FROM pg_depend d
+       JOIN pg_rewrite r ON r.oid = d.objid
+       JOIN pg_class dependent_view ON dependent_view.oid = r.ev_class
+       JOIN pg_class source ON source.oid = d.refobjid
+      WHERE source.relname = 'v_kamchatka_routes_api'
+        AND dependent_view.relname <> 'v_kamchatka_routes_api'
+      ORDER BY 1`,
+  );
+
   const hasTelegramId = (columns.users ?? []).some((c) => c.startsWith('telegram_id '));
   let telegramIdDuplicates: number | null = null;
   if (hasTelegramId) {
@@ -223,6 +263,12 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
     },
     usersIndexes: idxRows.map((r) => r.indexname),
     placesKeys: keyRows,
+    placesIdShape: {
+      columnDefault: defRows[0]?.column_default ?? null,
+      samples: idRows.map((r) => r.id),
+    },
+    routeViewColumns: viewColRows.map((r) => r.column_name),
+    routeViewDependents: depRows.map((r) => r.dependent),
     telegramIdDuplicates,
     counts,
   };
