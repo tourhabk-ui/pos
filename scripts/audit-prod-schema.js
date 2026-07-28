@@ -40,6 +40,11 @@ const TABLES = [
   'operator_tours',
   'tour_availability',
   'operator_bookings',
+  // Главный открытый вопрос: в проде `bookings` оказалась БАЗОВОЙ ТАБЛИЦЕЙ, а
+  // не представлением, как считалось при правке бронирования тура. Нужны её
+  // настоящие колонки и число строк.
+  'bookings',
+  'tours',
 ];
 
 function header(text) {
@@ -114,7 +119,7 @@ async function main() {
   }
 
   header('5. СЧЁТЧИКИ (без содержимого)');
-  for (const t of ['notifications', 'chat_sessions', 'operator_bookings', 'users']) {
+  for (const t of ['notifications', 'chat_sessions', 'operator_bookings', 'users', 'bookings', 'tours']) {
     if (!byTable.has(t)) { console.log(`   ${t}: таблицы нет`); continue; }
     const c = await pool.query(`SELECT COUNT(*)::int AS n FROM ${t}`);
     console.log(`   ${t}: ${c.rows[0].n}`);

@@ -54,12 +54,20 @@ jobs:
             echo "CRON_SECRET не задан в секретах — аудит невозможен"
             exit 1
           fi
-          HTTP=$(curl -s -o /tmp/schema.json -w "%{http_code}" --max-time 120 \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/schema-audit")
-          echo "HTTP $HTTP"
+          # Ждём появления эндпоинта: время сборки Timeweb заранее неизвестно,
+          # а падать на первой попытке из-за незавершённого деплоя — значит
+          # выдавать «ещё не собралось» за «сломано».
+          HTTP=""
+          for attempt in 1 2 3 4 5 6; do
+            HTTP=$(curl -s -o /tmp/schema.json -w "%{http_code}" --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/schema-audit")
+            echo "попытка $attempt: HTTP $HTTP"
+            [ "$HTTP" = "404" ] || break
+            [ "$attempt" = "6" ] || sleep 60
+          done
           if [ "$HTTP" = "404" ]; then
-            echo "Эндпоинта нет на проде — этот коммит ещё не задеплоен"
+            echo "Эндпоинта нет на проде после шести попыток — деплой не дошёл"
             exit 1
           fi
           if [ "$HTTP" != "200" ]; then

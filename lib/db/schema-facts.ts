@@ -32,6 +32,12 @@ export const AUDITED_TABLES = [
   'operator_tours',
   'tour_availability',
   'operator_bookings',
+  // Добавлены после первого прогона: аудит показал, что `bookings` и `tours` в
+  // проде — БАЗОВЫЕ ТАБЛИЦЫ, а не представления, как утверждала миграция 132 и
+  // как я весь день считал. Значит нужно знать их настоящие колонки: от этого
+  // зависит, была ли правка бронирования тура починкой или регрессией.
+  'bookings',
+  'tours',
 ] as const;
 
 /** Имена, которые в разное время были то таблицей, то представлением. */
@@ -113,7 +119,7 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
   }
 
   const counts: Record<string, number> = {};
-  for (const t of ['notifications', 'chat_sessions', 'operator_bookings', 'users'] as const) {
+  for (const t of ['notifications', 'chat_sessions', 'operator_bookings', 'users', 'bookings', 'tours'] as const) {
     if (!columns[t]) continue;
     // Имя таблицы — из константного списка выше, не из ввода.
     const { rows } = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM ${t}`);
