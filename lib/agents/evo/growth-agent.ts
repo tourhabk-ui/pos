@@ -60,6 +60,13 @@ export interface GrowthScanResult {
   duration_ms: number;
   /** Что скан реально прочитал (диагностика глубины прочёса). */
   coverage: ScanCoverage;
+  /**
+   * Какая модель считала этот прогон. Waterfall молча съезжает с флагмана на
+   * DeepSeek/Qwen, когда нет ключа или релея, и снаружи это неотличимо: скан
+   * зелёный, находки есть. Поле делает понижение видимым в ответе крона —
+   * не надо лезть в БД, чтобы узнать, кто думал.
+   */
+  decision_model?: string | null;
 }
 
 // ── Code-level scans ─────────────────────────────────────────────────────
@@ -324,6 +331,8 @@ interface CodeReviewResult {
   listed: number;
   reviewed: number;
   source: RepoFilesSource;
+  /** Модель, ответившая на ревью (null — не отвечал никто). */
+  model?: string | null;
 }
 
 async function aiCodeReview(): Promise<CodeReviewResult> {
@@ -470,7 +479,7 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
+    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null };
   } catch {
     return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   }
@@ -621,6 +630,8 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   const coverage: ScanCoverage = {
     source: 'none', files_listed: 0, files_reviewed: 0, mock_files_scanned: 0,
   };
+  // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
+  let decisionModel: string | null = null;
 
   if (scanType === 'full' || scanType === 'code') {
     const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
@@ -643,6 +654,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     coverage.source = review.source;
     coverage.files_listed = review.listed;
     coverage.files_reviewed = review.reviewed;
+    decisionModel = review.model ?? null;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
     const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
     issues.push(...mocks.issues);
@@ -720,6 +732,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel };
 }
 
