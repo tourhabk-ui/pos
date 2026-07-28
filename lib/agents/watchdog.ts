@@ -21,9 +21,12 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
+import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
+import { readdirSync } from 'fs';
+import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'migration_unapplied';
   count: number;
   details: string;
   /**
@@ -632,10 +635,39 @@ async function checkIdleCrons(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Миграции, которые не применились. Раннер намеренно не роняет деплой на
+ * упавшей миграции (пишет «[migrate] ✗», считает ошибку и всё равно поднимает
+ * сервер) — решение верное: платформа, которой пользуются в поле, не должна
+ * ложиться из-за одной кривой миграции. Но провал при этом оставался строчкой
+ * в логе деплоя, которую никто не читает на следующий день, а схема тихо
+ * расходилась с кодом. Сравниваем файлы на диске с таблицей учёта.
+ */
+async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
+  try {
+    const dir = join(process.cwd(), 'migrations');
+    const files = readdirSync(dir).filter(f => f.endsWith('.sql'));
+    if (files.length === 0) return null; // каталога нет в образе — не судим
+
+    const { rows } = await pool.query<{ name: string }>('SELECT name FROM _migrations');
+    const unapplied = findUnappliedMigrations(files, rows.map(r => r.name));
+    if (unapplied.length === 0) return null;
+
+    return {
+      type: 'migration_unapplied',
+      count: unapplied.length,
+      details: formatUnappliedMigrations(unapplied),
+    };
+  } catch (err) {
+    console.error('[watchdog] checkUnappliedMigrations failed:', err);
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
@@ -647,9 +679,10 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkDeadSafetyCrons(),
     checkUndeliveredSafetyPush(),
     checkIdleCrons(),
+    checkUnappliedMigrations(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
