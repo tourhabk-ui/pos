@@ -16,7 +16,7 @@
 import { callAIFast, callAIQuality, fetchWithRetry } from '@/lib/ai/providers';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { deduplicateBySimilarity } from '@/lib/utils/text-similarity';
+import { deduplicateBySimilarity, jaccardFromTokens, tokenizeForSimilarity } from '@/lib/utils/text-similarity';
 import { readAgentBriefing } from '@/lib/agents/warmup';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import {
@@ -34,6 +34,8 @@ export interface DigestResult {
   sources_ok?: number;
   sources_total?: number;
   dead_sources?: string[];
+  /** Сколько сигналов отсеяно как уже показанные (URL + похожий заголовок). */
+  repeats_suppressed?: number;
 }
 
 interface RssItem {
@@ -187,8 +189,59 @@ async function tgSend(text: string): Promise<boolean> {
   return tgSendTo(chatId, text);
 }
 
-interface SeenEntry { u: string; t: number }
+/** `u` — ключ (URL), `t` — когда увидели, `h` — заголовок на момент показа. */
+export interface SeenEntry { u: string; t: number; h?: string }
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Окно сравнения по заголовку — 7 суток, а не 30 как у URL.
+ * Одна и та же история на этой неделе — повтор; она же через три недели —
+ * почти всегда развитие сюжета (было «отключили инструмент», стало «выписали
+ * штраф»), и глушить его нельзя. Короткое окно бьёт по перепечаткам, длинное
+ * било бы по новостям.
+ */
+const SEEN_TITLE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** 0.5 — тот же агрессивный порог, что и для дедупа внутри прогона. */
+const REPEAT_TITLE_THRESHOLD = 0.5;
+
+/**
+ * Отсев уже показанного. URL-сравнения мало: та же история назавтра приходит
+ * другой ссылкой (другое издание, тот же материал с обновлённым линком) и
+ * проходит как свежая — так 28.07 в дайджест второй раз попал сюжет про
+ * антимонопольное дело Trip.com. Заголовок переживает смену ссылки, поэтому
+ * сравниваем ещё и по нему — тем же Jaccard, которым дедупим внутри прогона.
+ *
+ * Чистая функция: тестируется без сети и памяти агента.
+ */
+export function filterUnseen<T extends { title: string; url: string }>(
+  items: T[],
+  entries: SeenEntry[],
+  now: number,
+): { fresh: T[]; repeatsByUrl: number; repeatsByTitle: number } {
+  const seenUrls = new Set(entries.map(e => e.u));
+  const seenTitles = entries
+    .filter(e => e.h && now - e.t < SEEN_TITLE_WINDOW_MS)
+    .map(e => tokenizeForSimilarity(e.h as string));
+
+  const fresh: T[] = [];
+  let repeatsByUrl = 0;
+  let repeatsByTitle = 0;
+
+  for (const item of items) {
+    const key = item.url || item.title;
+    if (!key) continue;
+    if (seenUrls.has(key)) { repeatsByUrl++; continue; }
+
+    const tokens = tokenizeForSimilarity(item.title);
+    const isRepeat = tokens.size > 0
+      && seenTitles.some(t => jaccardFromTokens(t, tokens) >= REPEAT_TITLE_THRESHOLD);
+    if (isRepeat) { repeatsByTitle++; continue; }
+
+    fresh.push(item);
+  }
+
+  return { fresh, repeatsByUrl, repeatsByTitle };
+}
 
 /**
  * Фактчек-гейт: возвращает проценты из текста поста, которых НЕТ в исходных сигналах.
@@ -320,23 +373,22 @@ export async function runScoutDigest(): Promise<DigestResult> {
     return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
   }
 
-  // Cross-run dedup: filter URLs already seen in the last 30 days
+  // Cross-run dedup: URL за 30 суток + заголовок за 7 (см. filterUnseen)
   const now = Date.now();
   const seenRaw = await agentMemory.recall('scout-digest', 'seen_urls', 1);
   const storedEntries: SeenEntry[] = (seenRaw[0]?.value as { urls?: SeenEntry[] } | undefined)?.urls ?? [];
   const activeEntries = storedEntries.filter(e => now - e.t < THIRTY_DAYS_MS);
-  const seenSet = new Set(activeEntries.map(e => e.u));
 
-  const freshItems = allItems.filter(item => {
-    const key = item.url || item.title;
-    return key && !seenSet.has(key);
-  });
+  const { fresh: freshItems, repeatsByUrl, repeatsByTitle } = filterUnseen(allItems, activeEntries, now);
+  // Число видно в ответе крона: если фильтр начнёт съедать живые новости,
+  // это станет заметно по цифре, а не по ощущению «дайджест обмельчал».
+  const repeats_suppressed = repeatsByUrl + repeatsByTitle;
 
   if (freshItems.length === 0) {
     const sent = await tgSend(
       `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
-    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start, ...health };
+    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // Дедупликация: одна история из нескольких источников → одна запись
@@ -411,7 +463,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   }
 
   if (!digest) {
-    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
@@ -423,7 +475,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // четвёртом (напр. «Референсы») есть настоящий сигнал.
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
   if (allEmpty) {
-    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // ── Фактчек основного дайджеста ────────────────────────────────────────────
@@ -443,7 +495,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
     }
     if (bad.length > 0) {
-      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
 
     let claims = await unsupportedClaims(digest, signalsList);
@@ -458,14 +510,15 @@ export async function runScoutDigest(): Promise<DigestResult> {
     }
     if (claims.length > 0) {
       // Лучше не выпустить дайджест, чем выпустить с выдумкой.
-      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health };
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
   }
 
   // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
-  const updatedEntries = [
+  const updatedEntries: SeenEntry[] = [
     ...activeEntries,
-    ...freshItems.map(i => ({ u: i.url || i.title, t: now })),
+    // h — заголовок: он переживает смену ссылки и ловит перепечатку завтра.
+    ...freshItems.map(i => ({ u: i.url || i.title, t: now, h: i.title })),
   ].slice(-1000);
   await agentMemory.remember({
     agent_id: 'scout-digest',
@@ -620,5 +673,5 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // Non-critical
   }
 
-  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start, ...health };
+  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start, ...health, repeats_suppressed };
 }

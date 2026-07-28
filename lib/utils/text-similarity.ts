@@ -11,7 +11,14 @@ const STOP = new Set([
   'была', 'было', 'были', 'есть', 'нет', 'также', 'все', 'всё', 'том',
 ]);
 
-function tokenize(text: string): Set<string> {
+/**
+ * Токены строки для сравнения. Экспортируется, чтобы сравнивать одну строку
+ * с сотнями сохранённых заголовков, токенизировав каждую ровно один раз:
+ * межпрогонный фильтр разведки гоняет десятки свежих заголовков против тысячи
+ * запомненных, и повторная токенизация в каждой паре — единственное место, где
+ * дешёвая проверка могла бы стать дорогой.
+ */
+export function tokenizeForSimilarity(text: string): Set<string> {
   return new Set(
     text.toLowerCase()
       .replace(/[^а-яёa-z0-9\s]/gi, ' ')
@@ -20,15 +27,17 @@ function tokenize(text: string): Set<string> {
   );
 }
 
-export function jaccardSimilarity(a: string, b: string): number {
-  const setA = tokenize(a);
-  const setB = tokenize(b);
+export function jaccardFromTokens(setA: Set<string>, setB: Set<string>): number {
   if (setA.size === 0 && setB.size === 0) return 1;
   if (setA.size === 0 || setB.size === 0) return 0;
   let intersection = 0;
   for (const w of setA) if (setB.has(w)) intersection++;
   const union = setA.size + setB.size - intersection;
   return intersection / union;
+}
+
+export function jaccardSimilarity(a: string, b: string): number {
+  return jaccardFromTokens(tokenizeForSimilarity(a), tokenizeForSimilarity(b));
 }
 
 /**
