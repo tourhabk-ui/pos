@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildIssueBody, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
+import { buildEvoAlert, isFlagshipDecision } from '@/lib/agents/evo/alert';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const REPORT_ROUTE = read('app/api/cron/evo-report/route.ts');
@@ -63,5 +64,45 @@ describe('модель доезжает до тикета и до ответа �
   it('ответ скана называет модель прогона', () => {
     expect(GROWTH).toContain('decision_model');
     expect(GROWTH).toContain('decisionModel = review.model ?? null');
+  });
+});
+
+describe('телеграм-отчёт называет модель и кричит про понижение', () => {
+  const scan = (decision_model: string | null) => ({
+    issues: [], new_issues: 0, duration_ms: 1000,
+    coverage: { source: 'github', files_listed: 900, files_reviewed: 20, mock_files_scanned: 20 },
+    decision_model,
+  });
+  const quiet = { evolution: { processed: 0 }, rescue: { alerts: [] }, errors: [] as string[] };
+
+  it('флагман назван в отчёте', () => {
+    const text = buildEvoAlert({ scan: scan('anthropic/claude-opus-5'), ...quiet });
+    // Тихий прогон на флагмане алерта не требует — шум владельцу не нужен.
+    expect(text).toBeNull();
+    const withNews = buildEvoAlert({
+      scan: { ...scan('anthropic/claude-opus-5'), new_issues: 2 }, ...quiet,
+    });
+    expect(withNews).toContain('Модель аудита: anthropic/claude-opus-5');
+  });
+
+  it('съезд на фоллбэк сам по себе повод для отчёта', () => {
+    // Даже когда прогон тихий: иначе понижение узнаётся только случайно.
+    const text = buildEvoAlert({ scan: scan('deepseek-chat'), ...quiet });
+    expect(text).not.toBeNull();
+    expect(text).toContain('ФОЛЛБЭК');
+    expect(text).toContain('deepseek-chat');
+  });
+
+  it('прямой путь в Anthropic — тоже флагман, а не понижение', () => {
+    expect(isFlagshipDecision('anthropic:claude-opus-5')).toBe(true);
+    expect(isFlagshipDecision('anthropic/claude-opus-5')).toBe(true);
+    expect(isFlagshipDecision('deepseek-chat')).toBe(false);
+    expect(isFlagshipDecision('qwen-max')).toBe(false);
+    expect(isFlagshipDecision(null)).toBe(false);
+  });
+
+  it('прогон без ревью понижением не считается', () => {
+    // decision_model null — ревью не запускалось; выдумывать тревогу не о чем.
+    expect(buildEvoAlert({ scan: scan(null), ...quiet })).toBeNull();
   });
 });
