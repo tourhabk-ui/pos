@@ -81,6 +81,7 @@ export function findingRejectionReason(f: CandidateFinding): string | null {
   if (flagsSanctionedCallAIFast(text)) return 'sanctioned_callaifast';
   if (flagsSanctionedConsoleError(text)) return 'sanctioned_console_error';
   if (flagsForeignStack(text)) return 'foreign_stack';
+  if (quotesPlaceholderAsUnsafe(text)) return 'quotes_placeholder_as_unsafe';
   return null;
 }
 
@@ -113,6 +114,28 @@ function claimsMissingLock(text: string): boolean {
   return /race\s*condition|гонк[а-яё]|блокиров|locking|конкурент|concurrent|пессимист|oversell|двойн[а-яё]*\s+брон/i.test(text);
 }
 
+/**
+ * Находка о SQL-инъекции: якобы конкатенация/интерполяция пользовательского
+ * ввода в запрос.
+ */
+function claimsSqlInjection(text: string): boolean {
+  return /sql[-\s]?инъекц|sql\s*injection|конкатенац[а-яё]*\s*(?:в\s*)?sql|непараметризован|без\s+параметризац|вместо\s+параметризованн/i.test(text);
+}
+
+/**
+ * Находка сама себе противоречит: клеймит запрос непараметризованным и тут же
+ * цитирует плейсхолдер `$1`. Реальный кейс — issue #776 про lib/kuzmich/core.ts:
+ * «использует параметр напрямую в строке запроса без параметризации:
+ * WHERE telegram_chat_id = $1». `$1` И ЕСТЬ параметризация. Проверка
+ * content-free: тело файла для неё не нужно.
+ */
+function quotesPlaceholderAsUnsafe(text: string): boolean {
+  if (!claimsSqlInjection(text)) return false;
+  // Плейсхолдер в кавычках/бэктиках или сразу после сравнения — то, что модель
+  // выдаёт за уязвимый код.
+  return /=\s*\$\d\b/.test(text);
+}
+
 /** Есть ли в исходнике конструкция, наличие которой опровергает находку. */
 function sourceHasTryCatch(src: string): boolean {
   return /\btry\s*\{/.test(src) && /\bcatch\b/.test(src);
@@ -122,6 +145,36 @@ function sourceHasAuth(src: string): boolean {
 }
 function sourceHasLock(src: string): boolean {
   return /FOR\s+UPDATE|\bBEGIN\b|withTransaction|SERIALIZABLE|advisory_lock|pg_advisory/i.test(src);
+}
+
+/**
+ * Есть ли в файле хоть что-то похожее на склейку значения с SQL — то, о чём
+ * вообще может идти речь в находке про инъекцию.
+ *
+ * Намеренно широко: любая интерполяция или конкатенация рядом с SQL-ключевым
+ * словом считается «возможно есть». Задача не доказать инъекцию, а отличить
+ * файл, где спор осмыслен, от файла, где склейки нет ни одной и находка
+ * процитировала несуществующий код. Ложно пропустить настоящую инъекцию
+ * дороже, чем пропустить одну ложную находку.
+ */
+function sourceHasSqlConcatenation(src: string): boolean {
+  const SQL_WORD = /(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE|VALUES)/i;
+  // Шаблонный литерал с SQL и интерполяцией.
+  for (const lit of src.match(/`[^`]*`/g) ?? []) {
+    if (SQL_WORD.test(lit) && /\$\{/.test(lit)) return true;
+  }
+  // Обычная строка с SQL, к которой что-то приклеивают через +.
+  if (/['"][^'"]*(SELECT|INSERT|UPDATE|DELETE|WHERE|VALUES)[^'"]*['"]\s*\+/i.test(src)) return true;
+  if (/\+\s*['"][^'"]*(SELECT|INSERT|UPDATE|DELETE|WHERE|VALUES)/i.test(src)) return true;
+  return false;
+}
+
+/** Номер строки, на который ссылается находка («Строка 45», «line 45:»). */
+function claimedLineNumber(text: string): number | null {
+  const m = /(?:строк[а-яё]*|line)\s*[№#]?\s*(\d{1,5})/i.exec(text);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
@@ -135,5 +188,22 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   if (claimsMissingTryCatch(text) && sourceHasTryCatch(source)) return 'source_has_try_catch';
   if (claimsMissingAuth(text) && sourceHasAuth(source)) return 'source_has_auth';
   if (claimsMissingLock(text) && sourceHasLock(source)) return 'source_has_lock';
+
+  // Обратный класс к «нет X, когда X есть»: находка УТВЕРЖДАЕТ, что код есть, и
+  // цитирует его — а кода нет. Именно так выглядели issues #768/#770/#772/#774:
+  // процитированы `'SELECT * FROM bookings WHERE id = ' + bookingId` и
+  // `WHERE id = ${tourId}` в файле, где весь SQL параметризован через $1.
+  // Прошлые проверки такое не ловили: они спрашивают «есть ли X», а здесь надо
+  // спросить «есть ли то, о чём вообще идёт речь».
+  if (claimsSqlInjection(text) && !sourceHasSqlConcatenation(source)) {
+    return 'source_sql_parameterized';
+  }
+
+  // Ссылка на строку за пределами файла. Дешёвый признак того, что модель
+  // описывает не этот файл: в #770 фигурировала «строка 45» с одним кодом, в
+  // #772 — «строка 45» с другим, в #768 — «строка 42» с третьим.
+  const line = claimedLineNumber(text);
+  if (line !== null && line > source.split('\n').length) return 'line_out_of_range';
+
   return null;
 }
