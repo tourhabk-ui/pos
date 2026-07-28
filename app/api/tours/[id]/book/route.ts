@@ -111,9 +111,12 @@ export async function POST(
       );
     }
 
-    // Проверяем доступность на выбранную дату
-    const availabilityCheck = await query<{ bookings: string }>(
-      `SELECT COUNT(*) as bookings
+    // Занятость считаем по УЧАСТНИКАМ, а не по числу броней: COUNT(*) считал
+    // заявки, из-за чего одна бронь на десятерых занимала одно место из
+    // max_group_size, а десять броней по одному — десять. На туре с выходом в
+    // поле перебор группы — это не бухгалтерия, а гид на четверых с толпой.
+    const availabilityCheck = await query<{ taken: string | null }>(
+      `SELECT COALESCE(SUM(participants), 0) AS taken
        FROM operator_bookings
        WHERE operator_tour_id = $1
          AND DATE(booking_date) = $2
@@ -122,7 +125,7 @@ export async function POST(
       [tourId, date]
     );
 
-    const existingBookings = parseInt(availabilityCheck.rows[0]?.bookings ?? '0');
+    const existingBookings = parseInt(availabilityCheck.rows[0]?.taken ?? '0');
     const availableSpots = tour.max_group_size - existingBookings;
 
     if (totalParticipants > availableSpots) {
@@ -140,44 +143,56 @@ export async function POST(
     const childPrice = adultPrice * 0.5; // Дети со скидкой 50%
     const totalPrice = (adults * adultPrice) + (children * childPrice);
 
-    // Создаем бронирование
-    const bookingResult = await query(
-      `INSERT INTO bookings (
+    // Данные туриста нужны до вставки: оператор видит в брони имя и почту, а не
+    // один user_id.
+    const userResult = await query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [userId]);
+    const userEmail = userResult.rows[0]?.email ?? null;
+    const userName = userResult.rows[0]?.name || 'Гость';
+
+    // Пишем в мастер-таблицу operator_bookings.
+    //
+    // Раньше здесь был INSERT в `bookings` — а это не таблица, а совместимая
+    // VIEW над operator_bookings (миграция 132). Представление новых колонок
+    // базы не подхватывает: `end_date` появился в миграции 140 уже после него,
+    // `currency` во view не выведен вовсе, а `total_price` там — выражение
+    // COALESCE, в которое PostgreSQL писать не даёт. То есть запрос падал на
+    // разборе при каждом вызове, и «бронирование тура» существовало только в
+    // виде маршрута. Фронт его не звал, поэтому поломка никого не разбудила —
+    // но эндпоинт открыт, и первый же клиент, который на него сядет, получил
+    // бы 500 на оплаченном намерении.
+    const bookingResult = await query<{ id: string }>(
+      `INSERT INTO operator_bookings (
+        operator_tour_id,
         user_id,
-        tour_id,
-        start_date,
+        tourist_name,
+        tourist_email,
+        booking_date,
         end_date,
-        guests_count,
-        total_price,
+        duration_days,
+        participants,
+        base_total_price,
+        final_price,
         currency,
-        status,
+        booking_status,
         payment_status,
-        special_requests,
-        created_at,
-        updated_at
+        created_via,
+        special_requests
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $5, 1, $6, $7, $7, 'RUB', 'new', 'pending', 'website', $8)
       RETURNING id`,
       [
-        userId,
         tourId,
-        date,
-        date, // Для однодневных туров start_date = end_date
+        userId,
+        userName,
+        userEmail,
+        date, // однодневный тур: end_date совпадает с датой выхода
         totalParticipants,
         totalPrice,
-        'RUB',
-        'pending', // статус
-        'pending', // payment_status
         specialRequirements || null,
       ]
     );
 
     const bookingId = bookingResult.rows[0].id;
-
-    // Получаем email пользователя
-    const userResult = await query<{ email: string; name: string }>('SELECT email, name FROM users WHERE id = $1', [userId]);
-    const userEmail = userResult.rows[0]?.email ?? null;
-    const userName = userResult.rows[0]?.name || 'Гость';
 
     // Создаем платеж через CloudPayments (передаём токен из входящего запроса)
     let paymentData = null;
@@ -252,7 +267,10 @@ export async function POST(
           totalPrice,
           currency: 'RUB',
         },
-        status: 'pending',
+        // Статус отдаём тот, что реально записан (booking_status = 'new'), а не
+        // придуманный для ответа: расхождение витрины с базой — то же враньё,
+        // только вежливое.
+        status: 'new',
         paymentStatus: 'pending',
         paymentUrl: `/hub/tours/bookings/${bookingId}/payment`,
         payment: paymentData ? {
