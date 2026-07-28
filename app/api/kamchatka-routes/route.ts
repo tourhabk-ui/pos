@@ -31,12 +31,16 @@ export async function GET(request: NextRequest) {
       idx++;
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // Видимость фильтруем сами: раньше запрос шёл в v_kamchatka_routes_api,
+    // но живое представление на проде другой формы (в нём нет ни id, ни
+    // большинства колонок) — см. tests/unit/route-view-shape.test.ts.
+    conditions.push('(is_visible = TRUE OR is_visible IS NULL)');
+    const where = `WHERE ${conditions.join(' AND ')}`;
     params.push(limit);
 
     const result = await query(
       `SELECT id, title, category, description, lat, lng, source_url, source_name
-       FROM v_kamchatka_routes_api
+       FROM kamchatka_routes
        ${where}
        ORDER BY category, title
        LIMIT $${idx}`,

@@ -32,7 +32,8 @@ export async function computeGeometryHealth(): Promise<RouteGeometryHealth> {
     `SELECT
        COUNT(*) AS total,
        COUNT(*) FILTER (WHERE ${HAS_TRACK_SQL}) AS with_track
-     FROM v_kamchatka_routes_api`,
+     FROM kamchatka_routes
+     WHERE (is_visible = TRUE OR is_visible IS NULL)`,
   );
   const total = parseInt(totalsRes.rows[0]?.total ?? '0', 10);
   const with_track = parseInt(totalsRes.rows[0]?.with_track ?? '0', 10);
@@ -43,14 +44,16 @@ export async function computeGeometryHealth(): Promise<RouteGeometryHealth> {
        zone,
        COUNT(*) AS total,
        COUNT(*) FILTER (WHERE NOT (${HAS_TRACK_SQL})) AS without_track
-     FROM v_kamchatka_routes_api
+     FROM kamchatka_routes
+     WHERE (is_visible = TRUE OR is_visible IS NULL)
      GROUP BY zone
      ORDER BY without_track DESC, zone ASC`,
   );
 
   const missingRes = await pool.query<{ id: string }>(
-    `SELECT id::text FROM v_kamchatka_routes_api
-     WHERE NOT (${HAS_TRACK_SQL})
+    `SELECT id::text FROM kamchatka_routes
+     WHERE (is_visible = TRUE OR is_visible IS NULL)
+       AND NOT (${HAS_TRACK_SQL})
      ORDER BY id
      LIMIT ${MAX_MISSING_IDS}`,
   );

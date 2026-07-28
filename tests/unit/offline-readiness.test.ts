@@ -69,11 +69,22 @@ describe('checkRouteOfflineReadiness (issue #246 — offline SOS package integri
     });
   });
 
-  it('reads only from v_kamchatka_routes_api', async () => {
+  // Правка 28.07. Сторож требовал читать только через v_kamchatka_routes_api —
+  // по букве CLAUDE.md. Аудит боевой схемы показал, что живое представление
+  // другой формы: route_id, route_dedupe_key, category, title, description,
+  // lat, lng, source_url, source_name, import_source, has_coordinates,
+  // category_total, category_position, metadata, created_at,
+  // source_updated_at. Ни id, ни mchs_phone, ни geometry там нет, и миграции
+  // 670/738, которые привели бы вьюху к виду из файлов, не применялись ни разу.
+  // То есть буква правила заставляла запрос падать при каждом вызове.
+  // Смысл правила — не отдавать наружу скрытые маршруты — сохранён: читаем
+  // мастер-таблицу с явным фильтром is_visible, его и проверяем. Вернуть
+  // чтение через представление следует после его починки.
+  it('читает мастер-таблицу и не теряет фильтр видимости', async () => {
     mockQuery.mockResolvedValue({ rows: [] });
     await checkRouteOfflineReadiness('route-3');
     const sql = mockQuery.mock.calls[0]?.[0] as string;
-    expect(sql).toContain('v_kamchatka_routes_api');
-    expect(sql).not.toMatch(/FROM\s+kamchatka_routes\b/i);
+    expect(sql).toMatch(/FROM\s+kamchatka_routes\b/i);
+    expect(sql).toMatch(/is_visible\s*=\s*TRUE/i);
   });
 });

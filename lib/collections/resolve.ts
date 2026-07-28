@@ -118,7 +118,8 @@ async function manualRoutes(ids: string[]): Promise<CollectionRouteItem[]> {
   if (!ids.length) return [];
   const { rows } = await pool.query<CollectionRouteItem>(
     `SELECT id, title, difficulty, distance_km, duration_hours, activity_type, description
-       FROM v_kamchatka_routes_api WHERE id = ANY($1::uuid[])`,
+       FROM kamchatka_routes
+      WHERE id = ANY($1::uuid[]) AND (is_visible = TRUE OR is_visible IS NULL)`,
     [ids],
   );
   return rows;

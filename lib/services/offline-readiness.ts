@@ -34,7 +34,14 @@ export function hasValidTrack(geometry: RouteReadinessRow['geometry']): boolean 
 
 export async function checkRouteOfflineReadiness(routeId: string): Promise<OfflineReadiness | null> {
   const { rows } = await query<RouteReadinessRow>(
-    `SELECT geometry, mchs_phone, description FROM v_kamchatka_routes_api WHERE id = $1`,
+    // Живое представление v_kamchatka_routes_api не содержит ни geometry, ни
+    // mchs_phone, ни даже id — аудит боевой схемы 28.07. Запрос падал при
+    // каждом обращении, то есть готовность офлайн-пакета не проверялась
+    // вообще. Читаем мастер-таблицу с тем же фильтром видимости, который
+    // должен стоять во вьюхе; подробности — в lib/services/safety/
+    // rescue-coverage.ts.
+    `SELECT geometry, mchs_phone, description FROM kamchatka_routes
+      WHERE id = $1 AND (is_visible = TRUE OR is_visible IS NULL)`,
     [routeId],
   );
   const r = rows[0];
