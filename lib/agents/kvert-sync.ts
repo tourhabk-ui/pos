@@ -21,7 +21,11 @@ export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
   upserted: number;   // записано в volcano_status
   matched: number;    // сопоставлено с точкой places
-  unmatched: string[];// имена вулканов без привязки к точке
+  unmatched: string[]; // имена вулканов без привязки к точке
+  /** Диагностика при fetched=0: сколько байт отдал источник. */
+  source_bytes?: number;
+  /** Диагностика при fetched=0: начало ответа без разметки — видно, что пришло. */
+  source_sample?: string;
 }
 
 /**
@@ -87,6 +91,22 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
 
   const parsed = parseVonaFeed(text);
   const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [] };
+
+  // Ноль распознанных блоков — это НЕ «сегодня тихо»: KVERT публикует ACC по
+  // всем действующим вулканам постоянно. Значит либо страница отдала не то
+  // (сменилась вёрстка, ушёл адрес, прилетела заглушка), либо парсер устарел.
+  // Прогоны 26-28.07 возвращали fetched: 0 при HTTP 200 и зелёном статусе —
+  // слой авиационных кодов стоял мёртвым ровно тогда, когда Шивелуч выбросил
+  // пепел на 12 км. Поэтому здесь диагностика: что именно пришло вместо VONA.
+  if (parsed.length === 0) {
+    result.source_bytes = text.length;
+    result.source_sample = text
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300);
+  }
 
   for (const v of parsed) {
     if (!v.nameSlug) { result.unmatched.push(v.volcanoName); continue; }
