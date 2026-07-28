@@ -231,6 +231,8 @@ interface ParseResultSummary {
   inserted: number;
   skipped: number;
   errors: string[];
+  /** Сырых элементов до классификации (у FIRMS — термоточек). */
+  rawItems?: number;
 }
 
 function buildResponse(
@@ -306,6 +308,12 @@ function buildResponse(
       skipped: ingestResult.max.skipped,
     } : undefined,
     firms: ingestResult.firms ? {
+      // configured отличает «ключа нет» от «термоточек нет»: без него нули
+      // в ответе неразличимы, и проверка после настройки env превращается
+      // в гадание (живой случай 28.07 — владелец добавил FIRMS_MAP_KEY,
+      // а подтвердить работу по логу крона было нечем).
+      configured: Boolean(process.env.FIRMS_MAP_KEY),
+      hotspots: ingestResult.firms.rawItems ?? 0,
       events_found: ingestResult.firms.events.length,
       inserted: ingestResult.firms.inserted,
       skipped: ingestResult.firms.skipped,

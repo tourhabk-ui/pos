@@ -22,7 +22,7 @@ import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered';
   count: number;
   details: string;
 }
@@ -310,6 +310,47 @@ async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Опасные алерты созданы, но пуш не ушёл.
+ *
+ * Найдено на живом проде 28.07: в ответе safety-ingest годами висело
+ * «VAPID keys not configured — push skipped» — цунами-предупреждения,
+ * пожары и дорожные ограничения НЕ доставлялись, и об этом никто не знал:
+ * dispatchPushAlerts возвращает ошибку в тело ответа крона, а тело никто
+ * не читает. Классическая молчаливая деградация safety-функции.
+ *
+ * Проверка ловит ЛЮБУЮ причину недоставки (нет VAPID, нет подписок, отказ
+ * сервиса) — она смотрит на факт: алерт, подлежащий рассылке, старше
+ * 30 минут (шесть пропущенных прогонов пятиминутного крона) и до сих пор
+ * без push_sent_at.
+ */
+async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{ count: string; oldest_title: string | null }>(
+      `SELECT COUNT(*)::text AS count,
+              (ARRAY_AGG(title ORDER BY created_at ASC))[1] AS oldest_title
+         FROM external_alerts
+        WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
+          AND push_sent_at IS NULL
+          AND created_at < NOW() - INTERVAL '30 minutes'
+          AND created_at > NOW() - INTERVAL '7 days'`,
+    );
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+
+    return {
+      type: 'push_undelivered',
+      count,
+      details:
+        `${count} опасн(ых) алерт(ов) без доставки push > 30 мин ` +
+        `(самый ранний: ${(rows[0]?.oldest_title ?? '').slice(0, 80)}). ` +
+        `Туристы не предупреждены. Проверь VAPID-ключи и подписки.`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
   try {
     // Замыкает симметрию сторожа: туры, жильё и снаряжение уже под
@@ -547,7 +588,7 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
@@ -557,14 +598,16 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkIgnoredSOS(),
     checkSeismicCronDead(),
     checkDeadSafetyCrons(),
+    checkUndeliveredSafetyPush(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
-      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      // push_undelivered — КРИТ: турист не получил предупреждение об опасности.
+      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = getPublicBaseUrl();
