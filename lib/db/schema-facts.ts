@@ -108,6 +108,13 @@ export interface SchemaFacts {
   /** Колонки представления и объекты, которые от него зависят (миграции 670/738). */
   routeViewColumns: string[];
   routeViewDependents: string[];
+  /**
+   * Определения обоих представлений. Починить 670/738 без них нельзя: 738
+   * падает на «other objects depend on it», а пересоздать зависимый
+   * v_kamchatka_route_groups_api вслепую — значит выдумать его смысл. Это
+   * определение схемы, не данные: SQL-текст без единой строки из таблиц.
+   */
+  viewDefinitions: Record<string, string>;
   /** null — колонки telegram_id нет, считать нечего. */
   telegramIdDuplicates: number | null;
   counts: Record<string, number>;
@@ -218,6 +225,16 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
       ORDER BY 1`,
   );
 
+  const { rows: defnRows } = await pool.query<{ viewname: string; definition: string }>(
+    `SELECT viewname, pg_get_viewdef(('public.' || viewname)::regclass, true) AS definition
+       FROM pg_views
+      WHERE schemaname = 'public' AND viewname = ANY($1)
+      ORDER BY viewname`,
+    [['v_kamchatka_routes_api', 'v_kamchatka_route_groups_api']],
+  );
+  const viewDefinitions: Record<string, string> = {};
+  for (const r of defnRows) viewDefinitions[r.viewname] = r.definition;
+
   const hasTelegramId = (columns.users ?? []).some((c) => c.startsWith('telegram_id '));
   let telegramIdDuplicates: number | null = null;
   if (hasTelegramId) {
@@ -269,6 +286,7 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
     },
     routeViewColumns: viewColRows.map((r) => r.column_name),
     routeViewDependents: depRows.map((r) => r.dependent),
+    viewDefinitions,
     telegramIdDuplicates,
     counts,
   };
