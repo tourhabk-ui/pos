@@ -53,6 +53,38 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * Подпись строки ленты. Для ограничения (дорога перекрыта, пропускной режим)
+ * возраст новости не значит ничего: туристу важно, действует ли оно СЕЙЧАС и до
+ * какого числа. Подпись «18 дн назад» под работающим перекрытием читается как
+ * «протухло» — ровно это и заметил владелец на живой главной.
+ * Для остальных типов возраст осмыслен: сводка недельной давности и правда
+ * стареет.
+ */
+const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide']);
+
+export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
+  if (a.type && IN_FORCE_TYPES.has(a.type)) {
+    const until = fmtDate(a.until);
+    return until ? `действует до ${until}` : 'действует';
+  }
+  return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
+}
+
+/**
+ * Обрезка описания для ленты. Бегущая строка — поверхность одного взгляда, а
+ * дорожные ограничения приходят абзацами на 400-600 символов: целиком они не
+ * читаются ни в прокрутке, ни в раскрытом списке (владелец увидел два экрана
+ * текста). Полный текст живёт на карточке маршрута, тут — суть.
+ */
+export function clip(text: string, max = 140): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:—-]+$/, '')}…`;
+}
+
 function magColor(m: number): string {
   if (m >= 6) return 'var(--brusnika)';
   if (m >= 4.5) return 'var(--shroom)';
@@ -567,9 +599,9 @@ function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
       <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
       <span className="atx">
         {a.title}
-        {a.description ? <span className="adesc">{a.description}</span> : null}
+        {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
       </span>
-      <span className="ago">{fmtDate(a.at)}{a.at ? ` · ${fmtAgo(a.at)}` : ''}</span>
+      <span className="ago">{alertStamp(a)}</span>
     </li>
   );
   return (
@@ -884,9 +916,14 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .ticker.scroll.open .ticker-track{animation:none;transform:none}
 /* Кнопка-переключатель. Свёрнутая лента — вся площадь тап-цель (шеврон в углу);
    развёрнутая — компактная кнопка сворачивания в углу, чтобы список можно было листать. */
-.v7 .ticker-toggle{position:absolute;border:0;background:transparent;cursor:pointer;color:var(--faint);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px;z-index:2}
-.v7 .ticker-toggle:not(.open){inset:0;width:100%}
-.v7 .ticker-toggle.open{top:2px;right:2px;padding:6px;border-radius:999px;background:var(--card);border:1px solid var(--hair)}
+/* Раскрывашка — отдельная цель 44px в углу, а НЕ вся площадь ленты.
+   Пока кнопка занимала inset:0, любой тап по ленте (в том числе случайный при
+   прокрутке страницы пальцем) разворачивал её на пол-экрана — владелец поймал
+   это на живой главной. Кнопка должна быть там, где нарисован шеврон. */
+.v7 .ticker-toggle{position:absolute;border:0;cursor:pointer;color:var(--faint);display:flex;align-items:center;justify-content:center;z-index:2;
+  width:44px;height:44px;border-radius:999px;background:transparent}
+.v7 .ticker-toggle:not(.open){right:0;bottom:0}
+.v7 .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--card);border:1px solid var(--hair)}
 .v7 .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
 .v7 .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
