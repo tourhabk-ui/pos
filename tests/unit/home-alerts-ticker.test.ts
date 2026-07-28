@@ -77,3 +77,21 @@ describe('раскрывашка — цель, а не вся площадь', (
     expect(SRC).toContain('width:44px;height:44px');
   });
 });
+
+describe('герой не съедает весь первый экран', () => {
+  it('на мобильном высота оставляет полосу следующему блоку', () => {
+    // 76vh + шапка + нижняя навигация не оставляли под сгибом ничего: «Радар»
+    // приходилось искать прокруткой, не зная, что он там есть.
+    const m = SRC.match(/\.v7 \.hero-photo\{[^}]*?min-height:(\d+)dvh/);
+    expect(m, 'высота героя задана в dvh').not.toBeNull();
+    expect(Number(m?.[1])).toBeLessThanOrEqual(66);
+  });
+
+  it('dvh, а не только vh — панель браузера не должна дёргать высоту', () => {
+    expect(SRC).toContain('min-height:60vh;min-height:60dvh');
+  });
+
+  it('на широком экране герой остаётся крупным', () => {
+    expect(SRC).toContain('@media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}');
+  });
+});
