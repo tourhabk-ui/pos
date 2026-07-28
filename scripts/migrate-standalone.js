@@ -18,6 +18,22 @@ function isNonTransactional(sql) {
     || /DROP\s+INDEX\s+CONCURRENTLY/i.test(sql);
 }
 
+/**
+ * Причина отказа сохраняется в базу, а оттуда её показывает аудит и вотчдог.
+ * Значит текст уезжает в лог GitHub Actions — то есть за границу. Сообщения
+ * Postgres обычно состоят из имён объектов, но некоторые несут значения
+ * (`invalid input syntax for type uuid: "..."`), а значением может оказаться
+ * почта или телефон туриста. Поэтому детерминированно глушим то, что похоже на
+ * персональные данные, и режем длину: диагностическая ценность в имени колонки
+ * и типе ошибки, а не в значении.
+ */
+function scrubError(msg) {
+  return String(msg || '')
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[почта]')
+    .replace(/\+?\d[\d\s()-]{9,}\d/g, '[телефон]')
+    .slice(0, 400);
+}
+
 function isAlreadyExistsError(msg) {
   const l = msg.toLowerCase();
   return l.includes('already exists')
@@ -49,6 +65,20 @@ async function main() {
       CREATE TABLE IF NOT EXISTS _migrations (
         name       TEXT PRIMARY KEY,
         applied_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Провал миграции до сих пор оставался строчкой в логе деплоя, который
+    // никто не читает на следующий день. Восемь неприменившихся миграций на
+    // проде пришлось разбирать по форме схемы, гадая о причине. Теперь причина
+    // хранится рядом с самим фактом: строка живёт, пока миграция не пройдёт.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS _migration_failures (
+        name            TEXT PRIMARY KEY,
+        error           TEXT NOT NULL,
+        attempts        INT NOT NULL DEFAULT 1,
+        first_failed_at TIMESTAMPTZ DEFAULT NOW(),
+        last_failed_at  TIMESTAMPTZ DEFAULT NOW()
       )
     `);
 
@@ -88,6 +118,8 @@ async function main() {
             await client.query(sql);
           }
           await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]);
+          // Прошла — прошлая запись о провале больше не факт, а мусор.
+          await client.query('DELETE FROM _migration_failures WHERE name = $1', [file]).catch(() => {});
           console.log(`[migrate] ✓ ${file}`);
           ok++;
         } catch (e) {
@@ -95,9 +127,18 @@ async function main() {
           await client.query('ROLLBACK').catch(() => {});
           if (isAlreadyExistsError(e.message)) {
             await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]).catch(() => {});
+            await client.query('DELETE FROM _migration_failures WHERE name = $1', [file]).catch(() => {});
             skipped++;
           } else {
             console.error(`[migrate] ✗ ${file}: ${e.message}`);
+            await client.query(
+              `INSERT INTO _migration_failures(name, error) VALUES($1, $2)
+               ON CONFLICT (name) DO UPDATE
+                 SET error = EXCLUDED.error,
+                     attempts = _migration_failures.attempts + 1,
+                     last_failed_at = NOW()`,
+              [file, scrubError(e.message)],
+            ).catch(() => {});
             errors++;
           }
         }
@@ -112,8 +153,15 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('[migrate] fatal:', err.message);
-  // Non-zero exit only on unexpected failure — don't block server start
-  process.exitCode = 0;
-});
+// Запуск только как скрипта: экспорт нужен, чтобы глушение персональных данных
+// проверялось тестом, а не на глаз. Без этой проверки `require` из теста
+// поднимал бы миграции.
+if (require.main === module) {
+  main().catch(err => {
+    console.error('[migrate] fatal:', err.message);
+    // Non-zero exit only on unexpected failure — don't block server start
+    process.exitCode = 0;
+  });
+}
+
+module.exports = { scrubError, isNonTransactional, isAlreadyExistsError };
