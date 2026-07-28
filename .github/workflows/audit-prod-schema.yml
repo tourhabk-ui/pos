@@ -32,25 +32,6 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Какой коммит реально живёт на проде
-        env:
-          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
-        run: |
-          if [ -z "$TIMEWEB_TOKEN" ]; then
-            echo "TIMEWEB_TOKEN не задан — пропускаем"
-            exit 0
-          fi
-          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" --max-time 30 \
-            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/175477")
-          if [ "$HTTP" = "200" ]; then
-            python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
-          else
-            # 28.07 отдавал 403: токен есть, но отвергнут (истёк/отозван).
-            # Не роняем аудит — главный ответ даёт следующий шаг.
-            echo "Timeweb API вернул HTTP $HTTP — статус деплоя неизвестен"
-          fi
-
       - name: Спросить прод о его схеме
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -148,3 +129,24 @@ jobs:
           for k, v in sorted(d.get('counts', {}).items()):
               print(f'   {k}: {v}')
           PY
+
+      # Последним шагом намеренно: вывод лога читается с хвоста, а статус
+      # деплоя нужен рядом с вердиктом, а не за сотни строк до него.
+      - name: Какой коммит реально живёт на проде
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+        run: |
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "TIMEWEB_TOKEN не задан — пропускаем"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" --max-time 30 \
+            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/175477")
+          if [ "$HTTP" = "200" ]; then
+            python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
+          else
+            # 28.07 отдавал 403: токен есть, но отвергнут (истёк/отозван).
+            # Не роняем аудит — схема уже снята шагом выше.
+            echo "Timeweb API вернул HTTP $HTTP — статус деплоя неизвестен"
+          fi
