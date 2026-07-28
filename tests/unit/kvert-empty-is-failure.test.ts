@@ -37,8 +37,14 @@ describe('ноль вулканов = провал прогона', () => {
   });
 
   it('успех по-прежнему возможен: непустой синк проходит как раньше', () => {
-    expect(ROUTE).toContain("recordCronRun('kvert-acc', startedAt, 'success')");
+    expect(ROUTE).toContain("recordCronRun('kvert-acc', startedAt, 'success'");
     expect(ROUTE).toContain('success: true');
+  });
+
+  it('успешный прогон несёт счётчик работы в телеметрию', () => {
+    // Без items успешная строка истории не отличима от холостой, и сторож
+    // холостых кронов (lib/agents/cron-idle.ts) по ней судить не может.
+    expect(ROUTE).toContain("'success', { items: result.fetched }");
   });
 });
 

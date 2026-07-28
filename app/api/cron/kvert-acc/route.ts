@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: message, ...result }, { status: 502 });
     }
 
-    recordCronRun('kvert-acc', startedAt, 'success');
+    // Счётчик работы в телеметрию: без него успешный прогон неотличим от
+    // холостого уже на уровне истории, и сторож холостых кронов слеп.
+    recordCronRun('kvert-acc', startedAt, 'success', { items: result.fetched });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка синка KVERT';
