@@ -24,9 +24,13 @@ export default function AdminNotifications() {
     try {
       const res = await fetch('/api/engagement/notifications');
       const json = await res.json();
-      if (json.success && json.data) {
+      // Эндпоинт отдаёт { data: { notifications, total, limit, offset } }.
+      // Страница читала json.data как массив и падала на .map при каждом
+      // открытии — список уведомлений админа не показывался никогда.
+      const list = json?.data?.notifications;
+      if (json?.success && Array.isArray(list)) {
         setNotifications(
-          (json.data as Array<{ id: string; type: string; title: string; message: string; created_at: string; is_read: boolean }>).map(
+          (list as Array<{ id: string; type: string; title: string; message: string; created_at: string; is_read: boolean }>).map(
             (n) => ({
               id: n.id,
               type: n.type,
