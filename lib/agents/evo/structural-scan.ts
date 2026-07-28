@@ -153,3 +153,94 @@ export function findPostWithoutClientUsage(
 
   return issues;
 }
+
+/**
+ * Партнёрские хосты, ссылки на которые приносят деньги ТОЛЬКО с идентификатором.
+ * Список закрытый и короткий: гадать по любому внешнему домену нельзя — на
+ * платформе полно честных ссылок на МЧС, заповедники и госуслуги, где никакой
+ * атрибуции быть не должно.
+ */
+const AFFILIATE_HOSTS = [
+  'aviasales.ru', 'ostrovok.ru', 'sutochno.ru', 'cherehapa.ru',
+  'tripster.ru', 'sputnik8.com', 'kiwitaxi.ru', 'yandex.travel',
+  'travelpayouts.com', 'trip.com', 'booking.com', 'level.travel',
+];
+
+/** Параметры, любой из которых означает, что клик будет засчитан нам. */
+const ATTRIBUTION_PARAMS = /\b(marker|partner|affiliate_vid|exp_partner|aff_id|clid|shmarker|subid)=/;
+
+/**
+ * Партнёрская ссылка без атрибуции или без маркировки рекламы.
+ *
+ * Разбор 28.07: на публичной /partners четыре блока вели на Aviasales, Островок,
+ * Черехапу и KiwiTaxi с выдуманными параметрами (?plan=, aff_id на чужом
+ * домене) и без erid — то есть клик уходил бесплатно, а по закону о рекламе
+ * блок был не размечен. Соседние, настоящие блоки и то и другое несли, так что
+ * расхождение было чисто механическим — ровно то, что ловится без всякого AI.
+ *
+ * Проверка текстовая и намеренно узкая: только известные партнёрские хосты,
+ * только литералы ссылок в исходнике. Шаблонные подстановки (${MARKER}) тоже
+ * считаются атрибуцией — важно, что идентификатор в ссылке предусмотрен.
+ */
+export function findUnattributedAffiliateLinks(bodies: Map<string, string>): GrowthIssue[] {
+  const issues: GrowthIssue[] = [];
+
+  for (const [path, body] of bodies) {
+    if (path.includes('.test.')) continue;
+    // Админка — внутренний инструмент, а не рекламная поверхность: ссылки на
+    // кабинеты площадок там навигация для владельца. Прогон по 566 файлам
+    // выдал на /hub/admin/channels ровно этот ложняк.
+    if (path.startsWith('app/hub/admin/')) continue;
+
+    // URL из комментариев не показывается никому: ссылка на документацию
+    // партнёра в шапке файла — не реклама (ложняк на TravelPayoutsDrive).
+    const visible = body
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n');
+    const urls = [...visible.matchAll(/https?:\/\/[^\s'"`)]+/g)].map((m) => m[0]);
+    const partnerUrls = urls.filter((u) => AFFILIATE_HOSTS.some((h) => u.includes(h)));
+    if (partnerUrls.length === 0) continue;
+
+    const unattributed = partnerUrls.filter(
+      (u) => !ATTRIBUTION_PARAMS.test(u) && !u.includes('${MARKER}') && !u.includes('${TP_SUBID}'),
+    );
+    // Маркировку требуем от файла целиком: erid может стоять в подписи блока,
+    // а не в самой ссылке — это законно и так сделано в живых блоках.
+    const marked = /erid/i.test(body) && /Реклама/.test(body);
+
+    if (unattributed.length > 0) {
+      issues.push({
+        category: 'bug',
+        severity: 'medium',
+        file_path: path,
+        title: `Партнёрская ссылка без атрибуции: ${unattributed.length} шт.`,
+        description:
+          `В ${path} есть ссылки на партнёрские сервисы без идентификатора ` +
+          `(${unattributed.slice(0, 2).join(', ')}). Клик уходит бесплатно: работа блока есть, ` +
+          `выручки нет. Прецедент: блоки авиабилетов/отелей/страховки/трансферов на /partners до 28.07.`,
+        suggestion:
+          `Добавить партнёрский параметр в ссылку (marker/partner/affiliate_vid — как в ` +
+          `RouteAffiliateBlock) либо убрать ссылку, если партнёрства нет.`,
+      });
+    }
+
+    if (!marked) {
+      issues.push({
+        category: 'compliance',
+        severity: 'high',
+        file_path: path,
+        title: 'Партнёрский блок без маркировки рекламы',
+        description:
+          `${path} ведёт на партнёрские сервисы, но в файле нет ни erid, ни пометки «Реклама». ` +
+          `Для рекламы в интернете маркировка обязательна; соседние блоки платформы ` +
+          `(RouteAffiliateBlock, YandexTravelBlock) её несут — расхождение механическое.`,
+        suggestion:
+          `Добавить erid в ссылки и подпись «Реклама» с реквизитами рекламодателя — по образцу ` +
+          `YandexTravelBlock. Если erid не получен, ссылку не публиковать.`,
+      });
+    }
+  }
+
+  return issues;
+}
