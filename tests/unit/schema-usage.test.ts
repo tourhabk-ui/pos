@@ -165,6 +165,21 @@ describe('вход через Telegram и согласие на ПД объяв�
     const all = SQL_FILES.join('\n');
     expect(all).toMatch(/CREATE\s+UNIQUE\s+INDEX[^;]*users\s*\(\s*telegram_id/i);
   });
+
+  it('уникальный индекс telegram_id не частичный', () => {
+    // `ON CONFLICT (telegram_id)` не выводит арбитра из ЧАСТИЧНОГО индекса:
+    // для этого запрос обязан нести совпадающий предикат. Миграция 783 создала
+    // частичный, и вход через Telegram держался только на legacy-индексе
+    // users_telegram_id_key, которого нет ни в одном файле схемы — то есть на
+    // чистой базе вход бы упал. Миграция 786 делает индекс полным.
+    const all = SQL_FILES.join('\n');
+    const statements = all.match(/CREATE\s+UNIQUE\s+INDEX[^;]*users\s*\(\s*telegram_id[^;]*/gi) ?? [];
+    expect(statements.length, 'уникального индекса по telegram_id нет вовсе').toBeGreaterThan(0);
+    expect(
+      statements.some((s) => !/\bWHERE\b/i.test(s)),
+      'все уникальные индексы по users(telegram_id) частичные — ON CONFLICT (telegram_id) не найдёт арбитра',
+    ).toBe(true);
+  });
 });
 
 describe('уведомления читаются из настоящих колонок', () => {

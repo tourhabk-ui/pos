@@ -45,6 +45,15 @@ const TABLES = [
   // настоящие колонки и число строк.
   'bookings',
   'tours',
+  // Таблицы восьми неприменившихся миграций: отсутствие любой из них объясняет
+  // отказ без выполнения миграции на живой базе.
+  'kamchatka_routes',
+  'places',
+  'agent_memory',
+  'ai_actions_log',
+  'smart_notifications_log',
+  'user_place_photos',
+  'place_safety_reports',
 ];
 
 function header(text) {
@@ -76,10 +85,22 @@ async function main() {
   header('2. ЭТО ТАБЛИЦА ИЛИ ПРЕДСТАВЛЕНИЕ');
   const kinds = await pool.query(
     `SELECT table_name, table_type FROM information_schema.tables
-      WHERE table_schema='public' AND table_name IN ('bookings','tours','agent_route_knowledge')
+      WHERE table_schema='public'
+        AND table_name IN ('bookings','tours','agent_route_knowledge','v_kamchatka_routes_api')
       ORDER BY table_name`,
   );
   kinds.rows.forEach((r) => console.log(`   ${r.table_name}: ${r.table_type}`));
+
+  header('2.1 ФУНКЦИИ');
+  // translit_ru_slug создаёт миграция 779: нет функции — 779 не дошла до бэкфилла.
+  const fns = await pool.query(
+    `SELECT p.proname FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname='public' AND p.proname = ANY($1)`,
+    [['translit_ru_slug']],
+  );
+  const present = new Set(fns.rows.map((r) => r.proname));
+  ['translit_ru_slug'].forEach((n) => console.log(`   ${n}: ${present.has(n) ? 'есть' : 'НЕТ'}`));
 
   header('3. МИГРАЦИИ');
   const applied = await pool.query('SELECT name FROM _migrations');
