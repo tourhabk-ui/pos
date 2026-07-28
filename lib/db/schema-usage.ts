@@ -96,6 +96,19 @@ export function findUndeclaredWrites(
       const declared = schema.tables.get(table);
       if (!declared || declared.size === 0) continue;
 
+      // Список колонок собран в шаблоне — судить по нему нельзя.
+      //
+      // Захват идёт до ПЕРВОЙ закрывающей скобки, а в динамическом списке она
+      // принадлежит не списку, а выражению внутри него:
+      //   INSERT INTO operator_settings (user_id, ${updates.map((_, i) => ...)})
+      // обрезается на «user_id, ${updates.map((_, i», и `i` — параметр
+      // стрелочной функции — попадал в отчёт как несуществующая колонка. Она
+      // почти сутки числилась в списке долга как настоящая.
+      //
+      // Пропустить такой INSERT честнее, чем разобрать наполовину: тот же
+      // принцип, по которому не судим таблицу с неразобранным CREATE TABLE.
+      if (m[2].includes('${')) continue;
+
       const columns = m[2]
         .split(',')
         .map((s) => s.replace(/--.*$/gm, '').trim().replace(/^"|"$/g, '').toLowerCase())
