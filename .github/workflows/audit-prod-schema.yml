@@ -1,10 +1,15 @@
 name: Audit prod schema (read-only)
 
-# Отвечает фактами на вопросы, на которые до сих пор отвечали рассуждением:
-# что реально лежит в боевой базе и какие миграции применились.
+# Отвечает фактами на вопросы, которые до сих пор решались чтением исходников:
+# что реально лежит в боевой базе и какие миграции не применились.
 #
-# Только чтение. Из базы выходят метаданные и счётчики — ни одного значения
-# пользовательских данных.
+# Спрашивает ПРОД, а не базу. Прямое подключение к managed PostgreSQL с раннера
+# не работает — проверено четырьмя прогонами (три 10.07, один 28.07) двумя
+# разными способами разбора строки подключения, везде TCP-таймаут: Timeweb не
+# пускает внешние адреса. Прод же ходит в свою базу свободно, а раннер ходит в
+# прод по HTTPS — на этом стоят все кроны платформы.
+#
+# Только чтение. Наружу идут метаданные и счётчики, без пользовательских данных.
 #
 # Триггер по пушу в рабочую ветку нужен потому, что workflow_dispatch под
 # токеном агента отдаёт 403. На main этот workflow не запускается.
@@ -13,24 +18,15 @@ on:
   push:
     branches: [claude/fable-5-announcement-77tv1b]
     paths:
-      - 'scripts/audit-prod-schema.js'
       - '.github/workflows/audit-prod-schema.yml'
+      - 'app/api/cron/schema-audit/route.ts'
+      - 'lib/db/schema-facts.ts'
   workflow_dispatch:
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-
       - name: Какой коммит реально живёт на проде
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
@@ -39,21 +35,69 @@ jobs:
             echo "TIMEWEB_TOKEN не задан — пропускаем"
             exit 0
           fi
-          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" \
+          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" --max-time 30 \
             -H "Authorization: Bearer $TIMEWEB_TOKEN" \
             "https://api.timeweb.cloud/api/v1/apps/175477")
           if [ "$HTTP" = "200" ]; then
             python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
           else
-            echo "Timeweb API вернул HTTP $HTTP"
+            # 28.07 отдавал 403: токен есть, но отвергнут (истёк/отозван).
+            # Не роняем аудит — главный ответ даёт следующий шаг.
+            echo "Timeweb API вернул HTTP $HTTP — статус деплоя неизвестен"
           fi
 
-      - name: Спросить у базы, что в ней есть
+      - name: Спросить прод о его схеме
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL не задан в секретах — аудит невозможен"
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET не задан в секретах — аудит невозможен"
             exit 1
           fi
-          node scripts/audit-prod-schema.js
+          HTTP=$(curl -s -o /tmp/schema.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/schema-audit")
+          echo "HTTP $HTTP"
+          if [ "$HTTP" = "404" ]; then
+            echo "Эндпоинта нет на проде — этот коммит ещё не задеплоен"
+            exit 1
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Прод ответил $HTTP:"
+            head -c 2000 /tmp/schema.json
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/schema.json'))
+
+          print('\n=== КОЛОНКИ ===')
+          for t, cols in sorted(d.get('columns', {}).items()):
+              print(f'\n-- {t}')
+              for c in cols:
+                  print('   ' + c)
+
+          print('\n=== ТАБЛИЦА ИЛИ ПРЕДСТАВЛЕНИЕ ===')
+          for name, kind in sorted(d.get('relations', {}).items()):
+              print(f'   {name}: {kind}')
+
+          m = d.get('migrations', {})
+          print('\n=== МИГРАЦИИ ===')
+          print(f"   применено: {m.get('applied')} | файлов в образе: {m.get('files')}")
+          un = m.get('unapplied', [])
+          print(f'   НЕ применено: {len(un)}')
+          for f in un:
+              print(f'     x {f}')
+          print('   последние применённые:')
+          for r in m.get('recent', []):
+              print(f"     {r.get('applied_at')}  {r.get('name')}")
+
+          print('\n=== ИНДЕКСЫ users ===')
+          for i in d.get('usersIndexes', []):
+              print('   ' + i)
+          print(f"   дублей telegram_id: {d.get('telegramIdDuplicates')}")
+
+          print('\n=== СЧЁТЧИКИ ===')
+          for k, v in sorted(d.get('counts', {}).items()):
+              print(f'   {k}: {v}')
+          PY
