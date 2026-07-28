@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Truck, AlertTriangle, Thermometer, Wind, Droplets, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
+import { plainResponse } from '@/lib/text/plain-response';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 
 interface RescueMessage {
@@ -59,14 +60,20 @@ interface VolcanicEvent {
 // Единый источник номеров (см. lib/safety/emergency-numbers.ts).
 const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c.phone }));
 
-// Avalanche zones — Kamchatka
+/**
+ * Лавиноопасные районы Камчатки — СПРАВОЧНЫЙ список рельефа, а не сводка.
+ * Числовые уровни риска отсюда убраны: они были константами и выдавались за
+ * текущую обстановку. Уровень лавинной опасности меняется от снегопада к
+ * снегопаду, и число, которое не обновляется, — это ложь на странице
+ * безопасности, а не приближение.
+ */
 const AVALANCHE_ZONES = [
-  { name: 'Авачинский вулкан', risk: 3, note: 'Северные и западные склоны, выше 1200 м' },
-  { name: 'Корякский вулкан', risk: 4, note: 'Все склоны, особенно NW экспозиция' },
-  { name: 'Вилючинский перевал', risk: 3, note: 'Лавинные кулуары активны' },
-  { name: 'Мутновский р-н', risk: 2, note: 'Умеренная опасность' },
-  { name: 'Козельский вулкан', risk: 3, note: 'Снежные карнизы на гребнях' },
-  { name: 'Красная сопка (горнолыжн.)', risk: 2, note: 'Подготовленные трассы — низкий риск' },
+  { name: 'Авачинский вулкан', note: 'Северные и западные склоны, выше 1200 м' },
+  { name: 'Корякский вулкан', note: 'Все склоны, особенно северо-западной экспозиции' },
+  { name: 'Вилючинский перевал', note: 'Лавинные кулуары' },
+  { name: 'Мутновский район', note: 'Открытые склоны и цирки' },
+  { name: 'Козельский вулкан', note: 'Снежные карнизы на гребнях' },
+  { name: 'Красная сопка', note: 'Горнолыжный склон, вне трасс — лавиноопасно' },
 ];
 
 const DANGER_LEVEL = {
@@ -77,9 +84,15 @@ const DANGER_LEVEL = {
   5: { label: 'Очень высокая', color: 'var(--danger)', bg: 'color-mix(in srgb, var(--danger) 10%, transparent)', desc: 'Снег крайне неустойчив. Катастрофические лавины возможны на пологих склонах.' },
 } as const;
 
-function riskLevel(r: number): typeof DANGER_LEVEL[1 | 2 | 3 | 4 | 5] {
-  const clamped = Math.max(1, Math.min(5, r)) as 1 | 2 | 3 | 4 | 5;
-  return DANGER_LEVEL[clamped];
+/**
+ * Лавинный сезон Камчатки: с ноября по май (пик — март-апрель, весеннее
+ * снеготаяние плюс циклоны). Считается от текущей даты, а не пишется в текст:
+ * подпись про весенний пик лавин висела на экране в конце июля и выглядела
+ * действующим предупреждением.
+ */
+export function isAvalancheSeason(now: Date = new Date()): boolean {
+  const m = now.getMonth() + 1;
+  return m >= 11 || m <= 5;
 }
 
 function magColor(mag: number): string {
@@ -99,6 +112,8 @@ function timeAgo(ms: number): string {
 
 export default function SafetyHubClient() {
   const [activeTab, setActiveTab] = useState('sos');
+  // Лавинный сезон считается от текущей даты, а не зашит текстом.
+  const inSeason = isAvalancheSeason();
 
   // Weather
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -441,7 +456,7 @@ export default function SafetyHubClient() {
                       : { background: 'var(--danger)', color: '#fff', borderRadius: '16px 4px 16px 16px' }
                     }
                   >
-                    {msg.content}
+                    {msg.role === 'assistant' ? plainResponse(msg.content) : msg.content}
                   </div>
                 </div>
               ))}
@@ -681,48 +696,70 @@ export default function SafetyHubClient() {
       {/* ── Лавины ── */}
       {activeTab === 'avalanche' && (
         <div className="space-y-4">
-          {/* Overall level */}
+          {/* Обстановка: сезон + честное «оперативного прогноза у нас нет».
+              Прежде здесь стоял жёстко зашитый уровень 3/5 «Значительная» с
+              подписью про весенний пик лавин — и показывался КРУГЛЫЙ ГОД,
+              включая конец июля. Выдуманный уровень опасности на
+              странице безопасности хуже его отсутствия: турист принимает по
+              нему решение идти или не идти. */}
           <div
             className="border rounded-lg p-5"
             style={{
-              borderColor: 'color-mix(in srgb, var(--warning) 40%, transparent)',
-              background: DANGER_LEVEL[3].bg,
+              borderColor: inSeason
+                ? 'color-mix(in srgb, var(--warning) 40%, transparent)'
+                : 'var(--border)',
+              background: inSeason
+                ? 'color-mix(in srgb, var(--warning) 8%, transparent)'
+                : 'var(--bg-card)',
             }}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <MountainSnow className="w-5 h-5" style={{ color: DANGER_LEVEL[3].color }} />
-                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Лавинная опасность — Камчатка</h2>
-              </div>
-              <div
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                style={{ background: DANGER_LEVEL[3].color }}
-              >
-                <span className="text-white font-bold text-lg leading-none">3</span>
-                <span className="text-white text-xs font-medium">/ 5</span>
-              </div>
+            <div className="flex items-center gap-2 mb-2">
+              <MountainSnow
+                className="w-5 h-5"
+                style={{ color: inSeason ? 'var(--warning)' : 'var(--text-muted)' }}
+              />
+              <h2 className="text-sm font-semibold text-[var(--text-primary)]">Лавинная обстановка — Камчатка</h2>
             </div>
-            <p className="text-sm font-semibold mb-1" style={{ color: DANGER_LEVEL[3].color }}>
-              {DANGER_LEVEL[3].label}
-            </p>
-            <p className="text-sm text-[var(--text-secondary)]">{DANGER_LEVEL[3].desc}</p>
+
+            {inSeason ? (
+              <>
+                <p className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>
+                  Лавинный сезон
+                </p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  Ноябрь — май, пик в марте и апреле: весеннее снеготаяние вместе с циклонами.
+                  Уровень опасности меняется от снегопада к снегопаду.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Вне лавинного сезона</p>
+                <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  Лавинный сезон на Камчатке — с ноября по май. Снежники на высоте держатся и летом:
+                  на крутых участках выше 1200 м осторожность нужна круглый год.
+                </p>
+              </>
+            )}
+
             <p className="text-xs text-[var(--text-muted)] mt-3">
-              Март — апрель: пик лавинной активности. Интенсивное весеннее снеготаяние + циклонические осадки.
+              Оперативного прогноза по баллам платформа не даёт: официальный источник — avalanche.ru
+              и региональная лавинная служба. Ниже — справочная шкала и рельеф, а не сводка на сегодня.
             </p>
           </div>
 
           {/* Danger scale */}
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Шкала лавинной опасности</h3>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Шкала лавинной опасности</h3>
+            <p className="text-xs text-[var(--text-muted)] mb-3">
+              Европейская шкала, справочно. Текущий балл здесь не показывается — его даёт лавинная служба.
+            </p>
             <div className="space-y-2">
               {([1, 2, 3, 4, 5] as const).map((level) => {
                 const d = DANGER_LEVEL[level];
-                const isActive = level === 3;
                 return (
                   <div
                     key={level}
                     className="flex items-center gap-3 p-2 rounded-md text-sm"
-                    style={isActive ? { background: d.bg } : {}}
                   >
                     <div
                       className="w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-white flex-shrink-0"
@@ -731,15 +768,8 @@ export default function SafetyHubClient() {
                       {level}
                     </div>
                     <div>
-                      <span
-                        className={`font-medium ${isActive ? '' : 'text-[var(--text-secondary)]'}`}
-                        style={isActive ? { color: d.color } : {}}
-                      >
-                        {d.label}
-                      </span>
-                      {isActive && (
-                        <span className="ml-2 text-xs text-[var(--text-muted)]">— текущий уровень</span>
-                      )}
+                      <span className="font-medium text-[var(--text-secondary)]">{d.label}</span>
+                      <span className="ml-2 text-xs text-[var(--text-muted)]">{d.desc}</span>
                     </div>
                   </div>
                 );
@@ -749,26 +779,17 @@ export default function SafetyHubClient() {
 
           {/* Zones */}
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Зоны риска</h3>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Лавиноопасные районы</h3>
+            <p className="text-xs text-[var(--text-muted)] mb-3">
+              Где сходят лавины в сезон. Это свойство рельефа, а не оценка на сегодня.
+            </p>
             <div className="space-y-2">
-              {AVALANCHE_ZONES.map((zone) => {
-                const d = riskLevel(zone.risk);
-                return (
-                  <div key={zone.name} className="flex items-start justify-between gap-3 py-2 border-b border-[var(--border)] last:border-0">
-                    <div>
-                      <p className="text-sm font-medium text-[var(--text-primary)]">{zone.name}</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{zone.note}</p>
-                    </div>
-                    <div
-                      className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center font-bold text-xs text-white"
-                      style={{ background: d.color }}
-                      title={d.label}
-                    >
-                      {zone.risk}
-                    </div>
-                  </div>
-                );
-              })}
+              {AVALANCHE_ZONES.map((zone) => (
+                <div key={zone.name} className="py-2 border-b border-[var(--border)] last:border-0">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{zone.name}</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">{zone.note}</p>
+                </div>
+              ))}
             </div>
           </div>
 
