@@ -71,8 +71,6 @@ const KNOWN_GAPS = [
   'lead_proposals.conversion_prob',
   'lead_proposals.recommended_action',
   'lead_proposals.verdict_urgency',
-  'notifications.payload',
-  'notifications.updated_at',
   'operator_settings.i',
   'operator_tours.created_via',
   'tour_availability.is_available',
@@ -96,18 +94,13 @@ describe('код пишет только в объявленные колонк�
 });
 
 /**
- * То же для UPDATE. `notifications.payload` — не пропущенная колонка, а
- * расхождение модели: сервис ждёт payload с title/message внутри, а таблица
- * держит их отдельными NOT NULL. Это продуктовое решение, не переименование.
- * `operator_tours.route_id` — тоже: связь с маршрутом уже есть под именем
- * agent_route_id, и какая из двух настоящая, решает не миграция.
+ * То же для UPDATE. Пусто — расхождений не осталось: последние два разрешились
+ * фактами, а не вкусом. Связь тура с маршрутом (`route_id`) читают живые
+ * страницы, значит колонка в проде есть и была просто не объявлена. А
+ * `notifications.payload` оказался не пропущенной колонкой, а лишней моделью:
+ * сервис переписан на объявленные `title`/`message`/`data`.
  */
-const KNOWN_UPDATE_GAPS = [
-  'notifications.payload',
-  'notifications.updated_at',
-  'operator_tours.ai_tags',
-  'operator_tours.route_id',
-];
+const KNOWN_UPDATE_GAPS: string[] = [];
 
 describe('код меняет только объявленные колонки', () => {
   it('новых расхождений в UPDATE не появляется', () => {

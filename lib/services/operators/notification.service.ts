@@ -1,6 +1,21 @@
 /**
  * Notification Service
  * Functions related to notification CRUD, preferences, and muting.
+ *
+ * Сервис был построен вокруг колонки `payload`, которой нет ни в одном файле
+ * схемы: таблица `notifications` держит `title` и `message` отдельными NOT NULL,
+ * а рядом `data JSONB` для остального. То есть ни один запрос отсюда выполниться
+ * не мог — и это молчало худшим из возможных способов: `create` ловил ошибку и
+ * ВОЗВРАЩАЛ ВЫДУМАННОЕ уведомление с новым UUID, будто оно сохранено.
+ * Вызывающая сторона видела успех, пользователь не получал ничего.
+ *
+ * Из двух моделей выбрана табличная: отдельные колонки дают NOT NULL, индексы и
+ * внятные запросы. JSON-мешок не даёт ничего из этого и молча теряет форму —
+ * заголовок уведомления может просто исчезнуть, и никто не узнает.
+ *
+ * Чтение остаётся терпимым к старой форме: если строка пришла с `payload`
+ * (например из `RETURNING *` на базе, где колонку когда-то добавили руками),
+ * значения возьмутся оттуда. Запись идёт только в объявленные колонки.
  */
 
 import {
@@ -10,32 +25,50 @@ import {
   toBooleanOrNull,
 } from '../_helpers';
 
+/** Колонки, которые реально объявлены схемой. `payload` среди них нет. */
+const COLUMNS = 'id, user_id, type, title, message, data, priority, action_url, is_read, read_at, created_at, updated_at';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 // In-memory store for notification preferences
 const notificationPreferencesStore = new Map<string, Record<string, unknown>>();
 
 export const notificationService = {
   normalize(row: Record<string, unknown> | null) {
     if (!row) return null;
-    const payloadCandidate = row.payload;
-    const payload = payloadCandidate && typeof payloadCandidate === 'object'
-      ? (payloadCandidate as Record<string, unknown>)
-      : {};
+    // `legacy` — на случай строки со старой формой; из БД мы её не запрашиваем.
+    const legacy = asRecord(row.payload);
+    const extra = asRecord(row.data);
+
+    const title = toStringOrNull(row.title) ?? toStringOrNull(legacy.title);
+    const message = toStringOrNull(row.message) ?? toStringOrNull(legacy.message);
+    const channels = Array.isArray(extra.channels)
+      ? extra.channels
+      : (Array.isArray(legacy.channels) ? legacy.channels : []);
+    const payloadData = extra.data ?? legacy.data ?? {};
+    const muted = toBooleanOrNull(extra.muted) ?? toBooleanOrNull(legacy.muted) ?? false;
 
     return {
       id: row.id,
       userId: row.user_id ?? row.userId ?? null,
       user_id: row.user_id ?? row.userId ?? null,
       type: toStringOrNull(row.type),
-      title: toStringOrNull(payload.title),
-      message: toStringOrNull(payload.message),
-      channels: Array.isArray(payload.channels) ? payload.channels : [],
-      data: payload.data ?? {},
-      muted: toBooleanOrNull(payload.muted) ?? false,
+      title,
+      message,
+      channels,
+      data: payloadData,
+      muted,
       readAt: row.read_at ?? row.readAt ?? null,
       read_at: row.read_at ?? row.readAt ?? null,
       createdAt: row.created_at ?? row.createdAt ?? null,
       updatedAt: row.updated_at ?? row.updatedAt ?? null,
-      payload,
+      // Форма ответа для клиентов сохранена: раньше здесь лежал JSON из БД,
+      // теперь он собирается из колонок. Снаружи разницы нет.
+      payload: { title, message, channels, data: payloadData, muted },
     };
   },
   async send(userId: string, data: Record<string, unknown>) {
@@ -47,33 +80,31 @@ export const notificationService = {
       throw new Error('userId is required');
     }
 
-    const payload: Record<string, unknown> = {};
-    if (toStringOrNull(data.title)) payload.title = toStringOrNull(data.title);
-    if (toStringOrNull(data.message)) payload.message = toStringOrNull(data.message);
-    if (Array.isArray(data.channels)) payload.channels = data.channels;
-    if (data.data && typeof data.data === 'object') payload.data = data.data;
-    if (data.scheduledFor) payload.scheduledFor = data.scheduledFor;
-
-    try {
-      const result = await pool.query(
-        `INSERT INTO notifications (user_id, type, payload, created_at, updated_at)
-         VALUES ($1, $2, $3::jsonb, NOW(), NOW())
-         RETURNING *`,
-        [userId, toStringOrNull(data.type) ?? 'system', JSON.stringify(payload)]
-      );
-      return this.normalize(result.rows[0] ?? null);
-    } catch {
-      return {
-        id: crypto.randomUUID(),
-        userId,
-        user_id: userId,
-        type: toStringOrNull(data.type) ?? 'system',
-        payload,
-        readAt: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+    const title = toStringOrNull(data.title);
+    const message = toStringOrNull(data.message);
+    // title и message в таблице NOT NULL — и это правильно: уведомление без
+    // текста бесполезно. Говорим об этом сразу и по-русски, а не отдаём ошибку
+    // базы.
+    if (!title || !message) {
+      throw new Error('Уведомление без заголовка или текста не создаётся');
     }
+
+    // Всё, что не легло в отдельные колонки, идёт в data — там ему и место.
+    const extra: Record<string, unknown> = {};
+    if (Array.isArray(data.channels)) extra.channels = data.channels;
+    if (data.data && typeof data.data === 'object') extra.data = data.data;
+    if (data.scheduledFor) extra.scheduledFor = data.scheduledFor;
+
+    // Ошибку НЕ глотаем. Раньше здесь стоял catch, возвращавший выдуманное
+    // уведомление с новым UUID: вызывающая сторона видела успех, пользователь
+    // не получал ничего. Пусть лучше маршрут отдаст честную пятисотку.
+    const result = await pool.query(
+      `INSERT INTO notifications (user_id, type, title, message, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
+       RETURNING ${COLUMNS}`,
+      [userId, toStringOrNull(data.type) ?? 'system', title, message, JSON.stringify(extra)]
+    );
+    return this.normalize(result.rows[0] ?? null);
   },
   async list(arg1: unknown, arg2?: unknown, arg3?: unknown, arg4?: unknown) {
     const userId = toStringOrNull(arg1);
@@ -103,7 +134,7 @@ export const notificationService = {
     const total = Number(countResult.rows[0]?.total ?? 0);
 
     const rowsResult = await pool.query(
-      `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications
+      `SELECT ${COLUMNS} FROM notifications
        ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${values.length + 1}
@@ -119,7 +150,7 @@ export const notificationService = {
   async getById(id: string) {
     try {
       const result = await pool.query(
-        `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications WHERE id = $1 LIMIT 1`,
+        `SELECT ${COLUMNS} FROM notifications WHERE id = $1 LIMIT 1`,
         [id]
       );
       return this.normalize(result.rows[0] ?? null);
@@ -130,7 +161,7 @@ export const notificationService = {
   async getByIdForUser(id: string, userId: string) {
     try {
       const result = await pool.query(
-        `SELECT id, user_id, type, payload, read_at, created_at, updated_at FROM notifications WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        `SELECT ${COLUMNS} FROM notifications WHERE id = $1 AND user_id = $2 LIMIT 1`,
         [id, userId]
       );
       return this.normalize(result.rows[0] ?? null);
@@ -138,31 +169,27 @@ export const notificationService = {
       return null;
     }
   },
+  // Ошибки отметки о прочтении и отключения звука тоже не глотаем: раньше все
+  // три возвращали success: true при неудачном запросе. Пользователь видел, что
+  // уведомление прочитано, база об этом не знала, и на следующем экране оно
+  // возвращалось непрочитанным.
   async markRead(id: string, userId: string) {
-    try {
-      await pool.query(
-        `UPDATE notifications
-         SET read_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND user_id = $2`,
-        [id, userId]
-      );
-    } catch {
-      // no-op fallback
-    }
+    await pool.query(
+      `UPDATE notifications
+       SET read_at = NOW(), is_read = TRUE, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
     return { success: true };
   },
   async markAsRead(id: string, userId?: string) {
     if (!userId) {
-      try {
-        await pool.query(
-          `UPDATE notifications
-           SET read_at = NOW(), updated_at = NOW()
-           WHERE id = $1`,
-          [id]
-        );
-      } catch {
-        // no-op fallback
-      }
+      await pool.query(
+        `UPDATE notifications
+         SET read_at = NOW(), is_read = TRUE, updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
       return { success: true };
     }
 
@@ -170,18 +197,14 @@ export const notificationService = {
   },
   async toggleMute(id: string, muted: unknown) {
     const mutedValue = toBooleanOrNull(muted) ?? false;
-    try {
-      await pool.query(
-        `UPDATE notifications
-         SET
-           payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{muted}', to_jsonb($2::boolean), true),
-           updated_at = NOW()
-         WHERE id = $1`,
-        [id, mutedValue]
-      );
-    } catch {
-      // no-op fallback
-    }
+    await pool.query(
+      `UPDATE notifications
+       SET
+         data = jsonb_set(COALESCE(data, '{}'::jsonb), '{muted}', to_jsonb($2::boolean), true),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id, mutedValue]
+    );
     return { success: true, id, muted: mutedValue };
   },
   async getPreferences(userId: string) {
@@ -208,16 +231,12 @@ export const notificationService = {
     return merged;
   },
   async markAllRead(userId: string) {
-    try {
-      await pool.query(
-        `UPDATE notifications
-         SET read_at = NOW(), updated_at = NOW()
-         WHERE user_id = $1`,
-        [userId]
-      );
-    } catch {
-      // no-op fallback
-    }
+    await pool.query(
+      `UPDATE notifications
+       SET read_at = NOW(), is_read = TRUE, updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId]
+    );
     return { success: true };
   },
   async deleteById(id: string) {
