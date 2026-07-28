@@ -545,11 +545,24 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
  *  - watchdog (сам себя) — рапорт «Watchdog молчит» из работающего Watchdog
  *    логически противоречив: раз проверка идёт, сторож жив. Свою живость сторож
  *    сам подтвердить не может; это дело внешнего мониторинга.
- * Порог тревоги поднят до GITHUB_DELAY_FLOOR: scheduled-cron в GitHub Actions
- * штатно задерживается до ~95 мин, и жёсткий dead-порог (для 30-мин крона ~85
- * мин) давал ложные КРИТ на каждой такой задержке.
+ * Два порога, а не один. Причина — измерение: 28.07 пришёл КРИТ «safety-агент не
+ * отвечает» по danger-analysis и sos-events-bridge, а оба крона в тот момент
+ * отрабатывали успешно. Виновата была не платформа, а расписание GitHub
+ * Actions: у 30-минутного крона наблюдались разрывы между прогонами до 3ч47м
+ * (227 мин) при пороге 150. Ложный КРИТ на платформе безопасности дороже
+ * пропущенного: он приучает не читать алерты.
+ *
+ * Поэтому молчание между порогами — ВНИМАНИЕ («прогон не отмечался»), и только
+ * сверх верхнего порога — КРИТ. Верхний взят с запасом от наблюдавшегося
+ * максимума: 6 ч — это дюжина пропущенных прогонов 30-минутного крона, столько
+ * штатная задержка не длится.
+ *
+ * Формулировка тоже изменена. «Агент не отвечает» — утверждение о состоянии
+ * агента, которого liveness не знает: он видит только отметку о последнем
+ * прогоне в agent_run_history. Алерт говорит ровно то, что измерено.
  */
 const GITHUB_DELAY_FLOOR_MIN = 150;
+const SAFETY_CRON_CRITICAL_MIN = 360;
 
 async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
   try {
@@ -570,25 +583,36 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
     const lastById = new Map(rows.map(r => [r.agent_id, r.last_seen]));
 
     const now = Date.now();
-    const dead: string[] = [];
+    const silent: string[] = [];
+    let worstMinutes = 0;
     for (const e of entries) {
       const last = lastById.get(e.agentId as string) ?? null;
       const lastMs = last ? new Date(last).getTime() : null;
       const lv = computeLiveness(e, lastMs, now);
       // 'dead' по liveness И сверх floor задержки GitHub Actions — иначе штатная
-      // задержка scheduled-cron поднимала ложный КРИТ.
+      // задержка scheduled-cron поднимала тревогу на ровном месте.
       if (lv.status === 'dead' && (lv.minutesSince ?? 0) >= GITHUB_DELAY_FLOOR_MIN) {
         const mins = lv.minutesSince ?? 0;
+        worstMinutes = Math.max(worstMinutes, mins);
         const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
-        dead.push(`${e.label} молчит ${ago} (норма: ${e.schedule})`);
+        silent.push(`${e.label} — прогон не отмечался ${ago} (расписание: ${e.schedule})`);
       }
     }
-    if (dead.length === 0) return null;
+    if (silent.length === 0) return null;
+
+    const critical = worstMinutes >= SAFETY_CRON_CRITICAL_MIN;
+    // Ниже верхнего порога причиной чаще оказывается расписание GitHub, а не
+    // агент, — так и пишем, чтобы проверяли вкладку Actions, а не искали отказ
+    // там, где его нет.
+    const hint = critical
+      ? 'Проверь GitHub Actions и CRON_SECRET.'
+      : 'Обычно это задержка scheduled-cron в GitHub Actions (наблюдались разрывы до 3ч47м), но проверить вкладку Actions стоит.';
 
     return {
       type: 'safety_cron_dead',
-      count: dead.length,
-      details: `КРИТИЧНО: safety-агент(ы) не отвечают — ${dead.join('; ')}.`,
+      count: silent.length,
+      critical,
+      details: `${silent.join('; ')}. ${hint}`,
     };
   } catch (err) {
     console.error('[watchdog] checkDeadSafetyCrons failed:', err);
@@ -688,7 +712,10 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
       // push_undelivered — КРИТ: турист не получил предупреждение об опасности.
-      const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      // safety_cron_dead из этого списка убран намеренно: молчание крона бывает
+      // и задержкой расписания GitHub, поэтому уровень решает флаг critical по
+      // длительности молчания, а не сам тип алерта.
+      const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = getPublicBaseUrl();

@@ -38,10 +38,34 @@ export const AUDITED_TABLES = [
   // зависит, была ли правка бронирования тура починкой или регрессией.
   'bookings',
   'tours',
+  // Таблицы, которых касаются восемь неприменившихся миграций. Причину отказа
+  // можно вывести из формы схемы, не выполняя миграцию на живой базе: 673
+  // строит индексы по agent_memory и ai_actions_log, 676 меняет тип колонки в
+  // smart_notifications_log, 675 и 685 создают свои таблицы, 779 добавляет slug
+  // в places и kamchatka_routes, 670/738 пересобирают view по колонкам
+  // kamchatka_routes. Отсутствующая таблица объясняет отказ сразу.
+  'kamchatka_routes',
+  'places',
+  'agent_memory',
+  'ai_actions_log',
+  'smart_notifications_log',
+  'user_place_photos',
+  'place_safety_reports',
 ] as const;
 
 /** Имена, которые в разное время были то таблицей, то представлением. */
-export const AUDITED_RELATIONS = ['bookings', 'tours', 'agent_route_knowledge'] as const;
+export const AUDITED_RELATIONS = [
+  'bookings',
+  'tours',
+  'agent_route_knowledge',
+  'v_kamchatka_routes_api',
+] as const;
+
+/**
+ * Функции, на существование которых опирается код или миграции. `translit_ru_slug`
+ * создаёт миграция 779; если функции нет — 779 не доходила даже до бэкфилла.
+ */
+export const AUDITED_FUNCTIONS = ['translit_ru_slug'] as const;
 
 export interface SchemaFacts {
   /** таблица → ['колонка тип [NOT NULL]', ...]; отсутствие ключа = таблицы нет. */
@@ -60,6 +84,8 @@ export interface SchemaFacts {
   /** null — колонки telegram_id нет, считать нечего. */
   telegramIdDuplicates: number | null;
   counts: Record<string, number>;
+  /** Имя функции → есть ли она в схеме public. */
+  functions: Record<string, boolean>;
 }
 
 export async function collectSchemaFacts(): Promise<SchemaFacts> {
@@ -126,9 +152,20 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
     counts[t] = rows[0]?.n ?? 0;
   }
 
+  const { rows: fnRows } = await pool.query<{ proname: string }>(
+    `SELECT p.proname FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = ANY($1)`,
+    [AUDITED_FUNCTIONS as unknown as string[]],
+  );
+  const present = new Set(fnRows.map((r) => r.proname));
+  const functions: Record<string, boolean> = {};
+  for (const name of AUDITED_FUNCTIONS) functions[name] = present.has(name);
+
   return {
     columns,
     relations,
+    functions,
     migrations: {
       applied: applied.size,
       files: files.length,

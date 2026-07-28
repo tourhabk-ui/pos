@@ -30,9 +30,24 @@ export function findUnappliedMigrations(
     .sort();
 }
 
+/**
+ * Бюджет символов на перечисление имён. Обрезка по счётчику («первые 5») прятала
+ * половину списка: на проде их восемь, и три оставались безымянными — чтобы
+ * узнать какие, приходилось лезть в базу. Имя миграции — это и есть вся
+ * полезная нагрузка алерта, поэтому режем по длине сообщения, а не по числу.
+ */
+const NAMES_BUDGET = 900;
+
 /** Человекочитаемая строка для Telegram. */
 export function formatUnappliedMigrations(unapplied: readonly string[]): string {
-  const head = unapplied.slice(0, 5).join(', ');
-  const tail = unapplied.length > 5 ? ` и ещё ${unapplied.length - 5}` : '';
-  return `миграции не применились: ${head}${tail}. Схема расходится с кодом; смотри лог деплоя (строки «[migrate] ✗»)`;
+  const shown: string[] = [];
+  let used = 0;
+  for (const name of unapplied) {
+    const cost = name.length + 2;
+    if (used + cost > NAMES_BUDGET && shown.length > 0) break;
+    shown.push(name);
+    used += cost;
+  }
+  const tail = shown.length < unapplied.length ? ` и ещё ${unapplied.length - shown.length}` : '';
+  return `миграции не применились: ${shown.join(', ')}${tail}. Схема расходится с кодом; смотри лог деплоя (строки «[migrate] ✗»)`;
 }

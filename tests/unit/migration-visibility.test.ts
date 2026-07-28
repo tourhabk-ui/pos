@@ -41,11 +41,26 @@ describe('неприменённые миграции видны', () => {
     expect(findUnappliedMigrations(['001_a.sql', 'MIGRATION_ORDER.md'], ['001_a.sql'])).toEqual([]);
   });
 
-  it('сообщение называет файлы и не разрастается на длинном списке', () => {
-    const many = Array.from({ length: 9 }, (_, i) => `${700 + i}_x.sql`);
+  it('называет ВСЕ файлы, пока они помещаются в сообщение', () => {
+    // Обрезка «первые 5» прятала три из восьми боевых имён, а имя миграции и
+    // есть вся полезная нагрузка алерта: без него всё равно лезть в базу.
+    const eight = [
+      '670_v_kamchatka_routes_api.sql', '673_evo_performance_indexes.sql',
+      '675_user_place_photos.sql', '676_fix_smart_notifications_user_id.sql',
+      '685_place_safety_reports.sql', '738_route_view_final.sql',
+      '779_route_slugs.sql', '780_apapel_hot_springs.sql',
+    ];
+    const text = formatUnappliedMigrations(eight);
+    for (const name of eight) expect(text, `имя ${name} потерялось`).toContain(name);
+    expect(text).not.toContain('и ещё');
+  });
+
+  it('на длинном списке сообщение остаётся ограниченным', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `${700 + i}_очень_длинное_имя_миграции.sql`);
     const text = formatUnappliedMigrations(many);
-    expect(text).toContain('700_x.sql');
-    expect(text).toContain('и ещё 4');
+    expect(text).toContain('700_очень_длинное_имя_миграции.sql');
+    expect(text).toMatch(/и ещё \d+/);
+    expect(text.length).toBeLessThan(1100);
   });
 
   it('сторож подключён к watchdog', () => {
