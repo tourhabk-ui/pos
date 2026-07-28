@@ -23,7 +23,9 @@ jobs:
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
         run: |
-          APP_ID="175477"
+          # 29.07: 175477 отдавал 404. Настоящий id получен из GET /api/v1/apps
+          # (name=Tourhab). Проверка статуса деплоя была мертва из-за константы.
+          APP_ID="198048"
           TOKEN="$TIMEWEB_TOKEN"
 
           if [ -z "$TOKEN" ]; then
