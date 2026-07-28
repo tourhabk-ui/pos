@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { parseDeclaredSchema, findUndeclaredWrites, flatten } from '@/lib/db/schema-usage';
+import { parseDeclaredSchema, findUndeclaredWrites, findUndeclaredUpdates, flatten } from '@/lib/db/schema-usage';
 
 const ROOT = process.cwd();
 
@@ -46,12 +46,12 @@ const SOURCES = [...walk('app'), ...walk('lib')].map((path) => ({
 
 const schema = parseDeclaredSchema(SQL_FILES);
 const found = flatten(findUndeclaredWrites(SOURCES, schema));
+const foundUpdates = flatten(findUndeclaredUpdates(SOURCES, schema));
 
 /**
  * Остаток расхождения на момент постановки сторожа. Список закрыт: он может
  * только сокращаться. Чинить его весь одним заходом нельзя — для части колонок
- * тип не выводится из кода однозначно (`partners.contacts`, `ai_actions_log.*`,
- * `lead_proposals.*`), а угадывать тип в схеме безопасности хуже, чем оставить
+ * тип не выводится из кода однозначно (`ai_actions_log.*`, `lead_proposals.*`), а угадывать тип в схеме безопасности хуже, чем оставить
  * долг названным. Разбирается отдельными правками по доменам.
  */
 const KNOWN_GAPS = [
@@ -75,9 +75,6 @@ const KNOWN_GAPS = [
   'notifications.updated_at',
   'operator_settings.i',
   'operator_tours.created_via',
-  'partners.commission_rate',
-  'partners.contacts',
-  'partners.is_available',
   'tour_availability.is_available',
 ];
 
@@ -95,6 +92,50 @@ describe('код пишет только в объявленные колонк�
     // в котором незаметно спрячется новое расхождение.
     const stale = KNOWN_GAPS.filter((g) => !found.includes(g));
     expect(stale, 'расхождение устранено — убрать строку из списка').toEqual([]);
+  });
+});
+
+/**
+ * То же для UPDATE. `notifications.payload` — не пропущенная колонка, а
+ * расхождение модели: сервис ждёт payload с title/message внутри, а таблица
+ * держит их отдельными NOT NULL. Это продуктовое решение, не переименование.
+ * `operator_tours.route_id` — тоже: связь с маршрутом уже есть под именем
+ * agent_route_id, и какая из двух настоящая, решает не миграция.
+ */
+const KNOWN_UPDATE_GAPS = [
+  'notifications.payload',
+  'notifications.updated_at',
+  'operator_tours.ai_tags',
+  'operator_tours.route_id',
+];
+
+describe('код меняет только объявленные колонки', () => {
+  it('новых расхождений в UPDATE не появляется', () => {
+    const fresh = foundUpdates.filter((f) => !KNOWN_UPDATE_GAPS.includes(f));
+    expect(fresh, 'колонку надо объявить миграцией и в lib/database/schema.sql').toEqual([]);
+  });
+
+  it('список долга по UPDATE не протухает', () => {
+    const stale = KNOWN_UPDATE_GAPS.filter((g) => !foundUpdates.includes(g));
+    expect(stale, 'расхождение устранено — убрать строку из списка').toEqual([]);
+  });
+});
+
+describe('второй фактор и удаление аккаунта работают', () => {
+  const users = schema.tables.get('users');
+
+  it('колонки двухфакторной аутентификации объявлены', () => {
+    // POST /api/auth/mfa/enable писал mfa_secret и получал 500: включить второй
+    // фактор было нельзя вообще. В личном кабинете лежат паспорта туристов.
+    for (const c of ['mfa_secret', 'mfa_enabled']) {
+      expect(users?.has(c), `users.${c}`).toBe(true);
+    }
+  });
+
+  it('заявку на удаление аккаунта есть куда записать', () => {
+    // 152-ФЗ: право на удаление персональных данных. /api/user/delete пишет в
+    // metadata момент обращения и срок — и падал.
+    expect(users?.has('metadata')).toBe(true);
   });
 });
 

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS users (
     pd_consent_given BOOLEAN DEFAULT FALSE,
     pd_consent_at TIMESTAMPTZ,
     pd_consent_ip VARCHAR(64),
+    -- Второй фактор входа и служебные пометки аккаунта (в metadata пишется
+    -- заявка на удаление: момент обращения и срок).
+    mfa_secret TEXT,
+    mfa_enabled BOOLEAN DEFAULT FALSE,
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -40,6 +45,11 @@ CREATE TABLE IF NOT EXISTS partners (
     rating DECIMAL(3,2) DEFAULT 0.0,
     review_count INTEGER DEFAULT 0,
     is_verified BOOLEAN DEFAULT FALSE,
+    -- contacts — расширенные контакты партнёра; там же telegram_chat_id, через
+    -- который Watchdog пишет оператору о зависшей брони. Отдельно от contact.
+    contacts JSONB DEFAULT '{}',
+    commission_rate DECIMAL(5,2),
+    is_available BOOLEAN DEFAULT TRUE,
     logo_asset_id UUID,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
