@@ -16,13 +16,31 @@ import { usePathname } from 'next/navigation';
 
 const SESSION_KEY = 'vedar_sid';
 
+/**
+ * Случайный id визита. Только криптостойкий источник: randomUUID есть не
+ * везде (нужен secure context), getRandomValues — есть. Math.random здесь
+ * запрещён не из-за секретности id, а потому что предсказуемый генератор в
+ * идентификаторе — это заготовка чужой ошибки; нет источника — визит
+ * останется безымянным, и это честнее подделки.
+ */
+function randomId(): string | undefined {
+  if (typeof crypto === 'undefined') return undefined;
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  if (typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return undefined;
+}
+
 function sessionId(): string | undefined {
   try {
     const existing = sessionStorage.getItem(SESSION_KEY);
     if (existing) return existing;
-    const fresh = (crypto.randomUUID?.() ?? `${Date.now()}${Math.random().toString(36).slice(2)}`)
-      .replace(/-/g, '')
-      .slice(0, 32);
+    const fresh = randomId();
+    if (!fresh) return undefined;
     sessionStorage.setItem(SESSION_KEY, fresh);
     return fresh;
   } catch {
