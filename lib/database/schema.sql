@@ -14,6 +14,17 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NOT NULL CHECK (role IN ('tourist', 'operator', 'guide', 'transfer', 'stay', 'gear', 'agent', 'admin')),
     phone VARCHAR(20),
     preferences JSONB DEFAULT '{}',
+    -- Вход через Telegram и признак активности. Объявлены здесь, а не только в
+    -- миграции 783, потому что миграция 080 строит индекс по users(telegram_id)
+    -- и на чистой базе цепочка падала бы, не дойдя до 783.
+    telegram_id BIGINT,
+    telegram_username VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    -- Согласие на обработку персональных данных (152-ФЗ): факт, момент и адрес,
+    -- с которого оно дано. Регистрация пишет их с самого начала.
+    pd_consent_given BOOLEAN DEFAULT FALSE,
+    pd_consent_at TIMESTAMPTZ,
+    pd_consent_ip VARCHAR(64),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
