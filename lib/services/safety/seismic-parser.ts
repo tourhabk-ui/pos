@@ -770,10 +770,17 @@ const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?
   },
 ];
 
-export async function ingestNewsFeeds(): Promise<ParseResult> {
+/**
+ * @param skipPrefixes источники, которые уже принесены снаружи (раннером) —
+ *   их не тянем с сервера и, главное, не считаем недоступными. Живой случай:
+ *   kamgov.ru с Timeweb не открывается, и каждый прогон писал в ошибки
+ *   «news feed unavailable: kamgov», хотя фид жив — просто не с нашего IP.
+ */
+export async function ingestNewsFeeds(skipPrefixes: string[] = []): Promise<ParseResult> {
   const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
 
   for (const source of NEWS_FEED_SOURCES) {
+    if (skipPrefixes.includes(source.prefix)) continue;
     // Дедуп одинакового содержимого: разные пути могут быть алиасами одного
     // фида (например /rss и /mintur/rss) — не обрабатывать дважды
     const xmls = [...new Set(
@@ -802,6 +809,35 @@ export async function ingestNewsFeeds(): Promise<ParseResult> {
     }
   }
 
+  return result;
+}
+
+/**
+ * Разбор новостного RSS, скачанного НЕ сервером, а GitHub-раннером.
+ *
+ * kamgov.ru недоступен с хостинга (Timeweb) — тот же случай, что t.me и
+ * КБГС РАН: фид живой, но не с нашего IP. Раннер тянет XML и передаёт его в
+ * теле POST, сервер только разбирает. Классификация та же самая, поэтому
+ * дорожные ограничения и вулканические бюллетени из kamgov попадают в
+ * external_alerts наравне с остальными источниками.
+ */
+export async function ingestNewsFeedXmls(xmls: string[], prefix: string): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  // Разные пути гос-сайта бывают алиасами одного фида — дедуп по содержимому.
+  for (const xml of [...new Set(xmls.filter((x) => x && x.trim().length > 0))]) {
+    for (const it of parseMchsItems(xml)) {
+      const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link, prefix);
+      if (!event) continue;
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
+    }
+  }
   return result;
 }
 

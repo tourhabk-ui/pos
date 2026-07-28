@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
@@ -369,6 +369,12 @@ const HtmlBodySchema = z.object({
   // Канал Минэкономразвития (законодательство/ограничения для туризма).
   // Optional: старый воркфлоу без этого поля продолжает работать.
   minec_html: z.string().optional(),
+  /**
+   * RSS kamgov.ru, скачанный раннером: с Timeweb гос-сайт не открывается, и
+   * сервер каждый прогон писал «news feed unavailable: kamgov» при живом фиде.
+   * Массив — у сайта несколько путей (/rss, /mintur/rss), дубли снимает разбор.
+   */
+  kamgov_xml: z.array(z.string().max(600_000)).max(5).optional(),
   // Канал ГУ МЧС Камчатки в MAX (max.ru/id4101120929_gos). У MAX нет открытого
   // read-API, поэтому раннер сам читает канал и присылает уже готовые посты
   // массивом. Сервер прогоняет каждый через classifyMchsItem — она и есть
@@ -386,6 +392,21 @@ const HtmlBodySchema = z.object({
 // источника не заблокированы — раньше POST-путь их вообще не вызывал, из-за
 // чего волкан-алерты МЧС/#258 никогда не доходили через реальный cron, только
 // через ручной GET).
+/**
+ * Склейка двух половин новостного конвейера: то, что сервер дотянулся сам, и
+ * то, что принёс раннер. В ответе крона это по-прежнему один блок `news` —
+ * дробить его на два было бы честно к коду и непонятно человеку.
+ */
+function mergeParseResults(a: ParseResult, b?: ParseResult): ParseResult {
+  if (!b) return a;
+  return {
+    events: [...a.events, ...b.events],
+    inserted: a.inserted + b.inserted,
+    skipped: a.skipped + b.skipped,
+    errors: [...a.errors, ...b.errors],
+  };
+}
+
 export async function POST(req: Request) {
   const err = authError(req);
   if (err) return err;
@@ -404,13 +425,18 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
+  const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
+  const [telegramResult, mchsResult, usgsResult, newsFeedResult, kamgovResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
-    ingestNewsFeeds(),
+    // kamgov принесён раннером — сервер его не тянет и не считает мёртвым.
+    ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : []),
     parsed.data.minec_html
       ? ingestTelegramNewsHtml(parsed.data.minec_html)
+      : Promise.resolve(undefined),
+    kamgovXmls.length > 0
+      ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
       : Promise.resolve(undefined),
     ingestVkMchs(),
     parsed.data.max_items && parsed.data.max_items.length > 0
@@ -418,6 +444,9 @@ export async function POST(req: Request) {
       : Promise.resolve(undefined),
     ingestFirmsWildfires(),
   ]);
+  // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
+  // это по-прежнему один блок `news`.
+  const newsResult = mergeParseResults(newsFeedResult, kamgovResult);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
     eqkam: telegramResult.eqkam,
