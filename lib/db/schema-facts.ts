@@ -79,8 +79,22 @@ export interface SchemaFacts {
      *  это именно «не применилось», а не «в образе ещё нет файла». */
     unapplied: string[];
     recent: Array<{ name: string; applied_at: string | null }>;
+    /**
+     * Настоящий текст ошибки последней попытки — то, ради чего форму схемы
+     * приходилось разбирать вручную. Пишет `scripts/migrate-standalone.js` при
+     * каждом деплое, чистит при успехе. Пустой массив на старом инстансе
+     * означает «таблицы ещё нет», а не «провалов нет».
+     */
+    failures: Array<{ name: string; error: string; attempts: number; last_failed_at: string | null }>;
   };
   usersIndexes: string[];
+  /**
+   * PK и уникальные ограничения `places`. Спор о причине отказа миграций
+   * 675/685 упирался в вопрос, на который никто не смотрел: можно ли вообще
+   * сослаться на `places(id)`. FK требует уникальности колонки-цели; если её
+   * нет, дело не в типах.
+   */
+  placesKeys: Array<{ name: string; type: string; columns: string }>;
   /** null — колонки telegram_id нет, считать нечего. */
   telegramIdDuplicates: number | null;
   counts: Record<string, number>;
@@ -124,6 +138,26 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
     // Каталога нет в образе — тогда про «не применилось» ничего не утверждаем.
   }
 
+  // Таблицы может не быть: её заводит раннер миграций, а он мог ещё не
+  // отработать на этом инстансе. Отсутствие — не повод ронять весь аудит.
+  let failures: SchemaFacts['migrations']['failures'] = [];
+  try {
+    const { rows } = await pool.query<{
+      name: string; error: string; attempts: number; last_failed_at: Date | null;
+    }>(
+      `SELECT name, error, attempts, last_failed_at
+         FROM _migration_failures ORDER BY name`,
+    );
+    failures = rows.map((r) => ({
+      name: r.name,
+      error: r.error,
+      attempts: r.attempts,
+      last_failed_at: r.last_failed_at ? new Date(r.last_failed_at).toISOString() : null,
+    }));
+  } catch {
+    failures = [];
+  }
+
   const { rows: recentRows } = await pool.query<{ name: string; applied_at: Date | null }>(
     'SELECT name, applied_at FROM _migrations ORDER BY applied_at DESC NULLS LAST LIMIT 10',
   );
@@ -131,6 +165,17 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
   const { rows: idxRows } = await pool.query<{ indexname: string }>(
     `SELECT indexname FROM pg_indexes
       WHERE schemaname = 'public' AND tablename = 'users' ORDER BY indexname`,
+  );
+
+  const { rows: keyRows } = await pool.query<{ name: string; type: string; columns: string }>(
+    `SELECT c.conname AS name,
+            CASE c.contype WHEN 'p' THEN 'PRIMARY KEY' WHEN 'u' THEN 'UNIQUE' ELSE c.contype::text END AS type,
+            pg_get_constraintdef(c.oid) AS columns
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public' AND t.relname = 'places' AND c.contype IN ('p', 'u')
+      ORDER BY c.conname`,
   );
 
   const hasTelegramId = (columns.users ?? []).some((c) => c.startsWith('telegram_id '));
@@ -170,12 +215,14 @@ export async function collectSchemaFacts(): Promise<SchemaFacts> {
       applied: applied.size,
       files: files.length,
       unapplied: files.filter((f) => !applied.has(f)).sort(),
+      failures,
       recent: recentRows.map((r) => ({
         name: r.name,
         applied_at: r.applied_at ? new Date(r.applied_at).toISOString() : null,
       })),
     },
     usersIndexes: idxRows.map((r) => r.indexname),
+    placesKeys: keyRows,
     telegramIdDuplicates,
     counts,
   };

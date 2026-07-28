@@ -104,6 +104,12 @@ jobs:
           print(f'   НЕ применено: {len(un)}')
           for f in un:
               print(f'     x {f}')
+          fails = m.get('failures', [])
+          print(f'   с записанной причиной отказа: {len(fails)}')
+          for f in fails:
+              print(f"     x {f.get('name')} (попыток {f.get('attempts')}, последняя {f.get('last_failed_at')})")
+              print(f"       {f.get('error')}")
+
           print('   последние применённые:')
           for r in m.get('recent', []):
               print(f"     {r.get('applied_at')}  {r.get('name')}")
@@ -112,6 +118,13 @@ jobs:
           for i in d.get('usersIndexes', []):
               print('   ' + i)
           print(f"   дублей telegram_id: {d.get('telegramIdDuplicates')}")
+
+          print('\n=== КЛЮЧИ places (можно ли сослаться на places.id) ===')
+          keys = d.get('placesKeys', [])
+          if not keys:
+              print('   ни PRIMARY KEY, ни UNIQUE — внешний ключ на places невозможен в принципе')
+          for k in keys:
+              print(f"   {k.get('name')}: {k.get('type')} {k.get('columns')}")
 
           print('\n=== СЧЁТЧИКИ ===')
           for k, v in sorted(d.get('counts', {}).items()):
