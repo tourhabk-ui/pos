@@ -71,7 +71,6 @@ const KNOWN_GAPS = [
   'lead_proposals.conversion_prob',
   'lead_proposals.recommended_action',
   'lead_proposals.verdict_urgency',
-  'notifications.payload',
   'operator_settings.i',
   'operator_tours.created_via',
   'tour_availability.is_available',
@@ -95,19 +94,17 @@ describe('код пишет только в объявленные колонк�
 });
 
 /**
- * То же для UPDATE. Остался один — и он ждёт не миграции, а факта.
+ * То же для UPDATE. Список пуст — и это стоило одного факта.
  *
- * Сервис уведомлений работает с колонкой `payload`, которой нет ни в одном
- * файле схемы; таблица держит `title` и `message` отдельными NOT NULL. Похоже,
- * что сервис сломан целиком, но «похоже» — это ровно тот вывод из чтения кода,
- * которым нельзя оправдать переписывание живого сервиса. Форму боевой таблицы
- * покажет `/api/cron/schema-audit`; до его ответа расхождение остаётся
- * названным и незакрытым.
- *
- * `notifications.updated_at`, `operator_tours.route_id` и `ai_tags` из списка
- * ушли: их объявила миграция 785, и это безопасно при любой форме таблицы.
+ * Сервис уведомлений работал с колонкой `payload`, которой нет ни в одном файле
+ * схемы. Переписывать живой сервис по одному чтению кода было нельзя, поэтому
+ * расхождение ждало ответа `/api/cron/schema-audit`. Аудит 28.07 показал форму
+ * боевой таблицы: `title` и `message` — отдельные NOT NULL, `data` — jsonb,
+ * `payload` нет, строк в таблице 0 за всё время существования. Ноль строк —
+ * потому что INSERT падал, а `catch` возвращал выдуманный объект с новым UUID.
+ * Сервис переписан на настоящие колонки.
  */
-const KNOWN_UPDATE_GAPS: string[] = ['notifications.payload'];
+const KNOWN_UPDATE_GAPS: string[] = [];
 
 describe('код меняет только объявленные колонки', () => {
   it('новых расхождений в UPDATE не появляется', () => {
@@ -167,6 +164,35 @@ describe('вход через Telegram и согласие на ПД объяв�
     // уникального индекса: обычного из миграции 080 недостаточно.
     const all = SQL_FILES.join('\n');
     expect(all).toMatch(/CREATE\s+UNIQUE\s+INDEX[^;]*users\s*\(\s*telegram_id/i);
+  });
+});
+
+describe('уведомления читаются из настоящих колонок', () => {
+  // Сверка INSERT/UPDATE не видит SELECT, а сломан был именно он: список
+  // уведомлений выбирал `payload` и падал на разборе запроса — колокольчик
+  // отдавал 500 при каждом открытии. Поэтому отдельный сторож по домену.
+  // Смотрим не на файлы целиком, а на сами SQL-строки: слово `payload` вне
+  // запроса — обычно тело веб-пуша или разобранный Zod'ом запрос, и запрещать
+  // его незачем. Запрещена именно колонка.
+  function notificationQueries(src: string): string[] {
+    return src
+      .split('`')
+      .filter((chunk) => /\b(from|into|update)\s+notifications\b/i.test(chunk));
+  }
+
+  const TOUCHING = SOURCES.filter((f) => notificationQueries(f.src).length > 0);
+
+  it('запросы к таблице уведомлений вообще находятся', () => {
+    // Иначе сторож ниже зелен всегда, ничего не проверяя.
+    expect(TOUCHING.length).toBeGreaterThan(3);
+  });
+
+  it('колонка payload больше не упоминается в запросах к notifications', () => {
+    const offenders = TOUCHING
+      .filter((f) => notificationQueries(f.src).some((q) => q.includes('payload')))
+      .map((f) => f.path);
+
+    expect(offenders, 'таблица notifications держит title, message и data — payload в ней нет').toEqual([]);
   });
 });
 
