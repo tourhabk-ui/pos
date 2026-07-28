@@ -40,8 +40,9 @@ interface PreflightRow {
 export async function findRoutePreflightSafety(titleQuery: string): Promise<RoutePreflightSafety | null> {
   const { rows } = await pool.query<PreflightRow>(
     `SELECT id, title, geometry, mchs_phone, mchs_registration_required, difficulty, hazards, equipment
-     FROM v_kamchatka_routes_api
-     WHERE title ILIKE $1
+     FROM kamchatka_routes
+     WHERE (is_visible = TRUE OR is_visible IS NULL)
+       AND title ILIKE $1
      ORDER BY view_count DESC NULLS LAST
      LIMIT 1`,
     [`%${titleQuery}%`],

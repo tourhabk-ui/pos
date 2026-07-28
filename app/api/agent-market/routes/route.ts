@@ -98,8 +98,9 @@ async function fetchRoutes(query: string, limit: number): Promise<RouteRow[]> {
             activity_type, region, description,
             (geometry->'coordinates'->0->>1)::float AS lat,
             (geometry->'coordinates'->0->>0)::float AS lng
-     FROM v_kamchatka_routes_api
-     WHERE ($1 = '' OR title ILIKE $2)
+     FROM kamchatka_routes
+     WHERE (is_visible = TRUE OR is_visible IS NULL)
+       AND ($1 = '' OR title ILIKE $2)
      ORDER BY title
      LIMIT $3`,
     [query, `%${query}%`, limit],
