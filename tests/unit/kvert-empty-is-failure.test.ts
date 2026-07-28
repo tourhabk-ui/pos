@@ -56,4 +56,12 @@ describe('диагностика вместо гадания', () => {
     expect(block).toContain('.slice(0, 300)');
     expect(block).toContain('<script');
   });
+
+  it('закрывающий тег с пробелом тоже ловится', () => {
+    // «</script >» — валидный HTML. Без \\s* такой тег не совпадал, скрипт
+    // оставался в образце целиком и вытеснял полезный текст (нашёл CodeQL).
+    const block = SYNC.slice(SYNC.indexOf('if (parsed.length === 0)'));
+    expect(block).toContain('<\\/script\\s*>');
+    expect(block).toContain('<\\/style\\s*>');
+  });
 });

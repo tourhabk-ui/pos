@@ -100,9 +100,14 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   // пепел на 12 км. Поэтому здесь диагностика: что именно пришло вместо VONA.
   if (parsed.length === 0) {
     result.source_bytes = text.length;
+    // Скрипты и стили выкидываем целиком: иначе в 300 символов диагностики
+    // попадёт инлайн-JS шапки и толку от образца не будет. Закрывающий тег
+    // допускает пробелы («</script >») — без \s* такой тег не ловится, и
+    // остаток страницы утекает в образец (замечено CodeQL).
     result.source_sample = text
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
+      .replace(/<script[\s\S]*?<\/script\s*>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style\s*>/gi, ' ')
+      .replace(/<[^>]*>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 300);
