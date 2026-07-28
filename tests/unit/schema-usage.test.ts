@@ -72,7 +72,6 @@ const KNOWN_GAPS = [
   'lead_proposals.recommended_action',
   'lead_proposals.verdict_urgency',
   'notifications.payload',
-  'notifications.updated_at',
   'operator_settings.i',
   'operator_tours.created_via',
   'tour_availability.is_available',
@@ -96,18 +95,19 @@ describe('код пишет только в объявленные колонк�
 });
 
 /**
- * То же для UPDATE. `notifications.payload` — не пропущенная колонка, а
- * расхождение модели: сервис ждёт payload с title/message внутри, а таблица
- * держит их отдельными NOT NULL. Это продуктовое решение, не переименование.
- * `operator_tours.route_id` — тоже: связь с маршрутом уже есть под именем
- * agent_route_id, и какая из двух настоящая, решает не миграция.
+ * То же для UPDATE. Остался один — и он ждёт не миграции, а факта.
+ *
+ * Сервис уведомлений работает с колонкой `payload`, которой нет ни в одном
+ * файле схемы; таблица держит `title` и `message` отдельными NOT NULL. Похоже,
+ * что сервис сломан целиком, но «похоже» — это ровно тот вывод из чтения кода,
+ * которым нельзя оправдать переписывание живого сервиса. Форму боевой таблицы
+ * покажет `/api/cron/schema-audit`; до его ответа расхождение остаётся
+ * названным и незакрытым.
+ *
+ * `notifications.updated_at`, `operator_tours.route_id` и `ai_tags` из списка
+ * ушли: их объявила миграция 785, и это безопасно при любой форме таблицы.
  */
-const KNOWN_UPDATE_GAPS = [
-  'notifications.payload',
-  'notifications.updated_at',
-  'operator_tours.ai_tags',
-  'operator_tours.route_id',
-];
+const KNOWN_UPDATE_GAPS: string[] = ['notifications.payload'];
 
 describe('код меняет только объявленные колонки', () => {
   it('новых расхождений в UPDATE не появляется', () => {

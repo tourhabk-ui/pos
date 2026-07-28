@@ -555,6 +555,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     priority VARCHAR(20) DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
     action_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     read_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ
 );
