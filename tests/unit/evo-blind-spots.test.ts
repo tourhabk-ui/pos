@@ -16,7 +16,7 @@
  *     рекламы), просто не существовало.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join, relative } from 'path';
 import { clientComponentPaths } from '@/lib/agents/evo/repo-files';
 import { findUnattributedAffiliateLinks } from '@/lib/agents/evo/structural-scan';
@@ -112,11 +112,15 @@ describe('линза не кричит волком', () => {
     // заповедники, документация в комментариях), тест покраснеет здесь, а не
     // мусором в тикетах. Единственный настоящий нарушитель убран в #851.
     const bodies = new Map<string, string>();
+    // withFileTypes: тип узнаём из той же записи каталога, что и имя, — без
+    // отдельного stat между проверкой и чтением. Иначе между «это файл» и
+    // «читаем» лежит окно, в котором файл мог смениться (CodeQL справедливо
+    // указал на это в первой версии теста).
     const walk = (d: string) => {
-      for (const n of readdirSync(d)) {
-        const f = join(d, n);
-        if (statSync(f).isDirectory()) walk(f);
-        else if (n.endsWith('.tsx') && !n.includes('.test.')) {
+      for (const entry of readdirSync(d, { withFileTypes: true })) {
+        const f = join(d, entry.name);
+        if (entry.isDirectory()) walk(f);
+        else if (entry.isFile() && entry.name.endsWith('.tsx') && !entry.name.includes('.test.')) {
           bodies.set(relative(process.cwd(), f), readFileSync(f, 'utf-8'));
         }
       }
