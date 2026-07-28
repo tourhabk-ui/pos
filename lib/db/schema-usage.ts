@@ -110,6 +110,40 @@ export function findUndeclaredWrites(
   return out;
 }
 
+/**
+ * То же для UPDATE. Отдельная функция, а не флаг: у UPDATE другая форма
+ * (`SET col = $1, col2 = $2`) и другая цена ошибки — INSERT с несуществующей
+ * колонкой ломает создание, UPDATE ломает изменение уже созданного. Так нашлись
+ * мёртвая двухфакторная аутентификация и незаписываемая заявка на удаление
+ * аккаунта: обе отдавали пятисотку, а не молчали.
+ */
+export function findUndeclaredUpdates(
+  sources: ReadonlyArray<{ path: string; src: string }>,
+  schema: DeclaredSchema,
+): UndeclaredWrite[] {
+  const out: UndeclaredWrite[] = [];
+
+  for (const { path, src } of sources) {
+    // Ограничиваем хвост: длинный SET с подзапросами разбирать не беремся —
+    // лучше пропустить, чем обвинить по обрывку.
+    for (const m of src.matchAll(/UPDATE\s+"?([a-z_0-9]+)"?\s+SET\s+([\s\S]{0,400}?)(?:WHERE|RETURNING|`)/gi)) {
+      const table = m[1].toLowerCase();
+      if (schema.views.has(table)) continue;
+      if (!schema.created.has(table)) continue;
+      const declared = schema.tables.get(table);
+      if (!declared || declared.size === 0) continue;
+
+      const columns = [...m[2].matchAll(/(?:^|,)\s*"?([a-z_][a-z_0-9]*)"?\s*=/g)].map((x) => x[1].toLowerCase());
+      if (columns.length === 0) continue;
+
+      const undeclared = columns.filter((c) => !declared.has(c));
+      if (undeclared.length > 0) out.push({ file: path, table, columns: undeclared });
+    }
+  }
+
+  return out;
+}
+
 /** Плоский список `таблица.колонка` — удобен для сравнения со списком долга. */
 export function flatten(writes: readonly UndeclaredWrite[]): string[] {
   const set = new Set<string>();
