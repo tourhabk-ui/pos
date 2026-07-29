@@ -152,16 +152,6 @@ export async function getPartnerByUserId(userId: string, category?: string): Pro
  */
 export async function ensurePartnerExists(userId: string, userName: string, userEmail: string, role: string): Promise<string> {
   try {
-    // Check if partner exists
-    const existing = await query(
-      `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    
-    if (existing.rows.length > 0) {
-      return existing.rows[0].id as string;
-    }
-    
     // Map role to category
     const categoryMap: Record<string, string> = {
       'operator': 'operator',
@@ -169,9 +159,29 @@ export async function ensurePartnerExists(userId: string, userName: string, user
       'transfer': 'transfer',
       'agent': 'operator' // agents work as operators
     };
-    
+
     const category = categoryMap[role] || 'operator';
-    
+
+    // Ищем запись ИМЕННО этой категории, а не первую попавшуюся.
+    //
+    // Один человек может оказывать несколько услуг: физлицо с экскурсиями и
+    // трансфером — обычный камчатский случай, и у него две записи в partners
+    // под одним user_id. Прежний запрос `WHERE user_id = $1 LIMIT 1` возвращал
+    // произвольную из них: кабинет оператора мог получить трансферную запись и
+    // показать чужие туры. Сортировка по created_at делает выбор ещё и
+    // повторяемым, если дублей одной категории окажется несколько.
+    const existing = await query(
+      `SELECT id FROM partners
+        WHERE user_id = $1 AND category = $2
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [userId, category]
+    );
+
+    if (existing.rows.length > 0) {
+      return existing.rows[0].id as string;
+    }
+
     // Create new partner record
     const result = await query(
       `INSERT INTO partners (user_id, name, category, contact, is_verified, rating, review_count)
