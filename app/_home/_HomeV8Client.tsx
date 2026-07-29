@@ -1143,12 +1143,15 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
-/* Точка остаётся 6px, а нажимается 44x44: сама точка рисуется вложенным
+/* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
    ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
    размером с крупинку, и в перчатке в него не попасть вовсе.
-   gap отрицательный, чтобы прозрачные зоны не разносили точки по экрану. */
-.v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:2px}
-.v7 .pl-dots button{width:44px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
+   Почему 26 по ширине, а не 44: соседние точки стоят в ряд, и зоны шириной
+   44px либо налезли бы друг на друга (нажатие достаётся случайной), либо
+   разнесли бы точки через весь экран. Ширина здесь ограничена шагом ряда, а
+   высота — нет, и именно вертикального допуска пальцу не хватало. */
+.v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:0}
+.v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
 .v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--hair);transition:background .2s,transform .2s}
 .v7 .pl-dots button.on::after{background:var(--shroom);transform:scale(1.25)}
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--plate) center/cover no-repeat}
