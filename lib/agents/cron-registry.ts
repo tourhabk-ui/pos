@@ -317,12 +317,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-kuzmich-sezon.yml', cron: '23 16 * * 2,6', schedule: 'вт/сб · 16:23 UTC',
     everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
   },
-  {
-    key: 'place-images', label: 'Place Images Backfill',
-    description: 'Догоняет точки без фото: Qwen-Image обложки пачками до remaining=0.',
-    workflow: 'cron-place-images.yml', cron: '17 21 * * *', schedule: 'ежедневно · 21:17 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
-  },
+  // place-images удалён из реестра 29.07: генерация AI-обложек остановлена
+  // решением владельца (issue #878). Запись нельзя было просто оставить с
+  // прежним расписанием — Watchdog проверяет liveness по этому реестру и
+  // вечно докладывал бы о мёртвом кроне. Ложная тревога на safety-платформе
+  // обесценивает настоящие: сторож, который всегда красный, перестают читать.
+  // Вернут генерацию — вернуть и запись, вместе с блоком schedule в workflow.
 ];
 
 /**
@@ -414,7 +414,6 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'kuzmich-route': 'unknown',
   'kuzmich-tip': 'unknown',
   'kuzmich-sezon': 'unknown',
-  'place-images': 'unknown',
 };
 
 export function idleMeaning(key: string): IdleMeaning {

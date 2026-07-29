@@ -134,7 +134,8 @@ export async function GET(
       filename  = `tourhab-voucher-${r.id}.pdf`;
     }
 
-    return new NextResponse(pdfBuffer, {
+    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         'Content-Type':        'application/pdf',

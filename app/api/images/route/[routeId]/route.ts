@@ -35,7 +35,9 @@ export async function GET(_req: NextRequest, { params }: Props) {
     );
 
     if (rows.length > 0) {
-      return new NextResponse(rows[0].image_data as Buffer, {
+      // Uint8Array, а не Buffer: с TS 5.9 Buffer<ArrayBufferLike> не проходит
+      // в BodyInit. Копия байтов — честная цена за отсутствие каста.
+      return new NextResponse(new Uint8Array(rows[0].image_data as Buffer), {
         headers: {
           'Content-Type': rows[0].mime_type as string,
           'Cache-Control': 'public, max-age=31536000, immutable',
