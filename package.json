@@ -90,7 +90,7 @@
     "date-fns": "^4.4.0",
     "dotenv": "^16.6.1",
     "eslint": "^8.57.0",
-    "eslint-config-next": "15.5.16",
+    "eslint-config-next": "16.2.12",
     "framer-motion": "^12.42.2",
     "idb": "^8.0.3",
     "jose": "^6.2.4",
