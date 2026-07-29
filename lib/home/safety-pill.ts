@@ -12,6 +12,12 @@
  * Счётчик предупреждений приходит из выборки с `LIMIT 5` (fetchSafety), поэтому
  * пятёрка может означать «пять и больше». Пишем «5+», а не ровное «5»: цифра,
  * которая молча упирается в потолок, — это то же враньё, только аккуратное.
+ *
+ * Текст короткий — без «Сегодня: ». На боевом экране 1080px первая версия не
+ * влезла в шапку и обрезалась многоточием: «Сегодня: оп». Обрезанное слово
+ * «опасность» — худший из возможных исходов, индикатор выглядит исправным и
+ * не читается. Слово «сегодня» несло смысл свежести, но эту роль берёт на
+ * себя место: пилюля стоит в шапке и обновляется с каждым рендером.
  */
 
 export type SafetyTone = 'calm' | 'warning' | 'danger';
@@ -42,11 +48,11 @@ export interface SafetyPillInput {
 }
 
 export function safetyPill({ activeCount, maxSeverity, limit = 5 }: SafetyPillInput): SafetyPill {
-  if (activeCount <= 0) return { tone: 'calm', text: 'Сегодня: спокойно' };
+  if (activeCount <= 0) return { tone: 'calm', text: 'Спокойно' };
   // severity 2+ — тот же порог, по которому уходит push-рассылка и краснеет
   // recommender_status. Одно правило на всю платформу, не отдельное для витрины.
-  if (maxSeverity >= 2) return { tone: 'danger', text: 'Сегодня: опасность' };
+  if (maxSeverity >= 2) return { tone: 'danger', text: 'Опасность' };
   const capped = activeCount >= limit;
   const n = capped ? `${limit}+` : String(activeCount);
-  return { tone: 'warning', text: `Сегодня: ${n} ${pluralWarnings(capped ? limit + 1 : activeCount)}` };
+  return { tone: 'warning', text: `${n} ${pluralWarnings(capped ? limit + 1 : activeCount)}` };
 }
