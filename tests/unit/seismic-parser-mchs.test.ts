@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { classifyMchsItem, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, ingestVkMchs, ingestMaxItems, detectRoadRestriction, titleFingerprint } from '@/lib/services/safety/seismic-parser';
+import { classifyMchsItem, classifyMchsItems, mchs_zones, fetchMchsFeedXml, ingestMchsAlerts, ingestVkMchs, ingestMaxItems, detectRoadRestriction, titleFingerprint } from '@/lib/services/safety/seismic-parser';
 
 // Мок БД: ingestMaxItems сохраняет реальные события через query(). В тестах не
 // ходим в Postgres — подменяем слой БД. vi.hoisted, чтобы фабрика мока увидела
@@ -173,7 +173,7 @@ describe('classifyMchsItem — сводка ГУ МЧС из ВК (source vk_mch
     );
     expect(e).not.toBeNull();
     expect(e!.alert_type).toBe('road_closure');
-    expect(e!.source_id).toMatch(/^vk_mchs\/t/);
+    expect(e!.source_id).toMatch(/^vk_mchs\/\d{4}-\d{2}-\d{2}\/t/);
     expect(e!.source_url).toBe('https://vk.com/wall-123_12345');
   });
 
@@ -259,7 +259,7 @@ describe('classifyMchsItem — сводка ГУ МЧС из MAX (source max_mch
     );
     expect(e).not.toBeNull();
     expect(e!.alert_type).toBe('volcanic_eruption');
-    expect(e!.source_id).toMatch(/^max_mchs\/t/);
+    expect(e!.source_id).toMatch(/^max_mchs\/\d{4}-\d{2}-\d{2}\/t/);
   });
 });
 
@@ -303,7 +303,7 @@ describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsI
     expect(r.inserted).toBe(1);
     expect(r.events).toHaveLength(1);
     expect(r.events[0].alert_type).toBe('road_closure');
-    expect(r.events[0].source_id).toMatch(/^max_mchs\/t/);
+    expect(r.events[0].source_id).toMatch(/^max_mchs\/\d{4}-\d{2}-\d{2}\/t/);
     expect(r.events[0].source_url).toBe('https://max.ru/id4101120929_gos/11');
     expect(querySpy).toHaveBeenCalledTimes(1);
   });
@@ -401,5 +401,113 @@ describe('ingestMchsAlerts', () => {
     expect(result.inserted).toBe(0);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]).toContain('none of');
+  });
+});
+
+// ── Суточная сводка ГУ МЧС (живой текст 29.07) ────────────────────────────────
+//
+// Владелец прислал сводку за сутки 28-29.07. Прогон через классификатор показал
+// два независимых отказа, оба проверены запуском, а не чтением:
+//
+//   1. Отпечаток внешнего id считался по ЗАГОЛОВКУ, а у постов ВК/МАХ заголовка
+//      нет — весь текст приходит в description. titleFingerprint('') = константа
+//      '45h', значит все посты канала получали один и тот же external_id. Первый
+//      пост в истории вставился, каждый следующий уходил в ON CONFLICT DO
+//      NOTHING. Канал суточных сводок был мёртв с рождения, молча. Заодно пустой
+//      title уезжал в active_alerts пустой строкой на карточках маршрутов.
+//
+//   2. Сводка многотемна, а классификатор однотемен: цепочка if/else даёт один
+//      тип, один severity и одну зону на весь пост. Вся сводка схлопывалась в
+//      volcanic_eruption severity 1 с зоной ПЕРВОГО встреченного вулкана
+//      (Шивелуч → northern): предупреждение о Мутновском уезжало на северные
+//      маршруты, дорожное ограничение терялось совсем.
+const SVODKA_29_07 = `К тушению техногенных пожаров и ликвидации последствий ДТП сотрудники МЧС России не привлекались.
+За сутки произошли два неощущаемых сейсмособытия.
+На вулкане Шивелуч произошел пепловый выброс. В посёлках Ключи и Козыревск Усть-Камчатского округа зафиксировано выпадение незначительного количества вулканического пепла.
+Сохраняется риск схода оползней и обвалов с вулкана Мутновского. Спасатели настоятельно рекомендуют не приближаться к исполину.
+Продолжается активность вулканов Безымянного, Шивелуча, Ключевского, Крашенинникова. Жителям и гостям региона рекомендуют не приближаться к исполинам.
+Остаются ограничения для пассажирского транспорта на дороге мыс Левашова – посёлок Октябрьский в Усть-Большерецком округе.
+Период сводки — с 06:00 28.07. по 06:00 29.07.`;
+
+const svodkaEvents = () =>
+  classifyMchsItems('max/svodka', '', SVODKA_29_07, '2026-07-29T06:00:00Z', 'https://max.ru/x', 'max_mchs');
+
+describe('суточная сводка ГУ МЧС разбирается по темам (живой текст 29.07)', () => {
+  it('темы не схлопываются в одну: пеплопад, оползни и дорога — разные события', () => {
+    const events = svodkaEvents();
+    expect(events.length).toBeGreaterThanOrEqual(3);
+    expect(events.map((e) => e.alert_type).sort()).toContain('road_closure');
+  });
+
+  it('каждая тема уходит в СВОЮ зону, а не в зону первого вулкана', () => {
+    const events = svodkaEvents();
+    const zoneOf = (re: RegExp) => events.find((e) => re.test(e.title))?.affected_zones;
+    expect(zoneOf(/Шивелуч/), 'пеплопад в Ключах и Козыревске — север').toEqual(['northern']);
+    expect(zoneOf(/Мутновск/), 'Мутновский — Авачинская группа, не север').toEqual(['avachinsky']);
+    expect(zoneOf(/Левашова/), 'Усть-Большерецкий округ — западное побережье').toEqual(['western']);
+  });
+
+  it('прямой запрет «не приближаться» поднимает severity до 2 — иначе ни красного статуса, ни пуша', () => {
+    const mutnovsky = svodkaEvents().find((e) => /Мутновск/.test(e.title));
+    expect(mutnovsky?.severity).toBe(2);
+  });
+
+  it('дорожное ограничение отглагольным существительным распознаётся', () => {
+    // «Остаются ОГРАНИЧЕНИЯ ... на ДОРОГЕ»: между ними стоит предмет
+    // ограничения, слов «проезд»/«движение» в строке нет вовсе.
+    expect(
+      detectRoadRestriction('остаются ограничения для пассажирского транспорта на дороге мыс левашова – посёлок октябрьский'),
+    ).not.toBeNull();
+  });
+
+  it('у каждого события свой external_id и непустой заголовок', () => {
+    const events = svodkaEvents();
+    expect(new Set(events.map((e) => e.source_id)).size).toBe(events.length);
+    for (const e of events) expect(e.title.length).toBeGreaterThan(10);
+  });
+
+  it('дежурная строка «продолжается активность вулканов» алертом не становится', () => {
+    // Она стоит в сводке КАЖДЫЙ день. Ловить её — значит держать северную зону
+    // вечно красной с ежедневным продлением: усталость от ложных тревог, ровно
+    // то, из-за чего парсер уже чистили дважды (телеанонсы, учения).
+    const e = classifyMchsItem(
+      'max/routine', '',
+      'Продолжается активность вулканов Безымянного, Шивелуча, Ключевского, Крашенинникова. Жителям и гостям региона рекомендуют не приближаться к исполинам.',
+      '2026-07-29T06:00:00Z', 'https://max.ru/x', 'max_mchs',
+    );
+    expect(e).toBeNull();
+  });
+});
+
+describe('посты соцканалов больше не делят один external_id', () => {
+  it('три разных поста ВК — три разных ключа (было: один на всех, «vk_mchs/t45h»)', () => {
+    const mk = (text: string) =>
+      classifyMchsItem('id', '', text, '2026-07-29T06:00:00Z', 'https://vk.com/x', 'vk_mchs')!.source_id;
+    const ids = [
+      mk('Временно ограничено движение транспортных средств на участке автодороги «Палана — аэропорт».'),
+      mk('На реках полуострова ожидается подъём уровня воды, возможно подтопление низменных участков.'),
+      mk('Камчатским туристам рекомендуют воздержаться от восхождения на Мутновский вулкан: оползни и обвалы.'),
+    ];
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('ключ датирован: та же опасность назавтра заводится заново', () => {
+    // Иначе действующее предупреждение, повторяемое сводкой ежедневно, попало бы
+    // в базу один раз и после истечения expires_at исчезло бы навсегда. Приём
+    // взят у пожарных термоточек FIRMS: «всё ещё горит» — новость, а не дубль.
+    const text = 'Сохраняется риск схода оползней и обвалов с вулкана Мутновского. Не приближаться.';
+    const day1 = classifyMchsItem('a', '', text, '2026-07-29T06:00:00Z', 'https://x', 'max_mchs')!;
+    const day2 = classifyMchsItem('b', '', text, '2026-07-30T06:00:00Z', 'https://x', 'max_mchs')!;
+    expect(day1.source_id).not.toBe(day2.source_id);
+    expect(day1.source_id).toContain('2026-07-29');
+    expect(day2.source_id).toContain('2026-07-30');
+  });
+
+  it('у ленты RSS ключ прежний, недатированный — там дедуп по заголовку и лечил россыпь дублей', () => {
+    const e = classifyMchsItem(
+      'mchs/1', 'Угроза цунами', 'Объявлена угроза цунами на побережье.',
+      '2026-07-29T06:00:00Z', 'https://41.mchs.gov.ru/1',
+    )!;
+    expect(e.source_id).toMatch(/^mchs\/t[a-z0-9]+$/);
   });
 });

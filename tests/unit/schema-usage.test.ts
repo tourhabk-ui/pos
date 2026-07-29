@@ -50,9 +50,16 @@ const foundUpdates = flatten(findUndeclaredUpdates(SOURCES, schema));
 
 /**
  * Остаток расхождения на момент постановки сторожа. Список закрыт: он может
- * только сокращаться. Чинить его весь одним заходом нельзя — для части колонок
- * тип не выводится из кода однозначно (`ai_actions_log.*`, `lead_proposals.*`), а угадывать тип в схеме безопасности хуже, чем оставить
- * долг названным. Разбирается отдельными правками по доменам.
+ * только сокращаться. Чинить его одним заходом нельзя: для части колонок тип не
+ * выводится из кода однозначно (`ai_actions_log.*`, `lead_proposals.*`), а
+ * угадать тип в схеме платформы безопасности хуже, чем оставить долг названным.
+ * Разбирается отдельными правками по доменам.
+ *
+ * `operator_settings.i` ушёл отсюда НЕ как починенный, а как никогда не
+ * существовавший: это была ошибка разбора. Захват списка колонок обрывался на
+ * первой закрывающей скобке, и в динамическом INSERT туда попадал параметр
+ * стрелочной функции. Фантом сутки числился настоящим долгом — напоминание, что
+ * вывод сторожа тоже проверяется фактом, а не принимается на веру.
  */
 const KNOWN_GAPS = [
   'agent_approvals.agent_id',
@@ -71,7 +78,6 @@ const KNOWN_GAPS = [
   'lead_proposals.conversion_prob',
   'lead_proposals.recommended_action',
   'lead_proposals.verdict_urgency',
-  'operator_settings.i',
   'operator_tours.created_via',
   'tour_availability.is_available',
 ];
@@ -217,5 +223,38 @@ describe('память разговора Кузьмича объявлена', 
     for (const c of ['user_message_count', 'is_authenticated', 'interests_encrypted']) {
       expect(chat?.has(c), `chat_sessions.${c}`).toBe(true);
     }
+  });
+});
+
+/**
+ * Разбор не должен выдумывать колонки там, где список собран в шаблоне.
+ *
+ * Живой случай: `INSERT INTO operator_settings (user_id, ${updates.map((_, i)
+ * => ...)})`. Захват шёл до первой закрывающей скобки — а она принадлежала
+ * стрелочной функции, не списку колонок. В отчёт попадал параметр `i`, и почти
+ * сутки числился в списке долга как настоящая ненайденная колонка.
+ *
+ * Пропускать такой INSERT честнее, чем разбирать наполовину: тот же принцип, по
+ * которому не судим таблицу с неразобранным CREATE TABLE.
+ */
+describe('динамический список колонок не разбирается на глазок', () => {
+  const schemaWith = (sql: string) => parseDeclaredSchema([sql]);
+
+  const DECLARED = `CREATE TABLE IF NOT EXISTS operator_settings (
+  user_id UUID PRIMARY KEY,
+  auto_confirm_bookings BOOLEAN
+);`;
+
+  it('параметр стрелочной функции не считается колонкой', () => {
+    const src = 'await query(`INSERT INTO operator_settings (user_id, ${updates.map((_, i) => updates[i]).join(", ")}) VALUES ($1)`, v);';
+    const found = flatten(findUndeclaredWrites([{ path: 'x.ts', src }], schemaWith(DECLARED)));
+    expect(found, 'разобран динамический список — оттуда взялась фантомная колонка').toEqual([]);
+  });
+
+  it('обычный INSERT по-прежнему проверяется', () => {
+    // Пропуск динамики не должен превратиться в пропуск всего подряд.
+    const src = 'await query(`INSERT INTO operator_settings (user_id, nonexistent_col) VALUES ($1, $2)`, v);';
+    const found = flatten(findUndeclaredWrites([{ path: 'x.ts', src }], schemaWith(DECLARED)));
+    expect(found).toEqual(['operator_settings.nonexistent_col']);
   });
 });
