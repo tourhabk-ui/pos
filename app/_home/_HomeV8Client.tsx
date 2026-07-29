@@ -959,7 +959,10 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
 .v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
 .v7 .topbar .sp{flex:1}
-.v7 .icn{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
+/* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
+   19px: компактность держим внутренним размером глифа, а не урезанием зоны
+   нажатия. Ширины хватает — место освободила убранная из шапки кнопка. */
+.v7 .icn{width:44px;height:44px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
@@ -991,12 +994,15 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
    Стекло здесь законно: подложка — фотография, а не сплошной фон. */
 .v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
 .v7 .hero-find .hfb{width:30px;height:30px;flex:none;border-radius:50%;object-fit:cover}
-.v7 .hero-find input{flex:1;min-width:0;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
+/* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
+   16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
+   мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
+.v7 .hero-find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
 .v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
-.v7 .hero-find button{flex:none;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .hero-find button{flex:none;min-height:44px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
 .v7 .hero-find button:active{transform:scale(.96)}
 .v7 .hero-chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:420px}
-.v7 .hchip{min-height:34px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
+.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:rgba(10,14,12,.52)}
 .v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
@@ -1137,9 +1143,14 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
-.v7 .pl-dots{display:flex;gap:7px;justify-content:center;margin-top:14px}
-.v7 .pl-dots button{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:var(--hair);cursor:pointer;transition:background .2s,transform .2s}
-.v7 .pl-dots button.on{background:var(--shroom);transform:scale(1.25)}
+/* Точка остаётся 6px, а нажимается 44x44: сама точка рисуется вложенным
+   ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
+   размером с крупинку, и в перчатке в него не попасть вовсе.
+   gap отрицательный, чтобы прозрачные зоны не разносили точки по экрану. */
+.v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:2px}
+.v7 .pl-dots button{width:44px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
+.v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--hair);transition:background .2s,transform .2s}
+.v7 .pl-dots button.on::after{background:var(--shroom);transform:scale(1.25)}
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--plate) center/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
@@ -1212,7 +1223,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--fb);color:var(--muted)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
-.v7 .lead .chip{font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:8px 11px;cursor:pointer;transition:.15s}
+.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:0 13px;cursor:pointer;transition:.15s}
 .v7 .lead .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .v7 .lead .field2>input{border:1px solid var(--hair);background:var(--field);padding:14px 13px;font:500 13px/1 var(--fb);color:var(--ink);outline:none}
@@ -1251,7 +1262,9 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 @keyframes emgin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .v7 .emg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px calc(14px);border-bottom:1px solid var(--hair);padding-top:calc(16px + env(safe-area-inset-top))}
 .v7 .emg-top b{font:700 17px/1 var(--fd);color:var(--ink)}
-.v7 .emg-x{width:38px;height:38px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
+/* Закрыть экстренную панель — 44px. Это тот экран, где человеку хуже всего
+   попадать в мелкое. */
+.v7 .emg-x{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
 .v7 .emg-scroll{flex:1;overflow-y:auto;padding:16px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
 .v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
 .v7 .emg-coord{display:flex;flex-direction:column;gap:8px}
