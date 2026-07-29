@@ -35,6 +35,19 @@ export interface OfflineRoute {
   durationDays: number | null;
   bestMonths: number[] | null;
   geometry: { type: string; coordinates: [number, number][]; color?: string; weight?: number } | null;
+  /**
+   * Активные ограничения на момент скачивания пакета (issue #836): дорога
+   * закрыта, пропускной режим, пожар, вулканическая опасность. В поле без
+   * сети это единственный источник — раньше офлайн-пакет нёс только описание
+   * и трек, и турист, скачавший регион перед выездом, о перекрытии не узнавал.
+   *
+   * Данные с временем: alertsAt — когда сняты. Просроченные показываем как
+   * устаревшие, а не как актуальные (vedar-design §7: устаревшее не выдавать
+   * за свежее).
+   */
+  activeAlerts: string[];
+  alertSeverity: number;
+  alertsAt: number | null;
   cachedAt: number;
 }
 
@@ -65,7 +78,11 @@ interface KamchatourDB extends DBSchema {
 // ─── DB singleton ─────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kamchatour-offline';
-const DB_VERSION = 1;
+// v2 — у OfflineRoute появились activeAlerts/alertSeverity/alertsAt (#836).
+// Схема хранилищ не менялась (те же keyPath/индексы), поэтому апгрейд —
+// без миграции данных: старые записи просто не имеют полей, читатели дают
+// им дефолты (пустой список, severity 0, alertsAt null → «данных нет»).
+const DB_VERSION = 2;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 

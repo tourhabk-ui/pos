@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Image from 'next/image';
 import { Backpack } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { calcRentalDays, calcGearPrice } from '@/lib/gear/pricing';
 
 interface GearItem {
   id: string;
@@ -12,12 +13,24 @@ interface GearItem {
   description?: string;
   pricePerDay: number;
   pricePerWeek?: number;
+  pricePerMonth?: number;
+  /** Реальный тариф страховки за день; нет тарифа — чекбокс не показывается. */
+  insurancePerDay?: number;
+  /** Залог: показывается туристу, в итог аренды не входит. */
+  depositAmount?: number;
   imageUrl?: string;
   availableQuantity: number;
   rating?: number;
-  condition: 'new' | 'good' | 'fair';
+  condition: string;
   size?: string;
 }
+
+const CONDITION_META: Record<string, { label: string; toneVar: string }> = {
+  new:       { label: 'Новое',              toneVar: '--success' },
+  excellent: { label: 'Отличное',           toneVar: '--success' },
+  good:      { label: 'Хорошее',            toneVar: '--warning' },
+  fair:      { label: 'Удовлетворительное', toneVar: '--warning' },
+};
 
 interface GearBookingFormProps {
   gear: GearItem;
@@ -51,22 +64,22 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Расчет стоимости
-  const calculateDays = () => {
-    const start = new Date(form.startDate);
-    const end = new Date(form.endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays || 1;
-  };
-
-  const days = calculateDays();
-  const basePrice = days >= 7 && gear.pricePerWeek
-    ? gear.pricePerWeek
-    : gear.pricePerDay * days;
-
-  const insuranceCost = form.insurance ? Math.round(basePrice * 0.1) : 0;
-  const totalPrice = (basePrice + insuranceCost) * form.quantity;
+  // Цена — тем же модулем, что и сервер (lib/gear/pricing): показанное на
+  // кнопке и записанное в заявку обязаны совпадать до копейки. Прежний
+  // локальный расчёт расходился с сервером (10 дней = цена одной недели,
+  // страховка — выдуманные 10%).
+  const days = calcRentalDays(form.startDate, form.endDate) ?? 1;
+  const price = calcGearPrice({
+    days,
+    quantity: form.quantity,
+    pricePerDay: gear.pricePerDay,
+    pricePerWeek: gear.pricePerWeek,
+    pricePerMonth: gear.pricePerMonth,
+    insurancePerDay: gear.insurancePerDay,
+    insurance: form.insurance,
+  });
+  const { basePrice, insuranceCost, totalPrice, breakdown } = price;
+  const depositTotal = (gear.depositAmount ?? 0) * form.quantity;
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -97,9 +110,10 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
     setLoading(true);
 
     try {
+      // Ровно форма контракта сервера: цену клиент НЕ отправляет — её считает
+      // сервер тем же модулем, поэтому подсунуть свою сумму невозможно.
       const bookingData = {
         gearId: gear.id,
-        gearName: gear.name,
         customer: {
           name: form.name,
           email: form.email,
@@ -109,13 +123,7 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
           startDate: form.startDate,
           endDate: form.endDate,
           quantity: form.quantity,
-          days,
           insurance: form.insurance
-        },
-        pricing: {
-          basePrice,
-          insuranceCost,
-          totalPrice
         },
         comments: form.comments
       };
@@ -131,10 +139,12 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
       const result = await response.json();
 
       if (result.success) {
-        toast.success(`Заявка на аренду #${result.data.rentalId} создана! Мы свяжемся с вами для подтверждения.`);
+        toast.success('Заявка на аренду создана! Прокат свяжется с вами для подтверждения.');
         onBookingComplete();
       } else {
-        throw new Error(result.error || 'Ошибка создания заявки');
+        // Серверные отказы содержательны (занято на даты, страховка недоступна) —
+        // показываем их, а не generic «попробуйте позже».
+        toast.error(result.error || 'Ошибка создания заявки. Попробуйте позже.');
       }
     } catch (error) {
       toast.error('Произошла ошибка при создании заявки. Попробуйте позже.');
@@ -181,15 +191,11 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
                 <h4 className="font-bold text-lg">{gear.name}</h4>
                 <p className="text-[var(--text-muted)] text-sm">{gear.category}</p>
                 {gear.size && <p className="text-[var(--accent)] text-sm">Размер: {gear.size}</p>}
-                <p className={`text-sm ${
-                  gear.condition === 'new' ? 'text-green-400' :
-                  gear.condition === 'good' ? 'text-yellow-400' : 'text-orange-400'
-                }`}>
-                  Состояние: {
-                    gear.condition === 'new' ? 'Новое' :
-                    gear.condition === 'good' ? 'Хорошее' : 'Удовлетворительное'
-                  }
-                </p>
+                {CONDITION_META[gear.condition] && (
+                  <p className="text-sm" style={{ color: `var(${CONDITION_META[gear.condition].toneVar})` }}>
+                    Состояние: {CONDITION_META[gear.condition].label}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -304,18 +310,24 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
               {errors.quantity && <p className="text-red-400 text-sm mt-1">{errors.quantity}</p>}
             </div>
 
-            <div>
-              <label htmlFor="gear-insurance" className="flex items-center gap-3">
-                <input
-                  id="gear-insurance"
-                  type="checkbox"
-                  checked={form.insurance}
-                  onChange={(e) => updateForm('insurance', e.target.checked)}
-                  className="text-[var(--accent)] rounded"
-                />
-                <span>Добавить страховку (+10% от стоимости)</span>
-              </label>
-            </div>
+            {/* Страховка — только когда у позиции есть реальный тариф.
+                Прежний чекбокс «+10%» был выдумкой клиента: сервер писал 0. */}
+            {gear.insurancePerDay != null && gear.insurancePerDay > 0 && (
+              <div>
+                <label htmlFor="gear-insurance" className="flex items-center gap-3">
+                  <input
+                    id="gear-insurance"
+                    type="checkbox"
+                    checked={form.insurance}
+                    onChange={(e) => updateForm('insurance', e.target.checked)}
+                    className="text-[var(--accent)] rounded"
+                  />
+                  <span>
+                    Страховка — {gear.insurancePerDay.toLocaleString('ru-RU')} ₽/день за единицу
+                  </span>
+                </label>
+              </div>
+            )}
 
             <div>
               <label htmlFor="gear-comments" className="block text-sm font-medium mb-2">Комментарии</label>
@@ -337,6 +349,18 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
                   <span>Период аренды:</span>
                   <span>{days} {days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'}</span>
                 </div>
+                {(breakdown.months > 0 || breakdown.weeks > 0) && (
+                  <div className="flex justify-between text-[var(--text-secondary)]">
+                    <span>Тариф:</span>
+                    <span>
+                      {[
+                        breakdown.months > 0 ? `${breakdown.months} мес` : null,
+                        breakdown.weeks > 0 ? `${breakdown.weeks} нед` : null,
+                        breakdown.days > 0 ? `${breakdown.days} дн` : null,
+                      ].filter(Boolean).join(' + ')}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span>Базовая стоимость:</span>
                   <span>{basePrice.toLocaleString('ru-RU')} ₽</span>
@@ -356,6 +380,11 @@ export function GearBookingForm({ gear, onBookingComplete, onCancel }: GearBooki
                   <span>Итого:</span>
                   <span className="text-[var(--accent)]">{totalPrice.toLocaleString('ru-RU')} ₽</span>
                 </div>
+                {depositTotal > 0 && (
+                  <p className="text-xs text-[var(--text-muted)] pt-1">
+                    Плюс залог {depositTotal.toLocaleString('ru-RU')} ₽ — возвращается при сдаче снаряжения.
+                  </p>
+                )}
               </div>
             </div>
 

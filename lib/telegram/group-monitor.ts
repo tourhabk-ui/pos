@@ -14,6 +14,7 @@
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { callAIFast } from '@/lib/ai/providers';
+import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -178,7 +179,12 @@ class GroupMonitorService {
           messages_analyzed: messages.length,
           total_analyzed:    totalSoFar,
           intel,
-          sample_messages:   messages.slice(0, 3).map(m => ({ from: m.from, text: m.text.slice(0, 120) })),
+          // Образцы чистим тоже: они лежат в agent_memory и оттуда попадают в
+          // дайджесты и подсказки агентам, то есть снова уезжают в модель.
+          sample_messages:   messages.slice(0, 3).map(m => ({
+            from: redactPII(m.from),
+            text: redactPII(m.text).slice(0, 120),
+          })),
           analyzed_at:       new Date().toISOString(),
         },
         confidence: 0.85,
@@ -219,8 +225,21 @@ class GroupMonitorService {
   }
 
   private async extractIntel(messages: GroupMessage[]): Promise<GroupIntel | null> {
+    // Чистим ПД ПЕРЕД отправкой в модель. Все наши LLM, кроме одного домашнего
+    // стока, живут за границей — телефон или почта в тексте промпта означают
+    // трансграничную передачу персональных данных (152-ФЗ).
+    //
+    // Сюда попадает свободный текст чужих каналов и групп, а не поля из нашей
+    // базы: объявление оператора со строкой «+7 914 ..., Ярослав» — обычный
+    // случай, а не редкость. Сканер `pii-flow-scanner` такое не ловит и поймать
+    // не может: он ищет интерполяцию полей (`.phone`, `*_name`), а здесь номер
+    // лежит внутри текста, поля нет. Поэтому чистка стоит здесь, у самой
+    // границы, а не полагается на статический разбор.
+    //
+    // Имя рядом с телефоном остаётся: отличить его от обычного слова
+    // детерминированно нельзя, а гадать в чистилке ПД — хуже, чем пропустить.
     const rawText = messages
-      .map(m => `[${m.from}]: ${m.text}`)
+      .map(m => `[${redactPII(m.from)}]: ${redactPII(m.text)}`)
       .join('\n')
       .slice(0, 4000);
 

@@ -3,10 +3,7 @@
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import YandexTravelBlock from '@/components/routes/YandexTravelBlock';
-import FlightsBlock from '@/components/routes/FlightsBlock';
-import HotelsBlock from '@/components/routes/HotelsBlock';
-import TransfersBlock from '@/components/routes/TransfersBlock';
-import InsuranceBlock from '@/components/routes/InsuranceBlock';
+import RouteAffiliateBlock from '@/components/routes/RouteAffiliateBlock';
 
 export default function PartnersClient() {
   return (
@@ -34,17 +31,15 @@ export default function PartnersClient() {
               <YandexTravelBlock source="partners_page" />
             </div>
 
-            {/* Авиабилеты + Отели */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-8">
-              <FlightsBlock />
-              <HotelsBlock nights={4} />
-            </div>
-
-            {/* Трансферы + Страховка */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-8">
-              <TransfersBlock />
-              <InsuranceBlock activityTypes={['trekking']} />
-            </div>
+            {/* Авиабилеты, отели, жильё, страховка, трансферы, экскурсии — один
+                блок с настоящими партнёрскими ссылками. Раньше здесь стояли
+                четыре отдельных блока с ВЫДУМАННЫМИ ценами, отелями и
+                трансферами (в том числе «трансфер на Курильское озеро за
+                5000 ₽», куда автомобильной дороги нет), без маркировки рекламы
+                и с неработающими партнёрскими параметрами. Удалены: на
+                платформе, которая обещает не врать цифрами, придуманный прайс
+                хуже пустого места. */}
+            <RouteAffiliateBlock routeId="partners_page" />
 
           </div>
         </section>

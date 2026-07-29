@@ -173,17 +173,20 @@ export const tourService = {
     }
 
     const result = await pool.query(
-      `INSERT INTO tours (
-         name,
+      // Пишем в мастер-таблицу: `tours` — совместимая VIEW (миграция 132), и
+      // половины этих колонок в ней нет (currency, max_group_size), а значит
+      // запрос падал на разборе.
+      `INSERT INTO operator_tours (
+         title,
          description,
-         category,
+         activity_type,
          difficulty,
-         duration,
-         price,
+         duration_hours,
+         base_price,
          currency,
          operator_id,
-         max_group_size,
-         min_group_size,
+         max_participants,
+         min_participants,
          is_active,
          created_at,
          updated_at

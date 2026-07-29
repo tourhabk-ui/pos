@@ -20,6 +20,13 @@ export interface GrowthFinding {
   title: string;
   description: string | null;
   suggestion: string | null;
+  /**
+   * Кто породил находку: реальная модель-решатель или 'deterministic'.
+   * Поле есть в БД с EVO-4, но в тикет не попадало — то есть там, где владелец
+   * находки ЧИТАЕТ, было не видно, сильная модель их дала или waterfall тихо
+   * съехал на фоллбэк. «Аудит считает флагман» оставалось верой.
+   */
+  model?: string | null;
 }
 
 /** Только реальные severity; всё прочее приравниваем к 'medium'. */
@@ -81,7 +88,10 @@ export function buildIssueBody(f: GrowthFinding): string {
     lines.push('');
   }
   lines.push('---');
-  lines.push(`_Заведено автоматически рукой эволюции (Evo Growth Scan). Находка \`${f.id}\`._`);
+  const who = f.model
+    ? (f.model === 'deterministic' ? 'детерминированной проверкой (без модели)' : `моделью \`${f.model}\``)
+    : 'моделью (не записана — прогон до появления атрибуции)';
+  lines.push(`_Заведено автоматически рукой эволюции (Evo Growth Scan). Находка \`${f.id}\`, найдена ${who}._`);
   return lines.join('\n');
 }
 

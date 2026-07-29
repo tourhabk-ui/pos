@@ -52,6 +52,12 @@ export default async function PlacesPage({ searchParams }: PageProps) {
 
   const q = first(sp.q).slice(0, 200);
   const locationType = first(sp.location_type).slice(0, 60);
+  // То же, что на /routes: клиент здесь общий, и без чтения сложности с сервера
+  // ссылка с ?difficulty= рендерилась бы нефильтрованной, а клиент потом молча
+  // перезапрашивал — разный первый экран у поисковика и у человека.
+  const difficultyRaw = first(sp.difficulty);
+  const difficulty: '' | 'easy' | 'medium' | 'hard' =
+    difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
   const pageNumRaw = parseInt(first(sp.page) || '1', 10);
   const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
 
@@ -59,6 +65,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     ...(q ? { q } : {}),
     kind: 'place',
     ...(locationType ? { location_type: locationType } : {}),
+    ...(difficulty ? { difficulty } : {}),
     page,
     limit: LIMIT,
     sort: 'recommended',
@@ -78,7 +85,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     locationType,
     page,
     sort: 'recommended',
-    difficulty: '',
+    difficulty,
     priceRange: '',
   });
 

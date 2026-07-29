@@ -146,3 +146,93 @@ describe('finding-guard — верификационный проход по т�
     expect(verifyAgainstSource({ title: 'x', description: 'no try/catch', suggestion: 'y' }, null)).toBeNull();
   });
 });
+
+/**
+ * Класс, обратный «нет X, когда X есть»: находка УТВЕРЖДАЕТ наличие кода и
+ * цитирует его — а кода нет.
+ *
+ * Не гипотеза: 28.07 я сверил все пятнадцать critical-issues Growth Scan с
+ * реальным файлом app/api/hub/bookings/create/route.ts. Четыре из них
+ * (#768, #770, #772, #774) процитировали конкатенацию SQL, которой в файле нет
+ * ни одной — весь SQL параметризован через $1. Одна (#776) заклеймила запрос
+ * непараметризованным и тут же процитировала `WHERE telegram_chat_id = $1`,
+ * то есть саму параметризацию.
+ *
+ * Прежние проверки этого не ловили: они спрашивают «есть ли X в файле», а надо
+ * спросить «существует ли вообще то, о чём говорит находка».
+ */
+describe('находка цитирует код, которого в файле нет', () => {
+  // Форма реального файла: параметризованный SQL, без единой склейки.
+  const parameterized = `
+    const r = await client.query(
+      \`SELECT ot.id, ot.operator_id FROM operator_tours ot
+        WHERE ot.id = $1 AND ot.is_active = true FOR UPDATE\`,
+      [data.tour_id],
+    );
+    await client.query('INSERT INTO operator_bookings (operator_tour_id) VALUES ($1)', [id]);
+  `;
+
+  it('«SQL-инъекция» в файле без склейки → source_sql_parameterized', () => {
+    expect(verifyAgainstSource({
+      title: 'SQL-инъекция в запросе бронирования',
+      description: "Строка 45: конкатенация 'SELECT * FROM bookings WHERE id = ' + bookingId вместо параметризованного запроса.",
+      suggestion: 'Заменить конкатенацию на параметризованный запрос',
+    }, parameterized)).toBe('source_sql_parameterized');
+  });
+
+  it('настоящая склейка в файле — находка НЕ отклоняется', () => {
+    const vulnerable = 'const sql = `SELECT * FROM bookings WHERE id = ${bookingId}`; await pool.query(sql);';
+    expect(verifyAgainstSource({
+      title: 'SQL-инъекция',
+      description: 'Конкатенация в SQL вместо параметризации',
+      suggestion: 'Использовать $1',
+    }, vulnerable)).toBeNull();
+  });
+
+  it('склейка через + тоже считается настоящей', () => {
+    const vulnerable = "const sql = 'SELECT * FROM bookings WHERE id = ' + bookingId;";
+    expect(verifyAgainstSource({
+      title: 'SQL-инъекция',
+      description: 'непараметризованный запрос',
+      suggestion: 'параметризовать',
+    }, vulnerable)).toBeNull();
+  });
+
+  it('ссылка на строку за пределами файла → line_out_of_range', () => {
+    const short = 'export async function POST() {\n  return new Response();\n}';
+    expect(verifyAgainstSource({
+      title: 'Проблема',
+      description: 'Строка 45: тут что-то не так с логикой',
+      suggestion: 'Починить',
+    }, short)).toBe('line_out_of_range');
+  });
+
+  it('ссылка на существующую строку не мешает находке пройти', () => {
+    const long = Array.from({ length: 60 }, (_, i) => `const x${i} = ${i};`).join('\n');
+    expect(verifyAgainstSource({
+      title: 'Проблема',
+      description: 'Строка 45: тут что-то не так',
+      suggestion: 'Починить',
+    }, long)).toBeNull();
+  });
+});
+
+describe('находка опровергает сама себя', () => {
+  it('клеймит «без параметризации» и цитирует $1 → quotes_placeholder_as_unsafe', () => {
+    // Дословно issue #776 по lib/kuzmich/core.ts.
+    expect(isCredibleFinding({
+      title: 'SQL-инъекция в pool.query',
+      description: 'SQL-запрос к таблице leads использует параметр напрямую в строке запроса без параметризации: WHERE telegram_chat_id = $1.',
+      suggestion: 'Параметризовать запрос',
+    })).toBe(false);
+  });
+
+  it('находка про инъекцию БЕЗ плейсхолдера в тексте проходит content-free слой', () => {
+    // Сверка с файлом — дело verifyAgainstSource, здесь глушить нечего.
+    expect(isCredibleFinding({
+      title: 'SQL-инъекция',
+      description: "Конкатенация 'WHERE id = ' + userId в запросе",
+      suggestion: 'Параметризовать',
+    })).toBe(true);
+  });
+});

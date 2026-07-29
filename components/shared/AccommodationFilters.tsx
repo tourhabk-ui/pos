@@ -12,6 +12,9 @@ interface FiltersState {
   locationZone: string;
   search: string;
   sort: string;
+  /** Даты живут в панели над каталогом; здесь — чтобы spread их не терял. */
+  checkIn: string;
+  checkOut: string;
 }
 
 interface AccommodationFiltersProps {

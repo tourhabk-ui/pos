@@ -13,11 +13,14 @@
  * Данные приходят из серверного data-слоя (app/_home/data.ts).
  */
 
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, LayoutGrid, Sparkles, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, Sun, Moon, Phone, X, ChevronDown, MapPin, Search, User, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { INTENT_CHIPS } from '@/lib/home/intent-chips';
+import { safetyPill } from '@/lib/home/safety-pill';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
@@ -53,6 +56,38 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * Подпись строки ленты. Для ограничения (дорога перекрыта, пропускной режим)
+ * возраст новости не значит ничего: туристу важно, действует ли оно СЕЙЧАС и до
+ * какого числа. Подпись «18 дн назад» под работающим перекрытием читается как
+ * «протухло» — ровно это и заметил владелец на живой главной.
+ * Для остальных типов возраст осмыслен: сводка недельной давности и правда
+ * стареет.
+ */
+const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide']);
+
+export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
+  if (a.type && IN_FORCE_TYPES.has(a.type)) {
+    const until = fmtDate(a.until);
+    return until ? `действует до ${until}` : 'действует';
+  }
+  return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
+}
+
+/**
+ * Обрезка описания для ленты. Бегущая строка — поверхность одного взгляда, а
+ * дорожные ограничения приходят абзацами на 400-600 символов: целиком они не
+ * читаются ни в прокрутке, ни в раскрытом списке (владелец увидел два экрана
+ * текста). Полный текст живёт на карточке маршрута, тут — суть.
+ */
+export function clip(text: string, max = 140): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:—-]+$/, '')}…`;
+}
+
 function magColor(m: number): string {
   if (m >= 6) return 'var(--brusnika)';
   if (m >= 4.5) return 'var(--shroom)';
@@ -73,8 +108,22 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const [plateIdx, setPlateIdx] = useState(0);
   const [reportOpen, setReportOpen] = useState(false);
   const [sosOpen, setSosOpen] = useState(false);
+  const [intent, setIntent] = useState('');
   const leadRef = useRef<HTMLDivElement | null>(null);
   const platesRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
+
+  // Состояние обстановки словом. Дроби нет: районного статуса в базе не
+  // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
+  const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+
+  // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
+  // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
+  const submitIntent = (e: FormEvent) => {
+    e.preventDefault();
+    const q = intent.trim();
+    router.push(q ? `/routes?q=${encodeURIComponent(q)}` : '/routes');
+  };
 
   // По умолчанию тёмная; если пользователь ранее выбрал светлую — восстанавливаем.
   useEffect(() => {
@@ -189,9 +238,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
       <div className="topbar"><div className="in">
         <span className="brand">Ведар</span>
         <span className="sp" />
-        <button className="icn" aria-label="Поиск">
-          <svg viewBox="0 0 24 24" className="li"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-        </button>
+        {/* Обстановка одной строкой. Ведёт к радару на этой же странице — не
+            кнопка-обещание, а работающий переход. */}
+        <a className={`pill pill-${pill.tone}`} href="#radar">
+          <i />{pill.text}
+        </a>
+        {/* Иконки поиска здесь больше нет. Она была кнопкой без обработчика:
+            выглядела рабочей и не делала ничего. Настоящий поиск теперь строкой
+            в герое, прямо под шапкой — и место в узкой шапке освободилось. */}
         <button
           className="icn"
           aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
@@ -214,11 +268,27 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <h1>Полуостров,<br />прочитанный <em>сегодня</em></h1>
           <p className="sub">Маршруты, безопасность и реальные туры проверенных операторов — в одном месте.</p>
 
-          {/* три способа найти тур — каждый в свой инструмент */}
-          <div className="hero-cta">
-            <Link href="/routes" className="hc-btn"><LayoutGrid className="hci" size={17} strokeWidth={2} /><span>Каталог</span></Link>
-            <Link href="/planner" className="hc-btn"><Sparkles className="hci" size={17} strokeWidth={2} /><span>Планировщик</span></Link>
-            <Link href="/kuzmich" className="hc-btn"><Compass className="hci" size={17} strokeWidth={2} /><span>Кузьмич</span></Link>
+          {/* Одно действие вместо трёх равных кнопок. Каталог, планировщик и
+              Кузьмич никуда не делись: каталог — это и есть выдача поиска,
+              планировщик живёт в секции «Собрать поездку» и в чипе «На 3–5
+              дней», Кузьмич — в своей секции и в таб-баре. Три равные кнопки
+              заставляли выбирать инструмент раньше, чем человек выбрал поездку. */}
+          <form className="hero-find" onSubmit={submitIntent} role="search">
+            <Search className="hfi" size={18} strokeWidth={2} aria-hidden />
+            <input
+              type="search"
+              value={intent}
+              onChange={(e) => setIntent(e.target.value)}
+              placeholder="Куда хотите поехать?"
+              aria-label="Поиск по маршрутам и местам"
+              enterKeyHint="search"
+            />
+            <button type="submit">Найти</button>
+          </form>
+          <div className="hero-chips">
+            {INTENT_CHIPS.map((c) => (
+              <Link key={c.key} href={c.href} className="hchip">{c.label}</Link>
+            ))}
           </div>
           {safety.volcanoes[0] && (
             <div className="kvert">
@@ -231,8 +301,32 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
       <div className="wrap">
 
+        {/* 0. ПЕРВЫЙ РЕЗУЛЬТАТ — доказательство, что подбор работает.
+            Никаких «совпадает с вашим запросом»: запроса у гостя ещё не было.
+            Показываем только то, что действительно знаем про этот тур. */}
+        {plates[0] && (
+          <section>
+            <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <Link href={plates[0].kind === 'tour' ? `/marketplace/tours/${plates[0].id}` : `/routes/${plates[0].id}`} className="firstpick">
+              <div className="fp-img" style={plates[0].imageUrl ? { backgroundImage: `url('${plates[0].imageUrl}')` } : undefined}>
+                {!plates[0].imageUrl && <span className="noimg" />}
+              </div>
+              <div className="fp-body">
+                <b>{plates[0].title}</b>
+                {plates[0].description && <span className="fp-cap">{plates[0].description}</span>}
+                <span className="fp-facts">
+                  {fmtPrice(plates[0].priceFrom)
+                    ? <em>от {fmtPrice(plates[0].priceFrom)}</em>
+                    : <em className="muted">Цена по запросу</em>}
+                  {plates[0].kind === 'tour' && <span>тур оператора</span>}
+                </span>
+              </div>
+            </Link>
+          </section>
+        )}
+
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
-        <section>
+        <section id="radar">
           <div className="shead"><h2>Радар обстановки</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
           <RadarScope hazards={radar.hazards} center={radar.center} />
@@ -567,9 +661,9 @@ function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
       <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
       <span className="atx">
         {a.title}
-        {a.description ? <span className="adesc">{a.description}</span> : null}
+        {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
       </span>
-      <span className="ago">{fmtDate(a.at)}{a.at ? ` · ${fmtAgo(a.at)}` : ''}</span>
+      <span className="ago">{alertStamp(a)}</span>
     </li>
   );
   return (
@@ -810,22 +904,42 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .icn .li{width:19px;height:19px}
 .v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 14px;cursor:pointer;transition:transform .13s}
 .v7 .cta-top:active{transform:scale(.96)}
+/* обстановка одной строкой; цвет несёт состояние, а не украшает */
+.v7 .pill{display:inline-flex;align-items:center;gap:7px;min-width:0;min-height:30px;padding:0 11px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--fb);letter-spacing:.02em;color:var(--ink);border:1px solid var(--hair);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .2s}
+.v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
+.v7 .pill-calm i{background:var(--leaf)}
+.v7 .pill-warning i{background:var(--amber)}
+.v7 .pill-danger{border-color:color-mix(in srgb,var(--brusnika) 55%,transparent)}
+.v7 .pill-danger i{background:var(--brusnika)}
 /* ГЕРОЙ фото */
-.v7 .hero-photo{position:relative;min-height:76vh;background-size:cover;background-position:center;display:flex;align-items:flex-end;color:#fff}
-.v7 .hero-in{max-width:480px;margin:0 auto;padding:0 20px 30px;width:100%;text-align:center}
+/* Высота героя: 76vh + шапка 56px + нижняя навигация съедали ровно весь первый
+   экран — под сгибом не оставалось НИЧЕГО, и «Радар» приходилось искать
+   прокруткой, не зная, что он там есть. Теперь герой отдаёт полосу следующему
+   блоку: видно, что страница продолжается. dvh, а не vh, — чтобы прячущаяся
+   панель браузера не дёргала высоту (vh оставлен первой строкой как запасной
+   для старых движков). На широком экране места больше, там герой крупнее. */
+.v7 .hero-photo{position:relative;min-height:60vh;min-height:60dvh;background-size:cover;background-position:center;display:flex;align-items:flex-end;color:#fff}
+@media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
+.v7 .hero-in{max-width:480px;margin:0 auto;padding:0 20px 22px;width:100%;text-align:center}
 .v7 .hero-photo .dateline{display:flex;align-items:center;gap:12px;justify-content:center;color:rgba(255,255,255,.75)}
 .v7 .hero-photo .dateline::before,.v7 .hero-photo .dateline::after{content:"";flex:0 0 30px;height:1px;background:rgba(255,255,255,.4)}
 .v7 .hero-photo .dateline span{font:400 9px/1 var(--fm);letter-spacing:.18em;text-transform:uppercase}
-.v7 .hero-photo h1{margin-top:16px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
+.v7 .hero-photo h1{margin-top:12px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
 .v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
-.v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
-.v7 .hero-cta{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%;max-width:420px}
-.v7 .hc-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:14px 6px;border-radius:14px;text-decoration:none;color:#fff;font:700 10px/1.1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-align:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease,border-color .2s ease}
-.v7 .hc-btn .hci{color:#fff;transition:transform .2s ease}
-.v7 .hc-btn:active{transform:scale(.96)}
-.v7 .hc-btn:hover{background:rgba(10,14,12,.5);border-color:rgba(255,255,255,.3)}
-.v7 .hc-btn:hover .hci{transform:translateY(-1px)}
-.v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
+.v7 .hero-photo .sub{margin:10px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
+/* поиск и чипы в герое — одно действие вместо трёх равных кнопок.
+   Стекло здесь законно: подложка — фотография, а не сплошной фон. */
+.v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
+.v7 .hero-find .hfi{color:rgba(255,255,255,.72);flex:none}
+.v7 .hero-find input{flex:1;min-width:0;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
+.v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
+.v7 .hero-find button{flex:none;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .hero-find button:active{transform:scale(.96)}
+.v7 .hero-chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:420px}
+.v7 .hchip{min-height:34px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
+.v7 .hchip:active{transform:scale(.96)}
+.v7 .hchip:hover{background:rgba(10,14,12,.52)}
+.v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
@@ -884,9 +998,14 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .ticker.scroll.open .ticker-track{animation:none;transform:none}
 /* Кнопка-переключатель. Свёрнутая лента — вся площадь тап-цель (шеврон в углу);
    развёрнутая — компактная кнопка сворачивания в углу, чтобы список можно было листать. */
-.v7 .ticker-toggle{position:absolute;border:0;background:transparent;cursor:pointer;color:var(--faint);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px;z-index:2}
-.v7 .ticker-toggle:not(.open){inset:0;width:100%}
-.v7 .ticker-toggle.open{top:2px;right:2px;padding:6px;border-radius:999px;background:var(--card);border:1px solid var(--hair)}
+/* Раскрывашка — отдельная цель 44px в углу, а НЕ вся площадь ленты.
+   Пока кнопка занимала inset:0, любой тап по ленте (в том числе случайный при
+   прокрутке страницы пальцем) разворачивал её на пол-экрана — владелец поймал
+   это на живой главной. Кнопка должна быть там, где нарисован шеврон. */
+.v7 .ticker-toggle{position:absolute;border:0;cursor:pointer;color:var(--faint);display:flex;align-items:center;justify-content:center;z-index:2;
+  width:44px;height:44px;border-radius:999px;background:transparent}
+.v7 .ticker-toggle:not(.open){right:0;bottom:0}
+.v7 .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--card);border:1px solid var(--hair)}
 .v7 .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
 .v7 .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
@@ -934,6 +1053,16 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .pulse .psel .ptx b{font:500 11px/1.3 var(--fb);color:var(--ink)}
 .v7 .pulse .psel .ptx span{font:400 8px/1.3 var(--fm);color:var(--faint)}
 /* платы */
+/* первый результат подбора — крупнее платы, но той же породы */
+.v7 .firstpick{display:block;text-decoration:none;color:inherit;border:1px solid var(--hair);background:var(--plate);overflow:hidden}
+.v7 .firstpick .fp-img{position:relative;aspect-ratio:16/9;background:var(--plate) center/cover no-repeat}
+.v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
+.v7 .firstpick .fp-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:7px}
+.v7 .firstpick .fp-body b{font:600 17px/1.25 var(--fd);letter-spacing:-.01em}
+.v7 .firstpick .fp-cap{font:400 12.5px/1.5 var(--fb);color:var(--muted)}
+.v7 .firstpick .fp-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;font:400 11.5px/1 var(--fm);color:var(--muted)}
+.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:var(--ink)}
+.v7 .firstpick .fp-facts em.muted{font-weight:400;color:var(--muted)}
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}

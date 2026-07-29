@@ -23,6 +23,8 @@ export interface SafetyAlert {
   type: string | null;
   severity: number;
   at: string | null;
+  /** До какой даты ограничение в силе (expires_at). Для дорожных важнее возраста новости. */
+  until: string | null;
 }
 export interface ElevatedVolcano {
   name: string;
@@ -88,7 +90,7 @@ const ACC_RANK: Record<string, number> = { red: 3, orange: 2, yellow: 1 };
 async function fetchSafety(): Promise<SafetySnapshot> {
   try {
     const [alertsRes, volcRes, freshRes] = await Promise.all([
-      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string }>(
+      query<{ title: string; description: string | null; alert_type: string | null; severity: number; created_at: string; expires_at: string | null }>(
         // Лента безопасности = только actionable-типы, меняющие решение
         // туриста сегодня (закрытия, вулканы, погода, стихии). Общие новости
         // (статистика пожаров, пресс-релизы МЧС) в external_alerts не пускаем —
@@ -97,10 +99,12 @@ async function fetchSafety(): Promise<SafetySnapshot> {
         // DISTINCT ON (заголовок) — ingest иногда заводит один алерт дважды
         // (RSS без дедупа); показываем по одной строке на тему, самую свежую.
         // description несёт важную деталь (объезд, окна проезда по пропускам).
-        `SELECT title, description, alert_type, severity, created_at::text
+        // expires_at — до какой даты ограничение в силе. Для дорожного закрытия
+        // это и есть ответ туристу: не «новости 18 дней», а «действует до».
+        `SELECT title, description, alert_type, severity, created_at::text, expires_at::text
            FROM (
              SELECT DISTINCT ON (lower(title))
-                    title, description, alert_type, severity::int AS severity, created_at
+                    title, description, alert_type, severity::int AS severity, created_at, expires_at
                FROM external_alerts
               WHERE expires_at > NOW()
                 AND alert_type IN (
@@ -131,6 +135,7 @@ async function fetchSafety(): Promise<SafetySnapshot> {
       type: r.alert_type,
       severity: r.severity ?? 0,
       at: r.created_at,
+      until: r.expires_at,
     }));
     const volcanoes = volcRes.rows
       .map((r) => ({ name: r.name, acc: r.acc }))

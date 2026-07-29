@@ -41,12 +41,38 @@ const COLOR_MAP: Record<string, string> = {
   cyan:      '#06B6D4',
 };
 
+/** Попап собирается строкой — любой текст из БД обязан быть экранирован. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** «2 часа назад» / «3 дня назад» — возраст данных об ограничениях. */
+function ageLabel(ts: number): string {
+  const hours = Math.floor((Date.now() - ts) / 3_600_000);
+  if (hours < 1) return 'только что';
+  if (hours < 24) return `${hours} ч назад`;
+  return `${Math.floor(hours / 24)} дн назад`;
+}
+
 function buildPopupHtml(marker: MapMarker): string {
   const hex = COLOR_MAP[marker.color ?? 'blue'] ?? '#2568B0';
   let html = `<div style="font-family:sans-serif;max-width:220px">`;
-  html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${marker.title}</strong>`;
+  html += `<strong style="font-size:13px;color:#111;display:block;margin-bottom:4px">${escapeHtml(marker.title)}</strong>`;
+  // Ограничения — ПЕРЕД описанием: в поле «дорога закрыта» важнее рассказа
+  // о красотах места (issue #836).
+  if (marker.restrictions && marker.restrictions.length > 0) {
+    const age = marker.restrictionsAt ? ` · данные ${ageLabel(marker.restrictionsAt)}` : '';
+    html += `<div style="margin:0 0 6px;padding:6px 8px;border-radius:6px;background:#FEF2F2;border:1px solid #FCA5A5">`;
+    html += `<span style="display:block;color:#B91C1C;font-size:11px;font-weight:700;margin-bottom:2px">Ограничения${escapeHtml(age)}</span>`;
+    html += `<span style="color:#7F1D1D;font-size:11px;line-height:1.35">${marker.restrictions.map(escapeHtml).join('; ')}</span>`;
+    html += `</div>`;
+  }
   if (marker.description) {
-    html += `<span style="color:#555;font-size:12px;line-height:1.4">${marker.description}</span>`;
+    html += `<span style="color:#555;font-size:12px;line-height:1.4">${escapeHtml(marker.description)}</span>`;
   }
   if (marker.href) {
     html += `<a href="${marker.href}" style="color:${hex};font-size:12px;font-weight:600;text-decoration:none;display:inline-block;margin-top:6px">Смотреть маршрут →</a>`;

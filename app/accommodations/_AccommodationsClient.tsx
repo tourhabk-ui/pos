@@ -32,6 +32,9 @@ interface FiltersState {
   locationZone: string;
   search: string;
   sort: string;
+  /** Поиск по датам (Booking-паттерн): обе даты или ни одной. */
+  checkIn: string;
+  checkOut: string;
 }
 
 const DEFAULT_FILTERS: FiltersState = {
@@ -43,6 +46,8 @@ const DEFAULT_FILTERS: FiltersState = {
   locationZone: '',
   search: '',
   sort: 'rating_desc',
+  checkIn: '',
+  checkOut: '',
 };
 
 export function AccommodationsClient() {
@@ -66,6 +71,11 @@ export function AccommodationsClient() {
     if (currentFilters.amenities.length > 0) p.set('amenities', currentFilters.amenities.join(','));
     if (currentFilters.locationZone) p.set('location_zone', currentFilters.locationZone);
     if (currentFilters.search) p.set('search', currentFilters.search);
+    // Даты уходят только парой и только валидные — сервер иначе ответит 400.
+    if (currentFilters.checkIn && currentFilters.checkOut && currentFilters.checkOut > currentFilters.checkIn) {
+      p.set('check_in', currentFilters.checkIn);
+      p.set('check_out', currentFilters.checkOut);
+    }
 
     try {
       const res = await fetch(`/api/accommodations?${p}`);
@@ -119,6 +129,48 @@ export function AccommodationsClient() {
         <p className="text-[var(--text-secondary)] text-lg max-w-xl">
           Отели, хостелы, глэмпинг и кемпинги — от центра Петропавловска до природных парков.
         </p>
+      </div>
+
+      {/* Даты поездки — первичный фильтр жилья (как в booking-сервисах):
+          выбраны обе даты → каталог показывает только объекты со свободным
+          номером на все ночи окна */}
+      <div className="mb-6 flex flex-wrap items-end gap-3">
+        <div>
+          <label htmlFor="stay-check-in" className="ds-label block mb-1">Заезд</label>
+          <input
+            id="stay-check-in"
+            type="date"
+            value={filters.checkIn}
+            min={new Date().toISOString().slice(0, 10)}
+            onChange={e => handleFiltersChange({ ...filters, checkIn: e.target.value })}
+            className="ds-input"
+          />
+        </div>
+        <div>
+          <label htmlFor="stay-check-out" className="ds-label block mb-1">Выезд</label>
+          <input
+            id="stay-check-out"
+            type="date"
+            value={filters.checkOut}
+            min={filters.checkIn || new Date().toISOString().slice(0, 10)}
+            onChange={e => handleFiltersChange({ ...filters, checkOut: e.target.value })}
+            className="ds-input"
+          />
+        </div>
+        {(filters.checkIn || filters.checkOut) && (
+          <button
+            type="button"
+            onClick={() => handleFiltersChange({ ...filters, checkIn: '', checkOut: '' })}
+            className="ds-btn ds-btn-secondary flex items-center gap-1.5 text-sm"
+          >
+            <X size={14} /> Любые даты
+          </button>
+        )}
+        {filters.checkIn && filters.checkOut && filters.checkOut > filters.checkIn && (
+          <p className="text-xs text-[var(--text-muted)] pb-2.5">
+            Показаны только объекты со свободными номерами на эти даты
+          </p>
+        )}
       </div>
 
       {/* Mobile search + filter toggle */}

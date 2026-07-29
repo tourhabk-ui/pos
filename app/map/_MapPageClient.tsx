@@ -124,6 +124,9 @@ interface RoutePoint {
   description: string;
   volcanoStatus?: string | null;
   geometry?: MapMarkerGeometry | null;
+  /** Активные ограничения места (#836): офлайн — из пакета, онлайн — из API. */
+  restrictions?: string[];
+  restrictionsAt?: number | null;
 }
 
 const VOLCANO_STATUS_COLOR: Record<string, string> = {
@@ -259,6 +262,10 @@ export default function MapPageClient() {
               description:  r.description ?? '',
               volcanoStatus: null,
               geometry:     r.geometry as MapMarkerGeometry | null ?? null,
+              // Ограничения из скачанного пакета — ради них #836 и делался:
+              // в поле без сети это единственный источник «дорога закрыта».
+              restrictions:   r.activeAlerts ?? [],
+              restrictionsAt: r.alertsAt ?? null,
             }));
           setAllRoutes(points);
         } catch {
@@ -366,6 +373,10 @@ export default function MapPageClient() {
       coords:      [r.lat, r.lng] as [number, number],
       title:       r.title,
       description: desc,
+      // Ограничения (дорога закрыта, пропускной режим, пожар) — в попап
+      // отдельным блоком. В офлайне приходят из скачанного пакета (#836).
+      restrictions:   r.restrictions ?? undefined,
+      restrictionsAt: r.restrictionsAt ?? null,
       color,
       href:        `/routes/${r.id}`,
       type:        MarkerType.TOUR,

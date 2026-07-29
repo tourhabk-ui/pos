@@ -1,11 +1,16 @@
-import type { Metadata } from 'next';
-import OperatorRegisterClient from './_RegisterClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Регистрация оператора',
-  description: 'Присоединись к платформе. 0% комиссия в апреле.',
-};
-
-export default function OperatorRegisterPage() {
-  return <OperatorRegisterClient />;
+/**
+ * Страница регистрации оператора внутри хаба удалена (сирота-аудит 27.07.2026).
+ *
+ * Она жила без единой ссылки из навигации и несла устаревший маркетинг
+ * («0% комиссия в апреле» — апрель прошёл), а свой POST-флоу дублировал
+ * общий конвейер регистрации по типам (/auth/register-operator → partners +
+ * users, PR-серия «регистрация по типу end-to-end»). Две регистрации с
+ * разными обещаниями — обман кого-то из прочитавших.
+ *
+ * URL сохранён редиректом: старые внешние ссылки не ломаются.
+ */
+export default function OperatorRegisterRedirect() {
+  redirect('/auth/register-operator');
 }

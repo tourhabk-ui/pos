@@ -5,6 +5,11 @@ import { pool } from '@/lib/db-pool';
 import { hashPassword } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { emailService } from '@/lib/notifications/email-service';
+import {
+  PARTNER_CATEGORIES,
+  LEGACY_CATEGORY_ALIASES,
+  normalizePartnerCategory,
+} from '@/lib/partners/categories';
 
 async function notifyAdminTelegram(companyName: string, contactName: string, phone: string, email: string, partnerId: string) {
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -19,11 +24,19 @@ async function notifyAdminTelegram(companyName: string, contactName: string, pho
   void partnerId;
 }
 
-const CATEGORIES = ['operator', 'guide', 'transfer', 'hotel', 'rent', 'fishing'] as const;
+// Категории — из общего справочника. Раньше здесь стоял свой список с
+// `hotel`, `rent` и `fishing`: таких значений нет ни в PARTNER_ROLES, ни в
+// карте кабинетов, ни в CHECK колонки `partners.category`. Три варианта из
+// шести отдавали отказ базы при отправке формы. Старые значения принимаем и
+// переводим в канонические, чтобы открытая вкладка не превратилась в ошибку.
+const ACCEPTED_CATEGORIES = [
+  ...PARTNER_CATEGORIES,
+  ...Object.keys(LEGACY_CATEGORY_ALIASES),
+] as [string, ...string[]];
 
 const Schema = z.object({
   companyName:  z.string().min(2, 'Название компании обязательно'),
-  category:     z.enum(CATEGORIES),
+  category:     z.enum(ACCEPTED_CATEGORIES),
   description:  z.string().max(500).optional().default(''),
   contactName:  z.string().min(2, 'Имя контактного лица обязательно'),
   phone:        z.string().min(10, 'Укажите телефон'),
@@ -60,7 +73,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { companyName, category, description, contactName, phone, email, password } = parsed.data;
+    const { companyName, category: categoryRaw, description, contactName, phone, email, password } = parsed.data;
+
+    const category = normalizePartnerCategory(categoryRaw);
+    if (!category) {
+      return NextResponse.json(
+        { success: false, error: 'Неизвестная категория партнёра' },
+        { status: 400 }
+      );
+    }
 
     client = await pool.connect();
 
@@ -76,11 +97,15 @@ export async function POST(request: NextRequest) {
 
     await client.query('BEGIN');
 
+    // Роль — из выбранной категории, а не всегда 'operator'. Прежде гид,
+    // трансферник и владелец жилья получали роль оператора и, соответственно,
+    // чужой кабинет: партнёрская запись заводилась правильной категории, а
+    // пользователь попадал не туда, где его данные.
     const userResult = await client.query(
       `INSERT INTO users (email, password_hash, name, role, preferences, pd_consent_at, pd_consent_ip, created_at, updated_at)
-       VALUES ($1, $2, $3, 'operator', '{"roles":["operator"]}'::jsonb, NOW(), $4, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), $6, NOW(), NOW())
        RETURNING id, email, name, role`,
-      [email.toLowerCase(), passwordHash, contactName, ip]
+      [email.toLowerCase(), passwordHash, contactName, category, JSON.stringify({ roles: [category] }), ip]
     );
     const user = userResult.rows[0];
 

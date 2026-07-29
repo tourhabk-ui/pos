@@ -127,7 +127,10 @@ export async function GET(req: NextRequest) {
   });
 
   const { rows } = await pool.query<GrowthFinding & { status: string }>(`
-    SELECT id, category, severity, file_path, line_number, title, description, suggestion, status
+    -- model: кто породил находку. Без него в тикете не видно, дал её флагман
+    -- или waterfall тихо съехал на фоллбэк, — а тихое понижение выглядит ровно
+    -- как здоровье (см. buildIssueBody).
+    SELECT id, category, severity, file_path, line_number, title, description, suggestion, status, model
     FROM evo_growth_issues
     WHERE status = 'suggested'
       AND github_issue_url IS NULL

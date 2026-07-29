@@ -21,12 +21,16 @@ import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
+// Префикс a. обязателен: запрос джойнит partners, у которых свои
+// rating/review_count/name — без префикса сортировка была бы ambiguous.
 const ACCOMMODATIONS_SORT_SQL = {
-  price_asc: 'price_per_night_from ASC',
-  price_desc: 'price_per_night_from DESC',
-  rating_desc: 'rating DESC, review_count DESC',
-  name_asc: 'name ASC',
+  price_asc: 'a.price_per_night_from ASC',
+  price_desc: 'a.price_per_night_from DESC',
+  rating_desc: 'a.rating DESC, a.review_count DESC',
+  name_asc: 'a.name ASC',
 } as const;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const accommodationsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -38,6 +42,10 @@ const accommodationsQuerySchema = z.object({
   amenities: z.string().trim().min(1).optional(),
   location_zone: z.string().trim().min(1).optional(),
   search: z.string().trim().max(200).optional(),
+  // Поиск по датам (Booking-паттерн): показываем только объекты, где есть
+  // номер, свободный на ВСЕ ночи окна и не закрытый календарём владельца.
+  check_in: z.string().regex(ISO_DATE).optional(),
+  check_out: z.string().regex(ISO_DATE).optional(),
   sort: z.enum(['price_asc', 'price_desc', 'rating_desc', 'name_asc']).default('rating_desc'),
 });
 
@@ -90,6 +98,8 @@ export async function GET(request: NextRequest) {
       amenities: amenitiesStr,
       location_zone: locationZone,
       search,
+      check_in: checkIn,
+      check_out: checkOut,
       sort,
     } = parsedQuery.data;
 
@@ -104,40 +114,54 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    if ((checkIn && !checkOut) || (!checkIn && checkOut) || (checkIn && checkOut && checkOut <= checkIn)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Некорректные параметры запроса',
+          details: { dates: ['нужны обе даты, выезд — позже заезда'] },
+        },
+        { status: 400 }
+      );
+    }
+
     const offset = (page - 1) * limit;
 
-    // Строим WHERE условия
-    const conditions: string[] = ['is_active = true'];
+    // Строим WHERE условия. Все колонки — с префиксом a.: основной запрос
+    // джойнит partners, а у partners есть свои name/rating/is_verified —
+    // без префикса фильтры search и rating_min падали «column reference
+    // is ambiguous» (500 на живом каталоге).
+    const conditions: string[] = ['a.is_active = true'];
     const params: unknown[] = [];
     let paramIndex = 1;
 
     if (type) {
-      conditions.push(`type = $${paramIndex++}`);
+      conditions.push(`a.type = $${paramIndex++}`);
       params.push(type);
     }
 
     if (priceMin !== undefined) {
-      conditions.push(`price_per_night_from >= $${paramIndex++}`);
+      conditions.push(`a.price_per_night_from >= $${paramIndex++}`);
       params.push(priceMin);
     }
 
     if (priceMax !== undefined) {
-      conditions.push(`price_per_night_from <= $${paramIndex++}`);
+      conditions.push(`a.price_per_night_from <= $${paramIndex++}`);
       params.push(priceMax);
     }
 
     if (ratingMin !== undefined) {
-      conditions.push(`rating >= $${paramIndex++}`);
+      conditions.push(`a.rating >= $${paramIndex++}`);
       params.push(ratingMin);
     }
 
     if (locationZone) {
-      conditions.push(`location_zone = $${paramIndex++}`);
+      conditions.push(`a.location_zone = $${paramIndex++}`);
       params.push(locationZone);
     }
 
     if (search) {
-      conditions.push(`(name ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`);
+      conditions.push(`(a.name ILIKE $${paramIndex} OR a.description ILIKE $${paramIndex})`);
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -150,17 +174,50 @@ export async function GET(request: NextRequest) {
         .filter(Boolean)
         .slice(0, 20);
       if (amenities.length > 0) {
-        conditions.push(`amenities @> $${paramIndex++}::jsonb`);
+        conditions.push(`a.amenities @> $${paramIndex++}::jsonb`);
         params.push(JSON.stringify(amenities));
       }
+    }
+
+    // Доступность на даты: есть активный номер, у которого (1) ни одна ночь
+    // окна не закрыта календарём владельца (блок уровня объекта или номера) и
+    // (2) ни в одну ночь окна пересекающиеся брони не выбирают весь его сток.
+    // Та же семантика, что в book-роуте, — каталог не обещает того, что бронь
+    // потом отклонит.
+    if (checkIn && checkOut) {
+      const ci = `$${paramIndex++}`;
+      const co = `$${paramIndex++}`;
+      params.push(checkIn, checkOut);
+      conditions.push(`EXISTS (
+        SELECT 1 FROM accommodation_rooms r
+        WHERE r.accommodation_id = a.id AND r.is_active = true
+          AND NOT EXISTS (
+            SELECT 1 FROM accommodation_availability av
+            WHERE av.accommodation_id = a.id
+              AND (av.room_id IS NULL OR av.room_id = r.id)
+              AND av.is_blocked
+              AND av.date >= ${ci}::date AND av.date < ${co}::date
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM generate_series(${ci}::date, ${co}::date - 1, '1 day') AS d(day)
+            JOIN accommodation_bookings b
+              ON b.room_id = r.id
+             AND b.status NOT IN ('cancelled')
+             AND b.check_in_date <= d.day
+             AND b.check_out_date > d.day
+            GROUP BY d.day
+            HAVING COUNT(*) >= r.available_rooms
+          )
+      )`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const orderBy = ACCOMMODATIONS_SORT_SQL[sort];
 
-    // Получаем общее количество
+    // Получаем общее количество (тот же алиас a, что и в основном запросе)
     const countResult = await query<{ total: string }>(
-      `SELECT COUNT(*) as total FROM accommodations ${whereClause}`,
+      `SELECT COUNT(*) as total FROM accommodations a ${whereClause}`,
       params
     );
     const total = Number.parseInt(countResult.rows[0]?.total || '0', 10);
@@ -257,6 +314,8 @@ export async function GET(request: NextRequest) {
           amenities: amenitiesStr,
           locationZone,
           search,
+          checkIn: checkIn ?? null,
+          checkOut: checkOut ?? null,
           sort,
         },
       },

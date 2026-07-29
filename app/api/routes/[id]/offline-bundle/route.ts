@@ -32,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       `SELECT id, title, description, lat, lng, difficulty, distance_km,
               elevation_gain_m, duration_hours, season, hazards, equipment,
               mchs_registration_required, mchs_phone, park_name
-       FROM v_kamchatka_routes_api WHERE id = $1`,
+       FROM kamchatka_routes WHERE id = $1 AND (is_visible = TRUE OR is_visible IS NULL)`,
       [id],
     ),
     query(

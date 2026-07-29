@@ -6,7 +6,10 @@ import {
   Building2, Search, Loader2, CheckCircle2, XCircle,
   Clock, Phone, Mail, Calendar, ChevronDown, ChevronUp,
   Send, Pencil, Check, Globe, Copy, Database, RefreshCw, Play,
+  UserPlus, KeyRound,
 } from 'lucide-react';
+import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import type { PartnerCategory } from '@/lib/partners/categories';
 
 type ProfileStatus = 'pending' | 'approved' | 'rejected';
 
@@ -474,6 +477,189 @@ interface ScrapeResult {
 interface DbStatus {
   total: number;
   with_website: number;
+}
+
+/**
+ * Заведение партнёра руками администратора.
+ *
+ * Нужно там, где самостоятельная регистрация не работает: физлицо, которое
+ * само возит экскурсии и трансфер, не заполнит ни ИНН, ни БИК, ни расчётный
+ * счёт, а до формы на сайте не дойдёт вовсе — оно живёт в мессенджере.
+ *
+ * Категорий можно выбрать несколько: экскурсии и трансфер у одного человека
+ * заводятся двумя партнёрскими записями под одной учёткой, как и устроено в
+ * модели.
+ */
+function CreatePartnerPanel({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [description, setDescription] = useState('');
+  const [businessType, setBusinessType] = useState<'individual' | 'ip' | 'ooo' | 'other'>('individual');
+  const [cats, setCats] = useState<PartnerCategory[]>(['operator']);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ email: string; password: string | null; labels: string[]; skipped: string[] } | null>(null);
+
+  const toggleCat = (c: PartnerCategory) =>
+    setCats(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]));
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/operators/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name, categories: cats, contactName, phone, email, description, businessType,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error ?? 'Не удалось создать партнёра');
+        return;
+      }
+      setDone({
+        email: json.data.email,
+        password: json.data.oneTimePassword,
+        labels: (json.data.partners as Array<{ label: string }>).map(p => p.label),
+        skipped: json.data.skipped ?? [],
+      });
+      setName(''); setContactName(''); setPhone(''); setEmail(''); setDescription('');
+      onCreated();
+    } catch {
+      setError('Сеть недоступна. Повторите попытку.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="ds-card p-4 mb-4">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]"
+      >
+        <UserPlus className="w-4 h-4 text-[var(--accent)]" />
+        Завести партнёра вручную
+        {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+
+      {open && (
+        <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
+          <p className="text-xs text-[var(--text-muted)]">
+            Для тех, кто не пройдёт самостоятельную регистрацию: у физлица нет ИНН
+            как у компании, расчётного счёта и БИК. Запись создаётся неопубликованной —
+            на витрину она попадёт только после проверки.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="ds-label">Имя или название</span>
+              <input className="ds-input" value={name} onChange={e => setName(e.target.value)}
+                     placeholder="Сплавы по Быстрой" required minLength={2} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="ds-label">Контактное лицо</span>
+              <input className="ds-input" value={contactName} onChange={e => setContactName(e.target.value)}
+                     placeholder="ФИО" required minLength={2} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="ds-label">Телефон</span>
+              <input className="ds-input" value={phone} onChange={e => setPhone(e.target.value)}
+                     inputMode="tel" required minLength={10} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="ds-label">Email для входа</span>
+              <input className="ds-input" type="email" value={email} onChange={e => setEmail(e.target.value)}
+                     required />
+            </label>
+          </div>
+
+          <fieldset className="flex flex-col gap-2">
+            <span className="ds-label">Что оказывает</span>
+            <div className="flex flex-wrap gap-2">
+              {PARTNER_CATEGORIES.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => toggleCat(c)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    cats.includes(c)
+                      ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10'
+                      : 'border-[var(--border)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  {PARTNER_CATEGORY_LABELS[c]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <label className="flex flex-col gap-1">
+            <span className="ds-label">Форма</span>
+            <select className="ds-input" value={businessType}
+                    onChange={e => setBusinessType(e.target.value as typeof businessType)}>
+              <option value="individual">Физическое лицо</option>
+              <option value="ip">ИП</option>
+              <option value="ooo">ООО</option>
+              <option value="other">Другое</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="ds-label">Описание</span>
+            <textarea className="ds-input min-h-[72px]" value={description}
+                      onChange={e => setDescription(e.target.value)} maxLength={2000} />
+          </label>
+
+          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+
+          <button type="submit" disabled={saving || cats.length === 0} className="ds-btn ds-btn-primary self-start">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Создать'}
+          </button>
+        </form>
+      )}
+
+      {done && (
+        <div className="mt-4 p-3 rounded-lg border border-[var(--success)]/40 bg-[var(--success)]/10 flex flex-col gap-2">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">
+            Заведено: {done.labels.join(', ')}
+          </p>
+          {done.skipped.length > 0 && (
+            <p className="text-xs text-[var(--warning)]">
+              Уже было раньше: {done.skipped.join(', ')}
+            </p>
+          )}
+          {done.password ? (
+            <div className="flex flex-col gap-1">
+              <span className="ds-label flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5" /> Пароль для первого входа
+              </span>
+              <code className="text-sm font-mono select-all text-[var(--text-primary)]">
+                {done.email} · {done.password}
+              </code>
+              <span className="text-xs text-[var(--text-muted)]">
+                Показывается один раз и нигде не хранится. Передайте партнёру и попросите
+                сменить в профиле.
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">
+              Пользователь с таким email уже был — пароль у него свой, новый не создавался.
+            </p>
+          )}
+          <button onClick={() => setDone(null)} className="text-xs text-[var(--ocean)] self-start">
+            Скрыть
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ScraperPanel() {
@@ -1145,6 +1331,10 @@ export default function OperatorsClient() {
             </span>
           )}
         </div>
+
+        {/* Ручное заведение партнёра — до импорта: чаще нужен один живой
+            партнёр, а не пачка из внешнего источника. */}
+        <CreatePartnerPanel onCreated={() => { void load(tab); void loadCounts(); }} />
 
         {/* Scraper panel */}
         <ScraperPanel />

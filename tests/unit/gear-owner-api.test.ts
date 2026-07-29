@@ -252,14 +252,24 @@ describe('GET /api/gear/rentals', () => {
 });
 
 describe('POST /api/gear/rentals', () => {
-  it('проверка доступности читает gear_items и активность позиции', async () => {
+  const mockHappyPath = () => {
     queryMock.mockImplementation((sql: string) => {
-      if (sql.includes('SELECT available_quantity')) {
-        return Promise.resolve({ rows: [{ available_quantity: 3, price_per_day: '500', price_per_week: null }] });
+      if (sql.includes('SELECT name, quantity')) {
+        return Promise.resolve({
+          rows: [{
+            name: 'Палатка', quantity: 3, price_per_day: '500', price_per_week: null,
+            price_per_month: null, insurance_cost_per_day: null, partner_id: null,
+          }],
+        });
       }
+      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: '0' }] });
       if (sql.includes('INSERT INTO gear_rentals')) return Promise.resolve({ rows: [{ id: RENTAL_ID }] });
       throw new Error('unexpected SQL: ' + sql);
     });
+  };
+
+  it('позиция читается из gear_items, доступность — по пересечению дат', async () => {
+    mockHappyPath();
 
     const res = await postRental(jsonReq('http://localhost/api/gear/rentals', 'POST', {
       gearId: ITEM_ID,
@@ -268,9 +278,55 @@ describe('POST /api/gear/rentals', () => {
     }));
     expect(res.status).toBe(200);
 
-    const [availSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('SELECT available_quantity'))!;
-    expect(availSql).toContain('FROM gear_items');
-    expect(availSql).not.toContain('FROM gear\n');
+    const [gearSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('SELECT name, quantity'))!;
+    expect(gearSql).toContain('FROM gear_items');
+
+    const [overlapSql] = queryMock.mock.calls.find(([sql]) => String(sql).includes('peak_rented'))!;
+    expect(overlapSql).toContain('generate_series');
+    expect(overlapSql).toContain('gear_rentals');
+  });
+
+  it('конец раньше начала — 400 до единого запроса в БД', async () => {
+    mockHappyPath();
+    const res = await postRental(jsonReq('http://localhost/api/gear/rentals', 'POST', {
+      gearId: ITEM_ID,
+      customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
+      rental: { startDate: '2099-08-04', endDate: '2099-08-01', quantity: 1 },
+    }));
+    expect(res.status).toBe(400);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('занятые даты — 409 с честным остатком', async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (sql.includes('SELECT name, quantity')) {
+        return Promise.resolve({
+          rows: [{
+            name: 'Палатка', quantity: 3, price_per_day: '500', price_per_week: null,
+            price_per_month: null, insurance_cost_per_day: null, partner_id: null,
+          }],
+        });
+      }
+      if (sql.includes('peak_rented')) return Promise.resolve({ rows: [{ peak_rented: '3' }] });
+      throw new Error('unexpected SQL: ' + sql);
+    });
+
+    const res = await postRental(jsonReq('http://localhost/api/gear/rentals', 'POST', {
+      gearId: ITEM_ID,
+      customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
+      rental: { startDate: '2099-08-01', endDate: '2099-08-04', quantity: 1 },
+    }));
+    expect(res.status).toBe(409);
+  });
+
+  it('страховка без тарифа у позиции — 400, а не молчаливый ноль', async () => {
+    mockHappyPath();
+    const res = await postRental(jsonReq('http://localhost/api/gear/rentals', 'POST', {
+      gearId: ITEM_ID,
+      customer: { name: 'Иван', email: 'ivan@x.ru', phone: '+79990001122' },
+      rental: { startDate: '2099-08-01', endDate: '2099-08-04', quantity: 1, insurance: true },
+    }));
+    expect(res.status).toBe(400);
   });
 });
 
