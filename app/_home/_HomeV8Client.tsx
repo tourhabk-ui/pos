@@ -53,6 +53,38 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * Подпись строки ленты. Для ограничения (дорога перекрыта, пропускной режим)
+ * возраст новости не значит ничего: туристу важно, действует ли оно СЕЙЧАС и до
+ * какого числа. Подпись «18 дн назад» под работающим перекрытием читается как
+ * «протухло» — ровно это и заметил владелец на живой главной.
+ * Для остальных типов возраст осмыслен: сводка недельной давности и правда
+ * стареет.
+ */
+const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide']);
+
+export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
+  if (a.type && IN_FORCE_TYPES.has(a.type)) {
+    const until = fmtDate(a.until);
+    return until ? `действует до ${until}` : 'действует';
+  }
+  return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
+}
+
+/**
+ * Обрезка описания для ленты. Бегущая строка — поверхность одного взгляда, а
+ * дорожные ограничения приходят абзацами на 400-600 символов: целиком они не
+ * читаются ни в прокрутке, ни в раскрытом списке (владелец увидел два экрана
+ * текста). Полный текст живёт на карточке маршрута, тут — суть.
+ */
+export function clip(text: string, max = 140): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:—-]+$/, '')}…`;
+}
+
 function magColor(m: number): string {
   if (m >= 6) return 'var(--brusnika)';
   if (m >= 4.5) return 'var(--shroom)';
@@ -567,9 +599,9 @@ function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
       <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
       <span className="atx">
         {a.title}
-        {a.description ? <span className="adesc">{a.description}</span> : null}
+        {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
       </span>
-      <span className="ago">{fmtDate(a.at)}{a.at ? ` · ${fmtAgo(a.at)}` : ''}</span>
+      <span className="ago">{alertStamp(a)}</span>
     </li>
   );
   return (
@@ -811,21 +843,28 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 14px;cursor:pointer;transition:transform .13s}
 .v7 .cta-top:active{transform:scale(.96)}
 /* ГЕРОЙ фото */
-.v7 .hero-photo{position:relative;min-height:76vh;background-size:cover;background-position:center;display:flex;align-items:flex-end;color:#fff}
-.v7 .hero-in{max-width:480px;margin:0 auto;padding:0 20px 30px;width:100%;text-align:center}
+/* Высота героя: 76vh + шапка 56px + нижняя навигация съедали ровно весь первый
+   экран — под сгибом не оставалось НИЧЕГО, и «Радар» приходилось искать
+   прокруткой, не зная, что он там есть. Теперь герой отдаёт полосу следующему
+   блоку: видно, что страница продолжается. dvh, а не vh, — чтобы прячущаяся
+   панель браузера не дёргала высоту (vh оставлен первой строкой как запасной
+   для старых движков). На широком экране места больше, там герой крупнее. */
+.v7 .hero-photo{position:relative;min-height:60vh;min-height:60dvh;background-size:cover;background-position:center;display:flex;align-items:flex-end;color:#fff}
+@media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
+.v7 .hero-in{max-width:480px;margin:0 auto;padding:0 20px 22px;width:100%;text-align:center}
 .v7 .hero-photo .dateline{display:flex;align-items:center;gap:12px;justify-content:center;color:rgba(255,255,255,.75)}
 .v7 .hero-photo .dateline::before,.v7 .hero-photo .dateline::after{content:"";flex:0 0 30px;height:1px;background:rgba(255,255,255,.4)}
 .v7 .hero-photo .dateline span{font:400 9px/1 var(--fm);letter-spacing:.18em;text-transform:uppercase}
-.v7 .hero-photo h1{margin-top:16px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
+.v7 .hero-photo h1{margin-top:12px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
 .v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
-.v7 .hero-photo .sub{margin:12px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
-.v7 .hero-cta{margin-top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%;max-width:420px}
+.v7 .hero-photo .sub{margin:10px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
+.v7 .hero-cta{margin-top:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%;max-width:420px}
 .v7 .hc-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:14px 6px;border-radius:14px;text-decoration:none;color:#fff;font:700 10px/1.1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-align:center;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease,border-color .2s ease}
 .v7 .hc-btn .hci{color:#fff;transition:transform .2s ease}
 .v7 .hc-btn:active{transform:scale(.96)}
 .v7 .hc-btn:hover{background:rgba(10,14,12,.5);border-color:rgba(255,255,255,.3)}
 .v7 .hc-btn:hover .hci{transform:translateY(-1px)}
-.v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
+.v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
@@ -884,9 +923,14 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .ticker.scroll.open .ticker-track{animation:none;transform:none}
 /* Кнопка-переключатель. Свёрнутая лента — вся площадь тап-цель (шеврон в углу);
    развёрнутая — компактная кнопка сворачивания в углу, чтобы список можно было листать. */
-.v7 .ticker-toggle{position:absolute;border:0;background:transparent;cursor:pointer;color:var(--faint);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px;z-index:2}
-.v7 .ticker-toggle:not(.open){inset:0;width:100%}
-.v7 .ticker-toggle.open{top:2px;right:2px;padding:6px;border-radius:999px;background:var(--card);border:1px solid var(--hair)}
+/* Раскрывашка — отдельная цель 44px в углу, а НЕ вся площадь ленты.
+   Пока кнопка занимала inset:0, любой тап по ленте (в том числе случайный при
+   прокрутке страницы пальцем) разворачивал её на пол-экрана — владелец поймал
+   это на живой главной. Кнопка должна быть там, где нарисован шеврон. */
+.v7 .ticker-toggle{position:absolute;border:0;cursor:pointer;color:var(--faint);display:flex;align-items:center;justify-content:center;z-index:2;
+  width:44px;height:44px;border-radius:999px;background:transparent}
+.v7 .ticker-toggle:not(.open){right:0;bottom:0}
+.v7 .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--card);border:1px solid var(--hair)}
 .v7 .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
 .v7 .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}

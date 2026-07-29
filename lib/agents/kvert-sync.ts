@@ -21,7 +21,13 @@ export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
   upserted: number;   // записано в volcano_status
   matched: number;    // сопоставлено с точкой places
-  unmatched: string[];// имена вулканов без привязки к точке
+  unmatched: string[]; // имена вулканов без привязки к точке
+  /** Диагностика при fetched=0: сколько байт отдал источник. */
+  source_bytes?: number;
+  /** Диагностика при fetched=0: Content-Type ответа — сразу видно HTML это или текст. */
+  source_type?: string | null;
+  /** Диагностика при fetched=0: сырое начало ответа — видно, что пришло вместо VONA. */
+  source_sample?: string;
 }
 
 /**
@@ -87,6 +93,32 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
 
   const parsed = parseVonaFeed(text);
   const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [] };
+
+  // Ноль распознанных блоков — это НЕ «сегодня тихо»: KVERT публикует ACC по
+  // всем действующим вулканам постоянно. Значит либо страница отдала не то
+  // (сменилась вёрстка, ушёл адрес, прилетела заглушка), либо парсер устарел.
+  // Прогоны 26-28.07 возвращали fetched: 0 при HTTP 200 и зелёном статусе —
+  // слой авиационных кодов стоял мёртвым ровно тогда, когда Шивелуч выбросил
+  // пепел на 12 км. Поэтому здесь диагностика: что именно пришло вместо VONA.
+  if (parsed.length === 0) {
+    result.source_bytes = text.length;
+    result.source_type = res.headers.get('content-type');
+    // Сырое начало ответа, без попыток «почистить HTML».
+    //
+    // Сперва тут стояла регулярка, выкусывающая <script>/<style>, и CodeQL
+    // дважды показал, почему это тупик: закрывающий тег бывает и «</script >»,
+    // и «</script foo>», и догонять его шаблоном можно бесконечно. А главное —
+    // фильтровать нечего: для ответа на вопрос «что пришло вместо VONA» первые
+    // же символы и есть ответ. «<!DOCTYPE html>» скажет, что это веб-страница,
+    // «403 Forbidden» — что нас не пустили, обрывок VONA — что сломался парсер.
+    // Управляющие символы схлопываем, чтобы строка читалась в логе.
+    result.source_sample = text
+      .slice(0, 300)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 
   for (const v of parsed) {
     if (!v.nameSlug) { result.unmatched.push(v.volcanoName); continue; }

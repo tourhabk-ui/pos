@@ -138,12 +138,17 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
 // местам. Категория появилась после пропущенной новости о пропусках к
 // Вилючинскому перевалу и закрытии проезда к Вачкажцу (июль 2026): все
 // прежние категории были природными, дорожные ограничения отбрасывались.
-// Последняя альтернатива ловит естественный русский порядок «глагол→предмет»
+// Предпоследняя альтернатива ловит естественный русский порядок «глагол→предмет»
 // («Временно ограничено движение...» из суточной сводки ГУ МЧС в ВК/МАХ) —
 // прежний паттерн требовал «предмет→глагол» и такую формулировку пропускал.
+// Последняя — отглагольное существительное: «Остаются ОГРАНИЧЕНИЯ для
+// пассажирского транспорта на ДОРОГЕ мыс Левашова — посёлок Октябрьский»
+// (сводка 29.07). Ни один прежний вариант её не брал: между «ограничениями» и
+// «дорогой» стоит предмет ограничения, а слова «проезд»/«движение» в строке нет
+// вовсе. Проверено на живой сводке — до правки detectRoadRestriction отдавал null.
 
 const ROAD_RESTRICTION_RE =
-  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)/i;
+  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)|ограничени[а-яё]*[\s\S]{0,80}?(?:автодорог|дорог|проезд|движени)/i;
 
 export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
   if (!ROAD_RESTRICTION_RE.test(text)) return null;
@@ -345,7 +350,9 @@ function classifyEqkam(id: string, text: string, datetime: string): SeismicEvent
 
 // ── Сохранение в БД ───────────────────────────────────────────────────────
 
-async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
+// export — переиспользует wildfire-firms.ts (пожарный слой пишет в те же
+// external_alerts тем же путём, а не дублирует INSERT со своими нюансами).
+export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   try {
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);
@@ -514,6 +521,11 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   [/быстринск/i,    ['western']],
   [/тигильск/i,     ['western']],
   [/усть-камчатск/i,['northern']],
+  // Усть-Большерецкий округ — западное побережье (Охотское море). Появился по
+  // сводке 29.07 «дорога мыс Левашова — посёлок Октябрьский в Усть-Большерецком
+  // округе»: без строки округ уходил в дефолт `avachinsky`, то есть ограничение
+  // на западном берегу вешалось на маршруты Авачинской группы.
+  [/усть-большерецк/i,['western']],
   [/алеутск/i,      ['northern']],
   [/карагинск/i,    ['eastern']],
   [/пенжинск/i,     ['northern']],
@@ -541,6 +553,80 @@ export function titleFingerprint(title: string): string {
     h = ((h << 5) + h + norm.charCodeAt(i)) >>> 0;
   }
   return h.toString(36);
+}
+
+/**
+ * Заголовок для поста без заголовка (ВК, МАХ: весь текст приходит в description).
+ *
+ * До этого title оставался пустым и уезжал в external_alerts как есть — на
+ * карточке маршрута турист видел пустую строку в списке предупреждений. Берём
+ * первую фразу: у сводок она и есть суть пункта («На вулкане Шивелуч произошел
+ * пепловый выброс»).
+ */
+export function titleFromText(text: string): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const first = /^[^.!?]{10,200}/.exec(clean)?.[0] ?? clean;
+  return first.trim().slice(0, 200);
+}
+
+/**
+ * Разбор суточной сводки на самостоятельные пункты.
+ *
+ * Сводка ГУ МЧС — многотемный документ: в одном посте пеплопад на севере,
+ * оползни на юге и дорожное ограничение на западе. Классификатор же однотемный
+ * (цепочка if/else даёт ОДИН тип, ОДИН severity, ОДНУ зону), и на живой сводке
+ * 29.07 это проверено: весь пост схлопывался в `volcanic_eruption` severity 1
+ * с зоной первого встреченного вулкана — предупреждение о Мутновском уезжало
+ * на северные маршруты, а дорога терялась совсем.
+ *
+ * Маркер пункта не зашиваем (в коде эмодзи запрещены) — режем по строкам и
+ * снимаем любую ведущую не-букву. Строки короче 25 знаков — подписи и период
+ * сводки, не темы.
+ */
+export function splitSummaryItems(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.replace(/^[^\p{L}\p{N}]+/u, '').trim())
+    .filter((l) => l.length >= 25);
+}
+
+/**
+ * Классификация поста целиком: одна тема — одно событие, сводка — несколько.
+ *
+ * Разбор включается только для постов БЕЗ заголовка (соцканалы ВК/МАХ, где
+ * сводки и живут) и только если пунктов набралось хотя бы три, а разных тем —
+ * хотя бы две. Item ленты RSS с заголовком остаётся одним событием: там правило
+ * «одно предупреждение — один item» верно, и дробить его — значит вернуть ту
+ * самую шестикратную россыпь одного предупреждения, от которой уходили.
+ */
+export function classifyMchsItems(
+  id: string,
+  title: string,
+  description: string,
+  pubDate: string,
+  link: string,
+  sourcePrefix: string = 'mchs',
+): SeismicEvent[] {
+  const whole = classifyMchsItem(id, title, description, pubDate, link, sourcePrefix);
+
+  if (title.trim() !== '') return whole ? [whole] : [];
+
+  const items = splitSummaryItems(description);
+  if (items.length < 3) return whole ? [whole] : [];
+
+  // Тема = тип + зоны. Совпали — оставляем строгую: пеплопад с рекомендацией
+  // «не приближаться» не должен теряться за нейтральным упоминанием той же горы.
+  const byTopic = new Map<string, SeismicEvent>();
+  for (const item of items) {
+    const ev = classifyMchsItem(id, '', item, pubDate, link, sourcePrefix);
+    if (!ev) continue;
+    const key = `${ev.alert_type}|${[...ev.affected_zones].sort().join(',')}`;
+    const prev = byTopic.get(key);
+    if (!prev || ev.severity > prev.severity) byTopic.set(key, ev);
+  }
+
+  if (byTopic.size < 2) return whole ? [whole] : [];
+  return [...byTopic.values()];
 }
 
 export function classifyMchsItem(
@@ -610,7 +696,12 @@ export function classifyMchsItem(
     // покрывала вулканическую опасность конкретной горы. Явная рекомендация
     // МЧС избегать места — severity 2 (red в recommender_status), иначе 1.
     alert_type = 'volcanic_eruption';
-    severity = /воздержаться|не рекомендует|не совершать|избегать|опасн/.test(text) ? 2 : 1;
+    // «не приближаться» добавлено по сводке 29.07: «Сохраняется риск схода
+    // оползней и обвалов с вулкана Мутновского. Спасатели настоятельно
+    // рекомендуют не приближаться к исполину» давало severity 1 — то есть ни
+    // красного статуса в recommender_status, ни пуша (порог 2). Прямее
+    // сформулировать запрет невозможно, а список ловил только «не рекомендует».
+    severity = /воздержаться|не рекомендует|не совершать|избегать|не приближ|не подход|опасн/.test(text) ? 2 : 1;
     expires_hours = severity >= 2 ? 48 : 24;
   } else {
     return null; // не интересно
@@ -619,17 +710,37 @@ export function classifyMchsItem(
   const publishedAt = new Date(pubDate);
   if (isNaN(publishedAt.getTime())) return null;
 
+  // У постов ВК и МАХ заголовка нет — весь текст приходит в description. Пустой
+  // title означал две поломки сразу, обе проверены запуском классификатора:
+  //   1. titleFingerprint('') — константа, значит ВСЕ посты канала получали один
+  //      external_id ('vk_mchs/t45h'). Первый пост в истории вставился, каждый
+  //      следующий уходил в ON CONFLICT DO NOTHING. Канал сводок был мёртв.
+  //   2. Пустой заголовок уезжал в active_alerts пустой строкой на карточках.
+  // Отсюда — заголовок из первой фразы и отпечаток по нему же.
+  const hadTitle = title.trim() !== '';
+  const effectiveTitle = hadTitle ? title : titleFromText(description);
+
+  // Датированный ключ для постов соцканалов: суточная сводка повторяет
+  // действующую опасность каждый день, а недатированный отпечаток пустил бы её
+  // ровно один раз — после истечения expires_at предупреждение исчезло бы
+  // навсегда. Тот же приём, что у пожарных термоточек FIRMS: «пожар всё ещё
+  // горит» — новость, а не дубль. Для RSS ключ прежний: там дедуп по заголовку
+  // как раз и лечил шестикратную россыпь одного предупреждения.
+  const day = publishedAt.toISOString().slice(0, 10);
+
   return {
     // Дедуп по СОДЕРЖАНИЮ, не по guid: RSS перепубликует одно предупреждение
     // с новыми id, и «Экстренное предупреждение на 16-20 июля» вставлялось
     // шестью строками (скрины владельца 2026-07-17). Одинаковый нормализованный
     // заголовок → одинаковый external_id → ON CONFLICT DO NOTHING.
-    source_id:     `${sourcePrefix}/t${titleFingerprint(title)}`,
+    source_id:     hadTitle
+      ? `${sourcePrefix}/t${titleFingerprint(effectiveTitle)}`
+      : `${sourcePrefix}/${day}/t${titleFingerprint(effectiveTitle)}`,
     source_url:    link || 'https://41.mchs.gov.ru',
     published_at:  publishedAt,
     alert_type,
     severity,
-    title:         title.slice(0, 200),
+    title:         effectiveTitle.slice(0, 200),
     description:   description.slice(0, 800),
     affected_zones: mchs_zones(`${title} ${description}`),
     expires_hours,
@@ -768,10 +879,17 @@ const NEWS_FEED_SOURCES: Array<{ prefix: string; candidates: string[]; optional?
   },
 ];
 
-export async function ingestNewsFeeds(): Promise<ParseResult> {
+/**
+ * @param skipPrefixes источники, которые уже принесены снаружи (раннером) —
+ *   их не тянем с сервера и, главное, не считаем недоступными. Живой случай:
+ *   kamgov.ru с Timeweb не открывается, и каждый прогон писал в ошибки
+ *   «news feed unavailable: kamgov», хотя фид жив — просто не с нашего IP.
+ */
+export async function ingestNewsFeeds(skipPrefixes: string[] = []): Promise<ParseResult> {
   const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
 
   for (const source of NEWS_FEED_SOURCES) {
+    if (skipPrefixes.includes(source.prefix)) continue;
     // Дедуп одинакового содержимого: разные пути могут быть алиасами одного
     // фида (например /rss и /mintur/rss) — не обрабатывать дважды
     const xmls = [...new Set(
@@ -800,6 +918,35 @@ export async function ingestNewsFeeds(): Promise<ParseResult> {
     }
   }
 
+  return result;
+}
+
+/**
+ * Разбор новостного RSS, скачанного НЕ сервером, а GitHub-раннером.
+ *
+ * kamgov.ru недоступен с хостинга (Timeweb) — тот же случай, что t.me и
+ * КБГС РАН: фид живой, но не с нашего IP. Раннер тянет XML и передаёт его в
+ * теле POST, сервер только разбирает. Классификация та же самая, поэтому
+ * дорожные ограничения и вулканические бюллетени из kamgov попадают в
+ * external_alerts наравне с остальными источниками.
+ */
+export async function ingestNewsFeedXmls(xmls: string[], prefix: string): Promise<ParseResult> {
+  const result: ParseResult = { events: [], inserted: 0, skipped: 0, errors: [] };
+  // Разные пути гос-сайта бывают алиасами одного фида — дедуп по содержимому.
+  for (const xml of [...new Set(xmls.filter((x) => x && x.trim().length > 0))]) {
+    for (const it of parseMchsItems(xml)) {
+      const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link, prefix);
+      if (!event) continue;
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
+    }
+  }
   return result;
 }
 
@@ -855,15 +1002,18 @@ export async function ingestVkMchs(): Promise<ParseResult> {
       const pubDate = new Date(post.date * 1000).toISOString();
       const link = `https://vk.com/wall${post.owner_id}_${post.id}`;
       // title пустой — у VK-постов нет заголовка, весь текст в description.
-      const event = classifyMchsItem(id, '', text, pubDate, link, 'vk_mchs');
-      if (!event) continue;
-      result.events.push(event);
-      try {
-        const status = await saveEvent(event);
-        if (status === 'inserted') result.inserted++;
-        else result.skipped++;
-      } catch (e) {
-        result.errors.push((e as Error).message);
+      // Множественная форма: суточная сводка несёт несколько тем сразу, и
+      // каждая должна попасть на свои маршруты со своей зоной. Для RSS ниже
+      // остаётся одиночная — там один item и есть одно предупреждение.
+      for (const event of classifyMchsItems(id, '', text, pubDate, link, 'vk_mchs')) {
+        result.events.push(event);
+        try {
+          const status = await saveEvent(event);
+          if (status === 'inserted') result.inserted++;
+          else result.skipped++;
+        } catch (e) {
+          result.errors.push((e as Error).message);
+        }
       }
     }
   } catch (e) {
@@ -895,16 +1045,17 @@ export async function ingestMaxItems(
       : new Date().toISOString();
     const link = item.link || 'https://max.ru/id4101120929_gos';
     // title пустой — у MAX-постов нет заголовка, весь текст в description.
-    // classifyMchsItem вернёт null для мусора — это и есть сортировка.
-    const event = classifyMchsItem(id, '', text, pubDate, link, 'max_mchs');
-    if (!event) continue;
-    result.events.push(event);
-    try {
-      const status = await saveEvent(event);
-      if (status === 'inserted') result.inserted++;
-      else result.skipped++;
-    } catch (e) {
-      result.errors.push((e as Error).message);
+    // classifyMchsItems вернёт пустой массив для мусора — это и есть сортировка,
+    // и она же разбирает суточную сводку на самостоятельные темы.
+    for (const event of classifyMchsItems(id, '', text, pubDate, link, 'max_mchs')) {
+      result.events.push(event);
+      try {
+        const status = await saveEvent(event);
+        if (status === 'inserted') result.inserted++;
+        else result.skipped++;
+      } catch (e) {
+        result.errors.push((e as Error).message);
+      }
     }
   }
   return result;

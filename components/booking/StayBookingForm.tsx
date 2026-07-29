@@ -334,7 +334,7 @@ export function StayBookingForm({ accommodationId, accommodationName, rooms }: S
         <p className="text-sm text-[var(--danger)]" role="alert">
           {error}{' '}
           {error.includes('войдите') && (
-            <Link href="/login" className="underline text-[var(--ocean)]">Войти</Link>
+            <Link href="/auth/login" className="underline text-[var(--ocean)]">Войти</Link>
           )}
         </p>
       )}

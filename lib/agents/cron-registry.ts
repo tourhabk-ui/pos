@@ -325,6 +325,102 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
 ];
 
+/**
+ * Что означает прогон, отработавший вхолостую (items_processed = 0).
+ *
+ * Liveness отвечает на вопрос «крон запускался», и не отвечает на «крон что-то
+ * сделал». В этой щели жили все поломки, которые за июль находил владелец, а не
+ * платформа: KVERT отдавал `fetched: 0` в день, когда Шивелуч дважды выбросил
+ * пепел, и прогон был зелёным; прочёс эволюции считал репозиторий из десяти
+ * файлов; kamgov неделями возвращал ошибку внутри успешного ответа. Каждый раз
+ * ноль выглядел как здоровье, потому что смотреть было не на что.
+ *
+ * Судить по нулю можно только там, где ноль ненормален. Ноль просроченных
+ * регистраций — хорошая новость, ноль вулканов от KVERT — мёртвый слой. Разницу
+ * знает только человек, поэтому она объявляется здесь явно, а не выводится:
+ *
+ *  - `broken` — источник публикует постоянно, ноль означает обрыв канала;
+ *  - `normal` — ноль штатен и часто желателен (очередь пуста, проблем нет);
+ *  - `unknown` — крон не пишет счётчик работы либо ноль неинтерпретируем.
+ *
+ * `unknown` — честная позиция, а не заглушка: врать тревогой по счётчику,
+ * которого нет, хуже, чем молчать. Тест `cron-idle-coverage` требует, чтобы у
+ * каждого крона реестра значение было проставлено осознанно.
+ */
+export type IdleMeaning = 'broken' | 'normal' | 'unknown';
+
+export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
+  // ── Безопасность ────────────────────────────────────────────────────────
+  // Ноль событий за пять минут — тишина, а не поломка; у ingest свой пофидовый
+  // сторож (SAFETY_SOURCE_EXPECTATIONS), дублировать его нечем.
+  'safety-ingest': 'normal',
+  // Ноль найденных проблем — то, ради чего сторож и работает.
+  'watchdog': 'normal',
+  'sos-bridge': 'normal',
+  'checkin-watchdog': 'normal',
+  'rescue': 'normal',
+  // Оценивает зоны Камчатки на каждом прогоне: ноль оценок = не считал.
+  'danger-analysis': 'broken',
+  // KVERT публикует коды по действующим вулканам постоянно.
+  'kvert-acc': 'broken',
+  'safety-check': 'unknown',
+
+  // ── Операции ────────────────────────────────────────────────────────────
+  // Ноль проблем со здоровьем системы и ноль сгоревших эко — норма.
+  'health': 'normal',
+  'eco-expire': 'normal',
+  // Ниже — кроны, которые счётчик работы не пишут вовсе: судить не по чему.
+  'leads': 'unknown',
+  'tg-watchdog': 'unknown',
+  'llm-budget': 'unknown',
+  'payments': 'unknown',
+  'channel-sync': 'unknown',
+  'support-escalate': 'unknown',
+  'route-escalation': 'unknown',
+  'tour-reminder': 'unknown',
+  'trip-reminders': 'unknown',
+  'booking-stall': 'unknown',
+  'ssr-sentinel': 'unknown',
+
+  // ── Качество ────────────────────────────────────────────────────────────
+  'kuzmich-eval': 'unknown',
+  'kuzmich-redteam': 'unknown',
+  'kb-gap': 'unknown',
+
+  // ── Рост ────────────────────────────────────────────────────────────────
+  // items = сырые сигналы из RSS: ноль означает, что фиды не достались.
+  'intelligence': 'broken',
+  // items = найденные сигналы. Сутки без новостей бывают, трое подряд по
+  // двенадцати фидам — это обрыв, а не спокойная неделя.
+  'scout-digest': 'broken',
+  // У Growth Scan ноль находок — желаемый исход, тревожить по нему нельзя.
+  'evo': 'normal',
+  'scout': 'unknown',
+  'group-scout': 'unknown',
+  'memory-bridge': 'unknown',
+  'engagement': 'unknown',
+  'smart-notify': 'unknown',
+  // OSM с Timeweb недоступен — ноль здесь известен и объяснён внешней
+  // причиной; тревога была бы шумом поверх уже понятого.
+  'osm-traces-scout': 'unknown',
+
+  // ── Контент ─────────────────────────────────────────────────────────────
+  // items = туры с коротким описанием: ноль означает, что переписывать нечего.
+  'editor': 'normal',
+  'enrich-routes': 'unknown',
+  'routes-cache': 'unknown',
+  'kuzmich-places': 'unknown',
+  'import-routes': 'unknown',
+  'kuzmich-route': 'unknown',
+  'kuzmich-tip': 'unknown',
+  'kuzmich-sezon': 'unknown',
+  'place-images': 'unknown',
+};
+
+export function idleMeaning(key: string): IdleMeaning {
+  return CRON_IDLE_MEANING[key] ?? 'unknown';
+}
+
 export function entriesByTier(): Array<{ tier: CronTier; label: string; entries: CronEntry[] }> {
   return TIER_ORDER.map(tier => ({
     tier,

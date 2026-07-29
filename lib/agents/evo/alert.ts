@@ -20,6 +20,8 @@ interface ScanShape {
   issues?: Array<{ severity: string; title: string }>;
   new_issues?: number;
   duration_ms?: number;
+  /** Кто считал прогон: флагман или фоллбэк waterfall. */
+  decision_model?: string | null;
   coverage?: {
     source?: string;
     files_listed?: number;
@@ -50,6 +52,19 @@ interface RescueShape {
 }
 
 /**
+ * Флагманская ли модель считала аудит.
+ *
+ * Решатель ходит флагман → OpenRouter-релей → Anthropic напрямую → DeepSeek/Qwen.
+ * Строка модели приходит в трёх видах: 'anthropic/claude-…' (через OpenRouter),
+ * 'anthropic:claude-…' (напрямую) и голое имя фоллбэка ('deepseek-chat').
+ * Флагманом считаем только явно антропиковский путь — всё прочее это съезд.
+ */
+export function isFlagshipDecision(model: string | null | undefined): boolean {
+  if (!model) return false;
+  return /^anthropic[/:]/.test(model);
+}
+
+/**
  * Возвращает HTML-текст для Telegram или null, если отправлять нечего.
  */
 export function buildEvoAlert(result: EvoAlertInput): string | null {
@@ -64,9 +79,16 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
   const processed = e?.processed ?? 0;
 
   const blind = coverageBlind(s);
+  // Аудит считал не флагман — повод сказать вслух. Waterfall съезжает на
+  // DeepSeek/Qwen молча (нет ключа, лёг релей), и снаружи прогон выглядит
+  // здоровым: зелёный, с находками. Раз владелец требует, чтобы аудит считала
+  // самая сильная модель, тихое понижение обязано быть слышным.
+  // Прогон, где ревью не запускалось (модели нет вовсе), понижением не считаем.
+  const downgraded = Boolean(s?.decision_model) && !isFlagshipDecision(s?.decision_model);
   const nothingNew = newIssues === 0 && rescueAlerts === 0 && result.errors.length === 0 && processed === 0;
-  // Ослепший прочёс — тоже повод для алерта: молчание тут = «не читает всё».
-  if (nothingNew && !blind) return null;
+  // Ослепший прочёс и съезд с флагмана — тоже поводы: молчание тут = «не читает
+  // всё» и «думает не тот».
+  if (nothingNew && !blind && !downgraded) return null;
 
   const cov = s?.coverage;
   return `<b>Evo Scan</b> — новых проблем: ${newIssues} (найдено всего ${issues.length}, критичных ${critical})\n` +
@@ -74,6 +96,11 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
     (blind
       ? `<b>Прочёс ослеп</b>: прочитано 0 файлов (source=${cov?.source ?? '?'}, перечислено ${cov?.files_listed ?? 0}). Источник кода недостижим — sweep пуст.\n`
       : `Прочёс: source=${cov?.source ?? '?'}, отревьюено ${cov?.files_reviewed ?? 0}, мок-скан ${cov?.mock_files_scanned ?? 0}\n`) +
+    (s?.decision_model
+      ? (downgraded
+        ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — не флагман. Проверьте ключ и релей.\n`
+        : `Модель аудита: ${s.decision_model}\n`)
+      : '') +
     (rescueAlerts > 0 ? `<b>Спасатель: ${rescueAlerts} алертов</b>\n` : '') +
     (result.errors.length > 0 ? `Ошибки: ${result.errors.join(', ')}\n` : '') +
     `Время: ${Math.round((s?.duration_ms ?? 0) / 1000)}с`;

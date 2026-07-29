@@ -60,11 +60,8 @@ async function tgPost(chatId: string, text: string, botToken?: string): Promise<
   return { ok: data.ok, error: data.description };
 }
 
-// sendPhoto — caption до 1024 символов. Экспорт — для ручных постов
-// (lib/notifications/manual-channel-post.ts), не только для генераторов ниже.
-export async function tgPostPhoto(chatId: string, photoUrl: string, caption: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
-  const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, error: 'not configured' };
+/** Одна попытка sendPhoto — БЕЗ фолбэка. Причина отказа возвращается наверх. */
+async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string, token: string): Promise<{ ok: boolean; error?: string }> {
   const data = await tgFetchWithRetry(
     `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendPhoto`,
     {
@@ -74,13 +71,55 @@ export async function tgPostPhoto(chatId: string, photoUrl: string, caption: str
       parse_mode: 'HTML',
     },
   );
-  // Если фото по URL недоступно — fallback на текстовый пост
-  if (!data.ok) return tgPost(chatId, caption, token);
-  return { ok: true };
+  return { ok: data.ok, error: data.description };
 }
 
-/** Отправка в MAX канал через MAX Platform API */
-async function maxChannelPost(
+/** Фиксирует пропажу картинки у поста — раньше фолбэк был молчаливым, и посты
+ * уходили текстом без единого следа причины (кейс владельца «Гремучие ключи»
+ * 27.07: фото было выбрано, но в канал ушёл голый текст). */
+function logPhotoFallback(photoUrl: string, error: string | undefined, outcome: 'fallback_photo' | 'text_only'): void {
+  console.error(`[tgPostPhoto] sendPhoto отказал (${outcome}):`, error ?? 'unknown', '| photo:', photoUrl);
+  query(
+    `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+    ['channel_photo_fallback', JSON.stringify({ photo_url: photoUrl, error: error ?? 'unknown', outcome })],
+  ).catch(() => { /* лог не должен ронять пост */ });
+}
+
+// sendPhoto — caption до 1024 символов. Экспорт — для ручных постов
+// (lib/notifications/manual-channel-post.ts), не только для генераторов ниже.
+// fallbackPhotoUrl — вторая попытка (куратор-фото), если основное фото
+// Telegram скачать не смог (>5 МБ, таймаут, 5xx нашего эндпоинта). Текст —
+// последний рубеж, и теперь каждый откат логируется с причиной.
+export async function tgPostPhoto(
+  chatId: string,
+  photoUrl: string,
+  caption: string,
+  botToken?: string,
+  fallbackPhotoUrl?: string | null,
+): Promise<{ ok: boolean; error?: string; fellBackToText?: boolean }> {
+  const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return { ok: false, error: 'not configured' };
+
+  const first = await tgSendPhotoOnce(chatId, photoUrl, caption, token);
+  if (first.ok) return { ok: true };
+
+  if (fallbackPhotoUrl && fallbackPhotoUrl !== photoUrl) {
+    logPhotoFallback(photoUrl, first.error, 'fallback_photo');
+    const second = await tgSendPhotoOnce(chatId, fallbackPhotoUrl, caption, token);
+    if (second.ok) return { ok: true };
+    logPhotoFallback(fallbackPhotoUrl, second.error, 'text_only');
+  } else {
+    logPhotoFallback(photoUrl, first.error, 'text_only');
+  }
+
+  const textResult = await tgPost(chatId, caption, token);
+  return { ...textResult, fellBackToText: true };
+}
+
+/** Отправка в MAX канал через MAX Platform API.
+ * Экспорт — для ручных постов (manual-channel-post.ts), не только для
+ * автоматических публикаторов через postToAllChannels. */
+export async function maxChannelPost(
   text: string,
   photoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
@@ -138,6 +177,7 @@ async function postToAllChannels(
   mainChannelId: string,
   text: string,
   photoUrl?: string | null,
+  fallbackPhotoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   const issue = blockingTextIssue(text);
   if (issue) {
@@ -159,9 +199,9 @@ async function postToAllChannels(
     ? text + `\n\n<a href="${tgLink}">Мы в Telegram</a>`
     : text;
 
-  // 1. Основной TG-канал
+  // 1. Основной TG-канал (фото → куратор-фото → текст, каждый откат логируется)
   const mainResult = photoUrl
-    ? await tgPostPhoto(mainChannelId, photoUrl, tgText)
+    ? await tgPostPhoto(mainChannelId, photoUrl, tgText, undefined, fallbackPhotoUrl)
     : await tgPost(mainChannelId, tgText);
 
   // 2. MAX канал (fire-and-forget)
@@ -599,8 +639,12 @@ ${r.has_track
       continue;
     }
 
+    // Основное фото (реальный снимок места, если есть) + куратор-фолбэк:
+    // если Telegram не смог скачать основное (>5 МБ у wikimedia-оригинала,
+    // таймаут эндпоинта) — пост всё равно уйдёт с честным снимком Камчатки.
     const photoUrl = await resolvePostPhotoUrl(r);
-    const result = await postToAllChannels(channelId, text, photoUrl);
+    const curatorUrl = buildRoutePhotoUrl(r);
+    const result = await postToAllChannels(channelId, text, photoUrl, curatorUrl !== photoUrl ? curatorUrl : null);
 
     if (result.ok) {
       try {

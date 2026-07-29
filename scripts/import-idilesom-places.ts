@@ -200,11 +200,13 @@ async function main() {
         const arkId = createHash('md5').update(`idilesom-${id}`).digest('hex')
           .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
 
+        // `places.id` — TEXT NOT NULL без DEFAULT (аудит боевой схемы 28.07):
+        // вставка без него падала на not-null. Тот же детерминированный ark_id.
         await pool.query(`
           INSERT INTO places (
-            ark_id, name, description, lat, lng,
+            id, ark_id, name, description, lat, lng,
             location_type, source_url, source_name, is_visible
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,'idilesom.com',true)
+          ) VALUES ($1,$1::uuid,$2,$3,$4,$5,$6,$7,'idilesom.com',true)
           ON CONFLICT DO NOTHING
         `, [arkId, place.title, place.description || null,
             place.lat, place.lng, place.locationType, place.sourceUrl]);

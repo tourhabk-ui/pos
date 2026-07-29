@@ -10,8 +10,25 @@
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 
 const REPO_SLUG = 'tourhabk-ui/pos';
-const WALK_ROOTS = ['app', 'lib'];
+// components/ добавлен по разбору 28.07: четыре партнёрских блока с выдуманными
+// ценами и несуществующим трансфером на Курильское озеро жили в
+// components/routes/ — то есть ВНЕ обхода. Мок-детектор, заточенный ровно под
+// этот класс, смотрел не в ту половину дерева и найти их не мог в принципе.
+const WALK_ROOTS = ['app', 'lib', 'components'];
 const SKIP_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', 'coverage']);
+
+/**
+ * Ниже этого числа локальный обход считается непредставительным.
+ *
+ * На проде (standalone) исходников на диске нет, и обход обязан вернуть пусто,
+ * чтобы сработал фоллбэк на GitHub. Но если в контейнер попала горстка .ts
+ * (например через зависимости или частичную копию), обход вернёт «непусто» —
+ * источник объявится 'disk', фоллбэк не сработает, и прочёс всей платформы
+ * схлопнется до этой горстки. Прогон 28.07 00:09 так и отчитался:
+ * files_listed: 10, files_reviewed: 10 — то есть зелёный скан покрывал доли
+ * процента репозитория, и по цифре это было неотличимо от здоровья.
+ */
+const MIN_PLAUSIBLE_LOCAL_FILES = 100;
 
 let cache: { at: number; files: string[] } | null = null;
 const CACHE_MS = 30 * 60 * 1000;
@@ -75,17 +92,34 @@ async function fetchTree(): Promise<string[]> {
 export async function listRepoFiles(): Promise<string[]> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.files;
   let files = await walkLocal();
-  if (files.length > 0) {
+  if (files.length >= MIN_PLAUSIBLE_LOCAL_FILES) {
     _lastSource = 'disk';
   } else {
+    // Горстка файлов на диске — не репозиторий, а обрывок: идём в GitHub.
+    // Если и он недоступен, честно возвращаем то немногое, что нашли локально,
+    // но источником считаем 'none' — прочёс покрытия неполон, и это видно.
+    const local = files;
     files = await fetchTree();
-    _lastSource = files.length > 0 ? 'github' : 'none';
+    if (files.length > 0) {
+      _lastSource = 'github';
+    } else {
+      files = local;
+      _lastSource = 'none';
+    }
   }
   if (files.length > 0) cache = { at: Date.now(), files };
   return files;
 }
 
-/** Клиент-компоненты (.tsx под app/) — цель мок-детектора. */
+/**
+ * Цель мок-детектора: экраны под app/ И переиспользуемые блоки под components/.
+ * Прежде фильтр знал только app/ — а витрина-обманка ровно так же живёт в
+ * components/ (партнёрские блоки с выдуманным прайсом, разбор 28.07).
+ */
 export function clientComponentPaths(all: string[]): string[] {
-  return all.filter((p) => p.startsWith('app/') && p.endsWith('.tsx') && !p.includes('.test.'));
+  return all.filter(
+    (p) => (p.startsWith('app/') || p.startsWith('components/'))
+      && p.endsWith('.tsx')
+      && !p.includes('.test.'),
+  );
 }

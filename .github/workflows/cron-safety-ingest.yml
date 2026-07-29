@@ -38,9 +38,30 @@ jobs:
             "https://t.me/s/minec_tourism" > /tmp/minec.html \
             || echo "" > /tmp/minec.html
 
+          # RSS правительства Камчатки: дорожные ограничения, пропускные
+          # режимы, оперативные сводки Минтура о доступности туробъектов.
+          # Тянем с раннера, а не с сервера: с Timeweb kamgov.ru не открывается,
+          # и сервер каждый прогон писал «news feed unavailable: kamgov» при
+          # живом фиде. У сайта несколько путей — берём все, дубли снимет разбор.
+          : > /tmp/kamgov.json
+          for u in \
+            "https://www.kamgov.ru/rss" \
+            "https://www.kamgov.ru/mintur/rss" \
+            "https://www.kamgov.ru/mintur/news/rss"; do
+            curl -sf --max-time 30 \
+              -H "User-Agent: Mozilla/5.0 (compatible; KamchatourBot/1.0)" \
+              -H "Accept-Language: ru-RU,ru;q=0.9" \
+              "$u" > /tmp/kamgov_one.xml || continue
+            # Не-RSS (гос-сайт на несуществующий путь отдаёт HTML) отбрасываем.
+            grep -qi "<rss\|<feed" /tmp/kamgov_one.xml || continue
+            jq -Rs . < /tmp/kamgov_one.xml >> /tmp/kamgov.json
+          done
+          jq -s . /tmp/kamgov.json > /tmp/kamgov_xml.json 2>/dev/null || echo "[]" > /tmp/kamgov_xml.json
+
           echo "kbgsras: $(wc -c < /tmp/kbgsras.html) bytes"
           echo "eqkam:   $(wc -c < /tmp/eqkam.html) bytes"
           echo "minec:   $(wc -c < /tmp/minec.html) bytes"
+          echo "kamgov:  $(jq 'length' /tmp/kamgov_xml.json) feeds"
 
       # Канал ГУ МЧС Камчатки в госмессенджере MAX (max.ru/id4101120929_gos).
       # Тот же поток оперативных сводок, что VK, но у MAX нет открытого read-API,
@@ -102,14 +123,17 @@ jobs:
           # max_items — массив постов MAX (может быть пустым: SPA/недоступен),
           # добавляем только когда непустой (Zod допускает отсутствие).
           [ -s /tmp/max_items.json ] || echo "[]" > /tmp/max_items.json
+          [ -s /tmp/kamgov_xml.json ] || echo "[]" > /tmp/kamgov_xml.json
           jq -n \
             --rawfile kbgsras_html /tmp/kbgsras.html \
             --rawfile eqkam_html   /tmp/eqkam.html \
             --rawfile minec_html   /tmp/minec.html \
             --slurpfile max_items  /tmp/max_items.json \
+            --slurpfile kamgov_xml /tmp/kamgov_xml.json \
             '{kbgsras_html: $kbgsras_html, eqkam_html: $eqkam_html}
               + (if ($minec_html | length) > 0 then {minec_html: $minec_html} else {} end)
-              + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)' \
+              + (if (($max_items[0] // []) | length) > 0 then {max_items: $max_items[0]} else {} end)
+              + (if (($kamgov_xml[0] // []) | length) > 0 then {kamgov_xml: $kamgov_xml[0]} else {} end)' \
             > /tmp/payload.json
 
           HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 120 \

@@ -1,0 +1,157 @@
+name: Audit prod schema (read-only)
+
+# Отвечает фактами на вопросы, которые до сих пор решались чтением исходников:
+# что реально лежит в боевой базе и какие миграции не применились.
+#
+# Спрашивает ПРОД, а не базу. Прямое подключение к managed PostgreSQL с раннера
+# не работает — проверено четырьмя прогонами (три 10.07, один 28.07) двумя
+# разными способами разбора строки подключения, везде TCP-таймаут: Timeweb не
+# пускает внешние адреса. Прод же ходит в свою базу свободно, а раннер ходит в
+# прод по HTTPS — на этом стоят все кроны платформы.
+#
+# Только чтение. Наружу идут метаданные и счётчики, без пользовательских данных.
+#
+# Триггер по пушу в рабочую ветку нужен потому, что workflow_dispatch под
+# токеном агента отдаёт 403. На main этот workflow не запускается.
+#
+# Прогон 29.07: проверка обновлённого TIMEWEB_TOKEN. Шаг «Какой коммит реально
+# живёт на проде» отдавал HTTP 403 — ключ был, но Timeweb его отвергал, и
+# проверка статуса деплоя молча печатала «статус неизвестен» вместо факта.
+
+
+on:
+  push:
+    branches: [claude/fable-5-announcement-77tv1b]
+    paths:
+      - '.github/workflows/audit-prod-schema.yml'
+      - 'app/api/cron/schema-audit/route.ts'
+      - 'lib/db/schema-facts.ts'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Спросить прод о его схеме
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET не задан в секретах — аудит невозможен"
+            exit 1
+          fi
+          # Ждём появления эндпоинта: время сборки Timeweb заранее неизвестно,
+          # а падать на первой попытке из-за незавершённого деплоя — значит
+          # выдавать «ещё не собралось» за «сломано».
+          HTTP=""
+          for attempt in 1 2 3 4 5 6; do
+            HTTP=$(curl -s -o /tmp/schema.json -w "%{http_code}" --max-time 120 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://vedarai.ru/api/cron/schema-audit")
+            echo "попытка $attempt: HTTP $HTTP"
+            [ "$HTTP" = "404" ] || break
+            [ "$attempt" = "6" ] || sleep 60
+          done
+          if [ "$HTTP" = "404" ]; then
+            echo "Эндпоинта нет на проде после шести попыток — деплой не дошёл"
+            exit 1
+          fi
+          if [ "$HTTP" != "200" ]; then
+            echo "Прод ответил $HTTP:"
+            head -c 2000 /tmp/schema.json
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/schema.json'))
+
+          print('\n=== КОЛОНКИ ===')
+          for t, cols in sorted(d.get('columns', {}).items()):
+              print(f'\n-- {t}')
+              for c in cols:
+                  print('   ' + c)
+
+          print('\n=== ТАБЛИЦА ИЛИ ПРЕДСТАВЛЕНИЕ ===')
+          for name, kind in sorted(d.get('relations', {}).items()):
+              print(f'   {name}: {kind}')
+
+          print('\n=== ФУНКЦИИ ===')
+          for name, exists in sorted(d.get('functions', {}).items()):
+              print(f"   {name}: {'есть' if exists else 'НЕТ'}")
+
+          m = d.get('migrations', {})
+          print('\n=== МИГРАЦИИ ===')
+          print(f"   применено: {m.get('applied')} | файлов в образе: {m.get('files')}")
+          un = m.get('unapplied', [])
+          print(f'   НЕ применено: {len(un)}')
+          for f in un:
+              print(f'     x {f}')
+          fails = m.get('failures', [])
+          print(f'   с записанной причиной отказа: {len(fails)}')
+          for f in fails:
+              print(f"     x {f.get('name')} (попыток {f.get('attempts')}, последняя {f.get('last_failed_at')})")
+              print(f"       {f.get('error')}")
+
+          print('   последние применённые:')
+          for r in m.get('recent', []):
+              print(f"     {r.get('applied_at')}  {r.get('name')}")
+
+          print('\n=== ИНДЕКСЫ users ===')
+          for i in d.get('usersIndexes', []):
+              print('   ' + i)
+          print(f"   дублей telegram_id: {d.get('telegramIdDuplicates')}")
+
+          print('\n=== КЛЮЧИ places (можно ли сослаться на places.id) ===')
+          keys = d.get('placesKeys', [])
+          if not keys:
+              print('   ни PRIMARY KEY, ни UNIQUE — внешний ключ на places невозможен в принципе')
+          for k in keys:
+              print(f"   {k.get('name')}: {k.get('type')} {k.get('columns')}")
+
+          shape = d.get('placesIdShape', {})
+          print('\n=== КАК ЗАПОЛНЯЕТСЯ places.id ===')
+          print(f"   DEFAULT: {shape.get('columnDefault')}")
+          for s in shape.get('samples', []):
+              print(f'   пример: {s}')
+
+          print('\n=== v_kamchatka_routes_api ===')
+          print('   колонки: ' + ', '.join(d.get('routeViewColumns', [])))
+          deps = d.get('routeViewDependents', [])
+          print(f"   зависимые объекты: {', '.join(deps) if deps else 'нет'}")
+
+          print('\n=== ОПРЕДЕЛЕНИЯ ПРЕДСТАВЛЕНИЙ ===')
+          for name, defn in sorted(d.get('viewDefinitions', {}).items()):
+              print(f'\n-- {name}')
+              for line in (defn or '').split('\n'):
+                  print('   ' + line)
+
+          print('\n=== СЧЁТЧИКИ ===')
+          for k, v in sorted(d.get('counts', {}).items()):
+              print(f'   {k}: {v}')
+          PY
+
+      # Последним шагом намеренно: вывод лога читается с хвоста, а статус
+      # деплоя нужен рядом с вердиктом, а не за сотни строк до него.
+      - name: Какой коммит реально живёт на проде
+        env:
+          TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+        run: |
+          # ID приложения выяснен через GET /api/v1/apps 29.07: name=Tourhab.
+          # Прежний 175477 отдавал 404 — приложение пересоздавали, а константа
+          # осталась старой, и шаг молча печатал «статус неизвестен».
+          APP_ID="198048"
+
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "TIMEWEB_TOKEN не задан — пропускаем"
+            exit 0
+          fi
+          HTTP=$(curl -s -o /tmp/app.json -w "%{http_code}" --max-time 30 \
+            -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
+          if [ "$HTTP" = "200" ]; then
+            python3 -c "import json;d=json.load(open('/tmp/app.json'))['app'];print('status:',d.get('status'),'| commit:',(d.get('commit_sha') or '?')[:8])"
+          else
+            # 403 = ключ отвергнут, 404 = приложения нет по этому id.
+            # Различать важно: раньше оба случая печатались одинаково.
+            echo "Timeweb API вернул HTTP $HTTP для apps/$APP_ID — статус деплоя неизвестен"
+          fi

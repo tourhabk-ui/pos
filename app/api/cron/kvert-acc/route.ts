@@ -25,7 +25,23 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await syncKvertAcc();
-    recordCronRun('kvert-acc', startedAt, 'success');
+
+    // Ноль распознанных вулканов — это отказ слоя, а не тихий день. KVERT
+    // публикует авиационные коды по действующим вулканам постоянно, и пустой
+    // разбор означает, что источник отдал не то. Прогоны 26-28.07 возвращали
+    // fetched: 0 при HTTP 200 и зелёном статусе — слой стоял мёртвым ровно
+    // тогда, когда Шивелуч выбросил пепел на 12 км, и по цифрам это было
+    // неотличимо от работы. Зелёный прогон при несделанной работе опаснее
+    // красного при сделанной: он гасит подозрение.
+    if (result.fetched === 0) {
+      const message = 'KVERT: распознано 0 вулканов — источник отдал не VONA';
+      recordCronRun('kvert-acc', startedAt, 'failed', { error: message });
+      return NextResponse.json({ success: false, error: message, ...result }, { status: 502 });
+    }
+
+    // Счётчик работы в телеметрию: без него успешный прогон неотличим от
+    // холостого уже на уровне истории, и сторож холостых кронов слеп.
+    recordCronRun('kvert-acc', startedAt, 'success', { items: result.fetched });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка синка KVERT';

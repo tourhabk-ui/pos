@@ -20,11 +20,22 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
+import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
+import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
+import { readdirSync } from 'fs';
+import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'migration_unapplied';
   count: number;
   details: string;
+  /**
+   * Явная критичность там, где её не вывести из типа. У холостых кронов вес
+   * зависит от того, кто именно встал: слепой слой вулканов — КРИТ, трое суток
+   * без сигналов разведки — внимание. Ровнять их одной меткой значит либо
+   * недооценить первое, либо приучить пролистывать второе.
+   */
+  critical?: boolean;
 }
 
 export interface WatchdogResult {
@@ -238,6 +249,199 @@ async function checkUnconfirmedStayBookings(): Promise<WatchdogAlert | null> {
   }
 }
 
+async function notifyGearPartnerDirectly(
+  chatId: string,
+  partnerName: string,
+  count: number,
+  oldest: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  const appUrl = getPublicBaseUrl();
+  const text = [
+    `<b>Привет, ${partnerName}!</b>`,
+    '',
+    `${count} заявк(и) на аренду снаряжения ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    '',
+    `Подтверди или отклони: <a href="${appUrl}/hub/gear/rentals">Аренды</a>`,
+  ].join('\n');
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+  } catch { /* не блокируем */ }
+}
+
+async function checkPendingGearRentals(): Promise<WatchdogAlert | null> {
+  try {
+    // Симметрия с турами и жильём: заявка на аренду снаряжения без реакции
+    // проката > 24ч. До этого gear был слепым пятном сторожа — заявка могла
+    // висеть в pending неделями, и никто об этом не узнавал.
+    const { rows } = await pool.query<{
+      partner_name: string | null;
+      telegram_chat_id: string | null;
+      count: string;
+      oldest: string;
+    }>(
+      `SELECT COALESCE(p.company_name, p.name) AS partner_name,
+              p.telegram_chat_id,
+              COUNT(*)::text AS count,
+              MIN(gr.created_at)::date::text AS oldest
+       FROM gear_rentals gr
+       JOIN gear_items gi ON gi.id = gr.gear_id
+       LEFT JOIN partners p ON p.id = gi.partner_id
+       WHERE gr.status = 'pending'
+         AND gr.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY p.company_name, p.name, p.telegram_chat_id`,
+    );
+    if (rows.length === 0) return null;
+
+    let total = 0;
+    for (const row of rows) {
+      total += parseInt(row.count, 10) || 0;
+      if (row.telegram_chat_id && row.partner_name) {
+        notifyGearPartnerDirectly(
+          row.telegram_chat_id,
+          row.partner_name,
+          parseInt(row.count, 10),
+          row.oldest,
+        ).catch(() => {});
+      }
+    }
+
+    return {
+      type: 'pending_gear_rental',
+      count: total,
+      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Опасные алерты созданы, но пуш не ушёл.
+ *
+ * Найдено на живом проде 28.07: в ответе safety-ingest годами висело
+ * «VAPID keys not configured — push skipped» — цунами-предупреждения,
+ * пожары и дорожные ограничения НЕ доставлялись, и об этом никто не знал:
+ * dispatchPushAlerts возвращает ошибку в тело ответа крона, а тело никто
+ * не читает. Классическая молчаливая деградация safety-функции.
+ *
+ * Проверка ловит ЛЮБУЮ причину недоставки (нет VAPID, нет подписок, отказ
+ * сервиса) — она смотрит на факт: алерт, подлежащий рассылке, старше
+ * 30 минут (шесть пропущенных прогонов пятиминутного крона) и до сих пор
+ * без push_sent_at.
+ */
+async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{ count: string; oldest_title: string | null }>(
+      `SELECT COUNT(*)::text AS count,
+              (ARRAY_AGG(title ORDER BY created_at ASC))[1] AS oldest_title
+         FROM external_alerts
+        WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
+          AND push_sent_at IS NULL
+          AND created_at < NOW() - INTERVAL '30 minutes'
+          AND created_at > NOW() - INTERVAL '7 days'`,
+    );
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+
+    return {
+      type: 'push_undelivered',
+      count,
+      details:
+        `${count} опасн(ых) алерт(ов) без доставки push > 30 мин ` +
+        `(самый ранний: ${(rows[0]?.oldest_title ?? '').slice(0, 80)}). ` +
+        `Туристы не предупреждены. Проверь VAPID-ключи и подписки.`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function checkPendingTransferBookings(): Promise<WatchdogAlert | null> {
+  try {
+    // Замыкает симметрию сторожа: туры, жильё и снаряжение уже под
+    // >24ч-проверкой, брони трансферов оставались слепым пятном.
+    // operator_id в transfer_bookings ссылается на operators (транспортная
+    // подсистема), у которых нет telegram_chat_id — чат берём из partners
+    // по совпадению email (LATERAL с LIMIT 1, чтобы дубли email не
+    // размножали группы).
+    const { rows } = await pool.query<{
+      operator_name: string | null;
+      telegram_chat_id: string | null;
+      count: string;
+      oldest: string;
+    }>(
+      `SELECT COALESCE(o.name, 'Оператор не привязан') AS operator_name,
+              p.telegram_chat_id,
+              COUNT(*)::text AS count,
+              MIN(tb.created_at)::date::text AS oldest
+       FROM transfer_bookings tb
+       LEFT JOIN operators o ON o.id = tb.operator_id
+       LEFT JOIN LATERAL (
+         SELECT telegram_chat_id FROM partners
+         WHERE LOWER(email) = LOWER(o.email)
+           AND telegram_chat_id IS NOT NULL
+         LIMIT 1
+       ) p ON true
+       WHERE tb.status = 'pending'
+         AND tb.created_at < NOW() - INTERVAL '24 hours'
+       GROUP BY o.name, p.telegram_chat_id`,
+    );
+    if (rows.length === 0) return null;
+
+    let total = 0;
+    for (const row of rows) {
+      total += parseInt(row.count, 10) || 0;
+      if (row.telegram_chat_id && row.operator_name) {
+        notifyTransferOperatorDirectly(
+          row.telegram_chat_id,
+          row.operator_name,
+          parseInt(row.count, 10),
+          row.oldest,
+        ).catch(() => {});
+      }
+    }
+
+    return {
+      type: 'pending_transfer_booking',
+      count: total,
+      details: `${total} бронь(и) трансфера без подтверждения > 24ч у ${rows.length} оператор(ов).`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function notifyTransferOperatorDirectly(
+  chatId: string,
+  operatorName: string,
+  count: number,
+  oldest: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  const appUrl = getPublicBaseUrl();
+  const text = [
+    `<b>Привет, ${operatorName}!</b>`,
+    '',
+    `${count} бронь(и) трансфера ждут подтверждения уже больше суток (самая ранняя — ${oldest}).`,
+    '',
+    `Подтверди или отклони: <a href="${appUrl}/hub/transfer-operator/bookings">Брони</a>`,
+  ].join('\n');
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+  } catch { /* не блокируем */ }
+}
+
 async function checkUnprocessedLeads(): Promise<WatchdogAlert | null> {
   try {
     const { rows } = await pool.query<{ count: string }>(`
@@ -341,11 +545,24 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
  *  - watchdog (сам себя) — рапорт «Watchdog молчит» из работающего Watchdog
  *    логически противоречив: раз проверка идёт, сторож жив. Свою живость сторож
  *    сам подтвердить не может; это дело внешнего мониторинга.
- * Порог тревоги поднят до GITHUB_DELAY_FLOOR: scheduled-cron в GitHub Actions
- * штатно задерживается до ~95 мин, и жёсткий dead-порог (для 30-мин крона ~85
- * мин) давал ложные КРИТ на каждой такой задержке.
+ * Два порога, а не один. Причина — измерение: 28.07 пришёл КРИТ «safety-агент не
+ * отвечает» по danger-analysis и sos-events-bridge, а оба крона в тот момент
+ * отрабатывали успешно. Виновата была не платформа, а расписание GitHub
+ * Actions: у 30-минутного крона наблюдались разрывы между прогонами до 3ч47м
+ * (227 мин) при пороге 150. Ложный КРИТ на платформе безопасности дороже
+ * пропущенного: он приучает не читать алерты.
+ *
+ * Поэтому молчание между порогами — ВНИМАНИЕ («прогон не отмечался»), и только
+ * сверх верхнего порога — КРИТ. Верхний взят с запасом от наблюдавшегося
+ * максимума: 6 ч — это дюжина пропущенных прогонов 30-минутного крона, столько
+ * штатная задержка не длится.
+ *
+ * Формулировка тоже изменена. «Агент не отвечает» — утверждение о состоянии
+ * агента, которого liveness не знает: он видит только отметку о последнем
+ * прогоне в agent_run_history. Алерт говорит ровно то, что измерено.
  */
 const GITHUB_DELAY_FLOOR_MIN = 150;
+const SAFETY_CRON_CRITICAL_MIN = 360;
 
 async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
   try {
@@ -366,25 +583,36 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
     const lastById = new Map(rows.map(r => [r.agent_id, r.last_seen]));
 
     const now = Date.now();
-    const dead: string[] = [];
+    const silent: string[] = [];
+    let worstMinutes = 0;
     for (const e of entries) {
       const last = lastById.get(e.agentId as string) ?? null;
       const lastMs = last ? new Date(last).getTime() : null;
       const lv = computeLiveness(e, lastMs, now);
       // 'dead' по liveness И сверх floor задержки GitHub Actions — иначе штатная
-      // задержка scheduled-cron поднимала ложный КРИТ.
+      // задержка scheduled-cron поднимала тревогу на ровном месте.
       if (lv.status === 'dead' && (lv.minutesSince ?? 0) >= GITHUB_DELAY_FLOOR_MIN) {
         const mins = lv.minutesSince ?? 0;
+        worstMinutes = Math.max(worstMinutes, mins);
         const ago = mins > 120 ? `${Math.round(mins / 60)}ч` : `${mins} мин`;
-        dead.push(`${e.label} молчит ${ago} (норма: ${e.schedule})`);
+        silent.push(`${e.label} — прогон не отмечался ${ago} (расписание: ${e.schedule})`);
       }
     }
-    if (dead.length === 0) return null;
+    if (silent.length === 0) return null;
+
+    const critical = worstMinutes >= SAFETY_CRON_CRITICAL_MIN;
+    // Ниже верхнего порога причиной чаще оказывается расписание GitHub, а не
+    // агент, — так и пишем, чтобы проверяли вкладку Actions, а не искали отказ
+    // там, где его нет.
+    const hint = critical
+      ? 'Проверь GitHub Actions и CRON_SECRET.'
+      : 'Обычно это задержка scheduled-cron в GitHub Actions (наблюдались разрывы до 3ч47м), но проверить вкладку Actions стоит.';
 
     return {
       type: 'safety_cron_dead',
-      count: dead.length,
-      details: `КРИТИЧНО: safety-агент(ы) не отвечают — ${dead.join('; ')}.`,
+      count: silent.length,
+      critical,
+      details: `${silent.join('; ')}. ${hint}`,
     };
   } catch (err) {
     console.error('[watchdog] checkDeadSafetyCrons failed:', err);
@@ -392,25 +620,102 @@ async function checkDeadSafetyCrons(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Кроны, которые запускаются и ничего не делают. Второй вопрос после «жив ли»:
+ * liveness видит только факт запуска, а KVERT в день выброса Шивелуча был жив,
+ * зелен и слеп. Судим лишь там, где ноль объявлен ненормальным, и лишь по серии
+ * подряд — разбор порога и оговорок в lib/agents/cron-idle.ts.
+ */
+async function checkIdleCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
+    if (ids.length === 0) return null;
+
+    // Берём с запасом по прогонам на агента: окно среза — в чистой функции.
+    const { rows } = await pool.query<CronRunRow>(
+      `SELECT agent_id, items_processed AS items, ended_at::text AS ended_at
+         FROM agent_run_history
+        WHERE agent_id = ANY($1) AND status = 'success' AND ended_at IS NOT NULL
+        ORDER BY ended_at DESC
+        LIMIT $2`,
+      [ids, ids.length * IDLE_RUNS_THRESHOLD * 4],
+    );
+
+    const idle = findIdleCrons(CRON_REGISTRY, rows);
+    if (idle.length === 0) return null;
+
+    const safetyKeys = new Set(CRON_REGISTRY.filter(e => e.tier === 'safety').map(e => e.key));
+    const critical = idle.some(c => safetyKeys.has(c.key));
+
+    return {
+      type: 'cron_idle',
+      count: idle.length,
+      critical,
+      details: `Крон отчитывается успехом, не делая работы — ${formatIdleCrons(idle)}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkIdleCrons failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Миграции, которые не применились. Раннер намеренно не роняет деплой на
+ * упавшей миграции (пишет «[migrate] ✗», считает ошибку и всё равно поднимает
+ * сервер) — решение верное: платформа, которой пользуются в поле, не должна
+ * ложиться из-за одной кривой миграции. Но провал при этом оставался строчкой
+ * в логе деплоя, которую никто не читает на следующий день, а схема тихо
+ * расходилась с кодом. Сравниваем файлы на диске с таблицей учёта.
+ */
+async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
+  try {
+    const dir = join(process.cwd(), 'migrations');
+    const files = readdirSync(dir).filter(f => f.endsWith('.sql'));
+    if (files.length === 0) return null; // каталога нет в образе — не судим
+
+    const { rows } = await pool.query<{ name: string }>('SELECT name FROM _migrations');
+    const unapplied = findUnappliedMigrations(files, rows.map(r => r.name));
+    if (unapplied.length === 0) return null;
+
+    return {
+      type: 'migration_unapplied',
+      count: unapplied.length,
+      details: formatUnappliedMigrations(unapplied),
+    };
+  } catch (err) {
+    console.error('[watchdog] checkUnappliedMigrations failed:', err);
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
+    checkPendingGearRentals(),
+    checkPendingTransferBookings(),
     checkOperatorNoResponse(),
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
     checkSeismicCronDead(),
     checkDeadSafetyCrons(),
+    checkUndeliveredSafetyPush(),
+    checkIdleCrons(),
+    checkUnappliedMigrations(),
   ]);
 
-  const alerts = [bookings, stayBookings, operators, leads, sos, seismic, safetyCrons].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
     for (const a of alerts) {
-      const prefix = a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'safety_cron_dead' ? 'КРИТ:' : 'ВНИМАНИЕ:';
+      // push_undelivered — КРИТ: турист не получил предупреждение об опасности.
+      // safety_cron_dead из этого списка убран намеренно: молчание крона бывает
+      // и задержкой расписания GitHub, поэтому уровень решает флаг critical по
+      // длительности молчания, а не сам тип алерта.
+      const prefix = a.critical || a.type === 'seismic_cron_dead' || a.type === 'sos_ignored' || a.type === 'push_undelivered' ? 'КРИТ:' : 'ВНИМАНИЕ:';
       lines.push(`${prefix} ${a.details}`);
     }
     const adminUrl = getPublicBaseUrl();

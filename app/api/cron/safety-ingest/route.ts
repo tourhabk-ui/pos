@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
@@ -156,7 +157,11 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     }>(`
       SELECT id, alert_type, magnitude, title, description
       FROM external_alerts
-      WHERE (severity >= 2 OR alert_type = 'tsunami_warning')
+      -- road_closure добавлен по issue #836: перекрытие подъезда приходит с
+      -- severity 1 и под общий порог >=2 не попадало — турист узнавал о
+      -- закрытой дороге, уже стоя перед шлагбаумом. Это единственный тип,
+      -- где решение «ехать/не ехать» принимается ДО выезда.
+      WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
         AND push_sent_at IS NULL
         AND created_at > NOW() - INTERVAL '2 hours'
       ORDER BY severity DESC, created_at DESC
@@ -165,12 +170,24 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
     let dispatched = 0;
     for (const alert of rows) {
       const isTsunami = alert.alert_type === 'tsunami_warning';
+      // fire_danger попадает сюда при severity>=2 (крупный очаг): без своей
+      // ветки пуш назывался бы «Землетрясение M?» — чужой заголовок про пожар.
+      const isFire = alert.alert_type === 'fire_danger';
+      const isRoad = alert.alert_type === 'road_closure';
       const pushTitle = isTsunami
         ? 'УГРОЗА ЦУНАМИ — Камчатка'
-        : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
+        : isFire
+          ? 'Природный пожар — Камчатка'
+          : isRoad
+            ? 'Ограничение проезда — Камчатка'
+            : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
       const pushBody = isTsunami
         ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
-        : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+        : isFire
+          ? `${alert.title}. Сверьте маршрут — возможны перекрытия и задымление.`
+          : isRoad
+            ? `${alert.title}. Проверьте подъезд до выезда.`
+            : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
 
       const result = await sendPushBroadcast({
         title: pushTitle,
@@ -214,6 +231,8 @@ interface ParseResultSummary {
   inserted: number;
   skipped: number;
   errors: string[];
+  /** Сырых элементов до классификации (у FIRMS — термоточек). */
+  rawItems?: number;
 }
 
 function buildResponse(
@@ -226,6 +245,7 @@ function buildResponse(
     minec?: ParseResultSummary;
     vk?: ParseResultSummary;
     max?: ParseResultSummary;
+    firms?: ParseResultSummary;
     total_inserted: number;
   },
   rtStatus: { updated: number; error?: string },
@@ -240,6 +260,7 @@ function buildResponse(
     ...(ingestResult.minec?.errors ?? []),
     ...(ingestResult.vk?.errors ?? []),
     ...(ingestResult.max?.errors ?? []),
+    ...(ingestResult.firms?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
@@ -286,6 +307,17 @@ function buildResponse(
       inserted: ingestResult.max.inserted,
       skipped: ingestResult.max.skipped,
     } : undefined,
+    firms: ingestResult.firms ? {
+      // configured отличает «ключа нет» от «термоточек нет»: без него нули
+      // в ответе неразличимы, и проверка после настройки env превращается
+      // в гадание (живой случай 28.07 — владелец добавил FIRMS_MAP_KEY,
+      // а подтвердить работу по логу крона было нечем).
+      configured: Boolean(process.env.FIRMS_MAP_KEY),
+      hotspots: ingestResult.firms.rawItems ?? 0,
+      events_found: ingestResult.firms.events.length,
+      inserted: ingestResult.firms.inserted,
+      skipped: ingestResult.firms.skipped,
+    } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
@@ -308,7 +340,12 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const ingestResult = await ingestAll();
+  const [ingestAllResult, firmsResult] = await Promise.all([ingestAll(), ingestFirmsWildfires()]);
+  const ingestResult = {
+    ...ingestAllResult,
+    firms: firmsResult,
+    total_inserted: ingestAllResult.total_inserted + firmsResult.inserted,
+  };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
@@ -318,6 +355,10 @@ export async function GET(req: Request) {
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
+    // FIRMS пишется в health для видимости в админке, но НЕ входит в
+    // SAFETY_SOURCE_EXPECTATIONS: «нет термоточек» неотличимо от «нет пожаров»
+    // (сезонность) — dead-алерт по тишине был бы ложью.
+    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }
@@ -328,6 +369,12 @@ const HtmlBodySchema = z.object({
   // Канал Минэкономразвития (законодательство/ограничения для туризма).
   // Optional: старый воркфлоу без этого поля продолжает работать.
   minec_html: z.string().optional(),
+  /**
+   * RSS kamgov.ru, скачанный раннером: с Timeweb гос-сайт не открывается, и
+   * сервер каждый прогон писал «news feed unavailable: kamgov» при живом фиде.
+   * Массив — у сайта несколько путей (/rss, /mintur/rss), дубли снимает разбор.
+   */
+  kamgov_xml: z.array(z.string().max(600_000)).max(5).optional(),
   // Канал ГУ МЧС Камчатки в MAX (max.ru/id4101120929_gos). У MAX нет открытого
   // read-API, поэтому раннер сам читает канал и присылает уже готовые посты
   // массивом. Сервер прогоняет каждый через classifyMchsItem — она и есть
@@ -345,6 +392,21 @@ const HtmlBodySchema = z.object({
 // источника не заблокированы — раньше POST-путь их вообще не вызывал, из-за
 // чего волкан-алерты МЧС/#258 никогда не доходили через реальный cron, только
 // через ручной GET).
+/**
+ * Склейка двух половин новостного конвейера: то, что сервер дотянулся сам, и
+ * то, что принёс раннер. В ответе крона это по-прежнему один блок `news` —
+ * дробить его на два было бы честно к коду и непонятно человеку.
+ */
+function mergeParseResults(a: ParseResult, b?: ParseResult): ParseResult {
+  if (!b) return a;
+  return {
+    events: [...a.events, ...b.events],
+    inserted: a.inserted + b.inserted,
+    skipped: a.skipped + b.skipped,
+    errors: [...a.errors, ...b.errors],
+  };
+}
+
 export async function POST(req: Request) {
   const err = authError(req);
   if (err) return err;
@@ -363,19 +425,28 @@ export async function POST(req: Request) {
 
   const t0 = Date.now();
   const startedAt = new Date(t0);
-  const [telegramResult, mchsResult, usgsResult, newsResult, minecResult, vkResult, maxResult] = await Promise.all([
+  const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
+  const [telegramResult, mchsResult, usgsResult, newsFeedResult, kamgovResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
     ingestMchsAlerts(),
     ingestUsgs(),
-    ingestNewsFeeds(),
+    // kamgov принесён раннером — сервер его не тянет и не считает мёртвым.
+    ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : []),
     parsed.data.minec_html
       ? ingestTelegramNewsHtml(parsed.data.minec_html)
+      : Promise.resolve(undefined),
+    kamgovXmls.length > 0
+      ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
       : Promise.resolve(undefined),
     ingestVkMchs(),
     parsed.data.max_items && parsed.data.max_items.length > 0
       ? ingestMaxItems(parsed.data.max_items)
       : Promise.resolve(undefined),
+    ingestFirmsWildfires(),
   ]);
+  // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
+  // это по-прежнему один блок `news`.
+  const newsResult = mergeParseResults(newsFeedResult, kamgovResult);
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
     eqkam: telegramResult.eqkam,
@@ -385,8 +456,10 @@ export async function POST(req: Request) {
     minec: minecResult,
     vk: vkResult,
     max: maxResult,
+    firms: firmsResult,
     total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0),
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0)
+      + firmsResult.inserted,
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
@@ -398,6 +471,8 @@ export async function POST(req: Request) {
     entryFor('vk_mchs', 'VK — МЧС Камчатки', vkResult, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
+    // FIRMS: в health для видимости, вне EXPECTATIONS (сезонная пустота — норма).
+    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
 }

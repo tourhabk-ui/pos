@@ -14,6 +14,22 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NOT NULL CHECK (role IN ('tourist', 'operator', 'guide', 'transfer', 'stay', 'gear', 'agent', 'admin')),
     phone VARCHAR(20),
     preferences JSONB DEFAULT '{}',
+    -- Вход через Telegram и признак активности. Объявлены здесь, а не только в
+    -- миграции 783, потому что миграция 080 строит индекс по users(telegram_id)
+    -- и на чистой базе цепочка падала бы, не дойдя до 783.
+    telegram_id BIGINT,
+    telegram_username VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    -- Согласие на обработку персональных данных (152-ФЗ): факт, момент и адрес,
+    -- с которого оно дано. Регистрация пишет их с самого начала.
+    pd_consent_given BOOLEAN DEFAULT FALSE,
+    pd_consent_at TIMESTAMPTZ,
+    pd_consent_ip VARCHAR(64),
+    -- Второй фактор входа и служебные пометки аккаунта (в metadata пишется
+    -- заявка на удаление: момент обращения и срок).
+    mfa_secret TEXT,
+    mfa_enabled BOOLEAN DEFAULT FALSE,
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -29,6 +45,11 @@ CREATE TABLE IF NOT EXISTS partners (
     rating DECIMAL(3,2) DEFAULT 0.0,
     review_count INTEGER DEFAULT 0,
     is_verified BOOLEAN DEFAULT FALSE,
+    -- contacts — расширенные контакты партнёра; там же telegram_chat_id, через
+    -- который Watchdog пишет оператору о зависшей брони. Отдельно от contact.
+    contacts JSONB DEFAULT '{}',
+    commission_rate DECIMAL(5,2),
+    is_available BOOLEAN DEFAULT TRUE,
     logo_asset_id UUID,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -534,6 +555,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     priority VARCHAR(20) DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
     action_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     read_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ
 );
