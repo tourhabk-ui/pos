@@ -16,11 +16,12 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, Sun, Moon, Phone, X, ChevronDown, MapPin, Search, User, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
+import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 
@@ -117,6 +118,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+  // Свежесть источника — отдельно от состояния. «Спокойно» по позавчерашним
+  // данным и «спокойно» по свежим — разные утверждения, и человек должен
+  // видеть, какое из них ему показали.
+  const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety' });
 
   // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
   // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
@@ -253,7 +258,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <Link href="/profile" className="icn" aria-label="Личный кабинет">
           <User className="li" size={19} strokeWidth={2} />
         </Link>
-        <button className="cta-top" onClick={jumpToLead}>Хочу тур</button>
+        {/* Кнопка «Хочу тур» из шапки убрана. Две причины сошлись.
+            Измерение: при 390 px шапка выходила за экран (scrollWidth 417 px),
+            и сама кнопка обрезалась на ~27 px — доступное действие выглядело
+            сломанным. Прятать overflow нельзя, это спрятало бы действие
+            целиком. Смысл: по решению владельца 29.07 тур — не первое
+            обещание главной, а следующий шаг после ответа «куда мне можно».
+            Действие не потеряно: «Подобрать тур» в блоке Кузьмича зовёт тот
+            же jumpToLead. */}
       </div></div>
 
       {/* ГЕРОЙ — фото-первый */}
@@ -269,7 +281,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               дней», Кузьмич — в своей секции и в таб-баре. Три равные кнопки
               заставляли выбирать инструмент раньше, чем человек выбрал поездку. */}
           <form className="hero-find" onSubmit={submitIntent} role="search">
-            <Search className="hfi" size={18} strokeWidth={2} aria-hidden />
+            {/* Медальон-гравюра вместо лупы: поиск на Ведаре — это не «найти
+                строку», а «спросить у того, кто знает край». Марка из набора
+                владельца, тот же резец, что у портрета Кузьмича. */}
+            <img
+              className="hfb"
+              src="/images/brand/bear-64.webp"
+              srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
+              sizes="30px"
+              width={30}
+              height={30}
+              alt=""
+              aria-hidden
+              loading="eager"
+              decoding="async"
+            />
             <input
               type="search"
               value={intent}
@@ -295,6 +321,22 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
       </header>
 
       <div className="wrap">
+
+        {/* LIVE — обстановка одной строкой. Это не радар: радар показывает
+            подробности, а здесь ответ на вопрос «можно ли вообще сегодня».
+            Свежесть обязательна и показывается тремя состояниями: «спокойно»
+            по позавчерашним данным и «спокойно» по свежим — разные
+            утверждения, и человек должен видеть, какое ему показали. */}
+        <section className="live">
+          <span
+            className="lv-dot"
+            style={freshnessDot(fresh.state)
+              ? { background: freshnessDot(fresh.state) as string }
+              : { border: '1px solid var(--faint)' }}
+          />
+          <span className="lv-txt">{fresh.label}</span>
+          <Link className="lv-go" href="/safety">Карта сегодня →</Link>
+        </section>
 
         {/* 0. ПЕРВЫЙ РЕЗУЛЬТАТ — доказательство, что подбор работает.
             Никаких «совпадает с вашим запросом»: запроса у гостя ещё не было.
@@ -358,10 +400,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           )}
         </section>
 
-        {/* II. ПЛАТЫ — реальные туры/маршруты с фото и ценой */}
+        {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
+            Было: «Куда сегодня», «Стихии» и «Разделы» — три самостоятельные
+            секции, ведущие в один и тот же каталог. Это не богатство выбора, а
+            нерешительность: человеку предлагали выбрать между тремя входами в
+            одну комнату. Теперь один вход и три глубины: конкретные карточки →
+            выбор по стихии → разделы платформы. */}
         {plates.length > 0 && (
           <section>
-            <div className="shead"><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes">Весь каталог</Link></div>
             <div className="plates" ref={platesRef}>
               {plates.map((p) => {
                 const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
@@ -420,10 +467,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* IV. СТИХИИ — реальные счётчики */}
+        {/* Второй слой той же двери: выбор по стихии. Отдельной секцией это
+            было третьим входом в тот же каталог. */}
         {elements.length > 0 && (
-          <section>
-            <div className="shead"><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
+          <section className="sub">
             <div className="elements">
               {elements.map((el, i) => {
                 const Icon = ELEMENT_ICON[el.key] ?? Flame;
@@ -455,9 +502,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* VI. ЛИД-ФОРМА — реальный POST /api/leads */}
-        <section ref={leadRef} id="lead">
-          <div className="shead"><h2>Собрать поездку</h2><span className="line" /></div>
+        {/* Сбор поездки — действие Кузьмича, а не отдельная секция-двойник.
+            Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
+            блок проводника выше, и добавлял главной ещё один вход в то же
+            самое. Форма и её POST /api/leads остались нетронутыми, ссылка
+            «Подобрать тур» у Кузьмича по-прежнему ведёт сюда. */}
+        <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
             <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
@@ -480,9 +530,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* VII. РАЗДЕЛЫ */}
-        <section>
-          <div className="shead"><h2>Разделы</h2><span className="line" /></div>
+        {/* Третий слой: разделы платформы. Тоже был отдельной дверью в каталог. */}
+        <section className="sub">
           <div className="hubline">
             <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
             <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
@@ -574,7 +623,14 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
   return (
     <div className="radar">
       <div className="scope">
-        <svg viewBox="0 0 200 200" aria-label="Радар обстановки">
+        {/* role="img" — иначе подпись графики не попадает в accessibility tree
+            предсказуемо. Подпись считается из того, что реально нарисовано:
+            статичное «Радар обстановки» врало бы при пустом радаре. */}
+        <svg
+          viewBox="0 0 200 200"
+          role="img"
+          aria-label={`Радар обстановки: предупреждений в радиусе ${MAX_KM} км — ${placed.length}`}
+        >
           <defs>
             <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
@@ -893,7 +949,7 @@ html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2
 html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7,.v7[data-v7theme]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7 *{margin:0;padding:0;box-sizing:border-box}
-.v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:96px;-webkit-font-smoothing:antialiased}
+.v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased}
 @media (prefers-reduced-motion:reduce){.v7 *,.v7 *::before,.v7 *::after{animation:none!important;transition:none!important}}
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
@@ -903,12 +959,11 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
 .v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
 .v7 .topbar .sp{flex:1}
-.v7 .icn{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
+/* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
+   19px: компактность держим внутренним размером глифа, а не урезанием зоны
+   нажатия. Ширины хватает — место освободила убранная из шапки кнопка. */
+.v7 .icn{width:44px;height:44px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
-/* nowrap: без него «ХОЧУ ТУР» ломался на две строки, шапка становилась выше,
-   а пилюля рядом — уже. Кнопка короткая, переносить её нечего. */
-.v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 12px;cursor:pointer;white-space:nowrap;flex:none;transition:transform .13s}
-.v7 .cta-top:active{transform:scale(.96)}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
    до «Сегодня: оп» — обрезанная «опасность» выглядит как исправный индикатор
@@ -938,19 +993,33 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* поиск и чипы в герое — одно действие вместо трёх равных кнопок.
    Стекло здесь законно: подложка — фотография, а не сплошной фон. */
 .v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
-.v7 .hero-find .hfi{color:rgba(255,255,255,.72);flex:none}
-.v7 .hero-find input{flex:1;min-width:0;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
+.v7 .hero-find .hfb{width:30px;height:30px;flex:none;border-radius:50%;object-fit:cover}
+/* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
+   16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
+   мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
+.v7 .hero-find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
 .v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
-.v7 .hero-find button{flex:none;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .hero-find button{flex:none;min-height:44px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
 .v7 .hero-find button:active{transform:scale(.96)}
 .v7 .hero-chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:420px}
-.v7 .hchip{min-height:34px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
+.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:rgba(10,14,12,.52)}
 .v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
+.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--hair);border-radius:12px}
+.v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
+.v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--fb);color:var(--ink)}
+.v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide);text-decoration:none;white-space:nowrap}
+/* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
+   теряется, а без него человек с клавиатурой или switch-control не понимает,
+   где находится. Не снимаем outline без замены. */
+.v7 a:focus-visible,.v7 button:focus-visible,.v7 input:focus-visible{outline:2px solid var(--tide);outline-offset:2px;border-radius:6px}
+/* Подчинённая секция: продолжение предыдущей двери, а не новая. Поэтому без
+   собственного заголовка и с меньшим отступом сверху. */
+.v7 section.sub{margin-top:-14px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
 .v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
@@ -1074,9 +1143,17 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
-.v7 .pl-dots{display:flex;gap:7px;justify-content:center;margin-top:14px}
-.v7 .pl-dots button{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:var(--hair);cursor:pointer;transition:background .2s,transform .2s}
-.v7 .pl-dots button.on{background:var(--shroom);transform:scale(1.25)}
+/* Точка остаётся 6px, а нажимается зона 26x44: сама точка рисуется вложенным
+   ::after, кнопка вокруг неё прозрачная. Иначе переключатель плат — цель
+   размером с крупинку, и в перчатке в него не попасть вовсе.
+   Почему 26 по ширине, а не 44: соседние точки стоят в ряд, и зоны шириной
+   44px либо налезли бы друг на друга (нажатие достаётся случайной), либо
+   разнесли бы точки через весь экран. Ширина здесь ограничена шагом ряда, а
+   высота — нет, и именно вертикального допуска пальцу не хватало. */
+.v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:0}
+.v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
+.v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--hair);transition:background .2s,transform .2s}
+.v7 .pl-dots button.on::after{background:var(--shroom);transform:scale(1.25)}
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--plate) center/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
@@ -1149,7 +1226,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--shroom)}
 .v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--fb);color:var(--muted)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
-.v7 .lead .chip{font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:8px 11px;cursor:pointer;transition:.15s}
+.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:0 13px;cursor:pointer;transition:.15s}
 .v7 .lead .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .v7 .lead .field2>input{border:1px solid var(--hair);background:var(--field);padding:14px 13px;font:500 13px/1 var(--fb);color:var(--ink);outline:none}
@@ -1169,9 +1246,13 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hubline a:active{color:var(--ink);border-bottom-color:var(--ink)}
 .v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--hair);font:400 9px/1.7 var(--fm);color:var(--faint)}
 /* навигация */
-.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
+.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
 .v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
+/* Отступ под индикатор Home — на панели, не на самих кнопках. Раньше он был в
+   padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
+   конкурировала со свайпом «домой». Держать в одном месте — иначе двойной
+   запас: панель отодвигается, и кнопки внутри неё ещё раз. */
+.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 7px;color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
 .v7 nav.tabs a .ico,.v7 nav.tabs button .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
 .v7 nav.tabs a .ti,.v7 nav.tabs button .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
 .v7 nav.tabs a:active .ico,.v7 nav.tabs button:active .ico{transform:scale(.9)}
@@ -1184,7 +1265,9 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 @keyframes emgin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .v7 .emg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px calc(14px);border-bottom:1px solid var(--hair);padding-top:calc(16px + env(safe-area-inset-top))}
 .v7 .emg-top b{font:700 17px/1 var(--fd);color:var(--ink)}
-.v7 .emg-x{width:38px;height:38px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
+/* Закрыть экстренную панель — 44px. Это тот экран, где человеку хуже всего
+   попадать в мелкое. */
+.v7 .emg-x{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
 .v7 .emg-scroll{flex:1;overflow-y:auto;padding:16px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
 .v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
 .v7 .emg-coord{display:flex;flex-direction:column;gap:8px}
