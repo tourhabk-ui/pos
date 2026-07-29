@@ -144,10 +144,41 @@ export async function DELETE(request: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
   }
 
-  await pool.query(
-    'UPDATE user_trips SET deleted_at = NOW() WHERE id = $1',
-    [id]
-  );
+  // Режим «я в поездке» гасим В ОДНОЙ транзакции с удалением.
+  //
+  // Внешний ключ users.active_trip_id объявлен ON DELETE SET NULL, но здесь
+  // удаление МЯГКОЕ — строка остаётся, только проставляется deleted_at. Значит
+  // каскад не сработает никогда, и ссылка на скрытую поездку останется висеть.
+  // Получился бы «призрачный» режим: поездки в списке уже нет, а главная
+  // показывает маршрут, и выключить его штатно нельзя — переключатель отвергает
+  // удалённую поездку. Каскад остаётся страховкой на случай физического
+  // удаления (чистки, миграции), но рабочий путь — этот.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Только если активна ИМЕННО эта поездка: во второй вкладке человек мог
+    // сделать активной другую, и её гасить нельзя.
+    await client.query(
+      `UPDATE users
+          SET active_trip_id = NULL, active_trip_since = NULL, updated_at = NOW()
+        WHERE id = $1 AND active_trip_id = $2`,
+      [authOrResponse.userId, id],
+    );
+
+    await client.query(
+      `UPDATE user_trips SET deleted_at = NOW()
+        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [id, authOrResponse.userId],
+    );
+
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 
   return NextResponse.json({ success: true });
 }

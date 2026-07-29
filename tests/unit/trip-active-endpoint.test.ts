@@ -46,6 +46,37 @@ describe('выключение не гасит чужой режим', () => {
   });
 });
 
+describe('мягкое удаление поездки гасит режим', () => {
+  const DEL = readFileSync(join(ROOT, 'app/api/trips/[id]/route.ts'), 'utf-8');
+  const DEL_CODE = DEL.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it('удаление активной поездки очищает оба поля users', () => {
+    // Каскад ON DELETE SET NULL здесь не сработает никогда: удаление мягкое,
+    // строка остаётся. Без явной очистки остался бы «призрачный» режим —
+    // поездки в списке нет, а главная показывает маршрут, и выключить его
+    // штатно нельзя: переключатель отвергает удалённую поездку.
+    expect(DEL_CODE).toMatch(/active_trip_id = NULL/);
+    expect(DEL_CODE).toMatch(/active_trip_since = NULL/);
+  });
+
+  it('удаление неактивной поездки не трогает активную', () => {
+    // Во второй вкладке человек мог сделать активной другую поездку.
+    expect(DEL_CODE).toMatch(/WHERE id = \$1 AND active_trip_id = \$2/);
+  });
+
+  it('оба шага в одной транзакции', () => {
+    // Иначе падение между ними оставит ровно то состояние, от которого чиним.
+    expect(DEL_CODE).toMatch(/BEGIN/);
+    expect(DEL_CODE).toMatch(/COMMIT/);
+    expect(DEL_CODE).toMatch(/ROLLBACK/);
+    expect(DEL_CODE).toMatch(/client\.release\(\)/);
+  });
+
+  it('мягкое удаление идемпотентно и ограничено владельцем', () => {
+    expect(DEL_CODE).toMatch(/UPDATE user_trips SET deleted_at = NOW\(\)[\s\S]{0,120}?user_id = \$2[\s\S]{0,60}?deleted_at IS NULL/);
+  });
+});
+
 describe('инвариант «не более одной активной поездки»', () => {
   it('обеспечен колонкой в users, а не второй таблицей', () => {
     const mig = readFileSync(join(ROOT, 'migrations/791_user_trips_active_mode.sql'), 'utf-8');
