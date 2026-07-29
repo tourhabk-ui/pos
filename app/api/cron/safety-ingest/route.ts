@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
@@ -251,6 +252,7 @@ function buildResponse(
   rtStatus: { updated: number; error?: string },
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
+  trigger: IngestTrigger = 'workflow_post',
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -264,9 +266,40 @@ function buildResponse(
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
   ];
+  // Кто из двух планировщиков это и что случилось с каждым источником.
+  // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
+  // «heartbeat положил те же события минутами раньше». Один и тот же источник
+  // даёт разные числа в зависимости от того, кто пришёл первым, поэтому без
+  // имени наблюдателя отчёт нечитаем в принципе.
+  // Старые поля НЕ трогаем: воркфлоу и админка читают их, а это правка
+  // наблюдаемости, не контракта.
+  const sources = Object.fromEntries(
+    ([
+      ['kbgsras', ingestResult.kbgsras, undefined],
+      ['eqkam', ingestResult.eqkam, undefined],
+      ['usgs', ingestResult.usgs, undefined],
+      ['mchs_rss', ingestResult.mchs, undefined],
+      ['news', ingestResult.news, undefined],
+      ['minec', ingestResult.minec, undefined],
+      ['vk_mchs', ingestResult.vk, 'VK_SERVICE_TOKEN'],
+      ['max_mchs', ingestResult.max, undefined],
+      ['firms', ingestResult.firms, 'FIRMS_MAP_KEY'],
+    ] as const).map(([key, result, requiresEnv]) => [
+      key,
+      sourceReport({
+        result,
+        requiresEnv,
+        envValue: requiresEnv ? process.env[requiresEnv] : undefined,
+      }),
+    ]),
+  );
+
   return Response.json({
     success: true,
     duration_ms: durationMs,
+    trigger,
+    trigger_label: TRIGGER_LABEL[trigger],
+    sources,
     kbgsras: {
       events_found: ingestResult.kbgsras.events.length,
       inserted: ingestResult.kbgsras.inserted,
@@ -360,7 +393,8 @@ export async function GET(req: Request) {
     // (сезонность) — dead-алерт по тишине был бы ложью.
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
+  // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get');
 }
 
 const HtmlBodySchema = z.object({
@@ -474,5 +508,6 @@ export async function POST(req: Request) {
     // FIRMS: в health для видимости, вне EXPECTATIONS (сезонная пустота — норма).
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult);
+  // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post');
 }
