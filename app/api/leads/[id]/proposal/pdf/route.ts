@@ -58,7 +58,8 @@ export async function GET(
   const safeName = rows[0].name.replace(/[^\w\u0400-\u04FF -]/g, '').replace(/\s+/g, '-').slice(0, 50);
   const filename = `proposal-${safeName}-${Date.now()}.pdf`;
 
-  return new NextResponse(pdfBytes, {
+  // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+  return new NextResponse(new Uint8Array(pdfBytes), {
     status: 200,
     headers: {
       'Content-Type':        'application/pdf',

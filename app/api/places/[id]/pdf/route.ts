@@ -82,7 +82,8 @@ export async function GET(
       .replace(/^-|-$/g, '')
       .slice(0, 50);
 
-    return new NextResponse(pdfBuffer, {
+    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         'Content-Type':        'application/pdf',

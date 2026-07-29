@@ -200,7 +200,8 @@ export async function POST(request: NextRequest) {
 
   if (wantPdf) {
     const pdfBuffer = await generateRegistrationPDF(data);
-    return new NextResponse(pdfBuffer, {
+    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="tourhab-registration-${registrationId.slice(0, 8)}.pdf"`,

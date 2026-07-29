@@ -5,11 +5,16 @@ import { Bell, BellOff, Loader2 } from 'lucide-react';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_KEY ?? '';
 
-function urlB64ToUint8Array(base64String: string): Uint8Array {
+// Возвращаемый тип уточнён до Uint8Array<ArrayBuffer>: с TS 5.9
+// applicationServerKey принимает только ArrayBuffer-backed BufferSource,
+// а Uint8Array.from даёт Uint8Array<ArrayBufferLike> и не проходит.
+function urlB64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64);
-  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
 }
 
 type State = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
