@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { AccessDeniedCard } from '@/components/hub/AccessDeniedCard';
 import {
   Shield, Users, FileText, DollarSign, Settings,
   TrendingUp, TrendingDown, Percent,
@@ -155,13 +156,18 @@ export default function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // 403 — не сбой загрузки, а «вы не в той роли». Раньше он попадал в общий
+  // error и предлагал «Повторить», который не может помочь никогда.
+  const [denied, setDenied] = useState(false);
   const [period, setPeriod] = useState<Period>(30);
 
   const fetchData = useCallback(async (p: Period) => {
     setLoading(true);
     setError('');
+    setDenied(false);
     try {
       const res = await fetch(`/api/admin/dashboard?period=${p}`);
+      if (res.status === 403) { setDenied(true); return; }
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? 'Ошибка');
       setData(json.data);
@@ -207,6 +213,9 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  /* ── Не та роль ── */
+  if (denied) return <AccessDeniedCard requiredRole="admin" />;
 
   /* ── Error ── */
   if (error) {
