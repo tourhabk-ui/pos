@@ -37,7 +37,7 @@ class MockDatabaseService {
 describe('Support Pillar Integration Tests', () => {
   let app: MockApp;
   let db: MockDatabaseService;
-  let authToken: string = 'test-token-' + Date.now();
+  const authToken: string = 'test-token-' + Date.now();
 
   beforeAll(async () => {
     app = new MockApp();
