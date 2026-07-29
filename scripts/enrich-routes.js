@@ -277,7 +277,8 @@ async function main() {
     return;
   }
 
-  let enriched = 0, failed = 0, fieldsFound = {};
+  let enriched = 0, failed = 0;
+  const fieldsFound = {};
 
   for (const route of routes) {
     console.log(`  [${enriched + failed + 1}/${routes.length}] ${route.title.slice(0, 50)} (${route.category})`);

@@ -401,7 +401,7 @@ async function main() {
 
   // ── Шаг 2: Ищем либо карточки на листинге, либо ссылки на страницы операторов ──
   console.log('\n[2/3] Parsing operators...');
-  let operators = parseOperatorCards(listingHtml, OPERATORS_URL);
+  const operators = parseOperatorCards(listingHtml, OPERATORS_URL);
   const operatorLinks = extractOperatorLinks(listingHtml);
 
   console.log(`  Cards on listing: ${operators.length}`);
