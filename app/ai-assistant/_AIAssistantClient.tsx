@@ -10,6 +10,7 @@ import {
 import Logo from '@/components/shared/Logo';
 import { useTheme } from '@/contexts/ThemeContext';
 import BottomNav from '@/components/shared/BottomNav';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -347,6 +348,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
           </Link>
           <h1 className="text-base font-bold text-[var(--text-primary)] hidden sm:block">Кузьмич AI</h1>
           <div className="flex items-center gap-3">
+            <EmergencyAction />
             <button onClick={toggleTheme} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

@@ -36,6 +36,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import dynamic from 'next/dynamic';
 import Logo from '@/components/shared/Logo';
 import BottomNav from '@/components/shared/BottomNav';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { getAllOfflineRoutes } from '@/lib/offline/db';
@@ -693,6 +694,7 @@ export default function MapPageClient() {
             Карта Камчатки
           </h1>
           <div className="flex items-center gap-3">
+            <EmergencyAction />
             <button onClick={toggleTheme} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

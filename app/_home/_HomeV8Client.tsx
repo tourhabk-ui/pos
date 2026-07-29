@@ -22,6 +22,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -193,15 +194,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     leadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // СОС: онлайн — уходим на полноценный /sos; офлайн — не даём навигации
-  // (она бы упала на «Нет соединения») и открываем инлайн-панель на главной.
-  const sosClick = (e: React.MouseEvent) => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      e.preventDefault();
-      setSosOpen(true);
-    }
-  };
-
   const submitLead = async () => {
     setErr(null);
     if (name.trim().length < 2) { setErr('Укажите имя'); return; }
@@ -243,6 +235,9 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <a className={`pill pill-${pill.tone}`} href="#radar">
           <i />{pill.text}
         </a>
+        {/* СОС в шапке: одна реализация на всю платформу, офлайн открывает
+            инлайн-панель прямо здесь — навигации не происходит вовсе. */}
+        <EmergencyAction onOfflineFallback={() => setSosOpen(true)} />
         {/* Иконки поиска здесь больше нет. Она была кнопкой без обработчика:
             выглядела рабочей и не делала ничего. Настоящий поиск теперь строкой
             в герое, прямо под шапкой — и место в узкой шапке освободилось. */}
@@ -501,17 +496,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           мобильной Главной; шторка сама рендерит оверлей. */}
       <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
-      {/* SOS — онлайн ведёт на полноценный /sos; офлайн (где /sos не поднимется
-          из-за RSC-подкачки) открывает инлайн-панель поверх главной. */}
-      <Link href="/sos" className="sos" aria-label="SOS — экстренная помощь" onClick={sosClick}>SOS</Link>
-
       {/* нижняя навигация */}
       <nav className="tabs"><div className="in">
         <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
         <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
         <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
         <a href="/planning?mode=trail"><span className="ico"><Navigation className="ti" size={19} strokeWidth={2} /></span><span>На маршруте</span></a>
-        <Link href="/sos" className="sos-tab" onClick={sosClick}><span className="ico"><Siren className="ti" size={18} strokeWidth={2.2} /></span><span>СОС</span></Link>
       </div></nav>
 
       <EmergencyPanel open={sosOpen} onClose={() => setSosOpen(false)} />
@@ -1188,11 +1178,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 nav.tabs a.active{color:var(--ink)}
 .v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--shroom) 15%,transparent)}
 .v7 nav.tabs a.active .ti{color:var(--shroom);transform:translateY(-1px)}
-.v7 nav.tabs .sos-tab{color:var(--danger)}
-.v7 nav.tabs .sos-tab .ico{background:var(--danger);box-shadow:0 3px 12px color-mix(in srgb,var(--danger) 38%,transparent)}
-.v7 nav.tabs .sos-tab .ti{color:#fff}
 /* SOS — красный */
-.v7 .sos{position:fixed;right:18px;bottom:78px;z-index:55;width:58px;height:58px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--danger);color:#fff;font:700 13px/1 var(--fb);letter-spacing:.12em;text-decoration:none;cursor:pointer;box-shadow:0 6px 22px color-mix(in srgb,var(--danger) 40%,transparent)}
 /* Инлайн-панель экстренной помощи (офлайн-стойкая, поверх главной) */
 .v7 .emg{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;animation:emgin .18s ease}
 @keyframes emgin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}

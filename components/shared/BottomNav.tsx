@@ -1,18 +1,19 @@
 'use client';
 
-import { useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { House, Map, Compass, Navigation, Siren, type LucideIcon } from 'lucide-react';
+import { House, Map, Compass, Navigation, type LucideIcon } from 'lucide-react';
 
 // Единая мобильная навигация (решение владельца 2026-07-18): на /map и
 // /ai-assistant была другая навигация, чем на главной — набор пунктов,
-// подписи и адреса разъезжались. Канон — таб-бар главной v8:
-// Дом / Карта / Кузьмич / На маршруте / СОС. Здесь тот же набор на
-// глобальных токенах (v8 использует локальные переменные темы .v7).
-// ЛК по-прежнему только в шапке. СОС онлайн ведёт на полноценный /sos;
-// офлайн — на /emergency (страница с нулевыми зависимостями, есть в
-// precache) — инлайн-панель главной сюда не тащим.
+// подписи и адреса разъезжались. Здесь тот же набор на глобальных токенах
+// (v8 использует локальные переменные темы .v7). ЛК только в шапке.
+//
+// СОС отсюда ушёл (решение владельца 2026-07-29, отменяет решение от 18.07):
+// теперь это фиксированная кнопка в шапке на каждом экране —
+// `components/shared/EmergencyAction.tsx`, единственная реализация на всю
+// платформу. Не возвращать пункт сюда: две кнопки одного действия расходятся
+// поведением, что с этой и уже случилось (одна копия уводила на /emergency,
+// другая открывала инлайн-панель).
 const FO = "var(--font-outfit,'Outfit',sans-serif)";
 
 interface NavItem {
@@ -36,18 +37,6 @@ interface BottomNavProps {
 }
 
 export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
-  const router = useRouter();
-
-  // Офлайн /sos не поднимется (RSC-подкачка) — уводим на офлайн-первый /emergency
-  const sosClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      e.preventDefault();
-      router.push('/emergency');
-      return;
-    }
-    onNavClick?.(e);
-  }, [router, onNavClick]);
-
   return (
     <nav
       className="flex md:hidden"
@@ -110,32 +99,6 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
         );
       })}
 
-      {/* СОС — всегда красный и видимый (фидбэк с Халактырского пляжа) */}
-      <Link
-        href="/sos"
-        aria-label="СОС — экстренная помощь"
-        onClick={sosClick}
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '5px',
-          padding: '8px 0 calc(7px + env(safe-area-inset-bottom))',
-          color: 'var(--danger)',
-          textDecoration: 'none',
-          fontFamily: FO,
-          fontSize: '8px',
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-        }}
-      >
-        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '46px', height: '28px' }}>
-          <Siren size={18} strokeWidth={2.2} />
-        </span>
-        <span>СОС</span>
-      </Link>
     </nav>
   );
 }
