@@ -49,15 +49,32 @@ const Schema = z.object({
   businessType: z.enum(['individual', 'ip', 'ooo', 'other']).default('individual'),
 });
 
+const PASSWORD_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const PASSWORD_LENGTH = 14;
+
 /**
  * Пароль для первого входа. Без похожих символов (0/O, 1/l/I): его диктуют
  * голосом по телефону, и «единица или эль» — реальная потеря времени.
+ *
+ * Байт берётся не по модулю, а с отбраковкой. 256 на 54 нацело не делится:
+ * при `byte % 54` первые 40 символов алфавита выпадали бы чаще остальных
+ * четырнадцати, и распределение перестаёт быть равномерным — пространство
+ * перебора сужается. Отбрасываем всё, что выше последней целой границы
+ * (216 = 4 × 54), и добираем новые байты.
  */
-function generatePassword(): string {
-  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  const bytes = randomBytes(14);
+export function generatePassword(
+  randomSource: (n: number) => Uint8Array = randomBytes,
+): string {
+  const len = PASSWORD_ALPHABET.length;
+  const limit = Math.floor(256 / len) * len;
   let out = '';
-  for (const b of bytes) out += alphabet[b % alphabet.length];
+  while (out.length < PASSWORD_LENGTH) {
+    for (const b of randomSource(PASSWORD_LENGTH)) {
+      if (b >= limit) continue;
+      out += PASSWORD_ALPHABET[b % len];
+      if (out.length === PASSWORD_LENGTH) break;
+    }
+  }
   return out;
 }
 
