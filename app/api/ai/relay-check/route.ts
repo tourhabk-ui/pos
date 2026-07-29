@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
   const model = request.nextUrl.searchParams.get('model')
     || process.env.EVO_DECISION_FLAGSHIP_MODEL
     || 'anthropic/claude-opus-5';
-  let flagship: {
+  const flagship: {
     ok: boolean;
     model: string | null;
     preview: string | null;
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
   // Тот же тест НАПРЯМУЮ через Anthropic API (второй путь к Claude, минуя
   // OpenRouter) — решатель эволюции теперь умеет и его (callAIDecision, шаг 0b).
   const anthropicModel = model.replace(/^anthropic\//, '');
-  let anthropicCall: typeof flagship = { ok: false, model: null, preview: null, http_status: null, error: null, note: '' };
+  const anthropicCall: typeof flagship = { ok: false, model: null, preview: null, http_status: null, error: null, note: '' };
   if (!anthropicKey) {
     anthropicCall.note = 'ANTHROPIC_API_KEY не задан — вызов пропущен';
   } else {
