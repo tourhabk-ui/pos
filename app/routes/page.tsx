@@ -57,15 +57,22 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   const q = first(sp.q).slice(0, 200);
   const activityType = kind === 'route' ? first(sp.activity_type).slice(0, 60) : '';
   const locationType = kind === 'place' ? first(sp.location_type).slice(0, 60) : '';
+  const difficultyRaw = first(sp.difficulty);
+  // Сложность живёт в URL с тех пор, как на главной появились чипы подбора
+  // («Первый раз» → difficulty=easy). Клиент её и раньше писал в адрес, но
+  // ни он, ни сервер не читали обратно — ссылка выглядела рабочей и не была.
+  const difficulty: '' | 'easy' | 'medium' | 'hard' =
+    difficultyRaw === 'easy' || difficultyRaw === 'medium' || difficultyRaw === 'hard' ? difficultyRaw : '';
   const pageNumRaw = parseInt(first(sp.page) || '1', 10);
   const page = Number.isFinite(pageNumRaw) && pageNumRaw >= 1 ? pageNumRaw : 1;
 
-  // Зеркало initial-состояния клиента: sort/difficulty/цена в URL не живут.
+  // Зеркало initial-состояния клиента: sort и цена в URL по-прежнему не живут.
   const filters: CatalogFilters = {
     ...(q ? { q } : {}),
     kind,
     ...(activityType ? { activity_type: activityType } : {}),
     ...(locationType ? { location_type: locationType } : {}),
+    ...(difficulty ? { difficulty } : {}),
     page,
     limit: LIMIT,
     sort: 'recommended',
@@ -86,7 +93,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     locationType,
     page,
     sort: 'recommended',
-    difficulty: '',
+    difficulty,
     priceRange: '',
   });
 

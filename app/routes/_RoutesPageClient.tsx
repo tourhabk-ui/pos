@@ -164,7 +164,14 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [activityType, setActivityType] = useState(searchParams.get('activity_type') ?? '');
   const [locationType, setLocationType] = useState(searchParams.get('location_type') ?? '');
   const [sort,         setSort]         = useState<SortValue>('recommended');
-  const [difficulty,   setDifficulty]   = useState<DifficultyValue>('');
+  // Сложность читается из URL, а не начинается с пустой. Клиент её туда ПИСАЛ
+  // (см. params.set('difficulty', …) ниже), но при перезагрузке или переходе по
+  // ссылке терял: фильтр был виден в адресе и не действовал. Чипы главной
+  // («Первый раз» → difficulty=easy) без этого вели бы в общую выдачу.
+  const [difficulty,   setDifficulty]   = useState<DifficultyValue>(() => {
+    const d = searchParams.get('difficulty');
+    return (d === 'easy' || d === 'medium' || d === 'hard') ? d : '';
+  });
   const [priceRange,   setPriceRange]   = useState('');
   // Фильтр «Рядом»: радиус от якоря. Якорь — позиция туриста (геолокация по
   // явному выбору радиуса), при отказе — честно Петропавловск.

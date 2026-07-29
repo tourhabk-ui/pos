@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
+import { PARTNER_CATEGORIES } from '@/lib/partners/categories';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,19 @@ export async function GET(request: NextRequest) {
 
   const { status, limit, offset } = parsed.data;
   const hasStatusFilter = status !== 'all';
-  const params: (string | number)[] = hasStatusFilter ? [status, limit, offset] : [limit, offset];
+
+  // Отбор по КАТЕГОРИИ партнёрской записи, а не по роли пользователя.
+  // Прежнее `u.role = 'operator'` прятало от администратора всех, кроме
+  // операторов: человек с трансфером или прокатом заводился, а в очереди не
+  // появлялся — заявка молча уходила в никуда. У одного человека роль одна, а
+  // партнёрских записей может быть несколько.
+  const cats = [...PARTNER_CATEGORIES];
+  const params: (string | number | string[])[] = hasStatusFilter
+    ? [cats, status, limit, offset]
+    : [cats, limit, offset];
+  const statusClause = hasStatusFilter ? 'AND p.profile_status = $2' : '';
+  const limitIdx  = hasStatusFilter ? 3 : 2;
+  const offsetIdx = hasStatusFilter ? 4 : 3;
 
   const rows = await query(`
     SELECT
@@ -60,19 +73,19 @@ export async function GET(request: NextRequest) {
     FROM partners p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN operator_applications oa ON oa.partner_id = p.id
-    WHERE u.role = 'operator'
-      ${hasStatusFilter ? 'AND p.profile_status = $1' : ''}
+    WHERE p.category = ANY($1)
+      ${statusClause}
     ORDER BY p.applied_at DESC NULLS LAST, p.created_at DESC
-    LIMIT $${hasStatusFilter ? 2 : 1} OFFSET $${hasStatusFilter ? 3 : 2}
+    LIMIT $${limitIdx} OFFSET $${offsetIdx}
   `, params);
 
   const countRow = await query(`
     SELECT COUNT(*) AS total
     FROM partners p
     JOIN users u ON u.id = p.user_id
-    WHERE u.role = 'operator'
-      ${hasStatusFilter ? 'AND p.profile_status = $1' : ''}
-  `, hasStatusFilter ? [status] : []);
+    WHERE p.category = ANY($1)
+      ${statusClause}
+  `, hasStatusFilter ? [cats, status] : [cats]);
 
   return NextResponse.json({
     success: true,

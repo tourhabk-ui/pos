@@ -70,7 +70,9 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
 
 - Хедер: `KH` логотип + иконка темы + ЛК (без поиска в шапке)
 - Поиск: только иконка → модальное окно
-- Mobile navbar (pill): Дом / Карта / Избранное / ЛК / СОС — **только на главной и хабах**
+- Mobile navbar: Дом / Карта / Кузьмич / На маршруте / СОС (`components/shared/BottomNav.tsx`,
+  решение владельца 2026-07-18 — единая навигация вместо трёх разных). ЛК только в шапке.
+  СОС из таб-бара НЕ выносить: подтверждено 29.07 при разборе макета гибридной главной
 - Футер: только desktop
 - Homepage: `components/homepage/` (Hero, BentoGrid, LiveFeed, ActivityCircles, CTASection, Marquee, Reveal)
 
