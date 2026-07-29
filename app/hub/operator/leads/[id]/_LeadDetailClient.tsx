@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import useSWR from 'swr';
 import {
   Brain, Zap, FileText, CheckCircle, Clock, AlertCircle,
@@ -251,10 +252,10 @@ export default function LeadDetailClient({ leadId }: Props) {
           <div className="ds-card p-12 text-center flex flex-col items-center gap-3">
             <AlertCircle className="w-10 h-10 text-[var(--danger)]" />
             <p className="text-[var(--text-muted)]">Лид не найден или недоступен</p>
-            <a href="/hub/operator/leads" className="ds-btn gap-1.5 text-sm mt-2">
+            <Link href="/hub/operator/leads" className="ds-btn gap-1.5 text-sm mt-2">
               <ArrowLeft className="w-4 h-4" />
               Назад к списку
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -270,10 +271,10 @@ export default function LeadDetailClient({ leadId }: Props) {
       <div className="ds-section max-w-3xl mx-auto space-y-5">
 
         {/* Хлебные крошки */}
-        <a href="/hub/operator/leads" className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+        <Link href="/hub/operator/leads" className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
           <ArrowLeft className="w-4 h-4" />
           AI Lead Processor
-        </a>
+        </Link>
 
         {/* Заголовок */}
         <div className="flex flex-wrap items-start justify-between gap-3">

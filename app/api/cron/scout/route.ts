@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
   const started_at = new Date();
 
-  let gitContext: { git_log?: string; changed_files?: string } = {};
+  const gitContext: { git_log?: string; changed_files?: string } = {};
   try {
     const body: unknown = await request.json();
     if (body && typeof body === 'object') {

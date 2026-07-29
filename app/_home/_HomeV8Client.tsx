@@ -403,7 +403,20 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <section>
           <div className="shead"><h2>Проводник Кузьмич</h2><span className="line" /></div>
           <div className="guide">
-            <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам проверенному оператору.</q>
+            <div className="gtop">
+              <img
+                className="face"
+                src="/images/kuzmich/portrait-192.webp"
+                srcSet="/images/kuzmich/portrait-96.webp 96w, /images/kuzmich/portrait-192.webp 192w, /images/kuzmich/portrait-384.webp 384w"
+                sizes="72px"
+                width={72}
+                height={72}
+                alt="Кузьмич"
+                loading="lazy"
+                decoding="async"
+              />
+              <q>Скажите, что хотите увидеть — соберу маршрут по реальным статусам и передам проверенному оператору.</q>
+            </div>
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
             <div className="acts">
               <Link href="/kuzmich">Спросить</Link>
@@ -1089,6 +1102,10 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .arrivals .t{font:500 11.5px/1.5 var(--fb);color:var(--muted)}
 /* проводник */
 .v7 .guide{border-left:2px solid var(--pine);padding:2px 0 2px 18px}
+.v7 .guide .gtop{display:flex;align-items:flex-start;gap:16px}
+/* Медальон-гравюра: у Кузьмича не было лица — секция была цитатой без говорящего.
+   Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
+.v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
 .v7 .guide q{display:block;font:500 15px/1.5 var(--fd);letter-spacing:-.01em;quotes:"«" "»"}
 .v7 .guide .sig{margin-top:10px;display:flex;align-items:center;gap:10px}
 .v7 .guide .sig .caps{font:600 10px/1 var(--fb);letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}

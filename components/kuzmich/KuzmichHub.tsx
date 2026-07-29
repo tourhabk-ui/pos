@@ -147,7 +147,7 @@ export function KuzmichHub() {
                 Кузьмич говорит
               </p>
               <p className="font-playfair text-lg md:text-xl italic text-[var(--text-primary)] leading-snug">
-                "Привет! Помогу спланировать маршрут по Камчатке — расскажи что интересует."
+                «Привет! Помогу спланировать маршрут по Камчатке — расскажи что интересует.»
               </p>
             </div>
             <Link
