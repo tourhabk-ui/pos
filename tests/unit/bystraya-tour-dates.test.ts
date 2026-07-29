@@ -88,6 +88,26 @@ describe('миграция 789 публикует тур, и только его
   });
 });
 
+describe('миграция 790 ставит настоящую вместимость', () => {
+  const CAP = readFileSync(join(DIR, '790_bystraya_tour_capacity.sql'), 'utf-8');
+  const CAP_SQL = CAP.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');
+
+  it('29 мест и в календаре, и потолком группы', () => {
+    // Расхождение между ними означало бы, что календарь предлагает места,
+    // на которые форма брони не пустит.
+    expect(CAP_SQL).toMatch(/available_slots\s*=\s*29/);
+    expect(CAP_SQL).toMatch(/max_participants\s*=\s*29/);
+  });
+
+  it('не урезает дату, где набрано больше нового потолка', () => {
+    expect(CAP_SQL).toMatch(/COALESCE\(ta\.booked_slots,\s*0\)\s*<=\s*29/);
+  });
+
+  it('идемпотентна', () => {
+    expect(CAP_SQL).toMatch(/IS\s+DISTINCT\s+FROM\s+29/i);
+  });
+});
+
 describe('календарь туров не наполняется днями подряд', () => {
   it('диапазон дат всегда чем-то сужается — расписанием, а не «каждый день»', () => {
     // Различие не в generate_series как таковой: 124_open_tour_slots.sql тоже
