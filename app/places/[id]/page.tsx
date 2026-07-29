@@ -13,9 +13,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   try {
     const result = await query(
+      // Только РЕАЛЬНЫЕ снимки: wikimedia и ручная загрузка. Прежде подзапрос
+      // брал любую строку ai_route_images, включая сгенерированные моделью, и
+      // они уходили в OpenGraph — ссылка на карточку вулкана раскрывалась в
+      // мессенджере нарисованной картинкой этого вулкана. Карточка точки по
+      // CLAUDE.md §9 — географический факт; фото в превью должно быть фото.
       `SELECT p.name, p.essence, p.description, p.photo_url, p.location_type, p.images,
-              (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai WHERE ai.route_id = p.ark_id)
-                    THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS ai_photo
+              (CASE WHEN EXISTS(SELECT 1 FROM ai_route_images ai
+                                 WHERE ai.route_id = p.ark_id
+                                   AND ai.model IN ('wikimedia', 'manual-upload'))
+                    THEN '/api/images/route/' || p.ark_id ELSE NULL END) AS real_photo
        FROM places p
        WHERE (p.ark_id::text = $1 OR p.id = $1 OR p.slug = $1) AND p.is_visible = true`,
       [id]
@@ -27,7 +34,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       ((r.description as string | null)?.slice(0, 150) ?? 'Место на Камчатке');
     const imgs = r.images as unknown[] | null;
     const imagesFirst = Array.isArray(imgs) && imgs.length > 0 && typeof imgs[0] === 'string' ? imgs[0] as string : null;
-    const imgUrl = (r.photo_url ?? imagesFirst ?? r.ai_photo) as string | null;
+    const imgUrl = (r.photo_url ?? imagesFirst ?? r.real_photo) as string | null;
 
     return {
       title: `${r.name} — место на Камчатке`,
@@ -84,6 +91,9 @@ export default async function PlaceDetailPage({ params }: Props) {
     const result = await query(
       `SELECT p.name, p.description, p.essence, p.location_type, p.lat, p.lng,
               p.photo_url, p.images, p.ark_id,
+              EXISTS(SELECT 1 FROM ai_route_images ai
+                      WHERE ai.route_id = p.ark_id
+                        AND ai.model IN ('wikimedia', 'manual-upload')) AS has_real_photo,
               lsp.altitude_m, lsp.difficulty_level
        FROM places p
        LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
@@ -95,9 +105,21 @@ export default async function PlaceDetailPage({ params }: Props) {
     if (r) {
       const imgs = r.images as string[] | null;
       const imgUrl = (r.photo_url ?? (Array.isArray(imgs) && imgs[0]) ?? null) as string | null;
+      // Изображение в структурированных данных — только когда оно реально есть
+      // и оно настоящее.
+      //
+      // Прежде фолбэк был безусловным: `/api/images/route/{ark_id}` уходил в
+      // JSON-LD всегда. Две беды в одной строке. Если у точки лежало только
+      // сгенерированное изображение — поисковику отдавалась нарисованная
+      // картинка как ImageObject реального географического объекта. Если
+      // изображения не было вовсе — отдавался URL, который вернёт 404, да ещё
+      // и относительный, хотя в структурированных данных нужен абсолютный.
+      //
+      // Схема описывает действительность. Нет снимка — нет поля, это честнее
+      // ссылки в никуда.
       const fullImgUrl = imgUrl
         ? (imgUrl.startsWith('http') ? imgUrl : `${BASE}${imgUrl}`)
-        : `/api/images/route/${r.ark_id}`;
+        : (r.has_real_photo ? `${BASE}/api/images/route/${r.ark_id}` : null);
       const typeLabel = PLACE_TYPE_LABEL[r.location_type as string] ?? 'Место';
       const desc = ((r.essence ?? r.description) as string | null)?.replace(/<[^>]+>/g, '').slice(0, 300) ?? `${typeLabel} на Камчатке`;
 
@@ -109,7 +131,9 @@ export default async function PlaceDetailPage({ params }: Props) {
         description: desc,
         url: `${BASE}/places/${canonicalId}`,
         inLanguage: 'ru',
-        image: [{ '@type': 'ImageObject', url: fullImgUrl, name: r.name as string }],
+        ...(fullImgUrl
+          ? { image: [{ '@type': 'ImageObject', url: fullImgUrl, name: r.name as string }] }
+          : {}),
         address: {
           '@type': 'PostalAddress',
           addressRegion: 'Камчатский край',

@@ -106,7 +106,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   if (wantPdf) {
     const pdfBuffer = await generatePDF(reg);
-    return new NextResponse(pdfBuffer, {
+    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="mchs-registration-${String(reg.id).slice(0, 8)}.pdf"`,

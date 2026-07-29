@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return Response.json({ error: 'Invalid ID' }, { status: 400 });
   }
 
-  const [routeRes, wpRes] = await Promise.all([
+  const [routeRes, wpRes, alertRes] = await Promise.all([
     query(
       `SELECT id, title, description, lat, lng, difficulty, distance_km,
               elevation_gain_m, duration_hours, season, hazards, equipment,
@@ -41,6 +41,28 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
        JOIN places p ON p.id = rw.place_id
        WHERE rw.route_id = $1 AND p.lat IS NOT NULL AND p.lng IS NOT NULL
        ORDER BY rw.position`,
+      [id],
+    ),
+    // Действующие предупреждения по точкам маршрута.
+    //
+    // До этого офлайн-пакет нёс карту, трек, снаряжение и телефон МЧС — но
+    // ни одного слова об обстановке. Турист скачивал маршрут перед выходом и
+    // уносил в поле всё, кроме знания о пожаре, закрытой дороге или пеплопаде.
+    // Именно там, где связи нет, это знание и нужно.
+    //
+    // Берём через точки маршрута: у алерта зона, у точки — своя строка статуса,
+    // связь уже посчитана кроном safety-ingest. DISTINCT — один и тот же алерт
+    // висит на нескольких точках маршрута.
+    query(
+      `SELECT DISTINCT ea.alert_type, ea.severity, ea.title, ea.expires_at::text
+         FROM route_waypoints rw
+         JOIN places p            ON p.id = rw.place_id
+         JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
+         JOIN external_alerts ea  ON ea.title = ANY(lrs.active_alerts)
+        WHERE rw.route_id = $1
+          AND ea.expires_at > NOW()
+        ORDER BY ea.severity DESC
+        LIMIT 20`,
       [id],
     ),
   ]);
@@ -102,6 +124,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       lat: Number(wp.lat),
       lng: Number(wp.lng),
     })),
+    alerts: alertRes.rows.map(a => ({
+      type:     a.alert_type,
+      severity: Number(a.severity),
+      title:    a.title,
+      until:    a.expires_at,
+    })),
+    // Момент сборки пакета. Офлайн-данные стареют молча: без отметки турист
+    // на третий день не отличит вчерашнюю обстановку от сегодняшней и решит,
+    // что «предупреждений нет». Пусть решает, глядя на дату.
+    built_at: new Date().toISOString(),
     bbox,
     tile_urls: tileUrls,
     tile_count: tileUrls.length,
