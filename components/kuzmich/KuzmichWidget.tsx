@@ -271,7 +271,19 @@ export default function KuzmichWidget() {
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [loading, sessionId, messages, imageFile, imagePreview]);
+    // location/mode/permissionState обязаны быть здесь: без них замыкание
+    // держит их значения с того рендера, где колбэк создался. Геолокация
+    // приходит асинхронно (разрешение + фикс GPS), и первый вопрос сессии —
+    // как раз тот, что чаще всего звучит «где я / что рядом», — уходил бы без
+    // координат. Молча: интерфейс отвечает, а Кузьмич не знает, где человек.
+    //
+    // Дальше баг маскировался: `messages` меняется с каждым сообщением, колбэк
+    // пересоздаётся, и со второго вопроса координаты уже свежие. Ломался ровно
+    // первый контакт.
+    //
+    // Цикла это не создаёт: `send` живёт только в обработчиках событий и ни в
+    // одном массиве зависимостей эффекта.
+  }, [loading, sessionId, messages, imageFile, imagePreview, location, mode, permissionState]);
 
   // Скрываем на определённых страницах
   if (HIDDEN_PATHS.some(p => pathname?.startsWith(p))) return null;
