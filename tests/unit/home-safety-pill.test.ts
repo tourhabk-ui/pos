@@ -12,12 +12,14 @@
  * потолка пишем «5+».
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { safetyPill, pluralWarnings } from '@/lib/home/safety-pill';
 
 describe('пилюля обстановки', () => {
   it('нет активных предупреждений — спокойно', () => {
     expect(safetyPill({ activeCount: 0, maxSeverity: 0 })).toEqual({
-      tone: 'calm', text: 'Сегодня: спокойно',
+      tone: 'calm', text: 'Спокойно',
     });
   });
 
@@ -26,17 +28,17 @@ describe('пилюля обстановки', () => {
     // Человеку в этот момент не нужно число, ему нужно слово.
     const p = safetyPill({ activeCount: 3, maxSeverity: 2 });
     expect(p.tone).toBe('danger');
-    expect(p.text).toBe('Сегодня: опасность');
+    expect(p.text).toBe('Опасность');
   });
 
   it('мягкие предупреждения считаются', () => {
-    expect(safetyPill({ activeCount: 1, maxSeverity: 1 }).text).toBe('Сегодня: 1 предупреждение');
-    expect(safetyPill({ activeCount: 2, maxSeverity: 1 }).text).toBe('Сегодня: 2 предупреждения');
+    expect(safetyPill({ activeCount: 1, maxSeverity: 1 }).text).toBe('1 предупреждение');
+    expect(safetyPill({ activeCount: 2, maxSeverity: 1 }).text).toBe('2 предупреждения');
   });
 
   it('на потолке выборки — «5+», а не ровная пятёрка', () => {
     const p = safetyPill({ activeCount: 5, maxSeverity: 1 });
-    expect(p.text).toBe('Сегодня: 5+ предупреждений');
+    expect(p.text).toBe('5+ предупреждений');
     expect(p.tone).toBe('warning');
   });
 
@@ -63,5 +65,31 @@ describe('склонение', () => {
     expect(pluralWarnings(12)).toBe('предупреждений');
     expect(pluralWarnings(21)).toBe('предупреждение');
     expect(pluralWarnings(22)).toBe('предупреждения');
+  });
+});
+
+describe('статус безопасности не обрезается', () => {
+  it('текст короткий — влезает в узкую шапку', () => {
+    // Живой отказ 29.07 на экране 1080px: пилюля ужалась до «Сегодня: оп».
+    // Обрезанная «опасность» выглядит как исправный индикатор и не читается —
+    // хуже, чем отсутствие индикатора вовсе. Порог грубый, но он ловит
+    // возвращение длинных формулировок вроде «Сегодня: N предупреждений».
+    for (const input of [
+      { activeCount: 0, maxSeverity: 0 },
+      { activeCount: 1, maxSeverity: 1 },
+      { activeCount: 5, maxSeverity: 1 },
+      { activeCount: 2, maxSeverity: 3 },
+    ]) {
+      expect(safetyPill(input).text.length, `слишком длинно: ${safetyPill(input).text}`)
+        .toBeLessThanOrEqual(18);
+    }
+  });
+
+  it('в стилях пилюли нет многоточия и она не сжимается', () => {
+    const src = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
+    const rule = /\.v7 \.pill\{[^}]*\}/.exec(src)?.[0] ?? '';
+    expect(rule, 'не разобрать правило .pill').not.toBe('');
+    expect(rule, 'обрезка статуса безопасности вернулась').not.toContain('text-overflow');
+    expect(rule, 'пилюля снова сжимается соседями').toContain('flex:none');
   });
 });

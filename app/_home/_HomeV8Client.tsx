@@ -902,10 +902,15 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .topbar .sp{flex:1}
 .v7 .icn{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
-.v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 14px;cursor:pointer;transition:transform .13s}
+/* nowrap: без него «ХОЧУ ТУР» ломался на две строки, шапка становилась выше,
+   а пилюля рядом — уже. Кнопка короткая, переносить её нечего. */
+.v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 12px;cursor:pointer;white-space:nowrap;flex:none;transition:transform .13s}
 .v7 .cta-top:active{transform:scale(.96)}
-/* обстановка одной строкой; цвет несёт состояние, а не украшает */
-.v7 .pill{display:inline-flex;align-items:center;gap:7px;min-width:0;min-height:30px;padding:0 11px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--fb);letter-spacing:.02em;color:var(--ink);border:1px solid var(--hair);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .2s}
+/* Обстановка одной строкой; цвет несёт состояние, а не украшает.
+   flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
+   до «Сегодня: оп» — обрезанная «опасность» выглядит как исправный индикатор
+   и не читается. Статус безопасности либо виден целиком, либо это не статус. */
+.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 10px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--fb);letter-spacing:.02em;color:var(--ink);border:1px solid var(--hair);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
 .v7 .pill-calm i{background:var(--leaf)}
 .v7 .pill-warning i{background:var(--amber)}
