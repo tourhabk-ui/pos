@@ -65,8 +65,8 @@ export default [
       //   2. 'off' спрятал бы находки совсем, и мы бы решили, что чисто.
       //      warn держит их на виду в каждом прогоне.
       //
-      // Возврат к 'error' — вместе с разбором списка, см. issue про
-      // react-hooks. Не снимать правила, а чинить места.
+      // Возврат к 'error' — вместе с разбором списка, issue #885.
+      // Не снимать правила, а чинить места.
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/immutability': 'warn',
       'react-hooks/refs': 'warn',
