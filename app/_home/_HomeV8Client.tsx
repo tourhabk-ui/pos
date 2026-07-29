@@ -258,7 +258,14 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <Link href="/profile" className="icn" aria-label="Личный кабинет">
           <User className="li" size={19} strokeWidth={2} />
         </Link>
-        <button className="cta-top" onClick={jumpToLead}>Хочу тур</button>
+        {/* Кнопка «Хочу тур» из шапки убрана. Две причины сошлись.
+            Измерение: при 390 px шапка выходила за экран (scrollWidth 417 px),
+            и сама кнопка обрезалась на ~27 px — доступное действие выглядело
+            сломанным. Прятать overflow нельзя, это спрятало бы действие
+            целиком. Смысл: по решению владельца 29.07 тур — не первое
+            обещание главной, а следующий шаг после ответа «куда мне можно».
+            Действие не потеряно: «Подобрать тур» в блоке Кузьмича зовёт тот
+            же jumpToLead. */}
       </div></div>
 
       {/* ГЕРОЙ — фото-первый */}
@@ -616,7 +623,14 @@ function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat
   return (
     <div className="radar">
       <div className="scope">
-        <svg viewBox="0 0 200 200" aria-label="Радар обстановки">
+        {/* role="img" — иначе подпись графики не попадает в accessibility tree
+            предсказуемо. Подпись считается из того, что реально нарисовано:
+            статичное «Радар обстановки» врало бы при пустом радаре. */}
+        <svg
+          viewBox="0 0 200 200"
+          role="img"
+          aria-label={`Радар обстановки: предупреждений в радиусе ${MAX_KM} км — ${placed.length}`}
+        >
           <defs>
             <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
@@ -935,7 +949,7 @@ html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2
 html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7,.v7[data-v7theme]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7 *{margin:0;padding:0;box-sizing:border-box}
-.v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:96px;-webkit-font-smoothing:antialiased}
+.v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased}
 @media (prefers-reduced-motion:reduce){.v7 *,.v7 *::before,.v7 *::after{animation:none!important;transition:none!important}}
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
@@ -947,10 +961,6 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .topbar .sp{flex:1}
 .v7 .icn{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
-/* nowrap: без него «ХОЧУ ТУР» ломался на две строки, шапка становилась выше,
-   а пилюля рядом — уже. Кнопка короткая, переносить её нечего. */
-.v7 .cta-top{background:var(--shroom);color:#fff;border:0;font:700 10.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;padding:11px 12px;cursor:pointer;white-space:nowrap;flex:none;transition:transform .13s}
-.v7 .cta-top:active{transform:scale(.96)}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
    до «Сегодня: оп» — обрезанная «опасность» выглядит как исправный индикатор
@@ -996,7 +1006,11 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--hair);border-radius:12px}
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
 .v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--fb);color:var(--ink)}
-.v7 .live .lv-go{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide);text-decoration:none;white-space:nowrap}
+.v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide);text-decoration:none;white-space:nowrap}
+/* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
+   теряется, а без него человек с клавиатурой или switch-control не понимает,
+   где находится. Не снимаем outline без замены. */
+.v7 a:focus-visible,.v7 button:focus-visible,.v7 input:focus-visible{outline:2px solid var(--tide);outline-offset:2px;border-radius:6px}
 /* Подчинённая секция: продолжение предыдущей двери, а не новая. Поэтому без
    собственного заголовка и с меньшим отступом сверху. */
 .v7 section.sub{margin-top:-14px}
@@ -1218,9 +1232,13 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hubline a:active{color:var(--ink);border-bottom-color:var(--ink)}
 .v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--hair);font:400 9px/1.7 var(--fm);color:var(--faint)}
 /* навигация */
-.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
+.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
 .v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 calc(7px + env(safe-area-inset-bottom));color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
+/* Отступ под индикатор Home — на панели, не на самих кнопках. Раньше он был в
+   padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
+   конкурировала со свайпом «домой». Держать в одном месте — иначе двойной
+   запас: панель отодвигается, и кнопки внутри неё ещё раз. */
+.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 7px;color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
 .v7 nav.tabs a .ico,.v7 nav.tabs button .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
 .v7 nav.tabs a .ti,.v7 nav.tabs button .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
 .v7 nav.tabs a:active .ico,.v7 nav.tabs button:active .ico{transform:scale(.9)}
