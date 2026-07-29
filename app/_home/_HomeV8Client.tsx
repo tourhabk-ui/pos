@@ -16,11 +16,12 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Siren, Sun, Moon, Phone, X, ChevronDown, MapPin, Search, User, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
+import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
 
@@ -117,6 +118,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+  // Свежесть источника — отдельно от состояния. «Спокойно» по позавчерашним
+  // данным и «спокойно» по свежим — разные утверждения, и человек должен
+  // видеть, какое из них ему показали.
+  const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety' });
 
   // Поиск ведёт в тот же SSR-листинг, который турист увидит по любой ссылке
   // каталога: одна выдача, а не отдельная «поисковая» ветка со своей правдой.
@@ -269,7 +274,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
               дней», Кузьмич — в своей секции и в таб-баре. Три равные кнопки
               заставляли выбирать инструмент раньше, чем человек выбрал поездку. */}
           <form className="hero-find" onSubmit={submitIntent} role="search">
-            <Search className="hfi" size={18} strokeWidth={2} aria-hidden />
+            {/* Медальон-гравюра вместо лупы: поиск на Ведаре — это не «найти
+                строку», а «спросить у того, кто знает край». Марка из набора
+                владельца, тот же резец, что у портрета Кузьмича. */}
+            <img
+              className="hfb"
+              src="/images/brand/bear-64.webp"
+              srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
+              sizes="30px"
+              width={30}
+              height={30}
+              alt=""
+              aria-hidden
+              loading="eager"
+              decoding="async"
+            />
             <input
               type="search"
               value={intent}
@@ -295,6 +314,22 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
       </header>
 
       <div className="wrap">
+
+        {/* LIVE — обстановка одной строкой. Это не радар: радар показывает
+            подробности, а здесь ответ на вопрос «можно ли вообще сегодня».
+            Свежесть обязательна и показывается тремя состояниями: «спокойно»
+            по позавчерашним данным и «спокойно» по свежим — разные
+            утверждения, и человек должен видеть, какое ему показали. */}
+        <section className="live">
+          <span
+            className="lv-dot"
+            style={freshnessDot(fresh.state)
+              ? { background: freshnessDot(fresh.state) as string }
+              : { border: '1px solid var(--faint)' }}
+          />
+          <span className="lv-txt">{fresh.label}</span>
+          <Link className="lv-go" href="/safety">Карта сегодня →</Link>
+        </section>
 
         {/* 0. ПЕРВЫЙ РЕЗУЛЬТАТ — доказательство, что подбор работает.
             Никаких «совпадает с вашим запросом»: запроса у гостя ещё не было.
@@ -358,10 +393,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           )}
         </section>
 
-        {/* II. ПЛАТЫ — реальные туры/маршруты с фото и ценой */}
+        {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
+            Было: «Куда сегодня», «Стихии» и «Разделы» — три самостоятельные
+            секции, ведущие в один и тот же каталог. Это не богатство выбора, а
+            нерешительность: человеку предлагали выбрать между тремя входами в
+            одну комнату. Теперь один вход и три глубины: конкретные карточки →
+            выбор по стихии → разделы платформы. */}
         {plates.length > 0 && (
           <section>
-            <div className="shead"><h2>Куда сегодня</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes">Весь каталог</Link></div>
             <div className="plates" ref={platesRef}>
               {plates.map((p) => {
                 const href = p.kind === 'tour' ? `/marketplace/tours/${p.id}` : `/routes/${p.id}`;
@@ -420,10 +460,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* IV. СТИХИИ — реальные счётчики */}
+        {/* Второй слой той же двери: выбор по стихии. Отдельной секцией это
+            было третьим входом в тот же каталог. */}
         {elements.length > 0 && (
-          <section>
-            <div className="shead"><h2>Стихии</h2><span className="line" /><Link className="all" href="/routes">Все места</Link></div>
+          <section className="sub">
             <div className="elements">
               {elements.map((el, i) => {
                 const Icon = ELEMENT_ICON[el.key] ?? Flame;
@@ -455,9 +495,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* VI. ЛИД-ФОРМА — реальный POST /api/leads */}
-        <section ref={leadRef} id="lead">
-          <div className="shead"><h2>Собрать поездку</h2><span className="line" /></div>
+        {/* Сбор поездки — действие Кузьмича, а не отдельная секция-двойник.
+            Заголовок «Собрать поездку» снят: он повторял то, что уже обещает
+            блок проводника выше, и добавлял главной ещё один вход в то же
+            самое. Форма и её POST /api/leads остались нетронутыми, ссылка
+            «Подобрать тур» у Кузьмича по-прежнему ведёт сюда. */}
+        <section ref={leadRef} id="lead" className="sub">
           <div className={`lead${sent ? ' sent' : ''}`}>
             <h3>Не знаете, <em>с чего начать</em>?</h3>
             <p>Опишите поездку — подберём маршруты и передадим проверенным операторам. Ответ сегодня.</p>
@@ -480,9 +523,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </div>
         </section>
 
-        {/* VII. РАЗДЕЛЫ */}
-        <section>
-          <div className="shead"><h2>Разделы</h2><span className="line" /></div>
+        {/* Третий слой: разделы платформы. Тоже был отдельной дверью в каталог. */}
+        <section className="sub">
           <div className="hubline">
             <Link href="/routes">Туристам</Link><Link href="/routes?activity_type=fishing">Рыбалка</Link>
             <Link href="/hub">Операторам</Link><Link href="/guides">Гидам</Link>
@@ -938,7 +980,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* поиск и чипы в герое — одно действие вместо трёх равных кнопок.
    Стекло здесь законно: подложка — фотография, а не сплошной фон. */
 .v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
-.v7 .hero-find .hfi{color:rgba(255,255,255,.72);flex:none}
+.v7 .hero-find .hfb{width:30px;height:30px;flex:none;border-radius:50%;object-fit:cover}
 .v7 .hero-find input{flex:1;min-width:0;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
 .v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
 .v7 .hero-find button{flex:none;min-height:36px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
@@ -951,6 +993,13 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
+.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--hair);border-radius:12px}
+.v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
+.v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--fb);color:var(--ink)}
+.v7 .live .lv-go{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide);text-decoration:none;white-space:nowrap}
+/* Подчинённая секция: продолжение предыдущей двери, а не новая. Поэтому без
+   собственного заголовка и с меньшим отступом сверху. */
+.v7 section.sub{margin-top:-14px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
 .v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
