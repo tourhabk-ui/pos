@@ -83,47 +83,87 @@ function authError(req: Request): Response | null {
   return null;
 }
 
+/**
+ * Ассоциация алерта с точкой/маршрутом.
+ *
+ * По умолчанию — зона (~сотни км, northern/eastern/avachinsky): годится для
+ * событий без точных координат (МЧС-текст, официальные предупреждения о
+ * цунами) и для точек без lat/lng.
+ *
+ * Пожар (`fire_danger`, источник NASA FIRMS) — исключение: у события ЕСТЬ
+ * точные координаты кластера (`external_alerts.lat/lng`, migration 687), и у
+ * точки/маршрута тоже есть координаты (`agent_route_knowledge.lat/lng`).
+ * Находка issue #861: одиночная термоточка (возможно вулканическая термаль,
+ * severity 0) где-то в зоне зажигала карточки ВСЕХ маршрутов зоны, включая
+ * лежащие в 300 км от неё. Раз координаты обеих сторон есть — используем их:
+ * радиус вместо зоны. RADIUS_KM=50 — инженерная оценка (шире 10 км кластера
+ * FIRMS, уже зоны), не измерение; событие/точка без обеих координат уходят
+ * в обычный зонный фолбэк.
+ *
+ * Единственная формула на все три поля (active_alerts/alert_severity/
+ * recommender_status) — раньше один и тот же предикат был написан трижды,
+ * в трёх отдельных correlated subquery. Плодить его четвёртым местом при
+ * следующей правке не стоит.
+ */
+const ALERT_MATCH_SQL = `
+  (
+    ea.alert_type = 'fire_danger'
+    AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
+    AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+    AND 2 * 6371 * asin(sqrt(
+          power(sin(radians((ark.lat - ea.lat) / 2)), 2)
+          + cos(radians(ea.lat)) * cos(radians(ark.lat))
+            * power(sin(radians((ark.lng - ea.lng) / 2)), 2)
+        )) <= 50
+  )
+  OR (
+    NOT (
+      ea.alert_type = 'fire_danger'
+      AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
+      AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+    )
+    AND (
+      ea.affected_zones IS NULL
+      OR ea.affected_zones = '{}'
+      OR ark.zone = ANY(ea.affected_zones)
+    )
+  )
+`;
+
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
     const r = await query(`
+      WITH matched AS (
+        -- LEFT JOIN external_alerts: каждая точка обязана попасть в агрегат
+        -- ровно один раз, даже без единого совпадения — иначе точка без
+        -- активных алертов не получит очистку active_alerts/severity этим
+        -- прогоном и останется со вчерашним значением.
+        SELECT
+          lrs.id AS lrs_id,
+          ea.title,
+          ea.severity
+        FROM location_real_time_status lrs
+        LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
+        LEFT JOIN external_alerts ea
+          ON ea.expires_at > NOW()
+          AND (${ALERT_MATCH_SQL})
+      ),
+      agg AS (
+        -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
+        -- один текст) размножали алерт шестикратно на карточках маршрутов
+        SELECT
+          lrs_id,
+          COALESCE(array_agg(DISTINCT title) FILTER (WHERE title IS NOT NULL), '{}') AS alerts,
+          COALESCE(MAX(severity), 0) AS max_severity
+        FROM matched
+        GROUP BY lrs_id
+      )
       UPDATE location_real_time_status lrs
       SET
-        active_alerts = (
-          -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
-          -- один текст) размножали алерт шестикратно на карточках маршрутов
-          SELECT COALESCE(array_agg(DISTINCT ea.title), '{}')
-          FROM external_alerts ea
-          LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-          WHERE ea.expires_at > NOW()
-            AND (
-              ea.affected_zones IS NULL
-              OR ea.affected_zones = '{}'
-              OR ark.zone = ANY(ea.affected_zones)
-            )
-        ),
-        alert_severity = (
-          SELECT COALESCE(MAX(ea.severity), 0)
-          FROM external_alerts ea
-          LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-          WHERE ea.expires_at > NOW()
-            AND (
-              ea.affected_zones IS NULL
-              OR ea.affected_zones = '{}'
-              OR ark.zone = ANY(ea.affected_zones)
-            )
-        ),
+        active_alerts = agg.alerts,
+        alert_severity = agg.max_severity,
         recommender_status = CASE
-          WHEN (
-            SELECT COALESCE(MAX(ea.severity), 0)
-            FROM external_alerts ea
-            LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-            WHERE ea.expires_at > NOW()
-              AND (
-                ea.affected_zones IS NULL
-                OR ea.affected_zones = '{}'
-                OR ark.zone = ANY(ea.affected_zones)
-              )
-          ) >= 2 THEN 'red'
+          WHEN agg.max_severity >= 2 THEN 'red'
           WHEN lrs.tourists_today >= COALESCE(
             (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
             50
@@ -135,6 +175,8 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           ELSE 'green'
         END,
         updated_at = NOW()
+      FROM agg
+      WHERE agg.lrs_id = lrs.id
     `);
     return { updated: r.rowCount ?? 0 };
   } catch (e) {
