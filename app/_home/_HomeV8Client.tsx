@@ -956,13 +956,37 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 a{color:inherit;text-decoration:none}
 .v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
 .v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
-.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
+/* Бюджет ширины шапки посчитан измерением в браузере (issue #893, Manrope):
+   бренд 76.36 + пилюля 165.47 (худший текст) + SOS 74.84 + иконки 88 +
+   зазоры 60 = 464.67px, а доступно всего 320 / 350 / 372 при 360 / 390 / 412.
+   Дефицит 144.67 / 114.67 / 92.67 — шапка перегружена на ЛЮБОЙ мобильной
+   ширине, поэтому «просто запретить сжатие» возвращает переполнение #892.
+   Сокращать нечего: пилюлю обрезать запрещено (833120d — обрезанная
+   «Опасность» скрывала активный алерт), SOS и зоны 44px — безопасность и §3.
+   Уступает бренд: единственный элемент, который ничего не сообщает и никуда
+   не ведёт. Решение владельца 2026-07-30.
+   Порог 439px не круглый, а выведен из бюджета по САМОМУ ШИРОКОМУ из коротких
+   состояний пилюли — «Опасность» (99.81px, шире «Спокойно»): с брендом нужно
+   76.36+99.81+74.84+88+60 = 399.01px, то есть viewport от 440px. Круглые 400px
+   оставляли бы шапку двухстрочной на 412px — очень распространённой ширине, а
+   порог по «Спокойно» (435px) ронял бы в две строки состояние опасности.
+   flex-wrap — страховка: если бюджет не сойдётся и без бренда (длинная пилюля),
+   строка переносится, а не уезжает за экран. Переполнение прячет действие,
+   вторая строка — нет. */
+.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:6px}
 .v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
+@media (max-width:439px){.v7 .topbar .brand{display:none}}
 .v7 .topbar .sp{flex:1}
 /* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
    19px: компактность держим внутренним размером глифа, а не урезанием зоны
-   нажатия. Ширины хватает — место освободила убранная из шапки кнопка. */
-.v7 .icn{width:44px;height:44px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
+   нажатия.
+   flex:none обязателен. Объявленных 44px недостаточно: у флекс-ребёнка работает
+   дефолтный flex-shrink:1, и в тесной шапке зона нажатия сжималась до 19–37px
+   (измерено, issue #893) — то есть до размера самого глифа, при формально
+   правильном CSS. Сторож на объявленную высоту этого не видел: ломал layout, а
+   не декларация. Здесь flex:none закрывает слепое пятно по построению —
+   сжиматься больше нечему. */
+.v7 .icn{width:44px;height:44px;flex:none;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
