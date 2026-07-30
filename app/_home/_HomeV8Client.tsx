@@ -16,7 +16,8 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import BottomNav from '@/components/shared/BottomNav';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
@@ -546,13 +547,11 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           мобильной Главной; шторка сама рендерит оверлей. */}
       <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
-      {/* нижняя навигация */}
-      <nav className="tabs"><div className="in">
-        <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
-        <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
-        <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
-        <a href="/planning?mode=trail"><span className="ico"><Navigation className="ti" size={19} strokeWidth={2} /></span><span>На маршруте</span></a>
-      </div></nav>
+      {/* Нижняя навигация — ЕДИНЫЙ BottomNav платформы (решение владельца
+          2026-07-18). Собственный инлайновый таб-бар главной удалён редизайном
+          31.07: два таб-бара с одинаковыми пунктами неизбежно разъезжаются
+          подписями и адресами — это уже случалось (/map и /ai-assistant). */}
+      <BottomNav activePath="/" />
 
       <EmergencyPanel open={sosOpen} onClose={() => setSosOpen(false)} />
     </div>
@@ -957,13 +956,32 @@ const CSS = `
 .v7 a{color:inherit;text-decoration:none}
 .v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
 .v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg-primary) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
-.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
+/* flex-wrap — страховка бюджета ширины (#893): если содержимое шапки не
+   помещается (длинное состояние пилюли, узкий экран), строка переносится,
+   а не уезжает за край. Переполнение прячет действие, вторая строка — нет.
+   Бюджет пересчитан после смены шрифтов на Playfair/Outfit и композиции
+   #887/#892 — числа в scripts/measure-header-budget.mjs. */
+.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:6px}
 .v7 .topbar .brand{font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
+/* Бренд уступает место первым (решение владельца 2026-07-30: единственный
+   элемент шапки, который ничего не сообщает и никуда не ведёт). Порог 427px
+   выведен ИЗМЕРЕНИЕМ (scripts/measure-header-budget.mjs, реальный Inter,
+   31.07): бренд 72.63 + худшее короткое состояние пилюли «Опасность» 93.77 +
+   SOS 72.53 + иконки 88 + зазоры 60 + поля 40 = 426.93. Ниже — однострочная
+   шапка без бренда; длинное «5+ предупреждений» переносится страховкой
+   flex-wrap, а не определяет порог. */
+@media (max-width:426px){.v7 .topbar .brand{display:none}}
 .v7 .topbar .sp{flex:1}
 /* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
    19px: компактность держим внутренним размером глифа, а не урезанием зоны
-   нажатия. Ширины хватает — место освободила убранная из шапки кнопка. */
-.v7 .icn{width:44px;height:44px;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;cursor:pointer;background:none;border:0}
+   нажатия.
+   flex:none обязателен. Объявленных 44px недостаточно: у флекс-ребёнка работает
+   дефолтный flex-shrink:1, и в тесной шапке зона нажатия сжималась до 19-37px
+   (измерено, issue #893) — то есть до размера самого глифа, при формально
+   правильном CSS. Сторож на объявленную высоту этого не видел: ломал layout, а
+   не декларация. flex:none закрывает слепое пятно по построению — сжиматься
+   больше нечему. */
+.v7 .icn{width:44px;height:44px;flex:none;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
@@ -1247,19 +1265,9 @@ const CSS = `
 .v7 .hubline a:active{color:var(--text-primary);border-bottom-color:var(--text-primary)}
 .v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 9px/1.7 var(--fm);color:var(--text-muted)}
 /* навигация */
-.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom);background:color-mix(in srgb,var(--bg-primary) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--border)}
-.v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-/* Отступ под индикатор Home — на панели, не на самих кнопках. Раньше он был в
    padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
    конкурировала со свайпом «домой». Держать в одном месте — иначе двойной
    запас: панель отодвигается, и кнопки внутри неё ещё раз. */
-.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 7px;color:var(--text-muted);font:600 8px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
-.v7 nav.tabs a .ico,.v7 nav.tabs button .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
-.v7 nav.tabs a .ti,.v7 nav.tabs button .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
-.v7 nav.tabs a:active .ico,.v7 nav.tabs button:active .ico{transform:scale(.9)}
-.v7 nav.tabs a.active{color:var(--text-primary)}
-.v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--accent) 15%,transparent)}
-.v7 nav.tabs a.active .ti{color:var(--accent);transform:translateY(-1px)}
 /* SOS — красный */
 /* Инлайн-панель экстренной помощи (офлайн-стойкая, поверх главной) */
 .v7 .emg{position:fixed;inset:0;z-index:100;background:var(--bg-primary);display:flex;flex-direction:column;animation:emgin .18s ease}
