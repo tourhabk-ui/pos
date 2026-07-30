@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v17'; // bumped: переосмыслен /offline (112 tap-to-call) — форсируем переprecache, чтобы установленные PWA получили новый safety-экран сразу
+const CACHE_NAME = 'kamchatour-v18'; // bumped: единая семантика деградации GPS на /sos и /emergency (#897) + новый общий модуль /safety/geo-degradation.js в критичном precache — форсируем переprecache установленным PWA
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -61,6 +61,7 @@ const CRITICAL_URLS = [
   '/emergency',        // нулевые зависимости: GPS + звонок 112 + протоколы
   '/sos',              // экстренная помощь
   '/safety/offline',   // инструкции выживания
+  '/safety/geo-degradation.js', // общая семантика деградации GPS — от неё офлайн зависят оба экрана (#897)
   '/leaflet/leaflet.min.js',   // Leaflet для офлайн-карты на /emergency
   '/leaflet/leaflet.min.css',
   '/icons/kamchatka-silhouette.jpg',

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { MapPin, Phone, Loader2, CheckCircle, AlertTriangle, WifiOff, RotateCw } from 'lucide-react';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { SatelliteDictationCard } from '@/components/safety/SatelliteDictationCard';
 import { MeshStatusWidget } from '@/components/mesh/MeshStatusWidget';
@@ -14,12 +14,69 @@ type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 // Единый источник номеров — работает офлайн, без зависимостей (см. lib/safety/emergency-numbers.ts)
 const SOS_CONTACTS = EMERGENCY_NUMBERS;
 
+// ── Общий модуль семантики деградации GPS (public/safety/geo-degradation.js) ──
+// Тот же модуль обслуживает /emergency. Единственный источник поведения при
+// недоступной геолокации: /sos и /emergency больше не расходятся (#897).
+type GeoErrorInfo = { code: number | string; reason: string; hint: string; retryable: boolean };
+
+type LocatorState =
+  | { phase: 'locating'; seconds: number }
+  | { phase: 'found'; seconds: number; coords: { lat: number; lng: number; acc: number; timestamp: number | null } }
+  | { phase: 'error'; seconds: number; error: GeoErrorInfo };
+
+type LastKnown = {
+  lat: number; lng: number; acc: number | null; t: number;
+  minsAgo: number; ageLabel: string; distanceKm?: number; distanceLabel?: string;
+};
+
+interface VedarGeoAPI {
+  LAST_POS_KEY: string;
+  readLastKnown: (now?: number) => LastKnown | null;
+  attachDistance: (last: LastKnown | null, curLat: number | null, curLng: number | null) => LastKnown | null;
+  progressLabel: (seconds: number) => string;
+  createLocator: (opts: { onState: (s: LocatorState) => void; onFix?: (p: GeolocationPosition) => void })
+    => { start: () => void; retry: () => void; stop: () => void };
+}
+
+declare global {
+  interface Window { VedarGeo?: VedarGeoAPI }
+}
+
+/**
+ * Гарантирует, что общий модуль загружен, и отдаёт его API. Файл лежит в
+ * CRITICAL_URLS precache, поэтому доступен и офлайн (через service worker).
+ */
+function ensureGeoModule(): Promise<VedarGeoAPI | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.VedarGeo) return Promise.resolve(window.VedarGeo);
+  return new Promise((resolve) => {
+    const done = () => resolve(window.VedarGeo ?? null);
+    const existing = document.querySelector<HTMLScriptElement>('script[data-vedar-geo]');
+    if (existing) {
+      existing.addEventListener('load', done);
+      existing.addEventListener('error', () => resolve(null));
+      if (window.VedarGeo) done();
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = '/safety/geo-degradation.js';
+    s.async = true;
+    s.setAttribute('data-vedar-geo', '');
+    s.onload = done;
+    s.onerror = () => resolve(null);
+    document.head.appendChild(s);
+  });
+}
+
 export default function SosPage() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [coordsLoading, setCoordsLoading] = useState(true);
+  const [coordsText, setCoordsText] = useState('Определяем...');
+  const [geoError, setGeoError] = useState<GeoErrorInfo | null>(null);
+  const [lastKnown, setLastKnown] = useState<LastKnown | null>(null);
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const locatorRef = useRef<{ start: () => void; retry: () => void; stop: () => void } | null>(null);
 
   // VolcanoMesh: соседние устройства группы. Включается при появлении
   // координат. Если сеть есть у соседа, а не у нас — SOS уйдёт через него.
@@ -30,21 +87,48 @@ export default function SosPage() {
     sendSOS: meshSendSOS,
   } = useMesh(!!coords, coords);
 
-  // Геолокация при загрузке
+  // Поиск координат через общий модуль — та же честная деградация, что на
+  // /emergency: прогресс поиска, причина отказа (code 1/2/3), повтор и
+  // последняя известная позиция ТОЛЬКО когда она реально есть (#897).
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setCoordsLoading(false);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setCoordsLoading(false);
-      },
-      () => setCoordsLoading(false),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    let cancelled = false;
+    void ensureGeoModule().then((api) => {
+      if (cancelled) return;
+      if (!api) {
+        // Модуль не загрузился — честно говорим, что не ищем, а не «Определяем…».
+        setGeoError({ code: 'unsupported', reason: 'GPS недоступен', hint: 'Позвони 112 напрямую', retryable: false });
+        return;
+      }
+      // Последнюю позицию показываем только если она реально существует.
+      setLastKnown(api.readLastKnown() ?? null);
+      const locator = api.createLocator({
+        onState: (s) => {
+          if (cancelled) return;
+          if (s.phase === 'locating') {
+            setGeoError(null);
+            setCoordsText(api.progressLabel(s.seconds));
+          } else if (s.phase === 'found') {
+            setGeoError(null);
+            setCoords({ lat: s.coords.lat, lng: s.coords.lng });
+            setCoordsText(`${s.coords.lat.toFixed(5)}°N, ${s.coords.lng.toFixed(5)}°E`);
+            const fresh = api.readLastKnown();
+            setLastKnown(fresh ? api.attachDistance(fresh, s.coords.lat, s.coords.lng) : null);
+          } else if (s.phase === 'error') {
+            setGeoError(s.error);
+          }
+        },
+      });
+      locatorRef.current = locator;
+      locator.start();
+    });
+    return () => { cancelled = true; locatorRef.current?.stop(); };
   }, []);
+
+  const retryGeo = () => {
+    setGeoError(null);
+    setCoordsText('Определяем...');
+    locatorRef.current?.retry();
+  };
 
   const handleSendSos = async () => {
     if (sendStatus === 'sending' || sendStatus === 'sent') return;
@@ -101,10 +185,6 @@ export default function SosPage() {
     }
   };
 
-  const coordsLabel = coords
-    ? `${coords.lat.toFixed(5)}°N, ${coords.lng.toFixed(5)}°E`
-    : coordsLoading ? 'Определяем...' : 'Недоступны';
-
   const smsBody = coords
     ? `SOS! Мне нужна помощь. Мои координаты: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} — vedarai.ru`
     : 'SOS! Мне нужна помощь — vedarai.ru';
@@ -149,26 +229,86 @@ export default function SosPage() {
 
       <div style={{ flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-        {/* Координаты */}
+        {/* Координаты — честная деградация: прогресс, причина отказа, повтор */}
         <div style={{
           padding: '12px 16px',
           borderRadius: '12px',
-          background: 'color-mix(in srgb, var(--ocean) 10%, transparent)',
-          border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)',
+          background: geoError
+            ? 'color-mix(in srgb, var(--warning) 10%, transparent)'
+            : 'color-mix(in srgb, var(--ocean) 10%, transparent)',
+          border: geoError
+            ? '1px solid color-mix(in srgb, var(--warning) 30%, transparent)'
+            : '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)',
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
         }}>
-          <MapPin size={18} style={{ color: 'var(--ocean)', flexShrink: 0 }} />
-          <div>
+          <MapPin size={18} style={{ color: geoError ? 'var(--warning)' : 'var(--ocean)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Ваши координаты
             </p>
-            <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
-              {coordsLabel}
+            {geoError ? (
+              <>
+                <p style={{ fontSize: '14px', fontWeight: 700, margin: '2px 0 0', color: 'white' }}>
+                  {geoError.reason}
+                </p>
+                <p style={{ fontSize: '11px', margin: '2px 0 0', color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>
+                  {geoError.hint}
+                </p>
+              </>
+            ) : (
+              <p style={{ fontSize: '15px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'white' }}>
+                {coordsText}
+              </p>
+            )}
+          </div>
+          {geoError && (
+            <button
+              onClick={retryGeo}
+              aria-label="Повторить поиск координат"
+              style={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                minHeight: '44px',
+                padding: '0 12px',
+                borderRadius: '10px',
+                border: '1px solid color-mix(in srgb, var(--warning) 40%, transparent)',
+                background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+                color: 'white',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <RotateCw size={14} />
+              Повторить
+            </button>
+          )}
+        </div>
+
+        {/* Последняя известная позиция — рендерится ТОЛЬКО когда она реально
+            есть (readLastKnown вернул точку). Никакого обещания при её отсутствии. */}
+        {lastKnown && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: '12px',
+            background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+          }}>
+            <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Последний сигнал сети
+            </p>
+            <p style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'monospace', margin: '2px 0 0', color: 'var(--success)' }}>
+              {lastKnown.lat.toFixed(5)}, {lastKnown.lng.toFixed(5)}
+            </p>
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '2px 0 0', lineHeight: 1.4 }}>
+              {lastKnown.ageLabel}{lastKnown.distanceLabel ? ` · ~${lastKnown.distanceLabel} от тебя` : ''} — не текущее место, а где была связь
             </p>
           </div>
-        </div>
+        )}
 
         {/* Меш-статус: сколько устройств группы рядом, ретрансляции SOS */}
         <MeshStatusWidget status={meshStatus} peers={meshPeers} relayedCount={meshRelayedCount} />
@@ -188,7 +328,7 @@ export default function SosPage() {
               { n: 1, text: 'Нажми кнопку «Отправить координаты» ниже', color: 'var(--danger)' },
               { n: 2, text: 'Позвони 112 — назови координаты с экрана', color: 'var(--danger)' },
               { n: 3, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
-              { n: 4, text: 'Стой на месте — поиск идёт по последнему известному месту', color: 'var(--warning)' },
+              { n: 4, text: 'Не уходи с места — спасатели ищут от точки последней связи', color: 'var(--warning)' },
             ].map(({ n, text, color }) => (
               <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                 <span style={{
