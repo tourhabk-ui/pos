@@ -126,7 +126,7 @@ body{
 
 <div class="stop">
   <h1>СТОЙ ГДЕ СТОИШЬ</h1>
-  <p>Двигаясь — ты уходишь от точки последнего сигнала.<br>Тебя ищут. Жди.</p>
+  <p>Позвони 112 и назови координаты или ориентиры.<br>Оставайся на месте и жди помощи.</p>
 </div>
 
 <div class="coords-box">
@@ -239,10 +239,10 @@ body{
 </div>
 
 <div class="protocol" id="p-lost">
-  <div class="urgent">Стой где стоишь — тебя найдут быстрее</div>
+  <div class="urgent">Стой где стоишь — не уходи с места</div>
   <h3>Потерялся</h3>
   <ol>
-    <li>Не двигайся. Спасатели ищут по последнему сигналу телефона.</li>
+    <li>Позвони 112. Оставайся на месте и жди помощи.</li>
     <li>Кричи 3 раза каждые 10 минут — пауза, слушай ответ.</li>
     <li>Переведи телефон в режим полёта между звонками — экономь батарею.</li>
     <li>Найди открытое место — тебя увидят с воздуха.</li>
@@ -300,8 +300,9 @@ body{
 
 <script>
 var lat=null,lng=null,open_id=null;
-// Ключ и семантика последней позиции — из общего модуля (window.VedarGeo).
-var LAST_POS_KEY=window.VedarGeo.LAST_POS_KEY;
+// Последняя позиция — только через общий модуль (window.VedarGeo). Своего
+// чтения/записи localStorage у экрана нет: единственный writer точки —
+// LastPositionTracker, а чтение и валидация — readLastKnown.
 
 function showLastSignal(){
   var box=document.getElementById('last-signal-box');
@@ -367,8 +368,9 @@ function openFullscreenMap(){
   document.body.style.overflow='hidden';
 
   var lat=_curLat,lng=_curLng;
-  var lastPos=null;
-  try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+  // Только через общий валидатор — сырой localStorage мог бы вынести на карту
+  // протухшую/будущую/невозможную точку в обход контракта.
+  var lastPos=window.VedarGeo.readLastKnown();
 
   // Если GPS ещё не пришёл — центр по последней позиции или дефолт
   if(lat===null&&lastPos){lat=lastPos.lat;lng=lastPos.lng;}
@@ -416,7 +418,7 @@ function openFullscreenMap(){
     _leafletMapFS.fitBounds([[lat,lng],[lastPos.lat,lastPos.lng]],
       {padding:[pad,pad],maxZoom:15});
   } else {
-    dirEl.textContent='GPS получен — ждите спасателей на месте';
+    dirEl.textContent='GPS получен — оставайся на месте и жди помощи';
     _leafletMapFS.setView([lat,lng],14);
   }
 
@@ -444,8 +446,8 @@ function initLeafletMap(clat,clng){
   if(!window.L)return;
   _curLat=clat;_curLng=clng;
   try{
-    var lastPos=null;
-    try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+    // Точка только через общий валидатор — не сырой localStorage.
+    var lastPos=window.VedarGeo.readLastKnown();
 
     if(!_leafletMap){
       _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
@@ -475,9 +477,10 @@ function onGPSError(err){
   var msg=err&&err.reason?err.reason:'GPS недоступен';
   if(err&&err.hint)msg+=' — '+err.hint;
   document.getElementById('coords-value').textContent=msg;
-  // Повтор предлагаем всегда: он безвреден и в части браузеров переспрашивает
-  // разрешение. Честность здесь — в причине отказа, а не в скрытии кнопки.
-  document.getElementById('retry-btn').style.display='';
+  // Повтор показываем только когда он честно может помочь (нет сигнала/долго).
+  // При отказе в разрешении (retryable=false) кнопки нет: поможет не повтор,
+  // а настройка браузера — это и сказано в подсказке.
+  document.getElementById('retry-btn').style.display=(err&&err.retryable)?'':'none';
 }
 
 // Один локатор на экран — вся оркестрация поиска (строгая попытка → мягкий

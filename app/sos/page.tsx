@@ -263,7 +263,7 @@ export default function SosPage() {
               </p>
             )}
           </div>
-          {geoError && (
+          {geoError && geoError.retryable && (
             <button
               onClick={retryGeo}
               aria-label="Повторить поиск координат"
@@ -328,7 +328,7 @@ export default function SosPage() {
               { n: 1, text: 'Нажми кнопку «Отправить координаты» ниже', color: 'var(--danger)' },
               { n: 2, text: 'Позвони 112 — назови координаты с экрана', color: 'var(--danger)' },
               { n: 3, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
-              { n: 4, text: 'Не уходи с места — спасатели ищут от точки последней связи', color: 'var(--warning)' },
+              { n: 4, text: 'Оставайся на месте, если оно безопасно, и жди помощи', color: 'var(--warning)' },
             ].map(({ n, text, color }) => (
               <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                 <span style={{

@@ -22,8 +22,10 @@
   'use strict';
 
   var LAST_POS_KEY = 'vedar_last_online_pos';
-  // Последняя онлайн-позиция старше суток бесполезна для поиска.
-  var MAX_AGE_MIN = 24 * 60;
+  // Последняя онлайн-позиция старше суток бесполезна. Сравниваем по
+  // миллисекундам, а не по округлённым минутам: округление пропустило бы
+  // точку возрастом 24 ч + полминуты как «ещё свежую».
+  var MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
   function haversineKm(lat1, lng1, lat2, lng2) {
     var R = 6371;
@@ -42,11 +44,14 @@
   }
 
   /*
-   * Последняя известная позиция — или null, если её реально нет.
-   * null отдаётся честно во всех случаях, когда показывать точку было бы
-   * ложью: ключа нет, JSON битый, координаты не числа, метка из будущего
-   * (та же граница, что у блока свежести на главной — отрицательный возраст
-   * не «самая свежая точка», а недоступность), либо старше суток.
+   * Последняя известная позиция — или null, если её реально нет. Единственная
+   * точка входа к сохранённой точке: и текст, и карты обязаны читать только
+   * отсюда, иначе на экран попадёт то, что валидатор отверг.
+   *
+   * null отдаётся честно во всех случаях, когда показывать точку было бы ложью:
+   * ключа нет, JSON битый, координаты не числа/не конечны/вне диапазона широты
+   * и долготы, метка из будущего (отрицательный возраст — не «самая свежая
+   * точка», а недоступность) либо старше суток.
    */
   function readLastKnown(now, storage) {
     now = typeof now === 'number' ? now : Date.now();
@@ -62,11 +67,15 @@
     if (!pos || typeof pos.lat !== 'number' || typeof pos.lng !== 'number' || typeof pos.t !== 'number') {
       return null;
     }
+    // Конечность и географически возможные диапазоны — иначе на карту попала бы
+    // невозможная точка в обход контракта.
+    if (!isFinite(pos.lat) || !isFinite(pos.lng) || !isFinite(pos.t)) return null;
+    if (pos.lat < -90 || pos.lat > 90 || pos.lng < -180 || pos.lng > 180) return null;
 
     var ageMs = now - pos.t;
-    if (ageMs < 0) return null;              // метка из будущего — недоступно, не «только что»
+    if (ageMs < 0) return null;         // метка из будущего — недоступно, не «только что»
+    if (ageMs > MAX_AGE_MS) return null; // старше суток — бесполезно (сравнение по мс)
     var minsAgo = Math.round(ageMs / 60000);
-    if (minsAgo > MAX_AGE_MIN) return null;  // старше суток — бесполезно
 
     return {
       lat: pos.lat,
@@ -121,26 +130,6 @@
   }
 
   /*
-   * Сохраняет позицию как последнюю ОНЛАЙН-точку — только если сеть есть.
-   * Точка без сети не годится в «последний сигнал сети»: смысл ключа — куда
-   * идти за покрытием. Возвращает true, если записали.
-   */
-  function saveOnlineFix(position, online, storage) {
-    if (!online || !position || !position.coords) return false;
-    storage = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
-    if (!storage) return false;
-    try {
-      storage.setItem(LAST_POS_KEY, JSON.stringify({
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        acc: Math.round(position.coords.accuracy),
-        t: Date.now()
-      }));
-      return true;
-    } catch (e) { return false; }
-  }
-
-  /*
    * Локатор: одна оркестрация поиска для обоих экранов.
    *
    * Эмитит состояния через onState:
@@ -151,21 +140,28 @@
    * Сначала строгий getCurrentPosition с кешем до 5 мин (мгновенный ответ,
    * если телефон уже знает где он), при отказе — мягкий watchPosition. Так же,
    * как это делает честный /emergency; /sos раньше делал одну попытку и сдавался.
+   *
+   * Модуль НЕ пишет позицию в localStorage: единственный writer точки —
+   * components/tracking/LastPositionTracker (пишет при онлайн-геолокации на
+   * обычных экранах). Здесь только чтение и валидация — чтобы не плодить второй
+   * источник записи точных координат.
+   *
+   * Отказ в разрешении (code 1) не тянем через 30-секундный watch: повтор его
+   * не лечит, честнее сразу сообщить причину. Каждый start() — новая «попытка»
+   * с номером; поздний callback предыдущей попытки игнорируется (иначе старый
+   * getCurrentPosition мог бы завершить свежий retry).
    */
   function createLocator(opts) {
     opts = opts || {};
     var onState = typeof opts.onState === 'function' ? opts.onState : function () {};
-    var onFix = typeof opts.onFix === 'function' ? opts.onFix : null;
     var geo = opts.geolocation || (typeof navigator !== 'undefined' ? navigator.geolocation : null);
-    var isOnline = typeof opts.isOnline === 'function'
-      ? opts.isOnline
-      : function () { return typeof navigator !== 'undefined' ? !!navigator.onLine : false; };
 
     var watchId = null;
     var timer = null;
     var hardTimer = null;
     var seconds = 0;
     var done = false;
+    var generation = 0;
 
     function clearTimers() {
       if (timer) { clearInterval(timer); timer = null; }
@@ -173,35 +169,37 @@
       if (watchId != null && geo) { try { geo.clearWatch(watchId); } catch (e) {} watchId = null; }
     }
 
-    function success(position) {
-      if (done) return;
-      done = true;
-      clearTimers();
-      saveOnlineFix(position, isOnline());
-      onState({
-        phase: 'found',
-        seconds: seconds,
-        coords: {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          acc: position.coords.accuracy,
-          timestamp: position.timestamp || null
-        }
-      });
-      if (onFix) onFix(position);
-    }
-
-    function fail(err) {
-      if (done) return;
-      done = true;
-      clearTimers();
-      onState({ phase: 'error', seconds: seconds, error: describeError(err && err.code) });
-    }
-
     function start() {
       clearTimers();
+      var myGen = ++generation;
       done = false;
       seconds = 0;
+
+      // true, если этот callback принадлежит уже отменённой попытке.
+      function stale() { return myGen !== generation; }
+
+      function success(position) {
+        if (done || stale()) return;
+        done = true;
+        clearTimers();
+        onState({
+          phase: 'found',
+          seconds: seconds,
+          coords: {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            acc: position.coords.accuracy,
+            timestamp: position.timestamp || null
+          }
+        });
+      }
+
+      function fail(err) {
+        if (done || stale()) return;
+        done = true;
+        clearTimers();
+        onState({ phase: 'error', seconds: seconds, error: describeError(err && err.code) });
+      }
 
       if (!geo) {
         done = true;
@@ -211,7 +209,7 @@
 
       onState({ phase: 'locating', seconds: 0 });
       timer = setInterval(function () {
-        if (done) return;
+        if (done || stale()) return;
         seconds++;
         onState({ phase: 'locating', seconds: seconds });
       }, 1000);
@@ -219,7 +217,9 @@
       geo.getCurrentPosition(
         success,
         function (firstErr) {
-          if (done) return;
+          if (done || stale()) return;
+          // Отказ в разрешении повтором не лечится — не ждём 30 сек впустую.
+          if (firstErr && firstErr.code === 1) { fail(firstErr); return; }
           // Строгая попытка не удалась — переключаемся на менее строгий watch.
           try {
             watchId = geo.watchPosition(
@@ -228,7 +228,7 @@
               { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }
             );
           } catch (e) { /* watch не поддержан — упадём в fail по таймеру */ }
-          hardTimer = setTimeout(function () { if (!done) fail(firstErr); }, 30000);
+          hardTimer = setTimeout(function () { if (!done && !stale()) fail(firstErr); }, 30000);
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
       );
@@ -239,14 +239,13 @@
 
   var API = {
     LAST_POS_KEY: LAST_POS_KEY,
-    MAX_AGE_MIN: MAX_AGE_MIN,
+    MAX_AGE_MS: MAX_AGE_MS,
     haversineKm: haversineKm,
     formatAge: formatAge,
     readLastKnown: readLastKnown,
     attachDistance: attachDistance,
     describeError: describeError,
     progressLabel: progressLabel,
-    saveOnlineFix: saveOnlineFix,
     createLocator: createLocator
   };
 
