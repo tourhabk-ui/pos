@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { PhoneCall, WifiOff, Mountain, LifeBuoy, Map as MapIcon, ChevronDown } from 'lucide-react';
 import { FEDERAL_EMERGENCY, VERIFIED_REGIONAL, telHref, type EmergencyNumber } from '@/lib/safety/emergency-numbers';
 
@@ -145,16 +144,34 @@ function TelRow({ entry, icon }: { entry: EmergencyNumber; icon: ReactNode }) {
   );
 }
 
-/** Ссылка на офлайн-доступный раздел. */
+/**
+ * Ссылка на офлайн-доступный раздел.
+ *
+ * Обычная `<a>`, а НЕ `next/link` — и это единственное, что здесь работает.
+ * `<Link>` делает клиентский переход: вместо документа он тянет RSC-пейлоад
+ * (`?_rsc=…`). У такого запроса `mode` не `navigate`, поэтому ветка service
+ * worker'а для навигации (`sw.js`, «Навигация: whitelist страниц») его не
+ * ловит вовсе — запрос уходит в общую ветку и офлайн получает в ответ HTML
+ * страницы `/offline`. Роутер Next ждёт пейлоад, получает разметку и виснет
+ * навсегда: полевой тест в авиарежиме 30.07 показал бесконечный скелетон на
+ * ВСЕХ трёх ссылках сразу, включая `/safety/offline` из критичного precache.
+ * Закэшированный HTML не спасает, когда запрос идёт не за HTML.
+ *
+ * Жёсткая `<a>` даёт настоящий переход по документу — он попадает в ветку
+ * навигации и отдаётся из кэша. Тот же приём уже применён в
+ * `components/shared/EmergencyAction.tsx` (кнопка SOS) и у «Навигатора по
+ * маршруту» на главной. Заодно это возвращает файл к его же обещанию из
+ * шапки: «ноль сети, ноль JS».
+ */
 function OfflineLink({ href, icon, label, accent }: { href: string; icon: ReactNode; label: string; accent?: boolean }) {
   return (
-    <Link
+    <a
       href={href}
       className="flex items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]"
       style={accent ? { color: 'var(--danger)' } : { color: 'var(--text-primary)' }}
     >
       {icon}
       <span className={`text-sm ${accent ? 'font-semibold' : 'font-medium'}`}>{label}</span>
-    </Link>
+    </a>
   );
 }
