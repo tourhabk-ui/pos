@@ -14,9 +14,10 @@
  */
 
 import { callAIFast, callAIQuality, fetchWithRetry } from '@/lib/ai/providers';
+import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
-import { deduplicateBySimilarity, jaccardFromTokens, tokenizeForSimilarity } from '@/lib/utils/text-similarity';
+import { deduplicateBySimilarity, jaccardFromTokens, jaccardSimilarity, tokenizeForSimilarity } from '@/lib/utils/text-similarity';
 import { readAgentBriefing } from '@/lib/agents/warmup';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import {
@@ -42,6 +43,8 @@ export interface DigestResult {
   sources?: ScoutSourceReport[];
   /** Сколько сигналов отсеяно как уже показанные (URL + похожий заголовок). */
   repeats_suppressed?: number;
+  /** Выпуск почти дословно повторил предыдущий и был заблокирован перед отправкой. */
+  repeat_blocked?: boolean;
 }
 
 interface RssItem {
@@ -251,6 +254,77 @@ export function filterUnseen<T extends { title: string; url: string }>(
 }
 
 /**
+ * Память о том, что КАНАЛ уже видел, — недостающий третий эшелон отсева.
+ *
+ * filterUnseen режет повторные СИГНАЛЫ (URL за 30 суток, заголовок Jaccard≥0.5
+ * за 7), но перепечатка другими словами делит с оригиналом 2-3 токена из
+ * десяти и проходит как свежая. Дальше синтез: в промпте написано «не
+ * дублировать уже выданные инсайты», а recentRuns из warmup.ts содержит только
+ * метаданные («07:00 — success, обработано: 12») — ни слова из вчерашнего
+ * выпуска. Модель физически не может не повторить то, чего не видела; при этом
+ * каждый выпуск ХРАНИТСЯ в agent_knowledge (intel/scout/<дата>) и до сих пор
+ * не показывался. Та же болезнь write-only, что была у уроков эволюции.
+ */
+
+/** Сколько последних выпусков подаётся модели. */
+export const PUBLISHED_DIGESTS_LIMIT = 2;
+/** Потолок блока «уже опубликовано» в символах промпта. */
+export const PUBLISHED_BLOCK_MAX_CHARS = 3500;
+/**
+ * Порог «выпуск повторяет предыдущий». Заголовки разделов дайджеста общие
+ * (~10 токенов), поэтому два честных выпуска о разных новостях дают ~0.15-0.3;
+ * 0.6 достигается только когда повторена большая часть содержимого. Порог
+ * сознательно консервативный: недоблокировать лучше, чем съесть живой выпуск.
+ */
+export const REPEAT_DIGEST_THRESHOLD = 0.6;
+
+/** Тексты последних выпусков из agent_knowledge, новые первыми. Ошибка БД → []. */
+export async function recentPublishedDigests(limit = PUBLISHED_DIGESTS_LIMIT): Promise<string[]> {
+  try {
+    const { rows } = await pool.query<{ compiled_truth: string }>(
+      `SELECT compiled_truth
+         FROM agent_knowledge
+        WHERE agent_id = 'scout' AND type = 'intel' AND slug LIKE 'intel/scout/%'
+        ORDER BY slug DESC
+        LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => r.compiled_truth).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Блок «уже опубликовано» для промпта синтеза. Чистая функция: пусто на входе —
+ * пустая строка (не занимаем контекст заглушкой). Это ДАННЫЕ на каждом прогоне,
+ * а не разрастание шаблона: инструкция одна, содержимое приносит БД.
+ */
+export function publishedDigestsBlock(texts: string[], maxChars = PUBLISHED_BLOCK_MAX_CHARS): string {
+  const nonEmpty = texts.map((t) => t.trim()).filter(Boolean);
+  if (nonEmpty.length === 0) return '';
+  const block =
+    `=== УЖЕ ОПУБЛИКОВАНО В КАНАЛЕ (последние выпуски) ===\n` +
+    `НЕ пересказывай эти сюжеты, даже если сегодня они пришли из другого источника другими словами. ` +
+    `Повтор допустим только при РАЗВИТИИ сюжета — новом факте, которого нет в выпусках ниже.\n\n` +
+    nonEmpty.join('\n\n--- (предыдущий выпуск) ---\n\n');
+  return block.length > maxChars ? `${block.slice(0, maxChars - 1)}…` : block;
+}
+
+/**
+ * Детерминированный предохранитель на выходе: выпуск, почти дословно
+ * повторяющий один из предыдущих, в канал не уходит. Промпт-эшелон выше —
+ * вероятностный (модель может ослушаться); этот — нет.
+ */
+export function isNearRepeatOfPrevious(
+  digest: string,
+  previous: string[],
+  threshold = REPEAT_DIGEST_THRESHOLD,
+): boolean {
+  return previous.some((p) => p.trim() && jaccardSimilarity(digest, p) >= threshold);
+}
+
+/**
  * Фактчек-гейт: возвращает проценты из текста поста, которых НЕТ в исходных сигналах.
  * Процент считается выдуманным, если ни одно из его чисел не встречается в источнике.
  * Так как в AI-пост подаются только заголовки, любой неподтверждённый процент — галлюцинация.
@@ -371,6 +445,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // recentRuns tells the agent what it already processed so it avoids duplicates.
   const briefing = await readAgentBriefing('scout-digest');
 
+  // Последние выпуски канала: модели — чтобы не пересказывала, предохранителю
+  // перед отправкой — чтобы почти дословный повтор не ушёл подписчикам.
+  const publishedDigests = await recentPublishedDigests();
+
   // Collect RSS in parallel — с честным статусом каждого источника
   const fetched = await Promise.all(RSS_SOURCES.map(fetchSource));
   const allItems: RssItem[] = [];
@@ -411,9 +489,12 @@ export async function runScoutDigest(): Promise<DigestResult> {
     .join('\n');
 
   // Build context section from briefing so AI knows current state and prior runs.
+  // recentRuns — только метаданные запусков; тексты уже выданных выпусков
+  // подаёт publishedDigestsBlock, без него «не дублировать» не на что опереться.
   const contextSection = [
     briefing.platformSummary ? `=== ТЕКУЩЕЕ СОСТОЯНИЕ ПЛАТФОРМЫ ===\n${briefing.platformSummary}` : '',
-    briefing.recentRuns ? `=== МОИ ПОСЛЕДНИЕ ЗАПУСКИ (не дублировать уже выданные инсайты) ===\n${briefing.recentRuns}` : '',
+    briefing.recentRuns ? `=== МОИ ПОСЛЕДНИЕ ЗАПУСКИ ===\n${briefing.recentRuns}` : '',
+    publishedDigestsBlock(publishedDigests),
   ].filter(Boolean).join('\n\n');
 
   const messages: ChatMessage[] = [
@@ -523,6 +604,16 @@ export async function runScoutDigest(): Promise<DigestResult> {
       // Лучше не выпустить дайджест, чем выпустить с выдумкой.
       return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
+  }
+
+  // Предохранитель повторов: выпуск, почти дословно совпадающий с уже
+  // опубликованным, в канал не уходит. Сигналы seen НЕ помечаем — они честно
+  // свежие и завтра пойдут в новый синтез; провалился именно текст выпуска.
+  if (isNearRepeatOfPrevious(digest, publishedDigests)) {
+    return {
+      signals_found: freshItems.length, digest_sent: false, repeat_blocked: true,
+      duration_ms: Date.now() - start, ...health, repeats_suppressed,
+    };
   }
 
   // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
