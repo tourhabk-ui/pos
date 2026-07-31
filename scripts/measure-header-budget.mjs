@@ -34,9 +34,9 @@ const { chromium } = require('playwright');
 
 const MIN_TOUCH = 44;
 // Ширины: 320 — крайний узкий, 360/390/412 — реальные телефоны,
-// 426/427 — границы порога бренда (выведен замером, см. вывод скрипта),
-// 480 — max-width полосы, 768 — планшет.
-const WIDTHS = [320, 360, 390, 412, 426, 427, 480, 768];
+// 480 — max-width полосы, 768 — планшет. Порога бренда больше нет:
+// итерация north-star 31.07 убрала бренд из шапки целиком (вордмарк в герое).
+const WIDTHS = [320, 360, 390, 412, 480, 768];
 
 // Состояния пилюли из lib/home/safety-pill.ts. Худшее по ширине обязательно:
 // именно оно определяет, сходится ли бюджет.
@@ -119,7 +119,7 @@ ${GLOBALS}
 ${CSS}</style></head>
 <body><div class="v7"><div class="topbar">
 <div class="in"${unconstrained ? ' style="max-width:none;flex-wrap:nowrap"' : ''}>
-<span class="brand" id="brand">Ведар</span><span class="sp"></span>
+<span class="sp"></span>
 <a class="pill pill-${pill.tone}" id="pill"><i></i>${pill.text}</a>
 <a id="sos" href="/sos" style="${SOS_STYLE}"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3v2"/></svg><span>SOS</span></a>
 <button class="icn" id="theme" aria-label="Тема">${ICON}</button>
@@ -154,7 +154,7 @@ const browser = await launch();
   }
   const n = await p.evaluate(() => {
     const w = (s) => +document.querySelector(s).getBoundingClientRect().width.toFixed(2);
-    return { brand: w('#brand'), pill: w('#pill'), sos: w('#sos'), icn: w('#theme') };
+    return { pill: w('#pill'), sos: w('#sos'), icn: w('#theme') };
   });
   // Ширины всех состояний пилюли: порог скрытия бренда выводится из САМОГО
   // ШИРОКОГО из коротких состояний (длинное «5+ предупреждений» переносится
@@ -165,14 +165,10 @@ const browser = await launch();
     await p.evaluate(() => document.fonts.ready);
     pillW[pl.text] = await p.evaluate(() => +document.querySelector('#pill').getBoundingClientRect().width.toFixed(2));
   }
-  const gaps = 60; // 12px × 5 зазоров между шестью детьми
-  const need = n.brand + n.pill + n.sos + n.icn * 2 + gaps;
-  const shortWorst = Math.max(pillW['Спокойно'], pillW['Опасность']);
-  const brandThreshold = Math.ceil(n.brand + shortWorst + n.sos + n.icn * 2 + gaps + 40);
+  const gaps = 48; // 12px × 4 зазора между пятью детьми (бренда в шапке нет)
+  const need = n.pill + n.sos + n.icn * 2 + gaps;
   console.log('Пилюли: ' + Object.entries(pillW).map(([t, w]) => `«${t}» ${w}`).join(' · '));
-  console.log(`Порог показа бренда (по худшему короткому состоянию): viewport >= ${brandThreshold}px`);
-  console.log('=== БЮДЖЕТ ШИРИНЫ ШАПКИ (худшее состояние пилюли) ===');
-  console.log(`бренд «Ведар»    ${n.brand.toFixed(2)}  уступает первым (ничего не сообщает, никуда не ведёт)`);
+  console.log('=== БЮДЖЕТ ШИРИНЫ ШАПКИ (худшее состояние пилюли; бренд живёт в герое) ===');
   console.log(`пилюля статуса   ${n.pill.toFixed(2)}  НЕ сокращать: обрезка скрывала активную опасность (833120d)`);
   console.log(`SOS              ${n.sos.toFixed(2)}  НЕ сокращать: безопасность, min-width 44`);
   console.log(`иконки × 2       ${(n.icn * 2).toFixed(2)}  НЕ сокращать: §3 дизайн-языка`);
@@ -188,8 +184,8 @@ const browser = await launch();
 
 // ── Инварианты по всем сочетаниям ─────────────────────────────────────────
 console.log('\n=== ПРОВЕРКА (ширины × состояния пилюли) ===');
-console.log('| vw | пилюля | бренд | иконка | SOS | высота шапки | переполнение | пилюля обрезана |');
-console.log('|---:|---|---|---:|---:|---:|---|---|');
+console.log('| vw | пилюля | иконка | SOS | высота шапки | переполнение | пилюля обрезана |');
+console.log('|---:|---|---:|---:|---:|---|---|');
 let failures = 0;
 for (const width of WIDTHS) {
   for (const pill of PILLS) {
@@ -202,7 +198,6 @@ for (const width of WIDTHS) {
       const doc = document.documentElement;
       const pillEl = document.querySelector('#pill');
       return {
-        brandShown: getComputedStyle(document.querySelector('#brand')).display !== 'none',
         icn: Math.min(r('#theme').width, r('#theme').height, r('#profile').width, r('#profile').height),
         sos: Math.min(r('#sos').width, r('#sos').height),
         barH: r('.topbar .in').height,
@@ -212,7 +207,7 @@ for (const width of WIDTHS) {
     });
     const bad = m.icn < MIN_TOUCH || m.sos < MIN_TOUCH || m.over || m.clipped;
     if (bad) failures++;
-    console.log(`| ${width} | ${pill.text} | ${m.brandShown ? 'виден' : 'скрыт'} | ${m.icn.toFixed(0)}${m.icn < MIN_TOUCH ? ' ✗' : ''} | ${m.sos.toFixed(0)}${m.sos < MIN_TOUCH ? ' ✗' : ''} | ${m.barH.toFixed(0)} | ${m.over ? 'ДА ✗' : 'нет'} | ${m.clipped ? 'ДА ✗' : 'нет'} |`);
+    console.log(`| ${width} | ${pill.text} | ${m.icn.toFixed(0)}${m.icn < MIN_TOUCH ? ' ✗' : ''} | ${m.sos.toFixed(0)}${m.sos < MIN_TOUCH ? ' ✗' : ''} | ${m.barH.toFixed(0)} | ${m.over ? 'ДА ✗' : 'нет'} | ${m.clipped ? 'ДА ✗' : 'нет'} |`);
     await ctx.close();
   }
 }

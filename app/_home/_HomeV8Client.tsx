@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, Mountain, Footprints, CalendarDays, Navigation, Radar, Map as MapIcon, type LucideIcon } from 'lucide-react';
 import BottomNav from '@/components/shared/BottomNav';
 
 // P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
@@ -37,6 +37,25 @@ const ELEMENT_ICON: Record<string, LucideIcon> = {
 
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
 
+// Иконки чипов быстрого подбора — по стабильному ключу, не по подписи.
+const CHIP_ICON: Record<string, LucideIcon> = {
+  volcano: Mountain, thermal: Droplets, easy: Footprints, days: CalendarDays,
+};
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** «6–9 августа» из ISO-дат поездки. Обе даты обязательны — иначе null и кикер без дат. */
+function tripDatesLabel(a: string | null, d: string | null): string | null {
+  if (!a || !d) return null;
+  const s = new Date(`${a}T00:00:00`);
+  const e = new Date(`${d}T00:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
+    return `${s.getDate()}–${e.getDate()} ${MONTHS_GEN[e.getMonth()]}`;
+  }
+  return `${s.getDate()} ${MONTHS_GEN[s.getMonth()]} – ${e.getDate()} ${MONTHS_GEN[e.getMonth()]}`;
+}
+
 const ACC_LABEL: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
 const ACC_VAR: Record<string, string> = { red: 'var(--danger)', orange: 'var(--accent)', yellow: 'var(--warning)' };
 
@@ -48,6 +67,8 @@ function fmtPrice(n: number | null): string | null {
 interface ActiveTrip {
   id: string;
   title: string;
+  arrivalDate: string | null;
+  departureDate: string | null;
   progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
 }
 
@@ -204,9 +225,12 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     <div className="v7 v8" id="v8root">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* шапка */}
+      {/* шапка — только функциональное: статус, СОС, тема, ЛК. Бренда здесь
+          нет вовсе (итерация north-star 31.07): с брендом даже короткое
+          состояние пилюли требовало 427px, то есть на всех ходовых ширинах
+          он и так был скрыт. Вордмарк живёт в герое, где ширина не
+          конкурирует со статусом безопасности. */}
       <div className="topbar"><div className="in">
-        <span className="brand">Ведар</span>
         <span className="sp" />
         {/* Обстановка одной строкой. Ведёт к радару на этой же странице — не
             кнопка-обещание, а работающий переход. */}
@@ -217,8 +241,8 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             инлайн-панель прямо здесь — навигации не происходит вовсе. */}
         <EmergencyAction onOfflineFallback={() => setSosOpen(true)} />
         {/* Иконки поиска здесь больше нет. Она была кнопкой без обработчика:
-            выглядела рабочей и не делала ничего. Настоящий поиск теперь строкой
-            в герое, прямо под шапкой — и место в узкой шапке освободилось. */}
+            выглядела рабочей и не делала ничего. Настоящий поиск — карточкой
+            сразу под героем, и место в узкой шапке освободилось. */}
         <button
           className="icn"
           aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
@@ -241,49 +265,40 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             же jumpToLead. */}
       </div></div>
 
-      {/* ГЕРОЙ — фото-первый */}
-      <header className="hero-photo" style={{ backgroundImage: `linear-gradient(180deg, rgba(10,14,12,.15) 0%, rgba(10,14,12,.55) 62%, rgba(10,14,12,.82) 100%), url('${heroImg}')` }}>
+      {/* ГЕРОЙ — фото-первый, композиция north-star макета (31.07): вордмарк
+          на фото, display-заголовок слева, фото внизу растворяется в крем.
+          Поиск и чипы поэтому живут НИЖЕ героя на сплошном фоне — и по §2 это
+          уже не стекло, а карточки на var(--bg-card).
+          При активной поездке герой принадлежит поездке: кикер с реальными
+          датами, заголовок — название, «День N из M» — только из tripProgress
+          (during) и только при непустых day/total. after/unknown сюда не
+          попадают — гейт на fetch выше. */}
+      <header className="hero-photo" style={{ backgroundImage: `url('${heroImg}')` }}>
+        <div className="hero-shade" aria-hidden />
+        <div className="hero-fade" aria-hidden />
         <div className="hero-in">
-          <div className="dateline"><span>Камчатка · живая сводка</span></div>
-          <h1>Полуостров,<br />прочитанный <em>сегодня</em></h1>
-          <p className="sub">Маршруты, безопасность и реальные туры проверенных операторов — в одном месте.</p>
-
-          {/* Одно действие вместо трёх равных кнопок. Каталог, планировщик и
-              Кузьмич никуда не делись: каталог — это и есть выдача поиска,
-              планировщик живёт в секции «Собрать поездку» и в чипе «На 3–5
-              дней», Кузьмич — в своей секции и в таб-баре. Три равные кнопки
-              заставляли выбирать инструмент раньше, чем человек выбрал поездку. */}
-          <form className="hero-find" onSubmit={submitIntent} role="search">
-            {/* Медальон-гравюра вместо лупы: поиск на Ведаре — это не «найти
-                строку», а «спросить у того, кто знает край». Марка из набора
-                владельца, тот же резец, что у портрета Кузьмича. */}
-            <img
-              className="hfb"
-              src="/images/brand/bear-64.webp"
-              srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
-              sizes="30px"
-              width={30}
-              height={30}
-              alt=""
-              aria-hidden
-              loading="eager"
-              decoding="async"
-            />
-            <input
-              type="search"
-              value={intent}
-              onChange={(e) => setIntent(e.target.value)}
-              placeholder="Куда хотите поехать?"
-              aria-label="Поиск по маршрутам и местам"
-              enterKeyHint="search"
-            />
-            <button type="submit">Найти</button>
-          </form>
-          <div className="hero-chips">
-            {INTENT_CHIPS.map((c) => (
-              <Link key={c.key} href={c.href} className="hchip">{c.label}</Link>
-            ))}
-          </div>
+          <span className="hero-brand">Vedarai</span>
+          <div className="hero-sp" />
+          {trip ? (
+            <>
+              <div className="hero-kick">
+                Ваша поездка
+                {tripDatesLabel(trip.arrivalDate, trip.departureDate) && ` · ${tripDatesLabel(trip.arrivalDate, trip.departureDate)}`}
+              </div>
+              <h1 className="h1-trip">{trip.title}</h1>
+              {trip.progress.phase === 'during' && trip.progress.day != null && trip.progress.total != null && (
+                <p className="sub">День {trip.progress.day} из {trip.progress.total}</p>
+              )}
+              {trip.progress.phase === 'before' && trip.progress.total != null && (
+                <p className="sub">{trip.progress.total} дн. маршрута впереди</p>
+              )}
+            </>
+          ) : (
+            <>
+              <h1>Камчатка —<br />без сюрпризов</h1>
+              <p className="sub">Подберём маршрут по вашим датам и реальной обстановке.</p>
+            </>
+          )}
           {safety.volcanoes[0] && (
             <div className="kvert">
               <i style={{ background: ACC_VAR[safety.volcanoes[0].acc] }} />
@@ -294,6 +309,49 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
       </header>
 
       <div className="wrap">
+
+        {/* Одно действие вместо трёх равных кнопок. Каталог, планировщик и
+            Кузьмич никуда не делись: каталог — это и есть выдача поиска,
+            планировщик живёт в чипе «На 3–5 дней», Кузьмич — в своей секции
+            и в таб-баре. Карточка поиска наезжает на растворяющийся низ фото —
+            шов между героем и крем-подложкой, как в макете. */}
+        <form className="find" onSubmit={submitIntent} role="search">
+          {/* Медальон-гравюра вместо лупы: поиск на Ведаре — это не «найти
+              строку», а «спросить у того, кто знает край». Марка из набора
+              владельца, тот же резец, что у портрета Кузьмича. */}
+          <img
+            className="hfb"
+            src="/images/brand/bear-64.webp"
+            srcSet="/images/brand/bear-64.webp 64w, /images/brand/bear-128.webp 128w, /images/brand/bear-192.webp 192w"
+            sizes="34px"
+            width={34}
+            height={34}
+            alt=""
+            aria-hidden
+            loading="eager"
+            decoding="async"
+          />
+          <input
+            type="search"
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            placeholder="Куда хотите поехать?"
+            aria-label="Поиск по маршрутам и местам"
+            enterKeyHint="search"
+          />
+          <button type="submit">Найти</button>
+        </form>
+        <div className="hero-chips">
+          {INTENT_CHIPS.map((c) => {
+            const Ic = CHIP_ICON[c.key];
+            return (
+              <Link key={c.key} href={c.href} className="hchip">
+                {Ic && <Ic size={15} strokeWidth={2} aria-hidden />}
+                {c.label}
+              </Link>
+            );
+          })}
+        </div>
 
         {/* LIVE — обстановка одной строкой. Это не радар: радар показывает
             подробности, а здесь ответ на вопрос «можно ли вообще сегодня».
@@ -311,50 +369,60 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <Link className="lv-go" href="/safety">Карта сегодня →</Link>
         </section>
 
+        {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
+            Заголовок и день живут в герое; здесь — плитки-входы. Только
+            работающие: навигатор, радар, офлайн-карта. Никаких «следующая
+            точка N» — связи день→точка в данных нет. */}
+        {trip && (
+          <section className="tripstrip" aria-label="Активная поездка">
+            <div className="shead"><h2>Сводка по вашему району</h2><span className="line" /></div>
+            <div className="ts-tiles">
+              {/* Навигатор — жёсткая ссылка (не Next Link): офлайн должна
+                  грузиться закэшированная страница, а не заглушка. */}
+              <a href="/planning?mode=trail" className="ts-tile">
+                <Navigation size={20} strokeWidth={1.8} aria-hidden />
+                <b>Навигатор</b>
+                <span>работает без сети</span>
+              </a>
+              <Link href="/safety#radar" className="ts-tile">
+                <Radar size={20} strokeWidth={1.8} aria-hidden />
+                <b>Радар</b>
+                <span>обстановка вживую</span>
+              </Link>
+              <Link href="/map" className="ts-tile">
+                <MapIcon size={20} strokeWidth={1.8} aria-hidden />
+                <b>Офлайн-карта</b>
+                <span>скачать область</span>
+              </Link>
+            </div>
+          </section>
+        )}
+
         {/* 0. ПЕРВЫЙ РЕЗУЛЬТАТ — доказательство, что подбор работает.
             Никаких «совпадает с вашим запросом»: запроса у гостя ещё не было.
-            Показываем только то, что действительно знаем про этот тур. */}
+            Бейдж — та же safetyPill, что в шапке, и ТОЛЬКО в спокойном
+            состоянии: рекламировать тревогу на коммерческой карточке нельзя,
+            а выдумывать «район открыт» — тем более (районного статуса нет). */}
         {plates[0] && (
           <section>
             <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
             <Link href={plates[0].kind === 'tour' ? `/marketplace/tours/${plates[0].id}` : `/routes/${plates[0].id}`} className="firstpick">
-              <div className="fp-img" style={plates[0].imageUrl ? { backgroundImage: `url('${plates[0].imageUrl}')` } : undefined}>
+              <div className="fp-photo" style={plates[0].imageUrl ? { backgroundImage: `url('${plates[0].imageUrl}')` } : undefined}>
                 {!plates[0].imageUrl && <span className="noimg" />}
-              </div>
-              <div className="fp-body">
-                <b>{plates[0].title}</b>
-                {plates[0].description && <span className="fp-cap">{plates[0].description}</span>}
-                <span className="fp-facts">
-                  {fmtPrice(plates[0].priceFrom)
-                    ? <em>от {fmtPrice(plates[0].priceFrom)}</em>
-                    : <em className="muted">Цена по запросу</em>}
-                  {plates[0].kind === 'tour' && <span>тур оператора</span>}
-                </span>
+                <span className="fp-shade" aria-hidden />
+                {pill.tone === 'calm' && <span className="fp-badge">Сегодня спокойно</span>}
+                <div className="fp-over">
+                  <b>{plates[0].title}</b>
+                  <span className="fp-facts">
+                    {fmtPrice(plates[0].priceFrom)
+                      ? <em>от {fmtPrice(plates[0].priceFrom)}</em>
+                      : <em>Цена по запросу</em>}
+                    <span>{plates[0].kind === 'tour' ? 'тур оператора' : 'маршрут'}</span>
+                  </span>
+                  <span className="fp-cta">{plates[0].kind === 'tour' ? 'Смотреть тур' : 'Открыть маршрут'}</span>
+                </div>
               </div>
             </Link>
-          </section>
-        )}
-
-        {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
-            Плитки — только работающие входы: навигатор, радар, офлайн-карта.
-            Никаких «следующая точка N» — связи день→точка в данных нет. */}
-        {trip && (
-          <section className="tripstrip" aria-label="Активная поездка">
-            <div className="ts-head">
-              <span className="ts-cap">{trip.progress.phase === 'during' ? 'Вы в поездке' : 'Скоро в путь'}</span>
-              <b className="ts-title">{trip.title}</b>
-              {trip.progress.phase === 'during' && trip.progress.day != null && trip.progress.total != null && (
-                <span className="ts-day">День {trip.progress.day} из {trip.progress.total}</span>
-              )}
-              {trip.progress.phase === 'before' && trip.progress.total != null && (
-                <span className="ts-day">{trip.progress.total} дн. маршрута впереди</span>
-              )}
-            </div>
-            <div className="ts-links">
-              <a href="/planning?mode=trail">Навигатор</a>
-              <Link href="/safety#radar">Радар</Link>
-              <Link href="/map">Офлайн-карта</Link>
-            </div>
           </section>
         )}
 
@@ -721,15 +789,12 @@ const CSS = `
    Бюджет пересчитан после смены шрифтов на Playfair/Outfit и композиции
    #887/#892 — числа в scripts/measure-header-budget.mjs. */
 .v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:6px}
-.v7 .topbar .brand{font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
-/* Бренд уступает место первым (решение владельца 2026-07-30: единственный
-   элемент шапки, который ничего не сообщает и никуда не ведёт). Порог 427px
-   выведен ИЗМЕРЕНИЕМ (scripts/measure-header-budget.mjs, реальный Inter,
-   31.07): бренд 72.63 + худшее короткое состояние пилюли «Опасность» 93.77 +
-   SOS 72.53 + иконки 88 + зазоры 60 + поля 40 = 426.93. Ниже — однострочная
-   шапка без бренда; длинное «5+ предупреждений» переносится страховкой
-   flex-wrap, а не определяет порог. */
-@media (max-width:426px){.v7 .topbar .brand{display:none}}
+/* Бренда в шапке НЕТ (итерация north-star 31.07). Измерение 31.07 показало:
+   с брендом даже худшее короткое состояние пилюли требовало 427px — на всех
+   ходовых мобильных ширинах бренд был скрыт media-query, то есть фактически
+   его уже не существовало. Вместо мёртвого порога — честное место: serif-
+   вордмарк в герое (.hero-brand), где ширина не конкурирует со статусом
+   безопасности и SOS. Бюджет шапки: пилюля + SOS + 2 иконки + зазоры. */
 .v7 .topbar .sp{flex:1}
 /* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
    19px: компактность держим внутренним размером глифа, а не урезанием зоны
@@ -759,35 +824,51 @@ const CSS = `
    блоку: видно, что страница продолжается. dvh, а не vh, — чтобы прячущаяся
    панель браузера не дёргала высоту (vh оставлен первой строкой как запасной
    для старых движков). На широком экране места больше, там герой крупнее. */
-.v7 .hero-photo{position:relative;min-height:60vh;min-height:60dvh;background-size:cover;background-position:center;display:flex;align-items:flex-end;color:#fff}
+/* Высота героя: без ограничения он с шапкой и навигацией съедал весь первый
+   экран. 62dvh + растворение в крем: видно, что страница продолжается, и шов
+   между фото и подложкой не режет глаз (dvh — чтобы панель браузера не
+   дёргала высоту; vh — запасной для старых движков). */
+.v7 .hero-photo{position:relative;min-height:62vh;min-height:62dvh;background-size:cover;background-position:center;display:flex;color:#fff}
 @media (min-width:768px){.v7 .hero-photo{min-height:70vh;min-height:70dvh}}
-.v7 .hero-in{max-width:480px;margin:0 auto;padding:0 20px 22px;width:100%;text-align:center}
-.v7 .hero-photo .dateline{display:flex;align-items:center;gap:12px;justify-content:center;color:rgba(255,255,255,.75)}
-.v7 .hero-photo .dateline::before,.v7 .hero-photo .dateline::after{content:"";flex:0 0 30px;height:1px;background:rgba(255,255,255,.4)}
-.v7 .hero-photo .dateline span{font:400 9px/1 var(--fm);letter-spacing:.18em;text-transform:uppercase}
-.v7 .hero-photo h1{margin-top:12px;font:600 30px/1.14 var(--font-playfair),Georgia,serif;letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
-.v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--accent)}
-.v7 .hero-photo .sub{margin:10px auto 0;font:500 13px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.88);max-width:32ch}
-/* поиск и чипы в герое — одно действие вместо трёх равных кнопок.
-   Стекло здесь законно: подложка — фотография, а не сплошной фон. */
-.v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
-.v7 .hero-find .hfb{width:30px;height:30px;flex:none;border-radius:50%;object-fit:cover}
+/* Тени — отдельными слоями, а не в background-image строки: верхняя вуаль под
+   вордмарк, нижняя под заголовок, и поверх обеих — растворение в крем.
+   Растворение идёт В ЦВЕТ ТЕМЫ (var(--bg-primary)), поэтому переключение
+   светлая/тёмная не оставляет чужого шва под героем. */
+.v7 .hero-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.44) 0%,rgba(10,14,12,.10) 30%,rgba(10,14,12,.46) 68%,rgba(10,14,12,.30) 100%)}
+.v7 .hero-fade{position:absolute;left:0;right:0;bottom:-1px;height:110px;background:linear-gradient(180deg,transparent 0%,var(--bg-primary) 92%)}
+.v7 .hero-in{position:relative;max-width:480px;margin:0 auto;padding:16px 20px 96px;width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
+/* Вордмарк — serif с разрядкой, как в макете. Живёт на фото: в шапке ему не
+   хватало бюджета ширины (см. комментарий у .topbar). */
+.v7 .hero-brand{font:600 16px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95);text-shadow:0 1px 14px rgba(0,0,0,.4)}
+.v7 .hero-sp{flex:1;min-height:56px}
+/* Display-типографика — главный визуальный удар макета. clamp: на 320px не
+   рвёт слова, на 480px не превращается в плакат. */
+.v7 .hero-photo h1{font:600 clamp(38px,11.6vw,48px)/1.06 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 28px rgba(0,0,0,.45)}
+.v7 .hero-photo h1.h1-trip{font-size:clamp(30px,9vw,40px);line-height:1.12}
+.v7 .hero-kick{margin-bottom:10px;font:600 10px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
+.v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
+.v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
+.v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
+/* Поиск — карточка на сплошном фоне (не стекло: под ним крем, блюрить нечего).
+   Отрицательный отступ кладёт её на растворяющийся низ фото — шов макета. */
+.v7 .find{position:relative;z-index:2;margin-top:-34px;display:flex;align-items:center;gap:10px;padding:9px 9px 9px 13px;border-radius:999px;background:var(--bg-card);border:1px solid var(--border);box-shadow:0 14px 34px -16px rgba(0,0,0,.3)}
+.v7 .find .hfb{width:34px;height:34px;flex:none;border-radius:50%;object-fit:cover}
 /* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
    16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
-.v7 .hero-find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--font-outfit),system-ui,sans-serif}
-.v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
-.v7 .hero-find button{flex:none;min-height:44px;padding:0 14px;border:0;border-radius:11px;background:var(--accent);color:#fff;font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
-.v7 .hero-find button:active{transform:scale(.96)}
-.v7 .hero-chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:420px}
-.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
+.v7 .find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:var(--text-primary);font:500 14.5px/1.2 var(--font-outfit),system-ui,sans-serif}
+.v7 .find input::placeholder{color:var(--text-muted)}
+.v7 .find button{flex:none;min-height:44px;padding:0 16px;border:0;border-radius:999px;background:var(--accent);color:#fff;font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .find button:active{transform:scale(.96)}
+.v7 .hero-chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:999px;text-decoration:none;color:var(--text-primary);font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
+.v7 .hchip svg{color:var(--text-secondary)}
 .v7 .hchip:active{transform:scale(.96)}
-.v7 .hchip:hover{background:rgba(10,14,12,.52)}
-.v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
-.v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
+.v7 .hchip:hover{background:var(--bg-hover)}
 /* секции */
 .v7 section{margin-top:40px}
-.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--border);border-radius:12px}
+.v7 section.live{margin-top:16px}
+.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;background:var(--bg-card);border:1px solid var(--border);border-radius:16px}
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
 .v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
@@ -814,14 +895,15 @@ const CSS = `
 @media (hover:hover){.v7 .ticker.scroll:not(.open):hover .ticker-track{animation-play-state:paused}}
 /* Развёрнутое состояние: полный читаемый список, без маски и без бегущей анимации,
    с обычной вертикальной прокруткой если не влезает. */
-/* Полоса активной поездки: спокойная карточка, день — единственный акцент. */
-.v7 .tripstrip{margin:14px 0 4px;padding:12px 14px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent)}
-.v7 .tripstrip .ts-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.v7 .tripstrip .ts-cap{font:600 9px/1 var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
-.v7 .tripstrip .ts-title{font:700 14px/1.25 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
-.v7 .tripstrip .ts-day{font:700 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--accent);margin-left:auto;white-space:nowrap}
-.v7 .tripstrip .ts-links{display:flex;gap:10px;margin-top:1px}
-.v7 .tripstrip .ts-links a{font:600 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--ocean);min-height:44px;padding:0 4px;display:inline-flex;align-items:center}
+/* Сводка активной поездки: заголовок и день живут в герое, здесь — три
+   плитки-входа. Плитка — работающая дверь, а не обещание. */
+.v7 .tripstrip{margin-top:32px}
+.v7 .tripstrip .ts-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.v7 .ts-tile{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-height:96px;padding:12px;border-radius:16px;background:var(--bg-card);border:1px solid var(--border);text-decoration:none;color:var(--text-primary);transition:transform .13s ease}
+.v7 .ts-tile:active{transform:scale(.97)}
+.v7 .ts-tile svg{color:var(--ocean)}
+.v7 .ts-tile b{font:700 12px/1.2 var(--font-outfit),system-ui,sans-serif;margin-top:auto}
+.v7 .ts-tile span{font:500 9.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
    семантическая левая грань (МЧС=danger, офлайн-инструменты=tide, наблюдение=
    amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода). */
@@ -839,16 +921,19 @@ const CSS = `
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
 /* платы */
-/* первый результат подбора — крупнее платы, но той же породы */
-.v7 .firstpick{display:block;text-decoration:none;color:inherit;border:1px solid var(--border);background:var(--bg-hover);overflow:hidden}
-.v7 .firstpick .fp-img{position:relative;aspect-ratio:16/9;background:var(--bg-hover) center/cover no-repeat}
+/* первый результат подбора — богатая фото-карточка north-star макета:
+   serif-заголовок поверх фото, пунктирная линейка, факты, оранжевый CTA.
+   Текст читается за счёт собственной нижней тени (.fp-shade), а не удачи. */
+.v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-hover)}
+.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center/cover no-repeat}
 .v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
-.v7 .firstpick .fp-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:7px}
-.v7 .firstpick .fp-body b{font:600 17px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.01em}
-.v7 .firstpick .fp-cap{font:400 12.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
-.v7 .firstpick .fp-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;font:400 11.5px/1 var(--fm);color:var(--text-secondary)}
-.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:var(--text-primary)}
-.v7 .firstpick .fp-facts em.muted{font-weight:400;color:var(--text-secondary)}
+.v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.10) 32%,rgba(10,14,12,.80) 84%)}
+.v7 .firstpick .fp-badge{position:absolute;top:14px;left:14px;padding:8px 11px;border-radius:9px;background:var(--success);color:#fff;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
+.v7 .firstpick .fp-over{position:absolute;left:0;right:0;bottom:0;padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.v7 .firstpick .fp-over b{font:600 27px/1.12 var(--font-playfair),Georgia,serif;letter-spacing:-.02em;text-shadow:0 2px 18px rgba(0,0,0,.45)}
+.v7 .firstpick .fp-facts{align-self:stretch;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.42);font:500 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92)}
+.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:#fff}
+.v7 .firstpick .fp-cta{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:12px;background:var(--accent);color:#fff;font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.04em}
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
