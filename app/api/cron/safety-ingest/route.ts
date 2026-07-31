@@ -206,7 +206,16 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       -- где решение «ехать/не ехать» принимается ДО выезда.
       WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
         AND push_sent_at IS NULL
-        AND created_at > NOW() - INTERVAL '2 hours'
+        -- Окно ретрая = срок действия алерта, а не произвольные 2 часа.
+        -- Прежнее created_at > NOW() - '2 hours' создавало тупик с Watchdog
+        -- (найдено 31.07 на живых 11 алертах): алерт, не доставленный за
+        -- первые 2 часа (нет VAPID, крон лежал), выпадал из выборки НАВСЕГДА,
+        -- а сторож честно кричал о нём ещё 7 суток — и починка ключей уже
+        -- ничего не доставляла. expires_at задаётся источником по типу
+        -- (цунами 12ч, опасное сейсмо 48ч, пожарная опасность/дороги до 7
+        -- суток) — это то же определение «алерт ещё действует», по которому
+        -- живёт вся система (idx_alerts_active).
+        AND expires_at > NOW()
       ORDER BY severity DESC, created_at DESC
     `);
 
@@ -238,6 +247,13 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
         url: '/safety',
         tag: `alert-${alert.id}`,
       });
+
+      // Ноль подписок — доставлять некому, но алерт ещё действителен: НЕ
+      // помечаем отправленным. Прежде total=0 проскакивал мимо проверки ниже
+      // и push_sent_at ставился при нуле реальных доставок — ложь в данных,
+      // прятавшая недоставку от сторожа. Первый же подписавшийся получит
+      // предупреждение следующим прогоном, пока expires_at не вышел.
+      if (result.total === 0) continue;
 
       // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
       // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.

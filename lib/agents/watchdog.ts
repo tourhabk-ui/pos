@@ -344,7 +344,12 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
         WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
           AND push_sent_at IS NULL
           AND created_at < NOW() - INTERVAL '30 minutes'
-          AND created_at > NOW() - INTERVAL '7 days'`,
+          AND created_at > NOW() - INTERVAL '7 days'
+          -- Истёкший недоставленный алерт уже не починить: диспетчер ретраит
+          -- только пока expires_at > NOW() (та же граница, 31.07). Кричать о
+          -- неисправимом ещё 7 суток — глушить сторож; пока алерт был жив,
+          -- сторож бил каждые 30 минут — этого сигнала достаточно.
+          AND expires_at > NOW()`,
     );
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
