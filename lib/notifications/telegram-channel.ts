@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
+import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -740,6 +741,47 @@ import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { getPublicBaseUrl } from '@/lib/config';
 
 /**
+ * Фактчек перед публикацией — те же два эшелона, что у scout-digest, по одной
+ * переписи на каждый. Инцидент 31.07: в AI-канал ушёл пост с перенесёнными
+ * числами («YDB ускоряет в 3 раза», «llama.cpp: прирост качества до 300%») —
+ * гейты жили только в scout-digest, а этот конвейер публиковал без проверки.
+ * Источник истины — ТОЛЬКО сниппеты сигналов (finding.summary сам является
+ * выходом LLM и числа из него подтверждением не считаются).
+ * null — пост не прошёл: лучше не выпустить, чем выпустить с выдумкой.
+ */
+async function factGatedText(
+  post: string,
+  sources: string,
+  originalPrompt: string,
+): Promise<string | null> {
+  let text = post;
+
+  let bad = unsourcedPercents(text, sources);
+  if (bad.length > 0) {
+    const retry = await callAIQuality([
+      { role: 'user', content: originalPrompt },
+      { role: 'assistant', content: text },
+      { role: 'user', content: `В тексте есть числа (проценты/кратности), которых НЕТ в источниках: ${bad.join(', ')}. Перепиши пост, убрав все неподтверждённые числа (формулируй без них). Верни только исправленный текст.` },
+    ], { maxTokens: 1200 }).catch(() => null);
+    if (retry) { text = retry; bad = unsourcedPercents(text, sources); }
+    if (bad.length > 0) return null;
+  }
+
+  let claims = await unsupportedClaims(text, sources);
+  if (claims.length > 0) {
+    const retry = await callAIQuality([
+      { role: 'user', content: originalPrompt },
+      { role: 'assistant', content: text },
+      { role: 'user', content: `Эти утверждения НЕ подтверждаются источниками (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
+    ], { maxTokens: 1200 }).catch(() => null);
+    if (retry) { text = retry; claims = await unsupportedClaims(text, sources); }
+    if (claims.length > 0) return null;
+  }
+
+  return text;
+}
+
+/**
  * Publishes an AI/tech intelligence finding to the public AI news channel.
  * Generates an engaging post via AI + a Pollinations.ai image.
  * Only called for ai_tech domain, notable/critical urgency.
@@ -751,18 +793,20 @@ export async function postAINewsToChannel(
   const channelId = process.env.TELEGRAM_AI_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_AI_CHANNEL_ID not set' };
 
-  // 1. Build context from signals (top 3 with source links)
+  // 1. Контекст сигналов. Сниппет целиком (intelligence-monitor хранит до
+  // 400 символов): 200-символьные огрызки приглашали модель дописывать факты.
   const signalCtx = finding.signals
     .slice(0, 5)
-    .map((s, i) => `[${i + 1}] ${s.title} (${s.source})\n${s.snippet.slice(0, 200)}`)
+    .map((s, i) => `[${i + 1}] ${s.title} (${s.source})\n${s.snippet.slice(0, 400)}`)
     .join('\n\n');
 
-  // 2. AI generates engaging Telegram post
+  // 2. AI generates engaging Telegram post.
+  // action_items сюда НЕ подаются: это внутренние рекомендации «что сделать
+  // TourHab» — из-за них платформа всплывала в публичном посте чужого канала.
   const postPrompt = `Ты — редактор AI-канала. Напиши пост для публичного Telegram-канала про AI и заработок на технологиях.
 
 ИСХОДНЫЕ ДАННЫЕ:
 Анализ: ${finding.summary}
-Действия: ${finding.action_items.join('; ')}
 
 ИСТОЧНИКИ:
 ${signalCtx}
@@ -779,13 +823,8 @@ ${signalCtx}
 
   // Запасной текст собирается из самой находки — без модели, поэтому годен
   // всегда. Нужен и при исключении, и при заглушке отказа (см. ниже).
-  const fromFinding = (): string => {
-    let t = `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
-    if (finding.action_items.length > 0) {
-      t += '\n\n' + finding.action_items.map(a => `- ${esc(a)}`).join('\n');
-    }
-    return t;
-  };
+  // Без action_items: внутренние рекомендации платформе не для публичного канала.
+  const fromFinding = (): string => `<b>AI Intelligence</b>\n\n${esc(finding.summary)}`;
 
   let postText: string;
   if (opts.skipLLM) {
@@ -820,6 +859,19 @@ ${signalCtx}
     const error = `Публикация отменена: ${issue}`;
     console.error('[postAINewsToChannel]', error);
     return { ok: false, error };
+  }
+
+  // Фактчек перед публикацией (инцидент 31.07). В тест-режиме админки
+  // (skipLLM) гейт пропускается: тест проверяет доставку в канал, а не текст,
+  // и не должен ждать LLM.
+  if (!opts.skipLLM) {
+    const gated = await factGatedText(postText, signalCtx, postPrompt);
+    if (!gated) {
+      const error = 'Публикация отменена: факты поста не подтверждаются источниками';
+      console.error('[postAINewsToChannel]', error);
+      return { ok: false, error };
+    }
+    postText = gated;
   }
 
   // 3. Generate image — сюжет/стиль/палитра от хэша новости, а не один и тот
@@ -861,18 +913,19 @@ export async function postTravelNewsToChannel(finding: IntelligenceFinding): Pro
   const channelId = process.env.TELEGRAM_CHANNEL_ID;
   if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
 
-  // 1. Build context from signals (top 3)
+  // 1. Контекст сигналов — сниппет целиком (см. postAINewsToChannel: огрызки
+  // приглашают модель дописывать факты).
   const signalCtx = finding.signals
     .slice(0, 3)
-    .map((s, i) => `[${i + 1}] ${s.title}\n${s.snippet.slice(0, 150)}`)
+    .map((s, i) => `[${i + 1}] ${s.title}\n${s.snippet.slice(0, 400)}`)
     .join('\n\n');
 
-  // 2. AI generates post for tourists/platform users
+  // 2. AI generates post for tourists/platform users.
+  // action_items не подаются — внутренние рекомендации платформе, не контент канала.
   const postPrompt = `Ты — маркетолог туристической платформы Камчатки. Напиши пост для публичного Telegram-канала про новости в туристической индустрии.
 
 ИСХОДНЫЕ ДАННЫЕ:
 Анализ: ${finding.summary}
-Ключевые действия: ${finding.action_items.join('; ')}
 
 ИСТОЧНИКИ:
 ${signalCtx}
@@ -896,12 +949,19 @@ ${signalCtx}
     // в стеке; отсюда и выдумки, и эмодзи вопреки прямому запрету в промпте.
     postText = await callAIQuality([{ role: 'user', content: postPrompt }], { maxTokens: 1200 });
   } catch {
-    // Fallback: use raw summary
-    postText = `<b>Новости туризма</b>\n\n${esc(finding.summary)}`;
-    if (finding.action_items.length > 0) {
-      postText += '\n\n' + finding.action_items.map(a => `• ${esc(a)}`).join('\n');
+    // Fallback: сырой summary без action_items (внутренние рекомендации).
+    postText = `<b>Новости туризма</b>\n\n${esc(finding.summary)}\n\n<a href="https://vedarai.ru/routes">Наши маршруты →</a>`;
+  }
+
+  // Фактчек перед публикацией — тот же гейт, что у AI-канала (инцидент 31.07).
+  {
+    const gated = await factGatedText(postText, signalCtx, postPrompt);
+    if (!gated) {
+      const error = 'Публикация отменена: факты поста не подтверждаются источниками';
+      console.error('[postTravelNewsToChannel]', error);
+      return { ok: false, error };
     }
-    postText += '\n\n<a href="https://vedarai.ru/routes">Наши маршруты →</a>';
+    postText = gated;
   }
 
   // 3. Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
