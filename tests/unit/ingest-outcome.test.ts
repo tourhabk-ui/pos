@@ -135,7 +135,10 @@ describe('отчёт эндпоинта называет наблюдателя'
   const CODE = ROUTE.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
   it('оба прогона помечают себя, и метки разные', () => {
-    const triggers = [...CODE.matchAll(/buildResponse\([^)]*?,\s*'([a-z_]+)'\s*\)/g)].map((m) => m[1]);
+    // #883: у POST-вызова после метки появился extras-объект
+    // (delegated_to_heartbeat) — метка больше не обязана быть последним
+    // аргументом.
+    const triggers = [...CODE.matchAll(/buildResponse\([^)]*?,\s*'([a-z_]+)'\s*[,)]/g)].map((m) => m[1]);
     // Две ветки — heartbeat и воркфлоу. Одинаковая метка вернула бы ровно ту
     // слепоту, из-за которой разбирали #883.
     expect(triggers).toHaveLength(2);

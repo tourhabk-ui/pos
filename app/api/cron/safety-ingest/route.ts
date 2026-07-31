@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
@@ -311,6 +311,7 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
+  extras?: { delegated_to_heartbeat?: string[] },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -412,6 +413,10 @@ function buildResponse(
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
+    // #883 (A): источники, которых в этом ответе НЕТ числами, потому что их
+    // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
+    // «inserted: 0» после того, как heartbeat уже забрал те же посты.
+    delegated_to_heartbeat: extras?.delegated_to_heartbeat,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -518,54 +523,61 @@ export async function POST(req: Request) {
   const t0 = Date.now();
   const startedAt = new Date(t0);
   const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
-  const [telegramResult, mchsResult, usgsResult, newsFeedResult, kamgovResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
+  // #883 (B): POST больше НЕ тянет то, что сервер достаёт сам, — VK API, USGS,
+  // МЧС RSS и FIRMS обслуживает heartbeat (start.js -> GET каждые 5 минут;
+  // его смерть ловит отдельная watchdog-проверка checkSeismicCronDead).
+  // POST остаётся транспортом для того, что с хостинга недостижимо:
+  // t.me-HTML, kamgov-XML, minec-HTML и посты MAX, принесённые раннером.
+  // Двойная работа снята: у VK API лимиты, и лишний поход туда каждые ~час
+  // бесплатным не был.
+  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
-    ingestMchsAlerts(),
-    ingestUsgs(),
     // kamgov принесён раннером — сервер его не тянет и не считает мёртвым.
     ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : []),
-    parsed.data.minec_html
-      ? ingestTelegramNewsHtml(parsed.data.minec_html)
-      : Promise.resolve(undefined),
     kamgovXmls.length > 0
       ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
       : Promise.resolve(undefined),
-    ingestVkMchs(),
+    parsed.data.minec_html
+      ? ingestTelegramNewsHtml(parsed.data.minec_html)
+      : Promise.resolve(undefined),
     parsed.data.max_items && parsed.data.max_items.length > 0
       ? ingestMaxItems(parsed.data.max_items)
       : Promise.resolve(undefined),
-    ingestFirmsWildfires(),
   ]);
   // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
   // это по-прежнему один блок `news`.
   const newsResult = mergeParseResults(newsFeedResult, kamgovResult);
+  // #883 (A): делегированные источники в ответе POST не показываются числами —
+  // «inserted: 0» после того, как heartbeat уже забрал те же посты, читалось
+  // как «канал ничего не приносит» и стоило целого разбора. Вместо цифр —
+  // явный список delegated_to_heartbeat в ответе.
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
     eqkam: telegramResult.eqkam,
-    mchs: mchsResult,
-    usgs: usgsResult,
     news: newsResult,
     minec: minecResult,
-    vk: vkResult,
     max: maxResult,
-    firms: firmsResult,
-    total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0)
-      + firmsResult.inserted,
+    total_inserted: telegramResult.total_inserted
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0),
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  // ЛОВУШКА из #883, решённая ПО ПОСТРОЕНИЮ: делегированные источники
+  // (vk_mchs, mchs_rss, firms) здесь НЕ упоминаются вовсе — ни ok, ни
+  // not_fetched. Отсутствие записи не трогает их строку в
+  // safety_source_health: её каждые 5 минут обновляет heartbeat-GET, и
+  // ложный КРИТ «живой канал МЧС мёртв» невозможен. Писать сюда
+  // not_fetched было бы ровно той ошибкой, о которой предупреждала issue.
   await watchSourceHealth([
     entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
     entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
-    entryFor('mchs_rss', 'МЧС RSS (41.mchs)', mchsResult),
-    entryFor('vk_mchs', 'VK — МЧС Камчатки', vkResult, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
+    // MAX не делегирован: его умеет читать только раннер, heartbeat не покрывает.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
-    // FIRMS: в health для видимости, вне EXPECTATIONS (сезонная пустота — норма).
-    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post');
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
+    delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
+  });
 }
