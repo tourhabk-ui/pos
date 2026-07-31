@@ -50,6 +50,42 @@ describe('watchdog сторожит доставку safety-пушей', () => {
   });
 });
 
+/**
+ * Тупик двух окон (найдено 31.07 на живых 11 алертах): диспетчер брал только
+ * алерты моложе 2 часов, а сторож считал недоставленным всё за 7 суток.
+ * Алерт, не доставленный за первые 2 часа (не было VAPID-ключей), выпадал из
+ * выборки диспетчера НАВСЕГДА — починка ключей ничего не доставляла, сторож
+ * кричал неделю о неисправимом. Плюс при нуле подписок total=0 проскакивал
+ * мимо проверки недоставки, и push_sent_at ставился без единой доставки.
+ */
+describe('окно ретрая = срок действия алерта, не произвольные 2 часа', () => {
+  const dispatchFn = () => CRON.slice(
+    CRON.indexOf('async function dispatchPushAlerts'),
+    CRON.indexOf('interface ParseResultSummary'),
+  );
+
+  it('диспетчер ретраит недоставленное, пока алерт действителен', () => {
+    expect(dispatchFn(), 'вернулось 2-часовое окно — застрявшие алерты снова не доставятся')
+      .toContain('expires_at > NOW()');
+    expect(dispatchFn()).not.toContain("INTERVAL '2 hours'");
+  });
+
+  it('ноль подписок не помечает алерт доставленным', () => {
+    expect(dispatchFn(), 'total=0 снова фиксирует push_sent_at без единой доставки')
+      .toContain('if (result.total === 0) continue;');
+    // Успешная доставка по-прежнему фиксируется — ретрай не вечный.
+    expect(dispatchFn()).toContain('SET push_sent_at = NOW()');
+  });
+
+  it('сторож не кричит о неисправимом: истёкшие алерты выходят из счёта', () => {
+    const fn = WATCHDOG.slice(
+      WATCHDOG.indexOf('async function checkUndeliveredSafetyPush'),
+      WATCHDOG.indexOf('async function checkPendingTransferBookings'),
+    );
+    expect(fn).toContain('expires_at > NOW()');
+  });
+});
+
 describe('диагностика FIRMS в ответе крона', () => {
   it('configured отличает «нет ключа» от «нет термоточек»', () => {
     expect(CRON).toContain("configured: Boolean(process.env.FIRMS_MAP_KEY)");
