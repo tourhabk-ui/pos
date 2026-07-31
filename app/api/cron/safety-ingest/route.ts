@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestAll, ingestFromHtml, ingestMchsAlerts, ingestUsgs, ingestNewsFeeds, ingestTelegramNewsHtml, ingestVkMchs, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
+import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
@@ -83,47 +83,87 @@ function authError(req: Request): Response | null {
   return null;
 }
 
+/**
+ * Ассоциация алерта с точкой/маршрутом.
+ *
+ * По умолчанию — зона (~сотни км, northern/eastern/avachinsky): годится для
+ * событий без точных координат (МЧС-текст, официальные предупреждения о
+ * цунами) и для точек без lat/lng.
+ *
+ * Пожар (`fire_danger`, источник NASA FIRMS) — исключение: у события ЕСТЬ
+ * точные координаты кластера (`external_alerts.lat/lng`, migration 687), и у
+ * точки/маршрута тоже есть координаты (`agent_route_knowledge.lat/lng`).
+ * Находка issue #861: одиночная термоточка (возможно вулканическая термаль,
+ * severity 0) где-то в зоне зажигала карточки ВСЕХ маршрутов зоны, включая
+ * лежащие в 300 км от неё. Раз координаты обеих сторон есть — используем их:
+ * радиус вместо зоны. RADIUS_KM=50 — инженерная оценка (шире 10 км кластера
+ * FIRMS, уже зоны), не измерение; событие/точка без обеих координат уходят
+ * в обычный зонный фолбэк.
+ *
+ * Единственная формула на все три поля (active_alerts/alert_severity/
+ * recommender_status) — раньше один и тот же предикат был написан трижды,
+ * в трёх отдельных correlated subquery. Плодить его четвёртым местом при
+ * следующей правке не стоит.
+ */
+const ALERT_MATCH_SQL = `
+  (
+    ea.alert_type = 'fire_danger'
+    AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
+    AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+    AND 2 * 6371 * asin(sqrt(
+          power(sin(radians((ark.lat - ea.lat) / 2)), 2)
+          + cos(radians(ea.lat)) * cos(radians(ark.lat))
+            * power(sin(radians((ark.lng - ea.lng) / 2)), 2)
+        )) <= 50
+  )
+  OR (
+    NOT (
+      ea.alert_type = 'fire_danger'
+      AND ea.lat IS NOT NULL AND ea.lng IS NOT NULL
+      AND ark.lat IS NOT NULL AND ark.lng IS NOT NULL
+    )
+    AND (
+      ea.affected_zones IS NULL
+      OR ea.affected_zones = '{}'
+      OR ark.zone = ANY(ea.affected_zones)
+    )
+  )
+`;
+
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
     const r = await query(`
+      WITH matched AS (
+        -- LEFT JOIN external_alerts: каждая точка обязана попасть в агрегат
+        -- ровно один раз, даже без единого совпадения — иначе точка без
+        -- активных алертов не получит очистку active_alerts/severity этим
+        -- прогоном и останется со вчерашним значением.
+        SELECT
+          lrs.id AS lrs_id,
+          ea.title,
+          ea.severity
+        FROM location_real_time_status lrs
+        LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
+        LEFT JOIN external_alerts ea
+          ON ea.expires_at > NOW()
+          AND (${ALERT_MATCH_SQL})
+      ),
+      agg AS (
+        -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
+        -- один текст) размножали алерт шестикратно на карточках маршрутов
+        SELECT
+          lrs_id,
+          COALESCE(array_agg(DISTINCT title) FILTER (WHERE title IS NOT NULL), '{}') AS alerts,
+          COALESCE(MAX(severity), 0) AS max_severity
+        FROM matched
+        GROUP BY lrs_id
+      )
       UPDATE location_real_time_status lrs
       SET
-        active_alerts = (
-          -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
-          -- один текст) размножали алерт шестикратно на карточках маршрутов
-          SELECT COALESCE(array_agg(DISTINCT ea.title), '{}')
-          FROM external_alerts ea
-          LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-          WHERE ea.expires_at > NOW()
-            AND (
-              ea.affected_zones IS NULL
-              OR ea.affected_zones = '{}'
-              OR ark.zone = ANY(ea.affected_zones)
-            )
-        ),
-        alert_severity = (
-          SELECT COALESCE(MAX(ea.severity), 0)
-          FROM external_alerts ea
-          LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-          WHERE ea.expires_at > NOW()
-            AND (
-              ea.affected_zones IS NULL
-              OR ea.affected_zones = '{}'
-              OR ark.zone = ANY(ea.affected_zones)
-            )
-        ),
+        active_alerts = agg.alerts,
+        alert_severity = agg.max_severity,
         recommender_status = CASE
-          WHEN (
-            SELECT COALESCE(MAX(ea.severity), 0)
-            FROM external_alerts ea
-            LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
-            WHERE ea.expires_at > NOW()
-              AND (
-                ea.affected_zones IS NULL
-                OR ea.affected_zones = '{}'
-                OR ark.zone = ANY(ea.affected_zones)
-              )
-          ) >= 2 THEN 'red'
+          WHEN agg.max_severity >= 2 THEN 'red'
           WHEN lrs.tourists_today >= COALESCE(
             (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
             50
@@ -135,6 +175,8 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           ELSE 'green'
         END,
         updated_at = NOW()
+      FROM agg
+      WHERE agg.lrs_id = lrs.id
     `);
     return { updated: r.rowCount ?? 0 };
   } catch (e) {
@@ -164,7 +206,16 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
       -- где решение «ехать/не ехать» принимается ДО выезда.
       WHERE (severity >= 2 OR alert_type IN ('tsunami_warning', 'road_closure'))
         AND push_sent_at IS NULL
-        AND created_at > NOW() - INTERVAL '2 hours'
+        -- Окно ретрая = срок действия алерта, а не произвольные 2 часа.
+        -- Прежнее created_at > NOW() - '2 hours' создавало тупик с Watchdog
+        -- (найдено 31.07 на живых 11 алертах): алерт, не доставленный за
+        -- первые 2 часа (нет VAPID, крон лежал), выпадал из выборки НАВСЕГДА,
+        -- а сторож честно кричал о нём ещё 7 суток — и починка ключей уже
+        -- ничего не доставляла. expires_at задаётся источником по типу
+        -- (цунами 12ч, опасное сейсмо 48ч, пожарная опасность/дороги до 7
+        -- суток) — это то же определение «алерт ещё действует», по которому
+        -- живёт вся система (idx_alerts_active).
+        AND expires_at > NOW()
       ORDER BY severity DESC, created_at DESC
     `);
 
@@ -196,6 +247,13 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
         url: '/safety',
         tag: `alert-${alert.id}`,
       });
+
+      // Ноль подписок — доставлять некому, но алерт ещё действителен: НЕ
+      // помечаем отправленным. Прежде total=0 проскакивал мимо проверки ниже
+      // и push_sent_at ставился при нуле реальных доставок — ложь в данных,
+      // прятавшая недоставку от сторожа. Первый же подписавшийся получит
+      // предупреждение следующим прогоном, пока expires_at не вышел.
+      if (result.total === 0) continue;
 
       // Если все подписки недостижимы — не фиксируем push_sent_at: следующий cron повторит.
       // ГРУБЫЙ ПОРОГ: severity>=2 (M6+) не гарантирует цунами-риск; tsunami_warning важнее.
@@ -253,6 +311,7 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
+  extras?: { delegated_to_heartbeat?: string[] },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -354,6 +413,10 @@ function buildResponse(
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
+    // #883 (A): источники, которых в этом ответе НЕТ числами, потому что их
+    // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
+    // «inserted: 0» после того, как heartbeat уже забрал те же посты.
+    delegated_to_heartbeat: extras?.delegated_to_heartbeat,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -460,54 +523,61 @@ export async function POST(req: Request) {
   const t0 = Date.now();
   const startedAt = new Date(t0);
   const kamgovXmls = (parsed.data.kamgov_xml ?? []).filter((x) => x.trim().length > 0);
-  const [telegramResult, mchsResult, usgsResult, newsFeedResult, kamgovResult, minecResult, vkResult, maxResult, firmsResult] = await Promise.all([
+  // #883 (B): POST больше НЕ тянет то, что сервер достаёт сам, — VK API, USGS,
+  // МЧС RSS и FIRMS обслуживает heartbeat (start.js -> GET каждые 5 минут;
+  // его смерть ловит отдельная watchdog-проверка checkSeismicCronDead).
+  // POST остаётся транспортом для того, что с хостинга недостижимо:
+  // t.me-HTML, kamgov-XML, minec-HTML и посты MAX, принесённые раннером.
+  // Двойная работа снята: у VK API лимиты, и лишний поход туда каждые ~час
+  // бесплатным не был.
+  const [telegramResult, newsFeedResult, kamgovResult, minecResult, maxResult] = await Promise.all([
     ingestFromHtml(parsed.data.kbgsras_html, parsed.data.eqkam_html),
-    ingestMchsAlerts(),
-    ingestUsgs(),
     // kamgov принесён раннером — сервер его не тянет и не считает мёртвым.
     ingestNewsFeeds(kamgovXmls.length > 0 ? ['kamgov'] : []),
-    parsed.data.minec_html
-      ? ingestTelegramNewsHtml(parsed.data.minec_html)
-      : Promise.resolve(undefined),
     kamgovXmls.length > 0
       ? ingestNewsFeedXmls(kamgovXmls, 'kamgov')
       : Promise.resolve(undefined),
-    ingestVkMchs(),
+    parsed.data.minec_html
+      ? ingestTelegramNewsHtml(parsed.data.minec_html)
+      : Promise.resolve(undefined),
     parsed.data.max_items && parsed.data.max_items.length > 0
       ? ingestMaxItems(parsed.data.max_items)
       : Promise.resolve(undefined),
-    ingestFirmsWildfires(),
   ]);
   // Одна половина новостей пришла с сервера, другая — с раннера; в ответе
   // это по-прежнему один блок `news`.
   const newsResult = mergeParseResults(newsFeedResult, kamgovResult);
+  // #883 (A): делегированные источники в ответе POST не показываются числами —
+  // «inserted: 0» после того, как heartbeat уже забрал те же посты, читалось
+  // как «канал ничего не приносит» и стоило целого разбора. Вместо цифр —
+  // явный список delegated_to_heartbeat в ответе.
   const ingestResult = {
     kbgsras: telegramResult.kbgsras,
     eqkam: telegramResult.eqkam,
-    mchs: mchsResult,
-    usgs: usgsResult,
     news: newsResult,
     minec: minecResult,
-    vk: vkResult,
     max: maxResult,
-    firms: firmsResult,
-    total_inserted: telegramResult.total_inserted + mchsResult.inserted + usgsResult.inserted
-      + newsResult.inserted + (minecResult?.inserted ?? 0) + vkResult.inserted + (maxResult?.inserted ?? 0)
-      + firmsResult.inserted,
+    total_inserted: telegramResult.total_inserted
+      + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0),
   };
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  // ЛОВУШКА из #883, решённая ПО ПОСТРОЕНИЮ: делегированные источники
+  // (vk_mchs, mchs_rss, firms) здесь НЕ упоминаются вовсе — ни ok, ни
+  // not_fetched. Отсутствие записи не трогает их строку в
+  // safety_source_health: её каждые 5 минут обновляет heartbeat-GET, и
+  // ложный КРИТ «живой канал МЧС мёртв» невозможен. Писать сюда
+  // not_fetched было бы ровно той ошибкой, о которой предупреждала issue.
   await watchSourceHealth([
     entryFor('kbgsras', 'КБГС РАН (сейсмо)', telegramResult.kbgsras),
     entryFor('eqkam', 'EMSD/EQKam (сейсмо)', telegramResult.eqkam),
-    entryFor('mchs_rss', 'МЧС RSS (41.mchs)', mchsResult),
-    entryFor('vk_mchs', 'VK — МЧС Камчатки', vkResult, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     // maxResult undefined = раннер не прислал постов (MAX-SPA пуст) → not_fetched.
+    // MAX не делегирован: его умеет читать только раннер, heartbeat не покрывает.
     entryFor('max_mchs', 'MAX — МЧС Камчатки', maxResult),
-    // FIRMS: в health для видимости, вне EXPECTATIONS (сезонная пустота — норма).
-    entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post');
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
+    delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
+  });
 }

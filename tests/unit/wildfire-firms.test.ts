@@ -130,10 +130,13 @@ describe('ingestFirmsWildfires', () => {
 });
 
 describe('интеграция с кроном safety-ingest', () => {
-  it('роут зовёт ingestFirmsWildfires в GET и POST, health-запись есть, push знает пожар', async () => {
+  it('роут зовёт ingestFirmsWildfires в GET (heartbeat), health-запись есть, push знает пожар', async () => {
     const fs = await import('node:fs');
     const src = fs.readFileSync('app/api/cron/safety-ingest/route.ts', 'utf8');
-    expect((src.match(/ingestFirmsWildfires\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // #883: FIRMS делегирован heartbeat-GET (каждые 5 минут) — POST его
+    // больше не дублирует (см. safety-ingest-delegation.test.ts). Один вызов
+    // в GET — новый контракт, ноль вызовов был бы регрессией слоя пожаров.
+    expect((src.match(/ingestFirmsWildfires\(\)/g) ?? []).length).toBe(1);
     expect(src).toContain("entryFor('firms'");
     expect(src).toContain("requiresEnv: 'FIRMS_MAP_KEY'");
     // Пуш при severity>=2 не должен называть пожар «Землетрясение M?».

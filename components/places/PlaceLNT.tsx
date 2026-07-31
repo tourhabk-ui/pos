@@ -102,7 +102,13 @@ export default function PlaceLNT({ capacityPerDay, ecoZone }: Props) {
 
             <p className="text-[11px] text-[var(--text-muted)] border-t border-[var(--border)] pt-3">
               Камчатка — объект Всемирного природного наследия ЮНЕСКО. Её экосистема существует
-              миллионы лет — наш визит должен оставлять след только в памяти.
+              миллионы лет — наш визит должен оставлять след только в памяти.{' '}
+              <a
+                href="/eco"
+                className="text-[var(--ocean)] hover:underline whitespace-nowrap"
+              >
+                Полная памятка экотуризма
+              </a>
             </p>
           </div>
         )}

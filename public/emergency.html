@@ -119,12 +119,17 @@ body{
 </style>
 <link rel="stylesheet" href="/leaflet/leaflet.min.css">
 <script src="/leaflet/leaflet.min.js"></script>
+<!-- Единая семантика деградации GPS — общая с /sos (#897). Лежит в CRITICAL_URLS. -->
+<script src="/safety/geo-degradation.js"></script>
+<script src="/safety/qrcode.js"></script>
 </head>
 <body>
 
 <div class="stop">
   <h1>СТОЙ ГДЕ СТОИШЬ</h1>
-  <p>Двигаясь — ты уходишь от точки последнего сигнала.<br>Тебя ищут. Жди.</p>
+  <p>Позвони 112 и назови координаты или ориентиры.<br>Оставайся на месте и жди помощи.</p>
+  <!-- Владельцы маяков в панике забывают про маяк — напоминание спасает. -->
+  <p style="font-size:12px;margin-top:6px">Есть спутниковый маяк (PLB, inReach) или трекер — активируй его сейчас.</p>
 </div>
 
 <div class="coords-box">
@@ -136,6 +141,14 @@ body{
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
   <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
+  <!-- QR с координатами: показать спасателю/попутчику с рабочим телефоном.
+       Генерируется офлайн (/safety/qrcode.js из precache), при сканировании
+       открывается geo:-точка на карте. Белая подложка обязательна: страница
+       тёмная, без неё сканеры не читают. -->
+  <div id="qr-box" style="display:none;margin-top:10px;text-align:center">
+    <div id="qr-svg" style="display:inline-block;background:#fff;padding:8px;border-radius:8px;line-height:0"></div>
+    <div style="font-size:11px;color:#6b7280;margin-top:6px">Покажи этот код спасателю или попутчику —<br>на его телефоне откроется твоя точка на карте</div>
+  </div>
   <!-- Последний известный сигнал — откуда идти за покрытием -->
   <div id="last-signal-box" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#051a05;border:1px solid #1a3a1a">
     <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Последний сигнал сети</div>
@@ -237,10 +250,10 @@ body{
 </div>
 
 <div class="protocol" id="p-lost">
-  <div class="urgent">Стой где стоишь — тебя найдут быстрее</div>
+  <div class="urgent">Стой где стоишь — не уходи с места</div>
   <h3>Потерялся</h3>
   <ol>
-    <li>Не двигайся. Спасатели ищут по последнему сигналу телефона.</li>
+    <li>Позвони 112. Оставайся на месте и жди помощи.</li>
     <li>Кричи 3 раза каждые 10 минут — пауза, слушай ответ.</li>
     <li>Переведи телефон в режим полёта между звонками — экономь батарею.</li>
     <li>Найди открытое место — тебя увидят с воздуха.</li>
@@ -297,43 +310,31 @@ body{
 </div>
 
 <script>
-var lat=null,lng=null,open_id=null,gpsWatcher=null,gpsTimer=null;
-var LAST_POS_KEY='vedar_last_online_pos';
-
-function haversine(lat1,lng1,lat2,lng2){
-  var R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
-  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+
-        Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
-        Math.sin(dLng/2)*Math.sin(dLng/2);
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
+var lat=null,lng=null,open_id=null;
+// Последняя позиция — только через общий модуль (window.VedarGeo). Своего
+// чтения/записи localStorage у экрана нет: единственный writer точки —
+// LastPositionTracker, а чтение и валидация — readLastKnown.
 
 function showLastSignal(){
-  try{
-    var raw=localStorage.getItem(LAST_POS_KEY);
-    if(!raw)return;
-    var pos=JSON.parse(raw);
-    if(!pos.lat||!pos.lng||!pos.t)return;
-    var minsAgo=Math.round((Date.now()-pos.t)/60000);
-    if(minsAgo>24*60)return; // старше суток — бесполезно
-    var timeStr=minsAgo<1?'только что':minsAgo<60?minsAgo+' мин назад':Math.round(minsAgo/60)+' ч назад';
-    var distStr='';
-    if(lat&&lng){
-      var d=haversine(parseFloat(lat),parseFloat(lng),pos.lat,pos.lng);
-      distStr=' · ~'+(d<1?Math.round(d*1000)+' м':d.toFixed(1)+' км')+' от тебя';
-    }
-    document.getElementById('last-signal-coords').textContent=pos.lat.toFixed(5)+', '+pos.lng.toFixed(5);
-    document.getElementById('last-signal-meta').textContent=timeStr+distStr+' — иди туда за связью';
-    document.getElementById('last-signal-box').style.display='block';
-  }catch(e){}
+  var box=document.getElementById('last-signal-box');
+  // Показываем последнюю позицию ТОЛЬКО когда она реально есть и не протухла.
+  // readLastKnown честно вернёт null для пустого/битого/будущего/старого — тогда
+  // блок скрыт, а не показывает пустое обещание.
+  var last=window.VedarGeo.readLastKnown();
+  if(!last){ box.style.display='none'; return; }
+  window.VedarGeo.attachDistance(last, lat?parseFloat(lat):null, lng?parseFloat(lng):null);
+  var distStr=last.distanceLabel?(' · ~'+last.distanceLabel+' от тебя'):'';
+  document.getElementById('last-signal-coords').textContent=last.lat.toFixed(5)+', '+last.lng.toFixed(5);
+  document.getElementById('last-signal-meta').textContent=last.ageLabel+distStr+' — иди туда за связью';
+  box.style.display='block';
 }
 
-function onGPSSuccess(p){
-  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
-  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
-  lat=p.coords.latitude.toFixed(5);
-  lng=p.coords.longitude.toFixed(5);
-  var age=p.timestamp?Math.round((Date.now()-p.timestamp)/1000):null;
+// Принимает coords из состояния локатора: { lat, lng, acc, timestamp }.
+// Остановку поиска и запись последней онлайн-позиции делает сам локатор.
+function onGPSSuccess(c){
+  lat=c.lat.toFixed(5);
+  lng=c.lng.toFixed(5);
+  var age=c.timestamp?Math.round((Date.now()-c.timestamp)/1000):null;
   var ageNote=age&&age>60?' ('+Math.round(age/60)+' мин назад)':'';
   document.getElementById('coords-value').textContent=lat+', '+lng+ageNote;
   document.getElementById('coords-hint').style.display='';
@@ -341,9 +342,16 @@ function onGPSSuccess(p){
   var maps=document.getElementById('maps-btn');
   maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
   maps.style.display='';
-  // Сохраняем как последнюю онлайн-позицию если есть сеть
-  if(navigator.onLine){
-    try{localStorage.setItem(LAST_POS_KEY,JSON.stringify({lat:parseFloat(lat),lng:parseFloat(lng),acc:Math.round(p.coords.accuracy),t:Date.now()}));}catch(e){}
+  // QR с точкой: только при реальных координатах и только если энкодер
+  // загрузился (нет энкодера — нет QR, остальной экран не страдает).
+  if(typeof qrcode!=='undefined'){
+    try{
+      var qr=qrcode(0,'M');
+      qr.addData('geo:'+lat+','+lng);
+      qr.make();
+      document.getElementById('qr-svg').innerHTML=qr.createSvgTag({cellSize:4,margin:0});
+      document.getElementById('qr-box').style.display='block';
+    }catch(e){ /* не рисуем QR — координаты текстом уже на экране */ }
   }
   // Обновляем блок "последний сигнал" с расстоянием
   showLastSignal();
@@ -382,8 +390,9 @@ function openFullscreenMap(){
   document.body.style.overflow='hidden';
 
   var lat=_curLat,lng=_curLng;
-  var lastPos=null;
-  try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+  // Только через общий валидатор — сырой localStorage мог бы вынести на карту
+  // протухшую/будущую/невозможную точку в обход контракта.
+  var lastPos=window.VedarGeo.readLastKnown();
 
   // Если GPS ещё не пришёл — центр по последней позиции или дефолт
   if(lat===null&&lastPos){lat=lastPos.lat;lng=lastPos.lng;}
@@ -431,7 +440,7 @@ function openFullscreenMap(){
     _leafletMapFS.fitBounds([[lat,lng],[lastPos.lat,lastPos.lng]],
       {padding:[pad,pad],maxZoom:15});
   } else {
-    dirEl.textContent='GPS получен — ждите спасателей на месте';
+    dirEl.textContent='GPS получен — оставайся на месте и жди помощи';
     _leafletMapFS.setView([lat,lng],14);
   }
 
@@ -459,8 +468,8 @@ function initLeafletMap(clat,clng){
   if(!window.L)return;
   _curLat=clat;_curLng=clng;
   try{
-    var lastPos=null;
-    try{var raw=localStorage.getItem(LAST_POS_KEY);if(raw)lastPos=JSON.parse(raw);}catch(e){}
+    // Точка только через общий валидатор — не сырой localStorage.
+    var lastPos=window.VedarGeo.readLastKnown();
 
     if(!_leafletMap){
       _leafletMap=L.map('mini-map',{zoomControl:false,attributionControl:false}).setView([clat,clng],13);
@@ -485,59 +494,35 @@ function initLeafletMap(clat,clng){
   }catch(e){}
 }
 
+// err — разобранная причина из модуля: { code, reason, hint, retryable }.
 function onGPSError(err){
-  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
-  var msg='GPS недоступен — позвони 112';
-  if(err){
-    if(err.code===1)msg='Нет разрешения — разреши геолокацию в настройках браузера';
-    else if(err.code===2)msg='Нет сигнала — выйди на открытое место и нажми «Повторить»';
-    else if(err.code===3)msg='Долго ищет — нажми «Повторить» или выйди на открытое место';
-  }
+  var msg=err&&err.reason?err.reason:'GPS недоступен';
+  if(err&&err.hint)msg+=' — '+err.hint;
   document.getElementById('coords-value').textContent=msg;
-  document.getElementById('retry-btn').style.display='';
+  // Повтор показываем только когда он честно может помочь (нет сигнала/долго).
+  // При отказе в разрешении (retryable=false) кнопки нет: поможет не повтор,
+  // а настройка браузера — это и сказано в подсказке.
+  document.getElementById('retry-btn').style.display=(err&&err.retryable)?'':'none';
 }
 
-function startGPS(){
-  if(!navigator.geolocation){
-    document.getElementById('coords-value').textContent='GPS не поддерживается — позвони 112';
-    return;
+// Один локатор на экран — вся оркестрация поиска (строгая попытка → мягкий
+// watch → человеческий отказ) живёт в общем модуле, общем с /sos (#897).
+var _locator=window.VedarGeo.createLocator({
+  onState:function(s){
+    if(s.phase==='locating'){
+      document.getElementById('coords-value').textContent=window.VedarGeo.progressLabel(s.seconds);
+      document.getElementById('retry-btn').style.display='none';
+      document.getElementById('coords-hint').style.display='none';
+      document.getElementById('maps-btn').style.display='none';
+    } else if(s.phase==='found'){
+      onGPSSuccess(s.coords);
+    } else if(s.phase==='error'){
+      onGPSError(s.error);
+    }
   }
-  if(gpsWatcher){navigator.geolocation.clearWatch(gpsWatcher);gpsWatcher=null;}
-  if(gpsTimer){clearInterval(gpsTimer);gpsTimer=null;}
-  lat=null;
+});
 
-  var el=document.getElementById('coords-value');
-  var secs=0;
-  el.textContent='Определяем GPS…';
-  document.getElementById('retry-btn').style.display='none';
-  document.getElementById('coords-hint').style.display='none';
-  document.getElementById('maps-btn').style.display='none';
-
-  // Показываем прогресс каждую секунду
-  gpsTimer=setInterval(function(){
-    if(lat)return;
-    secs++;
-    if(secs<=10) el.textContent='Определяем GPS… '+secs+' сек';
-    else if(secs<=25) el.textContent='Слабый сигнал — жди или выйди на открытое место ('+secs+' сек)';
-    else el.textContent='Очень долго — нажми «Повторить» и выйди на открытое место';
-  },1000);
-
-  // Сначала пробуем с кешем до 5 мин — если телефон уже знает где ты, ответит мгновенно
-  navigator.geolocation.getCurrentPosition(
-    function(p){onGPSSuccess(p);},
-    function(err){
-      // Не получилось — переключаемся на watchPosition (менее строгий)
-      el.textContent='Слабый сигнал — продолжаем искать…';
-      gpsWatcher=navigator.geolocation.watchPosition(
-        function(p){onGPSSuccess(p);},
-        function(e){onGPSError(e);},
-        {enableHighAccuracy:false,timeout:30000,maximumAge:60000}
-      );
-      setTimeout(function(){if(!lat)onGPSError(err);},30000);
-    },
-    {enableHighAccuracy:true,timeout:10000,maximumAge:300000}
-  );
-}
+function startGPS(){ lat=null; _locator.start(); }
 
 // Сразу показываем последнюю онлайн-позицию (без расстояния — GPS ещё не готов)
 showLastSignal();

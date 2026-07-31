@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v17'; // bumped: переосмыслен /offline (112 tap-to-call) — форсируем переprecache, чтобы установленные PWA получили новый safety-экран сразу
+const CACHE_NAME = 'kamchatour-v20'; // bumped: в precache добавлен /safety/qrcode.js — офлайн-QR с координатами на SOS-экранах появится только у того, кто получит новый SW
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -61,6 +61,8 @@ const CRITICAL_URLS = [
   '/emergency',        // нулевые зависимости: GPS + звонок 112 + протоколы
   '/sos',              // экстренная помощь
   '/safety/offline',   // инструкции выживания
+  '/safety/geo-degradation.js', // общая семантика деградации GPS — от неё офлайн зависят оба экрана (#897)
+  '/safety/qrcode.js', // офлайн-QR с координатами на SOS-экранах — показать спасателю с рабочим телефоном
   '/leaflet/leaflet.min.js',   // Leaflet для офлайн-карты на /emergency
   '/leaflet/leaflet.min.css',
   '/icons/kamchatka-silhouette.jpg',
@@ -318,6 +320,27 @@ self.addEventListener('fetch', (event) => {
   // Пропускаем не-GET запросы
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+
+  // RSC-запрос Next (клиентский переход по <Link>): просят ПЕЙЛОАД, не документ.
+  // У него mode !== 'navigate', поэтому ветка навигации ниже его не ловит, и
+  // офлайн он доходил до общей ветки, где в ответ отдавалась РАЗМЕТКА страницы
+  // /offline. Роутер ждёт пейлоад, получает HTML и виснет навсегда: полевой
+  // тест в авиарежиме 30.07 показал бесконечный скелетон сразу на всех трёх
+  // офлайн-ссылках, включая /safety/offline из критичного precache.
+  //
+  // Здесь отказ становится честным и быстрым — HTML вместо пейлоада не
+  // подсовываем никогда. Основное лечение не тут, а в разметке: офлайн-пути
+  // ходят жёсткой <a> (app/offline/page.tsx, EmergencyAction), и тогда переход
+  // идёт документом и отдаётся из кэша. Эта ветка — страховка для остальных
+  // страниц, где <Link> законен.
+  if (url.searchParams.has('_rsc') || request.headers.get('RSC') === '1') {
+    event.respondWith(
+      fetch(request).catch(
+        () => new Response('', { status: 503, statusText: 'Offline' })
+      )
+    );
+    return;
+  }
 
   // /api/places/[id] — кэшируем отдельно: это критичные данные для офлайна
   if (isPlaceApiRequest(url.href)) {

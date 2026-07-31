@@ -1,69 +1,41 @@
 /**
- * KamchatourHub — Design Tokens (Homepage v3)
- * Warm, inviting. Light default, dark option.
+ * KamchatourHub — компонентные токены главной/маркетплейса.
+ *
+ * БЫЛО: второй параллельный слой БАЗОВЫХ токенов (--bg-primary, --accent,
+ * --border...) со своими значениями тем — импортировался после globals и
+ * втихую переопределял платформенную палитру (тёмные значения расходились:
+ * фон #1A1714 против #0D1117, accent #E8730E против #E8734A). Снято
+ * редизайном 31.07: базовые токены живут ТОЛЬКО в globals.css; здесь —
+ * производные и компонентные, выраженные через базовые (alias/color-mix),
+ * плюс keyframes и scroll-reveal. Своих цветов тем у этого файла больше нет.
  */
 
-/* ═══ Light theme (default) ═════════════════════════════════════════════════ */
+:root {
+  /* Производные от базовых — переключаются темой автоматически */
+  --accent2: var(--ocean);
+  --kh-danger: var(--danger);
+  --bg-card2: var(--bg-secondary);
+  --accent-glow: color-mix(in srgb, var(--accent) 25%, transparent);
+  --accent2-glow: color-mix(in srgb, var(--ocean) 20%, transparent);
+  --kh-hero-top-gradient: linear-gradient(to bottom, color-mix(in srgb, var(--bg-primary) 50%, transparent) 0%, transparent 40%);
+  --kh-activity-hover-bg: color-mix(in srgb, var(--accent) 6%, transparent);
+  --kh-activity-hover-border: color-mix(in srgb, var(--accent) 15%, transparent);
+  --kh-card-bg: color-mix(in srgb, var(--bg-card) 92%, transparent);
 
-:root, [data-theme="light"] {
-  /* Backgrounds */
-  --bg-primary:       #F5F0EB;
-  --bg-card:          #FFFFFF;
-  --bg-card2: #EDE9E3;
-
-  /* Typography */
-  --text-primary:     #1A1714;
-  --text-muted: #6B6560;
-
-  /* Accents */
-  --accent:   #D44A0C;
-  --accent2:  #2568B0;
-  --kh-ice:      #E3F1FA;
-  --kh-danger:   #DC2626;
-
-  /* Derived */
-  --accent-glow:   rgba(212,74,12,0.25);
-  --accent2-glow:  rgba(37,104,176,0.2);
-  --border:        rgba(0,0,0,0.07);
-  --border-strong: rgba(0,0,0,0.12);
-
-  /* Component-level */
-  --kh-search-bg:              rgba(0,0,0,0.04);
-  --kh-hero-top-gradient:      linear-gradient(to bottom, rgba(245,240,235,0.5) 0%, transparent 40%);
-  --kh-activity-hover-bg:      rgba(212,74,12,0.06);
-  --kh-activity-hover-border:  rgba(212,74,12,0.15);
-  --kh-card-bg:                rgba(255,255,255,0.92);
-  --kh-nav-shadow:             0 8px 32px rgba(0,0,0,0.1);
+  /* Компонентные без базового эквивалента */
+  --kh-ice: #E3F1FA;
+  --kh-search-bg: rgba(0, 0, 0, 0.04);
+  --kh-nav-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 
   /* Timing */
   --kh-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ═══ Dark theme ════════════════════════════════════════════════════════════ */
-
 [data-theme="dark"] {
-  --bg-primary:       #1A1714;
-  --bg-card:          #242019;
-  --bg-card2: #2E2A24;
-
-  --text-primary:     #F0EDE8;
-  --text-muted: #8A8680;
-
-  --accent:   #E8730E;
-  --accent2:  #5A9DD6;
-  --kh-ice:      #C8E6F5;
-
-  --accent-glow:   rgba(232,115,14,0.35);
-  --accent2-glow:  rgba(90,157,214,0.25);
-  --border:        rgba(240,237,232,0.08);
-  --border-strong: rgba(240,237,232,0.14);
-
-  --kh-search-bg:              rgba(255,255,255,0.07);
-  --kh-hero-top-gradient:      linear-gradient(to bottom, rgba(26,23,20,0.65) 0%, transparent 45%);
-  --kh-activity-hover-bg:      rgba(232,115,14,0.06);
-  --kh-activity-hover-border:  rgba(232,115,14,0.2);
-  --kh-card-bg:                rgba(36,32,25,0.92);
-  --kh-nav-shadow:             0 8px 32px rgba(0,0,0,0.5);
+  --kh-ice: #C8E6F5;
+  --kh-search-bg: rgba(255, 255, 255, 0.07);
+  --kh-hero-top-gradient: linear-gradient(to bottom, color-mix(in srgb, var(--bg-primary) 65%, transparent) 0%, transparent 45%);
+  --kh-nav-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ═══ Keyframes ══════════════════════════════════════════════════════════════ */

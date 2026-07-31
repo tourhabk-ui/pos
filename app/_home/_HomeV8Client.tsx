@@ -16,7 +16,13 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Flame, Snowflake, Waves, Droplets, Trees, Home, Map as MapIcon, Compass, Navigation, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import { Flame, Snowflake, Waves, Droplets, Trees, Sun, Moon, Phone, X, ChevronDown, MapPin, User, type LucideIcon } from 'lucide-react';
+import BottomNav from '@/components/shared/BottomNav';
+
+// P0-3b: реализации радара/ленты/пульса переехали в components/safety/LiveStatus.
+// Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
+// любые внешние потребители формул подписи).
+export { alertStamp, clip } from '@/components/safety/LiveStatus';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
@@ -32,75 +38,22 @@ const ELEMENT_ICON: Record<string, LucideIcon> = {
 const CHIPS = ['Вулканы', 'Рыбалка', 'Медведи', 'Океан', 'Термы', 'Хели-ски'];
 
 const ACC_LABEL: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
-const ACC_VAR: Record<string, string> = { red: 'var(--brusnika)', orange: 'var(--shroom)', yellow: 'var(--amber)' };
+const ACC_VAR: Record<string, string> = { red: 'var(--danger)', orange: 'var(--accent)', yellow: 'var(--warning)' };
 
 function fmtPrice(n: number | null): string | null {
   if (n == null || !Number.isFinite(n) || n <= 0) return null;
   return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 }
-function fmtAgo(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso).getTime();
-  if (Number.isNaN(d)) return '';
-  const min = Math.max(0, Math.round((Date.now() - d) / 60000));
-  if (min < 60) return `${min} мин назад`;
-  const h = Math.round(min / 60);
-  if (h < 24) return `${h} ч назад`;
-  return `${Math.round(h / 24)} дн назад`;
-}
 
-// Абсолютная дата новости для ленты алертов: у МЧС/дорожных сводок важно ВИДЕТЬ
-// само число (июльское закрытие ≠ свежее), а не только «N дн назад».
-function fmtDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+interface ActiveTrip {
+  id: string;
+  title: string;
+  progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
 }
-
-/**
- * Подпись строки ленты. Для ограничения (дорога перекрыта, пропускной режим)
- * возраст новости не значит ничего: туристу важно, действует ли оно СЕЙЧАС и до
- * какого числа. Подпись «18 дн назад» под работающим перекрытием читается как
- * «протухло» — ровно это и заметил владелец на живой главной.
- * Для остальных типов возраст осмыслен: сводка недельной давности и правда
- * стареет.
- */
-const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide']);
-
-export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
-  if (a.type && IN_FORCE_TYPES.has(a.type)) {
-    const until = fmtDate(a.until);
-    return until ? `действует до ${until}` : 'действует';
-  }
-  return `${fmtDate(a.at)}${a.at ? ` · ${fmtAgo(a.at)}` : ''}`;
-}
-
-/**
- * Обрезка описания для ленты. Бегущая строка — поверхность одного взгляда, а
- * дорожные ограничения приходят абзацами на 400-600 символов: целиком они не
- * читаются ни в прокрутке, ни в раскрытом списке (владелец увидел два экрана
- * текста). Полный текст живёт на карточке маршрута, тут — суть.
- */
-export function clip(text: string, max = 140): string {
-  const t = text.trim();
-  if (t.length <= max) return t;
-  const cut = t.slice(0, max);
-  const space = cut.lastIndexOf(' ');
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:—-]+$/, '')}…`;
-}
-
-function magColor(m: number): string {
-  if (m >= 6) return 'var(--brusnika)';
-  if (m >= 4.5) return 'var(--shroom)';
-  if (m >= 3) return 'var(--amber)';
-  return 'var(--tide)';
-}
-const SRC_LABEL: Record<string, string> = { kbgsras: 'КБГС РАН', usgs: 'USGS', none: '' };
 
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const { safety, seismic, radar, plates, feed, stats, elements } = data;
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [chips, setChips] = useState<Record<string, boolean>>({});
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
@@ -118,6 +71,25 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+
+  // Режим «я в поездке» (коммит 5): единственный источник — auth-scoped
+  // GET /api/trips/active (identity из сессии, data:null без режима).
+  // Рисуем ТОЛЬКО подтверждённые фазы: during («День N из M» — честная
+  // арифметика tripProgress) и before (без выдуманного дня). after и
+  // unknown полосы не дают: UI не имеет права подменять unknown числом.
+  const [trip, setTrip] = useState<ActiveTrip | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/trips/active', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: ActiveTrip | null } | null) => {
+        const d = j?.data;
+        if (cancelled || !d || !d.progress) return;
+        if (d.progress.phase === 'during' || d.progress.phase === 'before') setTrip(d);
+      })
+      .catch(() => { /* гость/офлайн — главная без режима поездки */ });
+    return () => { cancelled = true; };
+  }, []);
   // Свежесть источника — отдельно от состояния. «Спокойно» по позавчерашним
   // данным и «спокойно» по свежим — разные утверждения, и человек должен
   // видеть, какое из них ему показали.
@@ -131,20 +103,21 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
     router.push(q ? `/routes?q=${encodeURIComponent(q)}` : '/routes');
   };
 
-  // По умолчанию тёмная; если пользователь ранее выбрал светлую — восстанавливаем.
+  // Тема — ЕДИНЫЙ механизм платформы (data-theme + класс .dark + kh-theme),
+  // никакого параллельного data-v7theme/v8-theme (снят редизайном 31.07:
+  // главная жила в собственной теме, и переключатель на ней не влиял на
+  // остальные страницы — а глобальный не влиял на главную).
   useEffect(() => {
-    const saved = localStorage.getItem('v8-theme');
-    if (saved === 'light' || saved === 'dark') setTheme(saved);
+    const t = document.documentElement.getAttribute('data-theme');
+    if (t === 'light' || t === 'dark') setTheme(t);
   }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-v7theme', theme);
-    return () => document.documentElement.removeAttribute('data-v7theme');
-  }, [theme]);
 
   const chooseTheme = (t: 'light' | 'dark') => {
     setTheme(t);
-    try { localStorage.setItem('v8-theme', t); } catch { /* приватный режим */ }
+    const r = document.documentElement;
+    r.setAttribute('data-theme', t);
+    r.classList.toggle('dark', t === 'dark');
+    try { localStorage.setItem('kh-theme', t); } catch { /* приватный режим */ }
   };
 
   // Карусель «Куда сегодня»: автопрокрутка + точки, пауза при касании.
@@ -332,7 +305,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             className="lv-dot"
             style={freshnessDot(fresh.state)
               ? { background: freshnessDot(fresh.state) as string }
-              : { border: '1px solid var(--faint)' }}
+              : { border: '1px solid var(--text-muted)' }}
           />
           <span className="lv-txt">{fresh.label}</span>
           <Link className="lv-go" href="/safety">Карта сегодня →</Link>
@@ -362,11 +335,40 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           </section>
         )}
 
+        {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
+            Плитки — только работающие входы: навигатор, радар, офлайн-карта.
+            Никаких «следующая точка N» — связи день→точка в данных нет. */}
+        {trip && (
+          <section className="tripstrip" aria-label="Активная поездка">
+            <div className="ts-head">
+              <span className="ts-cap">{trip.progress.phase === 'during' ? 'Вы в поездке' : 'Скоро в путь'}</span>
+              <b className="ts-title">{trip.title}</b>
+              {trip.progress.phase === 'during' && trip.progress.day != null && trip.progress.total != null && (
+                <span className="ts-day">День {trip.progress.day} из {trip.progress.total}</span>
+              )}
+              {trip.progress.phase === 'before' && trip.progress.total != null && (
+                <span className="ts-day">{trip.progress.total} дн. маршрута впереди</span>
+              )}
+            </div>
+            <div className="ts-links">
+              <a href="/planning?mode=trail">Навигатор</a>
+              <Link href="/safety#radar">Радар</Link>
+              <Link href="/map">Офлайн-карта</Link>
+            </div>
+          </section>
+        )}
+
         {/* I. РАДАР БЕЗОПАСНОСТИ — реальные опасности вокруг тебя */}
         <section id="radar">
           <div className="shead"><h2>Радар обстановки</h2><span className="line" /><Link className="all" href="/safety">Спасатель</Link><Link className="all" href="/map">Карта</Link></div>
 
-          <RadarScope hazards={radar.hazards} center={radar.center} />
+          {/* P0-3b: тяжёлая реализация радара живёт на /safety#radar —
+              главная даёт статус (пилюля сверху) и дорогу к подробностям.
+              Плитка, не виджет: главная не дублирует спасательский экран. */}
+          <Link href="/safety#radar" className="protoline">
+            Радар обстановки: сейсмика, вулканы КВЕРТ, наблюдения туристов
+            <b>смотреть вживую →</b>
+          </Link>
 
           <Link href="/register" className="mchsline">
             <b>Зарегистрируй маршрут в МЧС заранее</b>
@@ -389,15 +391,6 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             Сообщить о наблюдении <span>медведь · лавина · состояние тропы →</span>
           </button>
 
-          {(safety.alerts.length > 0 || seismic.events.length > 0) && (
-            <div className="safety">
-              {safety.alerts.length > 0 && <AlertsTicker alerts={safety.alerts} />}
-              {seismic.events.length > 0 && (
-                <SeismicPulse events={seismic.events} source={SRC_LABEL[seismic.source]} />
-              )}
-              <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{safety.updatedAt ? ` · обновлено ${fmtAgo(safety.updatedAt)}` : ''}</div>
-            </div>
-          )}
         </section>
 
         {/* ИССЛЕДОВАТЬ — одна дверь вместо трёх.
@@ -545,247 +538,13 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           мобильной Главной; шторка сама рендерит оверлей. */}
       <TrailReportSheet open={reportOpen} onClose={() => setReportOpen(false)} />
 
-      {/* нижняя навигация */}
-      <nav className="tabs"><div className="in">
-        <Link href="/" className="active"><span className="ico"><Home className="ti" size={19} strokeWidth={2} /></span><span>Дом</span></Link>
-        <Link href="/map"><span className="ico"><MapIcon className="ti" size={19} strokeWidth={2} /></span><span>Карта</span></Link>
-        <Link href="/kuzmich"><span className="ico"><Compass className="ti" size={19} strokeWidth={2} /></span><span>Кузьмич</span></Link>
-        <a href="/planning?mode=trail"><span className="ico"><Navigation className="ti" size={19} strokeWidth={2} /></span><span>На маршруте</span></a>
-      </div></nav>
+      {/* Нижняя навигация — ЕДИНЫЙ BottomNav платформы (решение владельца
+          2026-07-18). Собственный инлайновый таб-бар главной удалён редизайном
+          31.07: два таб-бара с одинаковыми пунктами неизбежно разъезжаются
+          подписями и адресами — это уже случалось (/map и /ai-assistant). */}
+      <BottomNav activePath="/" />
 
       <EmergencyPanel open={sosOpen} onClose={() => setSosOpen(false)} />
-    </div>
-  );
-}
-
-const LEVEL_COLOR: Record<string, string> = {
-  critical: 'var(--brusnika)', danger: 'var(--shroom)', warning: 'var(--amber)',
-};
-const KIND_LABEL: Record<string, string> = {
-  volcano: 'Вулкан', thermal: 'Термы', quake: 'Сейсмика',
-  bear: 'Медведь', report: 'Наблюдение',
-};
-const MAX_KM = 200; // внешнее кольцо
-
-interface RadarHazard { lat: number; lng: number; level: string; kind: string; label: string; note: string }
-interface Placed extends RadarHazard { x: number; y: number; dist: number }
-
-/**
- * Радар обстановки: реальные точки (вулканы KVERT, сейсмика, модерированные
- * наблюдения туристов) по настоящему азимуту и расстоянию от центра. Центр —
- * геолокация (если разрешена) или Петропавловск. Луч-развёртка декоративен
- * поверх реальных блипов; несуществующих точек не рисуем.
- *
- * Радар НЕ обещает «безопасность»: медведей техника не отслеживает, а на
- * Камчатке медведь — главная реальная опасность и он может быть где угодно.
- * Отсюда постоянная приписка про медведей и пустое состояние, которое говорит
- * только о том, что радар реально видит, — не «опасностей нет».
- */
-function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat: number; lng: number; label: string } }) {
-  const [c, setC] = useState(center);
-  const [geo, setGeo] = useState<'idle' | 'ok' | 'deny'>('idle');
-  const [sel, setSel] = useState<Placed | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const copyCoords = () => {
-    const t = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
-    navigator.clipboard?.writeText(t)
-      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
-      .catch(() => {});
-  };
-
-  const useMyLocation = () => {
-    if (!navigator.geolocation) { setGeo('deny'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setC({ lat: p.coords.latitude, lng: p.coords.longitude, label: 'Ваше местоположение' }); setGeo('ok'); setSel(null); },
-      () => setGeo('deny'),
-      { timeout: 8000, maximumAge: 300000 },
-    );
-  };
-
-  const R = 92, CX = 100, CY = 100;
-  const kmLat = 111.32, kmLng = 111.32 * Math.cos((c.lat * Math.PI) / 180);
-  // В SVG последний нарисованный — сверху, поэтому критичные рисуем ПОСЛЕДНИМИ:
-  // красный блип не должен прятаться под жёлтым
-  const LEVEL_RANK: Record<string, number> = { warning: 0, danger: 1, critical: 2 };
-  const placed: Placed[] = hazards
-    .map((h) => {
-      const north = (h.lat - c.lat) * kmLat;
-      const east = (h.lng - c.lng) * kmLng;
-      const dist = Math.hypot(north, east);
-      return { ...h, dist, x: CX + (east / MAX_KM) * R, y: CY - (north / MAX_KM) * R };
-    })
-    .filter((h) => h.dist <= MAX_KM)
-    .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
-
-  const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
-
-  return (
-    <div className="radar">
-      <div className="scope">
-        {/* role="img" — иначе подпись графики не попадает в accessibility tree
-            предсказуемо. Подпись считается из того, что реально нарисовано:
-            статичное «Радар обстановки» врало бы при пустом радаре. */}
-        <svg
-          viewBox="0 0 200 200"
-          role="img"
-          aria-label={`Радар обстановки: предупреждений в радиусе ${MAX_KM} км — ${placed.length}`}
-        >
-          <defs>
-            <radialGradient id="sweepGrad" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="var(--radar)" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          {rings.map((k, i) => (
-            <circle key={i} cx={CX} cy={CY} r={R * k} fill="none" stroke="var(--radar)" strokeOpacity={0.28} strokeWidth={0.8} />
-          ))}
-          <line x1={CX - R} y1={CY} x2={CX + R} y2={CY} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
-          <line x1={CX} y1={CY - R} x2={CX} y2={CY + R} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
-          <text x={CX} y={CY - R - 3} textAnchor="middle" className="rn">С</text>
-          <g className="sweep">
-            <path d={`M ${CX} ${CY} L ${CX} ${CY - R} A ${R} ${R} 0 0 1 ${CX + R * Math.sin(0.7)} ${CY - R * Math.cos(0.7)} Z`} fill="url(#sweepGrad)" />
-            <line x1={CX} y1={CY} x2={CX} y2={CY - R} stroke="var(--radar)" strokeOpacity={0.7} strokeWidth={1} />
-          </g>
-          <circle cx={CX} cy={CY} r={2.4} fill="var(--radar)" />
-          {placed.map((h, i) => (
-            <g key={i} onClick={() => setSel(h)} style={{ cursor: 'pointer' }}>
-              {h.level === 'critical' && <circle cx={h.x} cy={h.y} r={6} className="pulse" fill={LEVEL_COLOR[h.level]} />}
-              <circle cx={h.x} cy={h.y} r={h.level === 'critical' ? 4 : h.level === 'danger' ? 3.2 : 2.6}
-                fill={LEVEL_COLOR[h.level]} stroke="#fff" strokeWidth={0.6}
-                style={sel === h ? { filter: 'drop-shadow(0 0 4px currentColor)' } : undefined} />
-            </g>
-          ))}
-        </svg>
-        {placed.length === 0 && <div className="clean">Сейсмики и тревог вулканов рядом нет</div>}
-      </div>
-
-      <div className="rmeta">
-        <div className="rrow">
-          <span className="rc">Центр: <b>{c.label}</b></span>
-          {geo !== 'ok' && <button className="rgeo" onClick={useMyLocation}>Моё местоположение</button>}
-        </div>
-        {geo === 'ok' && (
-          <button className="rcoord" onClick={copyCoords} title="Скопировать координаты">
-            {c.lat.toFixed(5)}, {c.lng.toFixed(5)}
-            <span>{copied ? 'скопировано' : 'копировать'}</span>
-          </button>
-        )}
-        {geo === 'deny' && <div className="rhint">Геолокация недоступна — показываю от Петропавловска.</div>}
-        {sel ? (
-          <button className="rsel" onClick={() => setSel(null)}>
-            <span className="rdot" style={{ background: LEVEL_COLOR[sel.level] }} />
-            <span className="rtx"><b>{sel.label}</b><span>{KIND_LABEL[sel.kind]} · {Math.round(sel.dist)} км · {sel.note}</span></span>
-          </button>
-        ) : (
-          <div className="rleg">
-            <span><i style={{ background: LEVEL_COLOR.critical }} />критично</span>
-            <span><i style={{ background: LEVEL_COLOR.danger }} />опасно</span>
-            <span><i style={{ background: LEVEL_COLOR.warning }} />внимание</span>
-            <span className="rcount">{placed.length} рядом</span>
-          </div>
-        )}
-        {/* Честность радара: медведей техника не видит, а это главная реальная
-            опасность края. Приписка постоянная — пустой радар не значит «безопасно» */}
-        <div className="rhint">
-          Радар видит сейсмику, вулканы КВЕРТ и наблюдения туристов. Медведей он не видит —
-          на Камчатке медведь может быть рядом всегда: шумите на тропе, держите дистанцию.{' '}
-          <Link href="/safety/offline">Протокол встречи →</Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface PulseQuake { magnitude: number; place: string; time: number; depth: number | null }
-
-/**
- * Живая лента предупреждений — компактное окно ~4 строки с плавной вертикальной
- * прокруткой (экономит место на мобильном). Только актуальные алерты (фильтр и
- * срок годности — на стороне data.ts). При 1-2 записях не крутим — статичный
- * список; при большем числе — бесшовный цикл (список продублирован).
- *
- * Взаимодействие: тап РАСКРЫВАЕТ ленту в полный читаемый список и сворачивает
- * обратно. Раньше единственной реакцией была пауза анимации по :hover/:focus —
- * на телефоне тап давал «залипший» эмулированный hover, и лента просто
- * замирала на середине, не раскрываясь (фидбэк владельца). Теперь развёрнутое
- * состояние — статичный скроллящийся список без маски и без бегущей анимации.
- */
-function AlertsTicker({ alerts }: { alerts: SafetyAlert[] }) {
-  const scroll = alerts.length > 2;
-  const [open, setOpen] = useState(false);
-  const animate = scroll && !open; // бегущая строка только в свёрнутом длинном списке
-  const row = (a: SafetyAlert, i: number, dup: boolean) => (
-    <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined}>
-      <i className={a.severity >= 3 ? 'sev-hi' : a.severity === 2 ? 'sev-mid' : 'sev-lo'} />
-      <span className="atx">
-        {a.title}
-        {a.description ? <span className="adesc">{clip(a.description)}</span> : null}
-      </span>
-      <span className="ago">{alertStamp(a)}</span>
-    </li>
-  );
-  return (
-    <div className={`ticker${scroll ? ' scroll' : ''}${open ? ' open' : ''}`}>
-      <ul
-        className="alerts ticker-track"
-        style={animate ? { animationDuration: `${Math.max(16, alerts.length * 5)}s` } : undefined}
-      >
-        {alerts.map((a, i) => row(a, i, false))}
-        {animate && alerts.map((a, i) => row(a, i, true))}
-      </ul>
-      {scroll && (
-        <button
-          type="button"
-          className={`ticker-toggle${open ? ' open' : ''}`}
-          aria-expanded={open}
-          aria-label={open ? 'Свернуть ленту предупреждений' : 'Показать все предупреждения'}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <ChevronDown className="tchev" size={16} strokeWidth={2.2} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-/**
- * «Пульс полуострова» — реальные сейсмособытия (КБГС РАН / USGS) ритмом, а не
- * списком: сильнейший толчок крупно + столбики по магнитуде (свежие справа).
- * Тап по столбику → деталь. Столбики = настоящие события, не синтетика.
- */
-function SeismicPulse({ events, source }: { events: PulseQuake[]; source: string }) {
-  const [sel, setSel] = useState<number | null>(null);
-  if (events.length === 0) return null;
-  const strongest = events.reduce((a, b) => (b.magnitude > a.magnitude ? b : a), events[0]);
-  const bars = [...events].reverse(); // events: свежие первыми → разворот, чтобы свежие были справа
-  const maxMag = Math.max(6, ...events.map((e) => e.magnitude));
-  const selected = sel != null ? bars[sel] : null;
-  return (
-    <div className="pulse">
-      <div className="phead">
-        <div className="pbig">
-          <b>M{strongest.magnitude.toFixed(1)}</b>
-          <span>сильнейший · {strongest.depth != null ? `${Math.round(strongest.depth)} км · ` : ''}{fmtAgo(new Date(strongest.time).toISOString())}</span>
-        </div>
-        <div className="psrc">Пульс полуострова<i>{source}</i></div>
-      </div>
-      <div className="pbars">
-        {bars.map((q, i) => (
-          <button key={i} className={`pbar${sel === i ? ' on' : ''}`}
-            style={{ height: `${Math.max(12, (q.magnitude / maxMag) * 100)}%`, background: magColor(q.magnitude) }}
-            aria-label={`M${q.magnitude.toFixed(1)}`} onClick={() => setSel(sel === i ? null : i)} />
-        ))}
-      </div>
-      <div className="paxis"><span>старее</span><span>сейчас →</span></div>
-      {selected ? (
-        <button className="psel" onClick={() => setSel(null)}>
-          <span className="pmag" style={{ background: magColor(selected.magnitude) }}>{selected.magnitude.toFixed(1)}</span>
-          <span className="ptx"><b>{selected.place}</b><span>{selected.depth != null ? `${Math.round(selected.depth)} км · ` : ''}{fmtAgo(new Date(selected.time).toISOString())}</span></span>
-        </button>
-      ) : (
-        <div className="psum">за ~48 ч — {events.length} толчков · макс M{strongest.magnitude.toFixed(1)}</div>
-      )}
     </div>
   );
 }
@@ -941,39 +700,58 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 const CSS = `
+/* Токены — ТОЛЬКО глобальные (globals.css). Собственная палитра v7
+   (--shroom/--tide/--fd/--fb, теневой --danger, темы data-v7theme)
+   снята редизайном 31.07: главная красилась и переключала тему отдельно
+   от платформы. Локальным остаётся один шрифтовой стек моно-тегов. */
 .v7{
-  --fd:var(--font-unbounded),system-ui,sans-serif;--fb:var(--font-manrope),system-ui,sans-serif;--fm:var(--font-jetbrains),ui-monospace,monospace;
-  --pine:#2E5F46;--tide:#3E8CA3;--brusnika:#B23A32;--amber:#B4761F;--shroom:#D97B2E;--leaf:#4E8C5B;--danger:#C0392B;
+  --fm:var(--font-jetbrains),ui-monospace,monospace;
 }
-html[data-v7theme="light"] .v7,.v7[data-v7theme="light"]{--bg:#F4F4F0;--ink:#1D2724;--muted:#66736E;--faint:#9AA5A0;--hair:rgba(29,39,36,.14);--hair-soft:rgba(29,39,36,.08);--plate:#EBECE6;--field:#FFFFFF}
-html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
-.v7,.v7[data-v7theme]{--bg:#111715;--ink:#EAEDEA;--muted:#93A09A;--faint:#5C6863;--hair:rgba(234,237,234,.16);--hair-soft:rgba(234,237,234,.08);--plate:#18201D;--field:#1A211E}
 .v7 *{margin:0;padding:0;box-sizing:border-box}
-.v7{font-family:var(--fb);background:var(--bg);color:var(--ink);min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased}
+.v7{font-family:var(--font-outfit),system-ui,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100dvh;padding-bottom:calc(96px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased}
 @media (prefers-reduced-motion:reduce){.v7 *,.v7 *::before,.v7 *::after{animation:none!important;transition:none!important}}
 .v7 .wrap{max-width:480px;margin:0 auto;padding:0 20px}
 .v7 .li{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
 .v7 a{color:inherit;text-decoration:none}
-.v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-.v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
-.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px}
-.v7 .topbar .brand{font:700 12px/1 var(--fb);letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
+.v7 .ptag{font:400 9px/1 var(--fm);letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .topbar{position:sticky;top:0;z-index:55;background:color-mix(in srgb,var(--bg-primary) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
+/* flex-wrap — страховка бюджета ширины (#893): если содержимое шапки не
+   помещается (длинное состояние пилюли, узкий экран), строка переносится,
+   а не уезжает за край. Переполнение прячет действие, вторая строка — нет.
+   Бюджет пересчитан после смены шрифтов на Playfair/Outfit и композиции
+   #887/#892 — числа в scripts/measure-header-budget.mjs. */
+.v7 .topbar .in{max-width:480px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:6px}
+.v7 .topbar .brand{font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.42em;text-transform:uppercase;padding-left:.42em}
+/* Бренд уступает место первым (решение владельца 2026-07-30: единственный
+   элемент шапки, который ничего не сообщает и никуда не ведёт). Порог 427px
+   выведен ИЗМЕРЕНИЕМ (scripts/measure-header-budget.mjs, реальный Inter,
+   31.07): бренд 72.63 + худшее короткое состояние пилюли «Опасность» 93.77 +
+   SOS 72.53 + иконки 88 + зазоры 60 + поля 40 = 426.93. Ниже — однострочная
+   шапка без бренда; длинное «5+ предупреждений» переносится страховкой
+   flex-wrap, а не определяет порог. */
+@media (max-width:426px){.v7 .topbar .brand{display:none}}
 .v7 .topbar .sp{flex:1}
 /* 44x44 — правило §3 дизайн-языка, а не уступка ревью. Иконка внутри остаётся
    19px: компактность держим внутренним размером глифа, а не урезанием зоны
-   нажатия. Ширины хватает — место освободила убранная из шапки кнопка. */
-.v7 .icn{width:44px;height:44px;display:grid;place-items:center;color:var(--muted);font-size:15px;cursor:pointer;background:none;border:0}
+   нажатия.
+   flex:none обязателен. Объявленных 44px недостаточно: у флекс-ребёнка работает
+   дефолтный flex-shrink:1, и в тесной шапке зона нажатия сжималась до 19-37px
+   (измерено, issue #893) — то есть до размера самого глифа, при формально
+   правильном CSS. Сторож на объявленную высоту этого не видел: ломал layout, а
+   не декларация. flex:none закрывает слепое пятно по построению — сжиматься
+   больше нечему. */
+.v7 .icn{width:44px;height:44px;flex:none;display:grid;place-items:center;color:var(--text-secondary);font-size:15px;cursor:pointer;background:none;border:0}
 .v7 .icn .li{width:19px;height:19px}
 /* Обстановка одной строкой; цвет несёт состояние, а не украшает.
    flex:none и никакого многоточия: на боевом экране 1080px пилюля ужималась
    до «Сегодня: оп» — обрезанная «опасность» выглядит как исправный индикатор
    и не читается. Статус безопасности либо виден целиком, либо это не статус. */
-.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 10px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--fb);letter-spacing:.02em;color:var(--ink);border:1px solid var(--hair);white-space:nowrap;transition:background .2s}
+.v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 10px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
-.v7 .pill-calm i{background:var(--leaf)}
-.v7 .pill-warning i{background:var(--amber)}
-.v7 .pill-danger{border-color:color-mix(in srgb,var(--brusnika) 55%,transparent)}
-.v7 .pill-danger i{background:var(--brusnika)}
+.v7 .pill-calm i{background:var(--success)}
+.v7 .pill-warning i{background:var(--warning)}
+.v7 .pill-danger{border-color:color-mix(in srgb,var(--danger) 55%,transparent)}
+.v7 .pill-danger i{background:var(--danger)}
 /* ГЕРОЙ фото */
 /* Высота героя: 76vh + шапка 56px + нижняя навигация съедали ровно весь первый
    экран — под сгибом не оставалось НИЧЕГО, и «Радар» приходилось искать
@@ -987,9 +765,9 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 .v7 .hero-photo .dateline{display:flex;align-items:center;gap:12px;justify-content:center;color:rgba(255,255,255,.75)}
 .v7 .hero-photo .dateline::before,.v7 .hero-photo .dateline::after{content:"";flex:0 0 30px;height:1px;background:rgba(255,255,255,.4)}
 .v7 .hero-photo .dateline span{font:400 9px/1 var(--fm);letter-spacing:.18em;text-transform:uppercase}
-.v7 .hero-photo h1{margin-top:12px;font:600 30px/1.14 var(--fd);letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
-.v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--shroom)}
-.v7 .hero-photo .sub{margin:10px auto 0;font:500 13px/1.55 var(--fb);color:rgba(255,255,255,.88);max-width:32ch}
+.v7 .hero-photo h1{margin-top:12px;font:600 30px/1.14 var(--font-playfair),Georgia,serif;letter-spacing:-.03em;text-shadow:0 2px 24px rgba(0,0,0,.4)}
+.v7 .hero-photo h1 em{font-style:normal;font-weight:800;color:var(--accent)}
+.v7 .hero-photo .sub{margin:10px auto 0;font:500 13px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.88);max-width:32ch}
 /* поиск и чипы в герое — одно действие вместо трёх равных кнопок.
    Стекло здесь законно: подложка — фотография, а не сплошной фон. */
 .v7 .hero-find{margin-top:18px;width:100%;max-width:420px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:16px;backdrop-filter:blur(10px);background:rgba(10,14,12,.42);border:1px solid rgba(255,255,255,.18)}
@@ -997,149 +775,80 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* align-self:stretch — рамка поля выглядела крупной, а нажималась полоска
    16.8px: сам input не заполнял её по высоте, и промах по вертикали попадал
    мимо фокуса. Теперь input занимает всю высоту рамки, которую видит человек. */
-.v7 .hero-find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--fb)}
+.v7 .hero-find input{flex:1;min-width:0;align-self:stretch;min-height:44px;background:none;border:0;outline:none;color:#fff;font:400 14px/1.2 var(--font-outfit),system-ui,sans-serif}
 .v7 .hero-find input::placeholder{color:rgba(255,255,255,.62)}
-.v7 .hero-find button{flex:none;min-height:44px;padding:0 14px;border:0;border-radius:11px;background:var(--shroom);color:#fff;font:700 10.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
+.v7 .hero-find button{flex:none;min-height:44px;padding:0 14px;border:0;border-radius:11px;background:var(--accent);color:#fff;font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .13s}
 .v7 .hero-find button:active{transform:scale(.96)}
 .v7 .hero-chips{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;max-width:420px}
-.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--fb);backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
+.v7 .hchip{min-height:44px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;text-decoration:none;color:#fff;font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;backdrop-filter:blur(10px);background:rgba(10,14,12,.34);border:1px solid rgba(255,255,255,.16);transition:transform .13s ease,background .2s ease}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:rgba(10,14,12,.52)}
 .v7 .hero-photo .kvert{margin-top:12px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
 /* секции */
 .v7 section{margin-top:40px}
-.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--hair);border-radius:12px}
+.v7 .live{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:26px;border:1px solid var(--border);border-radius:12px}
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
-.v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--fb);color:var(--ink)}
-.v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide);text-decoration:none;white-space:nowrap}
+.v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */
-.v7 a:focus-visible,.v7 button:focus-visible,.v7 input:focus-visible{outline:2px solid var(--tide);outline-offset:2px;border-radius:6px}
+.v7 a:focus-visible,.v7 button:focus-visible,.v7 input:focus-visible{outline:2px solid var(--ocean);outline-offset:2px;border-radius:6px}
 /* Подчинённая секция: продолжение предыдущей двери, а не новая. Поэтому без
    собственного заголовка и с меньшим отступом сверху. */
 .v7 section.sub{margin-top:-14px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
-.v7 .shead h2{font:600 16px/1.2 var(--fd);letter-spacing:-.02em}
-.v7 .shead .line{flex:1;height:1px;background:var(--hair-soft)}
-.v7 .shead .all{font:600 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--tide)}
+.v7 .shead h2{font:600 16px/1.2 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
+.v7 .shead .line{flex:1;height:1px;background:color-mix(in srgb,var(--border) 55%,transparent)}
+.v7 .shead .all{font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean)}
 /* радар безопасности */
-.v7{--radar:#3FB950}
-.v7 .radar{border:1px solid var(--hair);border-radius:16px;padding:16px;background:radial-gradient(120% 100% at 50% 0%,color-mix(in srgb,var(--radar) 8%,transparent),transparent 70%)}
-.v7 .radar .scope{position:relative;width:100%;max-width:300px;margin:0 auto}
-.v7 .radar .scope svg{width:100%;height:auto;display:block;overflow:visible}
-.v7 .radar .rn{font:600 8px var(--fb);fill:var(--radar);opacity:.8}
-.v7 .radar .sweep{transform-origin:100px 100px;animation:radarSweep 4.5s linear infinite}
-@keyframes radarSweep{to{transform:rotate(360deg)}}
-.v7 .radar .pulse{animation:radarPulse 1.6s ease-out infinite;transform-origin:center;transform-box:fill-box}
-@keyframes radarPulse{0%{opacity:.5;transform:scale(.6)}70%{opacity:0;transform:scale(1.8)}100%{opacity:0}}
-.v7 .radar .clean{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:600 11px/1 var(--fb);letter-spacing:.06em;color:var(--muted);background:var(--bg);padding:6px 10px;border-radius:999px;border:1px solid var(--hair)}
-.v7 .radar .rmeta{margin-top:14px}
-.v7 .radar .rrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.v7 .radar .rc{font:400 10.5px/1.4 var(--fb);color:var(--muted)}
-.v7 .radar .rc b{color:var(--ink);font-weight:600}
-.v7 .radar .rgeo{font:600 9px/1 var(--fb);letter-spacing:.1em;text-transform:uppercase;color:var(--tide);background:none;border:1px solid color-mix(in srgb,var(--tide) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
-.v7 .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--faint)}
-.v7 .radar .rhint a{color:var(--tide);text-decoration:none}
-.v7 .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--ink);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-.v7 .radar .rcoord span{font:600 8px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
-.v7 .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.v7 .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--fb);color:var(--muted)}
-.v7 .radar .rleg i{width:7px;height:7px;border-radius:50%}
-.v7 .radar .rleg .rcount{margin-left:auto;font:400 9px/1 var(--fm);color:var(--faint)}
-.v7 .radar .rsel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:var(--bg-hover,color-mix(in srgb,var(--ink) 5%,transparent));border:1px solid var(--hair);border-radius:12px;padding:11px 12px;cursor:pointer;font-family:var(--fb)}
-.v7 .radar .rsel .rdot{width:9px;height:9px;border-radius:50%;flex:none}
-.v7 .radar .rsel .rtx{display:flex;flex-direction:column;gap:3px}
-.v7 .radar .rsel .rtx b{font:600 12.5px/1.2 var(--fd);color:var(--ink)}
-.v7 .radar .rsel .rtx span{font:400 10px/1.4 var(--fb);color:var(--muted)}
 /* безопасность */
-.v7 .safety{border:1px solid var(--hair);padding:16px;margin-top:14px}
-.v7 .safety.calm{display:flex;flex-direction:column;gap:6px}
-.v7 .safety.calm b{font:600 15px/1.3 var(--fd);color:var(--pine)}
-.v7 .safety.calm span{font:400 11.5px/1.5 var(--fb);color:var(--muted)}
 .v7 .volc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--fb);border:1px solid var(--hair);padding:7px 10px;border-radius:999px}
+.v7 .vchip{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--font-outfit),system-ui,sans-serif;border:1px solid var(--border);padding:7px 10px;border-radius:999px}
 .v7 .vchip i{width:7px;height:7px;border-radius:50%}
-.v7 .vchip small{font:400 9px/1 var(--fm);color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+.v7 .vchip small{font:400 9px/1 var(--fm);color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
 /* Живая лента предупреждений — компактное окно ~4 строки с вертикальной прокруткой */
-.v7 .ticker{position:relative;overflow:hidden}
-.v7 .ticker.scroll{height:76px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 16%,#000 84%,transparent 100%)}
-.v7 .ticker.scroll .ticker-track{animation:v7-ticker linear infinite;will-change:transform}
 /* Курсор мыши на десктопе ставит бегущую строку на паузу, чтобы успеть прочитать.
    На тач-устройствах :hover не используем — там открытие/закрытие делает тап (см. .ticker-toggle). */
 @media (hover:hover){.v7 .ticker.scroll:not(.open):hover .ticker-track{animation-play-state:paused}}
 /* Развёрнутое состояние: полный читаемый список, без маски и без бегущей анимации,
    с обычной вертикальной прокруткой если не влезает. */
-.v7 .ticker.scroll.open{height:auto;max-height:min(58vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;-webkit-mask-image:none;mask-image:none}
-.v7 .ticker.scroll.open .ticker-track{animation:none;transform:none}
-/* Кнопка-переключатель. Свёрнутая лента — вся площадь тап-цель (шеврон в углу);
-   развёрнутая — компактная кнопка сворачивания в углу, чтобы список можно было листать. */
-/* Раскрывашка — отдельная цель 44px в углу, а НЕ вся площадь ленты.
-   Пока кнопка занимала inset:0, любой тап по ленте (в том числе случайный при
-   прокрутке страницы пальцем) разворачивал её на пол-экрана — владелец поймал
-   это на живой главной. Кнопка должна быть там, где нарисован шеврон. */
-.v7 .ticker-toggle{position:absolute;border:0;cursor:pointer;color:var(--faint);display:flex;align-items:center;justify-content:center;z-index:2;
-  width:44px;height:44px;border-radius:999px;background:transparent}
-.v7 .ticker-toggle:not(.open){right:0;bottom:0}
-.v7 .ticker-toggle.open{top:2px;right:2px;width:32px;height:32px;background:var(--card);border:1px solid var(--hair)}
-.v7 .ticker-toggle .tchev{transition:transform .2s ease;opacity:.7}
-.v7 .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
-@keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
-.v7 .alerts{list-style:none}
-.v7 .alerts li{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--hair-soft)}
-.v7 .ticker:not(.scroll) .alerts li:first-child{border-top:0}
-.v7 .alerts li i{width:6px;height:6px;border-radius:50%;flex:none;align-self:center}
-.v7 .alerts i.sev-hi{background:var(--brusnika)}.v7 .alerts i.sev-mid{background:var(--amber)}.v7 .alerts i.sev-lo{background:var(--tide)}
-.v7 .alerts .atx{font:500 12px/1.4 var(--fb);flex:1}
-.v7 .alerts .adesc{display:block;margin-top:2px;font:400 10.5px/1.35 var(--fb);color:var(--faint)}
-.v7 .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--faint);white-space:nowrap}
-@media (prefers-reduced-motion:reduce){.v7 .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.v7 .ticker.scroll .ticker-track{animation:none}}
-.v7 .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair-soft);font:400 8.5px/1.4 var(--fm);color:var(--faint)}
+/* Полоса активной поездки: спокойная карточка, день — единственный акцент. */
+.v7 .tripstrip{margin:14px 0 4px;padding:12px 14px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent)}
+.v7 .tripstrip .ts-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.v7 .tripstrip .ts-cap{font:600 9px/1 var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .tripstrip .ts-title{font:700 14px/1.25 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .tripstrip .ts-day{font:700 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--accent);margin-left:auto;white-space:nowrap}
+.v7 .tripstrip .ts-links{display:flex;gap:10px;margin-top:1px}
+.v7 .tripstrip .ts-links a{font:600 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--ocean);min-height:44px;padding:0 4px;display:inline-flex;align-items:center}
 /* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
    семантическая левая грань (МЧС=danger, офлайн-инструменты=tide, наблюдение=
    amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода). */
 .v7 .mchsline{display:flex;flex-direction:column;gap:2px;margin-top:14px;padding:12px 14px 12px 15px;border-radius:14px;text-decoration:none;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 22%,transparent);border-left:3px solid color-mix(in srgb,var(--danger) 48%,transparent)}
-.v7 .mchsline b{font:700 12px/1.3 var(--fd);color:var(--ink)}
-.v7 .mchsline span{font:500 10px/1.35 var(--fb);color:var(--muted)}
+.v7 .mchsline b{font:700 12px/1.3 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .mchsline span{font:500 10px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .mchsline:active{transform:scale(.99)}
-.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;text-decoration:none;background:var(--plate);border:1px solid var(--hair-soft);border-left:3px solid color-mix(in srgb,var(--tide) 68%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);font:500 10.5px/1.4 var(--fb);color:var(--muted);transition:transform .2s ease,box-shadow .2s ease}
-.v7 .protoline b{font:700 10.5px/1 var(--fb);color:var(--ink)}
+.v7 .protoline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;text-decoration:none;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--ocean) 68%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);font:500 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary);transition:transform .2s ease,box-shadow .2s ease}
+.v7 .protoline b{font:700 10.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .protoline:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .protoline:active{transform:scale(.99)}
-.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--plate);border:1px solid var(--hair-soft);border-left:3px solid color-mix(in srgb,var(--amber) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--fb);color:var(--ink);font-family:var(--fb);transition:transform .2s ease,box-shadow .2s ease}
-.v7 .reportbtn span{color:var(--muted);font-weight:500}
+.v7 .reportbtn{display:block;width:100%;text-align:left;margin-top:8px;padding:11px 14px 11px 15px;border-radius:12px;background:var(--bg-hover);border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-left:3px solid color-mix(in srgb,var(--warning) 62%,transparent);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;font:600 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);font-family:var(--font-outfit),system-ui,sans-serif;transition:transform .2s ease,box-shadow .2s ease}
+.v7 .reportbtn span{color:var(--text-secondary);font-weight:500}
 .v7 .reportbtn:hover{transform:translateY(-1px);box-shadow:0 5px 14px -5px rgba(0,0,0,.14)}
 .v7 .reportbtn:active{transform:scale(.99)}
 /* «Пульс полуострова» — реальные сейсмособытия ритмом */
-.v7 .pulse{margin-top:12px;border:1px solid var(--hair);border-radius:14px;padding:13px 14px;background:color-mix(in srgb,var(--plate) 45%,transparent)}
-.v7 .pulse .phead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.v7 .pulse .pbig b{font:600 21px/1 var(--fd);letter-spacing:-.02em;display:block}
-.v7 .pulse .pbig span{display:block;margin-top:4px;font:400 8.5px/1.3 var(--fm);color:var(--muted)}
-.v7 .pulse .psrc{text-align:right;font:600 8px/1.3 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
-.v7 .pulse .psrc i{display:block;font:400 7.5px/1.4 var(--fm);letter-spacing:.06em;color:var(--faint);text-transform:none;font-style:normal;margin-top:2px;opacity:.85}
-.v7 .pulse .pbars{margin-top:12px;display:flex;align-items:flex-end;gap:3px;height:44px}
-.v7 .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:2px;cursor:pointer;opacity:.62;transition:opacity .18s ease,box-shadow .18s ease;transform-origin:bottom}
-.v7 .pulse .pbar:hover{opacity:.9}
-.v7 .pulse .pbar.on{opacity:1;box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--ink)}
-.v7 .pulse .paxis{margin-top:8px;display:flex;justify-content:space-between;font:400 7.5px/1 var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
-.v7 .pulse .psum{margin-top:11px;padding-top:9px;border-top:1px solid var(--hair-soft);font:400 9px/1.4 var(--fm);color:var(--muted)}
-.v7 .pulse .psel{margin-top:11px;width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid var(--hair-soft);padding:10px 0 0;cursor:pointer;font-family:var(--fb)}
-.v7 .pulse .psel .pmag{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font:700 11px/1 var(--fd)}
-.v7 .pulse .psel .ptx{display:flex;flex-direction:column;gap:2px}
-.v7 .pulse .psel .ptx b{font:500 11px/1.3 var(--fb);color:var(--ink)}
-.v7 .pulse .psel .ptx span{font:400 8px/1.3 var(--fm);color:var(--faint)}
 /* платы */
 /* первый результат подбора — крупнее платы, но той же породы */
-.v7 .firstpick{display:block;text-decoration:none;color:inherit;border:1px solid var(--hair);background:var(--plate);overflow:hidden}
-.v7 .firstpick .fp-img{position:relative;aspect-ratio:16/9;background:var(--plate) center/cover no-repeat}
+.v7 .firstpick{display:block;text-decoration:none;color:inherit;border:1px solid var(--border);background:var(--bg-hover);overflow:hidden}
+.v7 .firstpick .fp-img{position:relative;aspect-ratio:16/9;background:var(--bg-hover) center/cover no-repeat}
 .v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .firstpick .fp-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:7px}
-.v7 .firstpick .fp-body b{font:600 17px/1.25 var(--fd);letter-spacing:-.01em}
-.v7 .firstpick .fp-cap{font:400 12.5px/1.5 var(--fb);color:var(--muted)}
-.v7 .firstpick .fp-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;font:400 11.5px/1 var(--fm);color:var(--muted)}
-.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:var(--ink)}
-.v7 .firstpick .fp-facts em.muted{font-weight:400;color:var(--muted)}
+.v7 .firstpick .fp-body b{font:600 17px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.01em}
+.v7 .firstpick .fp-cap{font:400 12.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .firstpick .fp-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;font:400 11.5px/1 var(--fm);color:var(--text-secondary)}
+.v7 .firstpick .fp-facts em{font-style:normal;font-weight:700;color:var(--text-primary)}
+.v7 .firstpick .fp-facts em.muted{font-weight:400;color:var(--text-secondary)}
 .v7 .plates{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px}
 .v7 .plates::-webkit-scrollbar{display:none}
 .v7 .plate{flex:none;width:86%;max-width:360px;scroll-snap-align:start}
@@ -1152,35 +861,35 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
    высота — нет, и именно вертикального допуска пальцу не хватало. */
 .v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:0}
 .v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
-.v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--hair);transition:background .2s,transform .2s}
-.v7 .pl-dots button.on::after{background:var(--shroom);transform:scale(1.25)}
-.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--plate) center/cover no-repeat}
+.v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,transform .2s}
+.v7 .pl-dots button.on::after{background:var(--accent);transform:scale(1.25)}
+.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 2px 0}
-.v7 .plate .row b{font:600 14px/1.25 var(--fd);letter-spacing:-.015em}
-.v7 .plate .cap{padding:5px 2px 0;font:400 11px/1.5 var(--fb);color:var(--muted)}
-.v7 .plate .buy{margin-top:9px;padding:9px 2px 0;border-top:1px solid var(--hair-soft);display:flex;align-items:baseline;gap:10px}
-.v7 .plate .buy .price{font:600 14px/1 var(--fd)}
-.v7 .plate .buy .price.muted{color:var(--faint);font-weight:500;font-size:12px}
-.v7 .plate .buy a{margin-left:auto;font:700 9.5px/1 var(--fb);letter-spacing:.14em;text-transform:uppercase;color:var(--shroom);border-bottom:1px solid color-mix(in srgb,var(--shroom) 45%,transparent);padding-bottom:3px}
-.v7 .arrivals{margin-top:18px;border-top:1px solid var(--hair-soft);padding-top:11px;display:flex;gap:10px;align-items:baseline}
-.v7 .arrivals .k{font:600 8.5px/1 var(--fb);letter-spacing:.2em;text-transform:uppercase;color:var(--faint);flex:none}
-.v7 .arrivals .t{font:500 11.5px/1.5 var(--fb);color:var(--muted)}
+.v7 .plate .row b{font:600 14px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
+.v7 .plate .cap{padding:5px 2px 0;font:400 11px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .plate .buy{margin-top:9px;padding:9px 2px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);display:flex;align-items:baseline;gap:10px}
+.v7 .plate .buy .price{font:600 14px/1 var(--font-playfair),Georgia,serif}
+.v7 .plate .buy .price.muted{color:var(--text-muted);font-weight:500;font-size:12px}
+.v7 .plate .buy a{margin-left:auto;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);border-bottom:1px solid color-mix(in srgb,var(--accent) 45%,transparent);padding-bottom:3px}
+.v7 .arrivals{margin-top:18px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:11px;display:flex;gap:10px;align-items:baseline}
+.v7 .arrivals .k{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);flex:none}
+.v7 .arrivals .t{font:500 11.5px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 /* проводник */
-.v7 .guide{border-left:2px solid var(--pine);padding:2px 0 2px 18px}
+.v7 .guide{border-left:2px solid var(--success);padding:2px 0 2px 18px}
 .v7 .guide .gtop{display:flex;align-items:flex-start;gap:16px}
 /* Медальон-гравюра: у Кузьмича не было лица — секция была цитатой без говорящего.
    Кремовый круг вшит в сам PNG, поэтому подложка не нужна ни в одной теме. */
 .v7 .guide .face{width:72px;height:72px;flex:none;border-radius:50%;object-fit:cover}
-.v7 .guide q{display:block;font:500 15px/1.5 var(--fd);letter-spacing:-.01em;quotes:"«" "»"}
+.v7 .guide q{display:block;font:500 15px/1.5 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;quotes:"«" "»"}
 .v7 .guide .sig{margin-top:10px;display:flex;align-items:center;gap:10px}
-.v7 .guide .sig .caps{font:600 10px/1 var(--fb);letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
-.v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--faint)}
-.v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--faint)}
+.v7 .guide .sig .caps{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--text-secondary)}
+.v7 .guide .sig .dot{width:4px;height:4px;border-radius:50%;background:var(--text-muted)}
+.v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
 .v7 .guide .acts{margin-top:14px;display:flex;gap:22px;align-items:center}
-.v7 .guide .acts a{font:600 10px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--pine);border-bottom:1px solid color-mix(in srgb,var(--pine) 35%,transparent);padding-bottom:3px;cursor:pointer}
-.v7 .guide .acts a.lead{color:var(--shroom);border-bottom-color:color-mix(in srgb,var(--shroom) 45%,transparent)}
+.v7 .guide .acts a{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--success);border-bottom:1px solid color-mix(in srgb,var(--success) 35%,transparent);padding-bottom:3px;cursor:pointer}
+.v7 .guide .acts a.lead{color:var(--accent);border-bottom-color:color-mix(in srgb,var(--accent) 45%,transparent)}
 /* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
 .v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;
@@ -1195,7 +904,7 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
   justify-content:flex-end;color:#fff;background:rgba(12,16,15,.24);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
   border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
 .v7 .etile .eicon{color:#fff;margin-bottom:auto;filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
-.v7 .etile b{font:600 14.5px/1.15 var(--fd);letter-spacing:-.01em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
+.v7 .etile b{font:600 14.5px/1.15 var(--font-playfair),Georgia,serif;letter-spacing:-.01em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.3)}
 .v7 .etile .ecnt{font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
 .v7 .etile:active{transform:scale(.97)}
 /* подсветка-свечение по стихии */
@@ -1215,84 +924,74 @@ html[data-v7theme="dark"] .v7,.v7[data-v7theme="dark"]{--bg:#111715;--ink:#EAEDE
 /* цифры */
 .v7 .dataline{display:flex;overflow-x:auto;scrollbar-width:none}
 .v7 .dataline::-webkit-scrollbar{display:none}
-.v7 .dl{flex:none;padding:2px 20px 2px 0;margin-right:20px;border-right:1px solid var(--hair-soft)}
+.v7 .dl{flex:none;padding:2px 20px 2px 0;margin-right:20px;border-right:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
 .v7 .dl:last-child{border-right:0;margin-right:0}
-.v7 .dl .n{font:600 23px/1 var(--fd);letter-spacing:-.02em}
-.v7 .dl .t{margin-top:6px;font:600 8.5px/1.4 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
-.v7 .dl.link .t{color:var(--tide)}
+.v7 .dl .n{font:600 23px/1 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
+.v7 .dl .t{margin-top:6px;font:600 8.5px/1.4 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary);white-space:nowrap}
+.v7 .dl.link .t{color:var(--ocean)}
 /* лид */
-.v7 .lead{border:1px solid var(--hair);padding:20px 18px}
-.v7 .lead h3{font:600 20px/1.22 var(--fd);letter-spacing:-.02em}
-.v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--shroom)}
-.v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--fb);color:var(--muted)}
+.v7 .lead{border:1px solid var(--border);padding:20px 18px}
+.v7 .lead h3{font:600 20px/1.22 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
+.v7 .lead h3 em{font-style:normal;font-weight:800;color:var(--accent)}
+.v7 .lead p{margin-top:9px;font:400 11.5px/1.6 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px}
-.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--fb);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--hair);background:none;padding:0 13px;cursor:pointer;transition:.15s}
-.v7 .lead .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.v7 .lead .chip{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);border:1px solid var(--border);background:none;padding:0 13px;cursor:pointer;transition:.15s}
+.v7 .lead .chip[aria-pressed="true"]{background:var(--text-primary);color:var(--bg-primary);border-color:var(--text-primary)}
 .v7 .lead .field2{margin-top:14px;display:flex;flex-direction:column;gap:10px}
-.v7 .lead .field2>input{border:1px solid var(--hair);background:var(--field);padding:14px 13px;font:500 13px/1 var(--fb);color:var(--ink);outline:none}
-.v7 .lead .field{display:flex;border:1px solid var(--hair);background:var(--field)}
-.v7 .lead .field input{flex:1;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--fb);color:var(--ink);outline:none}
-.v7 .lead .field input::placeholder,.v7 .lead .field2>input::placeholder{color:var(--faint)}
-.v7 .lead .field button{border:0;background:var(--shroom);color:#fff;font:700 10px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;padding:0 18px;cursor:pointer}
+.v7 .lead .field2>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+.v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
+.v7 .lead .field input{flex:1;border:0;background:none;padding:14px 13px;font:500 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
+.v7 .lead .field input::placeholder,.v7 .lead .field2>input::placeholder{color:var(--text-muted)}
+.v7 .lead .field button{border:0;background:var(--accent);color:#fff;font:700 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:0 18px;cursor:pointer}
 .v7 .lead .field button:disabled{opacity:.6}
-.v7 .lead .err{margin-top:10px;font:500 11px/1.4 var(--fb);color:var(--danger)}
-.v7 .lead .fine{margin-top:9px;font:400 8.5px/1.5 var(--fm);color:var(--faint)}
-.v7 .lead .ok{margin-top:14px;padding:12px;border:1px solid color-mix(in srgb,var(--pine) 40%,transparent);font:500 12px/1.5 var(--fb);color:var(--pine);display:none}
+.v7 .lead .err{margin-top:10px;font:500 11px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
+.v7 .lead .fine{margin-top:9px;font:400 8.5px/1.5 var(--fm);color:var(--text-muted)}
+.v7 .lead .ok{margin-top:14px;padding:12px;border:1px solid color-mix(in srgb,var(--success) 40%,transparent);font:500 12px/1.5 var(--font-outfit),system-ui,sans-serif;color:var(--success);display:none}
 .v7 .lead.sent .ok{display:block}
 .v7 .lead.sent .field2,.v7 .lead.sent .chips,.v7 .lead.sent .fine,.v7 .lead.sent .err{display:none}
 /* хабы */
 .v7 .hubline{display:flex;flex-wrap:wrap;gap:12px 24px}
-.v7 .hubline a{font:600 10.5px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);padding-bottom:4px;border-bottom:1px solid transparent}
-.v7 .hubline a:active{color:var(--ink);border-bottom-color:var(--ink)}
-.v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--hair);font:400 9px/1.7 var(--fm);color:var(--faint)}
+.v7 .hubline a{font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary);padding-bottom:4px;border-bottom:1px solid transparent}
+.v7 .hubline a:active{color:var(--text-primary);border-bottom-color:var(--text-primary)}
+.v7 .note{margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--border);font:400 9px/1.7 var(--fm);color:var(--text-muted)}
 /* навигация */
-.v7 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-top:1px solid var(--hair)}
-.v7 nav.tabs .in{max-width:480px;margin:0 auto;display:flex;padding:0 4px}
-/* Отступ под индикатор Home — на панели, не на самих кнопках. Раньше он был в
    padding кнопок: тач-зона заезжала в полосу системного жеста, и вкладка
    конкурировала со свайпом «домой». Держать в одном месте — иначе двойной
    запас: панель отодвигается, и кнопки внутри неё ещё раз. */
-.v7 nav.tabs a,.v7 nav.tabs button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 7px;color:var(--faint);font:600 8px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;transition:color .22s ease;background:none;border:0;cursor:pointer}
-.v7 nav.tabs a .ico,.v7 nav.tabs button .ico{display:flex;align-items:center;justify-content:center;width:46px;height:28px;border-radius:999px;transition:background .28s cubic-bezier(.22,1,.36,1),transform .18s ease}
-.v7 nav.tabs a .ti,.v7 nav.tabs button .ti{transition:transform .28s cubic-bezier(.22,1,.36,1),color .22s ease}
-.v7 nav.tabs a:active .ico,.v7 nav.tabs button:active .ico{transform:scale(.9)}
-.v7 nav.tabs a.active{color:var(--ink)}
-.v7 nav.tabs a.active .ico{background:color-mix(in srgb,var(--shroom) 15%,transparent)}
-.v7 nav.tabs a.active .ti{color:var(--shroom);transform:translateY(-1px)}
 /* SOS — красный */
 /* Инлайн-панель экстренной помощи (офлайн-стойкая, поверх главной) */
-.v7 .emg{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;animation:emgin .18s ease}
+.v7 .emg{position:fixed;inset:0;z-index:100;background:var(--bg-primary);display:flex;flex-direction:column;animation:emgin .18s ease}
 @keyframes emgin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.v7 .emg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px calc(14px);border-bottom:1px solid var(--hair);padding-top:calc(16px + env(safe-area-inset-top))}
-.v7 .emg-top b{font:700 17px/1 var(--fd);color:var(--ink)}
+.v7 .emg-top{display:flex;align-items:center;justify-content:space-between;padding:16px 18px calc(14px);border-bottom:1px solid var(--border);padding-top:calc(16px + env(safe-area-inset-top))}
+.v7 .emg-top b{font:700 17px/1 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
 /* Закрыть экстренную панель — 44px. Это тот экран, где человеку хуже всего
    попадать в мелкое. */
-.v7 .emg-x{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;color:var(--muted);cursor:pointer}
+.v7 .emg-x{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;color:var(--text-secondary);cursor:pointer}
 .v7 .emg-scroll{flex:1;overflow-y:auto;padding:16px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
-.v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--fb);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.v7 .emg-lbl{display:flex;align-items:center;gap:6px;font:600 9px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--text-secondary)}
 .v7 .emg-coord{display:flex;flex-direction:column;gap:8px}
-.v7 .emg-cval{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;font:600 20px/1 var(--fm);color:var(--ink);background:none;border:0;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-.v7 .emg-cval span{font:600 8.5px/1 var(--fb);letter-spacing:.12em;text-transform:uppercase;color:var(--tide)}
-.v7 .emg-cwait{font:500 13px/1.3 var(--fb);color:var(--muted)}
+.v7 .emg-cval{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;font:600 20px/1 var(--fm);color:var(--text-primary);background:none;border:0;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.v7 .emg-cval span{font:600 8.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ocean)}
+.v7 .emg-cwait{font:500 13px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .emg-calls{display:flex;flex-direction:column;gap:9px}
-.v7 .emg-call{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;border:1px solid var(--hair);background:var(--plate);color:var(--ink);text-decoration:none}
+.v7 .emg-call{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;border:1px solid var(--border);background:var(--bg-hover);color:var(--text-primary);text-decoration:none}
 .v7 .emg-call .emg-ct{display:flex;flex-direction:column;gap:2px}
-.v7 .emg-call .emg-ct b{font:600 15px/1 var(--fb)}
-.v7 .emg-call .emg-ct span{font:400 10px/1.2 var(--fb);color:var(--muted)}
+.v7 .emg-call .emg-ct b{font:600 15px/1 var(--font-outfit),system-ui,sans-serif}
+.v7 .emg-call .emg-ct span{font:400 10px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .emg-call-primary{background:var(--danger);border-color:transparent;color:#fff;padding:17px 18px}
-.v7 .emg-call-primary .emg-ct b{font:800 26px/1 var(--fd);letter-spacing:.02em}
+.v7 .emg-call-primary .emg-ct b{font:800 26px/1 var(--font-playfair),Georgia,serif;letter-spacing:.02em}
 .v7 .emg-call-primary .emg-ct span{color:rgba(255,255,255,.85)}
-.v7 .emg-sms{display:block;text-align:center;padding:12px;border-radius:12px;border:1px dashed var(--hair);color:var(--tide);font:600 11px/1 var(--fb);letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
+.v7 .emg-sms{display:block;text-align:center;padding:12px;border-radius:12px;border:1px dashed var(--border);color:var(--ocean);font:600 11px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
 .v7 .emg-protos{display:flex;flex-direction:column;gap:8px}
-.v7 .emg-proto{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
-.v7 .emg-phead{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:var(--plate);border:0;cursor:pointer;text-align:left;font-family:var(--fb)}
+.v7 .emg-proto{border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.v7 .emg-phead{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:var(--bg-hover);border:0;cursor:pointer;text-align:left;font-family:var(--font-outfit),system-ui,sans-serif}
 .v7 .emg-pt{display:flex;flex-direction:column;gap:3px}
-.v7 .emg-pt b{font:600 13px/1 var(--fb);color:var(--ink)}
-.v7 .emg-pt span{font:400 10px/1.3 var(--fb);color:var(--danger)}
-.v7 .emg-chev{color:var(--muted);flex:none;transition:transform .2s ease}
+.v7 .emg-pt b{font:600 13px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .emg-pt span{font:400 10px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
+.v7 .emg-chev{color:var(--text-secondary);flex:none;transition:transform .2s ease}
 .v7 .emg-chev-on{transform:rotate(180deg)}
 .v7 .emg-steps{margin:0;padding:6px 16px 14px 30px;display:flex;flex-direction:column;gap:7px;list-style:decimal}
-.v7 .emg-steps li{font:400 12px/1.45 var(--fb);color:var(--ink)}
-.v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--faint);text-align:center;margin:2px 0 0}
+.v7 .emg-steps li{font:400 12px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--text-muted);text-align:center;margin:2px 0 0}
 .v7 .sos:active{transform:scale(.94)}
 `;

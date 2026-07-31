@@ -312,18 +312,24 @@ async function fetchReportHazards(): Promise<Hazard[]> {
   } catch { return []; }
 }
 
-export async function getHomeV8Data(): Promise<HomeV8Data> {
-  const [safety, feedResult, zones, plates, feedItems, counts, radarBase, reportHazards] = await Promise.all([
+/**
+ * Живая обстановка (радар + алерты + сейсмика) отдельным срезом: после P0-3b
+ * её рендерит страница /safety, а главная показывает только пилюлю статуса и
+ * плитку-ссылку. Один построитель на обоих потребителей — данные не двоятся.
+ */
+export interface SafetyLiveData {
+  safety: SafetySnapshot;
+  seismic: SeismicSnapshot;
+  radar: RadarSnapshot;
+}
+
+export async function getSafetyLiveData(): Promise<SafetyLiveData> {
+  const [safety, feedResult, radarBase, reportHazards] = await Promise.all([
     fetchSafety(),
     getSeismicFeed().catch(() => ({ events: [] as SeismicEvent[], source: 'none' as const, updatedAt: new Date().toISOString() })),
-    fetchZones(), fetchPlates(), fetchFeed(),
-    getPlatformCounts().catch(() => null),
     fetchRadarBase(),
     fetchReportHazards(),
   ]);
-
-  const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
-  const elements: Element[] = counts ? deriveElements(counts) : [];
 
   const seismic = seismicSnapshot(feedResult.events, feedResult.source, feedResult.updatedAt);
 
@@ -338,6 +344,18 @@ export async function getHomeV8Data(): Promise<HomeV8Data> {
     }));
 
   const radar: RadarSnapshot = { hazards: [...radarBase, ...quakeHazards, ...reportHazards], center: PETROPAVLOVSK };
+  return { safety, seismic, radar };
+}
 
-  return { safety, seismic, radar, zones, plates, feed: feedItems, stats, elements };
+export async function getHomeV8Data(): Promise<HomeV8Data> {
+  const [live, zones, plates, feedItems, counts] = await Promise.all([
+    getSafetyLiveData(),
+    fetchZones(), fetchPlates(), fetchFeed(),
+    getPlatformCounts().catch(() => null),
+  ]);
+
+  const stats: Stat[] = counts ? deriveStats(counts) : [{ value: '24/7', label: 'SAR' }];
+  const elements: Element[] = counts ? deriveElements(counts) : [];
+
+  return { ...live, zones, plates, feed: feedItems, stats, elements };
 }

@@ -1,0 +1,34 @@
+# Регрессионный эвал safety-ответов Кузьмича (issue #900).
+#
+# Раз в неделю (и вручную) задаёт живому Кузьмичу эталонные вопросы
+# безопасности и гонит ответы через детерминированный чекер
+# (lib/kuzmich/safety-eval.ts). Красный прогон = регрессия safety-ответов —
+# разбирается до релиза. LLM-судья живого трафика работает отдельно
+# (kuzmich-outcomes + /api/admin/health/kuzmich-grounding).
+#
+# Почему не в ci.yml на каждый пуш: эвал ходит в живого Кузьмича на проде
+# (16 запросов к LLM за прогон) — это дорого и зависит от прод-окружения;
+# еженедельный ритм + ручной запуск перед важными релизами достаточны.
+
+name: Eval — Кузьмич (safety-ответы)
+
+on:
+  schedule:
+    - cron: '37 6 * * 1' # понедельник 06:37 UTC — до начала рабочего дня КМТ не дотягивается, но отчёт будет утром в Actions
+  workflow_dispatch: {}
+
+jobs:
+  safety-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Install tsx
+        run: npm i --no-save tsx
+      - name: Прогон эталонных safety-вопросов
+        env:
+          BASE_URL: https://vedarai.ru
+        run: npx tsx scripts/kuzmich-safety-eval.ts

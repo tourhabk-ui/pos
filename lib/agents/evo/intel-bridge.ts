@@ -13,12 +13,15 @@
  * выносит их в GitHub Issues наравне с код-находками — решение остаётся за
  * человеком.
  *
- * Честность: извлекаем только то, что ЗАЗЕМЛЕНО в тексте дайджеста; кап 2/прогон;
- * дедуп по заголовку и по слагу дайджеста (один дайджест обрабатываем один раз).
+ * Честность: извлекаем только то, что ЗАЗЕМЛЕНО в тексте дайджеста; кап на
+ * прогон; один дайджест обрабатываем один раз (слаг в agent_memory); дедуп —
+ * по ТЕМЕ (intelSignature), а не по строке заголовка: перефразированная тема
+ * не проходит ни мимо активной находки, ни мимо отказа человека.
  */
 
 import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
+import { intelSignature } from '@/lib/agents/evo/claim-signature';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -119,9 +122,40 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
     return { bridged: 0, digest_slug: digest.slug, skipped: true, duration_ms: Date.now() - startedAt };
   }
 
+  // Дедуп по ТЕМЕ, а не по строке заголовка. Прежний `WHERE title = $1`
+  // ловил только дословный повтор, а модель приносит одну тему из каждого
+  // дайджеста в новых словах — трекер заполнялся перефразировками
+  // (та же болезнь, что у код-претензий до claim-signature).
+  //
+  // Стоп-лист — ВСЯ история intel, любой статус:
+  //   · активная      → тема уже в работе, дубль не нужен;
+  //   · rejected      → человек отказал, перефразировка не переиграет отказ;
+  //   · fixed         → уже сделано, предлагать заново нечего.
+  const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null; status: string }>(
+    `SELECT title, description, suggestion, status FROM evo_growth_issues WHERE category = 'intel'`,
+  );
+  const known = new Set(prior.map((r) => intelSignature(r)));
+
+  // Темы с историей — модели В ПРОМПТ, а не только в дедуп после ответа.
+  // Дедуп срезает повтор, но слот из трёх уже потрачен; скажем заранее —
+  // модель потратит слоты на новое. Только классифицированные темы: список
+  // 'other'-заголовков разросся бы без пользы.
+  const knownTopics = [...new Set(
+    prior.map((r) => intelSignature(r))
+      .filter((sig) => !sig.startsWith('intel::other:'))
+      .map((sig) => sig.replace('intel::', '')),
+  )];
+
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Дайджест (${digest.slug}):\n\n${digest.compiled_truth.slice(0, 6000)}` },
+    {
+      role: 'user',
+      content:
+        (knownTopics.length > 0
+          ? `Темы, по которым уже есть находка или вердикт владельца — НЕ предлагай их снова ни в какой формулировке: ${knownTopics.join(', ')}.\n\n`
+          : '') +
+        `Дайджест (${digest.slug}):\n\n${digest.compiled_truth.slice(0, 6000)}`,
+    },
   ];
 
   let proposals: IntelProposal[] = [];
@@ -131,16 +165,12 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
     proposals = [];
   }
 
+
   let bridged = 0;
   for (const p of proposals) {
-    // Дедуп по заголовку среди активных находок
-    const { rows: existing } = await pool.query<{ id: string }>(
-      `SELECT id FROM evo_growth_issues
-        WHERE status NOT IN ('rejected', 'ignored') AND title = $1
-        LIMIT 1`,
-      [p.title],
-    );
-    if (existing.length > 0) continue;
+    const sig = intelSignature(p);
+    if (known.has(sig)) continue;
+    known.add(sig); // и внутри одного прогона два слота не уходят на одну тему
 
     await pool.query(
       `INSERT INTO evo_growth_issues (category, severity, title, description, suggestion, status)
