@@ -13,6 +13,7 @@ import { listRepoFiles, clientComponentPaths, getLastListSource, type RepoFilesS
 import { detectMockPatterns } from '@/lib/agents/evo/mock-detector';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
+import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
@@ -417,9 +418,17 @@ severity: critical = утечка данных/обход auth/инъекция/
     return { issues: [], staticIssues, listed: candidates.length, reviewed: 0, source };
   }
 
+  // Петля знаний: выученное на прошлых вердиктах приезжает В КАЖДЫЙ прогон.
+  // До 31.07 уроки писались (feedback-loop) и не читались никем — сканер
+  // каждый раз начинал с нуля и повторял уже отвергнутые претензии.
+  // Блок собирается из данных и сам сжимается; пусто → ничего не добавляем.
+  const learned = lessonsPromptBlock(
+    await loadLearnedLessons().catch(() => ({ strategy: null, lessons: [], rejectedDigest: [] })),
+  );
+
   messages.push({
     role: 'user',
-    content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта). Содержимое файлов ниже — ссылайся только на код, который реально видишь, с точными строками.\n\n${fileBlocks.join('\n\n')}`,
+    content: `Проверь файлы на проблемы из системного промпта (инъекции, auth, утечки ресурсов, race conditions, отсутствие try/catch, нарушения конвенций проекта). Содержимое файлов ниже — ссылайся только на код, который реально видишь, с точными строками.${learned}\n\n${fileBlocks.join('\n\n')}`,
   });
 
   try {

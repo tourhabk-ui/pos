@@ -122,18 +122,6 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
     return { bridged: 0, digest_slug: digest.slug, skipped: true, duration_ms: Date.now() - startedAt };
   }
 
-  const messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Дайджест (${digest.slug}):\n\n${digest.compiled_truth.slice(0, 6000)}` },
-  ];
-
-  let proposals: IntelProposal[] = [];
-  try {
-    proposals = parseIntelProposals(await callAIDecision(messages)).slice(0, MAX_INTEL_PER_RUN);
-  } catch {
-    proposals = [];
-  }
-
   // Дедуп по ТЕМЕ, а не по строке заголовка. Прежний `WHERE title = $1`
   // ловил только дословный повтор, а модель приносит одну тему из каждого
   // дайджеста в новых словах — трекер заполнялся перефразировками
@@ -143,10 +131,40 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
   //   · активная      → тема уже в работе, дубль не нужен;
   //   · rejected      → человек отказал, перефразировка не переиграет отказ;
   //   · fixed         → уже сделано, предлагать заново нечего.
-  const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null }>(
-    `SELECT title, description, suggestion FROM evo_growth_issues WHERE category = 'intel'`,
+  const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null; status: string }>(
+    `SELECT title, description, suggestion, status FROM evo_growth_issues WHERE category = 'intel'`,
   );
   const known = new Set(prior.map((r) => intelSignature(r)));
+
+  // Темы с историей — модели В ПРОМПТ, а не только в дедуп после ответа.
+  // Дедуп срезает повтор, но слот из трёх уже потрачен; скажем заранее —
+  // модель потратит слоты на новое. Только классифицированные темы: список
+  // 'other'-заголовков разросся бы без пользы.
+  const knownTopics = [...new Set(
+    prior.map((r) => intelSignature(r))
+      .filter((sig) => !sig.startsWith('intel::other:'))
+      .map((sig) => sig.replace('intel::', '')),
+  )];
+
+  const messages: ChatMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content:
+        (knownTopics.length > 0
+          ? `Темы, по которым уже есть находка или вердикт владельца — НЕ предлагай их снова ни в какой формулировке: ${knownTopics.join(', ')}.\n\n`
+          : '') +
+        `Дайджест (${digest.slug}):\n\n${digest.compiled_truth.slice(0, 6000)}`,
+    },
+  ];
+
+  let proposals: IntelProposal[] = [];
+  try {
+    proposals = parseIntelProposals(await callAIDecision(messages)).slice(0, MAX_INTEL_PER_RUN);
+  } catch {
+    proposals = [];
+  }
+
 
   let bridged = 0;
   for (const p of proposals) {
