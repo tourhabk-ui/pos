@@ -114,6 +114,42 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               </span>
+            ) : href === '/planning?mode=trail' ? (
+              /* «На маршруте» — фирменная иконка из пака владельца (31.07):
+                 пин с пунктирным следом. Цвет вшит в PNG (коралл пака), поэтому
+                 состояния делаются фильтром: неактивный — обесцвечен и
+                 приглушён в тон остальных пунктов, активный — полноцветный.
+                 Маской по currentColor нельзя: у пина рисованный светлый
+                 контр-круг, в маске он бы залился сплошным. */
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '46px',
+                  height: '28px',
+                  borderRadius: '999px',
+                  background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
+                  transition: 'background 280ms ease',
+                }}
+              >
+                <img
+                  src="/images/nav/route-48.webp"
+                  srcSet="/images/nav/route-48.webp 48w, /images/nav/route-96.webp 96w"
+                  sizes="22px"
+                  width={22}
+                  height={22}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  style={{
+                    width: '22px',
+                    height: '22px',
+                    filter: isActive ? 'none' : 'grayscale(1) opacity(.55)',
+                    transition: 'filter 220ms ease',
+                  }}
+                />
+              </span>
             ) : (
               <span
                 style={{
