@@ -279,7 +279,7 @@ export default function SosPage() {
           </div>
         </div>
         <div>
-          <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Экстренная помощь</h1>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, fontFamily: 'var(--font-playfair), Georgia, serif' }}>Экстренная помощь</h1>
           <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: 0 }}>
             Звонки и координаты — без интернета
           </p>
