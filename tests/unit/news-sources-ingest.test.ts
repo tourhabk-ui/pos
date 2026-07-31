@@ -51,7 +51,14 @@ const MINEC_HTML = `
 beforeEach(() => {
   queryMock.mockReset();
   fetchMock.mockReset();
-  queryMock.mockResolvedValue({ rows: [{ id: 1 }], rowCount: 1 });
+  // saveEvent теперь двухшаговый (контент-дедуп 01.08): сначала UPDATE
+  // «есть ли идентичный активный алерт» — в тестах дубля нет (rowCount 0),
+  // затем INSERT — вставка удаётся. Единый rowCount:1 на всё превращал
+  // дедуп-проверку в «дубль найден», и вставки честно скипались.
+  queryMock.mockImplementation((sql: string) =>
+    Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+      ? { rows: [], rowCount: 0 }
+      : { rows: [{ id: 1 }], rowCount: 1 }));
 });
 
 describe('ingestNewsFeeds', () => {

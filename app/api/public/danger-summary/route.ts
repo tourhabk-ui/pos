@@ -5,6 +5,7 @@
  */
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { zoneName } from '@/lib/safety/zone-names';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,16 +35,9 @@ export async function GET() {
       ORDER BY zone, updated_at DESC
     `);
 
-    const ZONE_NAMES: Record<string, string> = {
-      avachinsky: 'Авачинско-Петропавловский',
-      northern:   'Северная Камчатка',
-      eastern:    'Восточное побережье',
-      western:    'Западное побережье',
-    };
-
     const zones = rows.map(r => ({
       ...r,
-      zone_name: ZONE_NAMES[r.zone] ?? r.zone,
+      zone_name: zoneName(r.zone),
     }));
 
     return NextResponse.json({ zones, updatedAt: new Date().toISOString() });

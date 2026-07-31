@@ -290,7 +290,12 @@ describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsI
   });
 
   it('реальная угроза классифицируется и сохраняется (source max_mchs)', async () => {
-    querySpy.mockResolvedValue({ rowCount: 1, rows: [{ id: 1 }] });
+    // saveEvent двухшаговый (контент-дедуп 01.08): UPDATE-проверка дубля
+    // должна ответить «дубля нет», иначе вставка честно скипается.
+    querySpy.mockImplementation((sql: string) =>
+      Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+        ? { rowCount: 0, rows: [] }
+        : { rowCount: 1, rows: [{ id: 1 }] }));
     const r = await ingestMaxItems([
       { id: 'max/10', text: 'Поздравляем с праздником!' }, // мусор — отсев
       {
@@ -305,11 +310,15 @@ describe('ingestMaxItems — раннер шлёт посты MAX, classifyMchsI
     expect(r.events[0].alert_type).toBe('road_closure');
     expect(r.events[0].source_id).toMatch(/^max_mchs\/\d{4}-\d{2}-\d{2}\/t/);
     expect(r.events[0].source_url).toBe('https://max.ru/id4101120929_gos/11');
-    expect(querySpy).toHaveBeenCalledTimes(1);
+    // 2 запроса на событие: дедуп-UPDATE + INSERT (контент-дедуп 01.08).
+    expect(querySpy).toHaveBeenCalledTimes(2);
   });
 
   it('без даты берётся текущее время, без link — дефолтный URL канала', async () => {
-    querySpy.mockResolvedValue({ rowCount: 1, rows: [{ id: 2 }] });
+    querySpy.mockImplementation((sql: string) =>
+      Promise.resolve(/^\s*UPDATE external_alerts/.test(sql)
+        ? { rowCount: 0, rows: [] }
+        : { rowCount: 1, rows: [{ id: 2 }] }));
     const r = await ingestMaxItems([
       { id: 'max/20', text: 'На реках полуострова ожидается подъём уровня воды, возможно подтопление.' },
     ]);
