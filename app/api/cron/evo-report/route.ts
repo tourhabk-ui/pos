@@ -19,7 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
-import { decidePublish, applyPublishDecision } from '@/lib/agents/evo/precision';
+import { decidePublish, applyPublishDecision, issueVerdict } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
 
@@ -28,21 +28,41 @@ export const dynamic = 'force-dynamic';
 const REPORT_LIMIT = 10; // не заваливаем трекер за один прогон
 
 /**
- * Обратная связь: закрытые человеком issues → находки помечаются 'rejected'.
- * Без этого вердикт человека уходил в пустоту — сегодня закрыл десять ложных,
- * завтра пришли те же десять. Теперь каждая закрытая задача делает следующий
- * прогон умнее (стоп-лист по классу претензии в growth-agent).
+ * Обратная связь: закрытые человеком issues → вердикт в статус находки.
+ *
+ * Раньше засчитывался ТОЛЬКО отказ (`not_planned` → `rejected`), а принятие —
+ * никак: человек реализовывал находку, закрывал задачу обычным «Close» (это
+ * `completed`), и система об этом не узнавала. В `accepted`/`fixed` попадали
+ * лишь автофиксы движка и ручная правка через админку.
+ *
+ * Асимметрия была систематической и ломала сам тормоз качества: точность
+ * считается как accepted/(accepted+rejected), отказы копились, принятия — нет,
+ * поэтому точность неизбежно ползла вниз. Ниже порога гасятся догадки модели —
+ * то есть код-находки, — и в трекер продолжала идти только та категория, что
+ * выведена из-под тормоза. Пайплайн начинал крутить разведку по кругу не из-за
+ * одной ошибки, а из-за сцепки: несчитанное принятие → падающая точность →
+ * заглушенный код → остаётся intel.
+ *
+ * Теперь оба вердикта человека доезжают:
+ *   · `completed`   — сделано, находка была полезной  → `fixed`;
+ *   · `not_planned` — не будем делать                 → `rejected`;
+ *   · `duplicate`   — уже есть                        → `rejected` (не победа).
+ *
+ * Закрытие без `state_reason` (старые задачи, закрытые до появления причины)
+ * НЕ трактуем никак: догадка о вердикте здесь дороже пропуска — она бы
+ * двигала метрику, на которую завязано глушение.
  */
-async function syncClosedIssues(): Promise<number> {
+async function syncClosedIssues(): Promise<{ accepted: number; rejected: number }> {
   const { rows } = await pool.query<{ id: string; github_issue_url: string }>(`
     SELECT id, github_issue_url FROM evo_growth_issues
      WHERE github_issue_url IS NOT NULL
        AND status NOT IN ('rejected', 'ignored', 'fixed')
      LIMIT 30
   `);
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return { accepted: 0, rejected: 0 };
 
-  const closed: string[] = [];
+  const rejected: string[] = [];
+  const accepted: string[] = [];
   for (const r of rows) {
     const num = r.github_issue_url.match(/\/issues\/(\d+)/)?.[1];
     if (!num) continue;
@@ -53,18 +73,21 @@ async function syncClosedIssues(): Promise<number> {
       );
       if (!res.ok) continue;
       const issue = await res.json() as { state?: string; state_reason?: string };
-      // Закрыт как «не будем делать» = вердикт «находка не годится».
-      if (issue.state === 'closed' && issue.state_reason === 'not_planned') closed.push(r.id);
+      if (issue.state !== 'closed') continue;
+      const verdict = issueVerdict(issue.state_reason);
+      if (verdict === 'rejected') rejected.push(r.id);
+      else if (verdict === 'fixed') accepted.push(r.id);
     } catch { /* сеть — пропускаем, попробуем в следующий прогон */ }
   }
 
-  if (closed.length > 0) {
+  for (const [status, ids] of [['rejected', rejected], ['fixed', accepted]] as const) {
+    if (ids.length === 0) continue;
     await pool.query(
-      `UPDATE evo_growth_issues SET status = 'rejected', resolved_at = NOW() WHERE id = ANY($1::uuid[])`,
-      [closed],
+      `UPDATE evo_growth_issues SET status = $2, resolved_at = NOW() WHERE id = ANY($1::uuid[])`,
+      [ids, status],
     ).catch(() => {});
   }
-  return closed.length;
+  return { accepted: accepted.length, rejected: rejected.length };
 }
 
 /** Тело файла из репозитория (для сверки находки с живым кодом). null — не достали. */
@@ -88,7 +111,7 @@ export async function GET(req: NextRequest) {
 
   // Сначала подбираем вердикты человека (закрытые issues), потом публикуем —
   // иначе отвергнутое успеет попасть в выборку этого же прогона.
-  const synced = await syncClosedIssues().catch(() => 0);
+  const synced = await syncClosedIssues().catch(() => ({ accepted: 0, rejected: 0 }));
 
   // Цена ошибки: если точность просела, догадки модели не публикуем.
   const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
@@ -180,7 +203,18 @@ export async function GET(req: NextRequest) {
   // (static-checks, мок-детектор, разведка) идут всегда — они не гадают.
   const publishable = applyPublishDecision(verified, decision);
 
-  const issues = selectReportable(publishable, REPORT_LIMIT).map((f) => ({
+  // Плавающая бронь разведки: пока человек не разобрал висящие intel-задачи,
+  // новые слоты ей не бронируются (см. outwardReserve). «Висит» = вынесена в
+  // трекер и ещё не получила вердикта; sync выше уже перевёл закрытые в
+  // fixed/rejected, так что счётчик не завышен вчерашними закрытиями.
+  const { rows: openIntel } = await pool.query<{ n: string }>(`
+    SELECT COUNT(*)::text AS n FROM evo_growth_issues
+     WHERE category = 'intel' AND github_issue_url IS NOT NULL
+       AND status NOT IN ('rejected', 'ignored', 'fixed')
+  `).catch(() => ({ rows: [{ n: '0' }] }));
+  const openIntelCount = Number(openIntel[0]?.n ?? 0);
+
+  const issues = selectReportable(publishable, REPORT_LIMIT, openIntelCount).map((f) => ({
     id: f.id,
     title: buildIssueTitle(f),
     body: buildIssueBody(f),
@@ -194,7 +228,11 @@ export async function GET(req: NextRequest) {
     // Видно, сколько мусора отсеяно за прогон — «0 issues» перестаёт быть немым.
     rejected_by_guard: rejected.length,
     // Обратная связь и цена ошибки — наблюдаемы, а не скрыты.
-    synced_closed_issues: synced,
+    // Оба вердикта человека, раздельно: раньше в отчёте было одно число, и
+    // принятия в нём не было вовсе — их просто не считали.
+    synced_closed_issues: synced.accepted + synced.rejected,
+    synced_accepted: synced.accepted,
+    synced_rejected: synced.rejected,
     precision: decision.precision,
     guesses_allowed: decision.allowGuesses,
     precision_note: decision.reason,

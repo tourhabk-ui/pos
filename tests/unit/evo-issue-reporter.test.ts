@@ -4,10 +4,7 @@
  * задачу» без человека — значит формат и фильтр обязаны быть предсказуемы.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  buildIssueTitle, buildIssueBody, isReportable, selectReportable, severityRank,
-  type GrowthFinding,
-} from '@/lib/agents/evo/issue-reporter';
+import { buildIssueTitle, buildIssueBody, isReportable, selectReportable, severityRank, type GrowthFinding, outwardReserve, OUTWARD_RESERVE, OPEN_INTEL_CAP } from '@/lib/agents/evo/issue-reporter';
 
 const finding = (over: Partial<GrowthFinding> = {}): GrowthFinding => ({
   id: '11111111-1111-1111-1111-111111111111',
@@ -161,5 +158,36 @@ describe('бронь квоты под разведку (петля «глаза
   it('находок меньше лимита — берём все', () => {
     const picked = selectReportable([...critical(2), ...intel(1)], 10);
     expect(picked).toHaveLength(3);
+  });
+
+  // ── Плавающая бронь (31.07) ────────────────────────────────────────────────
+  // Бронь заведена, чтобы разведка не задыхалась в очереди, — а не чтобы
+  // копиться: шесть открытых intel при одной код-находке показали, что
+  // безусловная бронь превращается в конвейер.
+
+  it('outwardReserve: пустой трекер — полная бронь, кап заполнен — ноль', () => {
+    expect(outwardReserve(0)).toBe(OUTWARD_RESERVE);
+    expect(outwardReserve(OPEN_INTEL_CAP - 1)).toBe(1);
+    expect(outwardReserve(OPEN_INTEL_CAP)).toBe(0);
+    expect(outwardReserve(OPEN_INTEL_CAP + 5)).toBe(0);
+    expect(outwardReserve(-3)).toBe(OUTWARD_RESERVE); // мусорный вход не даёт сверхброни
+  });
+
+  it('кап заполнен: при потоке критикалов intel в выпуск не попадает', () => {
+    const picked = selectReportable([...critical(20), ...intel(5)], 10, OPEN_INTEL_CAP);
+    expect(picked).toHaveLength(10);
+    expect(picked.filter(f => f.category === 'intel')).toHaveLength(0);
+    expect(picked.filter(f => f.category === 'bug')).toHaveLength(10);
+  });
+
+  it('кап заполнен, но кода мало — intel добирает свободные слоты (кап не запрет, а снятие брони)', () => {
+    const picked = selectReportable([...critical(2), ...intel(5)], 10, OPEN_INTEL_CAP);
+    expect(picked.filter(f => f.category === 'bug')).toHaveLength(2);
+    expect(picked.filter(f => f.category === 'intel')).toHaveLength(5);
+  });
+
+  it('кап заполнен наполовину — бронь сжимается до остатка', () => {
+    const picked = selectReportable([...critical(20), ...intel(5)], 10, OPEN_INTEL_CAP - 2);
+    expect(picked.filter(f => f.category === 'intel')).toHaveLength(2);
   });
 });

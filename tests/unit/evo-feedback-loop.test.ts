@@ -11,9 +11,11 @@
  *     детерминированные находки идут дальше.
  */
 import { describe, it, expect } from 'vitest';
-import { claimClass, claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { claimClass, claimSignature, dropRejected, intelSignature } from '@/lib/agents/evo/claim-signature';
 import { checkRouteAuthGate, checkLegacyUsage, checkConsoleLog } from '@/lib/agents/evo/static-checks';
-import { computePrecision, decidePublish, applyPublishDecision, isModelGuess, MIN_SAMPLE } from '@/lib/agents/evo/precision';
+import { computePrecision, decidePublish, applyPublishDecision, isModelGuess, issueVerdict, MIN_SAMPLE } from '@/lib/agents/evo/precision';
 
 describe('claim-signature: класс претензии, а не формулировка', () => {
   it('семь перефразировок «нет auth» дают ОДИН класс', () => {
@@ -138,22 +140,98 @@ describe('precision: цена ошибки', () => {
     expect(d.precision).toBeCloseTo(0.8);
   });
 
-  it('при запрете догадок детерминированные находки и разведка ИДУТ', () => {
+  it('при запрете догадок идут ТОЛЬКО детерминированные — intel гаснет вместе с bug', () => {
+    // Контракт изменён 31.07: intel сочиняет callAIDecision по RSS, и «заземлена
+    // в тексте дайджеста» не значит «заземлена в нашем коде». Пока intel была
+    // вне тормоза, при просевшей точности она оставалась единственной
+    // публикуемой категорией — трекер заполнялся только разведкой.
     const d = decidePublish({ accepted: 0, rejected: MIN_SAMPLE + 2 });
     const findings = [
-      { category: 'bug' },       // догадка модели
-      { category: 'security' },  // static-checks
-      { category: 'ux' },        // мок-детектор
-      { category: 'intel' },     // разведка
+      { category: 'bug' },       // догадка модели — гаснет
+      { category: 'security' },  // static-checks — идёт
+      { category: 'ux' },        // мок-детектор — идёт
+      { category: 'intel' },     // разведка = тоже догадка модели — гаснет
     ];
     const out = applyPublishDecision(findings, d).map((f) => f.category);
-    expect(out).toEqual(['security', 'ux', 'intel']);
+    expect(out).toEqual(['security', 'ux']);
   });
 
-  it('isModelGuess: только догадки помечены', () => {
+  it('isModelGuess: intel — догадка модели, а не детерминированная находка', () => {
     expect(isModelGuess('bug')).toBe(true);
     expect(isModelGuess('security')).toBe(false);
-    expect(isModelGuess('intel')).toBe(false);
+    expect(isModelGuess('intel')).toBe(true);
+  });
+});
+
+describe('issueVerdict: оба вердикта человека доезжают до находки', () => {
+  // До 31.07 засчитывался только отказ. Принятие (обычный Close → completed)
+  // не засчитывалось никак, поэтому точность accepted/(accepted+rejected)
+  // систематически ползла вниз: отказы копились, принятия — нет. Ниже порога
+  // гасли код-находки, и в трекере оставался только intel.
+  it('completed — сделано, находка была полезной', () => {
+    expect(issueVerdict('completed')).toBe('fixed');
+  });
+
+  it('not_planned и duplicate — отказ', () => {
+    expect(issueVerdict('not_planned')).toBe('rejected');
+    expect(issueVerdict('duplicate')).toBe('rejected');
+  });
+
+  it('закрытие без причины — НЕ вердикт: догадка двигала бы метрику глушения', () => {
+    expect(issueVerdict(null)).toBeNull();
+    expect(issueVerdict(undefined)).toBeNull();
+    expect(issueVerdict('reopened')).toBeNull();
+  });
+});
+
+describe('intelSignature: тема разведки, а не формулировка', () => {
+  it('три заголовка про локальную модель — одна тема', () => {
+    const variants = [
+      { title: 'Офлайн-Кузьмич на 1-битной локальной модели', description: '', suggestion: '' },
+      { title: 'Квантованная модель для работы в поле', description: 'llama.cpp без сети', suggestion: '' },
+      { title: 'Локальная модель как офлайн-режим ассистента', description: '', suggestion: '' },
+    ];
+    const sigs = new Set(variants.map((v) => intelSignature(v)));
+    expect(sigs.size).toBe(1);
+    expect([...sigs][0]).toBe('intel::local_llm');
+  });
+
+  it('разные темы не сливаются', () => {
+    expect(intelSignature({ title: 'Маршрутизация LLM-запросов по стоимости', description: '', suggestion: '' }))
+      .not.toBe(intelSignature({ title: 'Мониторинг качества ответов Кузьмича', description: '', suggestion: '' }));
+    expect(intelSignature({ title: 'Автоматическая разметка фото маршрутов', description: '', suggestion: '' }))
+      .not.toBe(intelSignature({ title: 'Продвижение через AI-рекламу Google', description: '', suggestion: '' }));
+  });
+
+  it('неклассифицированная тема — хвост из заголовка: один отказ не глушит все прочие', () => {
+    const a = intelSignature({ title: 'Партнёрство с сетью глэмпингов', description: '', suggestion: '' });
+    const b = intelSignature({ title: 'Интеграция с ЖД-билетами', description: '', suggestion: '' });
+    expect(a.startsWith('intel::other:')).toBe(true);
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('петля закрыта и в исходниках (не только в чистых функциях)', () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
+  const code = (src: string) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it('evo-report разбирает вердикт через issueVerdict, а не только not_planned', () => {
+    const src = code(read('app/api/cron/evo-report/route.ts'));
+    expect(src, 'принятие человека снова перестало засчитываться').toMatch(/issueVerdict\(/);
+    expect(src, 'жёсткая проверка not_planned вернулась мимо issueVerdict')
+      .not.toMatch(/state_reason === 'not_planned'/);
+  });
+
+  it('intel-bridge дедупит по intelSignature, а не по точному title', () => {
+    const src = code(read('lib/agents/evo/intel-bridge.ts'));
+    expect(src, 'дедуп по строке заголовка пропускает перефразировки').not.toMatch(/title = \$1/);
+    expect(src).toMatch(/intelSignature\(/);
+  });
+
+  it('репортёр получает счётчик висящих intel — бронь плавающая', () => {
+    const src = code(read('app/api/cron/evo-report/route.ts'));
+    expect(src, 'selectReportable снова зовётся без openIntelCount — бронь стала безусловной')
+      .toMatch(/selectReportable\(\s*publishable\s*,\s*REPORT_LIMIT\s*,\s*openIntelCount\s*\)/);
   });
 });
 
