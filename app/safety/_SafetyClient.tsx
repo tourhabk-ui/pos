@@ -108,7 +108,10 @@ const EMERGENCY_CONTACTS = EMERGENCY_NUMBERS.map(c => ({ name: c.name, number: c
 
 // ── Компонент ─────────────────────────────────────────────────────
 
-export default function SafetyClient() {
+import { RadarScope, AlertsTicker, SeismicPulse, SRC_LABEL, fmtAgo, LIVE_STATUS_CSS } from '@/components/safety/LiveStatus';
+import type { SafetyLiveData } from '@/app/_home/data';
+
+export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
   const [seismicSource, setSeismicSource] = useState<string>('');
@@ -219,6 +222,25 @@ export default function SafetyClient() {
         <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
         <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасность</h1>
       </div>
+
+      {/* Живая обстановка (P0-3b): радар + лента + пульс переехали с главной.
+          id="radar" — цель плитки-ссылки /safety#radar. live=null (сбой
+          сервера) — секции честно нет, остальная страница работает. */}
+      {live && (
+        <section id="radar" className="kh-live" style={{ marginBottom: 24 }}>
+          <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
+          <RadarScope hazards={live.radar.hazards} center={live.radar.center} />
+          {(live.safety.alerts.length > 0 || live.seismic.events.length > 0) && (
+            <div className="safety">
+              {live.safety.alerts.length > 0 && <AlertsTicker alerts={live.safety.alerts} />}
+              {live.seismic.events.length > 0 && (
+                <SeismicPulse events={live.seismic.events} source={SRC_LABEL[live.seismic.source]} />
+              )}
+              <div className="src">Источник: КВЕРТ · Камчатское УГМС · КБГС РАН / USGS{live.safety.updatedAt ? ` · обновлено ${fmtAgo(live.safety.updatedAt)}` : ''}</div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Баннер статуса */}
       {!loading && (
