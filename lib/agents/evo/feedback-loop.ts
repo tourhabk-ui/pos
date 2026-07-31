@@ -10,7 +10,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { callAIDecision } from '@/lib/ai/providers';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
 export interface FeedbackInput {
@@ -108,7 +108,10 @@ ${row.diff_summary ? `Diff: ${row.diff_summary.slice(0, 500)}` : ''}
   ];
 
   try {
-    const result = await callAIWithModelDirect(messages, 'google/gemini-2.0-flash-001');
+    // Решатель, а не захардкоженный gemini-2.0-flash: CLAUDE.md §8 прямо
+    // запрещает и слабую модель для решений, и хардкод model-id. Уроки — это
+    // тоже решения: их извлекала ровно та модель, от которой решатель ушёл.
+    const result = await callAIDecision(messages);
     return result?.trim() ?? null;
   } catch {
     return null;
