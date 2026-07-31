@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { zoneName } from '@/lib/safety/zone-names';
+import { plural } from '@/lib/home/data-freshness';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -319,7 +321,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
             <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Сейсмика</span>
             {seismic.length > 0 && (
               <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                {seismic.length} событий ({seismicSource === 'kbgsras' ? 'КБГС РАН' : 'USGS'})
+                {seismic.length} {plural(seismic.length, 'событие', 'события', 'событий')} ({seismicSource === 'kbgsras' ? 'КБГС РАН' : 'USGS'})
               </span>
             )}
           </div>
@@ -376,8 +378,11 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
                     {ev.description && <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>{ev.description}</p>}
                     {ev.affected_zones.length > 0 && (
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                        {/* Слаг зоны — внутренний ключ, не имя вулкана: «avachinsky» на
+                            предупреждении про Мутновский читался как ошибка тегирования,
+                            хотя это верная зона. Человеку — русское имя зоны. */}
                         {ev.affected_zones.map(z => (
-                          <span key={z} style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-hover)', color: 'var(--text-secondary)', borderRadius: 6 }}>{z}</span>
+                          <span key={z} style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-hover)', color: 'var(--text-secondary)', borderRadius: 6 }}>{zoneName(z)}</span>
                         ))}
                       </div>
                     )}

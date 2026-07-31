@@ -357,6 +357,25 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
     const expiresAt = new Date(event.published_at);
     expiresAt.setHours(expiresAt.getHours() + event.expires_hours);
 
+    // Контент-дедуп ПЕРЕД вставкой. ON CONFLICT (external_id) ловит только
+    // повтор ТОГО ЖЕ поста, а суточная сводка МЧС публикуется каждый день
+    // новым постом с тем же текстом («Сохраняется риск схода оползней…») —
+    // и каждый день рождала новую строку при живой старой. На /safety это
+    // выглядело трёхкратным одинаковым предупреждением, а счётчик пилюли
+    // главной честно считал дубли за отдельные угрозы. Повтор того же текста
+    // при активном оригинале — это ПОДТВЕРЖДЕНИЕ угрозы: продлеваем срок
+    // действия оригинала, строку не плодим.
+    const dup = await query(
+      `UPDATE external_alerts
+       SET expires_at = GREATEST(expires_at, $4)
+       WHERE alert_type = $1 AND title = $2
+         AND COALESCE(description, '') = COALESCE($3, '')
+         AND expires_at > NOW()
+       RETURNING id`,
+      [event.alert_type, event.title, event.description, expiresAt]
+    );
+    if ((dup.rowCount ?? 0) > 0) return 'skipped';
+
     const result = await query(
       `INSERT INTO external_alerts (
         alert_type, severity, title, description,
