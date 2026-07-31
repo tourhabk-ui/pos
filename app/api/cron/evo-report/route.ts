@@ -203,7 +203,18 @@ export async function GET(req: NextRequest) {
   // (static-checks, мок-детектор, разведка) идут всегда — они не гадают.
   const publishable = applyPublishDecision(verified, decision);
 
-  const issues = selectReportable(publishable, REPORT_LIMIT).map((f) => ({
+  // Плавающая бронь разведки: пока человек не разобрал висящие intel-задачи,
+  // новые слоты ей не бронируются (см. outwardReserve). «Висит» = вынесена в
+  // трекер и ещё не получила вердикта; sync выше уже перевёл закрытые в
+  // fixed/rejected, так что счётчик не завышен вчерашними закрытиями.
+  const { rows: openIntel } = await pool.query<{ n: string }>(`
+    SELECT COUNT(*)::text AS n FROM evo_growth_issues
+     WHERE category = 'intel' AND github_issue_url IS NOT NULL
+       AND status NOT IN ('rejected', 'ignored', 'fixed')
+  `).catch(() => ({ rows: [{ n: '0' }] }));
+  const openIntelCount = Number(openIntel[0]?.n ?? 0);
+
+  const issues = selectReportable(publishable, REPORT_LIMIT, openIntelCount).map((f) => ({
     id: f.id,
     title: buildIssueTitle(f),
     body: buildIssueBody(f),

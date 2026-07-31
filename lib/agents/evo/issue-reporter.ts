@@ -108,11 +108,29 @@ export const OUTWARD_CATEGORIES = new Set(['intel']);
 export const OUTWARD_RESERVE = 3;
 
 /**
- * Отсортированные по severity (critical → low) и обрезанные до limit находки.
- * Из квоты до OUTWARD_RESERVE слотов резервируется под разведку — но только
- * под реально существующие intel-находки: нет разведки → всё уходит коду.
+ * Сколько intel-задач может ВИСЕТЬ в трекере одновременно. Бронь существует,
+ * чтобы разведка не задыхалась в очереди, — а не чтобы копиться: шесть
+ * открытых intel при одной код-находке (30.07) показали, что безусловная
+ * бронь превращается в конвейер. Пока человек не разобрал висящие, новые
+ * слоты разведке не бронируются.
  */
-export function selectReportable(findings: GrowthFinding[], limit: number): GrowthFinding[] {
+export const OPEN_INTEL_CAP = 6;
+
+/**
+ * Плавающая бронь: сколько слотов отдать разведке, если в трекере уже висит
+ * openIntelCount её задач. Заполнен кап — бронь ноль (интел может попасть в
+ * выпуск только добором, как любая другая находка).
+ */
+export function outwardReserve(openIntelCount: number): number {
+  return Math.max(0, Math.min(OUTWARD_RESERVE, OPEN_INTEL_CAP - Math.max(0, openIntelCount)));
+}
+
+/**
+ * Отсортированные по severity (critical → low) и обрезанные до limit находки.
+ * Под разведку резервируется ПЛАВАЮЩЕЕ число слотов (см. outwardReserve) — и
+ * только под реально существующие intel-находки: нет разведки → всё уходит коду.
+ */
+export function selectReportable(findings: GrowthFinding[], limit: number, openIntelCount = 0): GrowthFinding[] {
   const max = Math.max(0, limit);
   if (max === 0) return [];
 
@@ -122,7 +140,7 @@ export function selectReportable(findings: GrowthFinding[], limit: number): Grow
   const outward = eligible.filter((f) => OUTWARD_CATEGORIES.has(f.category)).sort(bySeverity);
   const inward = eligible.filter((f) => !OUTWARD_CATEGORIES.has(f.category)).sort(bySeverity);
 
-  const outwardSlots = Math.min(outward.length, OUTWARD_RESERVE, max);
+  const outwardSlots = Math.min(outward.length, outwardReserve(openIntelCount), max);
   const picked = [
     ...inward.slice(0, max - outwardSlots),
     ...outward.slice(0, outwardSlots),

@@ -13,12 +13,15 @@
  * выносит их в GitHub Issues наравне с код-находками — решение остаётся за
  * человеком.
  *
- * Честность: извлекаем только то, что ЗАЗЕМЛЕНО в тексте дайджеста; кап 2/прогон;
- * дедуп по заголовку и по слагу дайджеста (один дайджест обрабатываем один раз).
+ * Честность: извлекаем только то, что ЗАЗЕМЛЕНО в тексте дайджеста; кап на
+ * прогон; один дайджест обрабатываем один раз (слаг в agent_memory); дедуп —
+ * по ТЕМЕ (intelSignature), а не по строке заголовка: перефразированная тема
+ * не проходит ни мимо активной находки, ни мимо отказа человека.
  */
 
 import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
+import { intelSignature } from '@/lib/agents/evo/claim-signature';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -131,16 +134,25 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
     proposals = [];
   }
 
+  // Дедуп по ТЕМЕ, а не по строке заголовка. Прежний `WHERE title = $1`
+  // ловил только дословный повтор, а модель приносит одну тему из каждого
+  // дайджеста в новых словах — трекер заполнялся перефразировками
+  // (та же болезнь, что у код-претензий до claim-signature).
+  //
+  // Стоп-лист — ВСЯ история intel, любой статус:
+  //   · активная      → тема уже в работе, дубль не нужен;
+  //   · rejected      → человек отказал, перефразировка не переиграет отказ;
+  //   · fixed         → уже сделано, предлагать заново нечего.
+  const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null }>(
+    `SELECT title, description, suggestion FROM evo_growth_issues WHERE category = 'intel'`,
+  );
+  const known = new Set(prior.map((r) => intelSignature(r)));
+
   let bridged = 0;
   for (const p of proposals) {
-    // Дедуп по заголовку среди активных находок
-    const { rows: existing } = await pool.query<{ id: string }>(
-      `SELECT id FROM evo_growth_issues
-        WHERE status NOT IN ('rejected', 'ignored') AND title = $1
-        LIMIT 1`,
-      [p.title],
-    );
-    if (existing.length > 0) continue;
+    const sig = intelSignature(p);
+    if (known.has(sig)) continue;
+    known.add(sig); // и внутри одного прогона два слота не уходят на одну тему
 
     await pool.query(
       `INSERT INTO evo_growth_issues (category, severity, title, description, suggestion, status)

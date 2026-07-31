@@ -83,3 +83,51 @@ export function normalizeTitle(title: string): string {
 export function dropRejected<T extends SignatureInput>(findings: T[], rejected: Set<string>): T[] {
   return findings.filter((f) => !rejected.has(claimSignature(f)));
 }
+
+// ── Темы разведки (intel) ────────────────────────────────────────────────────
+//
+// У intel-находок нет file_path, а claimClass знает только код-претензии
+// (auth/try-catch/lock…) — для них всё сводилось к 'other:<заголовок>', то
+// есть к дедупу по формулировке. Модель же приносит одну и ту же ТЕМУ из
+// каждого нового дайджеста в новых словах: «офлайн-Кузьмич на локальной
+// модели», «квантованная модель для поля», «llama.cpp без сети» — три
+// заголовка, одна тема. Дедуп по строке бессилен ровно так же, как был
+// бессилен для код-претензий до claimClass.
+//
+// Темы ниже — это НЕ каталог кейсов, а повторяющиеся колеи новостной ленты
+// (AI-инструменты, продвижение, фото, нарративы). Прежде чем добавить новую,
+// убедиться, что она реально приходит повторно, а не однажды.
+
+export type IntelTopic =
+  | 'local_llm'      // локальная/квантованная модель, офлайн-инференс
+  | 'llm_routing'    // маршрутизация запросов по стоимости/сложности
+  | 'llm_quality'    // мониторинг/оценка качества ответов, версионирование промптов
+  | 'photo_tagging'  // автоматическая разметка/тегирование фото
+  | 'ai_marketing'   // продвижение/реклама/SEO через AI-каналы
+  | 'narrative'      // интерактивные истории/сценарии
+  | 'other';
+
+/** Тема intel-находки по её тексту. Порядок — от специфичного к общему. */
+export function intelTopic(text: string): IntelTopic {
+  const t = text.toLowerCase();
+  // Русские окончания — через [а-яё]*, не \w* (см. предупреждение в claimClass).
+  if (/локальн[а-яё]*\s+модел|квантованн|1-битн|llama\.?cpp|gguf|on-device|офлайн[- ]?(?:llm|модел|инференс|кузьмич)|инференс[а-яё]*\s+на\s+устройств/i.test(t)) return 'local_llm';
+  if (/маршрутизац[а-яё]*\s+(?:llm|запрос|модел)|роутинг\s+(?:llm|модел)|стоимост[а-яё]*\s+инференс|дешёв[а-яё]*\s+модел[а-яё]*\s+(?:для|на)\s+рутин|расход[а-яё]*\s+на\s+(?:llm|инференс)/i.test(t)) return 'llm_routing';
+  if (/(?:качеств|оценк|мониторинг)[а-яё]*\s+(?:llm|модел[а-яё]*|ответ)|версионирован[а-яё]*\s+промпт|регрессионн[а-яё]*\s+оценк|eval[а-яё]*\s+(?:llm|промпт)|опасн[а-яё]*\s+ответ/i.test(t)) return 'llm_quality';
+  if (/разметк[а-яё]*\s+фото|тегирован|автотег|классификац[а-яё]*\s+(?:фото|изображен)|photo\s*tag/i.test(t)) return 'photo_tagging';
+  if (/реклам|продвижен|marketing|маркетинг|seo|ai[- ]выдач/i.test(t)) return 'ai_marketing';
+  if (/нарратив|интерактивн[а-яё]*\s+(?:истори|сценари)|storytell/i.test(t)) return 'narrative';
+  return 'other';
+}
+
+/**
+ * Сигнатура intel-находки: тема, а не формулировка. Для 'other' — хвост из
+ * нормализованного заголовка, как у claimSignature: иначе один отказ от
+ * неклассифицированной темы глушил бы все прочие.
+ */
+export function intelSignature(f: Pick<SignatureInput, 'title' | 'description' | 'suggestion'>): string {
+  const text = `${f.title ?? ''} ${f.description ?? ''} ${f.suggestion ?? ''}`;
+  const topic = intelTopic(text);
+  if (topic !== 'other') return `intel::${topic}`;
+  return `intel::other:${normalizeTitle(f.title ?? '')}`;
+}
