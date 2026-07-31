@@ -81,20 +81,55 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
               transition: 'color 220ms ease',
             }}
           >
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '46px',
-                height: '28px',
-                borderRadius: '999px',
-                background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
-                transition: 'background 280ms ease',
-              }}
-            >
-              <Icon size={19} strokeWidth={2} />
-            </span>
+            {href === '/kuzmich' ? (
+              /* Кузьмич — медальон-гравюра, приподнятый над панелью (north-star
+                 макет 31.07). Портрет вместо абстрактного компаса: проводник —
+                 лицо платформы, и это его вход. Зона нажатия — весь Link. */
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '48px',
+                  height: '48px',
+                  marginTop: '-18px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  flex: 'none',
+                  background: 'var(--bg-card)',
+                  border: isActive ? '2px solid var(--accent)' : '2px solid var(--border)',
+                  boxShadow: '0 4px 14px rgba(0,0,0,.18)',
+                  transition: 'border-color 280ms ease',
+                }}
+              >
+                <img
+                  src="/images/kuzmich/portrait-96.webp"
+                  srcSet="/images/kuzmich/portrait-96.webp 96w, /images/kuzmich/portrait-192.webp 192w"
+                  sizes="48px"
+                  width={48}
+                  height={48}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </span>
+            ) : (
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '46px',
+                  height: '28px',
+                  borderRadius: '999px',
+                  background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
+                  transition: 'background 280ms ease',
+                }}
+              >
+                <Icon size={19} strokeWidth={2} />
+              </span>
+            )}
             <span>{label}</span>
           </Link>
         );
