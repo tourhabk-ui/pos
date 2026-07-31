@@ -89,6 +89,11 @@ describe('генераторы контента подключены к каче
 
   it('фактчек остаётся на быстрой ветке — там скорость уместна', () => {
     // unsupportedClaims возвращает JSON: структурная задача, не текст для людей.
-    expect(DIGEST).toMatch(/const raw = await callAIFast\(/);
+    // 31.07 судья переехал из scout-digest в общий lib/agents/fact-check.ts
+    // (гейты понадобились всем публикаторам каналов) — контракт «быстрая
+    // ветка» проверяется по новому адресу, дайджест обязан импортировать оттуда.
+    const factCheck = read('lib/agents/fact-check.ts');
+    expect(factCheck).toMatch(/const raw = await callAIFast\(/);
+    expect(DIGEST).toMatch(/from '@\/lib\/agents\/fact-check'/);
   });
 });

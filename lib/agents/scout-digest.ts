@@ -324,19 +324,12 @@ export function isNearRepeatOfPrevious(
   return previous.some((p) => p.trim() && jaccardSimilarity(digest, p) >= threshold);
 }
 
-/**
- * Фактчек-гейт: возвращает проценты из текста поста, которых НЕТ в исходных сигналах.
- * Процент считается выдуманным, если ни одно из его чисел не встречается в источнике.
- * Так как в AI-пост подаются только заголовки, любой неподтверждённый процент — галлюцинация.
- */
-export function unsourcedPercents(post: string, source: string): string[] {
-  const claims = post.match(/\d+(?:[.,]\d+)?\s*[–-]\s*\d+(?:[.,]\d+)?\s*%|\d+(?:[.,]\d+)?\s*%/g) ?? [];
-  const srcNums = new Set((source.match(/\d+(?:[.,]\d+)?/g) ?? []).map(n => n.replace(',', '.')));
-  return claims.filter(claim => {
-    const nums = claim.match(/\d+(?:[.,]\d+)?/g) ?? [];
-    return !nums.some(n => srcNums.has(n.replace(',', '.')));
-  });
-}
+// Фактчек-гейты переехали в lib/agents/fact-check.ts — они нужны ВСЕМ
+// публикаторам в каналы (инцидент 31.07: пост intelligence-monitor с
+// перенесёнными числами ушёл в AI-канал мимо гейтов, живших только здесь).
+// Re-export — обратная совместимость импортов и сторожей.
+export { unsourcedPercents } from '@/lib/agents/fact-check';
+import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 
 /**
  * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
@@ -368,22 +361,7 @@ async function fetchArticleText(url: string): Promise<string> {
   } catch { return ''; }
 }
 
-/**
- * Семантический фактчек: AI сверяет проверяемые факты поста с источниками.
- * Возвращает список неподтверждённых/противоречащих утверждений (только факты, не оценки).
- */
-async function unsupportedClaims(post: string, sources: string): Promise<string[]> {
-  try {
-    const raw = await callAIFast([
-      { role: 'system', content: 'Ты строгий фактчекер. Сверь ПРОВЕРЯЕМЫЕ факты поста (цифры, проценты, версии, названия фич/моделей, технический механизм) с источниками. Оценочные суждения и takeaway («это полезно инженеру») НЕ проверяй. Верни ТОЛЬКО JSON: {"unsupported":["конкретное фактическое утверждение, которого нет в источниках или которое им противоречит"]}. Если все факты подтверждены — {"unsupported":[]}.' },
-      { role: 'user', content: `ИСТОЧНИКИ:\n${sources.slice(0, 9000)}\n\nПОСТ:\n${post}` },
-    ]);
-    const m = raw?.match(/\{[\s\S]*\}/);
-    if (!m) return [];
-    const parsed = JSON.parse(m[0]) as { unsupported?: unknown };
-    return Array.isArray(parsed.unsupported) ? parsed.unsupported.filter((x): x is string => typeof x === 'string') : [];
-  } catch { return []; }
-}
+// unsupportedClaims — тоже из общего модуля (см. комментарий у re-export выше).
 
 /**
  * Учитывает здоровье источников за прогон, персистит в agent_memory и алертит
