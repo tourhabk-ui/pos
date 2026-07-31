@@ -38,8 +38,17 @@ interface VedarGeoAPI {
     => { start: () => void; retry: () => void; stop: () => void };
 }
 
+/** Минимальный интерфейс вендоренного офлайн-энкодера public/safety/qrcode.js. */
+interface QrFactory {
+  (typeNumber: number, errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H'): {
+    addData: (data: string) => void;
+    make: () => void;
+    createSvgTag: (opts: { cellSize?: number; margin?: number }) => string;
+  };
+}
+
 declare global {
-  interface Window { VedarGeo?: VedarGeoAPI }
+  interface Window { VedarGeo?: VedarGeoAPI; qrcode?: QrFactory }
 }
 
 /**
@@ -62,6 +71,33 @@ function ensureGeoModule(): Promise<VedarGeoAPI | null> {
     s.src = '/safety/geo-degradation.js';
     s.async = true;
     s.setAttribute('data-vedar-geo', '');
+    s.onload = done;
+    s.onerror = () => resolve(null);
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Загрузчик офлайн-QR-энкодера — тот же паттерн, что ensureGeoModule:
+ * файл в CRITICAL_URLS precache, доступен без сети; не загрузился → null,
+ * QR просто не рисуется (координаты текстом остаются).
+ */
+function ensureQrModule(): Promise<QrFactory | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.qrcode) return Promise.resolve(window.qrcode);
+  return new Promise((resolve) => {
+    const done = () => resolve(window.qrcode ?? null);
+    const existing = document.querySelector<HTMLScriptElement>('script[data-vedar-qr]');
+    if (existing) {
+      existing.addEventListener('load', done);
+      existing.addEventListener('error', () => resolve(null));
+      if (window.qrcode) done();
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = '/safety/qrcode.js';
+    s.async = true;
+    s.setAttribute('data-vedar-qr', '');
     s.onload = done;
     s.onerror = () => resolve(null);
     document.head.appendChild(s);
@@ -129,6 +165,29 @@ export default function SosPage() {
     setCoordsText('Определяем...');
     locatorRef.current?.retry();
   };
+
+  // QR с geo:-точкой — ТОЛЬКО при реальных координатах (никакого QR на
+  // last-known или при ошибке: сканирующий получил бы не то место, где
+  // человек стоит). Энкодер не загрузился → QR нет, координаты текстом есть.
+  // Свежесть через ключ координат: SVG от прежней точки никогда не рендерится
+  // с новой — ключи не совпадут (и никакого setState синхронно в эффекте).
+  const [qrState, setQrState] = useState<{ key: string; svg: string } | null>(null);
+  const qrKey = coords ? `geo:${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}` : null;
+  useEffect(() => {
+    if (!qrKey) return;
+    let cancelled = false;
+    void ensureQrModule().then((qrFactory) => {
+      if (cancelled || !qrFactory) return;
+      try {
+        const qr = qrFactory(0, 'M');
+        qr.addData(qrKey);
+        qr.make();
+        setQrState({ key: qrKey, svg: qr.createSvgTag({ cellSize: 4, margin: 0 }) });
+      } catch { /* QR не рисуем — координаты текстом уже на экране */ }
+    });
+    return () => { cancelled = true; };
+  }, [qrKey]);
+  const qrSvg = qrState && qrState.key === qrKey ? qrState.svg : null;
 
   const handleSendSos = async () => {
     if (sendStatus === 'sending' || sendStatus === 'sent') return;
@@ -288,6 +347,28 @@ export default function SosPage() {
             </button>
           )}
         </div>
+
+        {/* QR с текущей точкой: показать спасателю/попутчику с рабочим
+            телефоном — при сканировании откроется geo:-точка на карте.
+            Белая подложка обязательна (экран тёмный, сканеры не читают
+            инверсный код). Рендерится только при реальных координатах. */}
+        {qrSvg && coords && (
+          <div style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                display: 'inline-block',
+                background: '#fff',
+                padding: '8px',
+                borderRadius: '12px',
+                lineHeight: 0,
+              }}
+              dangerouslySetInnerHTML={{ __html: qrSvg }}
+            />
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', margin: '6px 0 0', lineHeight: 1.4 }}>
+              Покажи этот код спасателю или попутчику — на его телефоне откроется твоя точка на карте
+            </p>
+          </div>
+        )}
 
         {/* Последняя известная позиция — рендерится ТОЛЬКО когда она реально
             есть (readLastKnown вернул точку). Никакого обещания при её отсутствии. */}

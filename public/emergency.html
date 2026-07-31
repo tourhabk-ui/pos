@@ -121,6 +121,7 @@ body{
 <script src="/leaflet/leaflet.min.js"></script>
 <!-- Единая семантика деградации GPS — общая с /sos (#897). Лежит в CRITICAL_URLS. -->
 <script src="/safety/geo-degradation.js"></script>
+<script src="/safety/qrcode.js"></script>
 </head>
 <body>
 
@@ -138,6 +139,14 @@ body{
     <a id="maps-btn" href="#" style="display:none">Открыть на карте</a>
   </div>
   <div id="coords-hint" style="font-size:11px;color:#6b7280;margin-top:8px;display:none">Скопируй и назови оператору при звонке на 112</div>
+  <!-- QR с координатами: показать спасателю/попутчику с рабочим телефоном.
+       Генерируется офлайн (/safety/qrcode.js из precache), при сканировании
+       открывается geo:-точка на карте. Белая подложка обязательна: страница
+       тёмная, без неё сканеры не читают. -->
+  <div id="qr-box" style="display:none;margin-top:10px;text-align:center">
+    <div id="qr-svg" style="display:inline-block;background:#fff;padding:8px;border-radius:8px;line-height:0"></div>
+    <div style="font-size:11px;color:#6b7280;margin-top:6px">Покажи этот код спасателю или попутчику —<br>на его телефоне откроется твоя точка на карте</div>
+  </div>
   <!-- Последний известный сигнал — откуда идти за покрытием -->
   <div id="last-signal-box" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#051a05;border:1px solid #1a3a1a">
     <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Последний сигнал сети</div>
@@ -331,6 +340,17 @@ function onGPSSuccess(c){
   var maps=document.getElementById('maps-btn');
   maps.href='geo:'+lat+','+lng+'?q='+lat+','+lng;
   maps.style.display='';
+  // QR с точкой: только при реальных координатах и только если энкодер
+  // загрузился (нет энкодера — нет QR, остальной экран не страдает).
+  if(typeof qrcode!=='undefined'){
+    try{
+      var qr=qrcode(0,'M');
+      qr.addData('geo:'+lat+','+lng);
+      qr.make();
+      document.getElementById('qr-svg').innerHTML=qr.createSvgTag({cellSize:4,margin:0});
+      document.getElementById('qr-box').style.display='block';
+    }catch(e){ /* не рисуем QR — координаты текстом уже на экране */ }
+  }
   // Обновляем блок "последний сигнал" с расстоянием
   showLastSignal();
   // Интерактивная карта Leaflet (тайлы из SW-кеша — работает офлайн)
