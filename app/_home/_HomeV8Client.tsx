@@ -45,6 +45,12 @@ function fmtPrice(n: number | null): string | null {
   return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
 }
 
+interface ActiveTrip {
+  id: string;
+  title: string;
+  progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
+}
+
 export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   const { safety, seismic, radar, plates, feed, stats, elements } = data;
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -65,6 +71,25 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
   const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+
+  // Режим «я в поездке» (коммит 5): единственный источник — auth-scoped
+  // GET /api/trips/active (identity из сессии, data:null без режима).
+  // Рисуем ТОЛЬКО подтверждённые фазы: during («День N из M» — честная
+  // арифметика tripProgress) и before (без выдуманного дня). after и
+  // unknown полосы не дают: UI не имеет права подменять unknown числом.
+  const [trip, setTrip] = useState<ActiveTrip | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/trips/active', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: ActiveTrip | null } | null) => {
+        const d = j?.data;
+        if (cancelled || !d || !d.progress) return;
+        if (d.progress.phase === 'during' || d.progress.phase === 'before') setTrip(d);
+      })
+      .catch(() => { /* гость/офлайн — главная без режима поездки */ });
+    return () => { cancelled = true; };
+  }, []);
   // Свежесть источника — отдельно от состояния. «Спокойно» по позавчерашним
   // данным и «спокойно» по свежим — разные утверждения, и человек должен
   // видеть, какое из них ему показали.
@@ -307,6 +332,29 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 </span>
               </div>
             </Link>
+          </section>
+        )}
+
+        {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
+            Плитки — только работающие входы: навигатор, радар, офлайн-карта.
+            Никаких «следующая точка N» — связи день→точка в данных нет. */}
+        {trip && (
+          <section className="tripstrip" aria-label="Активная поездка">
+            <div className="ts-head">
+              <span className="ts-cap">{trip.progress.phase === 'during' ? 'Вы в поездке' : 'Скоро в путь'}</span>
+              <b className="ts-title">{trip.title}</b>
+              {trip.progress.phase === 'during' && trip.progress.day != null && trip.progress.total != null && (
+                <span className="ts-day">День {trip.progress.day} из {trip.progress.total}</span>
+              )}
+              {trip.progress.phase === 'before' && trip.progress.total != null && (
+                <span className="ts-day">{trip.progress.total} дн. маршрута впереди</span>
+              )}
+            </div>
+            <div className="ts-links">
+              <a href="/planning?mode=trail">Навигатор</a>
+              <Link href="/safety#radar">Радар</Link>
+              <Link href="/map">Офлайн-карта</Link>
+            </div>
           </section>
         )}
 
@@ -766,6 +814,14 @@ const CSS = `
 @media (hover:hover){.v7 .ticker.scroll:not(.open):hover .ticker-track{animation-play-state:paused}}
 /* Развёрнутое состояние: полный читаемый список, без маски и без бегущей анимации,
    с обычной вертикальной прокруткой если не влезает. */
+/* Полоса активной поездки: спокойная карточка, день — единственный акцент. */
+.v7 .tripstrip{margin:14px 0 4px;padding:12px 14px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent)}
+.v7 .tripstrip .ts-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.v7 .tripstrip .ts-cap{font:600 9px/1 var(--fm);letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+.v7 .tripstrip .ts-title{font:700 14px/1.25 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
+.v7 .tripstrip .ts-day{font:700 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--accent);margin-left:auto;white-space:nowrap}
+.v7 .tripstrip .ts-links{display:flex;gap:10px;margin-top:1px}
+.v7 .tripstrip .ts-links a{font:600 11px/1 var(--font-outfit),system-ui,sans-serif;color:var(--ocean);min-height:44px;padding:0 4px;display:inline-flex;align-items:center}
 /* Действия безопасности — карточки, а не «поля формы»: заливка --plate +
    семантическая левая грань (МЧС=danger, офлайн-инструменты=tide, наблюдение=
    amber) + мягкая тень + подъём. Пунктир убран (читался как поле ввода). */
