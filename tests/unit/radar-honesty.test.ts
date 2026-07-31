@@ -8,7 +8,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-const client = readFileSync('app/_home/_HomeV8Client.tsx', 'utf8');
+// P0-3b (31.07): реализация радара переехала с главной в components/safety/
+// (главная — плитка-ссылка на /safety#radar). Контракты честности не меняются
+// от переезда — сторож читает новый адрес.
+const client = readFileSync('components/safety/LiveStatus.tsx', 'utf8');
 const data = readFileSync('app/_home/data.ts', 'utf8');
 
 describe('радар не обещает «безопасность»', () => {

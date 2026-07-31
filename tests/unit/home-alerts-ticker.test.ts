@@ -14,6 +14,11 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { alertStamp, clip } from '@/app/_home/_HomeV8Client';
 
+// P0-3b (31.07): лента переехала в components/safety/LiveStatus (главная —
+// плитка-ссылка), герой остался на главной — у сторожа два источника.
+// Формулы подписи по-прежнему реэкспортируются из главной — импорт выше
+// намеренно старый: он сторожит и сам реэкспорт.
+const LIVE = readFileSync(join(process.cwd(), 'components/safety/LiveStatus.tsx'), 'utf-8');
 const SRC = readFileSync(join(process.cwd(), 'app/_home/_HomeV8Client.tsx'), 'utf-8');
 
 describe('подпись строки ленты', () => {
@@ -69,12 +74,12 @@ describe('раскрывашка — цель, а не вся площадь', (
   it('в свёрнутом виде кнопка не растянута на всю ленту', () => {
     // inset:0 делал кнопкой весь блок: случайный тап при прокрутке разворачивал
     // ленту на пол-экрана. Кнопка должна быть там, где нарисован шеврон.
-    expect(SRC).not.toContain('.ticker-toggle:not(.open){inset:0');
-    expect(SRC).toContain('.v7 .ticker-toggle:not(.open){right:0;bottom:0}');
+    expect(LIVE).not.toContain('.ticker-toggle:not(.open){inset:0');
+    expect(LIVE).toContain('.kh-live .ticker-toggle:not(.open){right:0;bottom:0}');
   });
 
   it('цель остаётся пальцевой — не меньше 44px', () => {
-    expect(SRC).toContain('width:44px;height:44px');
+    expect(LIVE).toContain('width:44px;height:44px');
   });
 });
 
