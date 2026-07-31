@@ -62,5 +62,19 @@ jobs:
       - name: Build (Next.js)
         run: npm run build
 
+      # Token gate — семантика каскада из computed styles (редизайн 31.07):
+      # после редизайна базовая линия нарушений равна нулю и обязана такой
+      # оставаться. Динамические маршруты без БД дают предупреждение, не провал.
+      - name: Install Playwright Chromium (token gate)
+        run: npx playwright install --with-deps chromium
+
+      - name: Token gate (computed styles)
+        run: |
+          npx next start -p 3311 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do curl -sf http://localhost:3311/sos >/dev/null && break; sleep 1; done
+          BASE_URL=http://localhost:3311 node scripts/token-gate.mjs
+          kill $SERVER_PID
+
       - name: Run tests
         run: npx vitest run

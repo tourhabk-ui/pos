@@ -160,11 +160,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" suppressHydrationWarning>
       <head>
-        {/* Анти-вспышка темы: красим <html> до отрисовки. Дефолт — тёмная,
+        {/* Анти-вспышка темы: красим <html> до отрисовки. Дефолт — кремовая
+            светлая (документированный язык платформы, редизайн 31.07);
             сохранённый выбор пользователя (kh-theme) имеет приоритет. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('kh-theme');if(t!=='light'&&t!=='dark')t='dark';var r=document.documentElement;r.setAttribute('data-theme',t);r.classList.toggle('dark',t==='dark');}catch(e){var r=document.documentElement;r.setAttribute('data-theme','dark');r.classList.add('dark');}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('kh-theme');if(t!=='light'&&t!=='dark')t='light';var r=document.documentElement;r.setAttribute('data-theme',t);r.classList.toggle('dark',t==='dark');}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`,
           }}
         />
         <link rel="dns-prefetch" href="//mc.yandex.ru" />

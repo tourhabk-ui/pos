@@ -51,8 +51,8 @@
 }
 
 :root[data-theme="light"] {
-  /* Light = clean stone */
-  --bg-primary: #FAFAF9; /* stone-50 */
+  /* Light = кремовая основа (документированный язык, CLAUDE.md §2) */
+  --bg-primary: #F5F0EB;
   --bg-secondary: #EDE9E3;
   --bg-card: #FFFFFF;
   --bg-hover: #F0ECE7;
@@ -85,7 +85,7 @@
 
 /* Fallback: light theme */
 :root:not([data-theme]) {
-  --bg-primary: #FAFAF9; /* stone-50 */
+  --bg-primary: #F5F0EB;
   --bg-secondary: #EDE9E3;
   --bg-card: #FFFFFF;
   --bg-hover: #F0ECE7;
