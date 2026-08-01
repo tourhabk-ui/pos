@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { Navigation, Download, Phone } from 'lucide-react';
+import { Navigation, Download, Phone, Video } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
+import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
@@ -230,6 +231,25 @@ export default function PlaceDetailClient({ id }: { id: string }) {
 
       {/* 1b. Авиационный цветовой код вулкана (KVERT) */}
       {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}
+
+      {/* 1c. Живая камера вулкана — только для вулканов под видеонаблюдением
+          КФ ФИЦ ЕГС РАН (см. lib/safety/volcano-cameras). Внешний онлайн-ресурс:
+          обычная ссылка (не iframe, не офлайн), с честной пометкой про сеть.
+          Визуальное подтверждение состояния кратера рядом с кодом КВЕРТ. */}
+      {place.locationType === 'volcano' && hasVolcanoCamera(place.name) && (
+        <a
+          href={VOLCANO_CAMERAS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          <Video className="w-5 h-5 text-[var(--ocean)] shrink-0" strokeWidth={1.8} />
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-[var(--text-primary)]">Камеры вулкана вживую</span>
+            <span className="block text-xs text-[var(--text-secondary)]">{VOLCANO_CAMERAS_SOURCE} · внешний источник, нужна сеть</span>
+          </span>
+        </a>
+      )}
 
       {/* 2. Realtime alert — sticky on danger */}
       {place.realtime && <PlaceRealtimeStatus realtime={place.realtime} />}
