@@ -157,7 +157,31 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
               <stop offset="0%" stopColor="var(--radar)" stopOpacity="0.35" />
               <stop offset="100%" stopColor="var(--radar)" stopOpacity="0" />
             </radialGradient>
+            <clipPath id="scopeClip"><circle cx={CX} cy={CY} r={R} /></clipPath>
           </defs>
+          {/* Фон — стилизованный контур Камчатки (владелец, 01.08): пустой
+              круг читался абстракцией, а не «вокруг тебя». Контур ДЕКОРАТИВЕН
+              и не геопривязан — оси и расстояния держат кольца и точки, поэтому
+              aria-hidden и никакой смысловой нагрузки. Центр — юго-восточное
+              побережье (Петропавловск), полуостров уходит на северо-восток,
+              хвост Лопатки — на юг; Авачинская губа — выемка у центра. */}
+          <g clipPath="url(#scopeClip)" aria-hidden>
+            <path
+              d="M 88 -40
+                 C 112 -18 128 6 138 30
+                 C 148 52 142 66 128 74
+                 C 116 80 108 88 106 95
+                 C 104 99 108 103 104 107
+                 C 98 113 92 124 88 140
+                 C 84 158 78 176 70 196
+                 L 56 196
+                 C 60 168 58 140 54 116
+                 C 50 92 52 60 60 28
+                 C 66 4 72 -20 74 -40 Z"
+              fill="var(--radar)" fillOpacity="0.07"
+              stroke="var(--radar)" strokeOpacity="0.22" strokeWidth="0.9"
+            />
+          </g>
           {rings.map((k, i) => (
             <circle key={i} cx={CX} cy={CY} r={R * k} fill="none" stroke="var(--radar)" strokeOpacity={0.28} strokeWidth={0.8} />
           ))}
