@@ -22,6 +22,44 @@ export const ACC_META: Record<AccColor, { label: string; severity: number; token
 };
 
 /**
+ * Свежесть наблюдения KVERT. Синк авиационных кодов может встать незаметно
+ * (источник сменил формат — реальный инцидент 26.07–01.08: kscnet.ru стал
+ * отдавать HTML вместо VONA, синк лежал днями при зелёном на вид статусе). Тогда
+ * бейдж показывает замороженный цвет как текущий, а вулкан мог эскалировать —
+ * устаревший ЗЕЛЁНЫЙ опаснее всего (под-предупреждение). Поэтому проверка
+ * цвето-независима: старое наблюдение любого цвета = «сверь на KVERT».
+ *
+ * Порог 7 дней: KVERT выпускает сводки по действующим вулканам часто, неделя
+ * без обновления — повод перепроверить, но не паниковать (мягкий nudge, не
+ * ложная тревога о самом вулкане).
+ */
+export const VOLCANO_STALE_DAYS = 7;
+
+/** Возраст наблюдения в днях (округл. вниз). null — даты нет/не распарсилась. */
+export function volcanoObservationAgeDays(observedAt: string | null | undefined, now: number = Date.now()): number | null {
+  if (!observedAt) return null;
+  const t = new Date(observedAt).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((now - t) / 86_400_000));
+}
+
+/** Устарело ли наблюдение (старше порога). null-возраст → не считаем устаревшим. */
+export function isVolcanoObservationStale(observedAt: string | null | undefined, now: number = Date.now()): boolean {
+  const age = volcanoObservationAgeDays(observedAt, now);
+  return age != null && age >= VOLCANO_STALE_DAYS;
+}
+
+/** «N дней назад» / «сегодня» / «вчера» — человекочитаемый возраст для UI. */
+export function formatObservationAge(days: number): string {
+  if (days <= 0) return 'сегодня';
+  if (days === 1) return 'вчера';
+  const mod10 = days % 10, mod100 = days % 100;
+  const suffix = (mod10 === 1 && mod100 !== 11) ? 'день'
+    : ((mod10 >= 2 && mod10 <= 4) && (mod100 < 10 || mod100 >= 20)) ? 'дня' : 'дней';
+  return `${days} ${suffix} назад`;
+}
+
+/**
  * Алиасы имён вулканов → канонический slug (latin) + русское имя для сопоставления
  * с places.name. Покрывает основные вулканы Камчатки/Северных Курил, по которым
  * KVERT выпускает VONA. Ключи — нормализованные токены (EN и RU).
