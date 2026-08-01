@@ -29,13 +29,30 @@ import { callAIFast } from '@/lib/ai/providers';
 export function unsourcedPercents(post: string, source: string): string[] {
   // \b не работает с кириллицей (JS считает словом только [A-Za-z0-9_]) —
   // граница «раза» держится lookahead'ом, та же грабля, что в claim-signature.
-  const claims = post.match(
-    /\d+(?:[.,]\d+)?\s*[–-]\s*\d+(?:[.,]\d+)?\s*%|\d+(?:[.,]\d+)?\s*%|(?:в\s+)?\d+(?:[.,]\d+)?\s*раз(?:а|у)?(?![а-яё])|\d+(?:[.,]\d+)?x\b/gi,
-  ) ?? [];
-  const srcNums = new Set((source.match(/\d+(?:[.,]\d+)?/g) ?? []).map(n => n.replace(',', '.')));
+  //
+  // Валюта добавлена 01.08: цена DeepSeek «$0.27» в дайджесте (реально $0.28)
+  // прошла мимо — проценты/кратности гейт ловил, деньги нет. Цена — такой же
+  // проверяемый факт, а ошибка на цент в публичном посте про экономику модели
+  // подрывает доверие. Форматы: «$0.27», «0.27$», «68 000 ₽», «990 руб», «€15».
+  // Пробелы-разделители тысяч допускаются (\d[\d  ]* с NBSP и обычным).
+  const NUM = String.raw`\d+(?:[   ]?\d{3})*(?:[.,]\d+)?`;
+  const claims = post.match(new RegExp(
+    String.raw`${NUM}\s*[–-]\s*${NUM}\s*%` +           // диапазон процентов
+    String.raw`|${NUM}\s*%` +                          // процент
+    String.raw`|(?:в\s+)?${NUM}\s*раз(?:а|у)?(?![а-яё])` + // кратность словом
+    String.raw`|${NUM}x\b` +                           // кратность «3x»
+    String.raw`|[$€£]\s?${NUM}|${NUM}\s?[$€£]` +       // валюта символом
+    String.raw`|${NUM}\s?(?:₽|руб(?:\.|лей|ля)?|долл(?:\.|аров)?|евро)(?![а-яё])`, // валюта словом
+    'giu',
+  )) ?? [];
+  // Нормализация числа: убрать разделители тысяч (пробел/NBSP), запятую → точка.
+  // Иначе «68 000» дробится на «68» и «000», а «000» collides с любым «N 000».
+  const norm = (n: string) => n.replace(/[   ]/g, '').replace(',', '.');
+  const NUM_G = new RegExp(NUM, 'gu');
+  const srcNums = new Set((source.match(NUM_G) ?? []).map(norm));
   return claims.filter(claim => {
-    const nums = claim.match(/\d+(?:[.,]\d+)?/g) ?? [];
-    return !nums.some(n => srcNums.has(n.replace(',', '.')));
+    const nums = claim.match(NUM_G) ?? [];
+    return !nums.some(n => srcNums.has(norm(n)));
   });
 }
 
