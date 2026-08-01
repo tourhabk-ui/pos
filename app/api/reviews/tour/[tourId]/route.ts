@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
+
+// Отзыв туриста (§4): rating проверялся вручную, но comment уходил в БД без
+// границы — авторизованный пользователь мог залить строку любого размера.
+const ReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(4000).optional().default(''),
+});
 
 /**
  * GET /api/reviews/tour/[tourId] - Public
@@ -165,16 +173,18 @@ export async function POST(
     const userId = authResult.userId;
 
     const { tourId } = await params;
-    const body = await request.json();
-    const { rating, comment } = body;
+    let rawBody: unknown;
+    try { rawBody = await request.json(); }
+    catch { return NextResponse.json({ success: false, error: 'Неверный формат запроса' } as ApiResponse<null>, { status: 400 }); }
 
-    // Validation
-    if (!rating || rating < 1 || rating > 5) {
-      return NextResponse.json({
-        success: false,
-        error: 'Рейтинг должен быть от 1 до 5'
-      } as ApiResponse<null>, { status: 400 });
+    const parsed = ReviewSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.path.includes('rating')
+        ? 'Рейтинг должен быть от 1 до 5'
+        : (parsed.error.issues[0]?.message ?? 'Ошибка валидации');
+      return NextResponse.json({ success: false, error: msg } as ApiResponse<null>, { status: 400 });
     }
+    const { rating, comment } = parsed.data;
 
     // Check if user has completed booking for this tour
     const bookingCheck = await query(
