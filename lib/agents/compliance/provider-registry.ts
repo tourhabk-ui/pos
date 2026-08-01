@@ -39,6 +39,11 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // (cover-image.ts). Как и Anthropic, хост давно жил в providers.ts, но
   // доменный фильтр сканера его не знал — егресс шёл мимо D2. Внесён явно.
   { host: 'dashscope-intl.aliyuncs.com', jurisdiction: 'China', domestic: false, provider: 'Alibaba DashScope (Qwen текст + Qwen-Image обложки)' },
+  // Moonshot (Kimi) — третий китайский решатель/судья, достижим из РФ. Внесён
+  // 01.08 вместе с проводкой callKimi; трансграничная передача (Китай), как
+  // DeepSeek/Qwen, поэтому domestic:false — ПД в промпт по-прежнему только
+  // через redactPII.
+  { host: 'api.moonshot.ai', jurisdiction: 'China', domestic: false, provider: 'Moonshot (Kimi)' },
 ] as const;
 
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
@@ -97,7 +102,7 @@ export function extractLLMHosts(providersSource: string): string[] {
     const host = m[1].toLowerCase().replace(/[.-]+$/, '');
     // LLM-эндпоинты — по известным доменам моделей. Прочее (доки в коментах,
     // github и т.п.) не считаем приёмником ПД.
-    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs/.test(host)) {
+    if (/deepseek|openrouter|googleapis|groq|cerebras|mistral|openai|anthropic|together\.xyz|yandex|gigachat|sberbank|gigachat\.devices|dashscope|aliyuncs|moonshot/.test(host)) {
       hosts.add(host);
     }
   }

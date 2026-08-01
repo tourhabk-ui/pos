@@ -26,6 +26,14 @@ export function getDeepSeekKey(): string | null {
   return process.env.DEEPSEEK_API_KEY || null;
 }
 
+// Moonshot (Kimi) — китайский провайдер, достижим из РФ напрямую (как
+// DeepSeek/Qwen), OpenAI-совместимый (api.moonshot.ai/v1). Третий живой
+// решатель/судья на случай немоты DeepSeek+Qwen. Нет ключа → провайдер
+// пропускается, поведение прежнее (подготовка 01.08, активирует владелец).
+export function getMoonshotKey(): string | null {
+  return process.env.MOONSHOT_API_KEY || null;
+}
+
 export function getAnthropicKey(): string | null {
   return process.env.ANTHROPIC_API_KEY || null;
 }
