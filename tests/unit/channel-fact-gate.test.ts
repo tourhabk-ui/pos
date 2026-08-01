@@ -134,3 +134,35 @@ describe('числовой гейт ловит цены, не только пр�
     expect(unsourcedPercents('стоит 990 руб', 'цена 990 руб за вход')).toEqual([]);
   });
 })
+
+describe('сбой судьи = отмена публикации, не пропуск (инцидент GPT-Realtime 01.08)', () => {
+  const factCheck = readFileSync(join(process.cwd(), 'lib/agents/fact-check.ts'), 'utf-8');
+  const channel = readFileSync(join(process.cwd(), 'lib/notifications/telegram-channel.ts'), 'utf-8');
+  const scout = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+
+  it('unsupportedClaims различает «чисто» ([]) и «судья не ответил» (null)', () => {
+    // Раньше сбой возвращал [] — неотличимо от «подтверждено», и гейт
+    // становился сквозным ровно когда переставал работать.
+    expect(factCheck).toMatch(/Promise<string\[\] \| null>/);
+    expect(factCheck, 'пустой ответ провайдера снова трактуется как «чисто»')
+      .toMatch(/if \(!raw \|\| !raw\.trim\(\)\) return null/);
+    expect(factCheck).toMatch(/catch \{ return null; \}/);
+  });
+
+  it('судья проверяет экономическое/практическое следствие как факт', () => {
+    const sys = /system',\s*content:\s*'([^']+)'/.exec(factCheck)?.[1] ?? '';
+    expect(sys, 'принцип «следствие вне источника — факт» пропал').toMatch(/СЛЕДСТВИЕ/);
+    expect(sys).toMatch(/без затрат на персонал|заменяет сотрудников/);
+  });
+
+  it('telegram-публикатор отменяет пост при null от судьи', () => {
+    expect(channel, 'сбой судьи снова пропускает пост')
+      .toMatch(/if \(claims === null\) return null/);
+    expect(channel).toMatch(/if \(claims === null \|\| claims\.length > 0\) return null/);
+  });
+
+  it('scout-дайджест не публикует при null от судьи', () => {
+    expect(scout).toMatch(/if \(claims === null\)/);
+    expect(scout).toMatch(/claims === null \|\| claims\.length > 0/);
+  });
+});

@@ -768,6 +768,11 @@ async function factGatedText(
   }
 
   let claims = await unsupportedClaims(text, sources);
+  // null — судья НЕ ответил (провайдер молчит). Раньше сбой возвращал [] и
+  // пост уходил непроверенным (инцидент GPT-Realtime 01.08). Теперь сбой
+  // судьи = отмена: гейт, который не работает, обязан закрываться, а не
+  // открываться.
+  if (claims === null) return null;
   if (claims.length > 0) {
     const retry = await callAIQuality([
       { role: 'user', content: originalPrompt },
@@ -775,7 +780,8 @@ async function factGatedText(
       { role: 'user', content: `Эти утверждения НЕ подтверждаются источниками (выдумка или искажение): ${claims.join(' | ')}. Перепиши пост строго по источникам, не добавляя новых непроверенных фактов. Верни только исправленный текст.` },
     ], { maxTokens: 1200 }).catch(() => null);
     if (retry) { text = retry; claims = await unsupportedClaims(text, sources); }
-    if (claims.length > 0) return null;
+    // После переписи: и остаток выдумок, и повторный сбой судьи — отмена.
+    if (claims === null || claims.length > 0) return null;
   }
 
   return text;
