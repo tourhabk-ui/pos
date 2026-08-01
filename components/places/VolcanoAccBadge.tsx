@@ -58,7 +58,7 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
             <span>Наблюдение: {observed}{ageDays != null && ` (${formatObservationAge(ageDays)})`}</span>
           )}
           <a
-            href={status.sourceUrl || 'http://www.kscnet.ru/ivs/kvert/'}
+            href={status.sourceUrl || 'http://kvert.febras.net/'}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[var(--ocean)] hover:underline"

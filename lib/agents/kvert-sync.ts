@@ -6,16 +6,21 @@
  * Сетевая выборка идёт с прод-сервера (российский IP Timeweb — KVERT доступен;
  * с других IP отдаёт 403). Парсинг — в lib/services/kvert-vona.ts (чистый, тестируемый).
  *
- * Источник настраивается через env KVERT_VONA_URL (дефолт — страница релизов KVERT).
- * ВАЖНО: точный URL/формат ленты VONA у KVERT нужно подтвердить одним прогоном
- * на проде — при расхождении скорректировать KVERT_VONA_URL. Ручной путь
- * (setVolcanoAcc через PATCH /api/admin/safety/kvert-sync) работает независимо.
+ * Источник настраивается через env KVERT_VONA_URL (дефолт — лента VONA KVERT).
+ *
+ * ДОМЕН СМЕНИЛСЯ (01.08.2026): старый www.kscnet.ru/ivs/kvert отдаёт 404 —
+ * KVERT переехал на kvert.febras.net (тот же путь /van/index.php?type=). Крон
+ * падал подряд с 26.07 именно из-за мёртвого домена. Путь и параметр type
+ * сохранены прежними; если новый домен на type=3 отдаст не VONA, парсер
+ * упадёт громко (502, fetched:0) — как сейчас, без регресса, а диагностика
+ * (source_type/source_sample) покажет, что пришло. Ручной путь (setVolcanoAcc
+ * через PATCH /api/admin/safety/kvert-sync) работает независимо.
  */
 
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 
-const DEFAULT_KVERT_URL = 'http://www.kscnet.ru/ivs/kvert/van/index.php?type=3';
+const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3';
 
 export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
