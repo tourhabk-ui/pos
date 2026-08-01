@@ -68,6 +68,10 @@ export interface SourceHealthEntry {
   status: SourceStatus;
   rawItems: number;
   inserted: number;
+  /** Причина сбоя ЭТОГО прогона (HTTP-код / текст ошибки) — только при 'error'.
+      Без неё отчёт говорил «error» и молчал, чем именно болен источник, —
+      диагноз требовал лезть в логи сервера (которых у cron-прогона нет). */
+  error?: string;
 }
 
 function toMs(v: string | Date | null | undefined): number | null {
