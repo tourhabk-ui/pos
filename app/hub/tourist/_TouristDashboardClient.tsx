@@ -29,6 +29,24 @@ interface TouristStats {
   upcoming_trips: Array<{ id: string; title: string; status: string; start_date: string }>;
 }
 
+interface ActiveTrip {
+  id: string;
+  title: string;
+  arrivalDate: string | null;
+  departureDate: string | null;
+  progress: { day: number | null; total: number | null; phase: 'before' | 'during' | 'after' | 'unknown' };
+}
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function tripDates(a: string | null, d: string | null): string | null {
+  if (!a || !d) return null;
+  const s = new Date(`${a}T00:00:00`), e = new Date(`${d}T00:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  return s.getMonth() === e.getMonth()
+    ? `${s.getDate()}–${e.getDate()} ${MONTHS_GEN[e.getMonth()]}`
+    : `${s.getDate()} ${MONTHS_GEN[s.getMonth()]} – ${e.getDate()} ${MONTHS_GEN[e.getMonth()]}`;
+}
+
 interface MyBooking {
   id: string;
   date: string;
@@ -148,6 +166,11 @@ export default function TouristDashboardClient() {
   const [recommendations, setRecommendations] = useState<RecommendedTour[]>([]);
   const [loading, setLoading] = useState(true);
   const [recsLoading, setRecsLoading] = useState(true);
+  // Активная поездка — ТОТ ЖЕ источник, что у главной (auth-scoped
+  // /api/trips/active + tripProgress). Турист видел трип-режим на главной,
+  // заходил в кабинет — а «Обзора» поездки там не было. Один источник, две
+  // поверхности; честный гейт фаз (during/before), unknown/after не рисуем.
+  const [trip, setTrip] = useState<ActiveTrip | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -183,6 +206,19 @@ export default function TouristDashboardClient() {
   }, []);
 
   useEffect(() => { fetchAll(); fetchRecs(); }, [fetchAll, fetchRecs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/trips/active', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { data?: ActiveTrip | null } | null) => {
+        const d = j?.data;
+        if (cancelled || !d || !d.progress) return;
+        if (d.progress.phase === 'during' || d.progress.phase === 'before') setTrip(d);
+      })
+      .catch(() => { /* нет активной поездки — блока просто нет */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const ps = stats?.profile_summary;
 
@@ -236,6 +272,32 @@ export default function TouristDashboardClient() {
           </button>
         </div>
       </div>
+
+      {/* Активная поездка — та же, что в герое главной. Only during/before:
+          «День N из M» из tripProgress с null-guard, unknown/after не рисуем. */}
+      {trip && (
+        <Link
+          href="/hub/tourist/trips"
+          className="block bg-[var(--bg-card)] border border-[var(--border)] border-l-4 border-l-[var(--accent)] rounded-lg px-5 py-4 hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="ds-label text-[var(--accent)] mb-1">
+                {trip.progress.phase === 'during' ? 'Вы в поездке' : 'Скоро в путь'}
+                {tripDates(trip.arrivalDate, trip.departureDate) && ` · ${tripDates(trip.arrivalDate, trip.departureDate)}`}
+              </p>
+              <p className="font-playfair text-lg font-bold text-[var(--text-primary)] truncate">{trip.title}</p>
+              {trip.progress.phase === 'during' && trip.progress.day != null && trip.progress.total != null && (
+                <p className="text-sm text-[var(--text-secondary)] mt-0.5">День {trip.progress.day} из {trip.progress.total}</p>
+              )}
+              {trip.progress.phase === 'before' && trip.progress.total != null && (
+                <p className="text-sm text-[var(--text-secondary)] mt-0.5">{trip.progress.total} дн. маршрута впереди</p>
+              )}
+            </div>
+            <ChevronRight className="w-5 h-5 text-[var(--text-muted)] shrink-0" />
+          </div>
+        </Link>
+      )}
 
       {/* Быстрая навигация по разделам */}
       <SectionsNav />
