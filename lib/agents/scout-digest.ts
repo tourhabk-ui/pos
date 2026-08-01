@@ -572,6 +572,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
     }
 
     let claims = await unsupportedClaims(digest, signalsList);
+    // null — судья не ответил: не выпускаем (сбой гейта = отмена, не пропуск).
+    if (claims === null) {
+      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    }
     if (claims.length > 0) {
       const fix: ChatMessage[] = [
         ...messages,
@@ -581,8 +585,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
       const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
       if (retry) { digest = retry; claims = await unsupportedClaims(digest, signalsList); }
     }
-    if (claims.length > 0) {
-      // Лучше не выпустить дайджест, чем выпустить с выдумкой.
+    if (claims === null || claims.length > 0) {
+      // Лучше не выпустить дайджест, чем выпустить с выдумкой (или непроверенным).
       return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
   }
@@ -698,7 +702,10 @@ export async function runScoutDigest(): Promise<DigestResult> {
       // ── Семантический фактчек: сверяем факты поста с текстом статей ──
       if (aiDigest) {
         let claims = await unsupportedClaims(aiDigest, aiSignals);
-        if (claims.length > 0) {
+        // null — судья не ответил: не публикуем (сбой гейта = отмена).
+        if (claims === null) {
+          aiDigest = null;
+        } else if (claims.length > 0) {
           const fix: ChatMessage[] = [
             ...aiMessages,
             { role: 'assistant', content: aiDigest },
@@ -706,10 +713,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
           ];
           const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
-        }
-        if (claims.length > 0) {
-          // После переписи факты всё ещё не сходятся — не публикуем.
-          aiDigest = null;
+          // После переписи: остаток выдумок ИЛИ повторный сбой судьи — не публикуем.
+          if (claims === null || claims.length > 0) aiDigest = null;
         }
       }
 
