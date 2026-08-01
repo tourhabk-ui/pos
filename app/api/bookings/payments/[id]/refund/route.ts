@@ -4,9 +4,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { paymentService } from '@/lib/services'
 import { getBookingForUser, getBookingById } from '@/lib/bookings/booking.service'
 import { authenticateUser, authorizeRole } from '@/lib/auth'
+
+// Валидация тела возврата (§4). Ключевое — refundAmount: сырым он уходил в
+// paymentService.refund, и отрицательная/абсурдная сумма прошла бы как есть.
+// Опционален (частичный возврат); при отсутствии сервис берёт полную сумму.
+const RefundSchema = z.object({
+  reason: z.string().min(1, 'reason is required').max(500),
+  refundAmount: z.number().positive().finite().optional(),
+  description: z.string().max(2000).optional(),
+})
 
 /**
  * POST /api/bookings/payments/[id]/refund
@@ -25,11 +35,15 @@ export async function POST(
 
     const { id } = await params
 
-    const body = await request.json()
+    let body: unknown
+    try { body = await request.json() }
+    catch { return NextResponse.json({ error: 'Неверный формат запроса' }, { status: 400 }) }
 
-    if (!body.reason) {
-      return NextResponse.json({ error: 'reason is required' }, { status: 400 })
+    const parsed = RefundSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Ошибка валидации' }, { status: 400 })
     }
+    const { reason, refundAmount, description } = parsed.data
 
     const payment = await paymentService.getTransaction(id)
 
@@ -57,9 +71,9 @@ export async function POST(
 
     const refund = await paymentService.refund({
       transactionId: id,
-      refundAmount: body.refundAmount,
-      reason: body.reason,
-      description: body.description,
+      refundAmount,
+      reason,
+      description,
     })
 
     return NextResponse.json({
