@@ -40,7 +40,7 @@
  */
 
 import type { ChatMessage } from '@/lib/ai/prompts';
-import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey } from '@/lib/ai/provider-config';
+import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
 import { pickBestModel, pickBestFlagship } from '@/lib/ai/model-resolver';
@@ -939,6 +939,55 @@ export async function callDeepSeek(messages: ChatMessage[]): Promise<string | nu
   } catch { return null; }
 }
 
+// ── Moonshot (Kimi) — OpenAI-совместимый, достижим из РФ ───────
+// Третий китайский провайдер (после DeepSeek/Qwen) на случай их немоты:
+// решатель эволюции и судья фактгейта ходят через DeepSeek/Qwen, и когда те
+// молчат — эволюция без предложений, а после «сбой судьи = отмена» (#928)
+// Scout вообще не публикует. Kimi K3 — #4 в мире по общим задачам и, в
+// отличие от Claude/GPT, не гео-блокируется из Timeweb.
+//
+// Подготовка (01.08): нет MOONSHOT_API_KEY → callKimi возвращает null и
+// молча выпадает из гонки/вотерфолла, поведение байт-в-байт прежнее. Владелец
+// кладёт ключ на Timeweb — Kimi оживает и в судье, и в решателе. id модели не
+// хардкодим (§8): MOONSHOT_MODEL → pickBestModel(/v1/models) → алиас 'kimi-k3'.
+const MOONSHOT_BASE = (process.env.MOONSHOT_BASE_URL || 'https://api.moonshot.ai/v1').replace(/\/+$/, '');
+const MOONSHOT_FALLBACK_MODEL = 'kimi-k3';
+
+async function resolveKimiModel(): Promise<string> {
+  if (process.env.MOONSHOT_MODEL) return process.env.MOONSHOT_MODEL;
+  const cached = PURPOSE_MODEL_CACHE.get('decision:moonshot');
+  if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+  const key = getMoonshotKey();
+  if (!key) return MOONSHOT_FALLBACK_MODEL;
+  const ids = await fetchModelIds(`${MOONSHOT_BASE}/models`, key);
+  const picked = pickBestModel(ids) ?? MOONSHOT_FALLBACK_MODEL;
+  if (ids.length) PURPOSE_MODEL_CACHE.set('decision:moonshot', { id: picked, at: Date.now() });
+  return picked;
+}
+
+/**
+ * Один вызов Kimi (OpenAI-совместимый). Нет ключа → null (выпадает из гонки).
+ * Зеркалит callDeepSeek: та же форма запроса/ответа, свой timeout.
+ */
+export async function callKimi(messages: ChatMessage[]): Promise<string | null> {
+  const apiKey = getMoonshotKey();
+  if (!apiKey) return null;
+  try {
+    const model = await resolveKimiModel();
+    const payload = messages.map(({ role, content }) => ({ role, content }));
+    const res = await fetchWithRetry(`${MOONSHOT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, temperature: 0.4, max_tokens: 800, messages: payload }),
+    }, { timeoutMs: 20_000, label: `kimi:${model}` });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+    const text = data?.choices?.[0]?.message?.content;
+    if (text?.trim()) { logLLMUsage(`kimi:${model}`, data.usage); return text; }
+    return null;
+  } catch { return null; }
+}
+
 // ── Qwen (Alibaba DashScope — OpenAI-совместимый) ─────────────
 // Китайский провайдер, доступен из РФ (как DeepSeek), сильный агентный
 // tool-calling. База и модель — из env: QWEN_BASE_URL (default
@@ -1296,6 +1345,30 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         why.push(`qwen(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
       }
     } catch (e) { why.push(`qwen: ${(e as Error).message.slice(0, 100)}`); }
+  }
+
+  // 3) Kimi (Moonshot) — третий китайский решатель, достижим из РФ. Последний
+  //    рубеж перед немотой: когда DeepSeek+Qwen молчат (тот самый корень), Kimi
+  //    держит решатель живым. Нет MOONSHOT_API_KEY → callKimi вернёт null.
+  const kimiKey = getMoonshotKey();
+  if (!kimiKey) why.push('kimi: ключа нет');
+  if (kimiKey) {
+    const model = await resolveKimiModel();
+    try {
+      const res = await fetchWithRetry(`${MOONSHOT_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${kimiKey}` },
+        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
+      }, { timeoutMs: 30_000, label: `evo-decision:kimi:${model}` });
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+        const text = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) { logLLMUsage(`kimi:${model}`, data.usage); return { text, model: `kimi:${model}` }; }
+        why.push(`kimi(${model}): пустой ответ`);
+      } else {
+        why.push(`kimi(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
+      }
+    } catch (e) { why.push(`kimi: ${(e as Error).message.slice(0, 100)}`); }
   }
 
   return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована' };
@@ -2431,9 +2504,12 @@ export async function callAIFast(messages: ChatMessage[]): Promise<string> {
   const apiKey = getOpenRouterKey();
 
   // MiMo убран 04.07.2026 — прямой api.xiaomimimo.com не отвечал (см. callAIWaterfall).
+  // callKimi — третий достижимый из РФ провайдер: нет MOONSHOT_API_KEY → null,
+  // из гонки выпадает. Оживляет судью фактгейта, когда DeepSeek/Gemini молчат.
   const calls: Promise<string | null>[] = [
     callDeepSeek(messages),
     callGeminiDirect(messages),
+    callKimi(messages),
   ];
 
   // DeepSeek via OpenRouter (inline to avoid extra function)
