@@ -45,13 +45,12 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'marktechpost',  label: 'MarkTechPost',      maxSilenceHours: 120 },
   { key: 'hackernews',    label: 'Hacker News',       maxSilenceHours: 96 },
   { key: 'habr_ai',       label: 'Habr AI',           maxSilenceHours: 120 },
-  { key: 'rata',          label: 'RATA',              maxSilenceHours: 168 },
-  { key: 'tourprom',      label: 'Tourprom',          maxSilenceHours: 168 },
-  { key: 'ator',          label: 'АТОР',              maxSilenceHours: 168 },
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
-  { key: 'kamgov',        label: 'Kamgov',            maxSilenceHours: 168 },
-  { key: 'mchs_rss',      label: 'МЧС Камчатка (RSS)', maxSilenceHours: 168 },
+  // rata/tourprom/ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые
+  // (404 / fetch failed — сайты сняли ленты). Убраны и отсюда, чтобы health-
+  // монитор не ждал вечно молчащие ключи. Камчатский safety-слой (МЧС, kamgov)
+  // жив через safety-ingest (seismic-parser), к Scout-RSS не привязан.
 ] as const;
 
 export interface ScoutSourceState {
