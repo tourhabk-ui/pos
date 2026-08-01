@@ -120,3 +120,36 @@ describe('телеграм-отчёт называет модель и крич�
     expect(buildEvoAlert({ scan: noReview, ...quiet })).toBeNull();
   });
 });
+
+describe('немота решателя приходит с причиной (01.08)', () => {
+  // Баланс DeepSeek оказался жив ($7.83, расход $20/30д), а прогоны молчали —
+  // отказы глотались по ступеням waterfall без следа. Теперь причина едет
+  // из callAIDecisionDetailed через скан в алерт.
+  const quiet = { evolution: { processed: 0 }, rescue: { alerts: [] }, errors: [] as string[] };
+  const scanErr = {
+    issues: [], new_issues: 0, duration_ms: 1000,
+    coverage: { source: 'github', files_listed: 900, files_reviewed: 20, mock_files_scanned: 20 },
+    decision_model: null,
+    decision_error: 'deepseek(deepseek-chat): HTTP 400 maximum context length exceeded',
+  };
+
+  it('алерт называет причину, а не только факт немоты', () => {
+    const text = buildEvoAlert({ scan: scanErr, ...quiet });
+    expect(text).toContain('РЕШАТЕЛЬ МОЛЧИТ');
+    expect(text).toContain('maximum context length');
+  });
+
+  it('waterfall собирает причины по ступеням, а не глотает', () => {
+    const providers = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
+    expect(providers, 'копилка причин пропала — немота снова станет слепой')
+      .toMatch(/why\.push\(`deepseek\(\$\{model\}\): HTTP \$\{res\.status\}/);
+    expect(providers).toMatch(/error: why\.join/);
+  });
+
+  it('нераспарсенный ответ сохраняет атрибуцию модели', () => {
+    // Раньше parse-ошибка глоталась общим catch и терялась даже модель —
+    // немота и кривой ответ выглядели одинаково.
+    expect(GROWTH).toMatch(/не распарсился/);
+    expect(GROWTH).toMatch(/model: decisionModel \?\? null,\s*\n\s*decisionError/);
+  });
+});

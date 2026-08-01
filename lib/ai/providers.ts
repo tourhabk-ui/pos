@@ -1166,6 +1166,11 @@ export interface DecisionResult {
   text: string | null;
   /** Реальная модель ответа: флагман или фоллбэк (deepseek/qwen). null — никто не ответил. */
   model: string | null;
+  /** ПОЧЕМУ никто не ответил (по ступеням waterfall) — только при text:null.
+      До 01.08 отказы глотались молча, и четыре немых прогона выглядели
+      здоровыми; баланс DeepSeek при этом был жив — причина в другом,
+      и без этого поля её было не увидеть. */
+  error?: string;
 }
 
 /**
@@ -1185,6 +1190,8 @@ export async function callAIDecision(messages: ChatMessage[]): Promise<string | 
  */
 export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<DecisionResult> {
   const payload = messages.map(({ role, content }) => ({ role, content }));
+  // Причины отказа по ступеням — едут в DecisionResult.error при полной немоте.
+  const why: string[] = [];
 
   // Сильнейший флагман без привязки к id (авто-резолв из /v1/models, §8).
   const flagshipModel = await resolveFlagshipModel();
@@ -1198,13 +1205,15 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
     if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel };
-  } catch { /* флагман недостижим — пробуем Anthropic напрямую */ }
+    why.push('flagship: пустой ответ или нет ключа/релея');
+  } catch (e) { why.push(`flagship: ${(e as Error).message.slice(0, 100)}`); }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
   //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
   //     Anthropic есть, а OpenRouter-путь не прошёл — Claude достижим и без
   //     посредника. Модель — та же флагманская (без префикса "anthropic/").
   const antKey = getAnthropicKey();
+  if (!antKey) why.push('anthropic: ключа нет');
   if (antKey) {
     const antModel = flagshipModel.replace(/^anthropic\//, '');
     try {
@@ -1235,13 +1244,17 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
             });
             return { text, model: `anthropic:${antModel}` };
           }
+          why.push('anthropic: пустой ответ');
+        } else {
+          why.push(`anthropic: HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
         }
       }
-    } catch { /* Anthropic недостижим — на решателей из РФ */ }
+    } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
   }
 
   // 1) DeepSeek (модель определяется сама) — прямой api.deepseek.com, доступен из РФ
   const dsKey = getDeepSeekKey();
+  if (!dsKey) why.push('deepseek: ключа нет');
   if (dsKey) {
     const model = await resolveDecisionModel('deepseek');
     try {
@@ -1254,12 +1267,18 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
         if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
+        why.push(`deepseek(${model}): пустой ответ`);
+      } else {
+        // Тело ошибки важнее кода: 400 с "maximum context length" — это
+        // «ревью не влезло», совсем другая починка, чем ключ или баланс.
+        why.push(`deepseek(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
       }
-    } catch { /* переходим на Qwen */ }
+    } catch (e) { why.push(`deepseek: ${(e as Error).message.slice(0, 100)}`); }
   }
 
   // 2) Qwen (модель определяется сама) — DashScope, доступен из РФ
   const { apiKey: qwenKey, base } = getQwenConfig();
+  if (!qwenKey) why.push('qwen: ключа нет');
   if (qwenKey) {
     const model = await resolveDecisionModel('qwen');
     try {
@@ -1272,11 +1291,14 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
         const text = data?.choices?.[0]?.message?.content;
         if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return { text, model: `qwen:${model}` }; }
+        why.push(`qwen(${model}): пустой ответ`);
+      } else {
+        why.push(`qwen(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
       }
-    } catch { /* сдаёмся — вызывающий обработает null */ }
+    } catch (e) { why.push(`qwen: ${(e as Error).message.slice(0, 100)}`); }
   }
 
-  return { text: null, model: null };
+  return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована' };
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
