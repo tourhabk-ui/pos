@@ -118,11 +118,8 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
               </span>
             ) : href === '/planning?mode=trail' ? (
               /* «На маршруте» — фирменная иконка из пака владельца (31.07):
-                 пин с пунктирным следом. Цвет вшит в PNG (коралл пака), поэтому
-                 состояния делаются фильтром: неактивный — обесцвечен и
-                 приглушён в тон остальных пунктов, активный — полноцветный.
-                 Маской по currentColor нельзя: у пина рисованный светлый
-                 контр-круг, в маске он бы залился сплошным. */
+                 пин с пунктирным следом. Активное состояние — полноцветный
+                 PNG (коралл пака), неактивное — маска в currentColor ниже. */
               <span
                 style={{
                   display: 'flex',
@@ -132,22 +129,43 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   height: '26px',
                 }}
               >
-                <img
-                  src="/images/nav/route-48.webp"
-                  srcSet="/images/nav/route-48.webp 48w, /images/nav/route-96.webp 96w"
-                  sizes="22px"
-                  width={22}
-                  height={22}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  style={{
-                    width: '22px',
-                    height: '22px',
-                    filter: isActive ? 'none' : 'grayscale(1) opacity(.55)',
-                    transition: 'filter 220ms ease',
-                  }}
-                />
+                {isActive ? (
+                  <img
+                    src="/images/nav/route-48.webp"
+                    srcSet="/images/nav/route-48.webp 48w, /images/nav/route-96.webp 96w"
+                    sizes="22px"
+                    width={22}
+                    height={22}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    style={{ width: '22px', height: '22px' }}
+                  />
+                ) : (
+                  /* Неактивное состояние — МАСКА в currentColor, а не фильтр:
+                     обесцвеченный коралловый PNG на тёмной теме превращался в
+                     невидимое пятно (полевой скриншот 01.08, 17:08). Маска
+                     красится в text-muted пункта и живёт в обеих темах.
+                     Светлый контр-круг пина в маске заливается — для
+                     приглушённого силуэта это норма, полноцветная гравюра
+                     остаётся в активном состоянии. */
+                  <span
+                    aria-hidden
+                    style={{
+                      width: '22px',
+                      height: '22px',
+                      background: 'currentColor',
+                      WebkitMaskImage: 'url(/images/nav/route-96.webp)',
+                      maskImage: 'url(/images/nav/route-96.webp)',
+                      WebkitMaskSize: 'contain',
+                      maskSize: 'contain',
+                      WebkitMaskRepeat: 'no-repeat',
+                      maskRepeat: 'no-repeat',
+                      WebkitMaskPosition: 'center',
+                      maskPosition: 'center',
+                    }}
+                  />
+                )}
               </span>
             ) : (
               <span
