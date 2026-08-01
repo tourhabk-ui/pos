@@ -534,7 +534,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             <div className="sig"><span className="caps">Кузьмич</span><span className="dot" /><span className="mono">по данным, не по слухам</span></div>
             <div className="acts">
               <Link href="/kuzmich">Спросить</Link>
-              <a className="lead" onClick={(e) => { e.preventDefault(); jumpToLead(); }} href="#lead">Подобрать тур</a>
+              {/* Класс НЕ «lead»: на ссылку каскадом падало правило ФОРМЫ
+                  .v7 .lead (border+padding 20px) — «Подобрать тур» раздувался
+                  в короб и ломал ряд (полевой скриншот 01.08, 17:17). */}
+              <a className="golead" onClick={(e) => { e.preventDefault(); jumpToLead(); }} href="#lead">Подобрать тур</a>
             </div>
           </div>
         </section>
@@ -896,9 +899,11 @@ const CSS = `
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */
 .v7 a:focus-visible,.v7 button:focus-visible,.v7 input:focus-visible{outline:2px solid var(--ocean);outline-offset:2px;border-radius:6px}
-/* Подчинённая секция: продолжение предыдущей двери, а не новая. Поэтому без
-   собственного заголовка и с меньшим отступом сверху. */
-.v7 section.sub{margin-top:-14px}
+/* Подчинённая секция: продолжение предыдущей двери, а не новая — без
+   заголовка и с меньшим отступом. Отступ ПОЛОЖИТЕЛЬНЫЙ: отрицательные -14px
+   физически наезжали плитками на последний ряд предыдущей секции
+   (полевой скриншот 01.08 — «Стихии» накрыли действия Кузьмича). */
+.v7 section.sub{margin-top:14px}
 .v7 .shead{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
 .v7 .shead h2{font:600 16px/1.2 var(--font-playfair),Georgia,serif;letter-spacing:-.02em}
 .v7 .shead .line{flex:1;height:1px;background:color-mix(in srgb,var(--border) 55%,transparent)}
@@ -994,7 +999,7 @@ const CSS = `
 .v7 .guide .sig .mono{font:400 9px/1 var(--fm);color:var(--text-muted)}
 .v7 .guide .acts{margin-top:14px;display:flex;gap:22px;align-items:center}
 .v7 .guide .acts a{font:600 10px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--success);border-bottom:1px solid color-mix(in srgb,var(--success) 35%,transparent);padding-bottom:3px;cursor:pointer}
-.v7 .guide .acts a.lead{color:var(--accent);border-bottom-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.v7 .guide .acts a.golead{color:var(--accent);border-bottom-color:color-mix(in srgb,var(--accent) 45%,transparent)}
 /* стихии — сетка стеклянных плиток (стекло поверх цветного градиента, не сплошного фона) */
 .v7 .elements{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .v7 .etile{position:relative;display:block;min-height:110px;border-radius:22px;overflow:hidden;isolation:isolate;

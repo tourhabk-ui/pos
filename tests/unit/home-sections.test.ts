@@ -83,3 +83,19 @@ describe('живой блок обстановки честен', () => {
     expect(CODE).not.toMatch(/freshnessDot\([^)]*\)\s*\|\|\s*['"]var\(--success\)/);
   });
 });
+
+describe('классы гида и формы не пересекаются (полевой скриншот 01.08)', () => {
+  it('у ссылок гида нет класса lead — он принадлежит форме', () => {
+    // .v7 .lead — рамка и padding 20px ФОРМЫ подбора. Ссылка «Подобрать тур»
+    // с классом lead ловила это правило каскадом, раздувалась в короб и
+    // ломала ряд действий, а «Стихии» наезжали сверху.
+    const acts = CODE.slice(CODE.indexOf('className="acts"'), CODE.indexOf('</section>', CODE.indexOf('className="acts"')));
+    expect(acts, 'ссылка гида снова с классом lead — поймает стили формы')
+      .not.toMatch(/className="lead"/);
+  });
+
+  it('подчинённые секции не наезжают на предыдущие', () => {
+    expect(SRC, 'section.sub снова с отрицательным отступом — плитки перекроют контент')
+      .not.toMatch(/section\.sub\{margin-top:-/);
+  });
+});
