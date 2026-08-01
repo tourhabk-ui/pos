@@ -68,6 +68,8 @@ export interface GrowthScanResult {
    * не надо лезть в БД, чтобы узнать, кто думал.
    */
   decision_model?: string | null;
+  /** Причина немоты/кривого ответа решателя — null при здоровом прогоне. */
+  decision_error?: string | null;
 }
 
 // ── Code-level scans ─────────────────────────────────────────────────────
@@ -334,6 +336,8 @@ interface CodeReviewResult {
   source: RepoFilesSource;
   /** Модель, ответившая на ревью (null — не отвечал никто). */
   model?: string | null;
+  /** Причина немоты или кривого ответа решателя; null — здоровое ревью. */
+  decisionError?: string | null;
 }
 
 async function aiCodeReview(): Promise<CodeReviewResult> {
@@ -433,16 +437,30 @@ severity: critical = утечка данных/обход auth/инъекция/
 
   try {
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
-    const { text: result, model: decisionModel } = await callAIDecisionDetailed(messages);
+    const { text: result, model: decisionModel, error: decisionError } = await callAIDecisionDetailed(messages);
     if (!result) {
-      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
+      // Немота решателя — с причиной по ступеням waterfall (01.08: баланс
+      // DeepSeek был жив, а прогоны молчали — без причины это не чинится).
+      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null };
     }
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(jsonStr) as Array<{
+    let parsed: Array<{
       file: string; title: string; description: string;
       severity: string; suggestion: string;
     }>;
+    try {
+      parsed = JSON.parse(jsonStr) as typeof parsed;
+    } catch (e) {
+      // Ответ пришёл, но не парсится: раньше это глоталось общим catch и
+      // терялась даже атрибуция модели — немота и кривой ответ выглядели
+      // одинаково. Модель называем, причину фиксируем.
+      return {
+        issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source,
+        model: decisionModel ?? null,
+        decisionError: `ответ ${decisionModel ?? '?'} не распарсился: ${(e as Error).message.slice(0, 120)}`,
+      };
+    }
 
     // Filter out excluded files (AI may still mention them) + мусор-ответы +
     // недостоверные находки (страж: клеймят санкционированный callAIFast/
@@ -488,7 +506,7 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null };
+    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null };
   } catch {
     return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   }
@@ -641,6 +659,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   };
   // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
   let decisionModel: string | null = null;
+  let decisionError: string | null = null;
 
   if (scanType === 'full' || scanType === 'code') {
     const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
@@ -664,6 +683,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     coverage.files_listed = review.listed;
     coverage.files_reviewed = review.reviewed;
     decisionModel = review.model ?? null;
+    decisionError = review.decisionError ?? null;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
     const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
     issues.push(...mocks.issues);
@@ -741,6 +761,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel, decision_error: decisionError };
 }
 

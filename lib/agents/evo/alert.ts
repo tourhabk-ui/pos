@@ -22,6 +22,7 @@ interface ScanShape {
   duration_ms?: number;
   /** Кто считал прогон: флагман или фоллбэк waterfall. */
   decision_model?: string | null;
+  decision_error?: string | null;
   coverage?: {
     source?: string;
     files_listed?: number;
@@ -108,7 +109,7 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
         ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — не флагман. Проверьте ключ и релей.\n`
         : `Модель аудита: ${s.decision_model}\n`)
       : (mute
-        ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но не ответил ни один провайдер — «0 находок» ничего не значит. Проверьте ключ/баланс DeepSeek и релей (/api/ai/relay-check).\n`
+        ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но ответа нет — «0 находок» ничего не значит.\n${s?.decision_error ? `Причина: ${s.decision_error}\n` : 'Причина не записана — прогон до диагностики 01.08.\n'}`
         : '')) +
     (rescueAlerts > 0 ? `<b>Спасатель: ${rescueAlerts} алертов</b>\n` : '') +
     (result.errors.length > 0 ? `Ошибки: ${result.errors.join(', ')}\n` : '') +
