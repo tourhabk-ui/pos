@@ -64,20 +64,22 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             href={href}
             aria-label={label}
             onClick={onNavClick}
+            // Типографика north-star (полевой скриншот 01.08): капс 8px читался
+            // мелкой технической подписью. Обычный регистр 10.5px + активная
+            // точка под подписью вместо пилюли-подложки.
             style={{
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '5px',
-              padding: '8px 0 calc(7px + env(safe-area-inset-bottom))',
+              gap: '4px',
+              padding: '9px 0 calc(8px + env(safe-area-inset-bottom))',
               color: isActive ? 'var(--accent)' : 'var(--text-muted)',
               textDecoration: 'none',
               fontFamily: FO,
-              fontSize: '8px',
+              fontSize: '10.5px',
               fontWeight: 600,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
+              letterSpacing: '0.01em',
               transition: 'color 220ms ease',
             }}
           >
@@ -127,10 +129,7 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   width: '46px',
-                  height: '28px',
-                  borderRadius: '999px',
-                  background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
-                  transition: 'background 280ms ease',
+                  height: '26px',
                 }}
               >
                 <img
@@ -157,16 +156,23 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   width: '46px',
-                  height: '28px',
-                  borderRadius: '999px',
-                  background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
-                  transition: 'background 280ms ease',
+                  height: '26px',
                 }}
               >
-                <Icon size={19} strokeWidth={2} />
+                <Icon size={20} strokeWidth={isActive ? 2.2 : 1.9} />
               </span>
             )}
             <span>{label}</span>
+            <span
+              aria-hidden
+              style={{
+                width: '4px',
+                height: '4px',
+                borderRadius: '50%',
+                background: isActive ? 'var(--accent)' : 'transparent',
+                transition: 'background 220ms ease',
+              }}
+            />
           </Link>
         );
       })}

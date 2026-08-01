@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Activity, Flame, Wind, Thermometer, Droplets, RefreshCw, Bot, Send, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import BottomNav from '@/components/shared/BottomNav';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import { zoneName } from '@/lib/safety/zone-names';
 import { plural } from '@/lib/home/data-freshness';
 
@@ -218,11 +220,18 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   const bannerLabel = maxRisk === 'low' ? 'Обстановка нормальная' : `Опасность: ${RISK_LABELS[maxRisk]}`;
 
   return (
-    <div className="ds-page" style={{ maxWidth: 680, margin: '0 auto' }}>
-      {/* Заголовок */}
-      <div style={{ marginBottom: 24 }}>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
-        <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасность</h1>
+    // paddingBottom — под фиксированный таб-бар: без него последняя карточка
+    // (контакты) пряталась за панелью. Сам таб-бар — ЕДИНЫЙ BottomNav
+    // платформы: с /safety не было пути домой (полевой скриншот 01.08).
+    <div className="ds-page" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+      {/* Заголовок. SOS в шапке обязателен на каждом экране с навигацией
+          (решение владельца #887, сторож sos-always-reachable). */}
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
+          <h1 className="ds-h1" style={{ marginBottom: 8 }}>Безопасность</h1>
+        </div>
+        <EmergencyAction />
       </div>
 
       {/* Живая обстановка (P0-3b): радар + лента + пульс переехали с главной.
@@ -489,6 +498,8 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           </div>
         )}
       </div>
+
+      <BottomNav activePath="/safety" />
     </div>
   );
 }

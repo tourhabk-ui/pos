@@ -277,7 +277,18 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <div className="hero-shade" aria-hidden />
         <div className="hero-fade" aria-hidden />
         <div className="hero-in">
-          <span className="hero-brand">Vedarai</span>
+          {/* Лого — два вулкана (Корякский и Авачинский силуэтом) тонким
+              штрихом в гравюрной манере бренда + вордмарк мельче. Текст
+              VEDARAI один смотрелся безлико — решение владельца 01.08. */}
+          <div className="hero-brand" role="img" aria-label="Vedarai">
+            <svg className="hb-mark" viewBox="0 0 72 26" aria-hidden>
+              <path d="M1 25 L14 7 L18 12 L22 5 L30 14 L36 25" />
+              <path d="M32 25 L46 11 L51 16 L57 10 L71 25" />
+              <path d="M20 8 L22 5 L24 8" />
+              <path d="M22 5 C21 3 23 2 22 0" opacity=".65" />
+            </svg>
+            <span className="hb-word">Vedarai</span>
+          </div>
           <div className="hero-sp" />
           {trip ? (
             <>
@@ -844,9 +855,11 @@ const CSS = `
 .v7 .hero-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.44) 0%,rgba(10,14,12,.10) 30%,rgba(10,14,12,.46) 68%,rgba(10,14,12,.30) 100%)}
 .v7 .hero-fade{position:absolute;left:0;right:0;bottom:-1px;height:110px;background:linear-gradient(180deg,transparent 0%,var(--bg-primary) 92%)}
 .v7 .hero-in{position:relative;max-width:480px;margin:0 auto;padding:16px 20px 96px;width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
-/* Вордмарк — serif с разрядкой, как в макете. Живёт на фото: в шапке ему не
+/* Лого — вулканы штрихом + вордмарк. Живёт на фото: в шапке ему не
    хватало бюджета ширины (см. комментарий у .topbar). */
-.v7 .hero-brand{font:600 16px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95);text-shadow:0 1px 14px rgba(0,0,0,.4)}
+.v7 .hero-brand{display:flex;flex-direction:column;gap:7px;filter:drop-shadow(0 1px 10px rgba(0,0,0,.45))}
+.v7 .hb-mark{width:52px;height:auto;stroke:rgba(255,255,255,.95);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.v7 .hb-word{font:600 11px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:56px}
 /* Display-типографика — главный визуальный удар макета. clamp: на 320px не
    рвёт слова, на 480px не превращается в плакат. */
