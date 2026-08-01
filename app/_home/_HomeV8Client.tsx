@@ -364,6 +364,15 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           })}
         </div>
 
+        {/* Планировщик — явная дверь с честным именем (владелец 01.08: чип
+            «На 3–5 дней» планировщиком не читался и вход терялся). Движок
+            lib/planner: дни, зоны, реальная занятость. */}
+        <Link href="/planner" className="planline">
+          <CalendarDays size={18} strokeWidth={1.8} aria-hidden />
+          <span className="pl-txt"><b>Планировщик поездки</b><span>соберёт маршрут по дням: даты, зоны, реальная занятость</span></span>
+          <span className="pl-go" aria-hidden>→</span>
+        </Link>
+
         {/* LIVE — обстановка одной строкой. Это не радар: радар показывает
             подробности, а здесь ответ на вопрос «можно ли вообще сегодня».
             Свежесть обязательна и показывается тремя состояниями: «спокойно»
@@ -886,6 +895,13 @@ const CSS = `
 .v7 .hero-chips{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}
 .v7 .hchip{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:999px;text-decoration:none;color:var(--text-primary);font:600 11.5px/1 var(--font-outfit),system-ui,sans-serif;background:var(--bg-card);border:1px solid var(--border);transition:transform .13s ease,background .2s ease}
 .v7 .hchip svg{color:var(--text-secondary)}
+.v7 .planline{margin-top:10px;display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border-radius:16px;text-decoration:none;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--ocean);transition:transform .13s ease}
+.v7 .planline:active{transform:scale(.99)}
+.v7 .planline svg{color:var(--ocean);flex:none}
+.v7 .planline .pl-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.v7 .planline .pl-txt b{font:700 13px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .planline .pl-txt span{font:500 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.v7 .planline .pl-go{margin-left:auto;color:var(--ocean);font-size:16px}
 .v7 .hchip:active{transform:scale(.96)}
 .v7 .hchip:hover{background:var(--bg-hover)}
 /* секции */
