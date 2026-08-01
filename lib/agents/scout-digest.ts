@@ -64,18 +64,25 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   { key: 'hackernews',    url: 'https://hnrss.org/newest?q=LLM+OR+agent+OR+Claude+OR+Cursor', label: 'Hacker News', category: 'ai' },
   // AI & Tech — русский слой
   { key: 'habr_ai',       url: 'https://habr.com/ru/rss/hub/artificial_intelligence/all/?fl=ru', label: 'Habr AI', category: 'ai' },
-  // Travel
-  { key: 'rata',          url: 'https://www.rata-news.ru/rss', label: 'RATA',     category: 'travel' },
-  { key: 'tourprom',      url: 'https://tourprom.ru/rss',      label: 'Tourprom', category: 'travel' },
-  { key: 'ator',          url: 'https://www.atorus.ru/rss/news.xml', label: 'АТОР', category: 'travel' },
   // Референсы и рынок — передовые travel-tech продукты и новинки, откуда берём
   // фичи/паттерны «сделать у себя». Раньше жили только в intelligence-monitor и
   // упирались в каналы — в эволюцию (evo_growth_issues) не доходили.
   { key: 'skift',         url: 'https://skift.com/feed/',            label: 'Skift',        category: 'reference' },
   { key: 'producthunt',   url: 'https://www.producthunt.com/feed',   label: 'Product Hunt', category: 'reference' },
-  // Kamchatka
-  { key: 'kamgov',        url: 'https://www.kamgov.ru/rss',    label: 'Kamgov',        category: 'kamchatka' },
-  { key: 'mchs_rss',      url: 'https://41.mchs.gov.ru/rss',   label: 'МЧС Камчатка',  category: 'kamchatka' },
+
+  // ── УДАЛЕНЫ 01.08 как мёртвые (диагноз по полю error прогона 09:10 UTC) ──
+  // Поле error (появилось в #916) дало точную причину, а не «молчит»:
+  //   rata     — fetch failed: хост rata-news.ru не отвечает (DNS/блок/лёг);
+  //   tourprom — HTTP 404: tourprom.ru/rss снят;
+  //   ator     — HTTP 404: atorus.ru/rss/news.xml снят;
+  //   kamgov   — HTTP 404: kamgov.ru/rss снят;
+  //   mchs_rss — HTTP 404: 41.mchs.gov.ru/rss снят (гос-CMS ушла с RSS).
+  // Все 4 «404» — это сами сайты сняли ленты, а не переехали: гадать новый
+  // URL нечего, ленты нет. КАМЧАТСКИЕ safety-данные при этом НЕ потеряны —
+  // МЧС и kamgov идут живым путём через safety-ingest (seismic-parser:
+  // t.me / vk_mchs / max_mchs / kamgov-XML), независимо от этого RSS.
+  // Замена travel-лент на живые — отдельным PR, когда подтвердится рабочий
+  // URL из РФ (из песочницы домены отдают 403, проверить нельзя — не выдумываю).
 ];
 
 // Метки AI-источников — для отдельного поста в @ai_hub_money
