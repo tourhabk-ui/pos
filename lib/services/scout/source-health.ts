@@ -133,6 +133,8 @@ export interface ScoutSourceReport {
   last_ok: string | null;
   /** Часов с последней непустой выдачи; null — если ни разу не давал. */
   silent_hours: number | null;
+  /** Причина сбоя этого прогона — только при status 'error'. */
+  error?: string;
 }
 
 /**
@@ -156,6 +158,7 @@ export function buildSourceReport(
       items: e.rawItems,
       last_ok: lastOk,
       silent_hours: Number.isNaN(ms) ? null : Math.round((now - ms) / 3_600_000),
+      ...(e.error ? { error: e.error } : {}),
     };
   });
 }

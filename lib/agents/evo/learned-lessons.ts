@@ -25,6 +25,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { claimSignature, type SignatureInput } from '@/lib/agents/evo/claim-signature';
+import { guardMemoryText } from '@/lib/agents/evo/memory-guard';
 
 export interface LearnedLessons {
   /** Накопленная сводка уроков (evo_agent_state.learning_summary). */
@@ -112,12 +113,18 @@ export async function loadLearnedLessons(): Promise<LearnedLessons> {
     ).then((r) => r.rows).catch(() => []),
   ]);
 
+  // Страж памяти (memory-guard, ASI06): всё, что поедет в промпт решателя,
+  // проходит детерминированную проверку. Урок с императивом перехвата,
+  // URL или секретом — не урок, а чужой текст: отбрасывается целиком.
+  // Стратегия длиннее урока — ей потолок блока, не фрагмента.
   const rawStrategy = strategyRows[0]?.value;
-  const strategy = typeof rawStrategy === 'string' ? rawStrategy : null;
+  const strategy = guardMemoryText(rawStrategy, MAX_BLOCK_CHARS);
 
   return {
     strategy,
-    lessons: lessonRows.map((r) => r.ai_learning.trim()).filter(Boolean),
+    lessons: lessonRows
+      .map((r) => guardMemoryText(r.ai_learning))
+      .filter((s): s is string => s !== null),
     rejectedDigest: buildRejectedDigest(rejectedRows),
   };
 }

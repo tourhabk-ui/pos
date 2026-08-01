@@ -122,6 +122,8 @@ interface SourceFetch {
   items: RssItem[];
   /** Честный исход: 'ok' (фид отдал items), 'empty' (0 items), 'error' (упал/не-200). */
   status: SourceStatus;
+  /** Причина сбоя — только при 'error': HTTP-код или текст исключения. */
+  error?: string;
 }
 
 /**
@@ -135,13 +137,13 @@ async function fetchSource(s: { key: string; url: string; label: string; categor
       headers: { 'User-Agent': 'TourHab/1.0 (Scout Digest)' },
     }, s.label);
     if (!res.ok) {
-      return { key: s.key, label: s.label, category: s.category, items: [], status: 'error' };
+      return { key: s.key, label: s.label, category: s.category, items: [], status: 'error', error: `HTTP ${res.status}` };
     }
     const xml = await res.text();
     const items = parseRssItems(xml, s.label);
     return { key: s.key, label: s.label, category: s.category, items, status: items.length > 0 ? 'ok' : 'empty' };
-  } catch {
-    return { key: s.key, label: s.label, category: s.category, items: [], status: 'error' };
+  } catch (e) {
+    return { key: s.key, label: s.label, category: s.category, items: [], status: 'error', error: ((e as Error).message || 'unknown').slice(0, 160) };
   }
 }
 
@@ -375,6 +377,7 @@ async function recordSourceHealthAndAlert(
   const nowMs = Date.now();
   const entries: Array<SourceHealthEntry & { category: SourceCategory }> = fetched.map(f => ({
     key: f.key, label: f.label, category: f.category, status: f.status, rawItems: f.items.length, inserted: 0,
+    ...(f.error ? { error: f.error } : {}),
   }));
 
   let deadLabels: string[] = [];

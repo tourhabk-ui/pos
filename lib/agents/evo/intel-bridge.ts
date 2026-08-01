@@ -22,6 +22,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIDecision } from '@/lib/ai/providers';
 import { intelSignature } from '@/lib/agents/evo/claim-signature';
+import { scrubInjectionLines } from '@/lib/agents/evo/memory-guard';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -154,7 +155,9 @@ export async function bridgeScoutIntel(): Promise<IntelBridgeResult> {
         (knownTopics.length > 0
           ? `Темы, по которым уже есть находка или вердикт владельца — НЕ предлагай их снова ни в какой формулировке: ${knownTopics.join(', ')}.\n\n`
           : '') +
-        `Дайджест (${digest.slug}):\n\n${digest.compiled_truth.slice(0, 6000)}`,
+        // Дайджест сварен из внешних RSS — перед промптом решателя строки с
+        // императивами перехвата управления снимаются (memory-guard, ASI06).
+        `Дайджест (${digest.slug}):\n\n${scrubInjectionLines(digest.compiled_truth).slice(0, 6000)}`,
     },
   ];
 

@@ -106,3 +106,18 @@ describe('память канала подключена в исходниках
     expect(src).toMatch(/repeat_blocked: true/);
   });
 });
+
+describe('диагноз фидов: отчёт называет причину сбоя (01.08)', () => {
+  // Пять источников неделями значились «error» без причины — диагноз требовал
+  // логов сервера, которых у cron-прогона нет. Теперь причина едет в отчёт.
+  it('fetchSource пишет HTTP-код и текст исключения в error', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+    expect(src, 'не-200 снова безмолвен').toMatch(/error:\s*`HTTP \$\{res\.status\}`/);
+    expect(src, 'исключение снова безмолвно').toMatch(/\(e as Error\)\.message/);
+  });
+
+  it('buildSourceReport доносит причину до JSON прогона', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/services/scout/source-health.ts'), 'utf-8');
+    expect(src).toMatch(/e\.error \? \{ error: e\.error \}/);
+  });
+});
