@@ -101,8 +101,22 @@ describe('телеграм-отчёт называет модель и крич�
     expect(isFlagshipDecision(null)).toBe(false);
   });
 
-  it('прогон без ревью понижением не считается', () => {
-    // decision_model null — ревью не запускалось; выдумывать тревогу не о чем.
-    expect(buildEvoAlert({ scan: scan(null), ...quiet })).toBeNull();
+  it('решатель молчит — это тревога, а не тишина (контракт сменён 01.08)', () => {
+    // Прежний тест утверждал «null = ревью не запускалось» — при
+    // files_reviewed: 20 в этой же фикстуре. Это и было слепое пятно:
+    // четыре прогона подряд с немым решателем выглядели зелёными.
+    // Файлы ушли в ревью, модель не записана → не ответил ни один
+    // провайдер, и «0 находок» ничего не значит.
+    const text = buildEvoAlert({ scan: scan(null), ...quiet });
+    expect(text).not.toBeNull();
+    expect(text).toContain('РЕШАТЕЛЬ МОЛЧИТ');
+  });
+
+  it('а вот прогон, где ревью НЕ запускалось, тревоги не даёт', () => {
+    const noReview = {
+      ...scan(null),
+      coverage: { source: 'github', files_listed: 900, files_reviewed: 0, mock_files_scanned: 20 },
+    };
+    expect(buildEvoAlert({ scan: noReview, ...quiet })).toBeNull();
   });
 });
