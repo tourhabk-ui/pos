@@ -139,8 +139,10 @@ describe('buildEvoAlert: ослепший прочёс — видимый але
   });
 
   it('здоровый прочёс без новых проблем — по-прежнему тишина (null)', () => {
+    // «Здоровый» с 01.08 включает записанную модель: прочёс с reviewed>0 и
+    // без модели — это немой решатель, он тишины больше не получает.
     const text = buildEvoAlert({
-      scan: cleanScan({ coverage: { source: 'disk', files_listed: 340, files_reviewed: 8, mock_files_scanned: 12 } }),
+      scan: cleanScan({ decision_model: 'anthropic/claude-opus-5', coverage: { source: 'disk', files_listed: 340, files_reviewed: 8, mock_files_scanned: 12 } }),
       evolution: { processed: 0, auto_fixes: 0 },
       rescue: { alerts: [] },
       errors: [],

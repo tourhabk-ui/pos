@@ -32,3 +32,17 @@ describe('обещание про 112 — честное', () => {
     expect(SRC).toMatch(/сеть ЛЮБОГО оператора/);
   });
 });
+
+describe('safety-кластер существует для поиска (аудит 01.08)', () => {
+  // /register, /safety/communication и /eco существовали, имели метаданные —
+  // и отсутствовали в sitemap: для поисковика этих страниц не было. Это
+  // единственный уникальный контент ниши (регистрация МЧС, связь в поле,
+  // правила природы) — его видимость и есть SEO-стратегия платформы.
+  it('страницы кластера объявлены в sitemap', () => {
+    const sm = readFileSync(join(process.cwd(), 'app/sitemap.ts'), 'utf-8');
+    for (const path of ['/register', '/safety/communication', '/eco']) {
+      expect(sm, `${path} выпал из sitemap — страница снова невидима для поиска`)
+        .toContain(`\${BASE}${path}\``);
+    }
+  });
+});

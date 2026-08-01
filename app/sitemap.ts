@@ -39,6 +39,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/safety`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.9 },
     { url: `${BASE}/safety/incidents`,     lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.8 },
     { url: `${BASE}/safety/offline`,       lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
+    // Safety-кластер — уникальный контент ниши (аудит 01.08): регистрация
+    // МЧС, связь в поле, правила природы. Страницы существовали, но в
+    // sitemap не попали и для поиска не существовали.
+    { url: `${BASE}/register`,             lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.85 },
+    { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
+    { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
     { url: `${BASE}/planning`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/catalog`,              lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },

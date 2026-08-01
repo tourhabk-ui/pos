@@ -85,10 +85,17 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
   // самая сильная модель, тихое понижение обязано быть слышным.
   // Прогон, где ревью не запускалось (модели нет вовсе), понижением не считаем.
   const downgraded = Boolean(s?.decision_model) && !isFlagshipDecision(s?.decision_model);
+  // Решатель МОЛЧИТ: файлы в ревью уходили, а модель ответа не записана —
+  // значит ни один провайдер не ответил (или ответ не распарсился). Хуже
+  // тихого понижения: «0 находок» неотличимо от «никто не смотрел». Найдено
+  // 01.08 атрибуцией из #904: четыре прогона подряд decision_model:null, все
+  // выглядели зелёными. Прогон, где ревью не ЗАПУСКАЛОСЬ (reviewed 0),
+  // немотой не считаем — там нечего было отвечать.
+  const mute = (s?.coverage?.files_reviewed ?? 0) > 0 && !s?.decision_model;
   const nothingNew = newIssues === 0 && rescueAlerts === 0 && result.errors.length === 0 && processed === 0;
-  // Ослепший прочёс и съезд с флагмана — тоже поводы: молчание тут = «не читает
-  // всё» и «думает не тот».
-  if (nothingNew && !blind && !downgraded) return null;
+  // Ослепший прочёс, съезд с флагмана и немой решатель — тоже поводы:
+  // молчание тут = «не читает всё», «думает не тот» и «не думает никто».
+  if (nothingNew && !blind && !downgraded && !mute) return null;
 
   const cov = s?.coverage;
   return `<b>Evo Scan</b> — новых проблем: ${newIssues} (найдено всего ${issues.length}, критичных ${critical})\n` +
@@ -100,7 +107,9 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
       ? (downgraded
         ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — не флагман. Проверьте ключ и релей.\n`
         : `Модель аудита: ${s.decision_model}\n`)
-      : '') +
+      : (mute
+        ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но не ответил ни один провайдер — «0 находок» ничего не значит. Проверьте ключ/баланс DeepSeek и релей (/api/ai/relay-check).\n`
+        : '')) +
     (rescueAlerts > 0 ? `<b>Спасатель: ${rescueAlerts} алертов</b>\n` : '') +
     (result.errors.length > 0 ? `Ошибки: ${result.errors.join(', ')}\n` : '') +
     `Время: ${Math.round((s?.duration_ms ?? 0) / 1000)}с`;
