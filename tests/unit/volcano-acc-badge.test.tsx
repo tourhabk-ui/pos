@@ -18,7 +18,7 @@ describe('VolcanoAccBadge', () => {
     render(<VolcanoAccBadge status={{
       colorCode: 'red', ashHeightM: 8000,
       summary: 'Лавовое фонтанирование продолжается.',
-      sourceUrl: 'http://www.kscnet.ru/ivs/kvert/', observedAt: '2025-08-07T23:40:00Z',
+      sourceUrl: 'http://kvert.febras.net/', observedAt: '2025-08-07T23:40:00Z',
     }} />);
     expect(screen.getByText(/Красный/)).toBeTruthy();
     expect(screen.getByText(/Пепел до 8.0 км/)).toBeTruthy();

@@ -568,7 +568,7 @@ export default function SafetyHubClient() {
               Вулканическая активность
             </p>
             <p className="text-sm text-[var(--text-secondary)] mt-1">
-              Актуальный статус вулканов: KVERT (kscnet.ru/ivs/kvert)
+              Актуальный статус вулканов: KVERT (kvert.febras.net)
             </p>
           </div>
         </div>

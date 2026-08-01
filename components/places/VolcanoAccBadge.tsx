@@ -1,7 +1,7 @@
 'use client';
 
-import { Mountain, ExternalLink, AlertTriangle } from 'lucide-react';
-import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { Mountain, ExternalLink, AlertTriangle, Clock } from 'lucide-react';
+import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
 import type { VolcanoAccStatus } from '@/components/places/types';
 import { ASHFALL_RULES, shouldShowAshfallGuidance } from '@/lib/safety/ashfall-guidance';
 
@@ -20,6 +20,9 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
   const observed = status.observedAt
     ? new Date(status.observedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
+
+  const ageDays = volcanoObservationAgeDays(status.observedAt);
+  const stale = isVolcanoObservationStale(status.observedAt);
 
   return (
     <div className="max-w-3xl mx-auto px-4 pt-3">
@@ -51,9 +54,11 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
 
         <div className="flex items-center gap-3 flex-wrap mt-2 text-xs text-[var(--text-muted)]">
           {status.ashHeightM != null && <span>Пепел до {(status.ashHeightM / 1000).toFixed(1)} км</span>}
-          {observed && <span>Наблюдение: {observed}</span>}
+          {observed && (
+            <span>Наблюдение: {observed}{ageDays != null && ` (${formatObservationAge(ageDays)})`}</span>
+          )}
           <a
-            href={status.sourceUrl || 'http://www.kscnet.ru/ivs/kvert/'}
+            href={status.sourceUrl || 'http://kvert.febras.net/'}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[var(--ocean)] hover:underline"
@@ -61,6 +66,16 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
             KVERT <ExternalLink className="w-3 h-3" />
           </a>
         </div>
+
+        {stale && (
+          <div className="mt-2 flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2">
+            <Clock className="w-4 h-4 text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden />
+            <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+              Данные KVERT не обновлялись {ageDays != null ? formatObservationAge(ageDays) : 'давно'}.
+              Активность вулкана могла измениться — обязательно сверьте текущий код на KVERT перед выходом.
+            </p>
+          </div>
+        )}
 
         <p className="text-[11px] text-[var(--text-muted)] mt-2 leading-snug">
           Код рассчитан для авиации (риск выброса пепла) и отражает уровень активности вулкана.
