@@ -14,8 +14,15 @@ const src = readFileSync(join(process.cwd(), 'components/marketplace/Marketplace
 
 describe('пустой маркетплейс ведёт к маршрутам и планировщику', () => {
   it('есть ссылка на все маршруты', () => {
-    expect(src.includes('href="/routes"')).toBe(true);
+    // href теперь контекстный (activityFilter ? ... : '/routes'), поэтому
+    // проверяем сам fallback-путь и подпись, а не литерал href="/routes".
+    expect(src.includes("'/routes'")).toBe(true);
     expect(src.includes('Все маршруты')).toBe(true);
+  });
+  it('пустой фильтр по активности ведёт на маршруты этой активности, а не в общий список', () => {
+    // Ярослав: искал «Сплав», туров нет — вместо тупика ведём на сплав-МАРШРУТЫ.
+    expect(src).toMatch(/\/routes\?kind=route&activity_type=\$\{encodeURIComponent\(activityFilter\)\}/);
+    expect(src).toMatch(/Маршруты: \$\{ACTIVITY_LABELS\[activityFilter\]\}/);
   });
   it('есть ссылка в планировщик — собрать поездку', () => {
     expect(src.includes('href="/planner"')).toBe(true);
