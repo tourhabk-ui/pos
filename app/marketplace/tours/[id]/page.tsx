@@ -31,6 +31,7 @@ async function getTour(id: number) {
         ot.base_price, ot.price_old, ot.price_unit,
         ot.activity_type, ot.location_type,
         ot.location_name, ot.latitude, ot.longitude,
+        ot.meeting_point,
         ot.tour_image, ot.photos,
         ot.max_participants, ot.min_participants,
         ot.duration_hours, ot.duration_type, ot.multi_day_count,
