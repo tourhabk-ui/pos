@@ -7,6 +7,7 @@ import { Navigation, Download, Phone, Video } from 'lucide-react';
 import type { PlaceData } from '@/components/places/types';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
+import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 
 const PlaceHero             = dynamic(() => import('@/components/places/PlaceHero'),             { ssr: false });
 const OfflineGPSBanner      = dynamic(() => import('@/components/shared/OfflineGPSBanner'),      { ssr: false });
@@ -337,6 +338,15 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           placeId={place.id}
           placeName={place.name}
           kuzmichReview={place.kuzmichReview}
+          advisory={buildPlaceAdvisory({
+            volcano: place.volcanoStatus
+              ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
+              : null,
+            realtime: place.realtime
+              ? { isOpen: place.realtime.isOpen, activeAlerts: place.realtime.activeAlerts, alertSeverity: place.realtime.alertSeverity }
+              : null,
+            hazardTypes: place.safety.hazardTypes,
+          })}
         />
       </div>
 
