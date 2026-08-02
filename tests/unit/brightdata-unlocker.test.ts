@@ -13,6 +13,7 @@ import { brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 
 const helper = readFileSync(join(process.cwd(), 'lib/services/ingest/brightdata-unlocker.ts'), 'utf-8');
 const sync = readFileSync(join(process.cwd(), 'lib/agents/kvert-sync.ts'), 'utf-8');
+const vk = readFileSync(join(process.cwd(), 'lib/services/ingest/visitkamchatka-importer.ts'), 'utf-8');
 
 describe('reversible без ключа', () => {
   const saved = process.env.BRIGHTDATA_API_KEY;
@@ -52,5 +53,19 @@ describe('KVERT зовёт Unlocker строго как фолбэк', () => {
   it('путь получения данных фиксируется (direct/brightdata)', () => {
     expect(sync).toMatch(/via = 'brightdata'/);
     expect(sync).toMatch(/unmatched: \[\], via \}/);
+  });
+});
+
+describe('парсинг маршрутов (visitkamchatka) — Unlocker последним рубежом', () => {
+  it('и список маршрутов, и описание пробуют Unlocker после прямого fetch', () => {
+    // Обе точки скрейпа должны иметь фолбэк, иначе блок IP кладёт импорт.
+    const hits = vk.match(/brightDataFetch\(/g) ?? [];
+    expect(hits.length, 'Unlocker вплетён меньше чем в оба места скрейпа').toBeGreaterThanOrEqual(2);
+  });
+  it('только при пустом прямом ответе И наличии ключа (кредиты не жгём зря)', () => {
+    expect(vk).toMatch(/if \(!html && brightDataAvailable\(\)\)/);
+  });
+  it('RU-гео для российского источника', () => {
+    expect(vk).toMatch(/brightDataFetch\([^)]*\{ country: 'ru'/);
   });
 });
