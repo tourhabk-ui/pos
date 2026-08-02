@@ -354,13 +354,29 @@ async function checkUndeliveredSafetyPush(): Promise<WatchdogAlert | null> {
     const count = parseInt(rows[0]?.count ?? '0', 10);
     if (count === 0) return null;
 
+    // Точный диагноз причины недоставки, а не общее «проверь VAPID и подписки»
+    // (из-за него 02.08 ключи чинили полночи, а дыра была в нуле подписчиков).
+    // Три разных состояния — три разных действия:
+    const vapidSet = !!process.env.NEXT_PUBLIC_VAPID_KEY && !!process.env.VAPID_PRIVATE_KEY;
+    let subs = 0;
+    try {
+      const s = await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM push_subscriptions`);
+      subs = parseInt(s.rows[0]?.n ?? '0', 10);
+    } catch { /* не смогли посчитать — cause останется по vapidSet */ }
+
+    const cause = !vapidSet
+      ? 'VAPID-ключи не заданы на Timeweb (NEXT_PUBLIC_VAPID_KEY + VAPID_PRIVATE_KEY, нужен передеплой).'
+      : subs === 0
+        ? 'VAPID ок, но подписчиков 0 — доставлять некому. Это не баг ключей: нужны подписки туристов (промпт на /safety).'
+        : `VAPID ок, подписок ${subs}, но доставка не проходит — проверь endpoint/лимиты push-сервиса.`;
+
     return {
       type: 'push_undelivered',
       count,
       details:
         `${count} опасн(ых) алерт(ов) без доставки push > 30 мин ` +
         `(самый ранний: ${(rows[0]?.oldest_title ?? '').slice(0, 80)}). ` +
-        `Туристы не предупреждены. Проверь VAPID-ключи и подписки.`,
+        `Туристы не предупреждены. ${cause}`,
     };
   } catch {
     return null;

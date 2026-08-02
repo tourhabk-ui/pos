@@ -39,7 +39,9 @@ describe('ключ и эндпоинт — из env, не хардкод', () =>
   it('zone из env с дефолтом web_unlocker2, format raw', () => {
     expect(helper).toMatch(/process\.env\.BRIGHTDATA_ZONE \|\| 'web_unlocker2'/);
     expect(helper).toMatch(/format: 'raw'/);
-    expect(helper).toMatch(/api\.brightdata\.com\/request/);
+    // Строковая проверка вместо regex: это substring-ассерт исходника, а не
+    // валидация URL — regex без якорей триггерил CodeQL (regexp-anchor) зря.
+    expect(helper.includes('https://api.brightdata.com/request')).toBe(true);
   });
 });
 
