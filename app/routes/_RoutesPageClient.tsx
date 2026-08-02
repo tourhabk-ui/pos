@@ -10,6 +10,7 @@ import {
   Gem, Droplet, Navigation, Umbrella, Sailboat, Landmark, ScrollText,
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
+import TourResultCard, { type TourResult } from '@/components/routes/TourResultCard';
 import ParksStrip from '@/components/routes/ParksStrip';
 import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
@@ -192,6 +193,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [dbError,   setDbError]   = useState(initialError);
   const [mapRoutes, setMapRoutes] = useState<MapRoute[]>([]);
   const [mapLoading, setMapLoading] = useState(false);
+  // Туры операторов из отдельного каталога (operator_tours). Каталог маршрутов
+  // ищет только места/маршруты, а тур по запросу «сплав» живёт в другой таблице
+  // и раньше не находился вовсе. Подмешиваем совпавшие туры отдельной секцией.
+  const [tours, setTours] = useState<TourResult[]>([]);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   // Пока не «потрачен» — первый эффект с совпадающим ключом не рефетчит
@@ -322,6 +327,24 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   useEffect(() => {
     if (view === 'map') fetchMapRoutes();
   }, [view, fetchMapRoutes]);
+
+  // ── Cross-search: туры операторов по тому же запросу ──────────
+  // Отдельный корпус (operator_tours). Гоним только при текстовом запросе ≥2
+  // символов; иначе секция не нужна и лишний запрос ни к чему.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setTours([]); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      fetch(`/api/hub/marketplace/tours?search=${encodeURIComponent(q)}&limit=6`)
+        .then(r => (r.ok ? r.json() : null))
+        .then((d: { tours?: TourResult[] } | null) => {
+          if (alive) setTours(Array.isArray(d?.tours) ? d!.tours : []);
+        })
+        .catch(() => { if (alive) setTours([]); });
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [query]);
 
   // ── Sync URL ─────────────────────────────────────────────────
   useEffect(() => {
@@ -614,6 +637,26 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </div>
         )}
 
+        {/* ── Туры операторов по запросу (отдельный корпус) ─── */}
+        {view === 'grid' && tours.length > 0 && (
+          <section className="mb-8">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="ds-h2">Туры операторов</h2>
+              <Link
+                href={`/marketplace${query.trim() ? `?search=${encodeURIComponent(query.trim())}` : ''}`}
+                className="text-sm font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
+              >
+                Все туры
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {tours.map(t => (
+                <TourResultCard key={t.id} tour={t} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ── Grid ──────────────────────────────────────────── */}
         {view === 'grid' && (
           <>
@@ -632,9 +675,13 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </button>
               </div>
             ) : routes.length === 0 ? (
-              <div className="py-24 text-center">
+              <div className="py-16 text-center">
                 <SlidersHorizontal className="w-10 h-10 mx-auto mb-3 text-[var(--text-muted)]" />
-                <p className="text-[var(--text-secondary)]">Ничего не найдено</p>
+                <p className="text-[var(--text-secondary)]">
+                  {tours.length > 0
+                    ? 'Маршрутов и мест по этому запросу нет — но есть туры операторов выше'
+                    : 'Ничего не найдено'}
+                </p>
                 <button
                   onClick={() => { setQuery(''); setActivityType(''); setLocationType(''); resetFilters(); }}
                   className="mt-4 ds-btn ds-btn-secondary text-sm"
