@@ -1055,7 +1055,10 @@ const DECISION_MODEL_TTL_MS = 60 * 60 * 1000; // 1ч
 // самой ошибки провайдера, и оно ТОЖЕ протухнет: это последняя соломинка на
 // случай недоступного /models, а не рабочий путь. Рабочий путь — резолв.
 const DECISION_FALLBACK: Record<'deepseek' | 'qwen', string> = {
-  deepseek: 'deepseek-v4-pro',
+  // deepseek-chat — стабильный chat-id DeepSeek (V3). Раньше здесь стоял
+  // deepseek-v4-pro, но на chat/completions он возвращал пустой body (полевой
+  // прогон 02.08 → решатель нем). Страховка обязана быть заведомо рабочей.
+  deepseek: 'deepseek-chat',
   qwen: 'qwen-max-latest',
 };
 
@@ -1374,24 +1377,32 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   const dsKey = getDeepSeekKey();
   if (!dsKey) why.push('deepseek: ключа нет');
   if (dsKey) {
-    const model = await resolveDecisionModel('deepseek');
-    try {
-      const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
-      }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
-      if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
-        const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
-        why.push(`deepseek(${model}): пустой ответ`);
-      } else {
-        // Тело ошибки важнее кода: 400 с "maximum context length" — это
-        // «ревью не влезло», совсем другая починка, чем ключ или баланс.
-        why.push(`deepseek(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
-      }
-    } catch (e) { why.push(`deepseek: ${(e as Error).message.slice(0, 100)}`); }
+    const primary = await resolveDecisionModel('deepseek');
+    // Резолвер иногда отдаёт модель, которая на chat/completions молчит
+    // (deepseek-v4-pro вернул 200 с пустым body — полевой прогон 02.08). Пробуем
+    // резолв, затем детерминированную страховку deepseek-chat: ключ рабочий, а
+    // пустой ответ конкретной модели не должен ронять весь решатель.
+    const candidates = primary === 'deepseek-chat' ? [primary] : [primary, 'deepseek-chat'];
+    for (const model of candidates) {
+      try {
+        const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
+          body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
+        }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
+        if (res.ok) {
+          const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
+          const text = data?.choices?.[0]?.message?.content;
+          if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
+          why.push(`deepseek(${model}): пустой ответ`);
+        } else {
+          // Тело ошибки важнее кода: 400 с "maximum context length" — это
+          // «ревью не влезло», совсем другая починка, чем ключ или баланс.
+          why.push(`deepseek(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
+          break; // HTTP-ошибка (ключ/баланс/контекст) — вторая модель не спасёт
+        }
+      } catch (e) { why.push(`deepseek: ${(e as Error).message.slice(0, 100)}`); break; }
+    }
   }
 
   // 2) Qwen (модель определяется сама) — DashScope, доступен из РФ
