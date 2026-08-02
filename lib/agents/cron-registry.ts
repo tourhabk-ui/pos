@@ -118,6 +118,12 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: 30, tier: 'ops', agentId: null, triggerable: false,
   },
   {
+    key: 'max-webhook', label: 'MAX Webhook Keepalive',
+    description: 'Держит webhook-подписку Кузьмича в MAX, регистрирует заново при потере.',
+    workflow: 'cron-max-webhook.yml', cron: '17 */6 * * *', schedule: 'каждые 6 часов',
+    everyMin: 360, tier: 'ops', agentId: null, triggerable: false,
+  },
+  {
     key: 'health', label: 'System Health Check',
     description: 'AI-провайдеры, БД, платежи.',
     workflow: 'cron-health.yml', cron: '20 * * * *', schedule: 'каждый час',
@@ -372,6 +378,7 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ниже — кроны, которые счётчик работы не пишут вовсе: судить не по чему.
   'leads': 'unknown',
   'tg-watchdog': 'unknown',
+  'max-webhook': 'unknown',
   'llm-budget': 'unknown',
   'payments': 'unknown',
   'channel-sync': 'unknown',
