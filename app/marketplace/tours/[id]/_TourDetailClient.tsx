@@ -60,6 +60,7 @@ interface TourFull {
   location_name: string | null;
   latitude: string | null;
   longitude: string | null;
+  meeting_point: string | null;
   tour_image: string | null;
   photos: string[] | null;
   max_participants: number;
@@ -412,6 +413,23 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 ))}
               </div>
             </section>
+
+            {/* Точка сбора */}
+            {tour.meeting_point && (
+              <section>
+                <h2 className="mb-4 flex items-center gap-2.5" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(20px,2.6vw,26px)', letterSpacing: '-0.02em' }}>
+                  <MapPin className="w-5 h-5 text-[var(--ocean)]" />Точка сбора
+                </h2>
+                <div className="ds-card p-5 space-y-2.5">
+                  {tour.meeting_point.split('\n').filter(l => l.trim()).map((line, i) => (
+                    <div key={i} className="flex items-start gap-2.5 text-sm text-[var(--text-secondary)]">
+                      <MapPin className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />{line}
+                    </div>
+                  ))}
+                  <p className="text-xs text-[var(--text-muted)] pt-1">Точное время оператор подтверждает после брони.</p>
+                </div>
+              </section>
+            )}
 
             {/* Отзывы */}
             <section>
