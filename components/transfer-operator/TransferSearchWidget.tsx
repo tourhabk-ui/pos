@@ -26,6 +26,10 @@ export function TransferSearchWidget({ className, onSearchResults }: TransferSea
   const [searchResults, setSearchResults] = useState<TransferOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Был ли поиск: без этого пустой результат (0 трансферов) не отличался от
+  // «ещё не искали» — виджет молча ничего не показывал (жалоба Ярослава:
+  // «искал трансфер → пусто → ничего»). Теперь пустой поиск = честный экран.
+  const [searched, setSearched] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
   // Функция для выполнения поиска
@@ -66,6 +70,7 @@ export function TransferSearchWidget({ className, onSearchResults }: TransferSea
 
       if (data.success && data.data) {
         setSearchResults(data.data.availableTransfers);
+        setSearched(true);
         onSearchResults?.(data.data.availableTransfers);
       } else {
         setError(data.error || 'Ошибка при поиске трансферов');
@@ -323,6 +328,27 @@ export function TransferSearchWidget({ className, onSearchResults }: TransferSea
               <TransferCard key={transfer.scheduleId} transfer={transfer} />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Пусто, но честно — не молчание. Раньше при 0 результатов виджет не
+          показывал ничего (жалоба Ярослава). Теперь — путь: другая дата или
+          собрать поездку с Кузьмичом, который подскажет по трансферу. */}
+      {searched && !isLoading && !error && searchResults.length === 0 && (
+        <div className="mt-6 p-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-center">
+          <p className="text-base font-semibold text-[var(--text-primary)] mb-1">
+            Прямых трансферов по этому запросу не нашлось
+          </p>
+          <p className="text-sm text-[var(--text-secondary)] mb-4 max-w-md mx-auto">
+            Расписаний пока немного. Попробуйте другую дату или направление — либо
+            попросите Кузьмича подобрать заброску под ваш маршрут.
+          </p>
+          <a
+            href="/planner"
+            className="ds-btn ds-btn-primary text-sm rounded-xl inline-flex items-center gap-2"
+          >
+            Спланировать с Кузьмичом
+          </a>
         </div>
       )}
     </div>

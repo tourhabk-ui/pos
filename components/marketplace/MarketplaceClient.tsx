@@ -872,10 +872,18 @@ export default function MarketplaceClient({
             )}
             {/* Тупик «нет туров» → путь к настоящему богатству платформы:
                 маршруты/места и планировщик (с ~20 турами это главный контент,
-                а не запасной). Числа не хардкодим — они меняются (CLAUDE.md). */}
+                а не запасной). Числа не хардкодим — они меняются (CLAUDE.md).
+                КОНТЕКСТНО: искал «Сплав» и туров нет → ведём на сплав-МАРШРУТЫ,
+                а не в общий список (жалоба Ярослава: искал сплавы → пусто). */}
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-              <Link href="/routes" className="ds-btn ds-btn-secondary text-sm rounded-xl inline-flex items-center gap-2">
-                <Mountain className="w-4 h-4" /> Все маршруты
+              <Link
+                href={activityFilter ? `/routes?kind=route&activity_type=${encodeURIComponent(activityFilter)}` : '/routes'}
+                className="ds-btn ds-btn-secondary text-sm rounded-xl inline-flex items-center gap-2"
+              >
+                <Mountain className="w-4 h-4" />
+                {activityFilter && ACTIVITY_LABELS[activityFilter]
+                  ? `Маршруты: ${ACTIVITY_LABELS[activityFilter]}`
+                  : 'Все маршруты'}
               </Link>
               <Link href="/planner" className="ds-btn ds-btn-primary text-sm rounded-xl inline-flex items-center gap-2">
                 <Sparkles className="w-4 h-4" /> Собрать поездку
