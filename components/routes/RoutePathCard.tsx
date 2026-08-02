@@ -35,6 +35,12 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   const DiffIcon     = diff.Icon;
   const actLabel     = ACTIVITY_LABELS[route.activityType ?? route.category] ?? 'Маршрут';
 
+  // imageUrl из каталога всегда разрешается: реальное фото маршрута
+  // (/api/images/route/id) → подобранное фото → категорийный фолбэк
+  // (lib/routes/catalog-query.ts). Раньше карточка его просто не рисовала —
+  // отсюда пустые тёмные прямоугольники в каталоге.
+  const photoSrc = route.imageUrl ?? null;
+
   const [liked,  setLiked]  = useState(false);
   const [liking, setLiking] = useState(false);
 
@@ -58,27 +64,52 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   }, [liking, liked, route.id, route.title]);
 
   return (
-    <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--bg-hover)] text-[var(--text-primary)]">
-          <Footprints className="w-3 h-3 text-[var(--success)]" />
+    <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
+      {/* ── Фото маршрута ─────────────────────────────────── */}
+      <Link href={`/routes/${route.id}`} className="block relative" style={{ height: 148 }}>
+        {photoSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc}
+            alt={route.title}
+            loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: `linear-gradient(155deg, color-mix(in srgb, ${diff.color} 26%, var(--bg-hover)) 0%, var(--bg-hover) 100%)` }}
+          >
+            <Footprints className="w-8 h-8 opacity-30" style={{ color: diff.color }} />
+          </div>
+        )}
+
+        {/* Подложка снизу — читаемость бейджа поверх любого фото */}
+        <div className="absolute inset-x-0 bottom-0 h-14 pointer-events-none bg-gradient-to-t from-black/45 to-transparent" />
+
+        {/* Тип активности — glass поверх фото */}
+        <span className="absolute bottom-2 left-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full backdrop-blur-md bg-black/40 border border-white/15 text-white">
+          <Footprints className="w-3 h-3" />
           {actLabel}
         </span>
+
+        {/* Избранное — glass поверх фото */}
         <button
           type="button"
           onClick={handleFavorite}
           aria-label={liked ? 'В избранном' : 'В избранное'}
-          className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-          style={{ background: liked ? 'var(--accent)' : 'var(--bg-hover)', opacity: liking ? 0.5 : 1 }}
+          className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 backdrop-blur-md border border-white/15"
+          style={{ background: liked ? 'var(--accent)' : 'rgba(0,0,0,0.4)', opacity: liking ? 0.5 : 1 }}
         >
           <Heart
             className="w-3.5 h-3.5 transition-all"
-            style={{ color: liked ? 'var(--bg-card)' : 'var(--text-secondary)', fill: liked ? 'var(--bg-card)' : 'none' }}
+            style={{ color: 'white', fill: liked ? 'white' : 'none' }}
           />
         </button>
-      </div>
+      </Link>
 
-      <Link href={`/routes/${route.id}`} className="block space-y-1.5">
+      {/* ── Тело ──────────────────────────────────────────── */}
+      <Link href={`/routes/${route.id}`} className="block p-3 space-y-1.5">
         <h3
           className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1rem' }}
@@ -88,7 +119,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
         <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
           {route.description}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap pt-0.5">
           <span
             className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
             style={{ background: `${diff.color}22`, color: diff.color, border: `1px solid ${diff.color}44` }}
@@ -102,13 +133,13 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
               {daysLabel(route.durationDays)}
             </span>
           )}
+          {route.lat != null && (
+            <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
+              <MapPin className="w-3 h-3" />
+              На карте
+            </span>
+          )}
         </div>
-        {route.lat != null && (
-          <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-            <MapPin className="w-3 h-3" />
-            На карте
-          </span>
-        )}
       </Link>
     </article>
   );
