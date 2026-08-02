@@ -8,9 +8,9 @@ import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
 import {
   MapPin, Users, ChevronRight, Heart, ShoppingCart, Check,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
-  X, ChevronDown, CheckCircle2, Flame, ThermometerSun, Fish,
+  X, ChevronDown, Flame, ThermometerSun, Fish,
   PawPrint, Helicopter, Waves, Snowflake, Star, TrendingUp,
-  Calendar, Mountain, ArrowRight,
+  Calendar, Mountain, ArrowRight, Anchor,
 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 
@@ -270,6 +270,42 @@ function StatsBar() {
 
 /* ─── Tour Card (Premium Redesign) ─── */
 
+/* Рейл фич каталожной карточки: иконки выводим детерминированно из активности
+   и ключевых слов названия/описания тура (медведи/рыбалка/сплав/источники и
+   т.д.). Без нового столбца в БД — работает на любом туре, до 4 иконок. */
+const ACTIVITY_FEATURE: Record<string, { Icon: React.ElementType; label: string }> = {
+  rafting:    { Icon: Waves,        label: 'Сплав' },
+  fishing:    { Icon: Fish,         label: 'Рыбалка' },
+  bears:      { Icon: PawPrint,     label: 'Медведи' },
+  thermal:    { Icon: ThermometerSun, label: 'Источники' },
+  trekking:   { Icon: Mountain,     label: 'Треккинг' },
+  helicopter: { Icon: Helicopter,   label: 'Вертолёт' },
+  boat_trip:  { Icon: Anchor,       label: 'Море' },
+  snowmobile: { Icon: Snowflake,    label: 'Снегоходы' },
+};
+const FEATURE_RULES: { re: RegExp; Icon: React.ElementType; label: string }[] = [
+  { re: /медвед/i,                        Icon: PawPrint,      label: 'Медведи' },
+  { re: /рыбалк|лосос|голец|удочк|рыбы?\b/i, Icon: Fish,        label: 'Рыбалка' },
+  { re: /сплав|рафт/i,                     Icon: Waves,         label: 'Сплав' },
+  { re: /источник|термальн|горяч/i,        Icon: ThermometerSun, label: 'Источники' },
+  { re: /вулкан/i,                         Icon: Flame,         label: 'Вулканы' },
+  { re: /вертол[её]т/i,                    Icon: Helicopter,    label: 'Вертолёт' },
+  { re: /море|океан|морск/i,               Icon: Anchor,        label: 'Море' },
+  { re: /снегоход/i,                       Icon: Snowflake,     label: 'Снегоходы' },
+];
+function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[] {
+  const text = `${tour.title} ${tour.short_description ?? tour.description ?? ''}`;
+  const out: { Icon: React.ElementType; label: string }[] = [];
+  const seen = new Set<string>();
+  const act = ACTIVITY_FEATURE[tour.activity_type];
+  if (act) { out.push(act); seen.add(act.label); }
+  for (const r of FEATURE_RULES) {
+    if (out.length >= 4) break;
+    if (r.re.test(text) && !seen.has(r.label)) { out.push({ Icon: r.Icon, label: r.label }); seen.add(r.label); }
+  }
+  return out.slice(0, 4);
+}
+
 function TourCard({
   tour,
   isLiked,
@@ -289,6 +325,7 @@ function TourCard({
   const inSeason = isInSeason(tour);
   const priceOld = tour.price_old ? Number(tour.price_old) : null;
   const basePrice = Number(tour.base_price);
+  const features = deriveFeatures(tour);
 
   const toggleCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -308,146 +345,109 @@ function TourCard({
   };
 
   return (
-    <div className="group bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden flex flex-col hover:border-[var(--accent)]/40 hover:shadow-2xl hover:shadow-[var(--accent)]/8 transition-all duration-300 relative">
-      {/* Image */}
-      <Link href={`/marketplace/tours/${tour.id}`} className="block flex-shrink-0">
-        <div className="relative aspect-[16/10] bg-[var(--bg-hover)] overflow-hidden">
-          <Image
-            src={imageSrc}
-            alt={tour.title}
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-            className="object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+    <div className="group relative aspect-[17/25] rounded-2xl overflow-hidden bg-[var(--bg-hover)] shadow-sm hover:shadow-2xl transition-all duration-300">
+      {/* Фото на всю карточку */}
+      <Image
+        src={imageSrc}
+        alt={tour.title}
+        fill
+        sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+        className="object-cover group-hover:scale-[1.05] transition-transform duration-700 ease-out"
+        style={{ filter: 'saturate(1.12) contrast(1.04)' }}
+      />
+      {/* Затемнение только внизу под текстом — краски фото играют */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-black/15" />
 
-          {/* Badges top-left */}
-          <div className="absolute top-3 left-3 flex items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-black/50  text-white px-2.5 py-1 rounded-lg">
-              {activityLabel}
+      {/* Навигация по всей карточке (под оверлеями) */}
+      <Link href={`/marketplace/tours/${tour.id}`} className="absolute inset-0 z-[1]" aria-label={tour.title} />
+
+      {/* Рейл фич — стекло поверх фото */}
+      {features.length > 0 && (
+        <div className="absolute top-3 left-3 z-[2] flex flex-col gap-0.5 p-1.5 rounded-2xl backdrop-blur-md bg-black/25 border border-white/25 pointer-events-none">
+          {features.map((f) => (
+            <span key={f.label} title={f.label} className="w-8 h-8 grid place-items-center text-white">
+              <f.Icon className="w-[18px] h-[18px]" />
             </span>
-            {diffBadge && (
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg" style={diffBadge.style}>
-                {diffBadge.label}
-              </span>
-            )}
-          </div>
-
-          {/* Season badge */}
-          {inSeason && (
-            <span className="absolute top-3 right-14 flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-[9px] font-bold uppercase tracking-wider" style={{ background: 'color-mix(in srgb, var(--success) 80%, transparent)' }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--bg-card)] animate-pulse" />
-              Сезон
-            </span>
-          )}
-
-          {/* Price overlay */}
-          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-            <div className="flex items-baseline gap-2">
-              {priceOld && priceOld > basePrice && (
-                <span className="text-xs text-white/40 line-through">
-                  {priceOld.toLocaleString('ru-RU')} ₽
-                </span>
-              )}
-              <span>
-                <span className="text-[11px] text-white/60">от </span>
-                <span className="font-bold text-white text-lg tracking-tight">
-                  {basePrice.toLocaleString('ru-RU')} ₽
-                </span>
-                {tour.price_unit && (
-                  <span className="text-[10px] text-white/40 ml-1">
-                    {PRICE_UNIT_SHORT[tour.price_unit] ?? ''}
-                  </span>
-                )}
-              </span>
-            </div>
-            {duration && (
-              <span className="flex items-center gap-1 text-[11px] text-white/70 bg-black/30  px-2 py-0.5 rounded-md">
-                <Clock className="w-3 h-3" />
-                {duration}
-              </span>
-            )}
-          </div>
-        </div>
-      </Link>
-
-      {/* Favorite */}
-      <button
-        onClick={() => onToggleLike(tour.id)}
-        className="absolute top-3 right-3 z-10 w-9 h-9 rounded-xl bg-black/40  flex items-center justify-center transition-all hover:bg-black/60 hover:scale-110"
-        aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
-      >
-        <Heart
-          className={`w-4 h-4 transition-colors ${isLiked ? 'fill-rose-500 text-rose-500' : 'text-white/80'}`}
-        />
-      </button>
-
-      {/* Content */}
-      <Link href={`/marketplace/tours/${tour.id}`} className="p-5 pb-3 flex flex-col flex-1">
-        <div className="flex items-center gap-2 mb-2">
-          <p className="text-[11px] text-[var(--text-muted)] font-medium">{tour.operator_name}</p>
-          {tour.bookings_count > 0 && (
-            <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
-              <Users className="w-3 h-3" />
-              {tour.bookings_count}
-            </span>
-          )}
-        </div>
-        <h3
-          className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 mb-1.5 group-hover:text-[var(--accent)] transition-colors"
-          style={{ fontFamily: 'var(--font-playfair)', fontSize: '1.05rem' }}
-        >
-          {tour.title}
-        </h3>
-        <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mb-3 flex-1 leading-relaxed">
-          {tour.short_description ?? tour.description}
-        </p>
-
-        {/* Meta row */}
-        <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-          <span className="flex items-center gap-1">
-            <MapPin className="w-3.5 h-3.5" />
-            {tour.location_name ?? locationLabel}
-          </span>
-        </div>
-      </Link>
-
-      {/* Included preview */}
-      {tour.included && tour.included.length > 0 && (
-        <div className="mx-5 mb-3 p-2.5 bg-[var(--bg-hover)] rounded-xl">
-          <div className="flex items-start gap-1.5">
-            <CheckCircle2 className="w-3 h-3 text-[var(--success)] mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-[var(--text-secondary)] line-clamp-1">
-              {tour.included.slice(0, 2).join(' \u00B7 ')}
-              {tour.included.length > 2 && (
-                <span className="text-[var(--text-muted)]"> +{tour.included.length - 2}</span>
-              )}
-            </p>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* Action bar */}
-      <div className="px-5 pb-5 flex items-center justify-between border-t border-[var(--border)] pt-3 mt-auto">
-        <div className="flex items-center gap-2">
+      {/* Избранное — стекло */}
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleLike(tour.id); }}
+        aria-label={isLiked ? 'Убрать из избранного' : 'В избранное'}
+        className="absolute top-3 right-3 z-[3] w-9 h-9 rounded-full grid place-items-center backdrop-blur-md bg-black/25 border border-white/25 transition-transform hover:scale-110"
+      >
+        <Heart className={`w-4 h-4 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
+      </button>
+
+      {/* Нижняя стеклянная панель */}
+      <div className="absolute left-3 right-3 bottom-3 z-[2] p-4 rounded-2xl backdrop-blur-xl bg-black/20 border border-white/20 pointer-events-none">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/15 border border-white/20" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
+            {activityLabel}
+          </span>
+          {diffBadge && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/10 border border-white/15" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
+              {diffBadge.label}
+            </span>
+          )}
+          {inSeason && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--success)' }} />
+              Сезон
+            </span>
+          )}
+        </div>
+
+        <h3
+          className="text-white leading-none line-clamp-2 mb-2"
+          style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.35rem', letterSpacing: '-0.02em', textShadow: '0 1px 14px rgba(0,0,0,.45)' }}
+        >
+          {tour.title}
+        </h3>
+
+        {(tour.short_description || tour.description) && (
+          <p className="text-[13px] text-white/85 line-clamp-2 mb-2.5" style={{ textShadow: '0 1px 8px rgba(0,0,0,.4)' }}>
+            {tour.short_description ?? tour.description}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3 text-[11px] text-white/75 mb-3">
+          <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tour.location_name ?? locationLabel}</span>
+          {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{duration}</span>}
+        </div>
+
+        <div className="flex items-baseline gap-2 mb-3">
+          {priceOld && priceOld > basePrice && (
+            <span className="text-xs text-white/50 line-through">{priceOld.toLocaleString('ru-RU')} ₽</span>
+          )}
+          <span className="text-white" style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.01em' }}>
+            {basePrice.toLocaleString('ru-RU')} ₽
+          </span>
+          <span className="text-[11px] text-white/60">{tour.price_unit ? (PRICE_UNIT_SHORT[tour.price_unit] ?? '/чел') : '/чел'}</span>
+        </div>
+
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <Link
+            href={`/marketplace/tours/${tour.id}#booking`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 text-center rounded-xl py-3 text-sm font-bold text-white border border-white/30 bg-white/15 backdrop-blur-md transition-colors hover:bg-[var(--accent)] hover:border-[var(--accent)]"
+            style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))' }}
+          >
+            Забронировать
+          </Link>
           <button
             onClick={toggleCart}
             title={inCart ? 'Убрать из корзины' : 'В корзину'}
-            className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-all duration-200 ${
-              inCart
-                ? 'bg-[var(--success)] border-[var(--success)] text-white'
-                : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/5'
+            aria-label={inCart ? 'Убрать из корзины' : 'В корзину'}
+            className={`w-11 h-11 rounded-xl grid place-items-center border backdrop-blur-md transition-colors ${
+              inCart ? 'bg-[var(--success)] border-[var(--success)] text-white' : 'border-white/30 bg-white/15 text-white hover:bg-white/25'
             }`}
           >
-            {inCart ? <Check className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+            {inCart ? <Check className="w-4 h-4" /> : <ShoppingCart className="w-4 h-4" />}
           </button>
         </div>
-        <Link
-          href={`/marketplace/tours/${tour.id}#booking`}
-          className="ds-btn ds-btn-primary text-xs px-5 py-2 rounded-xl font-semibold"
-        >
-          Забронировать
-        </Link>
       </div>
     </div>
   );
