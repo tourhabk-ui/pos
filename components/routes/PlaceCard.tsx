@@ -198,10 +198,10 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           disabled={deleting}
           aria-label="Удалить место"
           title="Удалить место"
-          className="pc-hit absolute top-2 left-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
-          style={{ background: 'var(--danger)', opacity: deleting ? 0.5 : 0.92 }}
+          className="pc-hit absolute top-2 left-2 z-20 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 opacity-45 hover:opacity-100 disabled:opacity-30 backdrop-blur-md"
+          style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)' }}
         >
-          <Trash2 className="w-4 h-4 text-white" />
+          <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--danger)' }} />
         </button>
       )}
 
