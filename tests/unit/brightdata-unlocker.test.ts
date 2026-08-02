@@ -45,6 +45,32 @@ describe('ключ и эндпоинт — из env, не хардкод', () =>
   });
 });
 
+describe('Вариант B — Native-прокси (когда Bearer недоступен)', () => {
+  const saved = { u: process.env.BRIGHTDATA_PROXY_USER, p: process.env.BRIGHTDATA_PROXY_PASS, k: process.env.BRIGHTDATA_API_KEY };
+  afterEach(() => {
+    for (const [k, v] of [['BRIGHTDATA_PROXY_USER', saved.u], ['BRIGHTDATA_PROXY_PASS', saved.p], ['BRIGHTDATA_API_KEY', saved.k]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+  it('brightDataAvailable true и по прокси-кредам, не только по Bearer', () => {
+    delete process.env.BRIGHTDATA_API_KEY;
+    delete process.env.BRIGHTDATA_PROXY_USER;
+    delete process.env.BRIGHTDATA_PROXY_PASS;
+    expect(brightDataAvailable()).toBe(false);
+    process.env.BRIGHTDATA_PROXY_USER = 'brd-customer-hl_x-zone-web_unlocker3';
+    process.env.BRIGHTDATA_PROXY_PASS = 'secret';
+    expect(brightDataAvailable()).toBe(true);
+  });
+  it('прокси-путь через undici, гео РФ суффиксом логина', () => {
+    expect(helper).toMatch(/import\('undici'\)/);
+    expect(helper).toMatch(/-country-\$\{country\}/);
+    expect(helper.includes('brd.superproxy.io')).toBe(true);
+  });
+  it('Bearer приоритетен: нет ключа → прокси, есть ключ → API', () => {
+    expect(helper).toMatch(/if \(!key\) return proxyConfigured\(\) \? fetchViaProxy/);
+  });
+});
+
 describe('KVERT зовёт Unlocker строго как фолбэк', () => {
   it('только при пустом прямом разборе И наличии ключа', () => {
     expect(sync).toMatch(/if \(parsed\.length === 0 && brightDataAvailable\(\)\)/);
