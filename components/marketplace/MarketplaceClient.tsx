@@ -853,20 +853,35 @@ export default function MarketplaceClient({
             <p className="text-sm">{error}</p>
           </div>
         ) : tours.length === 0 ? (
-          <div className="text-center py-20">
+          <div className="text-center py-16">
             <div className="w-16 h-16 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center mx-auto mb-4">
               <Search className="w-7 h-7 text-[var(--text-muted)]" />
             </div>
-            <p className="ds-h2 mb-2">Туры не найдены</p>
-            <p className="text-sm text-[var(--text-muted)] mb-5 max-w-md mx-auto">Попробуйте изменить фильтры или пройти подбор через Кузьмича</p>
+            <p className="ds-h2 mb-2">Туров по этому запросу немного</p>
+            <p className="text-sm text-[var(--text-muted)] mb-5 max-w-md mx-auto">
+              Попробуйте изменить фильтры. Но Камчатка — это не только готовые туры:
+              сотни маршрутов и мест, поездку можно собрать самому.
+            </p>
             {(activeFiltersCount > 0 || activityFilter || searchTerm) && (
               <button
                 onClick={() => { resetFilters(); setActivityFilter(''); setSearchTerm(''); }}
-                className="ds-btn ds-btn-secondary text-sm rounded-xl"
+                className="ds-btn ds-btn-secondary text-sm rounded-xl mb-6"
               >
                 Сбросить все фильтры
               </button>
             )}
+            {/* Тупик «нет туров» → путь к настоящему богатству платформы:
+                маршруты/места и планировщик (с ~20 турами это главный контент,
+                а не запасной). Числа не хардкодим — они меняются (CLAUDE.md). */}
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <Link href="/routes" className="ds-btn ds-btn-secondary text-sm rounded-xl inline-flex items-center gap-2">
+                <Mountain className="w-4 h-4" /> Все маршруты
+              </Link>
+              <Link href="/planner" className="ds-btn ds-btn-primary text-sm rounded-xl inline-flex items-center gap-2">
+                <Sparkles className="w-4 h-4" /> Собрать поездку
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
