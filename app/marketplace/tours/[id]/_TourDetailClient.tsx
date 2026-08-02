@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   MapPin, Clock, CheckCircle2, XCircle, Sparkles,
   ChevronRight, Users, Backpack, Shield, X,
-  Calendar, Mountain, Star, Share2, Heart,
+  Calendar, Star, Share2, Heart, MessageSquare, PenLine,
 } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
@@ -30,7 +30,7 @@ const LOCATION_LABELS: Record<string, string> = {
 };
 
 const DIFFICULTY_MAP: Record<string, { label: string; color: string }> = {
-  easy:   { label: 'Легкий', color: 'var(--success)' },
+  easy:   { label: 'Лёгкий', color: 'var(--success)' },
   medium: { label: 'Средний', color: 'var(--warning)' },
   hard:   { label: 'Сложный', color: 'var(--danger)' },
 };
@@ -40,6 +40,10 @@ const PRICE_UNIT_LABELS: Record<string, string> = {
   per_tour: 'за группу',
   per_day_per_person: 'за чел./день',
 };
+
+/* Шрифты платформы: Unbounded — дисплей, JetBrains Mono — метки/данные. */
+const FD = 'var(--font-unbounded, var(--font-playfair))';
+const FM = 'var(--font-jetbrains, ui-monospace, monospace)';
 
 /* ─── Types ─── */
 
@@ -77,6 +81,15 @@ interface TourFull {
   operator_id: string;
 }
 
+interface TourReview {
+  id: number;
+  author_name: string;
+  author_city: string | null;
+  rating: number;
+  comment: string;
+  trip_date: string | null;
+}
+
 /* ─── Helpers ─── */
 
 function formatDuration(tour: TourFull): string | null {
@@ -105,125 +118,36 @@ function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
 }
 
-/* ─── Photo Gallery (Tripster-style grid) ─── */
-
-function PhotoGallery({ images, alt }: { images: string[]; alt: string }) {
-  const [lightbox, setLightbox] = useState<number | null>(null);
-
-  if (images.length === 0) return null;
-
-  return (
-    <>
-      {/* Grid: 1 large + up to 4 small */}
-      <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 rounded-lg overflow-hidden h-[280px] sm:h-[360px] md:h-[420px]">
-        {/* Main image */}
-        <button
-          onClick={() => setLightbox(0)}
-          className="relative md:col-span-2 md:row-span-2 overflow-hidden group cursor-pointer bg-[var(--bg-hover)]"
-        >
-          <Image
-            src={images[0]}
-            alt={`${alt} — фото 1`}
-            fill
-            priority
-            className="object-contain group-hover:scale-105 transition-transform duration-500"
-            sizes="(max-width: 768px) 100vw, 50vw"
-          />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-        </button>
-
-        {/* Thumbnails */}
-        {images.slice(1, 5).map((src, i) => (
-          <button
-            key={i}
-            onClick={() => setLightbox(i + 1)}
-            className="relative hidden md:block overflow-hidden group cursor-pointer"
-          >
-            <Image
-              src={src}
-              alt={`${alt} — фото ${i + 2}`}
-              fill
-              className="object-contain bg-[var(--bg-hover)] group-hover:scale-105 transition-transform duration-500"
-              sizes="25vw"
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-            {i === 3 && images.length > 5 && (
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                <span className="text-white font-semibold text-lg">+{images.length - 5}</span>
-              </div>
-            )}
-          </button>
-        ))}
-
-        {/* Mobile: photo count badge */}
-        {images.length > 1 && (
-          <button
-            onClick={() => setLightbox(0)}
-            className="md:hidden absolute bottom-3 right-3 bg-black/60 text-white text-xs font-medium px-3 py-1.5 rounded-full"
-          >
-            1 / {images.length}
-          </button>
-        )}
-      </div>
-
-      {/* Lightbox */}
-      {lightbox !== null && (
-        <Lightbox
-          images={images}
-          alt={alt}
-          startIdx={lightbox}
-          onClose={() => setLightbox(null)}
-        />
-      )}
-    </>
-  );
-}
-
 /* ─── Fullscreen Lightbox ─── */
 
 function Lightbox({ images, alt, startIdx, onClose }: {
-  images: string[];
-  alt: string;
-  startIdx: number;
-  onClose: () => void;
+  images: string[]; alt: string; startIdx: number; onClose: () => void;
 }) {
   const [idx, setIdx] = useState(startIdx);
-
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center" onClick={onClose}>
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors z-10"
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors z-10"
         aria-label="Закрыть"
       >
         <X className="w-5 h-5" />
       </button>
-
       <div className="relative w-full h-full flex items-center justify-center p-4 sm:p-12" onClick={e => e.stopPropagation()}>
-        <Image
-          src={images[idx]}
-          alt={`${alt} — фото ${idx + 1}`}
-          fill
-          className="object-contain"
-          sizes="100vw"
-        />
+        <Image src={images[idx]} alt={`${alt} — фото ${idx + 1}`} fill className="object-contain" sizes="100vw" />
       </div>
-
       {images.length > 1 && (
         <>
           <button
             onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + images.length) % images.length); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors"
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors"
             aria-label="Назад"
           >
             <ChevronRight className="w-6 h-6 rotate-180" />
           </button>
           <button
             onClick={e => { e.stopPropagation(); setIdx(i => (i + 1) % images.length); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/30 flex items-center justify-center text-[var(--text-primary)] hover:bg-black/50 transition-colors"
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors"
             aria-label="Далее"
           >
             <ChevronRight className="w-6 h-6" />
@@ -233,7 +157,7 @@ function Lightbox({ images, alt, startIdx, onClose }: {
               <button
                 key={i}
                 onClick={e => { e.stopPropagation(); setIdx(i); }}
-                className={`w-2 h-2 rounded-full transition-all ${i === idx ? 'bg-white w-5' : 'bg-white/40'}`}
+                className={`h-2 rounded-full transition-all ${i === idx ? 'bg-white w-5' : 'bg-white/40 w-2'}`}
                 aria-label={`Фото ${i + 1}`}
               />
             ))}
@@ -244,29 +168,28 @@ function Lightbox({ images, alt, startIdx, onClose }: {
   );
 }
 
-/* ─── Review types ─── */
-
-interface TourReview {
-  id: number;
-  author_name: string;
-  author_city: string | null;
-  rating: number;
-  comment: string;
-  trip_date: string | null;
-}
-
-/* ─── Star display ─── */
+/* ─── Stars ─── */
 
 function Stars({ rating }: { rating: number }) {
   return (
     <span className="flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map(i => (
-        <Star
-          key={i}
-          className={`w-4 h-4 ${i <= rating ? 'text-[var(--warning)] fill-[var(--warning)]' : 'text-[var(--text-muted)]'}`}
-        />
+        <Star key={i} className={`w-4 h-4 ${i <= rating ? 'text-[var(--warning)] fill-[var(--warning)]' : 'text-[var(--text-muted)]'}`} />
       ))}
     </span>
+  );
+}
+
+/* ─── Section eyebrow ─── */
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-3">
+      <span className="w-4 h-px bg-[var(--accent)]" />
+      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--accent)]" style={{ fontFamily: FM }}>
+        {children}
+      </span>
+    </div>
   );
 }
 
@@ -276,6 +199,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const router = useRouter();
   const [wishlisted, setWishlisted] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [lightbox, setLightbox] = useState<number | null>(null);
 
   const handleWishlist = useCallback(async () => {
     if (wishlistLoading) return;
@@ -286,17 +210,16 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemType: 'tour', itemId: tour.id }),
       });
-      if (res.status === 401) {
-        router.push(`/auth/login?from=/marketplace/tours/${tour.id}`);
-        return;
-      }
+      if (res.status === 401) { router.push(`/auth/login?from=/marketplace/tours/${tour.id}`); return; }
       if (res.ok) setWishlisted(w => !w);
-    } catch {
-      // silent
-    } finally {
-      setWishlistLoading(false);
-    }
+    } catch { /* silent */ } finally { setWishlistLoading(false); }
   }, [tour.id, wishlisted, wishlistLoading, router]);
+
+  const handleShare = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      navigator.share({ title: tour.title, url: window.location.href }).catch(() => {});
+    }
+  }, [tour.title]);
 
   const price = parseFloat(tour.base_price);
   const priceOld = tour.price_old ? parseFloat(tour.price_old) : null;
@@ -308,411 +231,274 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const seasonLabel = formatSeason(tour.season_start, tour.season_end);
   const rating = tour.rating ? Number(tour.rating) : 0;
 
-  const allPhotos = [
-    ...(tour.photos?.length ? tour.photos : tour.tour_image ? [tour.tour_image] : []),
-  ];
+  const allPhotos = tour.photos?.length ? tour.photos : (tour.tour_image ? [tour.tour_image] : []);
+  const heroImg = allPhotos[0] ?? null;
+  const stripPhotos = allPhotos.slice(1);
 
   const included = Array.isArray(tour.included) ? tour.included : [];
   const notIncluded = Array.isArray(tour.not_included) ? tour.not_included : [];
   const whatToBring = Array.isArray(tour.what_to_bring) ? tour.what_to_bring : [];
 
+  // honest-инструменты для строки в герое: показываем только то, что есть в данных
+  const instrument: { k: string; v: string }[] = [];
+  if (seasonLabel) instrument.push({ k: 'Сезон', v: seasonLabel });
+  if (durationLabel) instrument.push({ k: 'Длится', v: durationLabel });
+  instrument.push({ k: 'Группа', v: `до ${tour.max_participants}` });
+  if (diffBadge) instrument.push({ k: 'Сложность', v: diffBadge.label });
+
   return (
-    <div className="ds-page pb-20">
-      {/* ─── Breadcrumb ─── */}
-      <nav className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] mb-5 overflow-x-auto">
-        <Link href="/" className="hover:text-[var(--ocean)] transition-colors whitespace-nowrap">Главная</Link>
-        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-        <Link href="/marketplace" className="hover:text-[var(--ocean)] transition-colors whitespace-nowrap">Туры</Link>
-        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-        <Link
-          href={`/marketplace?activity_type=${tour.activity_type}`}
-          className="hover:text-[var(--ocean)] transition-colors whitespace-nowrap"
-        >
-          {activityLabel}
-        </Link>
-        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-        <span className="text-[var(--text-secondary)] truncate">{tour.title}</span>
-      </nav>
-
-      {/* ─── Photo Gallery ─── */}
-      <div className="mb-8 relative">
-        {allPhotos.length > 0 ? (
-          <PhotoGallery images={allPhotos} alt={tour.title} />
+    <div className="pb-24" style={{ background: 'var(--bg-primary)' }}>
+      {/* ═══ Кино-герой ═══ */}
+      <header className="relative overflow-hidden" style={{ height: 'min(64vh, 560px)', minHeight: 380, background: 'var(--bg-hover)' }}>
+        {heroImg ? (
+          <button className="absolute inset-0 w-full h-full" onClick={() => setLightbox(0)} aria-label="Открыть фото">
+            <Image src={heroImg} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ filter: 'saturate(1.1) contrast(1.03)' }} />
+          </button>
         ) : (
-          <div className="w-full h-[280px] sm:h-[360px] md:h-[420px] rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
-            <MapPin className="w-16 h-16 text-[var(--text-muted)]" />
-          </div>
+          <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-16 h-16 text-[var(--text-muted)]" /></div>
         )}
-      </div>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(8,11,14,.5) 0%, rgba(8,11,14,0) 26%, rgba(8,11,14,0) 42%, rgba(8,11,14,.82) 100%)' }} />
 
-      {/* ─── Two-column layout: Content + Sidebar ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+        <div className="absolute inset-x-0 bottom-0 pointer-events-none">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-9">
+            <nav className="flex items-center gap-2 text-[12px] mb-4" style={{ fontFamily: FM, color: 'rgba(255,255,255,.72)' }}>
+              <Link href="/" className="pointer-events-auto hover:text-white">Главная</Link>
+              <ChevronRight className="w-3 h-3 opacity-60" />
+              <Link href="/marketplace" className="pointer-events-auto hover:text-white">Туры</Link>
+              <ChevronRight className="w-3 h-3 opacity-60" />
+              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className="pointer-events-auto hover:text-white">{activityLabel}</Link>
+            </nav>
 
-        {/* ═══ Left Column: Content (8/12) ═══ */}
-        <div className="lg:col-span-8 space-y-8">
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="w-6 h-0.5 bg-[var(--accent)]" />
+              <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activityLabel}</span>
+            </div>
 
-          {/* Title block */}
-          <div>
-            <h1
-              className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[var(--text-primary)] leading-tight mb-3"
-              style={{ fontFamily: 'var(--font-playfair)' }}
-            >
+            <h1 className="text-white max-w-[16ch]" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(30px,5vw,56px)', lineHeight: 1.02, letterSpacing: '-0.02em', textShadow: '0 2px 34px rgba(0,0,0,.4)' }}>
               {tour.title}
             </h1>
 
-            {/* Meta row */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--text-secondary)]">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-sm" style={{ color: 'rgba(255,255,255,.9)' }}>
               {rating > 0 && (
-                <span className="flex items-center gap-1 font-medium">
-                  <Star className="w-4 h-4 text-[var(--warning)] fill-[var(--warning)]" />
-                  {rating.toFixed(1)}
-                  {tour.review_count ? (
-                    <span className="text-[var(--text-muted)]">({tour.review_count} отзывов)</span>
-                  ) : null}
-                </span>
+                <span className="flex items-center gap-1.5"><Star className="w-4 h-4 text-[var(--warning)] fill-[var(--warning)]" />{rating.toFixed(1)}{tour.review_count ? <span className="opacity-70">· {tour.review_count}</span> : null}</span>
               )}
-              {durationLabel && (
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {durationLabel}
-                </span>
-              )}
-              <span className="flex items-center gap-1">
-                <Users className="w-4 h-4" />
-                до {tour.max_participants} чел.
-              </span>
-              <span className="flex items-center gap-1">
-                <MapPin className="w-4 h-4" />
-                {tour.location_name ?? locationLabel}
-              </span>
+              <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 opacity-80" />{tour.location_name ?? locationLabel}</span>
+              <span className="flex items-center gap-1.5"><Users className="w-4 h-4 opacity-80" />до {tour.max_participants} чел.</span>
             </div>
 
-            {/* Tags */}
-            <div className="flex flex-wrap items-center gap-2 mt-4">
-              <span className="text-xs font-semibold uppercase tracking-wider bg-[var(--accent)]/15 text-[var(--accent)] px-3 py-1 rounded-full">
-                {activityLabel}
-              </span>
-              {diffBadge && (
-                <span
-                  className="text-xs font-semibold px-3 py-1 rounded-full"
-                  style={{ background: `color-mix(in srgb, ${diffBadge.color} 15%, transparent)`, color: diffBadge.color }}
-                >
-                  {diffBadge.label}
-                </span>
-              )}
-              {seasonLabel && (
-                <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--border)] text-[var(--text-secondary)]">
-                  <Calendar className="w-3 h-3 inline mr-1 -mt-0.5" />
-                  {seasonLabel}
-                </span>
-              )}
-              {tour.weather_dependent && (
-                <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--warning)]/40 text-[var(--warning)]">
-                  Зависит от погоды
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Separator */}
-          <hr className="border-[var(--border)]" />
-
-          {/* Operator line */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[var(--accent)]/15 flex items-center justify-center">
-              <span className="text-sm font-bold text-[var(--accent)]">
-                {tour.operator_name.charAt(0).toUpperCase()}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                {tour.operator_name}
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">Реальный оператор, который проводит этот тур</p>
-            </div>
-            <MessageOperatorButton
-              operatorPartnerId={tour.operator_id}
-              tourId={tour.id}
-              tourTitle={tour.title}
-            />
-          </div>
-
-          {/* Separator */}
-          <hr className="border-[var(--border)]" />
-
-          {/* Short description (hook) */}
-          {tour.short_description && (
-            <p className="text-lg text-[var(--text-primary)] leading-relaxed font-medium">
-              {tour.short_description}
-            </p>
-          )}
-
-          {/* Full description */}
-          {tour.description && (
-            <div>
-              <h2 className="ds-h2 mb-3">О туре</h2>
-              <DescriptionWithFishLinks
-                paragraphs={tour.description.split('\n').filter(p => p.trim())}
-                className="text-[var(--text-secondary)] leading-relaxed space-y-2"
-              />
-            </div>
-          )}
-
-          {/* Separator */}
-          <hr className="border-[var(--border)]" />
-
-          {/* Included / Not Included — Tripster-style checklist */}
-          {(included.length > 0 || notIncluded.length > 0) && (
-            <div>
-              <h2 className="ds-h2 mb-5">Что включено</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-                {included.map(item => (
-                  <div key={item} className="flex items-start gap-2.5">
-                    <CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[var(--text-primary)]">{item}</span>
-                  </div>
-                ))}
-                {notIncluded.map(item => (
-                  <div key={item} className="flex items-start gap-2.5">
-                    <XCircle className="w-5 h-5 text-[var(--text-muted)] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[var(--text-muted)]">{item}</span>
+            {/* honest-инструментная полоса */}
+            {instrument.length > 0 && (
+              <div className="mt-6 inline-flex flex-wrap rounded-xl overflow-hidden pointer-events-auto" style={{ background: 'rgba(8,11,14,.36)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,.16)' }}>
+                {instrument.map((c, i) => (
+                  <div key={c.k} className="px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
+                    <div className="text-[10px] uppercase tracking-[0.14em]" style={{ fontFamily: FM, color: 'rgba(255,255,255,.55)' }}>{c.k}</div>
+                    <div className="text-[14px] font-semibold text-white mt-1" style={{ fontFamily: FD, letterSpacing: '-0.01em' }}>{c.v}</div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+      </header>
 
-          {/* What to Bring */}
-          {whatToBring.length > 0 && (
-            <>
-              <hr className="border-[var(--border)]" />
-              <div>
-                <h2 className="ds-h2 mb-4 flex items-center gap-2">
-                  <Backpack className="w-5 h-5 text-[var(--ocean)]" />
-                  Что взять с собой
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+
+        {/* ═══ Филмстрип остальных фото ═══ */}
+        {stripPhotos.length > 0 && (
+          <div className="pt-5 grid grid-cols-4 sm:grid-cols-6 gap-2">
+            {stripPhotos.slice(0, 6).map((src, i) => (
+              <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
+                <Image src={src} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                {i === 5 && stripPhotos.length > 6 && (
+                  <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ═══ Колонки ═══ */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-10">
+
+          {/* ─── Левая: контент (8/12) ─── */}
+          <div className="lg:col-span-8 space-y-12">
+
+            {/* О туре */}
+            <section>
+              <Eyebrow>О сплаве</Eyebrow>
+              {tour.short_description && (
+                <p className="text-[var(--text-primary)] leading-snug mb-4" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(19px,2.4vw,26px)', letterSpacing: '-0.01em' }}>
+                  {tour.short_description}
+                </p>
+              )}
+              {tour.description && (
+                <DescriptionWithFishLinks
+                  paragraphs={tour.description.split('\n').filter(p => p.trim())}
+                  className="text-[var(--text-secondary)] leading-relaxed space-y-3 text-[15.5px]"
+                />
+              )}
+              <div className="flex flex-wrap gap-2 mt-5">
+                {diffBadge && (
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full" style={{ background: `color-mix(in srgb, ${diffBadge.color} 14%, transparent)`, color: diffBadge.color }}>{diffBadge.label}</span>
+                )}
+                {seasonLabel && (
+                  <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--border)] text-[var(--text-secondary)]"><Calendar className="w-3 h-3 inline mr-1 -mt-0.5" />{seasonLabel}</span>
+                )}
+                {tour.weather_dependent && (
+                  <span className="text-xs font-medium px-3 py-1 rounded-full border border-[var(--warning)]/40 text-[var(--warning)]">Зависит от погоды</span>
+                )}
+              </div>
+            </section>
+
+            {/* Оператор */}
+            <section>
+              <Eyebrow>Кто проводит</Eyebrow>
+              <div className="ds-card p-5 flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 text-white" style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--accent), color-mix(in srgb, var(--ocean) 55%, #06131a))', fontFamily: FD, fontWeight: 800, fontSize: 20 }}>
+                  {tour.operator_name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
+                  <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5"><CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)]" />Проводит этот тур сам · проверен платформой</p>
+                </div>
+                <MessageOperatorButton operatorPartnerId={tour.operator_id} tourId={tour.id} tourTitle={tour.title} />
+              </div>
+            </section>
+
+            {/* Что включено / не входит */}
+            {(included.length > 0 || notIncluded.length > 0) && (
+              <section>
+                <Eyebrow>Снаряжение и сборы</Eyebrow>
+                <h2 className="mb-5" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(22px,3vw,30px)', letterSpacing: '-0.02em' }}>Что включено</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                  {included.map(item => (
+                    <div key={item} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-primary)]">{item}</span></div>
+                  ))}
+                  {notIncluded.map(item => (
+                    <div key={item} className="flex items-start gap-2.5"><XCircle className="w-5 h-5 text-[var(--text-muted)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-muted)]">{item}</span></div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Что взять */}
+            {whatToBring.length > 0 && (
+              <section>
+                <h2 className="mb-4 flex items-center gap-2.5" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(20px,2.6vw,26px)', letterSpacing: '-0.02em' }}>
+                  <Backpack className="w-5 h-5 text-[var(--ocean)]" />Что взять с собой
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {whatToBring.map(item => (
-                    <div key={item} className="flex items-center gap-2.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--ocean)] shrink-0" />
-                      <span className="text-sm text-[var(--text-secondary)]">{item}</span>
-                    </div>
+                    <div key={item} className="flex items-center gap-2.5"><span className="w-1.5 h-1.5 rounded-full bg-[var(--ocean)] shrink-0" /><span className="text-sm text-[var(--text-secondary)]">{item}</span></div>
                   ))}
                 </div>
+              </section>
+            )}
+
+            {/* Безопасность */}
+            <section>
+              <h2 className="mb-4 flex items-center gap-2.5" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(20px,2.6vw,26px)', letterSpacing: '-0.02em' }}>
+                <Shield className="w-5 h-5 text-[var(--success)]" />Безопасность
+              </h2>
+              <SafetyWarnings tourId={tour.id} />
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  'Условия и детали подтверждаются оператором до оплаты',
+                  'Оператор обычно отвечает в течение 2 часов',
+                  'Маршрут проходит через контур безопасности платформы',
+                  `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
+                ].map(t => (
+                  <div key={t} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{t}</span></div>
+                ))}
               </div>
-            </>
-          )}
+            </section>
 
-          {/* Important Info */}
-          <hr className="border-[var(--border)]" />
-          <div>
-            <h2 className="ds-h2 mb-4 flex items-center gap-2">
-              <Shield className="w-5 h-5 text-[var(--success)]" />
-              Важная информация
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { text: 'Условия и детали подтверждаются оператором до оплаты', icon: true },
-                { text: 'Статус заявки обычно подтверждается оператором в течение 2 часов', icon: true },
-                { text: 'Маршрут проходит через контур безопасности платформы', icon: true },
-                { text: `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`, icon: true },
-              ].map(item => (
-                <div key={item.text} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[var(--text-secondary)]">{item.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Предупреждения по безопасности маршрута ─── */}
-          <hr className="border-[var(--border)]" />
-          <SafetyWarnings tourId={tour.id} />
-
-          {/* Reviews */}
-          {reviews.length > 0 && (
-            <>
-              <hr className="border-[var(--border)]" />
-              <div>
-                <h2 className="ds-h2 mb-6 flex items-center gap-2">
-                  <Star className="w-5 h-5 text-[var(--warning)] fill-[var(--warning)]" />
-                  Отзывы гостей
-                  <span className="text-sm font-normal text-[var(--text-muted)]">({reviews.length})</span>
-                </h2>
+            {/* Отзывы */}
+            <section>
+              <h2 className="mb-5 flex items-center gap-2.5" style={{ fontFamily: FD, fontWeight: 800, fontSize: 'clamp(20px,2.6vw,26px)', letterSpacing: '-0.02em' }}>
+                <Star className="w-5 h-5 text-[var(--warning)] fill-[var(--warning)]" />Отзывы
+                {reviews.length > 0 && <span className="text-sm font-normal text-[var(--text-muted)]" style={{ fontFamily: FM }}>({reviews.length})</span>}
+              </h2>
+              {reviews.length > 0 ? (
                 <div className="space-y-5">
                   {reviews.map(r => (
                     <div key={r.id} className="pb-5 border-b border-[var(--border)] last:border-0 last:pb-0">
                       <div className="flex items-start justify-between gap-4 mb-2">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
-                            <span className="text-sm font-bold text-[var(--accent)]">
-                              {r.author_name.charAt(0)}
-                            </span>
-                          </div>
+                          <div className="w-9 h-9 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0"><span className="text-sm font-bold text-[var(--accent)]">{r.author_name.charAt(0)}</span></div>
                           <div>
                             <p className="text-sm font-medium text-[var(--text-primary)]">{r.author_name}</p>
-                            {r.author_city && (
-                              <p className="text-xs text-[var(--text-muted)]">{r.author_city}</p>
-                            )}
+                            {r.author_city && <p className="text-xs text-[var(--text-muted)]">{r.author_city}</p>}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <Stars rating={r.rating} />
-                          {r.trip_date && (
-                            <p className="text-xs text-[var(--text-muted)] mt-1">{r.trip_date}</p>
-                          )}
-                        </div>
+                        <div className="text-right shrink-0"><Stars rating={r.rating} />{r.trip_date && <p className="text-xs text-[var(--text-muted)] mt-1">{r.trip_date}</p>}</div>
                       </div>
                       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{r.comment}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            </>
-          )}
-
-          {/* AI Kuzmich CTA */}
-          <Link
-            href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`}
-            className="flex items-center gap-4 p-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 hover:bg-[var(--accent)]/10 transition-colors"
-          >
-            <div className="w-11 h-11 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-[var(--accent)]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-[var(--text-primary)] text-sm">Собрать свой тур</p>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                Если этот вариант не подходит, Кузьмич поможет честно подобрать другой
-              </p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-[var(--accent)] shrink-0" />
-          </Link>
-        </div>
-
-        {/* ═══ Right Column: Sticky Booking Sidebar (4/12) ═══ */}
-        <div className="lg:col-span-4">
-          <div className="sticky top-20 space-y-4">
-
-            {/* Price card */}
-            <div className="ds-card p-6">
-              <div className="flex items-baseline gap-2 mb-1">
-                {priceOld && priceOld > price && (
-                  <span className="text-base text-[var(--text-muted)] line-through">
-                    {formatPrice(priceOld)}
-                  </span>
-                )}
-                <span className="text-3xl font-bold text-[var(--text-primary)]">
-                  {formatPrice(price)}
-                </span>
-              </div>
-              <p className="text-sm text-[var(--text-muted)] mb-5">{priceLabel}</p>
-
-              <div className="mb-5 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3">
-                <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
-                  Это реальное предложение оператора. Перед оплатой можно уточнить состав программы, даты, погоду и все условия участия.
-                </p>
-              </div>
-
-              <a
-                href="#booking-form"
-                className="ds-btn ds-btn-primary w-full text-center py-3 text-base font-semibold"
-              >
-                Оставить заявку
-              </a>
-
-              {/* Quick trust signals */}
-              <div className="mt-4 pt-4 border-t border-[var(--border)] space-y-2">
-                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  <Shield className="w-3.5 h-3.5 text-[var(--success)]" />
-                  Без скрытых условий и серых комиссий
-                </div>
-                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)]" />
-                  Сначала уточнение деталей, потом подтверждение
-                </div>
-              </div>
-            </div>
-
-            {/* Quick stats */}
-            <div className="ds-card p-4 space-y-3">
-              {durationLabel && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[var(--text-muted)] flex items-center gap-2">
-                    <Clock className="w-4 h-4" /> Длительность
-                  </span>
-                  <span className="font-medium text-[var(--text-primary)]">{durationLabel}</span>
+              ) : (
+                <div className="text-center py-10 px-6 border border-dashed border-[var(--border)] rounded-lg">
+                  <MessageSquare className="w-7 h-7 mx-auto mb-2.5 text-[var(--text-muted)]" />
+                  <p className="text-[var(--text-secondary)] text-sm">Пока никто не оставил отзыв.<br />Будьте первым, кто расскажет о поездке.</p>
+                  <span className="inline-flex items-center gap-2 mt-4 border border-[var(--border)] rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-secondary)]"><PenLine className="w-4 h-4 text-[var(--ocean)]" />Оставить отзыв</span>
                 </div>
               )}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-[var(--text-muted)] flex items-center gap-2">
-                  <Users className="w-4 h-4" /> Группа
-                </span>
-                <span className="font-medium text-[var(--text-primary)]">
-                  {tour.min_participants && tour.min_participants !== tour.max_participants
-                    ? `${tour.min_participants}–${tour.max_participants}`
-                    : `до ${tour.max_participants}`
-                  } чел.
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-[var(--text-muted)] flex items-center gap-2">
-                  <Mountain className="w-4 h-4" /> Локация
-                </span>
-                <span className="font-medium text-[var(--text-primary)]">
-                  {tour.location_name ?? locationLabel}
-                </span>
-              </div>
-              {seasonLabel && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[var(--text-muted)] flex items-center gap-2">
-                    <Calendar className="w-4 h-4" /> Сезон
-                  </span>
-                  <span className="font-medium text-[var(--text-primary)]">{seasonLabel}</span>
-                </div>
-              )}
-            </div>
+            </section>
 
-            {/* Share / Favorite mini-bar */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  if (typeof navigator !== 'undefined' && navigator.share) {
-                    navigator.share({ title: tour.title, url: window.location.href });
-                  }
-                }}
-                className="flex-1 ds-card flex items-center justify-center gap-2 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
-              >
-                <Share2 className="w-4 h-4" /> Поделиться
-              </button>
-              <button
-                onClick={handleWishlist}
-                disabled={wishlistLoading}
-                className="flex-1 ds-card flex items-center justify-center gap-2 py-2.5 text-sm transition-colors cursor-pointer disabled:opacity-50"
-                style={wishlisted ? { color: 'var(--danger)' } : { color: 'var(--text-secondary)' }}
-              >
-                <Heart className={`w-4 h-4 ${wishlisted ? 'fill-current' : ''}`} />
-                {wishlisted ? 'В избранном' : 'В избранное'}
-              </button>
-            </div>
+            {/* Кузьмич */}
+            <Link href={`/planner?hint=${encodeURIComponent(tour.activity_type)}`} className="flex items-center gap-4 p-5 rounded-lg border border-[var(--ocean)]/25 bg-[var(--ocean)]/5 hover:bg-[var(--ocean)]/10 transition-colors">
+              <div className="w-11 h-11 rounded-full bg-[var(--ocean)] flex items-center justify-center shrink-0 text-white" style={{ fontFamily: FD, fontWeight: 800 }}>К</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-[var(--text-primary)] text-sm">Спросить Кузьмича</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">Подходит ли детям, что с погодой в вашу дату, как одеться — Кузьмич знает Камчатку.</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-[var(--ocean)] shrink-0" />
+            </Link>
           </div>
+
+          {/* ─── Правая: липкая бронь (4/12) ─── */}
+          <aside className="lg:col-span-4">
+            <div className="lg:sticky lg:top-20 space-y-4">
+              <div className="ds-card p-6">
+                <div className="flex items-baseline gap-2 mb-1">
+                  {priceOld && priceOld > price && <span className="text-base text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
+                  <span style={{ fontFamily: FD, fontWeight: 800, fontSize: 30, letterSpacing: '-0.02em' }}>{formatPrice(price)}</span>
+                </div>
+                <p className="text-sm text-[var(--text-muted)] mb-5">{priceLabel}</p>
+
+                <div id="booking">
+                  <BookingFormClient tourId={tour.id} basePrice={price} maxParticipants={tour.max_participants} tourTitle={tour.title} />
+                </div>
+
+                <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-3 flex items-start gap-2">
+                  <Shield className="w-4 h-4 text-[var(--success)] shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed text-[var(--text-secondary)]">Оплата — только после того, как оператор подтвердит детали, погоду и даты. Без скрытых комиссий.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={handleShare} className="flex-1 ds-card flex items-center justify-center gap-2 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer">
+                  <Share2 className="w-4 h-4" /> Поделиться
+                </button>
+                <button onClick={handleWishlist} disabled={wishlistLoading} className="flex-1 ds-card flex items-center justify-center gap-2 py-2.5 text-sm transition-colors cursor-pointer disabled:opacity-50" style={wishlisted ? { color: 'var(--danger)' } : { color: 'var(--text-secondary)' }}>
+                  <Heart className={`w-4 h-4 ${wishlisted ? 'fill-current' : ''}`} />{wishlisted ? 'В избранном' : 'В избранное'}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        {/* ═══ Партнёрские сервисы поездки (§9) ═══ */}
+        <div className="pt-4">
+          <RouteAffiliateBlock activityType={tour.activity_type} routeId={`tour-${tour.id}`} />
+          <YandexTravelBlock routeId={`tour-${tour.id}`} source="tour_detail" />
         </div>
       </div>
 
-      {/* ─── Booking Form (full width, below content) ─── */}
-      <div id="booking-form" className="mt-12 max-w-xl mx-auto lg:mx-0">
-        <BookingFormClient
-          tourId={tour.id}
-          basePrice={price}
-          maxParticipants={tour.max_participants}
-          tourTitle={tour.title}
-        />
-      </div>
-
-      {/* ─── Партнёрские сервисы поездки (§9 CLAUDE.md: место — страница тура) ───
-          Готовые блоки с трекингом кликов; раньше рендерились только на
-          маршрутах и /partners — на самой конверсионной странице их не было. */}
-      <RouteAffiliateBlock activityType={tour.activity_type} routeId={`tour-${tour.id}`} />
-      <YandexTravelBlock routeId={`tour-${tour.id}`} source="tour_detail" />
+      {lightbox !== null && allPhotos.length > 0 && (
+        <Lightbox images={allPhotos} alt={tour.title} startIdx={lightbox} onClose={() => setLightbox(null)} />
+      )}
     </div>
   );
 }
