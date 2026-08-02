@@ -17,7 +17,7 @@
 | Deploy | Timeweb Cloud — приложение **Tourhab**, id `198048` (репо: `tourhabk-ui/pos`) |
 | CI/CD | push в `tourhabk-ui/pos main` → Timeweb автодеплой |
 
-**Масштаб:** 204 стр / 622 API routes / 169 компонентов / 268 миграций
+**Масштаб:** 210 стр / 642 API routes / 169 компонентов / 295 миграций
 
 **Ключевые файлы перед стартом:**
 - `lib/db-pool.ts` — `import { pool } from` (named, не default)
