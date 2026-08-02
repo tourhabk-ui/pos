@@ -1120,4 +1120,42 @@ const CSS = `
 .v7 .emg-steps li{font:400 12px/1.45 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .emg-note{font:400 10.5px/1.4 var(--fm);color:var(--text-muted);text-align:center;margin:2px 0 0}
 .v7 .sos:active{transform:scale(.94)}
+/* ── ДЕСКТОП (перенос одобренного макета vedar-desktop-home, 02.08). ──────────
+   Мобильную вёрстку НЕ трогаем: всё строго внутри брейкпоинтов. Проблема была
+   в 480px-полоске посреди пустого экрана на компе (отзыв Ярослава). Лечение:
+   широкий каркас + герой во весь размах + сетки используют ширину; а узкие по
+   СМЫСЛУ блоки (поиск, планировщик, форма лида, карточка «подходит») держим в
+   читаемой ширине по центру, а не растягиваем на 1080px. Визуальную приёмку
+   на реальном десктопе делает владелец — из песочницы рендер не виден. */
+@media (min-width:1024px){
+  .v7{padding-bottom:0}
+  .v7 .topbar .in{max-width:1080px;padding-left:32px;padding-right:32px}
+  .v7 .wrap{max-width:1080px;padding:0 32px}
+  .v7 .hero-in{max-width:1080px;padding:28px 32px 116px}
+  .v7 .hero-photo{min-height:78vh;min-height:78dvh}
+  .v7 .hero-photo h1{font-size:clamp(56px,5vw,78px);max-width:16ch}
+  .v7 .hero-photo .sub{font-size:18px;max-width:52ch}
+  .v7 .hb-mark{width:60px}
+  .v7 section{margin-top:52px}
+  /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
+  .v7 .find{max-width:640px;margin-left:auto;margin-right:auto}
+  .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto;justify-content:center}
+  .v7 .planline,.v7 .live{max-width:640px;margin-left:auto;margin-right:auto}
+  .v7 .firstpick{max-width:520px;margin-left:auto;margin-right:auto}
+  .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
+  .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
+  .v7 .lead .field2{flex-direction:row;flex-wrap:wrap}
+  .v7 .lead .field2>input{flex:1;min-width:200px}
+  .v7 .lead .field{flex:2;min-width:260px}
+  .v7 .hubline{justify-content:center}
+  /* Сетки используют ширину: стихии в 3 колонки (5 плиток ложатся без дыры —
+     последняя span 2), платы показывают по три, цифры по центру */
+  .v7 .elements{grid-template-columns:repeat(3,1fr)}
+  .v7 .plate{width:320px}
+  .v7 .dataline{justify-content:center;gap:8px}
+  .v7 .shead h2{font-size:22px}
+}
+@media (min-width:1280px){
+  .v7 .topbar .in,.v7 .wrap,.v7 .hero-in{max-width:1160px}
+}
 `;
