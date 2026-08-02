@@ -71,6 +71,8 @@ export async function GET(req: NextRequest) {
       openrouter_relay: process.env.OPENROUTER_BASE_URL ?? '(прямой openrouter.ai — из РФ гео-блок)',
       anthropic_relay: process.env.ANTHROPIC_BASE_URL ?? '(прямой api.anthropic.com — из РФ гео-блок)',
       brightdata_key: set(process.env.BRIGHTDATA_API_KEY),
+      brightdata_proxy: set(process.env.BRIGHTDATA_PROXY_USER) && set(process.env.BRIGHTDATA_PROXY_PASS),
+      brightdata_active: set(process.env.BRIGHTDATA_API_KEY) || (set(process.env.BRIGHTDATA_PROXY_USER) && set(process.env.BRIGHTDATA_PROXY_PASS)),
       brightdata_zone: process.env.BRIGHTDATA_ZONE ?? 'web_unlocker2 (default)',
     },
   });
