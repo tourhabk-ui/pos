@@ -15,6 +15,7 @@
 import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
+import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 
 const BASE_URL = 'https://visitkamchatka.ru';
 const SOURCE_NAME = 'visitkamchatka.ru';
@@ -147,13 +148,24 @@ async function scrapeRouteList(): Promise<ScrapedRoute[]> {
     }
   }
 
-  // Попытка 2: raw HTML + regex (fallback)
-  const resp = await fetch(`${BASE_URL}/route-passports/`, {
-    headers: { 'User-Agent': 'Mozilla/5.0 TourhubBot/1.0' },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} from visitkamchatka.ru`);
-  const html = await resp.text();
+  // Попытка 2: прямой raw HTML + regex.
+  let html: string | null = null;
+  try {
+    const resp = await fetch(`${BASE_URL}/route-passports/`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 TourhubBot/1.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.ok) html = await resp.text();
+  } catch { /* прямой путь не задался — попробуем Unlocker ниже */ }
+
+  // Попытка 3: Bright Data Web Unlocker (если задан ключ). visitkamchatka.ru
+  // может резать датацентр-IP — Unlocker пробивает блок. Платный, потому
+  // строго последний рубеж, после прямого fetch. RU-гео — источник российский.
+  if (!html && brightDataAvailable()) {
+    html = await brightDataFetch(`${BASE_URL}/route-passports/`, { country: 'ru', timeoutMs: 30_000 });
+  }
+
+  if (!html) throw new Error('visitkamchatka.ru недоступен: прямой fetch и Unlocker не дали ответа');
   return parseRoutes(html, false);
 }
 
@@ -161,12 +173,21 @@ async function scrapeRouteList(): Promise<ScrapedRoute[]> {
 
 async function scrapeHtmlDescription(slug: string): Promise<string | null> {
   try {
-    const resp = await fetch(`${BASE_URL}/routes/${slug}/`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 TourhubBot/1.0' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!resp.ok) return null;
-    const html = await resp.text();
+    const url = `${BASE_URL}/routes/${slug}/`;
+    let html: string | null = null;
+    try {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 TourhubBot/1.0' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (resp.ok) html = await resp.text();
+    } catch { /* прямой путь не задался */ }
+
+    // Фолбэк Unlocker — только если прямой fetch пуст И задан ключ.
+    if (!html && brightDataAvailable()) {
+      html = await brightDataFetch(url, { country: 'ru', timeoutMs: 20_000 });
+    }
+    if (!html) return null;
 
     // Убираем скрипты и стили
     const clean = html
