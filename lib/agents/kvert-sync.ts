@@ -19,6 +19,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 
 const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3';
 
@@ -27,6 +28,8 @@ export interface KvertSyncResult {
   upserted: number;   // записано в volcano_status
   matched: number;    // сопоставлено с точкой places
   unmatched: string[]; // имена вулканов без привязки к точке
+  /** Каким путём получены данные: 'direct' (прямой fetch) или 'brightdata' (Unlocker-фолбэк). */
+  via?: string;
   /** Диагностика при fetched=0: сколько байт отдал источник. */
   source_bytes?: number;
   /** Диагностика при fetched=0: Content-Type ответа — сразу видно HTML это или текст. */
@@ -89,15 +92,34 @@ async function upsertStatus(params: {
 /** Полный синк: fetch → parse → resolve → upsert. Non-fatal по каждому вулкану. */
 export async function syncKvertAcc(): Promise<KvertSyncResult> {
   const url = process.env.KVERT_VONA_URL || DEFAULT_KVERT_URL;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'TourHabKamchatka/1.0 (safety monitoring)' },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`KVERT недоступен: HTTP ${res.status}`);
-  const text = await res.text();
 
-  const parsed = parseVonaFeed(text);
-  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [] };
+  // Прямой fetch — основной путь (прод РФ IP тянет KVERT сам, бесплатно).
+  let text = '';
+  let via = 'direct';
+  let sourceType: string | null = null;
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'TourHabKamchatka/1.0 (safety monitoring)' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.ok) { text = await res.text(); sourceType = res.headers.get('content-type'); }
+  } catch { /* прямой путь недоступен — попробуем Unlocker ниже */ }
+
+  let parsed = parseVonaFeed(text);
+
+  // Фолбэк Bright Data Web Unlocker: только если прямой путь не дал VONA
+  // (блок по IP / CAPTCHA / geo-заглушка) И ключ задан. Платный, потому строго
+  // резервный — на успешном прямом прогоне не вызывается, кредиты не жжём.
+  if (parsed.length === 0 && brightDataAvailable()) {
+    const unlocked = await brightDataFetch(url, { country: 'ru', timeoutMs: 30_000 });
+    if (unlocked) {
+      const viaParsed = parseVonaFeed(unlocked);
+      if (viaParsed.length > 0) { text = unlocked; parsed = viaParsed; via = 'brightdata'; sourceType = 'brightdata/raw'; }
+    }
+  }
+
+  if (!text) throw new Error('KVERT недоступен: прямой fetch и Unlocker не дали ответа');
+  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [], via };
 
   // Ноль распознанных блоков — это НЕ «сегодня тихо»: KVERT публикует ACC по
   // всем действующим вулканам постоянно. Значит либо страница отдала не то
@@ -107,7 +129,7 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   // пепел на 12 км. Поэтому здесь диагностика: что именно пришло вместо VONA.
   if (parsed.length === 0) {
     result.source_bytes = text.length;
-    result.source_type = res.headers.get('content-type');
+    result.source_type = sourceType;
     // Сырое начало ответа, без попыток «почистить HTML».
     //
     // Сперва тут стояла регулярка, выкусывающая <script>/<style>, и CodeQL
