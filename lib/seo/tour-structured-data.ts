@@ -174,5 +174,20 @@ export function buildTourStructuredData(
       : {}),
   };
 
-  return { '@context': 'https://schema.org', '@graph': [product, touristTrip] };
+  // BreadcrumbList — хлебные крошки в выдаче (Главная → Туры → активность → тур).
+  const hasActivity = Boolean(activityLabel && tour.activity_type);
+  const breadcrumb = {
+    '@type': 'BreadcrumbList',
+    '@id': `${canonicalUrl}#breadcrumb`,
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Главная', item: siteUrl },
+      { '@type': 'ListItem', position: 2, name: 'Туры', item: `${siteUrl}/marketplace` },
+      ...(hasActivity
+        ? [{ '@type': 'ListItem', position: 3, name: activityLabel, item: `${siteUrl}/marketplace?activity_type=${tour.activity_type}` }]
+        : []),
+      { '@type': 'ListItem', position: hasActivity ? 4 : 3, name: tour.title, item: canonicalUrl },
+    ],
+  };
+
+  return { '@context': 'https://schema.org', '@graph': [product, touristTrip, breadcrumb] };
 }

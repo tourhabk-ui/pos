@@ -81,6 +81,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${tour.title} | Реальные туры Камчатки`,
     description: desc,
+    alternates: { canonical: `${SITE}/marketplace/tours/${tour.id}` },
     openGraph: {
       title: tour.title,
       description: desc,

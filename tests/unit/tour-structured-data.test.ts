@@ -31,6 +31,15 @@ describe('buildTourStructuredData', () => {
     expect(types).toContain('TouristTrip');
   });
 
+  it('@graph содержит BreadcrumbList (Главная → Туры → активность → тур)', () => {
+    const bc = nodes(buildTourStructuredData(base, [], opts)).find(n => n['@type'] === 'BreadcrumbList');
+    expect(bc).toBeTruthy();
+    const items = bc!.itemListElement as Array<Record<string, unknown>>;
+    expect(items[0].name).toBe('Главная');
+    expect(items[items.length - 1].name).toBe(base.title);
+    expect(items[items.length - 1].item).toBe(opts.canonicalUrl);
+  });
+
   it('Product несёт offers с ценой и валютой', () => {
     const product = nodes(buildTourStructuredData(base, [], opts)).find(n => n['@type'] === 'Product')!;
     const offer = product.offers as Record<string, unknown>;
