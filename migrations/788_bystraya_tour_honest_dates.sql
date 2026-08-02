@@ -51,8 +51,11 @@ DELETE FROM tour_availability ta
    );
 
 -- Затем добираем объявленные даты, если какой-то из них не оказалось.
-INSERT INTO tour_availability (id, operator_tour_id, date, available_slots, booked_slots, created_at)
-SELECT gen_random_uuid(), t.id, d::date, 4, 0, NOW()
+-- id НЕ указываем: столбец BIGSERIAL (авто-BIGINT), а не UUID. Первый прогон
+-- падал на gen_random_uuid() → BIGINT ([migrate] ✗, Watchdog 02.08); пусть
+-- последовательность выдаёт id сама, как в рабочем образце (migration 124).
+INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots, created_at)
+SELECT t.id, d::date, 4, 0, NOW()
   FROM operator_tours t
   JOIN partners p ON p.id = t.operator_id
   CROSS JOIN (VALUES
