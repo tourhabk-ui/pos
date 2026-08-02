@@ -1161,6 +1161,75 @@ export async function resolveContentModel(provider: 'deepseek' | 'qwen'): Promis
     : process.env.CONTENT_QWEN_MODEL);
 }
 
+/** Диагностика одного пути релея: статус, найден ли текст в ОЖИДАЕМОЙ форме, тело. */
+export interface RelayProbeLeg {
+  base: string;
+  key_set: boolean;
+  http_status: number | null;
+  /** Распарсился ли текст той же формой, что читает решатель (иначе «пустой ответ»). */
+  text_found: boolean;
+  /** Кусок сырого тела — виден настоящий ответ релея (форма/ошибка-в-200/лимит). */
+  body_sample: string;
+}
+
+/**
+ * Проб флагманского релея. Немота решателя показывала «пустой ответ» и по
+ * OpenRouter, и по Anthropic — но это значит «релей ответил 200, а текста в
+ * ожидаемой форме нет», а НЕ «релея нет». Существующие пробы (probeAnthropic,
+ * probeOpenRouterKeyStatus) проверяют доступность/ключ, но не то, что ответ
+ * парсится формой решателя. Этот проб повторяет РОВНО разбор решателя
+ * (OpenAI: choices[].message.content · Anthropic: content[].text) и кладёт
+ * сырое тело — чтобы сразу увидеть: несовпадение формы, ошибка-в-200, неверная
+ * модель или лимит. Admin-only (GET /api/admin/ai/probe-relay).
+ */
+export async function probeFlagshipRelay(): Promise<{
+  flagship_model: string;
+  openrouter: RelayProbeLeg;
+  anthropic: RelayProbeLeg;
+}> {
+  const flagshipModel = await resolveFlagshipModel();
+  const probeMsg = [{ role: 'user', content: 'Ответь одним словом: ok' }];
+
+  // OpenRouter-путь — OpenAI-форма (choices[].message.content).
+  const orKey = getOpenRouterKey();
+  const openrouter: RelayProbeLeg = { base: OPENROUTER_BASE, key_set: !!orKey, http_status: null, text_found: false, body_sample: orKey ? '' : 'ключ не задан' };
+  if (orKey) {
+    try {
+      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey}`, 'HTTP-Referer': 'https://vedarai.ru', 'X-Title': 'Vedarai Kamchatka' },
+        body: JSON.stringify({ model: flagshipModel, max_tokens: 16, messages: probeMsg }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      openrouter.http_status = res.status;
+      const raw = await res.text();
+      openrouter.body_sample = raw.slice(0, 400);
+      try { const d = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> }; openrouter.text_found = !!d?.choices?.[0]?.message?.content?.trim(); } catch { /* тело не JSON — body_sample покажет */ }
+    } catch (e) { openrouter.body_sample = `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`; }
+  }
+
+  // Anthropic-путь — Anthropic-форма (content[].text). Модель без префикса anthropic/.
+  const antKey = getAnthropicKey();
+  const antModel = flagshipModel.replace(/^anthropic\//, '');
+  const anthropic: RelayProbeLeg = { base: ANTHROPIC_BASE, key_set: !!antKey, http_status: null, text_found: false, body_sample: antKey ? '' : 'ключ не задан' };
+  if (antKey) {
+    try {
+      const res = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': antKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: antModel, max_tokens: 16, messages: probeMsg }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      anthropic.http_status = res.status;
+      const raw = await res.text();
+      anthropic.body_sample = raw.slice(0, 400);
+      try { const d = JSON.parse(raw) as { content?: Array<{ text?: string }> }; anthropic.text_found = !!d?.content?.[0]?.text?.trim(); } catch { /* тело не JSON — body_sample покажет */ }
+    } catch (e) { anthropic.body_sample = `сеть/timeout: ${e instanceof Error ? e.message : 'error'}`; }
+  }
+
+  return { flagship_model: flagshipModel, openrouter, anthropic };
+}
+
 /**
  * Модель для ОДИНОЧНОГО вызова провайдера вне гонки (callQwen).
  *
