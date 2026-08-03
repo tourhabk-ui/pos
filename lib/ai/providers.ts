@@ -43,7 +43,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { getOpenRouterKey, getOpenRouterKeySource, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
-import { pickBestModel, pickBestFlagship } from '@/lib/ai/model-resolver';
+import { pickBestModel, pickBestFlagship, classifyModels } from '@/lib/ai/model-resolver';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -1377,12 +1377,18 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   const dsKey = getDeepSeekKey();
   if (!dsKey) why.push('deepseek: ключа нет');
   if (dsKey) {
+    // DeepSeek тасует линейку (v3 → v4-pro/v4-flash), и сильнейшая по резолву
+    // модель может молчать: deepseek-v4-pro отдал 200 с пустым body (полевые
+    // прогоны 02–03.08), а «вечная» страховка deepseek-chat к тому моменту уже
+    // получала 400 «not supported». Значит перебирать надо не два хардкода, а
+    // ВСЕ пригодные модели, которые провайдер реально отдаёт в /models —
+    // сильнейшая первой (§8: без привязки к id). Пустой ответ или model-specific
+    // ошибка (400/404) → следующая модель; account-wide (401/402/403/429) →
+    // выходим, другая модель не спасёт.
     const primary = await resolveDecisionModel('deepseek');
-    // Резолвер иногда отдаёт модель, которая на chat/completions молчит
-    // (deepseek-v4-pro вернул 200 с пустым body — полевой прогон 02.08). Пробуем
-    // резолв, затем детерминированную страховку deepseek-chat: ключ рабочий, а
-    // пустой ответ конкретной модели не должен ронять весь решатель.
-    const candidates = primary === 'deepseek-chat' ? [primary] : [primary, 'deepseek-chat'];
+    const eligible = classifyModels(await getProviderModelIds('deepseek'))
+      .filter(m => m.eligible).map(m => m.id);
+    const candidates = [...new Set([primary, ...eligible, 'deepseek-chat'])];
     for (const model of candidates) {
       try {
         const res = await fetchWithRetry('https://api.deepseek.com/v1/chat/completions', {
@@ -1395,12 +1401,15 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
           const text = data?.choices?.[0]?.message?.content;
           if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
           why.push(`deepseek(${model}): пустой ответ`);
-        } else {
-          // Тело ошибки важнее кода: 400 с "maximum context length" — это
-          // «ревью не влезло», совсем другая починка, чем ключ или баланс.
-          why.push(`deepseek(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
-          break; // HTTP-ошибка (ключ/баланс/контекст) — вторая модель не спасёт
+          continue; // пустой body — беда конкретной модели, пробуем следующую
         }
+        const bodyText = (await res.text().catch(() => '')).slice(0, 140);
+        why.push(`deepseek(${model}): HTTP ${res.status} ${bodyText}`);
+        // 401/402/403/429 — ключ/баланс/лимит: провайдер-wide, вторая модель не
+        // спасёт. 400/404 (устаревший/неизвестный id, «not supported») — model-
+        // specific: пробуем следующую. «maximum context length» (400) — ревью не
+        // влезло, тут другая модель тоже не поможет, но это редкий частный случай.
+        if ([401, 402, 403, 429].includes(res.status) || /context length|too long|max.*tokens/i.test(bodyText)) break;
       } catch (e) { why.push(`deepseek: ${(e as Error).message.slice(0, 100)}`); break; }
     }
   }
