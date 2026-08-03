@@ -18,11 +18,19 @@ import { useEffect } from 'react';
 
 const CLIENT_ID_KEY = 'pwa-client-id';
 
+// Только крипто-стойкий источник (никакого небезопасного PRNG — js/insecure-randomness).
+function newClientId(): string {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
 function getClientId(): string {
   try {
     let id = localStorage.getItem(CLIENT_ID_KEY);
     if (!id) {
-      id = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      id = newClientId();
       localStorage.setItem(CLIENT_ID_KEY, id);
     }
     return id;

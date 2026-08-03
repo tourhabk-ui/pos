@@ -106,6 +106,20 @@ describe('max-login: интеграция', () => {
     expect(start).toMatch(/hostname === 'max\.ru'/);
   });
 
+  it('SSRF закрыт: медиа скачивается только с разрешённых https-хостов', () => {
+    // CodeQL js/request-forgery (HIGH): url из тела вебхука шёл в fetch.
+    const bot = read('app/api/max/kuzmich/route.ts');
+    expect(bot).toContain('isAllowedMediaUrl');
+    expect(bot).toContain('if (!isAllowedMediaUrl(url)) return null;');
+    expect(bot).toMatch(/u\.protocol !== 'https:'/);
+  });
+
+  it('client_id PWA — крипто-стойкий, без Math.random', () => {
+    const tr = read('components/PWA/InstallTracker.tsx');
+    expect(tr).not.toContain('Math.random');
+    expect(tr).toContain('crypto.getRandomValues');
+  });
+
   it('status-эндпоинт выдаёт JWT и куку только после consume', () => {
     const status = read('app/api/auth/max/status/route.ts');
     expect(status).toContain('consumeMaxLoginSession');

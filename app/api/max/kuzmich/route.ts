@@ -144,7 +144,23 @@ async function createLeadFromContact(
 
 // ── Скачивание медиа по URL → base64 ─────────────────────────────────────────
 
+// SSRF-барьер (CodeQL js/request-forgery, HIGH): URL медиа приходит из тела
+// вебхука (attacker-controlled), а fetch по нему мог бы бить во внутренние
+// адреса (169.254.169.254, localhost, внутренние сервисы). Пускаем ТОЛЬКО https
+// на разрешённые хосты MAX. Если реальные медиа-URL MAX на другом CDN — добавить
+// хост в env MAX_MEDIA_HOSTS (список через запятую); дефолт — max.ru и поддомены.
+function isAllowedMediaUrl(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  const allow = (process.env.MAX_MEDIA_HOSTS ?? 'max.ru')
+    .split(',').map(h => h.trim().toLowerCase()).filter(Boolean);
+  return allow.some(a => host === a || host.endsWith('.' + a));
+}
+
 async function downloadMedia(url: string): Promise<{ base64: string; mimeType: string } | null> {
+  if (!isAllowedMediaUrl(url)) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
