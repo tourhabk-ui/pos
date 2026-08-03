@@ -425,7 +425,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
             а выдумывать «район открыт» — тем более (районного статуса нет). */}
         {plates[0] && (
           <section>
-            <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/routes">Все</Link></div>
+            <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/catalog">Все</Link></div>
             <Link href={plates[0].kind === 'tour' ? `/marketplace/tours/${plates[0].id}` : `/routes/${plates[0].id}`} className="firstpick">
               <div className="fp-photo" style={plates[0].imageUrl ? { backgroundImage: `url('${plates[0].imageUrl}')` } : undefined}>
                 {!plates[0].imageUrl && <span className="noimg" />}
