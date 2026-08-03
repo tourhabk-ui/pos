@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { pool } from '@/lib/db-pool';
+import { getTourForCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import TourDetailClient from '@/app/marketplace/tours/[id]/_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 
@@ -24,50 +24,11 @@ interface Props {
 }
 
 async function getTour(id: number) {
-  try {
-    const { rows } = await pool.query(`
-      SELECT
-        ot.id, ot.title, ot.description, ot.short_description,
-        ot.base_price, ot.price_old, ot.price_unit,
-        ot.activity_type, ot.location_type,
-        ot.location_name, ot.latitude, ot.longitude,
-        ot.tour_image, ot.photos,
-        ot.max_participants, ot.min_participants,
-        ot.duration_hours, ot.duration_type, ot.multi_day_count,
-        ot.difficulty,
-        ot.included, ot.not_included, ot.what_to_bring,
-        ot.season_start, ot.season_end, ot.seasonal_only,
-        ot.weather_dependent,
-        ot.rating, ot.review_count,
-        ot.meeting_point,
-        ot.program, ot.safety_notes,
-        p.name AS operator_name, p.id AS operator_id,
-        p.contacts AS operator_contacts
-      FROM operator_tours ot
-      JOIN partners p ON ot.operator_id = p.id
-      WHERE ot.id = $1
-        AND ot.is_active = true
-        AND ot.deleted_at IS NULL
-    `, [id]);
-    return rows[0] ?? null;
-  } catch {
-    return null;
-  }
+  return getTourForCard(id);
 }
 
 async function getReviews(tourId: number) {
-  try {
-    const { rows } = await pool.query(`
-      SELECT id, author_name, author_city, rating, comment, trip_date
-      FROM operator_tour_reviews
-      WHERE tour_id = $1
-      ORDER BY created_at DESC
-      LIMIT 6
-    `, [tourId]);
-    return rows;
-  } catch {
-    return [];
-  }
+  return getTourReviews(tourId);
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

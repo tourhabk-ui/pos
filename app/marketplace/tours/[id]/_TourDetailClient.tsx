@@ -83,10 +83,14 @@ interface TourFull {
   review_count: number | null;
   operator_name: string;
   operator_id: string;
-  /** Программа дня — [{title,text}] из operator_tours.program (миграция 809). */
-  program: unknown;
+  /**
+   * Программа дня — [{title,text}] из operator_tours.program (миграция 809).
+   * Опционально: если миграция ещё не применилась, запрос отдаёт строку без
+   * этих колонок (см. lib/tours/tour-detail-query) — блок просто не рисуется.
+   */
+  program?: unknown;
   /** Правила безопасности этого тура — operator_tours.safety_notes (809). */
-  safety_notes: string[] | null;
+  safety_notes?: string[] | null;
   /** Контакты оператора — partners.contacts (телефон/Telegram). */
   operator_contacts: unknown;
 }
