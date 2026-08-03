@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { House, Map, Compass, Navigation, type LucideIcon } from 'lucide-react';
+import { House, Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide-react';
 
 // Единая мобильная навигация (решение владельца 2026-07-18): на /map и
 // /ai-assistant была другая навигация, чем на главной — набор пунктов,
@@ -26,14 +26,16 @@ interface NavItem {
 }
 
 // Пять пунктов, Кузьмич строго ПО ЦЕНТРУ (решение владельца 01.08 — как в
-// north-star макете). Пятый — «Поездки» (/hub/tourist/trips, реальная
-// страница поездок туриста). Профиль и СОС пятыми быть НЕ могут: ЛК только
-// в шапке (§2), СОС только в шапке (#887).
+// north-star макете). Четвёртый — «Туры» (/catalog, витрина operator_tours):
+// раньше был «Поездки», но на телефоне коммерция оказалась спрятана — вход в
+// туры вернули в таб-бар (решение владельца). Поездки туриста доступны из ЛК
+// в шапке. Профиль и СОС пятыми быть НЕ могут: ЛК только в шапке (§2), СОС
+// только в шапке (#887).
 const ITEMS: NavItem[] = [
   { icon: House,      label: 'Дом',         href: '/',                    activeOn: ['/'] },
   { icon: Map,        label: 'Карта',       href: '/map',                 activeOn: ['/map'] },
   { icon: Compass,    label: 'Кузьмич',     href: '/kuzmich',             activeOn: ['/kuzmich', '/ai-assistant'] },
-  { icon: Map,        label: 'Поездки',     href: '/hub/tourist/trips',   activeOn: ['/hub/tourist/trips'] },
+  { icon: Ticket,     label: 'Туры',        href: '/catalog',             activeOn: ['/catalog', '/marketplace'] },
   { icon: Navigation, label: 'На маршруте', href: '/planning?mode=trail', activeOn: ['/planning'] },
 ];
 
@@ -119,35 +121,6 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   loading="lazy"
                   decoding="async"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              </span>
-            ) : href === '/hub/tourist/trips' ? (
-              /* «Поездки» — рюкзак из пака владельца, маской в currentColor
-                 в обоих состояниях (цвет пункта: accent активный / muted нет). */
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '46px',
-                  height: '26px',
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    width: '22px',
-                    height: '22px',
-                    background: 'currentColor',
-                    WebkitMaskImage: 'url(/images/nav/trips-96.webp)',
-                    maskImage: 'url(/images/nav/trips-96.webp)',
-                    WebkitMaskSize: 'contain',
-                    maskSize: 'contain',
-                    WebkitMaskRepeat: 'no-repeat',
-                    maskRepeat: 'no-repeat',
-                    WebkitMaskPosition: 'center',
-                    maskPosition: 'center',
-                  }}
                 />
               </span>
             ) : href === '/planning?mode=trail' ? (

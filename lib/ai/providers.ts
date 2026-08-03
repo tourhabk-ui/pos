@@ -1860,41 +1860,77 @@ export async function callGeminiVision(
 
   // Приоритет 2 (fallback): Gemini через OpenRouter.
   const apiKey = getOpenRouterKey();
-  if (!apiKey) return null;
+  if (apiKey) {
+    try {
+      const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://vedarai.ru',
+          'X-Title': 'Vedarai Kamchatka',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-001',
+          max_tokens: 600,
+          messages: [
+            { role: 'system', content: systemHint },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+                { type: 'text', text: prompt },
+              ],
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text: string | undefined = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) return text.trim();
+      }
+    } catch { /* переходим на Qwen-VL */ }
+  }
 
-  try {
-    const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://vedarai.ru',
-        'X-Title': 'Vedarai Kamchatka',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        max_tokens: 600,
-        messages: [
-          {
-            role: 'system',
-            content: 'Ты — эксперт по природе и достопримечательностям Камчатки. Отвечай на русском, кратко и точно. Определяй вулканы, животных, растения, локации.',
-          },
-          {
-            role: 'user',
-            content: [
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-              { type: 'text', text: prompt },
-            ],
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text: string | undefined = data?.choices?.[0]?.message?.content;
-    return text?.trim() || null;
-  } catch { return null; }
+  // Приоритет 3 (RF-достижимый, БЕЗ релея): Qwen-VL через DashScope.
+  // Gemini (нативный и через OpenRouter) гео-блокируется из РФ (Timeweb) — на
+  // проде зрение Кузьмича живёт ТОЛЬКО на китайском провайдере. Именно поэтому
+  // веб-чат отвечал «фото не вижу»: оба приоритета выше недостижимы. Модель —
+  // env QWEN_VISION_MODEL, дефолт qwen-vl-max. Нет ключа Qwen → возвращаем null.
+  const { apiKey: qwenKey, base: qwenBase } = getQwenConfig();
+  if (qwenKey) {
+    try {
+      const model = process.env.QWEN_VISION_MODEL ?? 'qwen-vl-max';
+      const res = await fetch(`${qwenBase}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
+        body: JSON.stringify({
+          model,
+          max_tokens: 600,
+          messages: [
+            { role: 'system', content: systemHint },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+                { type: 'text', text: prompt },
+              ],
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text: string | undefined = data?.choices?.[0]?.message?.content;
+        if (text?.trim()) return text.trim();
+      }
+    } catch { /* исчерпали провайдеров зрения */ }
+  }
+
+  return null;
 }
 
 // ── Gemini Audio Transcription via OpenRouter ──────────────────

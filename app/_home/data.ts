@@ -5,14 +5,13 @@
  *   - external_alerts        → лента безопасности (severity/title/type/expires)
  *   - volcano_status (KVERT) → ACC-статус вулканов (aviation_color_code)
  *   - location_real_time_status → открыто/закрыто зон + свежесть
- *   - queryCatalog           → платы «Куда сегодня» (фото, цена, категория)
+ *   - operator_tours         → платы «Подходит вам сейчас» (реальные туры: фото, цена)
  *   - operator_bookings …    → живой журнал
  *   - places counts          → «Стихии» и «В цифрах»
  * Каждая выборка в своём try/catch: сбой одного блока не роняет страницу.
  */
 
 import { query } from '@/lib/database';
-import { queryCatalog, type CatalogItem } from '@/lib/routes/catalog-query';
 import { getSeismicFeed, type SeismicEvent } from '@/lib/services/safety/seismic-feed';
 import { getPlatformCounts, type PlatformCounts } from '@/lib/stats/platform-counts';
 import { groupPlacesByElement } from '@/lib/stats/element-groups';
@@ -173,29 +172,38 @@ async function fetchZones(): Promise<ZonesSnapshot> {
 }
 
 async function fetchPlates(): Promise<Plate[]> {
+  // «Подходит вам сейчас» — РЕАЛЬНЫЕ туры операторов (operator_tours), а не
+  // места/маршруты. Прежде тянули из agent_route_knowledge (места+маршруты,
+  // туров там нет) и добивали маршрутами — на телефоне коммерция была спрятана.
+  // Теперь только коммерция: опубликованные туры, сначала с фото. Нет туров →
+  // пустой массив (блок честно не рисуется), никаких мест-заглушек.
   try {
-    // Туры (коммерческий продукт) с ценой и фото — то, что реально можно купить.
-    const res = await queryCatalog({
-      kind: 'tour', page: 1, limit: 6, sort: 'recommended', hasCoords: 'false',
-    } as Parameters<typeof queryCatalog>[0]);
-    let items: CatalogItem[] = res.items;
-    // Если туров мало — добираем маршрутами (тоже с фото), чтобы витрина не пустовала.
-    if (items.length < 4) {
-      const routes = await queryCatalog({
-        kind: 'route', page: 1, limit: 6, sort: 'recommended', hasCoords: 'false',
-      } as Parameters<typeof queryCatalog>[0]);
-      items = [...items, ...routes.items].slice(0, 6);
-    }
-    return items.map((i) => ({
-      id: i.id,
-      kind: i.kind,
-      title: i.title,
-      description: (i.description || '').slice(0, 140),
-      imageUrl: i.imageUrl ?? null,
-      priceFrom: i.priceFrom ?? null,
-      category: i.category,
-      locationType: i.locationType,
-      volcanoStatus: i.volcanoStatus,
+    const { rows } = await query<{
+      id: string; title: string; description: string | null;
+      image_url: string | null; base_price: string | null; activity_type: string | null;
+    }>(`
+      SELECT ot.id::text, ot.title,
+             COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
+             COALESCE(ot.tour_image, (ot.photos)[1])                              AS image_url,
+             ot.base_price::text,
+             ot.activity_type
+        FROM operator_tours ot
+       WHERE ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+       ORDER BY (ot.tour_image IS NOT NULL
+                 OR (ot.photos IS NOT NULL AND array_length(ot.photos, 1) > 0)) DESC,
+                ot.created_at DESC
+       LIMIT 8
+    `);
+    return rows.map((r) => ({
+      id: r.id,
+      kind: 'tour',
+      title: r.title,
+      description: (r.description || '').slice(0, 140),
+      imageUrl: r.image_url,
+      priceFrom: r.base_price != null ? Number(r.base_price) : null,
+      category: r.activity_type ?? 'tour',
+      locationType: null,
+      volcanoStatus: null,
     }));
   } catch {
     return [];
