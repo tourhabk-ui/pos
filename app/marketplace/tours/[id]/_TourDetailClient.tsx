@@ -19,28 +19,15 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 
 /* ─── Labels ─── */
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking: 'Треккинг', fishing: 'Рыбалка', thermal: 'Термальные источники',
-  helicopter: 'Вертолётные туры', boat_trip: 'Морские туры',
-  bears: 'Наблюдение за медведями', rafting: 'Сплав', snowmobile: 'Снегоходные туры',
-};
-
-const LOCATION_LABELS: Record<string, string> = {
-  mountain: 'Горы', volcano: 'Вулканы', hot_spring: 'Горячие источники',
-  lake: 'Озёра', sea: 'Море', river: 'Реки', forest: 'Тайга', coast: 'Побережье',
-};
-
-const DIFFICULTY_MAP: Record<string, { label: string; color: string }> = {
-  easy:   { label: 'Подходит новичкам', color: 'var(--success)' },
-  medium: { label: 'Средняя сложность', color: 'var(--warning)' },
-  hard:   { label: 'Требует подготовки', color: 'var(--danger)' },
-};
-
-const PRICE_UNIT_LABELS: Record<string, string> = {
-  per_person: 'за человека',
-  per_tour: 'за группу',
-  per_day_per_person: 'за чел./день',
-};
+/**
+ * Подписи — из единого словаря (lib/tours/labels). Свои копии здесь держать
+ * нельзя: именно так один тур получал разные подписи на разных страницах
+ * (аудит 03.08 — `boat_trip` был подписан пятью способами, два из них «Сплав»).
+ */
+import {
+  activityLabel, locationLabel, priceUnitLabel,
+  DIFFICULTY_LABELS as DIFFICULTY_MAP,
+} from '@/lib/tours/labels';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -334,11 +321,11 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
   const price = parseFloat(tour.base_price);
   const priceOld = tour.price_old ? parseFloat(tour.price_old) : null;
-  const activityLabel = ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type;
-  const locationLabel = LOCATION_LABELS[tour.location_type] ?? tour.location_type;
+  const activity = activityLabel(tour.activity_type);
+  const location = locationLabel(tour.location_type);
   const durationLabel = formatDuration(tour);
   const diffBadge = tour.difficulty ? DIFFICULTY_MAP[tour.difficulty] : null;
-  const priceLabel = PRICE_UNIT_LABELS[tour.price_unit ?? ''] ?? 'за человека';
+  const priceLabel = priceUnitLabel(tour.price_unit);
   const seasonLabel = formatSeason(tour.season_start, tour.season_end);
   const rating = tour.rating ? Number(tour.rating) : 0;
 
@@ -412,12 +399,12 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               <ChevronRight className="w-3 h-3 opacity-60" />
               <Link href="/catalog" className="pointer-events-auto hover:text-white">Туры</Link>
               <ChevronRight className="w-3 h-3 opacity-60" />
-              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className="pointer-events-auto hover:text-white">{activityLabel}</Link>
+              <Link href={`/marketplace?activity_type=${tour.activity_type}`} className="pointer-events-auto hover:text-white">{activity}</Link>
             </nav>
 
             <div className="flex items-center gap-2.5 mb-3">
               <span className="w-6 h-0.5 bg-[var(--accent)]" />
-              <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activityLabel}</span>
+              <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activity}</span>
             </div>
 
             <h1 className="text-white max-w-[16ch]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(30px,5vw,56px)', lineHeight: 1.04, letterSpacing: '-0.02em', textShadow: '0 2px 34px rgba(0,0,0,.4)', textWrap: 'balance' }}>
@@ -428,7 +415,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               {rating > 0 && (
                 <span className="flex items-center gap-1.5"><Star className="w-4 h-4 text-[var(--warning)] fill-[var(--warning)]" />{rating.toFixed(1)}{tour.review_count ? <span className="opacity-70">· {tour.review_count}</span> : null}</span>
               )}
-              <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 opacity-80" />{tour.location_name ?? locationLabel}</span>
+              <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 opacity-80" />{tour.location_name ?? location}</span>
               <span className="flex items-center gap-1.5"><Users className="w-4 h-4 opacity-80" />до {tour.max_participants} чел.</span>
             </div>
 

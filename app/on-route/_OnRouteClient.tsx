@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 import { Map, CloudSun, MessageSquare, Navigation, ArrowLeft, Wifi, WifiOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -295,11 +296,9 @@ export default function OnRouteClient() {
             style={{ background: '#00e676', color: '#000' }}>
             НА МАРШРУТЕ
           </span>
-          <Link href="/safety/sos"
-            className="px-3 py-1 rounded text-xs font-bold tracking-widest text-white"
-            style={{ background: 'var(--danger)' }}>
-            SOS
-          </Link>
+          {/* Была ссылка на /safety/sos — такой страницы НЕ СУЩЕСТВУЕТ: на
+              полевом экране SOS вёл на 404. Единая кнопка с офлайн-веткой. */}
+          <EmergencyAction />
         </div>
       </div>
 
@@ -398,11 +397,13 @@ export default function OnRouteClient() {
             style={{ border: '2px solid #ff6d00', color: '#ff6d00', background: 'transparent' }}>
             <MessageSquare size={20} /> КУЗЬМИЧ
           </Link>
-          <Link href="/safety/sos"
-            className="flex items-center justify-center gap-2 py-5 rounded-xl text-sm font-bold tracking-widest transition-all active:scale-95"
-            style={{ background: 'var(--danger)', color: 'white', border: '2px solid var(--danger)' }}>
-            <Navigation size={20} /> SOS
-          </Link>
+          {/* Крупный SOS полевого экрана. Раньше — ссылка на несуществующий
+              /safety/sos (404). Теперь единая кнопка: онлайн ведёт на /sos,
+              офлайн уходит на прекэшированный /emergency без навигации в никуда. */}
+          <div className="flex items-center justify-center py-5 rounded-xl"
+            style={{ background: 'color-mix(in srgb, var(--danger) 12%, transparent)', border: '2px solid var(--danger)' }}>
+            <EmergencyAction />
+          </div>
         </div>
       </div>
     </div>

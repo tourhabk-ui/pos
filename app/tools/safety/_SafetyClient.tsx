@@ -60,10 +60,8 @@ const LOCATION_LABELS: Record<string, string> = {
   river: 'Река', forest: 'Лес', pass: 'Перевал',
 };
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking: 'Треккинг', fishing: 'Рыбалка', thermal: 'Термальные',
-  winter_hiking: 'Зимний поход', sightseeing: 'Осмотр', ski: 'Лыжи',
-};
+/** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
+import { activityLabel } from '@/lib/tours/labels';
 
 export function SafetyClient() {
   const [mode, setMode] = useState<Mode>('place');
@@ -265,7 +263,7 @@ export function SafetyClient() {
                         >
                           <p className="text-sm font-medium text-[var(--text-primary)] leading-tight">{r.title}</p>
                           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                            {[ACTIVITY_LABELS[r.activityType ?? ''] ?? r.activityType, r.distanceKm ? `${r.distanceKm} км` : null].filter(Boolean).join(' · ')}
+                            {[activityLabel(r.activityType), r.distanceKm ? `${r.distanceKm} км` : null].filter(Boolean).join(' · ')}
                           </p>
                         </button>
                       ))}

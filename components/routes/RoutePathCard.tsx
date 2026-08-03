@@ -11,15 +11,11 @@ const DIFFICULTY_CONFIG = {
   hard:   { label: 'Сложный', color: 'var(--danger)',  Icon: AlertTriangle },
 } as const;
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking:      'Треккинг',
-  eco:           'Экотуризм',
-  hiking:        'Пеший поход',
-  boat_trip:     'Сплав',
-  snowmobile:    'Снегоход',
-  ski:           'Лыжи',
-  other:         'Маршрут',
-};
+/**
+ * Подписи — из единого словаря. Здесь `boat_trip` назывался «Сплав», хотя
+ * сплав — это `rafting`: морская прогулка выдавалась за сплав по реке.
+ */
+import { activityLabel } from '@/lib/tours/labels';
 
 function daysLabel(n: number) {
   const m10 = n % 10, m100 = n % 100;
@@ -33,7 +29,7 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   const diffKey      = (route.difficulty ?? 'easy') as keyof typeof DIFFICULTY_CONFIG;
   const diff         = DIFFICULTY_CONFIG[diffKey] ?? DIFFICULTY_CONFIG.easy;
   const DiffIcon     = diff.Icon;
-  const actLabel     = ACTIVITY_LABELS[route.activityType ?? route.category] ?? 'Маршрут';
+  const actLabel     = activityLabel(route.activityType ?? route.category) || 'Маршрут';
 
   // imageUrl из каталога всегда разрешается: реальное фото маршрута
   // (/api/images/route/id) → подобранное фото → категорийный фолбэк

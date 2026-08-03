@@ -20,7 +20,13 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const ROOT = process.cwd();
-const WIDGET = readFileSync(join(ROOT, 'components/ai/AIChatWidget.tsx'), 'utf-8');
+/**
+ * Сторожим ЖИВОЙ виджет. Раньше здесь стоял `components/ai/AIChatWidget.tsx` —
+ * он был не подключён ни к одной странице (аудит дублей 2026-08-03), то есть
+ * правило проверялось на мёртвом коде, а в реально работающем `KuzmichWidget`
+ * запасной id сессии был `w-<Date.now()>` — угадываемый. Гвард смотрел не туда.
+ */
+const WIDGET = readFileSync(join(ROOT, 'components/kuzmich/KuzmichWidget.tsx'), 'utf-8');
 const CHAT_ROUTE = readFileSync(join(ROOT, 'app/api/ai/chat/route.ts'), 'utf-8');
 
 describe('id сессии чата непредсказуем', () => {

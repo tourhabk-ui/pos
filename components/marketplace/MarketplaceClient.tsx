@@ -42,33 +42,13 @@ interface Tour {
 
 /* ─── Constants ─── */
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking:   'Треккинг',
-  fishing:    'Рыбалка',
-  thermal:    'Термальные',
-  helicopter: 'Вертолёт',
-  rafting:    'Сплав',
-  boat_trip:  'Морской тур',
-  bears:      'Медведи',
-  snowmobile: 'Снегоход',
-};
-
-const PRICE_UNIT_SHORT: Record<string, string> = {
-  per_person: '/ чел.',
-  per_tour: '/ группа',
-  per_day_per_person: '/ чел. / день',
-};
-
-const LOCATION_LABELS: Record<string, string> = {
-  mountain:   'Горы',
-  volcano:    'Вулканы',
-  hot_spring: 'Горячие источники',
-  lake:       'Озёра',
-  sea:        'Море',
-  river:      'Реки',
-  forest:     'Тайга',
-  coast:      'Побережье',
-};
+/**
+ * Подписи — из единого словаря (lib/tours/labels). Свои копии здесь и привели
+ * к тому, что `boat_trip` в каталоге назывался «Морской тур», в карточке
+ * «Морские туры», а кое-где «Сплав» — то есть морская прогулка выдавалась за
+ * сплав. Короткие подписи для чипов остались, но живут в том же словаре.
+ */
+import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -317,8 +297,8 @@ function TourCard({
 }) {
   const { add, remove, has } = useCart();
   const inCart = has(tour.id);
-  const activityLabel = ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type;
-  const locationLabel = LOCATION_LABELS[tour.location_type] ?? tour.location_type;
+  const activity = activityLabel(tour.activity_type, true);
+  const location = locationLabel(tour.location_type);
   const imageSrc = tour.tour_image ?? ACTIVITY_IMAGES[tour.activity_type] ?? '/images/activities/volcanoes.jpg';
   const diffBadge = tour.difficulty ? DIFFICULTY_BADGE[tour.difficulty] : null;
   const duration = formatDuration(tour);
@@ -385,7 +365,7 @@ function TourCard({
       <div className="absolute left-3 right-3 bottom-3 z-[2] p-3.5 rounded-2xl backdrop-blur-md bg-black/22 border border-white/15 pointer-events-none">
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/15 border border-white/20" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
-            {activityLabel}
+            {activity}
           </span>
           {diffBadge && (
             <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/10 border border-white/15" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
@@ -414,7 +394,7 @@ function TourCard({
         )}
 
         <div className="flex items-center gap-3 text-[11px] text-white/75 mb-2">
-          <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tour.location_name ?? locationLabel}</span>
+          <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tour.location_name ?? location}</span>
           {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{duration}</span>}
         </div>
 
@@ -425,7 +405,7 @@ function TourCard({
           <span className="text-white" style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.01em' }}>
             {basePrice.toLocaleString('ru-RU')} ₽
           </span>
-          <span className="text-[11px] text-white/60">{tour.price_unit ? (PRICE_UNIT_SHORT[tour.price_unit] ?? '/чел') : '/чел'}</span>
+          <span className="text-[11px] text-white/60">{priceUnitLabel(tour.price_unit, true)}</span>
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
@@ -881,8 +861,8 @@ export default function MarketplaceClient({
                 className="ds-btn ds-btn-secondary text-sm rounded-xl inline-flex items-center gap-2"
               >
                 <Mountain className="w-4 h-4" />
-                {activityFilter && ACTIVITY_LABELS[activityFilter]
-                  ? `Маршруты: ${ACTIVITY_LABELS[activityFilter]}`
+                {activityFilter
+                  ? `Маршруты: ${activityLabel(activityFilter)}`
                   : 'Все маршруты'}
               </Link>
               <Link href="/planner" className="ds-btn ds-btn-primary text-sm rounded-xl inline-flex items-center gap-2">

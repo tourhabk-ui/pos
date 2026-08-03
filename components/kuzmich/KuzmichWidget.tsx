@@ -130,6 +130,31 @@ function BookingWidget({ data, onDone }: { data: BookingFormData; onDone: (id: n
   );
 }
 
+/**
+ * Непредсказуемый id сессии чата.
+ *
+ * Было `crypto.randomUUID?.() ?? \`w-${Date.now()}\`` — запасная ветка давала
+ * угадываемый id (миллисекунда). А GET /api/ai/chat отдаёт историю по одному
+ * лишь id: проверка `isForeignSession` закрывает только сессии, привязанные к
+ * аккаунту, анонимные — нет. Перебрав `w-<таймштамп>` вокруг нужной минуты,
+ * можно было вычитать чужой разговор, где турист называет имя, телефон и планы
+ * (те самые ПД, ради которых в репо живут гварды 152-ФЗ).
+ *
+ * `crypto.randomUUID` есть не всегда (недоверенный контекст, старый браузер),
+ * поэтому запасной путь — тоже криптостойкий, через getRandomValues.
+ */
+function createSessionId(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  if (c?.getRandomValues) {
+    const bytes = c.getRandomValues(new Uint8Array(16));
+    return `w-${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
+  // Криптографии нет вовсе — пустой id честнее угадываемого: сервер такую
+  // сессию не сохранит, история просто не будет общей.
+  return '';
+}
+
 export default function KuzmichWidget() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -138,13 +163,13 @@ export default function KuzmichWidget() {
   const [loading, setLoading] = useState(false);
   // Тот же ключ что на /kuzmich — история общая
   const [sessionId] = useState(() => {
-    if (typeof window === 'undefined') return `w-${Date.now()}`;
+    if (typeof window === 'undefined') return '';
     try {
       const k = 'th_kuzmich_session';
       let s = localStorage.getItem(k) ?? '';
-      if (!s) { s = crypto.randomUUID?.() ?? `w-${Date.now()}`; localStorage.setItem(k, s); }
+      if (!s) { s = createSessionId(); localStorage.setItem(k, s); }
       return s;
-    } catch { return `w-${Date.now()}`; }
+    } catch { return createSessionId(); }
   });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);

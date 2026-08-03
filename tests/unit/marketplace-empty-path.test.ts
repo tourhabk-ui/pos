@@ -22,7 +22,9 @@ describe('пустой маркетплейс ведёт к маршрутам �
   it('пустой фильтр по активности ведёт на маршруты этой активности, а не в общий список', () => {
     // Ярослав: искал «Сплав», туров нет — вместо тупика ведём на сплав-МАРШРУТЫ.
     expect(src).toMatch(/\/routes\?kind=route&activity_type=\$\{encodeURIComponent\(activityFilter\)\}/);
-    expect(src).toMatch(/Маршруты: \$\{ACTIVITY_LABELS\[activityFilter\]\}/);
+    // Подпись берётся из единого словаря (lib/tours/labels), а не из локальной
+    // копии: копии разошлись и один тип назывался по-разному на разных страницах.
+    expect(src).toMatch(/Маршруты: \$\{activityLabel\(activityFilter\)\}/);
   });
   it('есть ссылка в планировщик — собрать поездку', () => {
     expect(src.includes('href="/planner"')).toBe(true);

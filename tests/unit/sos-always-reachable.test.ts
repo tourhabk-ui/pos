@@ -107,6 +107,47 @@ describe('каждый экран с нижней навигацией пока�
   });
 });
 
+describe('нет второй SOS-кнопки нигде', () => {
+  /**
+   * Слепое пятно, из-за которого копии дожили до 2026-08-03: прежняя проверка
+   * искала ссылку на /sos со СВОИМ onClick. Мимо прошли сразу две:
+   *   • `components/shared/SOSButton.tsx` — <a href="/emergency">SOS</a> на
+   *     десктопной главной: ни /sos, ни onClick, зато другое место назначения;
+   *   • инлайновая <button>SOS</button> на карте — вообще не ссылка, при этом
+   *     на том же экране уже была EmergencyAction.
+   * Поэтому теперь ищем НАЗНАЧЕНИЕ элемента: подпись «SOS» на кликабельном
+   * элементе. Это ловит любую разметку, а не конкретную её форму.
+   */
+  /**
+   * Исключение: обычная текстовая ссылка в подвале. Это пункт навигации, а не
+   * кнопка действия — она ведёт на канонический /sos и своего поведения не
+   * несёт. Прежняя версия сторожа тоже считала это законным.
+   */
+  const NAV_LINK_ALLOWED = new Set(['components/layout/Footer.tsx']);
+
+  const offenders = [...SOURCES.entries()]
+    .filter(([path]) => path !== ACTION && !NAV_LINK_ALLOWED.has(path))
+    .filter(([, src]) =>
+      // <a|Link|button ...>SOS</a> либо aria-label="SOS…"
+      /<(?:Link|a|button)\b[^>]*>\s*SOS\s*</s.test(src)
+      || /<(?:Link|a|button)\b[^>]*aria-label=["']SOS/i.test(src))
+    .map(([path]) => path);
+
+  it('SOS-кнопку рисует только EmergencyAction', () => {
+    expect(offenders, 'появилась вторая кнопка SOS — она разойдётся поведением')
+      .toEqual([]);
+  });
+
+  it('SOS никуда не ведёт мимо /sos', () => {
+    // 2026-08-03: три кнопки вели на /safety/sos — страницы с таким путём НЕТ.
+    // На экране «НА МАРШРУТЕ» это означало 404 вместо помощи.
+    const broken = [...SOURCES.entries()]
+      .filter(([, src]) => /href=["']\/safety\/sos["']/.test(src))
+      .map(([path]) => path);
+    expect(broken, 'SOS ведёт на несуществующую страницу').toEqual([]);
+  });
+});
+
 describe('СОС не вернулся во вкладку', () => {
   it('BottomNav не содержит собственной кнопки', () => {
     const src = SOURCES.get('components/shared/BottomNav.tsx')!;
