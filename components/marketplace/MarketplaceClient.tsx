@@ -356,7 +356,7 @@ function TourCard({
         style={{ filter: 'saturate(1.12) contrast(1.04)' }}
       />
       {/* Затемнение только внизу под текстом — краски фото играют */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-black/15" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
 
       {/* Навигация по всей карточке (под оверлеями) */}
       <Link href={`/marketplace/tours/${tour.id}`} className="absolute inset-0 z-[1]" aria-label={tour.title} />
@@ -381,9 +381,9 @@ function TourCard({
         <Heart className={`w-4 h-4 ${isLiked ? 'fill-[var(--danger)] text-[var(--danger)]' : 'text-white'}`} />
       </button>
 
-      {/* Нижняя стеклянная панель */}
-      <div className="absolute left-3 right-3 bottom-3 z-[2] p-4 rounded-2xl backdrop-blur-xl bg-black/20 border border-white/20 pointer-events-none">
-        <div className="flex items-center gap-2 mb-2">
+      {/* Нижняя стеклянная панель — компактная и лёгкая, чтобы фото дышало */}
+      <div className="absolute left-3 right-3 bottom-3 z-[2] p-3.5 rounded-2xl backdrop-blur-md bg-black/22 border border-white/15 pointer-events-none">
+        <div className="flex items-center gap-2 mb-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-white px-2 py-0.5 rounded-full bg-white/15 border border-white/20" style={{ fontFamily: 'var(--font-jetbrains, monospace)' }}>
             {activityLabel}
           </span>
@@ -401,24 +401,24 @@ function TourCard({
         </div>
 
         <h3
-          className="text-white leading-none line-clamp-2 mb-2"
-          style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.35rem', letterSpacing: '-0.02em', textShadow: '0 1px 14px rgba(0,0,0,.45)' }}
+          className="text-white leading-none line-clamp-2 mb-1.5"
+          style={{ fontFamily: 'var(--font-unbounded, var(--font-playfair))', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em', textShadow: '0 1px 14px rgba(0,0,0,.45)' }}
         >
           {tour.title}
         </h3>
 
         {(tour.short_description || tour.description) && (
-          <p className="text-[13px] text-white/85 line-clamp-2 mb-2.5" style={{ textShadow: '0 1px 8px rgba(0,0,0,.4)' }}>
+          <p className="text-[12.5px] text-white/85 line-clamp-1 mb-2" style={{ textShadow: '0 1px 8px rgba(0,0,0,.4)' }}>
             {tour.short_description ?? tour.description}
           </p>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] text-white/75 mb-3">
+        <div className="flex items-center gap-3 text-[11px] text-white/75 mb-2">
           <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tour.location_name ?? locationLabel}</span>
           {duration && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{duration}</span>}
         </div>
 
-        <div className="flex items-baseline gap-2 mb-3">
+        <div className="flex items-baseline gap-2 mb-2.5">
           {priceOld && priceOld > basePrice && (
             <span className="text-xs text-white/50 line-through">{priceOld.toLocaleString('ru-RU')} ₽</span>
           )}
