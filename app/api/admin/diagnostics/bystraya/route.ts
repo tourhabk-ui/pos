@@ -27,6 +27,7 @@ const MIGRATIONS = [
   '795_bystraya_tour_gallery_expand.sql',
   '796_bystraya_tour_content_fields.sql',
   '797_operator_tours_meeting_point.sql',
+  '800_bystraya_tour_force_publish.sql',
 ];
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
