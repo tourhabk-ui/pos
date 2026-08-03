@@ -1365,6 +1365,7 @@ export interface OperatorProfileRow {
   description: string | null;
   short_description: string | null;
   hero_image: string | null;
+  logo_image: string | null;
   gallery: unknown[] | null;
   services: unknown[] | null;
   features: unknown[] | null;
