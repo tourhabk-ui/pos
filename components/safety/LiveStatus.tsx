@@ -156,13 +156,16 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
     .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
 
   // Берег — та же проекция, что у точек: сдвинулся центр — сдвинулся и берег.
+  // БЕЗ замыкания (Z): берег — открытая линия, а не полигон. Замыкающая хорда
+  // соединяла крайние точки берега прямой через весь скоп — та самая «лишняя
+  // диагональ», из-за которой контур не читался.
   const coastPath = COASTLINE
     .map(([la, ln], i) => {
       const x = CX + (((ln - c.lng) * kmLng) / MAX_KM) * R;
       const y = CY - (((la - c.lat) * kmLat) / MAX_KM) * R;
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
     })
-    .join(' ') + ' Z';
+    .join(' ');
 
   const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
 
@@ -190,9 +193,9 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
           <g clipPath="url(#scopeClip)" aria-hidden>
             <path
               d={coastPath}
-              fill="var(--radar)" fillOpacity="0.07"
-              stroke="var(--radar)" strokeOpacity="0.25" strokeWidth="0.9"
-              strokeLinejoin="round"
+              fill="none"
+              stroke="var(--radar)" strokeOpacity="0.55" strokeWidth="1.4"
+              strokeLinejoin="round" strokeLinecap="round"
             />
           </g>
           {rings.map((k, i) => (
