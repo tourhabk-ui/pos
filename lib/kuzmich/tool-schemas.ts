@@ -48,6 +48,15 @@ const getToursSchema = z.object({
   activity_type: looseString(100).optional(),
 });
 
+// ── get_tour_details ──────────────────────────────────────────────────────
+// Полная карточка одного тура: описание, программа, точка сбора/логистика,
+// что входит/не входит, что взять. Общий список (get_tours) их не отдаёт —
+// иначе промпт раздувается. Ищем по названию/ключевому слову.
+const getTourDetailsSchema = z.object({
+  name: looseString(200).optional(),
+  query: looseString(200).optional(),
+}).refine(v => !!(v.name || v.query), { message: 'нужно указать name (название или ключевое слово тура)' });
+
 // ── get_guardian_context ──────────────────────────────────────────────────
 // executeTool исторически принимает `place` ИЛИ `name` (args.place ?? args.name) —
 // сохраняем эту терпимость, а не только объявленный в JSON-схеме `place`.
@@ -123,6 +132,17 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: getToursSchema,
+  },
+  get_tour_details: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'get_tour_details',
+        description: 'Полные детали КОНКРЕТНОГО тура: описание, программа, точка сбора и логистика (старт/забор), что входит и не входит, что взять с собой. Используй ВСЕГДА, когда турист спрашивает про конкретный тур — что там по программе, откуда стартуют, где сбор, что взять. Не выдумывай эти детали сам — бери отсюда.',
+        parameters: { type: 'object', properties: { name: { type: 'string', description: 'Название тура или ключевое слово (например «сплав», «Быстрая», «рыбалка»)' } }, required: ['name'] },
+      },
+    },
+    schema: getTourDetailsSchema,
   },
   get_guardian_context: {
     definition: {

@@ -124,6 +124,7 @@ export const KUZMICH_SYSTEM = `Ты Кузьмич — Хранитель Кам
 - Реальные места, объекты и достопримечательности Камчатки (санатории, базы, маршруты, горячие источники) — используй свои знания. Можешь рассказывать о Санатории Светлячок, Паратунке, Малкинских источниках и любых других реальных камчатских объектах.
 - НОВОСТИ И СОБЫТИЯ: ты НЕ знаешь текущих новостей, если они не указаны в блоке "АКТУАЛЬНЫЕ НОВОСТИ" ниже. Если спрашивают про конкретное событие, которого нет в твоих данных — прямо скажи "у меня нет подтверждённой информации об этом". НИКОГДА не выдумывай события, ЧП, аварии или факты.
 - ФАКТЫ БЕЗОПАСНОСТИ — НИКОГДА НЕ ВЫДУМЫВАЙ. Статус места (открыто/закрыто), алерты КБГС РАН, активность вулкана, опасности маршрута, сложность, набор высоты, наличие связи, расстояние до медпомощи, лавинную и сейсмическую обстановку, проходимость в текущий сезон — бери ТОЛЬКО из get_guardian_context, из блоков данных ниже или из инструментов. Если этих данных нет — скажи прямо "точных данных по безопасности этого места у меня сейчас нет" и предложи безопасный шаг: проверить статус в приложении, связаться с МЧС, взять гида. Лучше честное "не знаю", чем выдуманная опасность или выдуманная безопасность — на кону жизнь человека.
+- ГЕОГРАФИЯ И ЛОГИСТИКА МЕСТ/МАРШРУТОВ — НЕ ВЫДУМЫВАЙ. Где находится река/вулкан/озеро/точка, куда впадает, откуда стартует и где заканчивается сплав/маршрут, точки заброски и выброски, километраж трассы, расстояния, координаты — бери ТОЛЬКО из инструментов (searchRoutes, get_guardian_context) и блоков данных ниже. Если объекта нет в данных платформы — честно скажи "по этому объекту у меня нет проверенных данных на платформе", предложи посмотреть, что есть рядом, или уточнить у оператора. НЕ описывай географию объекта и НЕ называй точку старта/заброски по общим знаниям, даже уверенно и "по жизни": неверная точка старта на воде или в горах — это риск для жизни, а не просто неточность. Общее знание "по жизни" тут не источник — источник только данные платформы.
 - Если данных недостаточно — прямо скажи это и предложи безопасный следующий шаг.
 - Не дави на бронирование и не обещай гарантии, которых у тебя нет.
 - Не предлагай бронирование первым. Только если человек сам спросит.
@@ -178,6 +179,8 @@ interface TourContextRow {
   operator_name: string | null;
   available_slots: number | null;
   next_available_date: string | null;
+  short_description: string | null;
+  has_details: boolean | null;
 }
 
 let _tourContextCache: string = '';
@@ -383,6 +386,9 @@ export async function buildTourContext(): Promise<string> {
                ot.location_name,
                ot.available_slots,
                ot.next_available_date::text,
+               ot.short_description,
+               (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
+                OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                u.company_name AS operator_name
         FROM operator_tours ot
         LEFT JOIN users u ON u.id = ot.operator_id
@@ -421,7 +427,9 @@ export async function buildTourContext(): Promise<string> {
       const nextDate = r.next_available_date
         ? ` | Ближайшая дата: ${new Date(r.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
         : '';
-      return `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}`;
+      const brief = r.short_description ? ` — ${r.short_description}` : '';
+      const details = r.has_details ? ' [есть детали: вызови get_tour_details]' : '';
+      return `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
     });
 
     // Places block
@@ -962,6 +970,57 @@ export async function findTour(keywords: string[]): Promise<TourRow | null> {
     );
     return rows[0] ?? null;
   } catch { return null; }
+}
+
+/**
+ * Полные детали одного тура для Кузьмича: описание, точка сбора/логистика,
+ * состав, что взять. Общий buildTourContext эти поля не отдаёт (раздул бы
+ * промпт на 40 туров) — а без них Кузьмич не знает ни программы, ни откуда
+ * стартует сплав. Ищем по названию/ключевому слову, берём самый релевантный.
+ */
+export async function getTourDetails(query: string): Promise<string> {
+  const q = query.trim();
+  if (!q) return '';
+  try {
+    const pattern = `%${q}%`;
+    const { rows } = await pool.query<{
+      id: number;
+      title: string;
+      base_price: number | null;
+      short_description: string | null;
+      description: string | null;
+      meeting_point: string | null;
+      included: string[] | null;
+      not_included: string[] | null;
+      what_to_bring: string[] | null;
+      location_name: string | null;
+      activity_type: string | null;
+    }>(
+      `SELECT id, title, base_price, short_description, description, meeting_point,
+              included, not_included, what_to_bring, location_name, activity_type
+         FROM operator_tours
+        WHERE is_active = true AND deleted_at IS NULL
+          AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
+        ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
+        LIMIT 1`,
+      [pattern],
+    );
+    const t = rows[0];
+    if (!t) return `По запросу "${q}" тур на платформе не найден. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+
+    const parts: string[] = [`ТУР: "${t.title}" (ID${t.id})`];
+    if (t.location_name) parts.push(`Локация: ${t.location_name}`);
+    if (t.base_price != null) parts.push(`Цена: от ${Number(t.base_price).toLocaleString('ru-RU')} р/чел`);
+    if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
+    if (t.description) parts.push(`Описание: ${t.description.slice(0, 1200)}`);
+    if (t.meeting_point) parts.push(`Точка сбора и логистика (бери ТОЛЬКО отсюда, не выдумывай):\n${t.meeting_point}`);
+    if (t.included?.length) parts.push(`Входит в стоимость:\n- ${t.included.join('\n- ')}`);
+    if (t.not_included?.length) parts.push(`Не входит:\n- ${t.not_included.join('\n- ')}`);
+    if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);
+    return parts.join('\n');
+  } catch {
+    return '';
+  }
 }
 
 export class BookingError extends Error {
@@ -1558,6 +1617,11 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     if (name === 'get_tours') {
       const ctx = await buildTourContext();
       return ctx || 'Туры не найдены.';
+    }
+    if (name === 'get_tour_details') {
+      const q = args.name ?? args.query ?? '';
+      const details = await getTourDetails(q);
+      return details || 'Не удалось получить детали тура.';
     }
     if (name === 'get_place_info') {
       const placeName = args.name ?? '';
