@@ -5,7 +5,7 @@ import { pool } from '@/lib/db-pool'
 import { Header } from '@/components/layout/Header'
 import { HeroStatus, type SafetyStatusData } from '@/components/homepage/HeroStatus'
 import { StoriesRail } from '@/components/homepage/StoriesRail'
-import { TravelerCard } from '@/components/homepage/TravelerCard'
+import { FeaturedTour } from '@/components/homepage/FeaturedTour'
 import { LiveOnTrails } from '@/components/homepage/LiveOnTrails'
 import { StatsBand, type PlatformStats } from '@/components/homepage/StatsBand'
 import { KuzmichBriefing } from '@/components/homepage/KuzmichBriefing'
@@ -138,8 +138,10 @@ export default async function Page() {
         {/* Stories rail */}
         <StoriesRail />
 
-        {/* Featured traveler story */}
-        <TravelerCard />
+        {/* Тур недели — реальный опубликованный тур из БД (не выдуманная история) */}
+        <SectionErrorBoundary>
+          <FeaturedTour />
+        </SectionErrorBoundary>
 
         {/* Social proof + style badge */}
         <LiveOnTrails />
