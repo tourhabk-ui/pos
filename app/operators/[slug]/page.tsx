@@ -145,7 +145,7 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
 
   const result = await query<OperatorProfileRow>(
     `SELECT id, slug, name, category, description, short_description,
-            hero_image, gallery, services, features, faq, season_info,
+            hero_image, logo_image, gallery, services, features, faq, season_info,
             reviews_data, contacts, location, legal_info, contact,
             rating::text, review_count::text, is_verified,
             registry_status, registry_number, created_at::text
@@ -242,6 +242,11 @@ export default async function OperatorProfilePage(
           <section className="ds-card p-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
+                {profile.logo_image && (
+                  <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden mb-3 bg-black border border-[var(--border)]">
+                    <Image src={profile.logo_image} alt={`Логотип ${profile.name}`} fill className="object-contain" sizes="80px" />
+                  </div>
+                )}
                 <h1 className="font-playfair text-3xl sm:text-4xl font-bold mb-3">{profile.name}</h1>
                 <div className="flex flex-wrap items-center gap-3 mb-4">
                   {profile.category && <span className="ds-badge">{profile.category}</span>}
