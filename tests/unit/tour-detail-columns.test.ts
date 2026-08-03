@@ -19,8 +19,13 @@ describe('подробная карточка тура — колонки + Ве
     expect(src.includes('lg:col-span-8')).toBe(true);
     expect(src.includes('lg:col-span-4')).toBe(true);
   });
-  it('дисплей-шрифт платформы Unbounded (не generic serif)', () => {
-    expect(src).toMatch(/font-unbounded/);
+  // Раньше здесь требовался Unbounded — но CLAUDE.md §2 и .claude/DESIGN_SYSTEM.md
+  // называют дисплейным шрифтом платформы Playfair Display. Сторож закреплял
+  // дрейф карточки от документированного языка; при вводе стандарта карточки
+  // тура (§11, 03.08) выровняли по документу.
+  it('дисплей-шрифт платформы Playfair (голос края, §2)', () => {
+    expect(src).toMatch(/font-playfair/);
+    expect(src).not.toMatch(/font-unbounded/);
   });
   it('липкая бронь справа', () => {
     expect(src).toMatch(/lg:sticky/);
