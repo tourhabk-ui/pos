@@ -75,7 +75,7 @@ describe('max-login: nonce секретный', () => {
 describe('max-login: интеграция', () => {
   it('бот распознаёт login-payload в bot_started', () => {
     const bot = read('app/api/max/kuzmich/route.ts');
-    expect(bot).toContain("startPayload.startsWith('login-')");
+    expect(bot).toContain("update.payload.startsWith('login-')");
     expect(bot).toContain('authenticateMaxLoginSession');
   });
 
@@ -84,7 +84,9 @@ describe('max-login: интеграция', () => {
     // max_user_id логинил атакующего под жертвой. Теперь подтверждение входа
     // требует verifiedOrigin (webhook-секрет в URL или long-polling), fail-closed.
     const bot = read('app/api/max/kuzmich/route.ts');
-    expect(bot).toContain('opts?.verifiedOrigin');
+    // verifiedOrigin — серверный флаг — доминирует над входом (первым условием),
+    // а не проверяется после user-controlled ветки (CodeQL js/user-controlled-bypass).
+    expect(bot).toContain('opts?.verifiedOrigin === true');
     expect(bot).toContain('isVerifiedMaxWebhook(request.url)');
     const lib = read('lib/max/webhook-url.ts');
     expect(lib).toContain('timingSafeCompare');

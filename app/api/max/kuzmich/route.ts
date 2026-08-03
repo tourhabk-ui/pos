@@ -212,34 +212,34 @@ interface MaxUpdate {
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
 async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean }): Promise<void> {
-  // bot_started → вход через MAX (deep-link ?start=login-<nonce>) ИЛИ обычный /start
-  if (update.update_type === 'bot_started' && update.chat_id) {
-    const startPayload = update.payload ?? '';
-    if (startPayload.startsWith('login-')) {
-      // ЗАЩИТА ОТ ЗАХВАТА АККАУНТА (security-ревью #961, HIGH): подтверждать
-      // вход можно ТОЛЬКО по апдейту, чей источник заверен — иначе форжнутый
-      // POST с чужим max_user_id логинит атакующего под жертвой. Заверенные
-      // пути: webhook с секретом в URL (isVerifiedMaxWebhook) и long-polling
-      // (мы сами забрали апдейт у MAX по токену). Fail-closed.
-      if (!opts?.verifiedOrigin) {
-        await maxReply(update.chat_id, 'Вход через MAX временно недоступен. Попробуйте позже.');
-        return;
-      }
-      const nonce = startPayload.slice('login-'.length);
-      const ok = await authenticateMaxLoginSession(nonce, {
-        maxUserId: update.user?.user_id ?? update.chat_id,
-        name: update.user?.name ?? null,
-        username: update.user?.username ?? null,
-      });
-      await maxReply(
-        update.chat_id,
-        ok
-          ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
-          : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
-      );
-      return;
-    }
+  // ── ВХОД ЧЕРЕЗ MAX ─────────────────────────────────────────────────────────
+  // Решение о подтверждении входа принимается ТОЛЬКО по verifiedOrigin —
+  // это серверный флаг (секрет в URL вебхука / long-polling), НЕ поле из тела
+  // апдейта. Он доминирует над всей веткой: незаверенный источник вообще не
+  // доходит до аутентификации (защита от захвата аккаунта, security-ревью #961).
+  // Данные о пользователе берём из апдейта только ПОСЛЕ прохождения этого гейта.
+  if (opts?.verifiedOrigin === true
+      && update.update_type === 'bot_started'
+      && update.chat_id
+      && typeof update.payload === 'string'
+      && update.payload.startsWith('login-')) {
+    const nonce = update.payload.slice('login-'.length);
+    const ok = await authenticateMaxLoginSession(nonce, {
+      maxUserId: update.user?.user_id ?? update.chat_id,
+      name: update.user?.name ?? null,
+      username: update.user?.username ?? null,
+    });
+    await maxReply(
+      update.chat_id,
+      ok
+        ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
+        : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
+    );
+    return;
+  }
 
+  // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)
+  if (update.update_type === 'bot_started' && update.chat_id) {
     let capturedStart = '';
     const capturingStart = async (id: number, text: string) => {
       capturedStart = text;
