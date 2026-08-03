@@ -10,6 +10,7 @@ import {
   ArrowUpRight, RefreshCw, AlertTriangle, UserCheck,
   Bell, Activity, MessageSquareText, CalendarDays,
   UserPlus, ShoppingCart, XCircle, Star, MapPin, BedDouble,
+  Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -29,6 +30,7 @@ interface DashboardData {
     totalBookings: MetricItem;
     activeUsers: MetricItem;
     conversionRate: MetricItem;
+    pwaInstalls?: MetricItem;
   };
   charts: {
     topTours: Array<{ id: string; title: string; bookings: number; revenue: number }>;
@@ -126,6 +128,11 @@ const KPI_DEFS: KpiDef[] = [
     key: 'conversionRate', label: 'Конверсия', icon: Percent,
     color: 'text-[var(--warning)]', borderColor: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/12',
     format: (v) => v.toFixed(1), suffix: '%',
+  },
+  {
+    key: 'pwaInstalls', label: 'Установки PWA', icon: Smartphone,
+    color: 'text-[var(--ocean)]', borderColor: 'border-l-[var(--ocean)]', iconBg: 'bg-[var(--ocean)]/12',
+    format: fmt,
   },
 ];
 
@@ -367,6 +374,8 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {KPI_DEFS.map((kpi) => {
           const m = metrics[kpi.key as keyof typeof metrics];
+          // Метрика может отсутствовать (старый ответ API) — не роняем дашборд.
+          if (!m) return null;
           const Icon = kpi.icon;
           return (
             <div
