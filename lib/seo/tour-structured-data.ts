@@ -25,9 +25,14 @@ export interface TourSeoInput {
   location_name?: string | null;
   latitude?: string | number | null;
   longitude?: string | number | null;
-  /** Месяц начала/конца сезона (1–12) — для Offer.availabilityStarts/Ends. */
-  season_start?: number | null;
-  season_end?: number | null;
+  /**
+   * Сезон для Offer.availabilityStarts/Ends. В БД `operator_tours.season_start`
+   * — ДАТА (`2026-06-01`), а не номер месяца, поэтому принимаем оба вида и
+   * нормализуем в `seasonMonth()`. Раньше тип обещал число, строка приезжала
+   * молча, и в разметку уходило `2026-2026-06-01-01` — мусор для поисковиков.
+   */
+  season_start?: string | number | null;
+  season_end?: string | number | null;
   /** Что входит в тур — для amenityFeature (ответы Алисы «что входит»). */
   included?: string[] | null;
 }
@@ -52,6 +57,21 @@ export interface TourSeoOpts {
 function isoDate(d: string | Date): string {
   if (typeof d === 'string') return d.slice(0, 10);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Месяц сезона (1–12) из значения БД: принимает и дату (`2026-06-01`), и уже
+ * готовый номер месяца. Возвращает null, если разобрать нечего.
+ */
+function seasonMonth(v: string | number | null | undefined): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return v >= 1 && v <= 12 ? v : null;
+  const s = v.trim();
+  if (!s) return null;
+  const asNum = Number(s);
+  if (Number.isInteger(asNum) && asNum >= 1 && asNum <= 12) return asNum;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.getUTCMonth() + 1;
 }
 
 export function buildTourStructuredData(
@@ -84,10 +104,10 @@ export function buildTourStructuredData(
     availability: 'https://schema.org/InStock',
     url: canonicalUrl,
     seller: { '@type': 'Organization', name: tour.operator_name },
-    ...(tour.season_start && tour.season_end
+    ...(seasonMonth(tour.season_start) && seasonMonth(tour.season_end)
       ? {
-          availabilityStarts: `${year}-${String(tour.season_start).padStart(2, '0')}-01`,
-          availabilityEnds: `${year}-${String(tour.season_end).padStart(2, '0')}-28`,
+          availabilityStarts: `${year}-${String(seasonMonth(tour.season_start)).padStart(2, '0')}-01`,
+          availabilityEnds: `${year}-${String(seasonMonth(tour.season_end)).padStart(2, '0')}-28`,
         }
       : {}),
   };

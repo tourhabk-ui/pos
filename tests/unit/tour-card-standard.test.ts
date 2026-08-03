@@ -21,6 +21,9 @@ const src = readFileSync(CARD, 'utf-8');
 const catalogPage = readFileSync(join(process.cwd(), 'app/catalog/tours/[id]/page.tsx'), 'utf-8');
 const marketPage = readFileSync(join(process.cwd(), 'app/marketplace/tours/[id]/page.tsx'), 'utf-8');
 
+/** SQL карточки живёт В ОДНОМ месте — копии в двух страницах уже разъезжались. */
+const query = readFileSync(join(process.cwd(), 'lib/tours/tour-detail-query.ts'), 'utf-8');
+
 describe('стандарт карточки тура — безопасность', () => {
   it('НЕ содержит своей SOS-кнопки (единственная реализация — EmergencyAction)', () => {
     expect(src).not.toMatch(/href=["']\/sos["']/);
@@ -39,11 +42,24 @@ describe('стандарт карточки тура — безопасност�
     expect(src).not.toContain('по указанию гида');
   });
 
-  it('обе страницы тура отдают safety_notes и program', () => {
+  it('запрос карточки отдаёт safety_notes и program', () => {
+    expect(query).toContain('ot.program');
+    expect(query).toContain('ot.safety_notes');
+  });
+
+  it('обе страницы читают тур ОДНИМ общим запросом, без своего SQL', () => {
     for (const page of [catalogPage, marketPage]) {
-      expect(page).toContain('ot.program');
-      expect(page).toContain('ot.safety_notes');
+      expect(page).toContain('getTourForCard');
+      expect(page).toContain('getTourReviews');
+      // своего SELECT в странице быть не должно — иначе копии снова разъедутся
+      expect(page).not.toMatch(/FROM operator_tours/);
     }
+  });
+
+  it('отставшая миграция не даёт 404 на живом туре', () => {
+    // 42703 = undefined_column: повторяем запрос без колонок 809
+    expect(query).toContain('42703');
+    expect(query).toContain('buildSql(false)');
   });
 });
 
@@ -55,9 +71,7 @@ describe('стандарт карточки тура — честность да
   it('контакты оператора — из partners.contacts, а не из выдуманного поля тура', () => {
     expect(src).toContain('operator_contacts');
     expect(src).not.toContain('contact_phones');
-    for (const page of [catalogPage, marketPage]) {
-      expect(page).toContain('p.contacts AS operator_contacts');
-    }
+    expect(query).toContain('p.contacts AS operator_contacts');
   });
 
   it('программа разбирается защитно (JSONB форму никто не гарантирует)', () => {
