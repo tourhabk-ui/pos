@@ -15,6 +15,7 @@ import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmi
 import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
+import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -194,8 +195,25 @@ interface MaxUpdate {
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
 async function handleUpdate(update: MaxUpdate): Promise<void> {
-  // bot_started → /start
+  // bot_started → вход через MAX (deep-link ?start=login-<nonce>) ИЛИ обычный /start
   if (update.update_type === 'bot_started' && update.chat_id) {
+    const startPayload = update.payload ?? '';
+    if (startPayload.startsWith('login-')) {
+      const nonce = startPayload.slice('login-'.length);
+      const ok = await authenticateMaxLoginSession(nonce, {
+        maxUserId: update.user?.user_id ?? update.chat_id,
+        name: update.user?.name ?? null,
+        username: update.user?.username ?? null,
+      });
+      await maxReply(
+        update.chat_id,
+        ok
+          ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
+          : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
+      );
+      return;
+    }
+
     let capturedStart = '';
     const capturingStart = async (id: number, text: string) => {
       capturedStart = text;

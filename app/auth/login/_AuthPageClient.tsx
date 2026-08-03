@@ -8,6 +8,7 @@ import { Eye, EyeOff, User, Briefcase, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
+import MaxLoginButton from './_MaxLoginButton';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -184,6 +185,13 @@ export default function AuthPageClient() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMaxAuth = (maxUser: { id: string; email: string; name: string; role: string; token: string }) => {
+    // Статус-эндпоинт уже выдал JWT + куку — осталось сохранить профиль и увести в ЛК.
+    const userData = { ...maxUser, preferences: {}, createdAt: new Date(), updatedAt: new Date() };
+    localStorage.setItem('user', JSON.stringify(userData));
+    router.push('/hub/tourist');
   };
 
   return (
@@ -474,6 +482,9 @@ export default function AuthPageClient() {
           <p className="text-[10px] text-center text-[var(--text-muted)] mt-2">
             Telegram-аккаунт создаётся автоматически
           </p>
+          <div className="mt-3">
+            <MaxLoginButton onAuth={handleMaxAuth} onError={setError} />
+          </div>
         </div>
 
         {/* Footer */}
