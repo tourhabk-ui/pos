@@ -16,6 +16,7 @@ import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmic
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
 import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
+import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -194,11 +195,20 @@ interface MaxUpdate {
 
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
-async function handleUpdate(update: MaxUpdate): Promise<void> {
+async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean }): Promise<void> {
   // bot_started → вход через MAX (deep-link ?start=login-<nonce>) ИЛИ обычный /start
   if (update.update_type === 'bot_started' && update.chat_id) {
     const startPayload = update.payload ?? '';
     if (startPayload.startsWith('login-')) {
+      // ЗАЩИТА ОТ ЗАХВАТА АККАУНТА (security-ревью #961, HIGH): подтверждать
+      // вход можно ТОЛЬКО по апдейту, чей источник заверен — иначе форжнутый
+      // POST с чужим max_user_id логинит атакующего под жертвой. Заверенные
+      // пути: webhook с секретом в URL (isVerifiedMaxWebhook) и long-polling
+      // (мы сами забрали апдейт у MAX по токену). Fail-closed.
+      if (!opts?.verifiedOrigin) {
+        await maxReply(update.chat_id, 'Вход через MAX временно недоступен. Попробуйте позже.');
+        return;
+      }
       const nonce = startPayload.slice('login-'.length);
       const ok = await authenticateMaxLoginSession(nonce, {
         maxUserId: update.user?.user_id ?? update.chat_id,
@@ -456,8 +466,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // MAX может отправить один апдейт или массив
     const updates: MaxUpdate[] = Array.isArray(body) ? body : [body];
 
+    // Источник заверен, если запрос пришёл на URL с webhook-секретом,
+    // который знаем только мы и MAX (см. lib/max/webhook-url). Обычные
+    // сообщения обрабатываем в любом случае, а вот подтверждение ВХОДА
+    // требует заверенного источника (защита от захвата аккаунта).
+    const verifiedOrigin = isVerifiedMaxWebhook(request.url);
+
     for (const update of updates) {
-      await handleUpdate(update);
+      await handleUpdate(update, { verifiedOrigin });
     }
   } catch { /* всегда 200 OK */ }
 
@@ -485,7 +501,9 @@ export async function GET(): Promise<NextResponse> {
 
     let processed = 0;
     for (const update of response.updates) {
-      await handleUpdate(update as unknown as MaxUpdate);
+      // Long-polling заверен по построению: апдейты забрали мы сами у MAX
+      // по токену бота — форжить тут нечего.
+      await handleUpdate(update as unknown as MaxUpdate, { verifiedOrigin: true });
       processed++;
     }
 

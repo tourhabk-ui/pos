@@ -79,6 +79,33 @@ describe('max-login: интеграция', () => {
     expect(bot).toContain('authenticateMaxLoginSession');
   });
 
+  it('ЗАХВАТ АККАУНТА ЗАКРЫТ: вход подтверждается только с заверенного источника', () => {
+    // Security-ревью #961 (HIGH): форжнутый POST в публичный webhook с чужим
+    // max_user_id логинил атакующего под жертвой. Теперь подтверждение входа
+    // требует verifiedOrigin (webhook-секрет в URL или long-polling), fail-closed.
+    const bot = read('app/api/max/kuzmich/route.ts');
+    expect(bot).toContain('opts?.verifiedOrigin');
+    expect(bot).toContain('isVerifiedMaxWebhook(request.url)');
+    const lib = read('lib/max/webhook-url.ts');
+    expect(lib).toContain('timingSafeCompare');
+    // fail-closed: нет секрета — не заверено
+    expect(lib).toMatch(/if \(!secret\) return false/);
+  });
+
+  it('webhook-секрет не утекает в ответы/логи (redact)', () => {
+    const cron = read('app/api/cron/max-webhook/route.ts');
+    expect(cron).toContain('redactWebhookUrl');
+    const setup = read('app/api/max/setup/route.ts');
+    expect(setup).toContain('redactWebhookUrl');
+  });
+
+  it('deep-link только на max.ru (клиент и сервер) — нет open redirect', () => {
+    const btn = read('app/auth/login/_MaxLoginButton.tsx');
+    expect(btn).toContain('isSafeMaxLink');
+    const start = read('app/api/auth/max/start/route.ts');
+    expect(start).toMatch(/hostname === 'max\.ru'/);
+  });
+
   it('status-эндпоинт выдаёт JWT и куку только после consume', () => {
     const status = read('app/api/auth/max/status/route.ts');
     expect(status).toContain('consumeMaxLoginSession');

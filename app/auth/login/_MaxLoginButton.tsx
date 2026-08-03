@@ -29,6 +29,16 @@ interface Props {
 const POLL_MS = 2500;
 const MAX_POLL_MS = 5 * 60 * 1000;
 
+/** Открываем только ссылки на сам MAX — защита от подмены deep-link (open redirect). */
+function isSafeMaxLink(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && (u.hostname === 'max.ru' || u.hostname.endsWith('.max.ru'));
+  } catch {
+    return false;
+  }
+}
+
 export default function MaxLoginButton({ onAuth, onError }: Props) {
   const [waiting, setWaiting] = useState(false);
   const [deepLink, setDeepLink] = useState<string | null>(null);
@@ -69,6 +79,9 @@ export default function MaxLoginButton({ onAuth, onError }: Props) {
       const res = await fetch('/api/auth/max/start', { method: 'POST' });
       const result = await res.json();
       if (!res.ok || !result.success) throw new Error(result.error || 'Не удалось начать вход через MAX.');
+      if (typeof result.deepLink !== 'string' || !isSafeMaxLink(result.deepLink)) {
+        throw new Error('Некорректная ссылка входа.');
+      }
 
       setDeepLink(result.deepLink);
       startedAtRef.current = Date.now();

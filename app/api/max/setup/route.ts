@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ok: res.ok,
     bot: meData,
     subscriptions: data,
-    expected_webhook: `${process.env.NEXT_PUBLIC_BASE_URL ?? 'https://vedarai.ru'}/api/max/kuzmich`,
+    expected_webhook: redactWebhookUrl(maxWebhookUrl()),
   });
 }
 
@@ -74,9 +75,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'MAX_BOT_TOKEN not set' }, { status: 500 });
   }
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'https://vedarai.ru';
-  const webhookUrl = `${baseUrl}/api/max/kuzmich`;
+  // URL с webhook-секретом (если задан MAX_WEBHOOK_SECRET) — см. lib/max/webhook-url.
+  const webhookUrl = maxWebhookUrl();
 
   // POST /subscriptions — регистрация webhook
   const res = await fetch(`${MAX_API_BASE}/subscriptions`, {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     ok: res.ok,
     status: res.status,
-    webhook_url: webhookUrl,
+    webhook_url: redactWebhookUrl(webhookUrl),
     update_types: UPDATE_TYPES,
     response: data,
   });

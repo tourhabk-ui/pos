@@ -17,7 +17,19 @@ export const dynamic = 'force-dynamic';
 
 const startLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
-const BOT_LINK = process.env.NEXT_PUBLIC_MAX_BOT_LINK ?? 'https://max.ru/id4101147649_bot';
+// Ссылка на бота строго на max.ru — env с посторонним хостом игнорируем
+// (deep-link уходит в window.open на клиенте; чужой хост = open redirect).
+function botLink(): string {
+  const fallback = 'https://max.ru/id4101147649_bot';
+  const candidate = process.env.NEXT_PUBLIC_MAX_BOT_LINK ?? fallback;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol === 'https:' && (u.hostname === 'max.ru' || u.hostname.endsWith('.max.ru'))) {
+      return candidate.replace(/\/$/, '');
+    }
+  } catch { /* битый URL в env */ }
+  return fallback;
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const ip = getClientIp(request.headers);
@@ -27,7 +39,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const { nonce } = await createMaxLoginSession();
-    const deepLink = `${BOT_LINK}?start=login-${nonce}`;
+    const deepLink = `${botLink()}?start=login-${nonce}`;
     return NextResponse.json({
       success: true,
       nonce,
