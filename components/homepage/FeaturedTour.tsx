@@ -15,20 +15,8 @@ import { pool } from '@/lib/db-pool';
  * возвращает null, а не заглушку. Пусто честнее фейка.
  */
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking:   'Треккинг',
-  fishing:    'Рыбалка',
-  thermal:    'Термальные источники',
-  helicopter: 'Вертолётный тур',
-  boat_trip:  'Морской тур',
-  bears:      'Наблюдение за медведями',
-  rafting:    'Сплав',
-  snowmobile: 'Снегоходный тур',
-};
-
-const DIFFICULTY_LABELS: Record<string, string> = {
-  easy: 'Лёгкий', moderate: 'Средний', medium: 'Средний', hard: 'Сложный', expert: 'Экспертный',
-};
+/** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
+import { activityLabel, difficultyLabel } from '@/lib/tours/labels';
 
 interface FeaturedTourRow {
   id: number;
@@ -92,8 +80,8 @@ export async function FeaturedTour() {
   if (!tour) return null; // честная пустота вместо фейка
 
   const image = tour.tour_image ?? tour.photos?.[0] ?? null;
-  const activity = tour.activity_type ? (ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type) : null;
-  const difficulty = tour.difficulty ? (DIFFICULTY_LABELS[tour.difficulty] ?? tour.difficulty) : null;
+  const activity = tour.activity_type ? activityLabel(tour.activity_type) : null;
+  const difficulty = tour.difficulty ? difficultyLabel(tour.difficulty, true) : null;
   const duration = fmtDuration(tour);
   const price = fmtPrice(tour.base_price);
   const blurb = tour.short_description ?? (tour.description ? tour.description.slice(0, 130) : null);

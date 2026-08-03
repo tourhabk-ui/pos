@@ -428,18 +428,10 @@ export default function MapPageClient() {
             <AlertTriangle className="w-3.5 h-3.5" />
             Скачать
           </Link>
-          {/* 🔴 SOS — показать экстренные номера */}
-          <button
-            onClick={() => setShowSos(!showSos)}
-            className={`flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
-              showSos
-                ? 'bg-white text-[var(--danger)]'
-                : 'bg-[var(--danger)] text-white hover:opacity-90'
-            }`}
-            style={!showSos ? { animation: 'kh-sos-pulse 2s ease-out infinite' } : {}}
-          >
-            SOS
-          </button>
+          {/* Второй SOS здесь был копией: он открывал инлайн-панель, а SOS в
+              шапке уводил на /sos — две кнопки одного действия с разным
+              поведением (#887). Осталась одна, в шапке; её офлайн-ветка
+              открывает ту же панель экстренных номеров. */}
         </div>
 
         {/* Карта на весь экран */}
@@ -694,7 +686,9 @@ export default function MapPageClient() {
             Карта Камчатки
           </h1>
           <div className="flex items-center gap-3">
-            <EmergencyAction />
+            {/* Инлайн-панель экстренных номеров — офлайн-ветка единой кнопки:
+                без сети навигации не происходит вовсе, номера видны сразу. */}
+            <EmergencyAction onOfflineFallback={() => setShowSos(true)} />
             <button onClick={toggleTheme} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>

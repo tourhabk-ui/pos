@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Map, Flame, Wifi, Navigation, AlertTriangle, CheckCircle, ArrowRight, X, Clock, Gauge, Bot } from 'lucide-react';
+import EmergencyAction from '@/components/shared/EmergencyAction';
 
 interface StatusChip { icon: React.ReactNode; label: string; value: string; ok: boolean }
 interface KuzmichWarning { text: string; dismissed: boolean }
@@ -71,9 +72,9 @@ export default function DashboardClient() {
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
           <span className="text-[10px] text-[var(--text-muted)]">Связь: 3G</span>
-          <Link href="/safety/sos"
-            className="ml-2 px-3 py-1 rounded text-xs font-bold text-[var(--text-primary)]"
-            style={{ background: 'var(--danger)' }}>SOS</Link>
+          {/* Была ссылка на /safety/sos — такой страницы НЕ СУЩЕСТВУЕТ: нажатие
+              SOS приводило на 404. Теперь единая кнопка с офлайн-веткой. */}
+          <span className="ml-2"><EmergencyAction /></span>
         </div>
       </div>
 

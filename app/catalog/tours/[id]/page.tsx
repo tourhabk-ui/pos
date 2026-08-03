@@ -8,16 +8,8 @@ export const revalidate = 3600;
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  trekking:   'Треккинг',
-  fishing:    'Рыбалка',
-  thermal:    'Термальные источники',
-  helicopter: 'Вертолётные туры',
-  boat_trip:  'Морские туры',
-  bears:      'Наблюдение за медведями',
-  rafting:    'Сплав',
-  snowmobile: 'Снегоходные туры',
-};
+/** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
+import { activityLabel } from '@/lib/tours/labels';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -36,9 +28,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const tour = await getTour(parseInt(id));
   if (!tour) return { title: 'Тур не найден | Туры Камчатки' };
 
-  const activityLabel = ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type;
+  const activity = activityLabel(tour.activity_type);
   const desc = tour.short_description ?? tour.description?.slice(0, 160) ??
-    `${activityLabel} на Камчатке. Реальный тур от проверенного оператора.`;
+    `${activity} на Камчатке. Реальный тур от проверенного оператора.`;
 
   const images = tour.tour_image ? [{ url: tour.tour_image }] : [];
 
@@ -67,7 +59,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   const structuredData = buildTourStructuredData(tour, reviews, {
     canonicalUrl: `${SITE}/catalog/tours/${tour.id}`,
     siteUrl: SITE,
-    activityLabel: ACTIVITY_LABELS[tour.activity_type] ?? tour.activity_type,
+    activityLabel: activityLabel(tour.activity_type),
   });
 
   return (

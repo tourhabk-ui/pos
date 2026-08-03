@@ -19,19 +19,11 @@ const ACTIVITY_ICONS: Record<string, React.ElementType> = {
   river:      Waves,
 };
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  fishing:    'Рыбалка',
-  trekking:   'Треккинг',
-  helicopter: 'Вертолёт',
-  bears:      'Медведи',
-  snowmobile: 'Снегоходы',
-  boat_trip:  'Морская прогулка',
-  thermal:    'Термальные',
-  eco:        'Экотуризм',
-  volcano:    'Вулкан',
-  mountain:   'Горы',
-  river:      'Реки',
-};
+/**
+ * Подписи — из единого словаря. В корзине рядом лежат туры и места, поэтому
+ * `anyTypeLabel`: сначала тип активности, затем тип локации.
+ */
+import { anyTypeLabel } from '@/lib/tours/labels';
 
 export default function CartClient() {
   const { items, remove, clear, count } = useCart();
@@ -96,7 +88,7 @@ export default function CartClient() {
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-secondary)] flex items-center gap-1">
                       <Icon className="w-3 h-3" />
-                      {ACTIVITY_LABELS[item.activityType] ?? item.activityType}
+                      {anyTypeLabel(item.activityType)}
                     </span>
                     <span className="font-bold text-[var(--accent)] text-sm">
                       от {item.price.toLocaleString('ru-RU')} ₽

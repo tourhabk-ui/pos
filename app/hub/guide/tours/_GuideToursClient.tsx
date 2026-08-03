@@ -26,16 +26,12 @@ interface GuideTour {
   futureSlots: number;
 }
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  boat_trip:   'Сплав / лодка',
-  trekking:    'Треккинг',
-  fishing:     'Рыбалка',
-  helicopter:  'Вертолёт',
-  diving:      'Дайвинг',
-  skiing:      'Лыжи / сноуборд',
-  horseback:   'Конные туры',
-  jeep_safari: 'Джип-сафари',
-};
+/**
+ * Подписи — из единого словаря (lib/tours/labels). Здесь `boat_trip` называли
+ * «Сплав / лодка», хотя сплав — это `rafting`: гид и турист видели один тур
+ * под разными именами.
+ */
+import { activityLabel } from '@/lib/tours/labels';
 
 function fmt(price: number) {
   return price.toLocaleString('ru-RU') + ' ₽';
@@ -126,7 +122,7 @@ export default function GuideToursClient() {
                   </p>
                 </div>
                 <span className="ds-badge shrink-0 text-xs">
-                  {ACTIVITY_LABELS[tour.activityType] ?? tour.activityType}
+                  {activityLabel(tour.activityType)}
                 </span>
               </div>
 
