@@ -151,6 +151,7 @@ import MicrosoftClarity from '@/components/shared/MicrosoftClarity'
 import StickyLeadButton from '@/components/shared/StickyLeadButton'
 import KuzmichWidget from '@/components/kuzmich/KuzmichWidget'
 import { InstallPrompt } from '@/components/PWA/InstallPrompt'
+import { InstallTracker } from '@/components/PWA/InstallTracker'
 import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
 import { OfflineBanner } from '@/components/PWA/OfflineBanner'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
@@ -305,6 +306,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StickyLeadButton />
         <KuzmichWidget />
         <InstallPrompt />
+        <InstallTracker />
         <ServiceWorkerRegistrar />
       </body>
     </html>

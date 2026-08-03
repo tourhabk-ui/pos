@@ -162,6 +162,22 @@ export async function GET(request: NextRequest) {
     return r.rows;
   });
 
+  // Установки PWA — устройства (дедуп по client_id). current/previous по
+  // first_seen для тренда за период. Таблицы может ещё не быть (миграция не
+  // накатилась) — safeQuery отдаст нули, а не уронит дашборд.
+  const pwa = await safeQuery<{ total: string; current: string; previous: string }>(
+    'pwaInstalls', errors, { total: '0', current: '0', previous: '0' }, async () => {
+      const r = await pool.query<{ total: string; current: string; previous: string }>(`
+        SELECT
+          COUNT(*)::text AS total,
+          COUNT(*) FILTER (WHERE first_seen >= NOW() - ($1::int || ' days')::INTERVAL)::text AS current,
+          COUNT(*) FILTER (WHERE first_seen >= NOW() - ($1::int * 2 || ' days')::INTERVAL
+                             AND first_seen <  NOW() - ($1::int || ' days')::INTERVAL)::text AS previous
+        FROM pwa_installs
+      `, [period]);
+      return r.rows[0] ?? { total: '0', current: '0', previous: '0' };
+    });
+
   const pendingTours = await safeQuery<number>('pendingTours', errors, 0, async () => {
     const r = await pool.query<{ c: string }>(`
       SELECT COUNT(*)::text AS c FROM operator_tours WHERE is_active = false
@@ -184,6 +200,9 @@ export async function GET(request: NextRequest) {
   const curUsers     = parseInt(m?.current_users     ?? '0', 10);
   const prevUsers    = parseInt(m?.previous_users    ?? '0', 10);
   const convRate     = parseFloat(m?.conversion_rate ?? '0');
+  const pwaTotal     = parseInt(pwa.total    ?? '0', 10);
+  const pwaCurrent   = parseInt(pwa.current  ?? '0', 10);
+  const pwaPrevious  = parseInt(pwa.previous ?? '0', 10);
 
   return NextResponse.json({
     success: true,
@@ -193,6 +212,8 @@ export async function GET(request: NextRequest) {
         totalBookings:  { value: curBookings, ...calcTrend(curBookings, prevBookings) },
         activeUsers:    { value: curUsers,    ...calcTrend(curUsers,    prevUsers)    },
         conversionRate: { value: convRate, change: 0, trend: 'neutral' as const },
+        // Установки PWA — накопленный итог (устройства); тренд по новым за период.
+        pwaInstalls:    { value: pwaTotal,    ...calcTrend(pwaCurrent,  pwaPrevious)  },
       },
       charts: {
         revenueByMonth: revenueByMonth.map(r => ({

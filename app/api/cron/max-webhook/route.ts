@@ -17,6 +17,7 @@
 import { NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,9 +27,9 @@ const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
 
 interface MaxSubscription { url?: string }
 
+// URL с webhook-секретом (если задан MAX_WEBHOOK_SECRET) — см. lib/max/webhook-url.
 function expectedWebhookUrl(): string {
-  const base = (process.env.NEXT_PUBLIC_BASE_URL ?? 'https://vedarai.ru').replace(/\/$/, '');
-  return `${base}/api/max/kuzmich`;
+  return maxWebhookUrl();
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
@@ -72,7 +73,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({
       ok: true,
       action: 'noop',
-      webhook_url: webhookUrl,
+      webhook_url: redactWebhookUrl(webhookUrl),
       subscriptions: current.length,
     });
   }
@@ -90,7 +91,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     registerResponse = await res.json().catch(() => ({}));
     if (!res.ok) {
       return NextResponse.json(
-        { ok: false, action: 'register_failed', status: registerStatus, webhook_url: webhookUrl, response: registerResponse },
+        { ok: false, action: 'register_failed', status: registerStatus, webhook_url: redactWebhookUrl(webhookUrl), response: registerResponse },
         { status: 502 },
       );
     }
@@ -105,7 +106,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     ok: true,
     action: 'registered',
     reason: listOk ? 'subscription_missing' : 'list_unavailable',
-    webhook_url: webhookUrl,
+    webhook_url: redactWebhookUrl(webhookUrl),
     update_types: UPDATE_TYPES,
     register_status: registerStatus,
     response: registerResponse,

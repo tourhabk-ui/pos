@@ -15,6 +15,8 @@ import { type PendingBooking, cleanupPending, processMessage } from '@/lib/kuzmi
 import { registerOperatorMaxChatId, findOperatorByMaxChatId } from '@/lib/kuzmich/operator-chat';
 import { pool } from '@/lib/db-pool';
 import { createLead } from '@/lib/leads/create';
+import { authenticateMaxLoginSession } from '@/lib/auth/max-login';
+import { isVerifiedMaxWebhook } from '@/lib/max/webhook-url';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 type MaxButton =
@@ -142,7 +144,23 @@ async function createLeadFromContact(
 
 // ── Скачивание медиа по URL → base64 ─────────────────────────────────────────
 
+// SSRF-барьер (CodeQL js/request-forgery, HIGH): URL медиа приходит из тела
+// вебхука (attacker-controlled), а fetch по нему мог бы бить во внутренние
+// адреса (169.254.169.254, localhost, внутренние сервисы). Пускаем ТОЛЬКО https
+// на разрешённые хосты MAX. Если реальные медиа-URL MAX на другом CDN — добавить
+// хост в env MAX_MEDIA_HOSTS (список через запятую); дефолт — max.ru и поддомены.
+function isAllowedMediaUrl(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  const allow = (process.env.MAX_MEDIA_HOSTS ?? 'max.ru')
+    .split(',').map(h => h.trim().toLowerCase()).filter(Boolean);
+  return allow.some(a => host === a || host.endsWith('.' + a));
+}
+
 async function downloadMedia(url: string): Promise<{ base64: string; mimeType: string } | null> {
+  if (!isAllowedMediaUrl(url)) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
@@ -193,8 +211,34 @@ interface MaxUpdate {
 
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
-async function handleUpdate(update: MaxUpdate): Promise<void> {
-  // bot_started → /start
+async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean }): Promise<void> {
+  // ── ВХОД ЧЕРЕЗ MAX ─────────────────────────────────────────────────────────
+  // Решение о подтверждении входа принимается ТОЛЬКО по verifiedOrigin —
+  // это серверный флаг (секрет в URL вебхука / long-polling), НЕ поле из тела
+  // апдейта. Он доминирует над всей веткой: незаверенный источник вообще не
+  // доходит до аутентификации (защита от захвата аккаунта, security-ревью #961).
+  // Данные о пользователе берём из апдейта только ПОСЛЕ прохождения этого гейта.
+  if (opts?.verifiedOrigin === true
+      && update.update_type === 'bot_started'
+      && update.chat_id
+      && typeof update.payload === 'string'
+      && update.payload.startsWith('login-')) {
+    const nonce = update.payload.slice('login-'.length);
+    const ok = await authenticateMaxLoginSession(nonce, {
+      maxUserId: update.user?.user_id ?? update.chat_id,
+      name: update.user?.name ?? null,
+      username: update.user?.username ?? null,
+    });
+    await maxReply(
+      update.chat_id,
+      ok
+        ? 'Вход подтверждён. Вернитесь на сайт — вы уже авторизованы.'
+        : 'Ссылка для входа устарела или уже использована. Начните вход на сайте заново.',
+    );
+    return;
+  }
+
+  // bot_started → обычный /start (в т.ч. незаверенный login-payload — без входа)
   if (update.update_type === 'bot_started' && update.chat_id) {
     let capturedStart = '';
     const capturingStart = async (id: number, text: string) => {
@@ -438,8 +482,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // MAX может отправить один апдейт или массив
     const updates: MaxUpdate[] = Array.isArray(body) ? body : [body];
 
+    // Источник заверен, если запрос пришёл на URL с webhook-секретом,
+    // который знаем только мы и MAX (см. lib/max/webhook-url). Обычные
+    // сообщения обрабатываем в любом случае, а вот подтверждение ВХОДА
+    // требует заверенного источника (защита от захвата аккаунта).
+    const verifiedOrigin = isVerifiedMaxWebhook(request.url);
+
     for (const update of updates) {
-      await handleUpdate(update);
+      await handleUpdate(update, { verifiedOrigin });
     }
   } catch { /* всегда 200 OK */ }
 
@@ -467,7 +517,9 @@ export async function GET(): Promise<NextResponse> {
 
     let processed = 0;
     for (const update of response.updates) {
-      await handleUpdate(update as unknown as MaxUpdate);
+      // Long-polling заверен по построению: апдейты забрали мы сами у MAX
+      // по токену бота — форжить тут нечего.
+      await handleUpdate(update as unknown as MaxUpdate, { verifiedOrigin: true });
       processed++;
     }
 
