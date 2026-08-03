@@ -39,7 +39,10 @@ async function getTour(id: number) {
         ot.season_start, ot.season_end, ot.seasonal_only,
         ot.weather_dependent,
         ot.rating, ot.review_count,
-        p.name AS operator_name, p.id AS operator_id
+        ot.meeting_point,
+        ot.program, ot.safety_notes,
+        p.name AS operator_name, p.id AS operator_id,
+        p.contacts AS operator_contacts
       FROM operator_tours ot
       JOIN partners p ON ot.operator_id = p.id
       WHERE ot.id = $1
