@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 const VerifyCertificationSchema = z.object({
   id: z.string().min(1, 'ID сертификата обязателен'),
-  is_verified: z.boolean({ required_error: 'Поле is_verified обязательно' }),
+  is_verified: z.boolean({ message: 'Поле is_verified обязательно' }),
 });
 
 export const dynamic = 'force-dynamic';

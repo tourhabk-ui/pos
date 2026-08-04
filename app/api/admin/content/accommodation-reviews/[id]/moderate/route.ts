@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const paramsSchema = z.object({ id: z.string().uuid('Некорректный ID отзыва') });
 const bodySchema = z.object({
-  action: z.enum(['hide', 'show'], { errorMap: () => ({ message: 'Действие: hide или show' }) }),
+  action: z.enum(['hide', 'show'], { message: 'Действие: hide или show' }),
 });
 
 /**

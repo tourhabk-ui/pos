@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v21'; // bumped: исправлен медвежий протокол в emergency.html (эксперты «Земли медведя» 01.08) — офлайн-копия с «бей и не ложись» опасна и обязана замениться
+const CACHE_NAME = 'kamchatour-v22'; // bumped: таймаут на висящую сеть (полевой прогон 04.08 на EDGE — переходы не отваливались, а висели молча)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
@@ -312,6 +312,55 @@ function isOfflineCapable(pathname) {
   );
 }
 
+// ─── Плохая связь ≠ офлайна ───────────────────────────────────────────────────
+//
+// Полевой прогон 04.08 (EDGE, «одна палка»): работала только главная, любой
+// переход выглядел как «ничего не происходит». Причина не в офлайн-логике —
+// она как раз в порядке. При обрыве сети fetch ОТКЛОНЯЕТСЯ, и весь код ниже
+// ловит это в .catch и отдаёт кэш. При живой, но издыхающей сети fetch не
+// отклоняется — он ВИСИТ десятки секунд, .catch не срабатывает никогда, и
+// туристу нечего показать. Худший из двух миров: офлайн отработан честно, а
+// «почти офлайн» — нет, хотя в горах это и есть обычное состояние связи.
+//
+// Лечение: гонка с таймером. Кэш есть — отдаём его, не дожидаясь сети. Кэша
+// нет — ПРОДОЛЖАЕМ ждать: обрывать медленную, но живую загрузку нечем заменить,
+// и белый экран вместо страницы через 4 секунды был бы враньём наоборот.
+
+/** Документ: кэш побеждает висящую сеть. */
+const NAV_TIMEOUT_MS = 4000;
+/** RSC-пейлоад клиентского перехода: даём сети больше, но не бесконечность. */
+const RSC_TIMEOUT_MS = 8000;
+
+function cacheIfOk(request, response) {
+  if (!response || !response.ok) return;
+  const clone = response.clone();
+  caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+}
+
+/**
+ * Навигация с таймаутом. По таймауту отдаём кэш, если он есть; иначе ждём сеть
+ * дальше. `shouldCache` — сохранять ли удачный ответ (у разных веток свои
+ * правила: whitelist кэширует всё, общая ветка — только главную и /tours).
+ */
+function navigateWithTimeout(request, shouldCache) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    fetch(request).then((response) => {
+      if (shouldCache) cacheIfOk(request, response);
+      done(response);
+    }).catch(() => {
+      done(caches.match(request).then((cached) => cached || caches.match('/offline')));
+    });
+
+    setTimeout(() => {
+      if (settled) return;
+      caches.match(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
+    }, NAV_TIMEOUT_MS);
+  });
+}
+
 // ─── Fetch: cache-first для статики и туров, network-first для остального ──
 
 self.addEventListener('fetch', (event) => {
@@ -333,11 +382,21 @@ self.addEventListener('fetch', (event) => {
   // ходят жёсткой <a> (app/offline/page.tsx, EmergencyAction), и тогда переход
   // идёт документом и отдаётся из кэша. Эта ветка — страховка для остальных
   // страниц, где <Link> законен.
+  //
+  // Таймаут здесь — половина лечения полевого прогона 04.08. Висящий (не
+  // отклонённый) запрос пейлоада — это ровно «нажал и ничего не происходит»:
+  // роутер ждёт ответ молча, старый экран остаётся на месте. Отдав 503, мы
+  // заставляем роутер деградировать в обычный переход документом, а документ
+  // ниже уже умеет отдаться из кэша.
   if (url.searchParams.has('_rsc') || request.headers.get('RSC') === '1') {
     event.respondWith(
-      fetch(request).catch(
-        () => new Response('', { status: 503, statusText: 'Offline' })
-      )
+      new Promise((resolve) => {
+        let settled = false;
+        const offline = () => new Response('', { status: 503, statusText: 'Offline' });
+        const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+        fetch(request).then(done).catch(() => done(offline()));
+        setTimeout(() => done(offline()), RSC_TIMEOUT_MS);
+      })
     );
     return;
   }
@@ -442,41 +501,17 @@ self.addEventListener('fetch', (event) => {
   // Навигация: whitelist страниц которые работают офлайн через IndexedDB
   if (request.mode === 'navigate' || request.destination === 'document') {
     if (isOfflineCapable(url.pathname)) {
-      event.respondWith(
-        fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-            }
-            return response;
-          })
-          .catch(() =>
-            caches.match(request).then((cached) =>
-              cached || caches.match('/offline')
-            )
-          )
-      );
+      event.respondWith(navigateWithTimeout(request, true));
       return;
     }
     // Не whitelisted — профиль, каталог и т.д. → /offline
   }
 
-  // Остальные страницы: network-first с fallback на кэш
+  // Остальные страницы: network-first с fallback на кэш и таймаутом.
+  // Кэшируем только успешные ответы главной и /tours (скобки — фикс
+  // приоритета: раньше && / || без скобок кэшировал даже не-ok /tours)
   event.respondWith(
-    fetch(request).then((response) => {
-      // Кэшируем только успешные ответы главной и /tours (скобки — фикс
-      // приоритета: раньше && / || без скобок кэшировал даже не-ok /tours)
-      if (response.ok && (url.pathname === '/' || url.pathname === '/tours')) {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-      }
-      return response;
-    }).catch(() => {
-      return caches.match(request).then((cached) => {
-        return cached || caches.match('/offline');
-      });
-    })
+    navigateWithTimeout(request, url.pathname === '/' || url.pathname === '/tours')
   );
 });
 

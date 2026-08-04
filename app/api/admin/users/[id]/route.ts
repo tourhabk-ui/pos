@@ -62,7 +62,7 @@ export async function PATCH(
 
     const parsed = PatchSchema.safeParse(await request.json());
     if (!parsed.success) {
-      return NextResponse.json({ success: false, error: parsed.error.errors[0].message }, { status: 400 });
+      return NextResponse.json({ success: false, error: parsed.error.issues[0].message }, { status: 400 });
     }
 
     const checkResult = await query<UserCheckRow>('SELECT id, role FROM users WHERE id = $1', [id]);

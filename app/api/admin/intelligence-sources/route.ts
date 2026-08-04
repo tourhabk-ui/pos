@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, id: rows[0].id });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ success: false, error: err.errors[0].message }, { status: 400 });
+      return NextResponse.json({ success: false, error: err.issues[0].message }, { status: 400 });
     }
     const msg = err instanceof Error ? err.message : 'Ошибка создания';
     if (msg.includes('duplicate key')) {
@@ -144,7 +144,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ success: false, error: err.errors[0].message }, { status: 400 });
+      return NextResponse.json({ success: false, error: err.issues[0].message }, { status: 400 });
     }
     console.error('[admin/intelligence-sources] PATCH failed:', err instanceof Error ? err.message : err);
     return NextResponse.json({ success: false, error: 'Ошибка обновления' }, { status: 500 });

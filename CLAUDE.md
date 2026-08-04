@@ -296,7 +296,12 @@ git push origin main  # → tourhabk-ui/pos → Timeweb автодеплой
 
 - `middleware.ts` — Edge JWT + rate-limit
 - `lib/auth.ts` — JWT логика
-- `app/api/payments/` — CloudPayments webhook
+- `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
+  и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
+  (СБП Точка, QR выдаётся из чата Кузьмича). Комиссию каждый начисляет ЕДИНСТВЕННЫМ
+  способом — `recordCommissionFromBooking()`; своего `INSERT INTO operator_commissions`
+  в приёмниках быть не должно. Сторож: `tests/unit/commission-all-receivers.test.ts`
+  (приёмники находит по коду — роут, пишущий `paid_at` броне, обязан начислить комиссию)
 - `app/api/safety/sos` — SOS (только через staging)
 - Миграции 001-049 — только добавлять новые (следующая: `050_`)
 

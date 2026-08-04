@@ -11,9 +11,9 @@ import { z } from 'zod'
 
 const CreateFeedbackSchema = z.object({
   ticketId: z.string().optional(),
-  overallRating: z.number({ coerce: true }).min(1).max(5).optional(),
+  overallRating: z.coerce.number().min(1).max(5).optional(),
   comment: z.string().optional(),
-  rating: z.number({ coerce: true }).min(1).max(5).optional(),
+  rating: z.coerce.number().min(1).max(5).optional(),
   category: z.string().optional(),
 }).refine(
   data => data.ticketId || data.overallRating || data.rating || data.comment,

@@ -55,6 +55,25 @@ describe('неприменённые миграции видны', () => {
     expect(text).not.toContain('и ещё');
   });
 
+  it('причина падения едет вместе с именем, а не отдельным письмом', () => {
+    // До 04.08 «не применились: 796, 800, 806 — смотри лог деплоя» приходило
+    // отдельно от записанной причины, и человека отправляли искать то, что уже
+    // лежит в базе.
+    const text = formatUnappliedMigrations(
+      ['800_x.sql', '806_y.sql'],
+      { '806_y.sql': 'null value in column "type" of relation "partners" violates not-null constraint' },
+    );
+    expect(text).toContain('806_y.sql: null value in column "type"');
+    // У второй записи о падении нет — про неё честно говорим, что причина не
+    // записана, а не выдумываем.
+    expect(text).toMatch(/без записи о падении/);
+  });
+
+  it('без записанных причин остаётся прежняя отсылка к логу', () => {
+    const text = formatUnappliedMigrations(['900_z.sql']);
+    expect(text).toContain('смотри лог деплоя');
+  });
+
   it('на длинном списке сообщение остаётся ограниченным', () => {
     const many = Array.from({ length: 200 }, (_, i) => `${700 + i}_очень_длинное_имя_миграции.sql`);
     const text = formatUnappliedMigrations(many);

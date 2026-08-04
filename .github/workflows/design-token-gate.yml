@@ -1,0 +1,43 @@
+name: Design — токен-гейт (цвета вне дизайн-системы)
+
+# Проверка рантайма, а не исходников: страница рендерится в Chromium, снимаются
+# вычисленные стили, палитра сверяется с токенами из app/globals.css. Grep по CSS
+# этого не заменяет — локальное правило может перекрасить SOS при формально
+# «чистых» токенах (теневой --danger внутри .v7 — ровно такой случай).
+#
+# Почему не проверка на PR: гейту нужно запущенное приложение. Гонять его против
+# прода в PR бессмысленно — там ещё нет изменений PR. Поэтому ночью по проду плюс
+# ручной запуск; локально то же самое против localhost:3000 (npm run design:tokens).
+#
+# Секретов не требует: все страницы выборки публичные.
+
+on:
+  schedule:
+    - cron: '40 4 * * *'  # каждый день в 04:40 UTC, до утреннего разбора
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Адрес приложения (по умолчанию прод)'
+        required: false
+        default: 'https://vedarai.ru'
+
+jobs:
+  token-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Версия ровно та, что бандлит закреплённый в скрипте dembrandt@0.26.1:
+      # чужая ревизия Chromium ему не подходит, и он уходит в download.
+      - name: Chromium для Playwright
+        run: npx --yes playwright@1.62.1 install --with-deps chromium
+
+      - name: Токен-гейт
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://vedarai.ru' }}
+        run: node scripts/design-token-gate.mjs

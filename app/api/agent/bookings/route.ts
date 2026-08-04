@@ -8,7 +8,7 @@ const CreateAgentBookingSchema = z.object({
   clientId: z.string().min(1, 'ID клиента обязателен'),
   tourId: z.string().min(1, 'ID тура обязателен'),
   tourDate: z.string().min(1, 'Дата тура обязательна'),
-  guestsCount: z.number({ coerce: true }).int().positive('Количество гостей должно быть положительным'),
+  guestsCount: z.coerce.number().int().positive('Количество гостей должно быть положительным'),
   specialRequests: z.string().optional(),
   voucherCode: z.string().optional(),
   notes: z.string().optional(),

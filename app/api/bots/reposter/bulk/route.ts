@@ -32,7 +32,7 @@ const DELAY_MS = 100;
 
 const BodySchema = z.object({
   source_chat_id: z.union([z.string().min(1), z.number()]),
-  dump_chat_id:   z.number({ required_error: 'dump_chat_id — твой Telegram user ID' }),
+  dump_chat_id:   z.number({ message: 'dump_chat_id — твой Telegram user ID' }),
   from_id:        z.number().int().min(1).default(1),
   to_id:          z.number().int().min(1),
   // Целевой MAX-канал для бэкфилла. Если не задан — единый MAX_CHANNEL_ID из env.

@@ -6,9 +6,9 @@ import { z } from 'zod';
 
 const CreatePromoCodeSchema = z.object({
   code: z.string().min(1, 'Код промокода обязателен'),
-  discountType: z.enum(['percentage', 'fixed'], { errorMap: () => ({ message: 'Тип скидки: percentage или fixed' }) }),
-  discountValue: z.number({ coerce: true }).positive('Размер скидки должен быть положительным'),
-  maxUses: z.number({ coerce: true }).int().positive('Максимальное число использований должно быть положительным'),
+  discountType: z.enum(['percentage', 'fixed'], { message: 'Тип скидки: percentage или fixed' }),
+  discountValue: z.coerce.number().positive('Размер скидки должен быть положительным'),
+  maxUses: z.coerce.number().int().positive('Максимальное число использований должно быть положительным'),
   expiresAt: z.string().nullable().optional().default(null),
 });
 

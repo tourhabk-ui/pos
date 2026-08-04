@@ -27,8 +27,8 @@ const bookTransferSchema = z.object({
     email: z.string().email(),
   }),
   specialRequests: z.string().max(2000).optional(),
-  fromCoordinates: z.record(z.unknown()).optional(),
-  toCoordinates: z.record(z.unknown()).optional(),
+  fromCoordinates: z.record(z.string(), z.unknown()).optional(),
+  toCoordinates: z.record(z.string(), z.unknown()).optional(),
   departureDate: z.string().optional(),
 });
 

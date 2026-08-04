@@ -9,8 +9,8 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { UsersRow } from '@/lib/types/db-rows';
 
 const SigninSchema = z.object({
-  email: z.string({ required_error: 'Email обязателен' }).email('Неверный формат email'),
-  password: z.string({ required_error: 'Пароль обязателен' }).min(1, 'Пароль не может быть пустым'),
+  email: z.string({ message: 'Email обязателен' }).email('Неверный формат email'),
+  password: z.string({ message: 'Пароль обязателен' }).min(1, 'Пароль не может быть пустым'),
 });
 
 export const dynamic = 'force-dynamic';

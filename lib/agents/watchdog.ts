@@ -698,10 +698,19 @@ async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
     const unapplied = findUnappliedMigrations(files, rows.map(r => r.name));
     if (unapplied.length === 0) return null;
 
+    // Причина падения — там же, в базе. Раньше она уезжала отдельным алертом, а
+    // это письмо отправляло человека в лог деплоя за тем, что у нас уже есть.
+    const reasons: Record<string, string> = {};
+    const failures = await pool.query<{ name: string; error: string }>(
+      `SELECT name, error FROM _migration_failures WHERE name = ANY($1::text[])`,
+      [unapplied],
+    ).catch(() => ({ rows: [] as Array<{ name: string; error: string }> }));
+    for (const f of failures.rows) reasons[f.name] = f.error ?? '';
+
     return {
       type: 'migration_unapplied',
       count: unapplied.length,
-      details: formatUnappliedMigrations(unapplied),
+      details: formatUnappliedMigrations(unapplied, reasons),
     };
   } catch (err) {
     console.error('[watchdog] checkUnappliedMigrations failed:', err);

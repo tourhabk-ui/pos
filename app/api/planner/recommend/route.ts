@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(
-        { success: false, error: 'Некорректные параметры', details: err.errors },
+        { success: false, error: 'Некорректные параметры', details: err.issues },
         { status: 400 },
       );
     }

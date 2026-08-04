@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ success: false, error: parsed.error.errors[0]?.message ?? 'Неверные данные' }, { status: 400 });
+    return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message ?? 'Неверные данные' }, { status: 400 });
   }
 
   const { routeId, dateFrom } = parsed.data;

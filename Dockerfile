@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1
-FROM node:20-alpine AS base
+#
+# Node 22, а не 20 — версия обязана совпадать с той, на которой мы проверяем.
+# 04.08: CI и разработка шли на 22, образ собирался на 20, и расхождение никто
+# не видел, пока dependabot не поднял jsdom 29 → 30. Тот притащил undici 8,
+# который зовёт `webidl.util.markAsUncloneable` — на Node 20 такой функции нет.
+# `next build` падал на сборе данных страниц (/api/cron/import-routes тянет
+# jsdom через lib/agents/*-importer), и КАЖДЫЙ деплой пяти подряд смерженных PR
+# заканчивался ошибкой. Проверка «локально зелено» была честной и бесполезной:
+# она гонялась на другом рантайме, чем прод.
+# Версию держит сторож tests/unit/node-version-parity.test.ts.
+FROM node:22-alpine AS base
 
 # ── 1. Dependencies ─────────────────────────────────────────────
 FROM base AS deps

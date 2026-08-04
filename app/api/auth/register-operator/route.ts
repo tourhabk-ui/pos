@@ -42,7 +42,7 @@ const Schema = z.object({
   phone:        z.string().min(10, 'Укажите телефон'),
   email:        z.string().email('Неверный формат email'),
   password:     z.string().min(8, 'Пароль — минимум 8 символов'),
-  pd_consent:   z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие на обработку ПД' }) }),
+  pd_consent:   z.literal(true, { message: 'Необходимо согласие на обработку ПД' }),
 });
 
 function getJWTSecret(): Uint8Array {

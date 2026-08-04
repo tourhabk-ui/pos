@@ -10,12 +10,12 @@ const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay'
 const PARTNER_ROLE_SET = new Set(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear']);
 
 const RegisterSchema = z.object({
-  email: z.string({ required_error: 'Email обязателен' }).email('Неверный формат email'),
-  password: z.string({ required_error: 'Пароль обязателен' }).min(6, 'Пароль должен быть минимум 6 символов'),
-  name: z.string({ required_error: 'Имя обязательно' }).min(1, 'Имя не может быть пустым'),
+  email: z.string({ message: 'Email обязателен' }).email('Неверный формат email'),
+  password: z.string({ message: 'Пароль обязателен' }).min(6, 'Пароль должен быть минимум 6 символов'),
+  name: z.string({ message: 'Имя обязательно' }).min(1, 'Имя не может быть пустым'),
   role: z.enum(VALID_ROLES).optional(),
   roles: z.array(z.enum(VALID_ROLES)).optional(),
-  pd_consent: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие на обработку персональных данных' }) }),
+  pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
   referralCode: z.string().max(20).optional(),
 });
 

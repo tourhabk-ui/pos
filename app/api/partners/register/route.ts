@@ -51,10 +51,10 @@ const registerSchema = z.object({
   logoUrl: z.string().url().optional().or(z.literal('')),
 
   // Согласия (обязательные)
-  agreePersonalData: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие на обработку персональных данных' }) }),
-  agreeUserAgreement: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие с пользовательским соглашением' }) }),
-  agreeOffer: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие с офертой' }) }),
-  agreeCommission: z.literal(true, { errorMap: () => ({ message: 'Необходимо согласие с условиями комиссии 10%' }) }),
+  agreePersonalData: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
+  agreeUserAgreement: z.literal(true, { message: 'Необходимо согласие с пользовательским соглашением' }),
+  agreeOffer: z.literal(true, { message: 'Необходимо согласие с офертой' }),
+  agreeCommission: z.literal(true, { message: 'Необходимо согласие с условиями комиссии 10%' }),
   agreeNotifications: z.boolean().optional(),
 
   // Пароль

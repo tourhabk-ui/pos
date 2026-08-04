@@ -13,7 +13,7 @@ const CreateEcoPointSchema = z.object({
     lat: z.number(),
     lng: z.number(),
   }),
-  category: z.enum(['recycling', 'cleaning', 'conservation', 'education'], { errorMap: () => ({ message: 'Некорректная категория' }) }),
+  category: z.enum(['recycling', 'cleaning', 'conservation', 'education'], { message: 'Некорректная категория' }),
   points: z.number().positive('Баллы должны быть положительными'),
   isActive: z.boolean().optional(),
 });

@@ -1,0 +1,12 @@
+{
+  "_": "Известные цвета вне дизайн-системы. Гейт (scripts/design-token-gate.mjs) на них не краснеет, но краснеет на новых — храповик, а не стена. Строка = причина, по которой цвет ещё жив; пустая строка запрещена. Убирая цвет из кода, убирай и отсюда.",
+  "_snapshot": "Снято 2026-08-04 с / /sos /routes /emergency (dev-сборка). Все шесть — хардкод-hex, каждый подлежит переводу на токены; список существует, чтобы гейт защищал от НОВЫХ, а не был красным с первого дня.",
+  "colors": {
+    "#0f172a": "app/layout.tsx (theme-color), public/manifest.json, LeafletMap — чужой тёмный slate-900 вместо --bg-primary #0d1117",
+    "#e6c149": "public/logo-kamchatka.svg, public/logo-tourhub.svg — жёлтый в бренд-графике логотипов",
+    "#1a3a1a": "components/routes/RouteGradientPlaceholder.tsx — тёмно-зелёный градиент заглушки маршрута",
+    "#60a5fa": "public/emergency.html — офлайн-страница экстренной помощи, статический HTML вне Tailwind и токенов",
+    "#86efac": "public/emergency.html — там же",
+    "#1e3a5f": "public/emergency.html, app/planning/_PlanningClient.tsx, map-preview-placeholder.svg"
+  }
+}

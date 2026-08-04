@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 const RecordMetricSchema = z.object({
   type: z.string().min(1, 'Тип метрики обязателен'),
-  value: z.number({ coerce: true, message: 'Значение метрики обязательно' }),
+  value: z.coerce.number({ message: 'Значение метрики обязательно' }),
   period: z.string().min(1, 'Период обязателен'),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })

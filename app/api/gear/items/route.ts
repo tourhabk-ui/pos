@@ -21,7 +21,7 @@ const CreateGearItemSchema = z.object({
   depositAmount: z.number().optional(),
   insuranceCostPerDay: z.number().optional(),
   images: z.array(z.string()).optional(),
-  specifications: z.record(z.unknown()).optional(),
+  specifications: z.record(z.string(), z.unknown()).optional(),
   features: z.array(z.string()).optional(),
   condition: z.string().optional(),
   tags: z.array(z.string()).optional(),

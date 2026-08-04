@@ -23,7 +23,7 @@ const UpdateGearItemSchema = z.object({
   depositAmount: z.number().nullable().optional(),
   insuranceCostPerDay: z.number().nullable().optional(),
   images: z.array(z.string()).optional(),
-  specifications: z.record(z.unknown()).optional(),
+  specifications: z.record(z.string(), z.unknown()).optional(),
   features: z.array(z.string()).optional(),
   condition: z.string().optional(),
   tags: z.array(z.string()).optional(),

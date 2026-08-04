@@ -23,8 +23,10 @@ import type { ApiResponse } from '@/types';
 export const dynamic = 'force-dynamic';
 
 const BodySchema = z.object({
-  role: z.enum(SWITCHABLE_ROLES as unknown as [string, ...string[]], {
-    errorMap: () => ({ message: 'Недопустимая роль' }),
+  // Каст в [string, ...string[]] был обходом zod 3; в zod 4 const-кортеж
+  // подходит как есть, а каст, наоборот, ломает выбор перегрузки.
+  role: z.enum(SWITCHABLE_ROLES, {
+    message: 'Недопустимая роль',
   }),
 });
 
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest) {
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: parsed.error.errors[0]?.message ?? 'Ошибка валидации' } as ApiResponse<null>,
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Ошибка валидации' } as ApiResponse<null>,
       { status: 400 },
     );
   }

@@ -9,12 +9,12 @@ import { notificationService } from '@/lib/services'
 import { verifyAuth } from '@/lib/auth'
 
 const CreateNotificationSchema = z.object({
-  type: z.string({ required_error: 'Тип уведомления обязателен' }).min(1, 'Тип уведомления обязателен'),
-  title: z.string({ required_error: 'Заголовок обязателен' }).min(1, 'Заголовок обязателен'),
-  message: z.string({ required_error: 'Сообщение обязательно' }).min(1, 'Сообщение обязательно'),
+  type: z.string({ message: 'Тип уведомления обязателен' }).min(1, 'Тип уведомления обязателен'),
+  title: z.string({ message: 'Заголовок обязателен' }).min(1, 'Заголовок обязателен'),
+  message: z.string({ message: 'Сообщение обязательно' }).min(1, 'Сообщение обязательно'),
   userId: z.string().optional(),
   channels: z.array(z.string()).optional(),
-  data: z.record(z.unknown()).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
   scheduledFor: z.string().optional(),
 })
 

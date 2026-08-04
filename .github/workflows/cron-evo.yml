@@ -13,7 +13,7 @@ on:
 jobs:
   evo:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Evo Growth Scan + Evolution Loop
         env:
@@ -24,8 +24,11 @@ jobs:
             exit 0
           fi
 
+          # 300, а не 180: полный прогон занимает ~145 с, и 03.08 он уже упёрся
+          # в лимит (exit 28). Запас в 35 секунд означал, что любой медленный
+          # ответ решателя красит крон, хотя скан отработал.
           HTTP=$(curl -s -o /tmp/evo_resp.json -w "%{http_code}" \
-            --max-time 180 \
+            --max-time 300 \
             "https://vedarai.ru/api/cron/evo?type=full" \
             -H "Authorization: Bearer $CRON_SECRET")
 

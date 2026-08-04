@@ -11,7 +11,7 @@ const paramsSchema = z.object({ id: z.string().uuid('Некорректный ID
 
 const UpdateRentalStatusSchema = z.object({
   status: z.enum(['confirmed', 'active', 'completed', 'cancelled', 'overdue'], {
-    errorMap: () => ({ message: 'Некорректный статус' }),
+    message: 'Некорректный статус',
   }),
 });
 

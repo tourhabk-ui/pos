@@ -10,7 +10,7 @@ const UpdateProfileSchema = z.object({
   name: z.string().min(1, 'Укажите корректное имя').optional(),
   email: z.string().email('Укажите корректный email').optional(),
   phone: z.string().min(5, 'Укажите корректный номер телефона').optional(),
-  preferences: z.record(z.unknown()).optional(),
+  preferences: z.record(z.string(), z.unknown()).optional(),
   avatar: z.string().url('Укажите корректный URL аватара').optional(),
 });
 
@@ -92,7 +92,7 @@ export async function PUT(request: NextRequest) {
 
   const validationResult = UpdateProfileSchema.safeParse(body);
   if (!validationResult.success) {
-    const errorMessage = validationResult.error.errors[0]?.message || 'Ошибка валидации';
+    const errorMessage = validationResult.error.issues[0]?.message || 'Ошибка валидации';
     return NextResponse.json(
       { success: false, error: errorMessage } as ApiResponse<null>,
       { status: 400 }

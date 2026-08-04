@@ -6,7 +6,7 @@ import { ApiResponse } from '@/types';
 import { z } from 'zod';
 
 const ModerateReviewSchema = z.object({
-  action: z.enum(['approve', 'delete'], { errorMap: () => ({ message: 'Действие должно быть approve или delete' }) }),
+  action: z.enum(['approve', 'delete'], { message: 'Действие должно быть approve или delete' }),
 });
 
 export const dynamic = 'force-dynamic';

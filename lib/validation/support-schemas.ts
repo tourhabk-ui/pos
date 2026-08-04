@@ -294,7 +294,7 @@ export function validateInput<T>(schema: z.ZodSchema, data: unknown): { success:
   }
 
   const errors: Record<string, string> = {}
-  result.error.errors.forEach((error) => {
+  result.error.issues.forEach((error) => {
     const path = error.path.join('.')
     errors[path] = error.message
   })

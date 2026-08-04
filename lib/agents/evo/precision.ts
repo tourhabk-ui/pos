@@ -11,11 +11,30 @@
  * мок-детектор) продолжают идти: они не гадают, а читают синтаксис, поэтому
  * их точность не зависит от настроения модели.
  *
+ * Две поправки 04.08 — тормоз работал как запор.
+ *
+ * 1. СЧИТАЕМ ТОЛЬКО ОПУБЛИКОВАННОЕ. Метрика меряет цену ошибки — сколько мусора
+ *    вывалено на человека. Находки, убитые стражем достоверности, до человека
+ *    не дошли и не стоили ему ничего, но в знаменатель попадали наравне с теми,
+ *    что он читал и отвергал. Страж наказывал сам себя: сработал — точность
+ *    просела — заглохли и настоящие находки. Отбор стража виден отдельно
+ *    (`rejected_by_guard`), в точность он больше не входит (фильтр на стороне
+ *    запроса: только находки с `github_issue_url`).
+ *
+ * 2. ПРОБНИК. При заглушенных догадках публиковалось РОВНО НОЛЬ код-находок, а
+ *    вердикт человека можно получить только по опубликованному. Точность по
+ *    догадкам не могла восстановиться никогда: единственный путь наверх шёл
+ *    через детерминированные категории. Тормоз должен замедлять, а не запирать,
+ *    поэтому под запретом всё равно проходит один пробник — самая тяжёлая
+ *    догадка прогона. Цена ошибки при этом ограничена: одна задача за прогон.
+ *
  * Честная деградация вместо уверенного вранья — тот же принцип, что «прочёс
  * ослеп» у скана и «фид молчит» у разведки.
  *
  * Чистые функции — под тестом.
  */
+
+import { severityRank } from '@/lib/agents/evo/issue-reporter';
 
 /**
  * Категории находок, полученных ДЕТЕРМИНИРОВАННО (не догадка модели):
@@ -60,9 +79,9 @@ export function issueVerdict(stateReason: string | null | undefined): IssueVerdi
 }
 
 export interface PrecisionStats {
-  /** Находки, принятые человеком (accepted/fixed). */
+  /** Опубликованные находки, принятые человеком (accepted/fixed). */
   accepted: number;
-  /** Отвергнутые человеком или стражем (rejected/ignored). */
+  /** Опубликованные находки, отвергнутые человеком (rejected/ignored). */
   rejected: number;
 }
 
@@ -82,9 +101,21 @@ export function computePrecision(s: PrecisionStats): number | null {
   return s.accepted / total;
 }
 
+/**
+ * Сколько догадок пропускать, когда общий запрет включён. Ровно одна: этого
+ * достаточно, чтобы метрика могла двигаться (каждый вердикт человека её меняет),
+ * и мало, чтобы плохая модель не залила трекер — один тикет за прогон.
+ */
+export const GUESS_PROBE = 1;
+
 export interface PublishDecision {
   /** Публиковать ли догадки модели. */
   allowGuesses: boolean;
+  /**
+   * Сколько догадок пропустить вопреки запрету (пробник). При `allowGuesses`
+   * поле не используется — идут все.
+   */
+  probeSlots: number;
   precision: number | null;
   /** Причина для лога/алерта — человекочитаемая. */
   reason: string;
@@ -99,6 +130,7 @@ export function decidePublish(s: PrecisionStats, floor = PRECISION_FLOOR): Publi
   if (precision === null) {
     return {
       allowGuesses: true,
+      probeSlots: 0,
       precision: null,
       reason: `точность ещё не измерена (наблюдений ${s.accepted + s.rejected} < ${MIN_SAMPLE})`,
     };
@@ -106,25 +138,39 @@ export function decidePublish(s: PrecisionStats, floor = PRECISION_FLOOR): Publi
   if (precision < floor) {
     return {
       allowGuesses: false,
+      probeSlots: GUESS_PROBE,
       precision,
       reason:
         `точность ${(precision * 100).toFixed(0)}% ниже порога ${(floor * 100).toFixed(0)}% ` +
-        `(принято ${s.accepted}, отвергнуто ${s.rejected}) — догадки модели не публикуются, ` +
-        `идут только детерминированные находки`,
+        `(принято ${s.accepted}, отвергнуто ${s.rejected}) — из догадок модели идёт только ` +
+        `пробник (${GUESS_PROBE}), остальное ждёт; детерминированные находки идут все`,
     };
   }
   return {
     allowGuesses: true,
+    probeSlots: 0,
     precision,
     reason: `точность ${(precision * 100).toFixed(0)}% — публикация в норме`,
   };
 }
 
-/** Фильтр находок по решению: при запрете догадок оставляем только детерминированные. */
-export function applyPublishDecision<T extends { category: string }>(
+/**
+ * Фильтр находок по решению: при запрете догадок оставляем детерминированные
+ * плюс пробник — самую тяжёлую догадку (см. GUESS_PROBE). Порядок исходного
+ * массива сохраняется: выбор пробника не должен переставлять остальное.
+ */
+export function applyPublishDecision<T extends { category: string; severity?: string }>(
   findings: T[],
   decision: PublishDecision,
 ): T[] {
   if (decision.allowGuesses) return findings;
-  return findings.filter((f) => !isModelGuess(f.category));
+
+  const probes = new Set(
+    findings
+      .filter((f) => isModelGuess(f.category))
+      .sort((a, b) => severityRank(a.severity ?? 'medium') - severityRank(b.severity ?? 'medium'))
+      .slice(0, Math.max(0, decision.probeSlots)),
+  );
+
+  return findings.filter((f) => !isModelGuess(f.category) || probes.has(f));
 }

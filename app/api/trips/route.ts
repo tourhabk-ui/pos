@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     const parsed = CreateTripSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: parsed.error.errors },
+        { success: false, error: 'Некорректные данные', details: parsed.error.issues },
         { status: 400 }
       );
     }
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: err.errors },
+        { success: false, error: 'Некорректные данные', details: err.issues },
         { status: 400 }
       );
     }

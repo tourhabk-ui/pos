@@ -29,7 +29,7 @@ const RegistrationSchema = z.object({
   emergency_contact_email: z.string().email().optional().or(z.literal('')),
   emergency_contact_consent: z.boolean().default(false),
   accepted_disclaimer: z.literal(true, {
-    errorMap: () => ({ message: 'Необходимо принять условия' }),
+    message: 'Необходимо принять условия',
   }),
 });
 
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
   const validation = RegistrationSchema.safeParse(rawBody);
   if (!validation.success) {
     return NextResponse.json(
-      { success: false, error: validation.error.errors[0]?.message },
+      { success: false, error: validation.error.issues[0]?.message },
       { status: 400 }
     );
   }

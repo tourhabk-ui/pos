@@ -10,7 +10,7 @@ const UpdateGuideProfileSchema = z.object({
   name: z.string().min(1, 'Имя не может быть пустым').optional(),
   partnerName: z.string().optional(),
   description: z.string().optional(),
-  contact: z.record(z.unknown()).optional(),
+  contact: z.record(z.string(), z.unknown()).optional(),
   experienceYears: z.number().int().min(1, 'Опыт работы должен быть от 1 до 50 лет').max(50, 'Опыт работы должен быть от 1 до 50 лет').optional(),
   languages: z.array(z.string()).optional(),
   specializations: z.array(z.enum(['volcanoes', 'wildlife', 'fishing', 'history', 'photography', 'extreme', 'hiking', 'cultural', 'rafting', 'skiing'])).optional(),

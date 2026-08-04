@@ -33,7 +33,19 @@ async function fetchReportable() {
   });
   if (!res.ok) throw new Error(`GET evo-report → HTTP ${res.status}`);
   const data = await res.json();
-  return Array.isArray(data.issues) ? data.issues : [];
+  return {
+    issues: Array.isArray(data.issues) ? data.issues : [],
+    // Почему находок может быть ноль. Эндпоинт эти поля отдаёт давно, но раннер
+    // печатал только счётчик — и «0» одинаково выглядел и когда сканеру нечего
+    // сказать, и когда тормоз точности гасит код-находки (тогда наружу идут
+    // только детерминированные категории, и петля молчит месяцами незаметно).
+    precision: data.precision ?? null,
+    guessesAllowed: data.guesses_allowed,
+    precisionNote: data.precision_note ?? '',
+    rejectedByGuard: data.rejected_by_guard ?? 0,
+    guessesHeld: data.guesses_held ?? 0,
+    probeSlots: data.probe_slots ?? 0,
+  };
 }
 
 function gh(args, opts = {}) {
@@ -89,16 +101,34 @@ async function callback(reported) {
 async function main() {
   if (!CRON_SECRET) { log('ERROR', 'CRON_SECRET не задан'); process.exit(1); }
 
-  let findings;
+  let report;
   try {
-    findings = await fetchReportable();
+    report = await fetchReportable();
   } catch (e) {
     // Эндпоинт мог быть ещё не задеплоен (окно Timeweb) — не краснить job.
     log('WARN', 'не удалось получить находки — пустой прогон', { error: String(e) });
     return;
   }
 
-  log('EVO_REPORT', `находок к выносу: ${findings.length}`);
+  const findings = report.issues;
+  log('EVO_REPORT', `находок к выносу: ${findings.length}`, {
+    precision: report.precision,
+    guesses_allowed: report.guessesAllowed,
+    precision_note: report.precisionNote,
+    rejected_by_guard: report.rejectedByGuard,
+    guesses_held: report.guessesHeld,
+    probe_slots: report.probeSlots,
+  });
+  if (report.guessesAllowed === false) {
+    // Догадки модели придержаны тормозом точности. Само по себе это защита, но
+    // молча она превращается в «эволюция ничего не находит».
+    log('EVO_REPORT', 'догадки модели придержаны — тормоз точности', {
+      precision: report.precision,
+      precision_note: report.precisionNote,
+      held: report.guessesHeld,
+      probe: report.probeSlots,
+    });
+  }
   if (findings.length === 0) return;
 
   ensureLabel();

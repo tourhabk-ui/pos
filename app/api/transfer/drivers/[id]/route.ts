@@ -19,7 +19,7 @@ const updateDriverSchema = z.object({
   vehicleId: z.union([z.string().trim().min(1), z.null()]).optional(),
   experience: z.coerce.number().int().min(0).max(70).optional(),
   languages: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
-  emergencyContact: z.record(z.unknown()).optional(),
+  emergencyContact: z.record(z.string(), z.unknown()).optional(),
   address: z.string().max(500).optional(),
   city: z.string().max(100).optional(),
   notes: z.string().max(5000).optional(),

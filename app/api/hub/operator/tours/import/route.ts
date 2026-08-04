@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
       created++;
     } catch (err) {
       const reason = err instanceof z.ZodError
-        ? err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ')
+        ? err.issues.map(e => `${e.path.join('.')}: ${e.message}`).join('; ')
         : err instanceof Error ? err.message : 'Неизвестная ошибка';
       results.push({ row: rowNum, status: 'error', title, reason });
       failed++;
