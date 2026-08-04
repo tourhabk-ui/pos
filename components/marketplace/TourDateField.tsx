@@ -1,19 +1,22 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 
 /**
- * Поле выбора даты заезда с календарём доступности.
- * Вынесено из BookingFormClient для переиспользования в чекауте корзины.
+ * Поле выбора даты заезда.
  *
- * Если у тура есть открытые слоты (/api/tours/[id]/slots — считает
- * занятость из реальных броней), дата выбирается по календарю. Слотов
- * нет / фетч упал → ручной <input type="date">: календарь у операторов
- * опционален, отсутствие строк tour_availability означает «даты свободны».
+ * Календарь свободных дат — основной путь; ручной ввод остаётся запасным:
+ * заполнять tour_availability оператор не обязан, и отсутствие строк означает
+ * «дату согласуем», а не «мест нет».
+ *
+ * Один запрос вместо двух. Раньше это поле само спрашивало /api/tours/[id]/slots,
+ * чтобы решить, рисовать ли календарь, — а календарь внутри спрашивал тот же
+ * эндпоинт второй раз. Теперь слоты грузит только календарь, а о пустоте
+ * сообщает наверх через onEmpty.
  */
 
-// Минимальная дата — завтра
+/** Минимальная дата ручного ввода — завтра: сегодняшний выезд уже не собрать. */
 function minDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -30,62 +33,64 @@ interface TourDateFieldProps {
 }
 
 export default function TourDateField({ tourId, tourTitle, value, onChange, inputName = 'booking_date' }: TourDateFieldProps) {
-  const [slotsMode, setSlotsMode] = useState<'loading' | 'calendar' | 'manual'>('loading');
-  const [dateSource, setDateSource] = useState<'none' | 'manual' | 'calendar'>('none');
+  /** none — календарь ещё может показать даты; empty — их нет; manual — так решил турист. */
+  const [mode, setMode] = useState<'calendar' | 'empty' | 'manual'>('calendar');
 
-  useEffect(() => {
-    let alive = true;
-    fetch(`/api/tours/${tourId}/slots`)
-      .then(r => (r.ok ? r.json() : { slots: [] }))
-      .then((d: { slots?: unknown[] }) => {
-        if (alive) setSlotsMode((d.slots?.length ?? 0) > 0 ? 'calendar' : 'manual');
-      })
-      .catch(() => { if (alive) setSlotsMode('manual'); });
-    return () => { alive = false; };
-  }, [tourId]);
-
-  // offers — в зависимостях эффекта AvailabilityCalendar: новый массив на
-  // каждый рендер зациклил бы рефетч слотов.
+  // offers — в зависимостях эффекта календаря: новый массив на каждый рендер
+  // зациклил бы перезапрос слотов.
   const calendarOffers = useMemo(
     () => [{ tourId, tourName: tourTitle ?? '', nextDeparture: null, nextSlots: null }],
-    [tourId, tourTitle]
+    [tourId, tourTitle],
   );
 
-  const showCalendar = slotsMode === 'calendar' && dateSource !== 'manual';
+  const handleEmpty = useCallback(() => setMode(m => (m === 'manual' ? m : 'empty')), []);
 
-  if (showCalendar) {
+  const manualInput = (
+    <input
+      type="date"
+      name={inputName}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      min={minDate()}
+      className="ds-input w-full"
+      required
+    />
+  );
+
+  if (mode === 'manual') {
     return (
       <div className="space-y-2">
-        <AvailabilityCalendar
-          offers={calendarOffers}
-          onDateSelect={(date) => {
-            setDateSource('calendar');
-            onChange(date);
-          }}
-        />
+        {manualInput}
         <button
           type="button"
-          onClick={() => setDateSource('manual')}
+          onClick={() => setMode('calendar')}
           className="text-xs text-[var(--ocean)] hover:underline"
         >
-          Ввести дату вручную
+          Показать календарь свободных дат
         </button>
       </div>
     );
   }
 
   return (
-    <input
-      type="date"
-      name={inputName}
-      value={value}
-      onChange={(e) => {
-        setDateSource('manual');
-        onChange(e.target.value);
-      }}
-      min={minDate()}
-      className="ds-input w-full"
-      required
-    />
+    <div className="space-y-2">
+      <AvailabilityCalendar
+        offers={calendarOffers}
+        onEmpty={handleEmpty}
+        onDateSelect={(date) => onChange(date)}
+      />
+      {/* Дат нет — календарь уже сказал об этом словами, показываем поле ввода.
+          Даты есть — оставляем ручной ввод доступным одной кнопкой: у оператора
+          бывают договорные выезды вне сетки. */}
+      {mode === 'empty' ? manualInput : (
+        <button
+          type="button"
+          onClick={() => setMode('manual')}
+          className="text-xs text-[var(--ocean)] hover:underline"
+        >
+          Ввести дату вручную
+        </button>
+      )}
+    </div>
   );
 }

@@ -40,9 +40,15 @@ export async function GET(
          AND ta.date >= CURRENT_DATE
          AND ta.is_cancelled = false
          AND ta.deleted_at IS NULL
+         AND ta.date <= CURRENT_DATE + INTERVAL '1 year'
          AND GREATEST(0, LEAST(ta.available_slots, COALESCE(ot.max_participants, ta.available_slots)) - occ.taken) > 0
        ORDER BY ta.date ASC
-       LIMIT 30`,
+       -- Было LIMIT 30 — ровно 30 ДАТ, а не 30 дней. Календарь строит по этому
+       -- ответу целые месяцы: при сезоне Июн—Сен сентябрь просто не доезжал, и
+       -- сетка честно рисовала «мест нет» там, где места есть. Ограничение
+       -- нужно (запрос публичный), но по сезону, а не по горстке дат: год
+       -- вперёд с запасом покрывает любой сезон, оставаясь конечным.
+       LIMIT 400`,
       [tourId]
     );
 

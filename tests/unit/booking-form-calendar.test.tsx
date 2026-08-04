@@ -53,7 +53,10 @@ describe('BookingFormClient — календарь доступности', () =
     render(<BookingFormClient tourId={7} basePrice={5000} tourTitle="Морская прогулка" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Доступные даты')).toBeInTheDocument();
+      // Ищем календарь по ДОСТУПНОМУ ИМЕНИ, а не по видимой строке: внутри формы
+      // поле уже подписано «Дата заезда», и третий видимый заголовок над сеткой
+      // был бы шумом. Проверяемое намерение то же — календарь отрисован.
+      expect(screen.getByRole('group', { name: 'Доступные даты' })).toBeInTheDocument();
     });
     // Ручного поля даты нет
     expect(document.querySelector('input[name="booking_date"]')).toBeNull();
@@ -62,15 +65,17 @@ describe('BookingFormClient — календарь доступности', () =
     const submit = screen.getByRole('button', { name: /Оставить заявку/ });
     expect(submit).toBeDisabled();
 
-    // Календарь показывает текущий месяц: если слот попал в следующий
-    // (запуск теста в конце месяца) — листаем, иначе тест был бы флаки.
-    if (new Date(slotDate).getMonth() !== new Date().getMonth()) {
-      fireEvent.click(screen.getByLabelText('Следующий месяц'));
-    }
+    // Листать месяц вручную больше не нужно: календарь открывается на первом
+    // месяце, где даты ЕСТЬ. Раньше он открывался на текущем, и в октябре
+    // турист видел пустую сетку, хотя даты есть в июне.
 
-    // Клик по доступной дате (день из слота, «N мест» в aria-label)
+    // Клик по доступной дате. В подписи ячейки — день, месяц и число мест:
+    // раньше количество пряталось в title, которого на телефоне нет вовсе.
     const dayNum = Number(slotDate.slice(8, 10));
-    const cell = await screen.findByRole('button', { name: `${dayNum} — 5 мест` });
+    const cell = await screen.findByRole(
+      'button',
+      { name: new RegExp(`^${dayNum} \\S+, свободно мест: 5$`) },
+    );
     fireEvent.click(cell);
 
     await waitFor(() => expect(submit).not.toBeDisabled());
@@ -84,7 +89,7 @@ describe('BookingFormClient — календарь доступности', () =
     await waitFor(() => {
       expect(document.querySelector('input[name="booking_date"]')).not.toBeNull();
     });
-    expect(screen.queryByText('Доступные даты')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Доступные даты' })).toBeNull();
   });
 
   it('фетч слотов упал → ручной input, форма не ломается', async () => {
@@ -106,6 +111,6 @@ describe('BookingFormClient — календарь доступности', () =
     fireEvent.click(toggle);
 
     expect(document.querySelector('input[name="booking_date"]')).not.toBeNull();
-    expect(screen.queryByText('Доступные даты')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Доступные даты' })).toBeNull();
   });
 });

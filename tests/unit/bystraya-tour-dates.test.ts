@@ -130,3 +130,102 @@ describe('календарь туров не наполняется днями �
       .toEqual(['060_rafting_tour_kamchatka.sql']);
   });
 });
+
+/**
+ * Выбор даты: календарь — основной путь, ручной ввод — запасной, запрос один.
+ *
+ * Проверяем НАМЕРЕНИЕ, а не имена внутренних переменных: прошлая версия этих
+ * проверок держалась за `slotsMode === 'loading'` и рассыпалась от первой же
+ * переработки компонента, хотя поведение осталось правильным.
+ */
+describe('поле выбора даты', () => {
+  const field = readFileSync(
+    join(process.cwd(), 'components/marketplace/TourDateField.tsx'),
+    'utf-8',
+  );
+  const calendar = readFileSync(
+    join(process.cwd(), 'components/routes/AvailabilityCalendar.tsx'),
+    'utf-8',
+  );
+
+  it('слоты грузит только календарь — двойного запроса нет', () => {
+    // Раньше поле спрашивало /slots, чтобы решить, рисовать ли календарь, а
+    // календарь внутри спрашивал тот же эндпоинт второй раз.
+    expect(field).not.toMatch(/fetch\(/);
+    expect(calendar).toMatch(/\/slots/);
+  });
+
+  it('о пустоте календарь сообщает наверх, а не молчит', () => {
+    expect(calendar).toMatch(/onEmpty/);
+    expect(field).toMatch(/onEmpty=/);
+  });
+
+  it('ручной ввод остаётся доступен: слоты у операторов опциональны', () => {
+    expect(field).toMatch(/type="date"/);
+    expect(field).toMatch(/Ввести дату вручную/);
+  });
+
+  it('во время загрузки — скелетон, а не пустая сетка', () => {
+    expect(calendar).toMatch(/ds-skeleton/);
+  });
+});
+
+/**
+ * Календарь: нюансы, из-за которых прежняя версия врала или мешала пальцу.
+ */
+describe('календарь свободных дат', () => {
+  const raw = readFileSync(
+    join(process.cwd(), 'components/routes/AvailabilityCalendar.tsx'),
+    'utf-8',
+  );
+  /**
+   * Только КОД, без комментариев. В шапке файла перечислены прежние ошибки
+   * (`rgba(...)`, `<div onKeyDown>`, `scale-110`) — без этой очистки сторож
+   * ловил бы собственное объяснение и запрещал документировать причину.
+   */
+  const calendar = raw
+    .split('\n')
+    .filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join('\n');
+
+  it('цвета только из токенов — хардкод rgba запрещён (§2)', () => {
+    expect(calendar).not.toMatch(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+/);
+    expect(calendar).toMatch(/var\(--success\)/);
+    expect(calendar).toMatch(/var\(--warning\)/);
+  });
+
+  it('тач-цели не меньше 44px — календарём пользуются пальцем на ходу', () => {
+    expect(calendar).toMatch(/height: 44/);
+    expect(calendar).toMatch(/width: 44/);
+  });
+
+  it('за границы доступности листать нельзя', () => {
+    // Тур Июн—Сен, а уйти можно было в январь и увидеть пустоту как результат.
+    expect(calendar).toMatch(/canPrev/);
+    expect(calendar).toMatch(/canNext/);
+    expect(calendar).toMatch(/disabled=\{!can/);
+  });
+
+  it('открывается на первом месяце, где даты есть', () => {
+    expect(calendar).toMatch(/bounds\.first/);
+  });
+
+  it('число свободных мест видно в ячейке, а не спрятано в title', () => {
+    // На телефоне title не показывается вовсе.
+    expect(calendar).not.toMatch(/title=\{/);
+    expect(calendar).toMatch(/\{free\}/);
+  });
+
+  it('дни — кнопки, а не div с onKeyDown', () => {
+    expect(calendar).toMatch(/<button/);
+    expect(calendar).not.toMatch(/onKeyDown/);
+  });
+
+  it('выбор не растягивает ячейку поверх соседних', () => {
+    expect(calendar).not.toMatch(/scale-1\d\d/);
+  });
+
+  it('дату обещает не платформа, а оператор', () => {
+    expect(calendar).toMatch(/подтвердит дату при бронировании/);
+  });
+});
