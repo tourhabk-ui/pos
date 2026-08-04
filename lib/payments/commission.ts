@@ -17,73 +17,38 @@
 import { query } from '@/lib/database';
 
 /**
- * Ставка, зашитая в `/api/payments/webhook` с самого начала.
+ * Комиссия платформы по умолчанию — 10% (решение владельца 04.08: «пока нет
+ * партнёров делаем 10%»).
  *
- * ВНИМАНИЕ, расхождение (не исправлено намеренно, решение за владельцем):
- * поток бронирования и hub-вебхук считают комиссию по ДОГОВОРНОЙ ставке
- * оператора — `partners.commission_current` (по умолчанию 15%), и пишут её в
- * `tour_payments`. А этот вебхук пишет в `operator_commissions` фиксированные
- * 12%. Для одной и той же брони две таблицы называют разную комиссию.
- * Трогать существующие суммы без слова владельца нельзя, поэтому старое
- * поведение сохранено дословно.
+ * Это ЗАПАСНОЕ значение. Источник истины — `partners.commission_current`:
+ * ставка договорная и у разных операторов может отличаться. Миграция 811
+ * привела и дефолты колонок, и текущие значения к 10, поэтому сегодня они
+ * совпадают — но код обязан читать базу, а не подменять её константой. Именно
+ * так и появилось расхождение, которое здесь закрыто: раньше
+ * `/api/payments/webhook` считал захардкоженные 12%, а поток бронирования и
+ * hub-вебхук — договорные ~15%, и одна бронь получала разную комиссию в
+ * `operator_commissions` и `tour_payments`.
  */
-export const LEGACY_PLATFORM_RATE = 0.12;
-
-interface RecordCommissionParams {
-  /** operator_bookings.id */
-  bookingId: string | number | bigint;
-  /** CloudPayments InvoiceId — ключ идемпотентности (UNIQUE в таблице). */
-  invoiceId: string;
-  /** Сумма комиссии в рублях. */
-  amount: number;
-  /** Ставка ДОЛЕЙ единицы (0.12 = 12%): колонка `rate` — NUMERIC(5,4). */
-  rate: number;
-}
+export const PLATFORM_COMMISSION_PERCENT = 10;
 
 /**
- * Идемпотентно записать комиссию платформы.
+ * Идемпотентно записать комиссию платформы по броне.
  *
- * Идемпотентность — обязательна: CloudPayments повторяет вебхук, пока не
- * получит `code: 0`, и без защиты одна оплата дала бы несколько начислений.
- * Ключ — `operator_commissions.invoice_id` (UNIQUE, миграция 084).
+ * ЕДИНСТВЕННЫЙ способ начислить комиссию — оба платёжных вебхука зовут именно
+ * его. Ставку и сумму считает сама база из `partners.commission_current`, то
+ * есть из того же источника, по которому hub-вебхук строкой выше заполняет
+ * `tour_payments`. Так две таблицы больше не могут назвать разную комиссию по
+ * одной броне.
+ *
+ * Идемпотентность обязательна: CloudPayments повторяет вебхук, пока не получит
+ * `code: 0`, и без защиты одна оплата дала бы несколько начислений. Ключ —
+ * `operator_commissions.invoice_id` (UNIQUE, миграция 084).
  *
  * Ошибки проглатываются осознанно: платёж уже прошёл, и падение на записи
  * комиссии не должно приводить к повтору всего вебхука.
- */
-export async function recordCommission(params: RecordCommissionParams): Promise<void> {
-  const { bookingId, invoiceId, amount, rate } = params;
-  try {
-    if (!invoiceId || !(amount > 0)) return;
-
-    const bookingRes = await query<{ operator_id: string | null }>(
-      `SELECT operator_id FROM operator_bookings WHERE id = $1`,
-      [bookingId],
-    );
-    const operatorId = bookingRes.rows[0]?.operator_id;
-    if (!operatorId) return;
-
-    await query(
-      `INSERT INTO operator_commissions
-         (operator_id, booking_id, invoice_id, amount, rate, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-       ON CONFLICT (invoice_id) DO NOTHING`,
-      [operatorId, bookingId, invoiceId, amount, rate],
-    );
-  } catch {
-    // Не прерываем платёжный flow при ошибке записи комиссии.
-  }
-}
-
-/**
- * Записать комиссию по ДОГОВОРНОЙ ставке оператора.
  *
- * Ставку и сумму считает сама база из `partners.commission_current` — той же
- * величины, по которой этот же вебхук строкой выше заполнил `tour_payments`.
- * Иначе две таблицы, записанные одним обработчиком, называли бы разную
- * комиссию по одной броне.
- *
- * `commission_current` хранится в ПРОЦЕНТАХ (15), а `operator_commissions.rate`
- * — в долях (0.15), отсюда деление на 100.
+ * `commission_current` хранится в ПРОЦЕНТАХ (10), а `operator_commissions.rate`
+ * — в ДОЛЯХ (0.10), отсюда деление на 100.
  */
 export async function recordCommissionFromBooking(
   bookingId: string | number | bigint,
@@ -99,8 +64,8 @@ export async function recordCommissionFromBooking(
          ot.operator_id,
          ob.id,
          $2,
-         ROUND(ob.final_price * COALESCE(p.commission_current, 15) / 100, 2),
-         ROUND(COALESCE(p.commission_current, 15) / 100.0, 4),
+         ROUND(ob.final_price * COALESCE(p.commission_current, $3) / 100, 2),
+         ROUND(COALESCE(p.commission_current, $3) / 100.0, 4),
          'pending',
          NOW()
        FROM operator_bookings ob
@@ -109,7 +74,7 @@ export async function recordCommissionFromBooking(
        WHERE ob.id = $1
          AND ob.final_price > 0
        ON CONFLICT (invoice_id) DO NOTHING`,
-      [bookingId, invoiceId],
+      [bookingId, invoiceId, PLATFORM_COMMISSION_PERCENT],
     );
   } catch {
     // Не прерываем платёжный flow при ошибке записи комиссии.

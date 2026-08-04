@@ -81,7 +81,10 @@ export async function POST(request: NextRequest) {
               ot.min_participants, ot.max_participants, ot.is_active,
               ot.multi_day_count, ot.duration_hours, ot.duration_type,
               p.name AS operator_name,
-              COALESCE(p.commission_current, 15) AS commission_current
+              -- Запасное значение — единая ставка платформы (10%, решение
+              -- владельца 04.08). Раньше здесь стояло 15 и расходилось с 12%
+              -- в платёжном вебхуке: одна бронь получала разную комиссию.
+              COALESCE(p.commission_current, 10) AS commission_current
        FROM operator_tours ot
        JOIN partners p ON p.id = ot.operator_id
        WHERE ot.id = $1`,

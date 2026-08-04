@@ -39,10 +39,14 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as total_revenue,
         COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') AND b.payment_status = 'pending' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as pending_payouts,
         COALESCE(SUM(CASE WHEN b.booking_status = 'completed' AND b.payment_status = 'paid' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as completed_payouts,
-        COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * 0.15 ELSE 0 END), 0) as commission,
-        COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * 0.85 ELSE 0 END), 0) as net_income
+        -- Комиссия — по ДОГОВОРНОЙ ставке оператора (partners.commission_current),
+        -- а не по захардкоженным 15%: оператор видел в своём кабинете цифру,
+        -- которая расходилась с реально начисляемой (аудит ставок 04.08).
+        COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * COALESCE(pr.commission_current, 10) / 100 ELSE 0 END), 0) as commission,
+        COALESCE(SUM(CASE WHEN b.booking_status IN ('confirmed', 'completed') THEN COALESCE(b.final_price, b.base_total_price) * (1 - COALESCE(pr.commission_current, 10) / 100) ELSE 0 END), 0) as net_income
       FROM operator_bookings b
       JOIN operator_tours t ON b.tour_id = t.id
+      LEFT JOIN partners pr ON pr.id = t.operator_id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.deleted_at IS NULL
