@@ -62,6 +62,7 @@
     "docker:run": "docker run -p 3000:3000 -e NODE_ENV=development kamhub:latest",
     "db:seed": "node scripts/seed.js",
     "type-check": "tsc --noEmit",
+    "design:tokens": "node scripts/design-token-gate.mjs",
     "audit:all": "tsx scripts/research/marketplace-audit.ts --headless",
     "audit:watch": "tsx scripts/research/marketplace-audit.ts",
     "audit:one": "tsx scripts/research/marketplace-audit.ts",
