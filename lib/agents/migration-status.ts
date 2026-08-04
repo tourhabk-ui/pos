@@ -38,8 +38,24 @@ export function findUnappliedMigrations(
  */
 const NAMES_BUDGET = 900;
 
-/** Человекочитаемая строка для Telegram. */
-export function formatUnappliedMigrations(unapplied: readonly string[]): string {
+/** Длина причины в сообщении: хватает на текст ошибки Postgres. */
+const REASON_LIMIT = 200;
+
+/**
+ * Человекочитаемая строка для Telegram.
+ *
+ * `reasons` — записанные причины падения (`_migration_failures`) по именам. До
+ * 04.08 симптом и причина ехали в РАЗНЫХ алертах: «миграции не применились: 796,
+ * 800, 806 — смотри лог деплоя» приходило отдельно от «806: column ... does not
+ * exist», а лог деплоя на следующий день никто не открывает. Отправлять человека
+ * искать то, что у нас уже есть в базе, — тот же класс, что и сам молчащий
+ * провал. Теперь причина едет вместе с именем; «смотри лог» остаётся только для
+ * тех, у кого записи о падении нет (миграция вообще не запускалась).
+ */
+export function formatUnappliedMigrations(
+  unapplied: readonly string[],
+  reasons: Readonly<Record<string, string>> = {},
+): string {
   const shown: string[] = [];
   let used = 0;
   for (const name of unapplied) {
@@ -49,5 +65,16 @@ export function formatUnappliedMigrations(unapplied: readonly string[]): string 
     used += cost;
   }
   const tail = shown.length < unapplied.length ? ` и ещё ${unapplied.length - shown.length}` : '';
-  return `миграции не применились: ${shown.join(', ')}${tail}. Схема расходится с кодом; смотри лог деплоя (строки «[migrate] ✗»)`;
+
+  const explained = shown
+    .filter((name) => (reasons[name] ?? '').trim().length > 0)
+    .map((name) => `${name}: ${reasons[name].trim().slice(0, REASON_LIMIT)}`);
+
+  const head = `миграции не применились: ${shown.join(', ')}${tail}. Схема расходится с кодом`;
+  if (explained.length === 0) {
+    return `${head}; смотри лог деплоя (строки «[migrate] ✗»)`;
+  }
+  const silent = shown.length - explained.length;
+  const rest = silent > 0 ? `\nОстальные (${silent}) без записи о падении — смотри лог деплоя.` : '';
+  return `${head}. Причины:\n${explained.join('\n')}${rest}`;
 }
