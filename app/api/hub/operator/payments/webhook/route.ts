@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
+import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { query } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
@@ -99,6 +100,13 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
      ON CONFLICT (cp_transaction_id) DO NOTHING`,
     [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId]
   );
+
+  // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
+  // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в
+  // кабинете CloudPayments (аудит дублей 03.08). Ставка — договорная
+  // (partners.commission_current), та же, по которой строкой выше заполнен
+  // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
+  await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
 
   // Increment booked_slots for the corresponding availability date
   await query(

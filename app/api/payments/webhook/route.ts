@@ -4,6 +4,7 @@ import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payment
 import { emailService } from '@/lib/notifications/email-service';
 import { PaymentWebhookReturnRow, PaymentRow, EmailRow } from '@/lib/types/db-rows';
 import { addBookingContribution } from '@/lib/compute-fund';
+import { recordCommission, LEGACY_PLATFORM_RATE } from '@/lib/payments/commission';
 
 export const dynamic = 'force-dynamic';
 
@@ -327,37 +328,25 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
 /**
  * Создаёт запись комиссии платформы при успешной оплате.
  * Idempotent: повторный вызов с тем же invoice_id игнорируется.
+ *
+ * Сама вставка живёт в `lib/payments/commission` — общей с hub-вебхуком, где
+ * комиссия раньше не начислялась вовсе. СТАВКА здесь намеренно оставлена
+ * прежней (`LEGACY_PLATFORM_RATE`, 12%): свести её с договорной ставкой
+ * оператора значило бы изменить суммы уже начисляемых комиссий, а это решение
+ * владельца, не рефакторинг.
  */
 async function createCommissionRecord(
   bookingId: string,
   invoiceId: string,
   amount: number
 ): Promise<void> {
-  try {
-    const PLATFORM_RATE = 0.12; // 12% комиссия платформы
-    const commissionAmount = Math.round(amount * PLATFORM_RATE * 100) / 100;
-
-    // Ищем operator_id из бронирования
-    const bookingRes = await query<{ operator_id: string | null }>(
-      `SELECT operator_id FROM operator_bookings WHERE id = $1`,
-      [bookingId]
-    );
-    if (!bookingRes.rows.length) return;
-
-    const operatorId = bookingRes.rows[0].operator_id;
-    if (!operatorId) return;
-
-    // Upsert — если уже есть запись по invoice_id, пропускаем
-    await query(
-      `INSERT INTO operator_commissions
-         (operator_id, booking_id, invoice_id, amount, rate, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-       ON CONFLICT (invoice_id) DO NOTHING`,
-      [operatorId, bookingId, invoiceId, commissionAmount, PLATFORM_RATE]
-    );
-  } catch {
-    // Не прерываем платёжный flow при ошибке записи комиссии
-  }
+  const commissionAmount = Math.round(amount * LEGACY_PLATFORM_RATE * 100) / 100;
+  await recordCommission({
+    bookingId,
+    invoiceId,
+    amount: commissionAmount,
+    rate: LEGACY_PLATFORM_RATE,
+  });
 }
 
 /**
