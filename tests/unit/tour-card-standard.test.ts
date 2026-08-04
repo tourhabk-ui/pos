@@ -68,6 +68,26 @@ describe('стандарт карточки тура — честность да
     expect(src).not.toContain('available_dates');
   });
 
+  it('не печатает заголовок краевого алерта как предупреждение о туре', () => {
+    // На карточке сплава по Быстрой всплывало «риск схода оползней с вулкана
+    // Мутновского»: /api/public/safety-status отдаёт максимальный алерт по краю
+    // без привязки к географии тура. Чужое предупреждение размывает доверие к
+    // настоящему — релевантные даёт SafetyWarnings по tourId.
+    expect(src).not.toMatch(/\{dayStatus\.title\}/);
+    expect(src).not.toMatch(/dayStatus\?\.title\s*&&/);
+    // Индикатор остаётся, но подписан как краевой, а не как оценка поездки.
+    expect(src).toContain('Обстановка в крае');
+    expect(src).toContain('SafetyWarnings');
+  });
+
+  it('нет партнёрских блоков агрегаторов', () => {
+    // Решение владельца 04.08. Они печатали рекламный дисклеймер с ИНН чужих
+    // юрлиц под карточкой тура нашего проверенного оператора — турист видел
+    // подмену продавца. Карточка тура продаёт тур оператора, а не чужие сервисы.
+    expect(src).not.toContain('RouteAffiliateBlock');
+    expect(src).not.toContain('YandexTravelBlock');
+  });
+
   it('контакты оператора — из partners.contacts, а не из выдуманного поля тура', () => {
     expect(src).toContain('operator_contacts');
     expect(src).not.toContain('contact_phones');
