@@ -6,6 +6,17 @@ name: Deploy to Timeweb Cloud
 #
 # Quality gate: runs only after CI workflow succeeds on main.
 # Manual dispatch (workflow_dispatch) bypasses the CI gate.
+#
+# 04.08 — почему здесь появилось ожидание вместо одного curl.
+# Прежний шаг спрашивал статус приложения ЧЕРЕЗ СЕКУНДУ после старта сборки,
+# печатал «Status: deploy» (это «идёт сборка») и завершался зелёным. Никто
+# никогда не проверял, ЧЕМ кончилась сборка. Итог: пять смерженных PR подряд,
+# зелёные галочки везде, а прод сутки отдавал старый контейнер — владелец
+# третий день видел на телефоне баги, которые в main давно исправлены.
+# «Задеплоено» подтверждалось словом, а не фактом.
+#
+# Теперь ждём терминального статуса и сверяем commit_sha приложения с тем, что
+# в main. Не совпало или сборка упала — workflow краснеет.
 
 on:
   workflow_run:
@@ -17,36 +28,74 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Check deploy status
+      - name: Verify deploy reached production
         env:
           TIMEWEB_TOKEN: ${{ secrets.TIMEWEB_TOKEN }}
+          # SHA коммита, ради которого этот прогон запущен. Для workflow_run это
+          # голова main на момент запуска CI, а не head самого workflow-файла.
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           # 29.07: 175477 отдавал 404. Настоящий id получен из GET /api/v1/apps
           # (name=Tourhab). Проверка статуса деплоя была мертва из-за константы.
           APP_ID="198048"
-          TOKEN="$TIMEWEB_TOKEN"
 
-          if [ -z "$TOKEN" ]; then
-            echo "TIMEWEB_TOKEN not set — skip status check"
-            echo "Deploy runs automatically via Timeweb webhook"
-            exit 0
+          if [ -z "$TIMEWEB_TOKEN" ]; then
+            echo "TIMEWEB_TOKEN не задан — подтвердить деплой нечем."
+            echo "Это не «всё хорошо», а «проверить невозможно»: добавь токен в секреты репозитория."
+            exit 1
           fi
 
-          echo "Checking Timeweb app $APP_ID status..."
+          echo "Приложение $APP_ID, ждём коммит ${EXPECTED_SHA:0:7}"
 
-          HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            "https://api.timeweb.cloud/api/v1/apps/$APP_ID")
+          # ~20 минут: сборка Docker с миграциями обычно укладывается в 10.
+          ATTEMPTS=40
+          SLEEP=30
+          STATUS="unknown"
+          COMMIT="unknown"
 
-          if [ "$HTTP" = "200" ]; then
-            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['status'])" 2>/dev/null || echo "unknown")
-            COMMIT=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(d['app']['commit_sha'][:7])" 2>/dev/null || echo "unknown")
-            ENVS=$(python3 -c "import json; d=json.load(open('/tmp/app_status.json')); print(len(d['app'].get('envs',{})))" 2>/dev/null || echo "?")
-            echo "Status: $STATUS | Commit: $COMMIT | Env vars: $ENVS"
-          else
-            echo "Could not check status (HTTP $HTTP) — deploy still runs via webhook"
+          for i in $(seq 1 $ATTEMPTS); do
+            HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
+              -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+              "https://api.timeweb.cloud/api/v1/apps/$APP_ID") || HTTP="000"
+
+            if [ "$HTTP" != "200" ]; then
+              echo "[$i/$ATTEMPTS] API недоступен (HTTP $HTTP) — повтор"
+              sleep $SLEEP
+              continue
+            fi
+
+            STATUS=$(python3 -c "import json;print(json.load(open('/tmp/app_status.json'))['app']['status'])" 2>/dev/null || echo "unknown")
+            COMMIT=$(python3 -c "import json;print(json.load(open('/tmp/app_status.json'))['app'].get('commit_sha') or '')" 2>/dev/null || echo "")
+
+            echo "[$i/$ATTEMPTS] status=$STATUS commit=${COMMIT:0:7}"
+
+            case "$STATUS" in
+              deploy|build|building|deploying|pending|created)
+                sleep $SLEEP
+                continue
+                ;;
+            esac
+            break
+          done
+
+          echo "Итог: status=$STATUS commit=${COMMIT:0:7} ожидался ${EXPECTED_SHA:0:7}"
+          echo "Сайт: https://vedarai.ru"
+
+          case "$STATUS" in
+            started|running|deployed|active|ok)
+              ;;
+            *)
+              echo "::error::Сборка не дошла до рабочего состояния: status=$STATUS. Прод остаётся на прежнем контейнере."
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$COMMIT" ] && [ "${COMMIT:0:7}" != "${EXPECTED_SHA:0:7}" ]; then
+            echo "::error::Прод работает на ${COMMIT:0:7}, а main — ${EXPECTED_SHA:0:7}. Деплой не доехал."
+            exit 1
           fi
 
-          echo "Site: https://vedarai.ru"
+          echo "Деплой подтверждён фактом: приложение работает на ${COMMIT:0:7}."
