@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, probeDeepSeekKeyStatus, explainDeepSeekFailure, explainQwenFailure } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -274,7 +274,14 @@ export async function GET(request: NextRequest) {
     // Причина — в текст алерта, а не только в JSON: qwen_key_diag собирался и
     // раньше, но в Telegram уходил перечень гипотез вместо готового ответа.
     if (process.env.DASHSCOPE_API_KEY && !qwenOk) {
-      const why = qwenKeyDiag ? `: ${explainQwenFailure(qwenKeyDiag)}` : ' (ключ задан, диагностика недоступна)';
+      // На 401/403 однобазовая проба даёт лишь подсказку «проверь регион».
+      // У DashScope два независимых шлюза, и ключ из одного отвечает такой же
+      // 401 в другом — стучимся в оба и кладём в алерт ответ, а не гипотезу.
+      let why = qwenKeyDiag ? `: ${explainQwenFailure(qwenKeyDiag)}` : ' (ключ задан, диагностика недоступна)';
+      if (qwenKeyDiag?.http_status === 401 || qwenKeyDiag?.http_status === 403) {
+        const regions = await probeQwenRegions().catch(() => null);
+        if (regions) why = `: ${regions.verdict}`;
+      }
       issues.push({ level: 'warn', text: `Qwen недоступен${why}` });
     }
     // DeepSeek — первичный решатель эволюции. Молчим, если ключ просто не

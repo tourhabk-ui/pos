@@ -1472,6 +1472,84 @@ export async function probeQwenKeyStatus(): Promise<{
   }
 }
 
+/** Два независимых шлюза DashScope. Ключ одного даёт 401 в другом. */
+export const QWEN_BASE_INTL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+export const QWEN_BASE_CN   = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+
+/**
+ * Где ключ Qwen вообще принимают.
+ *
+ * Повод: DASHSCOPE_API_KEY отдавал `401 Incorrect API key`, и дальше начиналось
+ * гадание. У DashScope ДВА независимых региона — международный (ключи из консоли
+ * alibabacloud.com) и китайский (aliyun.com / Bailian). Ключ, выпущенный в
+ * одном, в другом отвечает ровно этой 401: он не «неверный», он «не отсюда».
+ * Прежняя проба стучалась только в настроенный шлюз и различить эти случаи не
+ * могла — оставалась подсказка «проверь регион консоли».
+ *
+ * Здесь пробуем ОБА и возвращаем ответ вместо подсказки: ключ живой и вот где,
+ * либо мёртв в обоих — тогда перевыпуск.
+ */
+export async function probeQwenRegions(): Promise<{
+  key_set: boolean;
+  model: string;
+  configured_base: string;
+  results: Array<{ region: 'intl' | 'cn'; base: string; http_status: number | null; detail: string }>;
+  working_base: string | null;
+  verdict: string;
+}> {
+  const { apiKey, base: configured, model } = getQwenConfig();
+  if (!apiKey) {
+    return {
+      key_set: false, model, configured_base: configured, results: [],
+      working_base: null, verdict: 'DASHSCOPE_API_KEY не задан на Timeweb',
+    };
+  }
+
+  const targets: Array<{ region: 'intl' | 'cn'; base: string }> = [
+    { region: 'intl', base: QWEN_BASE_INTL },
+    { region: 'cn',   base: QWEN_BASE_CN },
+  ];
+
+  const results = await Promise.all(targets.map(async (t) => {
+    try {
+      const res = await fetch(`${t.base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      return { ...t, http_status: res.status, detail: (await res.text()).slice(0, 200) };
+    } catch (e) {
+      return { ...t, http_status: null, detail: `сеть/timeout: ${e instanceof Error ? e.message : 'error'}` };
+    }
+  }));
+
+  const ok = results.find(r => r.http_status !== null && r.http_status < 400);
+  if (ok) {
+    const verdict = ok.base === configured
+      ? `ключ рабочий на ${ok.region} — шлюз настроен верно`
+      : `ключ рабочий на ${ok.region}, а настроен другой шлюз — поставь QWEN_BASE_URL=${ok.base}`;
+    return { key_set: true, model, configured_base: configured, results, working_base: ok.base, verdict };
+  }
+
+  // Ни один не принял. Различаем «ключ отвергнут» и «до шлюза не достучались»:
+  // первое лечится перевыпуском, второе — сетью, и путать их дорого.
+  const rejected = results.filter(r => r.http_status === 401 || r.http_status === 403);
+  if (rejected.length === results.length) {
+    return {
+      key_set: true, model, configured_base: configured, results, working_base: null,
+      verdict: 'ключ отвергнут в ОБОИХ регионах — перевыпустить в консоли Model Studio',
+    };
+  }
+  const unreachable = results.filter(r => r.http_status === null).map(r => r.region);
+  return {
+    key_set: true, model, configured_base: configured, results, working_base: null,
+    verdict: unreachable.length
+      ? `шлюзы недоступны (${unreachable.join(', ')}) — сеть или блокировка, ключ ни при чём`
+      : `ни один шлюз не принял: ${results.map(r => `${r.region}:${r.http_status}`).join(', ')}`,
+  };
+}
+
 /**
  * Диагностика DeepSeek — та же форма, что у probeQwenKeyStatus /
  * probeOpenRouterKeyStatus.
