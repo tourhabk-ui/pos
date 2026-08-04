@@ -23,7 +23,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
  * (аудит 03.08 — `boat_trip` был подписан пятью способами, два из них «Сплав»).
  */
 import {
-  activityLabel, locationLabel, priceUnitLabel,
+  activityLabel, locationLabel, priceUnitLabel, difficultyLabel,
   DIFFICULTY_LABELS as DIFFICULTY_MAP,
 } from '@/lib/tours/labels';
 
@@ -342,11 +342,19 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
 
   // Инструментная полоса героя: только подтверждённые данными факты
+  // Полоса фактов — ЕДИНСТВЕННОЕ место для сезона, длительности, группы и
+  // сложности. Раньше сезон дублировался пилюлей в углу героя, а размер группы —
+  // строкой под заголовком: один и тот же факт дважды на одном экране.
+  // Значение сложности берём КОРОТКОЕ: под меткой «Сложность» полная форма
+  // давала заикание «СЛОЖНОСТЬ · Средняя сложность».
   const instrument: { k: string; v: string }[] = [];
   if (seasonLabel) instrument.push({ k: 'Сезон', v: seasonLabel });
   if (durationLabel) instrument.push({ k: 'Длится', v: durationLabel });
   instrument.push({ k: 'Группа', v: `до ${tour.max_participants}` });
-  if (diffBadge) instrument.push({ k: 'Сложность', v: diffBadge.label });
+  if (tour.difficulty) {
+    const short = difficultyLabel(tour.difficulty, true);
+    if (short) instrument.push({ k: 'Сложность', v: short });
+  }
 
   return (
     <div className="pb-24" style={{ background: 'var(--bg-primary)' }}>
@@ -363,7 +371,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
         {/* Статус дня — живой сигнал безопасности поверх фото (стекло разрешено) */}
         {dayStatus && (
-          <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-2 z-[2]">
+          <div className="absolute top-4 left-4 right-4 flex items-start gap-2 z-[2]">
             <Link
               href="/safety"
               className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-white backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
@@ -378,12 +386,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   читалась бы как оценка безопасности конкретной поездки. */}
               Обстановка в крае
             </Link>
-            {seasonLabel && (
-              <span className="rounded-2xl px-3 py-2 text-center backdrop-blur-md bg-black/40 border border-white/15">
-                <span className="block text-[9px] uppercase tracking-[0.18em] text-white/60" style={{ fontFamily: FM }}>Сезон</span>
-                <span className="block text-sm font-semibold text-white">{seasonLabel}</span>
-              </span>
-            )}
+            {/* Пилюли сезона здесь НЕТ: сезон уже стоит в полосе фактов внизу
+                героя. Два одинаковых «Июн — Сен» на одном экране в 300 px друг
+                от друга — не акцент, а небрежность. */}
           </div>
         )}
 
@@ -419,7 +424,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 <span className="flex items-center gap-1.5"><Star className="w-4 h-4 text-[var(--warning)] fill-[var(--warning)]" />{rating.toFixed(1)}{tour.review_count ? <span className="opacity-70">· {tour.review_count}</span> : null}</span>
               )}
               <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 opacity-80" />{tour.location_name ?? location}</span>
-              <span className="flex items-center gap-1.5"><Users className="w-4 h-4 opacity-80" />до {tour.max_participants} чел.</span>
+              {/* Размер группы не повторяем: он стоит в полосе фактов ниже
+                  («ГРУППА · до 12»). Здесь остаётся только то, чего в полосе
+                  нет — рейтинг и место. */}
             </div>
 
             {instrument.length > 0 && (
