@@ -29,7 +29,10 @@ describe('решатель: только DeepSeek и Opus', () => {
   });
 
   it('DeepSeek в решателе есть', () => {
-    expect(decider).toMatch(/api\.deepseek\.com/);
+    // Именно toContain, а не регулярка: шаблон с хостом без якорей CodeQL
+    // справедливо считает опасной формой (годится для обхода проверки URL).
+    // Здесь нужна простая проверка подстроки — регулярка тут ничего не даёт.
+    expect(decider).toContain('api.deepseek.com');
   });
 
   it('Anthropic (Opus) в решателе есть', () => {
