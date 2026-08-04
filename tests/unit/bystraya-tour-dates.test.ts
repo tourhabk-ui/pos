@@ -130,3 +130,47 @@ describe('календарь туров не наполняется днями �
       .toEqual(['060_rafting_tour_kamchatka.sql']);
   });
 });
+
+/**
+ * Пока идёт запрос слотов, поле даты не должно притворяться ручным вводом.
+ *
+ * Повод (04.08, замечание владельца о календаре). `TourDateField` решает по
+ * ответу /api/tours/[id]/slots, что показать: месячный календарь свободных дат
+ * или ручной <input type="date">. До ответа `showCalendar` был false, и
+ * рендерился именно ручной ввод — то есть турист сначала видел голое системное
+ * поле в премиальной карточке, а календарь появлялся рывком поверх него.
+ * Хуже: за эту секунду в поле можно было начать вводить дату.
+ */
+describe('поле даты честно ждёт ответа о слотах', () => {
+  const field = readFileSync(
+    join(process.cwd(), 'components/marketplace/TourDateField.tsx'),
+    'utf-8',
+  );
+
+  it('во время загрузки показывает скелетон, а не ручной ввод', () => {
+    expect(field).toMatch(/slotsMode === 'loading'/);
+    expect(field).toMatch(/ds-skeleton/);
+  });
+
+  it('ветка загрузки стоит ДО ручного ввода — иначе она недостижима', () => {
+    // Сравниваем по КОДУ без комментариев: в шапке файла ручной ввод упомянут
+    // в описании («слотов нет → ручной <input type="date">»), и по сырому
+    // тексту порядок получался обратный.
+    const code = field.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    const loadingAt = code.indexOf("slotsMode === 'loading'");
+    const inputAt = code.indexOf('type="date"');
+    expect(loadingAt).toBeGreaterThan(0);
+    expect(inputAt).toBeGreaterThan(0);
+    expect(loadingAt).toBeLessThan(inputAt);
+  });
+
+  it('календарь по-прежнему появляется при наличии слотов', () => {
+    expect(field).toMatch(/<AvailabilityCalendar/);
+    expect(field).toMatch(/slotsMode === 'calendar'/);
+  });
+
+  it('ручной ввод остаётся запасным путём: слоты у операторов опциональны', () => {
+    expect(field).toMatch(/type="date"/);
+    expect(field).toMatch(/Ввести дату вручную/);
+  });
+});

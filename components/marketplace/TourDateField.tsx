@@ -53,6 +53,14 @@ export default function TourDateField({ tourId, tourTitle, value, onChange, inpu
 
   const showCalendar = slotsMode === 'calendar' && dateSource !== 'manual';
 
+  // Пока не знаем, есть ли слоты, — скелетон, а НЕ ручной ввод.
+  // Раньше на время запроса рисовался голый <input type="date">, и он же
+  // оставался, если календарь потом появлялся: турист успевал увидеть (а то и
+  // заполнить) не тот контрол, а карточка на секунду выглядела недоделанной.
+  if (slotsMode === 'loading') {
+    return <div className="ds-skeleton w-full" style={{ height: 44, borderRadius: 'var(--radius-md, 10px)' }} />;
+  }
+
   if (showCalendar) {
     return (
       <div className="space-y-2">
