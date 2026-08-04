@@ -38,10 +38,17 @@ describe('Kimi проведён в оба пути', () => {
     expect(providers).toMatch(/callDeepSeek\(messages\),\s*\n\s*callGeminiDirect\(messages\),\s*\n\s*callKimi\(messages\)/);
   });
 
-  it('включён в вотерфолл решателя со своей атрибуцией', () => {
-    // Ступень Kimi фиксирует причину отказа и возвращает модель с префиксом.
-    expect(providers).toMatch(/why\.push\('kimi: ключа нет'\)/);
-    expect(providers).toMatch(/return \{ text, model: `kimi:\$\{model\}` \}/);
+  it('в решателе НЕ участвует — решение владельца 04.08', () => {
+    // «Решатель дипсик либо опус». Хвост из моделей послабее опаснее их
+    // отсутствия: когда сильные молчат, ответ всё равно приходил — но от слабой
+    // модели, и отличить его было нечем. Молчание честнее подмены качества.
+    // Для гонки судьи (callAIFast) и прочих задач Kimi остаётся — см. выше.
+    const decider = providers.match(
+      /export async function callAIDecisionDetailed[\s\S]*?\n\}/,
+    )?.[0] ?? '';
+    expect(decider.length).toBeGreaterThan(500);
+    expect(decider).not.toMatch(/getMoonshotKey\(/);
+    expect(decider).not.toMatch(/MOONSHOT_BASE/);
   });
 
   it('id модели не хардкодится (§8): env → /v1/models → алиас', () => {
