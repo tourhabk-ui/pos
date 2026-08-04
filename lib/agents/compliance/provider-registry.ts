@@ -39,6 +39,17 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // (cover-image.ts). Как и Anthropic, хост давно жил в providers.ts, но
   // доменный фильтр сканера его не знал — егресс шёл мимо D2. Внесён явно.
   { host: 'dashscope-intl.aliyuncs.com', jurisdiction: 'China', domestic: false, provider: 'Alibaba DashScope (Qwen текст + Qwen-Image обложки)' },
+  // Второй, НЕЗАВИСИМЫЙ шлюз DashScope — материковый Китай (консоль aliyun.com /
+  // Bailian). Внесён 04.08 вместе с probeQwenRegions: ключ, выпущенный в одном
+  // регионе, отвечает в другом «401 Incorrect API key», и различить «ключ мёртв»
+  // от «ключ не отсюда» можно, только постучавшись в оба.
+  //
+  // Сейчас сюда уходит лишь диагностический «ping» без ПД. Но реестр
+  // перечисляет хосты, КУДА трафик в принципе может уйти, а не куда он уходит
+  // сегодня: если завтра QWEN_BASE_URL переставят на этот шлюз, сюда поедут
+  // те же промпты. Юрисдикция при этом другая, чем у intl-шлюза (Сингапур), —
+  // для 152-ФЗ это отдельная трансграничная передача, а не та же самая.
+  { host: 'dashscope.aliyuncs.com', jurisdiction: 'China', domestic: false, provider: 'Alibaba DashScope (материковый шлюз; резерв/диагностика региона ключа)' },
   // Moonshot (Kimi) — третий китайский решатель/судья, достижим из РФ. Внесён
   // 01.08 вместе с проводкой callKimi; трансграничная передача (Китай), как
   // DeepSeek/Qwen, поэтому domestic:false — ПД в промпт по-прежнему только
