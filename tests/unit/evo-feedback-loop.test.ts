@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { claimClass, claimSignature, dropRejected, intelSignature } from '@/lib/agents/evo/claim-signature';
 import { checkRouteAuthGate, checkLegacyUsage, checkConsoleLog } from '@/lib/agents/evo/static-checks';
-import { computePrecision, decidePublish, applyPublishDecision, isModelGuess, issueVerdict, MIN_SAMPLE } from '@/lib/agents/evo/precision';
+import { computePrecision, decidePublish, applyPublishDecision, isModelGuess, issueVerdict, MIN_SAMPLE, GUESS_PROBE } from '@/lib/agents/evo/precision';
 
 describe('claim-signature: класс претензии, а не формулировка', () => {
   it('семь перефразировок «нет auth» дают ОДИН класс', () => {
@@ -140,20 +140,52 @@ describe('precision: цена ошибки', () => {
     expect(d.precision).toBeCloseTo(0.8);
   });
 
-  it('при запрете догадок идут ТОЛЬКО детерминированные — intel гаснет вместе с bug', () => {
-    // Контракт изменён 31.07: intel сочиняет callAIDecision по RSS, и «заземлена
-    // в тексте дайджеста» не значит «заземлена в нашем коде». Пока intel была
-    // вне тормоза, при просевшей точности она оставалась единственной
-    // публикуемой категорией — трекер заполнялся только разведкой.
+  it('при запрете догадок детерминированные идут все, догадок — один пробник', () => {
+    // Контракт 31.07: intel сочиняет callAIDecision по RSS, и «заземлена в
+    // тексте дайджеста» не значит «заземлена в нашем коде», — она под тормозом
+    // наравне с bug. Контракт 04.08: тормоз пропускает один пробник, иначе
+    // догадки не публикуются вовсе, вердикта человека по ним не возникает и
+    // точность по ним не восстанавливается никогда.
     const d = decidePublish({ accepted: 0, rejected: MIN_SAMPLE + 2 });
     const findings = [
-      { category: 'bug' },       // догадка модели — гаснет
-      { category: 'security' },  // static-checks — идёт
-      { category: 'ux' },        // мок-детектор — идёт
-      { category: 'intel' },     // разведка = тоже догадка модели — гаснет
+      { category: 'bug', severity: 'medium' },      // догадка — ждёт
+      { category: 'security', severity: 'low' },    // static-checks — идёт
+      { category: 'ux', severity: 'low' },          // мок-детектор — идёт
+      { category: 'intel', severity: 'medium' },    // разведка = догадка — ждёт
+      { category: 'bug', severity: 'critical' },    // самая тяжёлая — пробник
     ];
-    const out = applyPublishDecision(findings, d).map((f) => f.category);
-    expect(out).toEqual(['security', 'ux']);
+    const out = applyPublishDecision(findings, d);
+    expect(out.map((f) => f.category)).toEqual(['security', 'ux', 'bug']);
+    // Пробник — самая тяжёлая догадка, а не первая попавшаяся.
+    expect(out.at(-1)?.severity).toBe('critical');
+  });
+
+  it('пробник ровно один — плохая модель не зальёт трекер', () => {
+    const d = decidePublish({ accepted: 0, rejected: MIN_SAMPLE + 2 });
+    const findings = Array.from({ length: 10 }, () => ({ category: 'bug', severity: 'high' }));
+    expect(applyPublishDecision(findings, d)).toHaveLength(GUESS_PROBE);
+    expect(GUESS_PROBE).toBe(1);
+  });
+
+  it('пробник существует только под запретом — в норме идёт всё', () => {
+    const healthy = decidePublish({ accepted: 8, rejected: 2 });
+    expect(healthy.probeSlots).toBe(0);
+    const findings = [{ category: 'bug', severity: 'low' }, { category: 'ux', severity: 'low' }];
+    expect(applyPublishDecision(findings, healthy)).toHaveLength(2);
+  });
+
+  it('точность считается только по дошедшему до человека', () => {
+    // Страж достоверности переводит непрошедшие находки в 'rejected'. Пока они
+    // попадали в знаменатель, страж наказывал сам себя: сработал — точность
+    // просела — заглохли и настоящие находки. Обе метрики (общая и по моделям)
+    // обязаны смотреть только на опубликованное.
+    const src = readFileSync(join(process.cwd(), 'app/api/cron/evo-report/route.ts'), 'utf-8');
+    const statements = src.split(';').filter((s) => /FROM evo_growth_issues/.test(s));
+    const metrics = statements.filter((s) => /FILTER \(WHERE status IN \('accepted'/.test(s));
+    expect(metrics.length, 'запросы точности не найдены — проверка стала пустой').toBe(2);
+    for (const s of metrics) {
+      expect(s).toMatch(/github_issue_url IS NOT NULL/);
+    }
   });
 
   it('isModelGuess: intel — догадка модели, а не детерминированная находка', () => {

@@ -43,6 +43,8 @@ async function fetchReportable() {
     guessesAllowed: data.guesses_allowed,
     precisionNote: data.precision_note ?? '',
     rejectedByGuard: data.rejected_by_guard ?? 0,
+    guessesHeld: data.guesses_held ?? 0,
+    probeSlots: data.probe_slots ?? 0,
   };
 }
 
@@ -114,18 +116,20 @@ async function main() {
     guesses_allowed: report.guessesAllowed,
     precision_note: report.precisionNote,
     rejected_by_guard: report.rejectedByGuard,
+    guesses_held: report.guessesHeld,
+    probe_slots: report.probeSlots,
   });
-  if (findings.length === 0) {
-    if (report.guessesAllowed === false) {
-      // Догадки модели (код-находки) заглушены. Само по себе это защита, но
-      // молча она превращается в «эволюция ничего не находит».
-      log('EVO_REPORT', 'догадки модели не публикуются — тормоз точности', {
-        precision: report.precision,
-        precision_note: report.precisionNote,
-      });
-    }
-    return;
+  if (report.guessesAllowed === false) {
+    // Догадки модели придержаны тормозом точности. Само по себе это защита, но
+    // молча она превращается в «эволюция ничего не находит».
+    log('EVO_REPORT', 'догадки модели придержаны — тормоз точности', {
+      precision: report.precision,
+      precision_note: report.precisionNote,
+      held: report.guessesHeld,
+      probe: report.probeSlots,
+    });
   }
+  if (findings.length === 0) return;
 
   ensureLabel();
 

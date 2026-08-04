@@ -113,12 +113,21 @@ export async function GET(req: NextRequest) {
   // иначе отвергнутое успеет попасть в выборку этого же прогона.
   const synced = await syncClosedIssues().catch(() => ({ accepted: 0, rejected: 0 }));
 
-  // Цена ошибки: если точность просела, догадки модели не публикуем.
+  // Цена ошибки: если точность просела, догадки модели не публикуем (кроме
+  // пробника — см. decidePublish).
+  //
+  // Считаем ТОЛЬКО опубликованное (github_issue_url IS NOT NULL). Метрика
+  // меряет, сколько мусора дошло до человека; находки, убитые стражем
+  // достоверности, до него не дошли и ничего не стоили, а в знаменатель падали
+  // наравне с прочитанными и отвергнутыми. Получалось, что страж наказывал сам
+  // себя: сработал — точность просела — заглохли и настоящие находки. Его
+  // работа видна отдельно, в rejected_by_guard.
   const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
     SELECT
       COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text    AS accepted,
       COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text  AS rejected
     FROM evo_growth_issues
+    WHERE github_issue_url IS NOT NULL
   `);
   const decision = decidePublish({
     accepted: Number(pr[0]?.accepted ?? 0),
@@ -134,6 +143,7 @@ export async function GET(req: NextRequest) {
            COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text AS rejected
       FROM evo_growth_issues
      WHERE model IS NOT NULL
+       AND github_issue_url IS NOT NULL
      GROUP BY model
      ORDER BY COUNT(*) DESC
      LIMIT 10
@@ -200,8 +210,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Догадки модели гасим при просевшей точности; детерминированные находки
-  // (static-checks, мок-детектор, разведка) идут всегда — они не гадают.
+  // (static-checks, мок-детектор) идут всегда — они не гадают. Одна догадка
+  // проходит и под запретом (пробник): вердикт человека можно получить только
+  // по опубликованному, иначе точность по догадкам не восстановится никогда.
   const publishable = applyPublishDecision(verified, decision);
+  const guessesHeld = verified.length - publishable.length;
 
   // Плавающая бронь разведки: пока человек не разобрал висящие intel-задачи,
   // новые слоты ей не бронируются (см. outwardReserve). «Висит» = вынесена в
@@ -235,6 +248,10 @@ export async function GET(req: NextRequest) {
     synced_rejected: synced.rejected,
     precision: decision.precision,
     guesses_allowed: decision.allowGuesses,
+    // Сколько догадок придержано тормозом и сколько пропущено пробником —
+    // иначе «0 находок» и «догадки заглушены» снаружи неразличимы.
+    guesses_held: guessesHeld,
+    probe_slots: decision.allowGuesses ? 0 : decision.probeSlots,
     precision_note: decision.reason,
     // Кто именно врёт: точность в разрезе моделей-авторов находок.
     precision_by_model: precisionByModel,
