@@ -1357,8 +1357,18 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
             content?: Array<{ text?: string }>;
             usage?: { input_tokens?: number; output_tokens?: number };
           };
-          const text = data?.content?.[0]?.text;
-          if (text?.trim()) {
+          // Берём ПЕРВЫЙ ТЕКСТОВЫЙ блок, а не content[0]: у моделей с
+          // расширенным размышлением (Opus и новее) первым в массиве идёт блок
+          // thinking, у которого поля `text` нет вовсе. Прежняя строка
+          // `content[0].text` на таком ответе давала undefined — решатель
+          // рапортовал «anthropic: пустой ответ» при живом ключе и успешном
+          // HTTP 200. Именно это и видел владелец в отчёте Evo.
+          const text = (data?.content ?? [])
+            .map(b => (typeof b?.text === 'string' ? b.text : ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+          if (text) {
             logLLMUsage(`anthropic:${antModel}`, {
               prompt_tokens: data.usage?.input_tokens,
               completion_tokens: data.usage?.output_tokens,
@@ -1414,51 +1424,17 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     }
   }
 
-  // 2) Qwen (модель определяется сама) — DashScope, доступен из РФ
-  const { apiKey: qwenKey, base } = getQwenConfig();
-  if (!qwenKey) why.push('qwen: ключа нет');
-  if (qwenKey) {
-    const model = await resolveDecisionModel('qwen');
-    try {
-      const res = await fetchWithRetry(`${base}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${qwenKey}` },
-        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
-      }, { timeoutMs: 30_000, label: `evo-decision:${model}` });
-      if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
-        const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(`qwen:${model}`, data.usage); return { text, model: `qwen:${model}` }; }
-        why.push(`qwen(${model}): пустой ответ`);
-      } else {
-        why.push(`qwen(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
-      }
-    } catch (e) { why.push(`qwen: ${(e as Error).message.slice(0, 100)}`); }
-  }
-
-  // 3) Kimi (Moonshot) — третий китайский решатель, достижим из РФ. Последний
-  //    рубеж перед немотой: когда DeepSeek+Qwen молчат (тот самый корень), Kimi
-  //    держит решатель живым. Нет MOONSHOT_API_KEY → callKimi вернёт null.
-  const kimiKey = getMoonshotKey();
-  if (!kimiKey) why.push('kimi: ключа нет');
-  if (kimiKey) {
-    const model = await resolveKimiModel();
-    try {
-      const res = await fetchWithRetry(`${MOONSHOT_BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${kimiKey}` },
-        body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: payload }),
-      }, { timeoutMs: 30_000, label: `evo-decision:kimi:${model}` });
-      if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
-        const text = data?.choices?.[0]?.message?.content;
-        if (text?.trim()) { logLLMUsage(`kimi:${model}`, data.usage); return { text, model: `kimi:${model}` }; }
-        why.push(`kimi(${model}): пустой ответ`);
-      } else {
-        why.push(`kimi(${model}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 140)}`);
-      }
-    } catch (e) { why.push(`kimi: ${(e as Error).message.slice(0, 100)}`); }
-  }
+  // Qwen и Kimi в решателе БОЛЬШЕ НЕ УЧАСТВУЮТ (решение владельца 04.08:
+  // «решатель дипсик либо опус»).
+  //
+  // Почему это правильно, а не просто короче. Решатель отвечает за находки
+  // эволюции, которые потом идут в GitHub Issues и в работу. Слабое звено в
+  // хвосте waterfall опаснее его отсутствия: когда сильные модели молчат, ответ
+  // всё равно приходил — но от модели послабее, и отличить его было нечем,
+  // кроме поля model. Молчание честнее тихой подмены качества.
+  //
+  // Qwen и Kimi остаются доступны для ДРУГИХ задач (callAIWaterfall/callAIFast,
+  // зрение) — здесь убран только путь принятия решений.
 
   return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована' };
 }
