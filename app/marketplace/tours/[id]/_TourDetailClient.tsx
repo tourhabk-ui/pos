@@ -12,8 +12,6 @@ import {
 } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
-import RouteAffiliateBlock from '@/components/routes/RouteAffiliateBlock';
-import YandexTravelBlock from '@/components/routes/YandexTravelBlock';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 
@@ -375,7 +373,10 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 className="w-2 h-2 rounded-full shrink-0"
                 style={{ background: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}
               />
-              {dayStatus.source}
+              {/* Подпись именно «в крае»: индикатор отражает обстановку по
+                  Камчатке целиком, а не по этому туру. Без такой подписи точка
+                  читалась бы как оценка безопасности конкретной поездки. */}
+              Обстановка в крае
             </Link>
             {seasonLabel && (
               <span className="rounded-2xl px-3 py-2 text-center backdrop-blur-md bg-black/40 border border-white/15">
@@ -386,13 +387,13 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           </div>
         )}
 
-        {dayStatus?.title && (
-          <div className="absolute top-[76px] left-4 right-4 z-[2] pointer-events-none">
-            <p className="inline-block rounded-2xl px-3 py-2 text-[13px] leading-snug text-white backdrop-blur-md bg-black/40 border border-white/15">
-              {dayStatus.title}
-            </p>
-          </div>
-        )}
+        {/* Заголовок конкретного события здесь НЕ печатаем. /api/public/safety-status
+            отдаёт максимальный по краю алерт без привязки к географии тура: на
+            карточке сплава по Быстрой всплывало «риск схода оползней с вулкана
+            Мутновского» — до этой реки оттуда далеко. Чужое предупреждение на
+            карточке тура не просто бесполезно, оно размывает доверие к
+            настоящему: релевантные предупреждения даёт SafetyWarnings по
+            tourId — ниже по странице, и они действительно про этот тур. */}
 
         <div className="absolute inset-x-0 bottom-0 pointer-events-none">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-9">
@@ -744,11 +745,11 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           </aside>
         </div>
 
-        {/* ═══ Партнёрские сервисы поездки (§9) ═══ */}
-        <div className="pt-4">
-          <RouteAffiliateBlock activityType={tour.activity_type} routeId={`tour-${tour.id}`} />
-          <YandexTravelBlock routeId={`tour-${tour.id}`} source="tour_detail" />
-        </div>
+        {/* Партнёрских блоков здесь НЕТ (решение владельца 04.08). Агрегаторы
+            билетов и отелей выводили под карточкой рекламный дисклеймер с ИНН
+            посторонних юрлиц — на странице тура НАШЕГО проверенного оператора
+            это выглядит как подмена продавца и бьёт по доверию. Карточка тура
+            продаёт тур оператора, а не чужие сервисы. */}
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (

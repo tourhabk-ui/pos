@@ -31,8 +31,11 @@ describe('подробная карточка тура — колонки + Ве
     expect(src).toMatch(/lg:sticky/);
   });
   it('сохранены рабочие интеграции', () => {
-    for (const c of ['BookingFormClient', 'MessageOperatorButton', 'SafetyWarnings', 'RouteAffiliateBlock', 'YandexTravelBlock']) {
-      expect(src.includes(`<${c}`)).toBe(true);
+    // Партнёрских агрегаторов в списке больше нет: решение владельца 04.08 —
+    // на карточке тура их не должно быть вовсе (реклама чужих юрлиц под
+    // карточкой нашего оператора читается как подмена продавца).
+    for (const c of ['BookingFormClient', 'MessageOperatorButton', 'SafetyWarnings']) {
+      expect(src.includes(`<${c}`), `${c} пропал с карточки`).toBe(true);
     }
   });
   it('якорь #booking сохранён (на него ведёт «Забронировать» из каталога)', () => {

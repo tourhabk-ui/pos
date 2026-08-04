@@ -89,10 +89,22 @@ describe('партнёрские ссылки не теряют атрибуци
 });
 
 describe('карточка тура', () => {
-  it('показывает только проверенные партнёрские блоки', () => {
-    expect(TOUR).toContain('RouteAffiliateBlock');
-    expect(TOUR).toContain('YandexTravelBlock');
-    expect(TOUR).not.toContain('FlightsBlock');
-    expect(TOUR).not.toContain('TransfersBlock');
+  /**
+   * Решение владельца 04.08 отменило прежнее: партнёрских блоков на карточке
+   * тура нет ВООБЩЕ. Даже проверенные агрегаторы печатают под карточкой
+   * рекламный дисклеймер с ИНН посторонних юрлиц («Go Travel Un Limited»,
+   * «ООО Спутник», «Яндекс Вертикали») — на странице тура НАШЕГО проверенного
+   * оператора это читается как подмена продавца.
+   *
+   * Проверка честности самих блоков осталась выше: они живут на других
+   * поверхностях, и требования к ним не изменились.
+   */
+  it('не содержит партнёрских блоков вовсе', () => {
+    for (const block of [
+      'RouteAffiliateBlock', 'YandexTravelBlock',
+      'FlightsBlock', 'HotelsBlock', 'InsuranceBlock', 'TransfersBlock',
+    ]) {
+      expect(TOUR, `${block} вернулся на карточку тура`).not.toContain(block);
+    }
   });
 });

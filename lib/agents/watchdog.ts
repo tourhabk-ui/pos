@@ -26,7 +26,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'migration_unapplied';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'migration_unapplied' | 'migration_failed';
   count: number;
   details: string;
   /**
@@ -709,10 +709,52 @@ async function checkUnappliedMigrations(): Promise<WatchdogAlert | null> {
   }
 }
 
+/**
+ * Миграция ПЫТАЛАСЬ примениться и УПАЛА.
+ *
+ * Повод (август 2026): миграция 806 упала на деплое и молчала. Формально её
+ * ловил `checkUnappliedMigrations` — упавшая ведь не попадает в `_migrations`.
+ * Но «не применены N миграций» читается как задержка деплоя и пролистывается, а
+ * причина падения лежала в `_migration_failures` непрочитанной. Итог: тур
+ * пропал с витрины, потом отдавал 404, потом остался без галереи — три дня
+ * ловли симптомов вместо одной строки «806: column ... does not exist».
+ *
+ * `start.js` намеренно не роняет деплой при сбое миграции — сервер поднимется в
+ * любом случае. Значит единственный, кто может об этом сказать, — сторож.
+ */
+async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{ name: string; error: string; attempts: number }>(
+      `SELECT name, error, attempts
+         FROM _migration_failures
+        ORDER BY last_failed_at DESC
+        LIMIT 5`,
+    );
+    if (rows.length === 0) return null;
+
+    const details = rows
+      .map(r => `${r.name} (попыток: ${r.attempts}): ${String(r.error ?? '').slice(0, 200)}`)
+      .join('\n');
+
+    return {
+      type: 'migration_failed',
+      count: rows.length,
+      details,
+      // Упавшая миграция — это расхождение кода и схемы: код уже раздаётся и
+      // рассчитывает на колонки, которых нет. Пролистывать такое нельзя.
+      critical: true,
+    };
+  } catch (err) {
+    // Таблицы может не быть на свежем окружении — это не повод для тревоги.
+    console.error('[watchdog] checkFailedMigrations failed:', err);
+    return null;
+  }
+}
+
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations, failedMigrations] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
@@ -725,9 +767,10 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkUndeliveredSafetyPush(),
     checkIdleCrons(),
     checkUnappliedMigrations(),
+    checkFailedMigrations(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations, failedMigrations].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
