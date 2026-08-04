@@ -6,8 +6,8 @@ import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const ChangePasswordSchema = z.object({
-  currentPassword: z.string({ required_error: 'Текущий пароль обязателен' }).min(1, 'Текущий пароль не может быть пустым'),
-  newPassword: z.string({ required_error: 'Новый пароль обязателен' }).min(8, 'Новый пароль должен содержать не менее 8 символов'),
+  currentPassword: z.string({ message: 'Текущий пароль обязателен' }).min(1, 'Текущий пароль не может быть пустым'),
+  newPassword: z.string({ message: 'Новый пароль обязателен' }).min(8, 'Новый пароль должен содержать не менее 8 символов'),
 });
 
 const passwordLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });

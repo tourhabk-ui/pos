@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 const demoLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
 const DemoRoleSchema = z.object({
-  role: z.enum(['tourist', 'operator', 'guide', 'admin', 'agent'], { errorMap: () => ({ message: 'Укажите корректную роль' }) }).optional(),
+  role: z.enum(['tourist', 'operator', 'guide', 'admin', 'agent'], { message: 'Укажите корректную роль' }).optional(),
 });
 
 // PUBLIC: Demo-only endpoint — intentionally public for demo/trial flows (no token required).

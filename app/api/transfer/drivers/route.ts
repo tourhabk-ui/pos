@@ -25,7 +25,7 @@ const createDriverSchema = z.object({
   experience: z.coerce.number().int().min(0).max(70).optional().default(0),
   languages: z.array(z.string().trim().min(1).max(50)).max(20).optional().default([]),
   vehicleId: z.string().trim().min(1).optional(),
-  emergencyContact: z.record(z.unknown()).optional().default({}),
+  emergencyContact: z.record(z.string(), z.unknown()).optional().default({}),
 }).superRefine((payload, ctx) => {
   const parsed = new Date(payload.licenseExpiry);
   if (Number.isNaN(parsed.getTime())) {

@@ -20,7 +20,7 @@ const ALERT_TYPES = ['road_closure', 'info', 'flood', 'fire_danger', 'volcanic_e
 const CreateAlertSchema = z.object({
   title: z.string().min(5, 'Заголовок минимум 5 символов').max(200),
   description: z.string().max(2000).optional(),
-  alertType: z.enum(ALERT_TYPES, { errorMap: () => ({ message: 'Недопустимый тип алерта' }) }),
+  alertType: z.enum(ALERT_TYPES, { message: 'Недопустимый тип алерта' }),
   severity: z.number().int().min(0).max(3),
   affectedZones: z.array(z.enum(ZONES)).min(1, 'Укажите хотя бы одну зону'),
   expiresAt: z.string().datetime({ offset: true, message: 'expiresAt — ISO дата со смещением' }),

@@ -85,7 +85,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
     const parsed = UpdateTripSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: parsed.error.errors },
+        { success: false, error: 'Некорректные данные', details: parsed.error.issues },
         { status: 400 }
       );
     }

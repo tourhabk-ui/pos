@@ -7,11 +7,11 @@ import { requireAuth, requireAdmin } from '@/lib/auth/middleware';
 export const dynamic = 'force-dynamic';
 
 const CreateNotificationSchema = z.object({
-  userId: z.string({ required_error: 'userId обязателен' }).min(1, 'userId обязателен'),
-  type: z.string({ required_error: 'Тип уведомления обязателен' }).min(1, 'Тип уведомления обязателен'),
-  title: z.string({ required_error: 'Заголовок обязателен' }).min(1, 'Заголовок обязателен'),
-  message: z.string({ required_error: 'Сообщение обязательно' }).min(1, 'Сообщение обязательно'),
-  data: z.record(z.unknown()).optional(),
+  userId: z.string({ message: 'userId обязателен' }).min(1, 'userId обязателен'),
+  type: z.string({ message: 'Тип уведомления обязателен' }).min(1, 'Тип уведомления обязателен'),
+  title: z.string({ message: 'Заголовок обязателен' }).min(1, 'Заголовок обязателен'),
+  message: z.string({ message: 'Сообщение обязательно' }).min(1, 'Сообщение обязательно'),
+  data: z.record(z.string(), z.unknown()).optional(),
   priority: z.string().optional(),
   actionUrl: z.string().optional(),
   expiresAt: z.string().optional(),

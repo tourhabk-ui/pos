@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const parsed = QuerySchema.safeParse({ activity_type: searchParams.get('activity_type') ?? undefined });
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'Некорректный тип активности', details: parsed.error.errors },
+        { success: false, error: 'Некорректный тип активности', details: parsed.error.issues },
         { status: 400 }
       );
     }

@@ -13,7 +13,7 @@ const paramsSchema = z.object({ id: z.string().uuid('Некорректный ID
 
 const UpdateBookingStatusSchema = z.object({
   status: z.enum(['confirmed', 'cancelled', 'completed', 'no_show'], {
-    errorMap: () => ({ message: 'Некорректный статус' }),
+    message: 'Некорректный статус',
   }),
 });
 

@@ -18,7 +18,7 @@ const LeadSchema = z.object({
   route_id:     z.string().uuid().optional(),
   route_title:  z.string().max(255).optional(),
   source_url:   z.string().max(500).optional(),
-  source_data:  z.record(z.unknown()).optional(),
+  source_data:  z.record(z.string(), z.unknown()).optional(),
   partner_slug: z.string().max(100).optional(), // widget embed: resolve to operator_id
 });
 

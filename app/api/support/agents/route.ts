@@ -15,7 +15,7 @@ const CreateAgentSchema = z.object({
   email: z.string().email('Некорректный email'),
   team: z.string().optional(),
   skills: z.array(z.string()).optional(),
-  maxConcurrentTickets: z.number({ coerce: true }).int().positive().optional(),
+  maxConcurrentTickets: z.coerce.number().int().positive().optional(),
 })
 
 export async function GET(request: NextRequest) {

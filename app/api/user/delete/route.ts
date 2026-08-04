@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 
 const Schema = z.object({
   reason: z.string().max(500).optional(),
-  confirm: z.literal(true, { errorMap: () => ({ message: 'Требуется подтверждение: confirm: true' }) }),
+  confirm: z.literal(true, { message: 'Требуется подтверждение: confirm: true' }),
 });
 
 export async function POST(req: NextRequest) {

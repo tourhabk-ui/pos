@@ -15,7 +15,7 @@ const UpdateSettingsSchema = z.object({
   timezone: z.string().optional(),
   currency: z.string().optional(),
   commissionRate: z.number().min(0).max(1).optional(),
-  settings: z.record(z.unknown()).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const dynamic = 'force-dynamic';

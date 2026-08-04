@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 const VerifyOperatorSchema = z.object({
   operatorId: z.string().min(1, 'ID оператора обязателен'),
-  action: z.enum(['approve', 'reject'], { errorMap: () => ({ message: 'Действие должно быть approve или reject' }) }),
+  action: z.enum(['approve', 'reject'], { message: 'Действие должно быть approve или reject' }),
   reason: z.string().optional(),
 });
 

@@ -55,7 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     body = BodySchema.parse(await req.json());
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: e instanceof z.ZodError ? e.errors[0]?.message : 'Некорректное тело запроса' },
+      { ok: false, error: e instanceof z.ZodError ? e.issues[0]?.message : 'Некорректное тело запроса' },
       { status: 400 },
     );
   }

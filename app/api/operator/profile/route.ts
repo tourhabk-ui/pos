@@ -9,8 +9,8 @@ import { z } from 'zod';
 const UpdateProfileSchema = z.object({
   name: z.string().min(1, 'Имя не может быть пустым').optional(),
   description: z.string().optional(),
-  contact: z.record(z.unknown()).optional(),
-  preferences: z.record(z.unknown()).optional(),
+  contact: z.record(z.string(), z.unknown()).optional(),
+  preferences: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const dynamic = 'force-dynamic';

@@ -66,7 +66,7 @@ export async function PATCH(
 
     const parsed = StatusTransitionSchema.safeParse(body);
     if (!parsed.success) {
-      const err = octoError(400, 'BAD_REQUEST', parsed.error.errors[0].message);
+      const err = octoError(400, 'BAD_REQUEST', parsed.error.issues[0].message);
       return applyOctoRateLimitHeaders(err, authResult);
     }
 

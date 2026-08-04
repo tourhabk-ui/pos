@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const parsed = ReturnSchema.safeParse(rawBody);
   if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: parsed.error.errors[0]?.message || 'Ошибка валидации' },
+      { success: false, error: parsed.error.issues[0]?.message || 'Ошибка валидации' },
       { status: 400 },
     );
   }

@@ -7,7 +7,7 @@ import { getTouristProfile } from '@/lib/auth/tourist-helpers';
 
 const AddWishlistItemSchema = z.object({
   itemType: z.enum(['tour', 'accommodation', 'partner', 'destination', 'activity'], {
-    errorMap: () => ({ message: 'Укажите корректный тип элемента' }),
+    message: 'Укажите корректный тип элемента',
   }),
   itemId: z.string().min(1, 'Укажите ID элемента'),
   priority: z.enum(['low', 'medium', 'high']).optional(),

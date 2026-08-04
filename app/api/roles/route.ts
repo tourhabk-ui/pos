@@ -13,8 +13,8 @@ const validLevels = ['L1', 'L2', 'L3'] as const;
 
 const UpdateRoleSchema = z.object({
   userId: z.string().uuid('Укажите корректный ID пользователя'),
-  role: z.enum(validRoles as unknown as [string, ...string[]], { errorMap: () => ({ message: 'Указана недопустимая роль' }) }),
-  level: z.enum(validLevels as unknown as [string, ...string[]], { errorMap: () => ({ message: 'Указан недопустимый уровень оператора' }) }).optional(),
+  role: z.enum(validRoles, { message: 'Указана недопустимая роль' }),
+  level: z.enum(validLevels, { message: 'Указан недопустимый уровень оператора' }).optional(),
   permissions: z.array(z.string()).optional(),
 });
 
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
 
     const validationResult = UpdateRoleSchema.safeParse(body);
     if (!validationResult.success) {
-      const errorMessage = validationResult.error.errors[0]?.message || 'Ошибка валидации';
+      const errorMessage = validationResult.error.issues[0]?.message || 'Ошибка валидации';
       return NextResponse.json({
         success: false,
         error: errorMessage,

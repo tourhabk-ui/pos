@@ -19,7 +19,7 @@ const initiatePaymentSchema = z.object({
 
 const verifyPaymentSchema = z.object({
   transactionId: z.string().uuid(),
-  verificationData: z.record(z.unknown()).optional(),
+  verificationData: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

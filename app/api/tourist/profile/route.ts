@@ -33,8 +33,8 @@ const UpdateProfileSchema = z.object({
   travel_insurance_provider: z.string().optional(),
   travel_insurance_policy: z.string().optional(),
   travel_insurance_expiry: z.string().optional(),
-  preferences: z.record(z.unknown()).optional(),
-  settings: z.record(z.unknown()).optional(),
+  preferences: z.record(z.string(), z.unknown()).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const dynamic = 'force-dynamic';

@@ -9,7 +9,7 @@ const ALLOWED_TOKEN_TYPES = new Set(['TIMEWEB_TOKEN']);
 
 const SaveTokenSchema = z.object({
   token: z.string().min(1, 'Токен обязателен').refine(val => !/[\r\n]/.test(val), 'Токен не должен содержать переносы строк'),
-  type: z.enum(['TIMEWEB_TOKEN'], { errorMap: () => ({ message: 'Недопустимый тип токена' }) }),
+  type: z.enum(['TIMEWEB_TOKEN'], { message: 'Недопустимый тип токена' }),
 });
 
 export async function POST(request: NextRequest) {

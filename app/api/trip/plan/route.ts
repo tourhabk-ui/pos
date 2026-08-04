@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
 
     const validationResult = TripPlanSchema.safeParse(body);
     if (!validationResult.success) {
-      const errorMessage = validationResult.error.errors[0]?.message || 'Ошибка валидации';
+      const errorMessage = validationResult.error.issues[0]?.message || 'Ошибка валидации';
       return NextResponse.json({
         success: false,
         error: errorMessage,

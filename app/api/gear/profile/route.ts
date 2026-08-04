@@ -11,7 +11,7 @@ const UpdateGearProfileSchema = z.object({
   name: z.string().min(1, 'Имя обязательно').optional(),
   partnerName: z.string().min(1, 'Имя партнёра обязательно').optional(),
   description: z.string().optional(),
-  contact: z.record(z.unknown()).optional(),
+  contact: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

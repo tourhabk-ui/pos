@@ -49,7 +49,7 @@ export async function POST(
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: parsed.error.errors[0]?.message ?? 'Ошибка валидации' } as ApiResponse<null>,
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Ошибка валидации' } as ApiResponse<null>,
       { status: 400 },
     );
   }

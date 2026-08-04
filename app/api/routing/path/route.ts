@@ -40,7 +40,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const parsed = QuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
   if (!parsed.success) {
     return NextResponse.json(
-      { ok: false, error: parsed.error.errors[0]?.message ?? 'Ошибка параметров' },
+      { ok: false, error: parsed.error.issues[0]?.message ?? 'Ошибка параметров' },
       { status: 400 },
     );
   }

@@ -44,7 +44,7 @@ interface PgError extends Error {
 export function classifyError(error: unknown): { message: string; status: number } {
   // Zod validation
   if (error instanceof ZodError) {
-    const first = error.errors[0];
+    const first = error.issues[0];
     return {
       message: first?.message ?? 'Неверные данные запроса.',
       status: 400,

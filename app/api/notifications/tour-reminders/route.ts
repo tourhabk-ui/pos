@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const TourReminderSchema = z.object({
   tour_id: z.string().uuid('Укажите корректный ID тура'),
-  reminder_type: z.enum(['email', 'sms', 'push'], { errorMap: () => ({ message: 'Укажите корректный тип напоминания: email, sms или push' }) }),
+  reminder_type: z.enum(['email', 'sms', 'push'], { message: 'Укажите корректный тип напоминания: email, sms или push' }),
   send_days_before: z.number().int('Дни должны быть целым числом').min(1, 'Минимум 1 день').max(30, 'Максимум 30 дней').optional(),
 });
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     if (Object.keys(body as Record<string, unknown>).length > 0) {
       const validationResult = TourReminderSchema.safeParse(body);
       if (!validationResult.success) {
-        const errorMessage = validationResult.error.errors[0]?.message || 'Ошибка валидации';
+        const errorMessage = validationResult.error.issues[0]?.message || 'Ошибка валидации';
         return NextResponse.json({
           success: false,
           error: errorMessage,

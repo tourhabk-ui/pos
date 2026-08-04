@@ -14,8 +14,8 @@ const UpdatePreferencesSchema = z.object({
     start: z.string().optional(),
     end: z.string().optional(),
   }).optional(),
-  channelPreferences: z.record(z.boolean()).optional(),
-  typePreferences: z.record(z.boolean()).optional(),
+  channelPreferences: z.record(z.string(), z.boolean()).optional(),
+  typePreferences: z.record(z.string(), z.boolean()).optional(),
   frequencyLimit: z.string().optional(),
   unsubscribeAll: z.boolean().optional(),
 })

@@ -26,7 +26,7 @@ export const maxDuration = 120;
 const BodySchema = z.object({
   limit: z.number().int().min(1).max(80).default(40),
   dry_run: z.boolean().default(false),
-}).default({});
+});
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const auth = await requireAdmin(req);

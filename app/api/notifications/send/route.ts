@@ -8,9 +8,9 @@ import { requireAdmin } from '@/lib/auth/middleware';
 export const dynamic = 'force-dynamic';
 
 const SendEmailSchema = z.object({
-  type: z.enum(['bookingConfirmation', 'paymentConfirmation', 'tourReminder', 'bookingCancellation', 'welcome', 'passwordReset', 'partnerVerification'], { errorMap: () => ({ message: 'Некорректный тип email' }) }),
+  type: z.enum(['bookingConfirmation', 'paymentConfirmation', 'tourReminder', 'bookingCancellation', 'welcome', 'passwordReset', 'partnerVerification'], { message: 'Некорректный тип email' }),
   to: z.string().email('Некорректный email'),
-  data: z.record(z.unknown()),
+  data: z.record(z.string(), z.unknown()),
 });
 
 /**

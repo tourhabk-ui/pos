@@ -10,7 +10,7 @@ const CreateGroupSchema = z.object({
   groupName: z.string().min(1, 'Название группы обязательно'),
   participants: z.array(z.unknown()).optional(),
   emergencyContacts: z.array(z.unknown()).optional(),
-  experienceLevels: z.record(z.unknown()).optional(),
+  experienceLevels: z.record(z.string(), z.unknown()).optional(),
   specialNeeds: z.string().optional(),
   equipmentChecklist: z.array(z.unknown()).optional(),
 });

@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 
 const AgentPlanSchema = z.object({
   query: z.string().min(1, 'Поле query обязательно'),
-  group_size: z.number({ coerce: true }).int().positive().optional().default(1),
-  duration_days: z.number({ coerce: true }).int().positive().optional().default(2),
+  group_size: z.coerce.number().int().positive().optional().default(1),
+  duration_days: z.coerce.number().int().positive().optional().default(2),
   difficulty: z.string().optional(),
 });
 

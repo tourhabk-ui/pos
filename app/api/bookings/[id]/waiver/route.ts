@@ -102,8 +102,8 @@ export async function GET(
 
 const signSchema = z.object({
   signerName: z.string().trim().min(2, 'Укажите ФИО').max(255),
-  risksAcknowledged: z.literal(true, { errorMap: () => ({ message: 'Подтвердите осознание рисков' }) }),
-  fitToParticipate: z.literal(true, { errorMap: () => ({ message: 'Подтвердите пригодность к участию' }) }),
+  risksAcknowledged: z.literal(true, { message: 'Подтвердите осознание рисков' }),
+  fitToParticipate: z.literal(true, { message: 'Подтвердите пригодность к участию' }),
   medicalConditions: z.string().trim().max(2000).optional().nullable(),
   allergies: z.string().trim().max(1000).optional().nullable(),
   emergencyContactName: z.string().trim().min(2, 'Укажите контактное лицо').max(255),
@@ -132,7 +132,7 @@ export async function POST(
   const parsed = signSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: parsed.error.errors[0]?.message ?? 'Проверьте поля формы' },
+      { success: false, error: parsed.error.issues[0]?.message ?? 'Проверьте поля формы' },
       { status: 400 },
     );
   }

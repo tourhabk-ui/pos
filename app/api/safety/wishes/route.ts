@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = WishSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ success: false, error: parsed.error.errors[0]?.message }, { status: 400 });
+    return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message }, { status: 400 });
   }
 
   const { stakeholder, message, category, priority } = parsed.data;
@@ -113,7 +113,7 @@ export async function PUT(req: NextRequest) {
 
   const parsed = ReplySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ success: false, error: parsed.error.errors[0]?.message }, { status: 400 });
+    return NextResponse.json({ success: false, error: parsed.error.issues[0]?.message }, { status: 400 });
   }
 
   const { wish_id, admin_reply, status } = parsed.data;
