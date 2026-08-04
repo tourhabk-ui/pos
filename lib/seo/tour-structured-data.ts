@@ -31,8 +31,8 @@ export interface TourSeoInput {
    * нормализуем в `seasonMonth()`. Раньше тип обещал число, строка приезжала
    * молча, и в разметку уходило `2026-2026-06-01-01` — мусор для поисковиков.
    */
-  season_start?: string | number | null;
-  season_end?: string | number | null;
+  season_start?: string | number | Date | null;
+  season_end?: string | number | Date | null;
   /** Что входит в тур — для amenityFeature (ответы Алисы «что входит»). */
   included?: string[] | null;
 }
@@ -60,13 +60,23 @@ function isoDate(d: string | Date): string {
 }
 
 /**
- * Месяц сезона (1–12) из значения БД: принимает и дату (`2026-06-01`), и уже
- * готовый номер месяца. Возвращает null, если разобрать нечего.
+ * Месяц сезона (1–12) из значения БД.
+ *
+ * Принимает ЧТО УГОДНО и не бросает. Причина конкретная: колонка
+ * `operator_tours.season_start` имеет тип DATE, а node-postgres отдаёт DATE
+ * объектом `Date`, а не строкой. Прежняя версия звала `.trim()` и падала на
+ * этом — карточка тура отдавала «Ошибка загрузки тура» вместо страницы.
+ * Разбор значения из БД не имеет права ронять страницу.
  */
-function seasonMonth(v: string | number | null | undefined): number | null {
+function seasonMonth(v: unknown): number | null {
   if (v == null) return null;
-  if (typeof v === 'number') return v >= 1 && v <= 12 ? v : null;
-  const s = v.trim();
+  if (v instanceof Date) {
+    return Number.isNaN(v.getTime()) ? null : v.getUTCMonth() + 1;
+  }
+  if (typeof v === 'number') {
+    return Number.isInteger(v) && v >= 1 && v <= 12 ? v : null;
+  }
+  const s = String(v).trim();
   if (!s) return null;
   const asNum = Number(s);
   if (Number.isInteger(asNum) && asNum >= 1 && asNum <= 12) return asNum;

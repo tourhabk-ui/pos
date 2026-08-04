@@ -79,3 +79,44 @@ describe('buildTourStructuredData', () => {
     expect(offer.availabilityEnds).toMatch(/-09-28$/);
   });
 });
+
+/**
+ * Регрессия 2026-08-04: карточка тура отдавала «Ошибка загрузки тура».
+ *
+ * `operator_tours.season_start` — колонка типа DATE, а node-postgres отдаёт DATE
+ * ОБЪЕКТОМ `Date`, не строкой. Разбор сезона звал на нём `.trim()` и бросал
+ * TypeError — падала вся страница тура, а не один блок разметки.
+ *
+ * Отдельно проверяем сам смысл: раньше тип обещал номер месяца, строка-дата
+ * приезжала молча, и в разметку для поисковиков уходило «2026-2026-06-01-01».
+ */
+describe('сезон из базы не роняет страницу', () => {
+  const seasonOffer = (start: unknown, end: unknown) => {
+    const g = buildTourStructuredData(
+      { ...base, season_start: start as never, season_end: end as never },
+      [],
+      opts,
+    );
+    const product = nodes(g).find(n => n['@type'] === 'Product')!;
+    return product.offers as Record<string, string>;
+  };
+
+  it('Date из pg разбирается, а не бросает исключение', () => {
+    const offer = seasonOffer(new Date('2026-06-01T00:00:00Z'), new Date('2026-09-30T00:00:00Z'));
+    expect(offer.availabilityStarts).toMatch(/-06-01$/);
+    expect(offer.availabilityEnds).toMatch(/-09-28$/);
+  });
+
+  it('строка-дата даёт месяц, а не мусор вида 2026-2026-06-01-01', () => {
+    const offer = seasonOffer('2026-06-01', '2026-09-30');
+    expect(offer.availabilityStarts).toMatch(/^\d{4}-06-01$/);
+    expect(offer.availabilityEnds).toMatch(/^\d{4}-09-28$/);
+  });
+
+  it('мусор и битая дата просто убирают блок сезона, не роняя разметку', () => {
+    for (const bad of ['', '   ', 'не дата', new Date('нет'), {}, [], true]) {
+      expect(() => seasonOffer(bad, bad)).not.toThrow();
+      expect(seasonOffer(bad, bad).availabilityStarts).toBeUndefined();
+    }
+  });
+});

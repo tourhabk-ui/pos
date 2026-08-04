@@ -62,8 +62,9 @@ interface TourFull {
   included: string[] | null;
   not_included: string[] | null;
   what_to_bring: string[] | null;
-  season_start: string | null;
-  season_end: string | null;
+  /** DATE из БД приезжает объектом `Date` — тип это признаёт (см. query-модуль). */
+  season_start: string | Date | null;
+  season_end: string | Date | null;
   seasonal_only: boolean | null;
   weather_dependent: boolean | null;
   rating: string | null;
@@ -150,7 +151,8 @@ function formatDuration(tour: TourFull): string | null {
   return null;
 }
 
-function formatSeason(start: string | null, end: string | null): string | null {
+/** Принимает и строку, и `Date` из БД; на мусоре молча возвращает null. */
+function formatSeason(start: string | Date | null, end: string | Date | null): string | null {
   if (!start || !end) return null;
   const months = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
   const s = new Date(start), e = new Date(end);

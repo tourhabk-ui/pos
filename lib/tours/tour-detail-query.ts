@@ -45,8 +45,13 @@ export interface TourCardRow {
   included: string[] | null;
   not_included: string[] | null;
   what_to_bring: string[] | null;
-  season_start: string | null;
-  season_end: string | null;
+  /**
+   * DATE-колонки. node-postgres отдаёт DATE ОБЪЕКТОМ `Date`, а не строкой —
+   * тип обязан это признавать. Пока он врал «string», код звал `.trim()` и
+   * ронял всю страницу тура (04.08).
+   */
+  season_start: string | Date | null;
+  season_end: string | Date | null;
   seasonal_only: boolean | null;
   weather_dependent: boolean | null;
   rating: string | null;
