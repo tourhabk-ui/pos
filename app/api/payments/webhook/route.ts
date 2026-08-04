@@ -4,6 +4,7 @@ import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payment
 import { emailService } from '@/lib/notifications/email-service';
 import { PaymentWebhookReturnRow, PaymentRow, EmailRow } from '@/lib/types/db-rows';
 import { addBookingContribution } from '@/lib/compute-fund';
+import { recordCommissionFromBooking } from '@/lib/payments/commission';
 
 export const dynamic = 'force-dynamic';
 
@@ -269,7 +270,7 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
     void addBookingContribution('booking_operator', booking_id, webhook.Amount, 'operator booking confirmed');
 
     // Авто-запись комиссии платформы (12%) — idempotent по payment_id
-    void createCommissionRecord(booking_id, invoiceId, webhook.Amount);
+    void createCommissionRecord(booking_id, invoiceId);
   } catch {
     // не прерываем выполнение
   }
@@ -301,7 +302,7 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
     const b = result.rows[0];
 
     void addBookingContribution('booking_operator', b.id, webhook.Amount, 'hub booking confirmed');
-    void createCommissionRecord(b.id, invoiceId, webhook.Amount);
+    void createCommissionRecord(b.id, invoiceId);
 
     if (b.tourist_email) {
       try {
@@ -327,37 +328,19 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
 /**
  * Создаёт запись комиссии платформы при успешной оплате.
  * Idempotent: повторный вызов с тем же invoice_id игнорируется.
+ *
+ * Вся логика — в `lib/payments/commission`, общей с hub-вебхуком (там комиссия
+ * раньше не начислялась вовсе). Раньше здесь считались захардкоженные 12%, из-за
+ * чего одна бронь получала разную комиссию в `operator_commissions` и
+ * `tour_payments`. Теперь ставка одна и берётся из базы —
+ * `partners.commission_current`, приведён к 10% миграцией 811 по решению
+ * владельца.
  */
 async function createCommissionRecord(
   bookingId: string,
   invoiceId: string,
-  amount: number
 ): Promise<void> {
-  try {
-    const PLATFORM_RATE = 0.12; // 12% комиссия платформы
-    const commissionAmount = Math.round(amount * PLATFORM_RATE * 100) / 100;
-
-    // Ищем operator_id из бронирования
-    const bookingRes = await query<{ operator_id: string | null }>(
-      `SELECT operator_id FROM operator_bookings WHERE id = $1`,
-      [bookingId]
-    );
-    if (!bookingRes.rows.length) return;
-
-    const operatorId = bookingRes.rows[0].operator_id;
-    if (!operatorId) return;
-
-    // Upsert — если уже есть запись по invoice_id, пропускаем
-    await query(
-      `INSERT INTO operator_commissions
-         (operator_id, booking_id, invoice_id, amount, rate, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-       ON CONFLICT (invoice_id) DO NOTHING`,
-      [operatorId, bookingId, invoiceId, commissionAmount, PLATFORM_RATE]
-    );
-  } catch {
-    // Не прерываем платёжный flow при ошибке записи комиссии
-  }
+  await recordCommissionFromBooking(bookingId, invoiceId);
 }
 
 /**

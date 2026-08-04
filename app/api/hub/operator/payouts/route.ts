@@ -105,7 +105,8 @@ export async function GET(request: NextRequest) {
         heldCount:       parseInt(s.held_count    as string, 10),
         releasedCount:   parseInt(s.released_count as string, 10),
       },
-      commissionCurrent: parseFloat(p?.commission_current as string ?? '15'),
+      // Запасное значение — единая ставка платформы (10%), не старые 15%.
+      commissionCurrent: parseFloat(p?.commission_current as string ?? '10'),
       payoutMethod:      p?.payout_method as string | null,
       payoutVerified:    p?.payout_verified as boolean ?? false,
       payments: paymentsResult.rows,
