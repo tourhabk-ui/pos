@@ -12,6 +12,7 @@ import {
   softDeleteTour,
 } from '@/lib/api/operator-tours';
 import { query } from '@/lib/database';
+import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,11 +98,15 @@ export async function PATCH(
       'available_slots', 'next_available_date',
     ] as const;
 
+    // Тип колонки берём из схемы, а не из предположения: состав тура на проде
+    // год был jsonb там, где репозиторий объявлял TEXT[], и сохранение падало.
+    const columnTypes = await getColumnTypes('operator_tours');
+
     for (const key of allowed) {
       const rec = input as Record<string, unknown>;
       if (key in rec && rec[key] !== undefined) {
         fields.push(`${key} = $${idx++}`);
-        values.push(rec[key]);
+        values.push(valueForColumn(rec[key], key, columnTypes));
       }
     }
 

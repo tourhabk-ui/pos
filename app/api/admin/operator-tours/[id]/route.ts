@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
+import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { redactPII } from '@/lib/security/pii-redact';
 import { z } from 'zod';
 
@@ -177,11 +178,23 @@ export async function PATCH(
   const values: unknown[] = [];
   let idx = 1;
 
+  // Тип колонки спрашиваем у базы, а не предполагаем. Схема прода год
+  // расходилась с тем, что объявляли миграции: состав тура был jsonb там, где
+  // репозиторий считал TEXT[]. Из-за этого «Сохранить» падало с «invalid input
+  // syntax for type json», и владелец не мог поправить карточку руками —
+  // каждая правка текста шла через миграцию и деплой.
+  let columnTypes;
+  try {
+    columnTypes = await getColumnTypes('operator_tours');
+  } catch (error) {
+    return dbFailure(error, 'прочитать схему тура');
+  }
+
   for (const key of ALLOWED_FIELDS) {
     if (key in rest && (rest as Record<string, unknown>)[key] !== undefined) {
       const val = (rest as Record<string, unknown>)[key];
       fields.push(`${key} = $${idx++}`);
-      values.push(val);
+      values.push(valueForColumn(val, key, columnTypes));
     }
   }
 
