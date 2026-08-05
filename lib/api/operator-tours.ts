@@ -182,9 +182,13 @@ export async function createTour(
       input.season_start || null,
       input.season_end || null,
       input.difficulty || null,
-      JSON.stringify(input.included || []),
-      JSON.stringify(input.not_included || []),
-      JSON.stringify(input.what_to_bring || []),
+      // TEXT[], а не json: массив передаётся как есть. JSON.stringify здесь
+      // жил, пока колонки на проде были json (миграция 823 привела их к типу,
+      // который репозиторий объявлял с 056). Строка '["а","б"]' в TEXT[] —
+      // это одна строка с кавычками и скобками, а не два пункта состава.
+      input.included || [],
+      input.not_included || [],
+      input.what_to_bring || [],
       input.photos || [],
       input.tour_image || null,
       input.agent_route_id || null,
