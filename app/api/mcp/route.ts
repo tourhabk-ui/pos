@@ -21,42 +21,23 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { TOOL_REGISTRY, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead } from '@/lib/leads/create';
 
 export const dynamic = 'force-dynamic';
 
-/** Не для анонимного публичного входа: внешние квоты/запись использования. */
-const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft']);
+// Определения инструментов и список наружу — в lib/mcp/public-tools.ts:
+// тот же список нужен манифесту /.well-known/mcp.json, а два списка
+// разошлись бы в первый же день. Здесь остаётся только исполнение.
 
-// ── create_lead — единственный пишущий инструмент ────────────
-// Внешний агент нашёл тур через поисковые инструменты — дальше ему нужен
-// следующий шаг. Бронь анонимному агенту не даём (чужие деньги + спам),
-// а заявка безопасна: идёт в тот же createLead(), что форма сайта и боты —
-// скоринг глушит мусор (низкое качество закрывается без уведомления),
-// дедуп по телефон+текст за 24ч не даёт задваивать.
 const createLeadArgsSchema = z.object({
   name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
   phone: z.string().trim().min(5, 'Телефон обязателен — иначе менеджеру не с кем связаться').max(50),
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000),
   interest: z.string().trim().max(200).optional(),
 });
-
-const CREATE_LEAD_TOOL = {
-  name: 'create_lead',
-  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Не бронь и не оплата — только заявка.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      name: { type: 'string', description: 'Имя туриста' },
-      phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
-      comment: { type: 'string', description: 'Запрос: даты, сколько человек, что интересует' },
-      interest: { type: 'string', description: 'Название тура/маршрута, если уже выбран' },
-    },
-    required: ['name', 'phone', 'comment'],
-  },
-} as const;
 
 async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
@@ -77,24 +58,10 @@ async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<stri
   return `Заявка принята (номер ${leadId}). Менеджер Ведара свяжется по указанному телефону.`;
 }
 
-// ── MCP Tool definitions — из реестра Кузьмича, не руками ────
-const TOOLS = [
-  ...Object.values(TOOL_REGISTRY)
-    .filter((t) => !EXCLUDED_TOOLS.has(t.definition.function.name))
-    .map((t) => ({
-      name: t.definition.function.name,
-      description: t.definition.function.description,
-      // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
-      inputSchema: t.definition.function.parameters,
-    })),
-  CREATE_LEAD_TOOL,
-];
-
-const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 
 // ── Execute tool by name ─────────────────────────────────────
 async function executeTool(name: string, rawArgs: Record<string, unknown>): Promise<string> {
-  if (!TOOL_NAMES.has(name)) {
+  if (!PUBLIC_MCP_TOOL_NAMES.has(name)) {
     throw new Error(`Unknown tool: ${name}`);
   }
   if (name === CREATE_LEAD_TOOL.name) {
@@ -129,10 +96,8 @@ function jsonrpcError(id: string | number | null | undefined, code: number, mess
 // ── MCP Protocol: GET = server info ──────────────────────────
 export async function GET() {
   return NextResponse.json({
-    name: 'vedar-mcp',
-    version: '2.0.0',
-    description: 'Ведар — данные Камчатки: места и безопасность, туры, жильё, снаряжение, трансферы, погода. Плюс заявка на подбор тура (create_lead).',
-    tools: TOOLS,
+    ...MCP_SERVER_INFO,
+    tools: PUBLIC_MCP_TOOLS,
   });
 }
 
@@ -158,8 +123,8 @@ export async function POST(request: NextRequest) {
           protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
           serverInfo: {
-            name: 'vedar-mcp',
-            version: '2.0.0',
+            name: MCP_SERVER_INFO.name,
+            version: MCP_SERVER_INFO.version,
           },
         }));
 
@@ -169,7 +134,7 @@ export async function POST(request: NextRequest) {
 
       // ── list available tools ──
       case 'tools/list':
-        return NextResponse.json(jsonrpcSuccess(id, { tools: TOOLS }));
+        return NextResponse.json(jsonrpcSuccess(id, { tools: PUBLIC_MCP_TOOLS }));
 
       // ── call a tool ──
       case 'tools/call': {

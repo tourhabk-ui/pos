@@ -106,7 +106,13 @@ describe('/api/mcp — структурно нет своего движка', (
     const src = fs.readFileSync('app/api/mcp/route.ts', 'utf8');
     expect(src).not.toMatch(/agent_route_knowledge/);
     expect(src).not.toMatch(/\b(SELECT|FROM|JOIN)\b/);
-    expect(src).toMatch(/TOOL_REGISTRY/);
     expect(src).toMatch(/executeKuzmichTool/);
+    // Список инструментов уехал в lib/mcp/public-tools.ts — тот же список нужен
+    // манифесту /.well-known/mcp.json, а два списка разошлись бы сразу. Реестр
+    // Кузьмича остаётся источником: проверяем цепочку, а не одно имя в роуте.
+    expect(src).toMatch(/from '@\/lib\/mcp\/public-tools'/);
+    const shared = fs.readFileSync('lib/mcp/public-tools.ts', 'utf8');
+    expect(shared).toMatch(/TOOL_REGISTRY/);
+    expect(shared).not.toMatch(/\b(SELECT|FROM|JOIN)\b/);
   });
 });

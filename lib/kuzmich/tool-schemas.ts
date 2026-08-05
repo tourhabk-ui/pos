@@ -73,6 +73,8 @@ const getPlaceInfoSchema = z.object({
 // ── get_weather ───────────────────────────────────────────────────────────
 const getWeatherSchema = z.object({});
 
+const safetyStatusSchema = z.object({});
+
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
 const searchTaaftSchema = z.object({
@@ -233,6 +235,21 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: searchTransfersSchema,
+  },
+  // Обстановка по КРАЮ целиком — то, чего нет ни у кого, кроме нас: сейсмика и
+  // вулканы КБГС РАН, сведённые в один ответ. Внешний агент спрашивает это
+  // первым («безопасно ли сейчас на Камчатке»), а по конкретному месту дальше
+  // идёт в get_guardian_context.
+  safety_status: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'safety_status',
+        description: 'Текущая обстановка по Камчатскому краю целиком: активные предупреждения, их количество и тяжесть, свежесть данных (источник — КБГС РАН). Используй, когда спрашивают, безопасно ли сейчас ехать или что происходит в крае. Для конкретного места используй get_guardian_context.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    schema: safetyStatusSchema,
   },
   search_taaft: {
     definition: {

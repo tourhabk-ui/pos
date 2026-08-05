@@ -1650,6 +1650,11 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     if (name === 'get_weather') {
       return (await fetchWeather()) || 'Погода временно недоступна.';
     }
+    if (name === 'safety_status') {
+      const { getCurrentSafetyStatus, formatSafetyStatusForAgent } = await import('@/lib/safety/current-status');
+      // Недоступность источника проговаривается словами: «данных нет» ≠ «тихо».
+      return formatSafetyStatusForAgent(await getCurrentSafetyStatus());
+    }
     if (name === 'search_accommodations') {
       const { searchAccommodationsForKuzmich } = await import('@/lib/kuzmich/accommodation-search');
       return await searchAccommodationsForKuzmich({ zone: args.zone, type: args.type, price_max: args.price_max });
