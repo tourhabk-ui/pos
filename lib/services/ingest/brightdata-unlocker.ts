@@ -24,6 +24,14 @@ const BRIGHTDATA_ENDPOINT = 'https://api.brightdata.com/request';
 //      brd.superproxy.io. Заведён 02.08, потому что Bearer-токен в UI
 //      Bright Data закопан (владелец не мог найти), а прокси-логин/пароль
 //      видны прямо на странице зоны. Гео РФ — суффикс -country-ru у логина.
+//
+// Про истечение сертификата Bright Data 25.09.2026 (письмо 05.08): нас НЕ
+// касается. Оно про legacy-порт 22225 и про .crt-файл — мы ходим либо HTTPS-API
+// (вариант A), либо прокси на порту 33335 (вариант B), корневой сертификат
+// Bright Data нигде не грузим и не ссылаемся на него. Проверено по репозиторию,
+// и BRIGHTDATA_PROXY_PORT в env прода не задан. Если когда-нибудь появится
+// прокси на 22225 — порт после 25.09.2026 обязан быть 44445, иначе весь путь B
+// молча вернёт null и обогащение тихо съедет на прямой fetch.
 function proxyConfigured(): boolean {
   return !!(process.env.BRIGHTDATA_PROXY_USER && process.env.BRIGHTDATA_PROXY_PASS);
 }
