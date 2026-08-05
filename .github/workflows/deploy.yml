@@ -50,31 +50,50 @@ jobs:
 
           echo "Приложение $APP_ID, ждём коммит ${EXPECTED_SHA:0:7}"
 
-          # ~20 минут: сборка Docker с миграциями обычно укладывается в 10.
+          # Две фазы, а не одна. Первый вариант этой проверки спрашивал статус
+          # через секунду после мержа, видел «active» на ПРОШЛОМ коммите, считал
+          # это терминальным состоянием и краснел: сборка ещё не начиналась, а
+          # он уже вынес приговор (прогон 05.08 00:40 по 822a9b8). Ждать надо не
+          # «любого терминального статуса», а появления НУЖНОГО коммита.
           ATTEMPTS=40
           SLEEP=30
           STATUS="unknown"
-          COMMIT="unknown"
+          COMMIT=""
 
-          for i in $(seq 1 $ATTEMPTS); do
+          poll() {
             HTTP=$(curl -s -o /tmp/app_status.json -w "%{http_code}" \
               -H "Authorization: Bearer $TIMEWEB_TOKEN" \
               "https://api.timeweb.cloud/api/v1/apps/$APP_ID") || HTTP="000"
-
-            if [ "$HTTP" != "200" ]; then
-              echo "[$i/$ATTEMPTS] API недоступен (HTTP $HTTP) — повтор"
-              sleep $SLEEP
-              continue
-            fi
-
+            [ "$HTTP" = "200" ] || return 1
             STATUS=$(python3 -c "import json;print(json.load(open('/tmp/app_status.json'))['app']['status'])" 2>/dev/null || echo "unknown")
             COMMIT=$(python3 -c "import json;print(json.load(open('/tmp/app_status.json'))['app'].get('commit_sha') or '')" 2>/dev/null || echo "")
+            return 0
+          }
 
-            echo "[$i/$ATTEMPTS] status=$STATUS commit=${COMMIT:0:7}"
+          # Фаза 1: Timeweb взял наш коммит в работу.
+          PICKED=""
+          for i in $(seq 1 $ATTEMPTS); do
+            if poll; then
+              echo "[ожидание коммита $i/$ATTEMPTS] status=$STATUS commit=${COMMIT:0:7}"
+              if [ "${COMMIT:0:7}" = "${EXPECTED_SHA:0:7}" ]; then PICKED=1; break; fi
+            else
+              echo "[ожидание коммита $i/$ATTEMPTS] API недоступен (HTTP $HTTP)"
+            fi
+            sleep $SLEEP
+          done
 
+          if [ -z "$PICKED" ]; then
+            echo "::error::Timeweb за 20 минут так и не взял ${EXPECTED_SHA:0:7} в работу (сейчас ${COMMIT:0:7}). Автодеплой не сработал — проверь webhook приложения."
+            exit 1
+          fi
+
+          # Фаза 2: сборка этого коммита дошла до конца.
+          for i in $(seq 1 $ATTEMPTS); do
             case "$STATUS" in
               deploy|build|building|deploying|pending|created)
+                echo "[сборка $i/$ATTEMPTS] status=$STATUS"
                 sleep $SLEEP
+                poll || true
                 continue
                 ;;
             esac
@@ -92,11 +111,6 @@ jobs:
               exit 1
               ;;
           esac
-
-          if [ -n "$COMMIT" ] && [ "${COMMIT:0:7}" != "${EXPECTED_SHA:0:7}" ]; then
-            echo "::error::Timeweb собрал ${COMMIT:0:7}, а main — ${EXPECTED_SHA:0:7}. Деплой не доехал."
-            exit 1
-          fi
 
           # Последнее слово — за самим сайтом, а не за панелью. /version.json
           # пишется в образ на сборке (см. Dockerfile), поэтому отвечает на
