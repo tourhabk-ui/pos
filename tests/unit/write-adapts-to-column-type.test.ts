@@ -21,7 +21,7 @@
  * разберётся вовсе.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { valueForColumn } from '@/lib/db/column-types';
 
@@ -117,5 +117,52 @@ describe('миграция 826 приводит схему целиком, а н
   it('имена вью не вписаны руками', () => {
     expect(sql).toMatch(/pg_get_viewdef/);
     expect(sql).not.toMatch(/DROP VIEW IF EXISTS [a-z_]+ CASCADE/);
+  });
+});
+
+/**
+ * Смена типа колонки не тащит подзапрос в USING.
+ *
+ * Postgres запрещает подзапрос в `ALTER COLUMN ... TYPE ... USING` и говорит об
+ * этом прямо: «cannot use subquery in transform expression». Миграции 823 и 826
+ * написаны именно так и упали обе; вслед за ними упала 824, потому что колонки
+ * остались jsonb. Я прочитал состояние неверно и сообщил владельцу, что данные
+ * починились — на скриншоте кабинета были его несохранённые правки в форме, а
+ * не содержимое базы.
+ *
+ * Обход — вынести преобразование в функцию: её вызов подзапросом не считается.
+ */
+describe('ALTER TYPE не содержит подзапроса', () => {
+  const DIR = join(ROOT, 'migrations');
+
+  /**
+   * Найдено этим же сторожем: та же ошибка сделана раньше и не замечена.
+   * `715_gear_schema.sql` приводит `gear_items.tags` к TEXT[] через
+   * `ARRAY(SELECT ...)` в USING — значит по тем же правилам Postgres она тоже
+   * упала, просто про аренду снаряжения никто не спрашивал. Не трогаю: это
+   * другой домен, и лезть туда попутно значило бы делать то, о чём не просили.
+   * Запись здесь — чтобы находка не потерялась.
+   */
+  const KNOWN = new Set(['715_gear_schema.sql']);
+
+  it('ни одна миграция не пишет ARRAY(SELECT ...) внутри USING', () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(DIR).filter((f) => f.endsWith('.sql'))) {
+      if (KNOWN.has(file)) continue;
+      const sql = readFileSync(join(DIR, file), 'utf-8');
+      // USING ... до конца выражения: ловим подзапрос в той же конструкции.
+      for (const m of sql.matchAll(/TYPE\s+[^\n]*\bUSING\b([\s\S]{0,400}?)(?:;|\$f\$)/gi)) {
+        if (/\(\s*SELECT\b/i.test(m[1])) offenders.push(`${file}: подзапрос в USING`);
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('827 приводит тип вызовом функции', () => {
+    const sql = readFileSync(join(DIR, '827_arrays_to_text_via_function.sql'), 'utf-8');
+    expect(sql).toMatch(/USING _jsonb_to_text_array\(/);
+    expect(sql).toMatch(/CREATE OR REPLACE FUNCTION _jsonb_to_text_array/);
+    // Временная функция не остаётся в схеме.
+    expect(sql).toMatch(/DROP FUNCTION IF EXISTS _jsonb_to_text_array/);
   });
 });
