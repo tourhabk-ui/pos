@@ -1,6 +1,13 @@
 {
   "channel": "travel",
   "toMax": true,
-  "text": "<b>Ответственный подход = хорошее путешествие</b>\n\nЗначительная часть Камчатки — особо охраняемые природные территории, и посещение оформляется заранее. Разрешение регулирует нагрузку на природу, а спасатели знают, кто сейчас на маршруте.\n\nСеть природных парков «Вулканы Камчатки» (Налычево, Быстринский, Ключевской, Южно-Камчатский) — три способа:\n— приложение «Зелёная кнопка»;\n— портал «Госуслуги»;\n— офис парка.\nПодробности: <a href=\"https://vulcanikamchatki.ru/novosti/20222029/\">vulcanikamchatki.ru</a>\n\nКроноцкий заповедник и Южно-Камчатский заказник: скачайте заявку на сайте, заполните и отправьте на почту заповедника. Заявка включает группу в план посещения, разрешение оформляется отдельно: <a href=\"https://kronoki.ru/ru/visit/requests/\">kronoki.ru</a>\n\nОформите документы до выхода на маршрут — и путешествуйте спокойно. Карточки маршрутов на Ведаре подсказывают, где нужны разрешение и регистрация МЧС.",
-  "imagePrompt": "Kamchatka nature reserve landscape, Valley of Geysers with steam rising over green canyon, volcanic caldera in background, wild untouched taiga, moody overcast northern light, no people, photorealistic wide shot"
+  "text": "<b>Сплав по реке Быстрая — день на воде, который умещает в себя половину Камчатки</b>\n\nСпокойный семейный сплав, не спортивный рафтинг: инструктаж, снаряжение и гид — всё на месте. По пути — рыбалка (снасти дают бесплатно), уха из свежего лосося на берегу от повара и возможность увидеть бурого медведя в естественной среде — с безопасной дистанции.\n\nФинал дня — купание в Малкинских горячих источниках.\n\nЧто в цене: трансфер туда и обратно, питание, гид и повар, снасти, снаряжение для сплава.\n\nОператор — «Камчатка Семейный Рафтинг», проверен платформой. Сложность — лёгкая, дети — со взрослыми.\n\n13 000 ₽ с человека.\n\nПосмотреть программу и свободные даты: <a href=\"https://vedarai.ru/marketplace/tours/27\">vedarai.ru</a>\nТелеграм-канал оператора: <a href=\"https://t.me/+GCy5EVOotCE1NDMy\">Камчатка Семейный Рафтинг</a>",
+  "photos": [
+    "/images/tours/bystraya-rafting/01-river-volcanoes.jpg",
+    "/images/tours/bystraya-rafting/02-rafting.jpg",
+    "/images/tours/bystraya-rafting/07-bear-river.jpg",
+    "/images/tours/bystraya-rafting/03-salmon-catch.jpg",
+    "/images/tours/bystraya-rafting/04-shore-lunch.jpg",
+    "/images/tours/bystraya-rafting/09-caviar.jpg"
+  ]
 }

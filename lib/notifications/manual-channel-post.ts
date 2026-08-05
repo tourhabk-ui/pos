@@ -15,7 +15,9 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { hashStr } from '@/lib/notifications/post-image';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
-import { tgPostPhoto, maxChannelPost } from '@/lib/notifications/telegram-channel';
+import { tgPostPhoto, tgPostMediaGroup, maxChannelPost } from '@/lib/notifications/telegram-channel';
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 
 export const ManualChannelPostSchema = z.object({
   /** ai → TELEGRAM_AI_CHANNEL_ID, travel → TELEGRAM_CHANNEL_ID */
@@ -24,6 +26,14 @@ export const ManualChannelPostSchema = z.object({
   text: z.string().min(50, 'Пост короче 50 символов — это не пост')
     .max(1024, 'Telegram обрезает caption после 1024 символов'),
   imagePrompt: z.string().min(10).max(500).optional(),
+  /**
+   * Настоящие фотографии — альбом sendMediaGroup (2–10 штук), подпись на
+   * первой. Пути с нашего сайта ('/images/...') или https-URL. Когда заданы,
+   * AI-обложка не генерируется вовсе: пост про реальный тур обязан показывать
+   * реальные кадры, а не нейрокартинку — это то же правило, что запрет
+   * AI-картинок в OpenGraph (#878).
+   */
+  photos: z.array(z.string().min(2).max(500)).min(2).max(10).optional(),
   seed: z.number().int().nonnegative().optional(),
   /** Кросс-пост в MAX-канал (госмессенджер). Автоматические публикаторы
    * зеркалят в MAX всегда; у ручных это опция владельца. */
@@ -88,11 +98,18 @@ export async function publishManualChannelPost(
       } catch { /* оставляем maxAlready=true */ }
 
       if (!maxAlready) {
-        const dupSeed = post.seed ?? hashStr(post.text) % 9_999_999;
-        const dupCover = await resolveCoverImage(post.text, post.channel, dupSeed, {
-          explicitPrompt: post.imagePrompt,
-        });
-        const maxResult = await maxChannelPost(post.text, dupCover.url);
+        let dupCoverUrl: string;
+        if (post.photos && post.photos.length >= 2) {
+          const first = post.photos[0];
+          dupCoverUrl = first.startsWith('/') ? `${SITE_URL}${first}` : first;
+        } else {
+          const dupSeed = post.seed ?? hashStr(post.text) % 9_999_999;
+          const dupCover = await resolveCoverImage(post.text, post.channel, dupSeed, {
+            explicitPrompt: post.imagePrompt,
+          });
+          dupCoverUrl = dupCover.url;
+        }
+        const maxResult = await maxChannelPost(post.text, dupCoverUrl);
         if (maxResult.ok) {
           try {
             await query(
@@ -106,20 +123,34 @@ export async function publishManualChannelPost(
     return { ok: true, duplicate: true };
   }
 
-  // Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
-  // детерминированный Pollinations. Явный imagePrompt из триггера имеет приоритет.
-  const seed = post.seed ?? hashStr(post.text) % 9_999_999;
-  const cover = await resolveCoverImage(post.text, post.channel, seed, {
-    explicitPrompt: post.imagePrompt,
-  });
+  // Настоящие фото заданы — альбом, и никакой AI-обложки: пост про реальный
+  // тур показывает реальные кадры. Иначе прежний путь с генерируемой обложкой.
+  let result: { ok: boolean; error?: string };
+  let coverUrl: string;
+  let imageSource: string;
 
-  const result = await tgPostPhoto(channelId, cover.url, post.text);
+  if (post.photos && post.photos.length >= 2) {
+    const urls = post.photos.map((p) => (p.startsWith('/') ? `${SITE_URL}${p}` : p));
+    result = await tgPostMediaGroup(channelId, urls, post.text);
+    coverUrl = urls[0];
+    imageSource = 'real_photos';
+  } else {
+    // Обложка: умный путь (DashScope Qwen-Image) при включённой модели, иначе
+    // детерминированный Pollinations. Явный imagePrompt из триггера имеет приоритет.
+    const seed = post.seed ?? hashStr(post.text) % 9_999_999;
+    const cover = await resolveCoverImage(post.text, post.channel, seed, {
+      explicitPrompt: post.imagePrompt,
+    });
+    result = await tgPostPhoto(channelId, cover.url, post.text);
+    coverUrl = cover.url;
+    imageSource = cover.source;
+  }
 
   // MAX — после успешного TG-поста, fire-and-forget (как у автоматических
   // публикаторов): сбой MAX не должен ронять доставку и логирование TG.
   // Успех фиксируется отдельной записью — дедуп по каналам раздельный.
   if (result.ok && post.toMax) {
-    maxChannelPost(post.text, cover.url).then(async r => {
+    maxChannelPost(post.text, coverUrl).then(async r => {
       if (!r.ok) { console.error('[manual-channel-post] MAX error:', r.error); return; }
       try {
         await query(
@@ -138,7 +169,8 @@ export async function publishManualChannelPost(
           channel: post.channel,
           text_hash: textHash,
           text_preview: post.text.slice(0, 200),
-          image_source: cover.source,
+          image_source: imageSource,
+          photos_count: post.photos?.length ?? 0,
         })],
       );
     } catch { /* not critical */ }
