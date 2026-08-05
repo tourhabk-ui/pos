@@ -9,7 +9,11 @@
  *   - Регистрируем URL в личном кабинете Авито → Автозагрузка
  *   - Авито сам обновляет листинги каждые несколько часов
  *   - Не нужен OAuth, не нужно одобрение API
- *   - В описании каждого тура: ссылка на vedarai.ru/hub/tour/{id}
+ *   - В описании каждого тура: ссылка на публичную карточку
+ *     vedarai.ru/marketplace/tours/{id}. Здесь раньше стояло /hub/tour/{id} —
+ *     маршрута с таким путём в приложении нет, а /hub/* вдобавок под
+ *     авторизацией и закрыт в robots: каждое объявление вело бы в 404, то есть
+ *     весь трафик с площадки терялся бы на входе.
  *
  * РЕЖИМ 2 — REST API (после получения одобрения)
  *   - OAuth 2.0 Client Credentials
@@ -69,42 +73,102 @@ function escapeXml(s: string): string {
     .replace(/'/g, '&apos;');
 }
 
+/**
+ * Категория Авито и «вид отдыха» по типу активности.
+ *
+ * Жёстко зашитая «Охота и рыбалка» для ВСЕХ туров была ошибкой: сплав по
+ * Быстрой — не рыбалка, а объявление в неверной категории Авито снимает с
+ * публикации. Названия обязаны совпадать с теми, что видит владелец в кабинете
+ * Автозагрузки, — свериться можно только там, поэтому карта вынесена сюда
+ * одним местом.
+ *
+ * Неизвестный тип НЕ подставляется «по умолчанию»: лучше не выгрузить тур, чем
+ * выгрузить его не туда и получить бан аккаунта. Такие туры пропускаются, и это
+ * видно в счётчике фида.
+ */
+export const AVITO_CATEGORY_BY_ACTIVITY: Record<string, { category: string; kind: string }> = {
+  fishing:    { category: 'Охота и рыбалка', kind: 'Рыбалка' },
+  rafting:    { category: 'Охота и рыбалка', kind: 'Сплав' },
+  boat_trip:  { category: 'Охота и рыбалка', kind: 'Сплав' },
+};
+
+export function avitoCategory(activityType: string | null | undefined) {
+  if (!activityType) return null;
+  return AVITO_CATEGORY_BY_ACTIVITY[activityType] ?? null;
+}
+
+/** Абсолютный URL: Авито скачивает картинку сам и относительный путь не поймёт. */
+export function absoluteUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${SITE_URL.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+/** Публичная карточка тура. Раньше сюда шло /hub/tour/{id} — такого маршрута
+ * нет и не было, а /hub/* вдобавок закрыт авторизацией: каждое объявление вело
+ * бы в 404. Ради этого перехода объявление и размещается. */
+export function tourPublicUrl(id: number | string): string {
+  return `${SITE_URL.replace(/\/$/, '')}/marketplace/tours/${id}`;
+}
+
+/** Длительность словами. Делить часы на 8 нельзя: четырёхчасовой тур давал «0 дн.». */
+export function durationLabel(hours: number | null | undefined): string {
+  if (!hours || hours <= 0) return 'по договорённости';
+  if (hours >= 24) return `${Math.round(hours / 24)} дн.`;
+  if (hours >= 8) return '1 день';
+  return `${Math.round(hours)} ч.`;
+}
+
 function tourDescription(tour: ChannelTour): string {
   const base = tour.short_description ?? tour.description ?? '';
   const included = Array.isArray(tour.included) && tour.included.length > 0
     ? '\n\nВключено: ' + tour.included.join(', ')
     : '';
-  const link = `\n\nПодробнее и бронирование: ${SITE_URL}/hub/tour/${tour.id}`;
+  const link = `\n\nПодробнее и бронирование: ${tourPublicUrl(tour.id)}`;
   return (base + included + link).slice(0, 7000);
 }
 
 export function generateAvitoXmlFeed(tours: ChannelTour[]): string {
   const items = tours
-    .filter(t => t.tripster_experience_id !== 'skip')  // фильтр при необходимости
     .map(tour => {
+      const cat = avitoCategory(tour.activity_type);
+      if (!cat) return null; // тип без категории наружу не выгружаем — см. карту выше
       const price = Math.round(tour.base_price);
       const photos = (tour.photos ?? []).slice(0, 10)
-        .map(url => `      <Image url="${escapeXml(url)}"/>`)
+        .map(url => `      <Image url="${escapeXml(absoluteUrl(url))}"/>`)
         .join('\n');
+
+      const address = tour.location_name
+        ? `${escapeXml(tour.location_name)}, Камчатский край`
+        : 'Камчатский край';
+      const coords = tour.latitude != null && tour.longitude != null
+        ? `\n    <Latitude>${tour.latitude}</Latitude>\n    <Longitude>${tour.longitude}</Longitude>`
+        : '';
+      const contact = tour.operator_phone
+        ? `\n    <ContactPhone>${escapeXml(tour.operator_phone)}</ContactPhone>`
+        : '';
+      const manager = tour.operator_name
+        ? `\n    <ManagerName>${escapeXml(tour.operator_name)}</ManagerName>`
+        : '';
 
       return `
   <Ad>
     <Id>${tour.id}</Id>
-    <Category>Охота и рыбалка</Category>
+    <Category>${escapeXml(cat.category)}</Category>
     <Title>${escapeXml(tour.title.slice(0, 50))}</Title>
     <Description>${escapeXml(tourDescription(tour))}</Description>
     <Price>${price}</Price>
-    <Address>Камчатский край</Address>
+    <Address>${address}</Address>${coords}${manager}${contact}
     <AllowEmail>0</AllowEmail>
-    <ContactPhone>1</ContactPhone>
     ${photos ? `<Images>\n${photos}\n    </Images>` : ''}
     <Params>
-      <Param name="Вид отдыха">Рыбалка</Param>
-      <Param name="Длительность">${tour.duration_hours ? Math.round(tour.duration_hours / 8) + ' дн.' : 'по договорённости'}</Param>
+      <Param name="Вид отдыха">${escapeXml(cat.kind)}</Param>
+      <Param name="Длительность">${durationLabel(tour.duration_hours)}</Param>
       <Param name="Количество участников">до ${tour.max_participants} чел.</Param>
     </Params>
   </Ad>`.trim();
-    }).join('\n\n  ');
+    })
+    .filter((x): x is string => x !== null)
+    .join('\n\n  ');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Ads formatVersion="3" target="Avito.ru">

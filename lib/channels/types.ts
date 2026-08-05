@@ -21,6 +21,11 @@ export interface ChannelTour {
   included: string[];
   season_start: string | null;
   season_end: string | null;
+  // Оператор — для контактов в объявлении. Площадка обязана показывать телефон
+  // того, кто проводит тур: звонок «в платформу» без человека на конце убивает
+  // лид, ради которого объявление и размещалось.
+  operator_name?: string | null;
+  operator_phone?: string | null;
   // ID на внешних платформах
   tripster_experience_id: string | null;
   avito_listing_id: string | null;

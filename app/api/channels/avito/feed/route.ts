@@ -27,6 +27,7 @@ export async function GET() {
       included: unknown; season_start: string | null;
       season_end: string | null; tripster_experience_id: string | null;
       avito_listing_id: string | null; sputnik8_product_id: string | null;
+      operator_name: string | null; operator_phone: string | null;
     }>(`
       SELECT
         ot.id, ot.title, ot.description, ot.short_description,
@@ -34,8 +35,13 @@ export async function GET() {
         ot.base_price, ot.max_participants, ot.duration_hours,
         ot.difficulty, ot.photos, ot.included,
         ot.season_start::text, ot.season_end::text,
-        ot.tripster_experience_id, ot.avito_listing_id, ot.sputnik8_product_id
+        ot.tripster_experience_id, ot.avito_listing_id, ot.sputnik8_product_id,
+        COALESCE(p.company_name, p.name)               AS operator_name,
+        -- Телефон оператора, а не платформы: звонок «в никуда» убивает лид,
+        -- ради которого объявление и размещалось.
+        p.contacts->>'phone'                           AS operator_phone
       FROM operator_tours ot
+      LEFT JOIN partners p ON p.id = ot.operator_id
       WHERE ot.is_active = true
         AND ot.is_published = true
         AND ot.deleted_at IS NULL
@@ -62,6 +68,8 @@ export async function GET() {
       tripster_experience_id: r.tripster_experience_id,
       avito_listing_id:       r.avito_listing_id,
       sputnik8_product_id:    r.sputnik8_product_id,
+      operator_name:          r.operator_name,
+      operator_phone:         r.operator_phone,
     }));
 
     const xml = generateAvitoXmlFeed(tours);

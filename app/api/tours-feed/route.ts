@@ -1,5 +1,9 @@
 /**
- * GET /api/tours/export
+ * GET /api/tours-feed
+ *
+ * Путь в этой шапке раньше был написан как /api/tours/export — такого маршрута
+ * нет. Площадка, которой дали URL из документации, получила бы 404 и решила,
+ * что фида у нас нет.
  * Tour export feed for external platforms (Tripster, Sputnik8, GetYourGuide)
  *
  * Query params:
@@ -55,8 +59,8 @@ export async function GET(request: NextRequest) {
        t.min_participants AS min_group_size,
        p.name as op_name,
        p.slug as op_slug,
-       p.contact->>'phone' as op_phone,
-       p.contact->>'email' as op_email
+       p.contacts->>'phone' as op_phone,
+       p.contacts->>'email' as op_email
      FROM operator_tours t
      JOIN partners p ON t.operator_id = p.id
      WHERE ${conditions.join(' AND ')} AND t.deleted_at IS NULL
