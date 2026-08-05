@@ -182,7 +182,10 @@ describe('precision: цена ошибки', () => {
     const src = readFileSync(join(process.cwd(), 'app/api/cron/evo-report/route.ts'), 'utf-8');
     const statements = src.split(';').filter((s) => /FROM evo_growth_issues/.test(s));
     const metrics = statements.filter((s) => /FILTER \(WHERE status IN \('accepted'/.test(s));
-    expect(metrics.length, 'запросы точности не найдены — проверка стала пустой').toBe(2);
+    // Число метрик росло и будет расти (общая, по моделям, по стороне отказа).
+    // Проверяем свойство, а не количество: жёсткое «ровно 2» падало на добавлении
+    // третьего разреза, хотя ничего не сломалось.
+    expect(metrics.length, 'запросы точности не найдены — проверка стала пустой').toBeGreaterThanOrEqual(2);
     for (const s of metrics) {
       expect(s).toMatch(/github_issue_url IS NOT NULL/);
     }
