@@ -49,6 +49,7 @@ interface Tour {
  * сплав. Короткие подписи для чипов остались, но живут в том же словаре.
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
+import { photoSrc } from '@/lib/images/variant';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -299,7 +300,9 @@ function TourCard({
   const inCart = has(tour.id);
   const activity = activityLabel(tour.activity_type, true);
   const location = locationLabel(tour.location_type);
-  const imageSrc = tour.tour_image ?? ACTIVITY_IMAGES[tour.activity_type] ?? '/images/activities/volcanoes.jpg';
+  // 640-вариант: оптимизатор Next выключен, без нарезки карточка каталога
+  // грузила оригинал (см. lib/images/variant.ts).
+  const imageSrc = photoSrc(tour.tour_image ?? ACTIVITY_IMAGES[tour.activity_type] ?? '/images/activities/volcanoes.jpg', 640);
   const diffBadge = tour.difficulty ? DIFFICULTY_BADGE[tour.difficulty] : null;
   const duration = formatDuration(tour);
   const inSeason = isInSeason(tour);

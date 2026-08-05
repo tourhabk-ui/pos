@@ -11,6 +11,7 @@ import {
   Phone, Send, AlertTriangle, Check,
 } from 'lucide-react';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
+import { photoSrc } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
@@ -363,7 +364,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
       <header className="relative overflow-hidden" style={{ height: 'min(64vh, 560px)', minHeight: 380, background: 'var(--bg-hover)' }}>
         {heroImg ? (
           <button className="absolute inset-0 w-full h-full" onClick={() => setLightbox(0)} aria-label="Открыть фото">
-            <Image src={heroImg} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ filter: 'saturate(1.1) contrast(1.03)' }} />
+            {/* 1280-вариант: оптимизатор Next выключен (unoptimized), и без
+                нарезки герой грузил оригинал — на полевом EDGE десятки секунд. */}
+            <Image src={photoSrc(heroImg, 1280)} alt={tour.title} fill priority sizes="100vw" className="object-cover" style={{ filter: 'saturate(1.1) contrast(1.03)' }} />
           </button>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center"><MapPin className="w-16 h-16 text-[var(--text-muted)]" /></div>
@@ -451,7 +454,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
           <div className="pt-5 grid grid-cols-4 sm:grid-cols-6 gap-2">
             {stripPhotos.slice(0, 6).map((src, i) => (
               <button key={i} onClick={() => setLightbox(i + 1)} className="relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-hover)] group">
-                <Image src={src} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                <Image src={photoSrc(src, 640)} alt={`${tour.title} — фото ${i + 2}`} fill sizes="15vw" loading="lazy" className="object-cover group-hover:scale-105 transition-transform duration-500" />
                 {i === 5 && stripPhotos.length > 6 && (
                   <span className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-sm font-semibold">+{stripPhotos.length - 6}</span>
                 )}

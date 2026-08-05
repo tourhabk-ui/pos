@@ -27,6 +27,7 @@ import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
+import { photoSrc } from '@/lib/images/variant';
 import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
@@ -427,7 +428,10 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <section>
             <div className="shead"><h2>Подходит вам сейчас</h2><span className="line" /><Link className="all" href="/catalog">Все</Link></div>
             <Link href={plates[0].kind === 'tour' ? `/marketplace/tours/${plates[0].id}` : `/routes/${plates[0].id}`} className="firstpick">
-              <div className="fp-photo" style={plates[0].imageUrl ? { backgroundImage: `url('${plates[0].imageUrl}')` } : undefined}>
+              {/* 1280-вариант вместо оригинала: фон не умеет srcset, но вес
+                  режется нарезкой (см. scripts/optimize-images.mjs) — владелец
+                  с полевого EDGE ждал оригинал десятки секунд. */}
+              <div className="fp-photo" style={plates[0].imageUrl ? { backgroundImage: `url('${photoSrc(plates[0].imageUrl, 1280)}')` } : undefined}>
                 {!plates[0].imageUrl && <span className="noimg" />}
                 <span className="fp-shade" aria-hidden />
                 {pill.tone === 'calm' && <span className="fp-badge">Сегодня спокойно</span>}
@@ -496,7 +500,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
                 const price = fmtPrice(p.priceFrom);
                 return (
                   <figure className="plate" key={p.id}>
-                    <Link href={href}><div className="img" style={p.imageUrl ? { backgroundImage: `url('${p.imageUrl}')` } : undefined}>
+                    <Link href={href}><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
                     </div></Link>
                     <div className="row"><b>{p.title}</b></div>

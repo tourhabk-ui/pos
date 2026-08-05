@@ -118,6 +118,16 @@ const nextConfig = {
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         ],
       },
+      // Контентные фото меняются только новым файлом (нарезка — коммитом),
+      // поэтому кэшируем надолго: повторный визит с поля не должен тянуть
+      // те же мегабайты. По умолчанию Next отдаёт public/ вообще без
+      // Cache-Control — каждый заход платил полную цену.
+      {
+        source: '/images/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=86400' },
+        ],
+      },
       {
         source: '/hub/:path*',
         headers: [
