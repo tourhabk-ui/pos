@@ -48,8 +48,16 @@ export function resolveChannelId(channel: ManualChannelPost['channel']): string 
     : process.env.TELEGRAM_CHANNEL_ID;
 }
 
-export function manualPostTextHash(text: string): string {
-  return createHash('sha256').update(text).digest('hex').slice(0, 32);
+/**
+ * Хэш СОДЕРЖИМОГО поста, а не только текста. Пост с альбомом настоящих фото и
+ * пост с тем же текстом, но AI-обложкой — разные публикации, и дедуп не должен
+ * их склеивать. Живой случай 06.08: гонка деплоя отправила пост через старый
+ * контейнер, который отбросил photos; с чисто текстовым хэшем повторная
+ * публикация альбома была бы навсегда заблокирована как «дубль».
+ */
+export function manualPostTextHash(text: string, photos?: string[]): string {
+  const content = photos?.length ? `${text}\n${photos.join('\n')}` : text;
+  return createHash('sha256').update(content).digest('hex').slice(0, 32);
 }
 
 /**
@@ -64,7 +72,7 @@ export async function publishManualChannelPost(
     return { ok: false, error: `Канал ${post.channel} не настроен (env отсутствует)` };
   }
 
-  const textHash = manualPostTextHash(post.text);
+  const textHash = manualPostTextHash(post.text, post.photos);
   let tgDuplicate = false;
   try {
     const dup = await query(
