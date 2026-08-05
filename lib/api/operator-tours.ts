@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 
 // ============================================================================
 // SCHEMAS
@@ -147,6 +148,13 @@ export async function createTour(
   userId: string,
   input: z.infer<typeof CreateTourSchema>
 ) {
+  // Тип колонок состава спрашиваем у схемы: на проде они год были jsonb там,
+  // где репозиторий объявлял TEXT[], и запись «вслепую» ломалась в ту или
+  // другую сторону — либо ошибкой типа, либо одной строкой вместо списка.
+  const columnTypes = await getColumnTypes('operator_tours');
+  const arrayField = (value: string[] | undefined, column: string) =>
+    valueForColumn(value ?? [], column, columnTypes);
+
   const tourResult = await query(
     `INSERT INTO operator_tours (
       operator_id, title, description, short_description,
@@ -182,14 +190,10 @@ export async function createTour(
       input.season_start || null,
       input.season_end || null,
       input.difficulty || null,
-      // TEXT[], а не json: массив передаётся как есть. JSON.stringify здесь
-      // жил, пока колонки на проде были json (миграция 823 привела их к типу,
-      // который репозиторий объявлял с 056). Строка '["а","б"]' в TEXT[] —
-      // это одна строка с кавычками и скобками, а не два пункта состава.
-      input.included || [],
-      input.not_included || [],
-      input.what_to_bring || [],
-      input.photos || [],
+      arrayField(input.included, 'included'),
+      arrayField(input.not_included, 'not_included'),
+      arrayField(input.what_to_bring, 'what_to_bring'),
+      arrayField(input.photos, 'photos'),
       input.tour_image || null,
       input.agent_route_id || null,
       input.weather_dependent,
