@@ -57,6 +57,25 @@ export function isModelGuess(category: string): boolean {
   return !DETERMINISTIC_CATEGORIES.has(category);
 }
 
+/**
+ * Догадка ли это модели — с учётом размеченной стороны отказа (миграция 820,
+ * схема из arXiv:2607.28802).
+ *
+ * Категория говорит, ЧЕМ находка занята; `fault_side` — КТО виноват. Это разные
+ * вопросы, и до сих пор мы задавали только первый. Находка категории `bug`,
+ * которая на деле описывает сломанный деплой или совравший сторож, — не
+ * свидетельство того, что модель врёт: чинить там окружение и грейдер. Пока
+ * такие находки шли в общий счёт, их отказы гасили код-находки, к которым
+ * модель как раз имеет отношение.
+ *
+ * `fault_side` пуст (записи до 820) — падаем на прежнее правило по категории:
+ * смысл уже накопленных данных не должен меняться задним числом.
+ */
+export function isModelGuessLocated(f: { category: string; fault_side?: string | null }): boolean {
+  if (!f.fault_side) return isModelGuess(f.category);
+  return f.fault_side === 'model';
+}
+
 /** Вердикт человека, снятый с закрытой задачи GitHub. */
 export type IssueVerdict = 'fixed' | 'rejected' | null;
 
@@ -159,7 +178,7 @@ export function decidePublish(s: PrecisionStats, floor = PRECISION_FLOOR): Publi
  * плюс пробник — самую тяжёлую догадку (см. GUESS_PROBE). Порядок исходного
  * массива сохраняется: выбор пробника не должен переставлять остальное.
  */
-export function applyPublishDecision<T extends { category: string; severity?: string }>(
+export function applyPublishDecision<T extends { category: string; severity?: string; fault_side?: string | null }>(
   findings: T[],
   decision: PublishDecision,
 ): T[] {
@@ -167,10 +186,10 @@ export function applyPublishDecision<T extends { category: string; severity?: st
 
   const probes = new Set(
     findings
-      .filter((f) => isModelGuess(f.category))
+      .filter((f) => isModelGuessLocated(f))
       .sort((a, b) => severityRank(a.severity ?? 'medium') - severityRank(b.severity ?? 'medium'))
       .slice(0, Math.max(0, decision.probeSlots)),
   );
 
-  return findings.filter((f) => !isModelGuess(f.category) || probes.has(f));
+  return findings.filter((f) => !isModelGuessLocated(f) || probes.has(f));
 }

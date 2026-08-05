@@ -7,6 +7,7 @@ import {
   MapPin, Clock, Users, DollarSign, Mountain, Upload, Loader2,
   CalendarDays,
 } from 'lucide-react';
+import { readApiResponse } from '@/lib/http/api-response';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
 
@@ -260,10 +261,11 @@ export default function EditTourClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Ошибка сохранения');
-      }
+      // Через общий разбор: пустое тело пятисотки раньше превращалось в
+      // «Unexpected end of JSON input» вместо причины отказа.
+      const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string }>(res);
+      if (apiError) throw new Error(apiError);
+      if (!data?.success) throw new Error(data?.error || 'Ошибка сохранения');
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e) {

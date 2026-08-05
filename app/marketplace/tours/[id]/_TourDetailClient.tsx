@@ -10,6 +10,7 @@ import {
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
   Phone, Send, AlertTriangle, Check,
 } from 'lucide-react';
+import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
@@ -704,7 +705,10 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 <div className="text-center py-10 px-6 border border-dashed border-[var(--border)] rounded-lg">
                   <MessageSquare className="w-7 h-7 mx-auto mb-2.5 text-[var(--text-muted)]" />
                   <p className="text-[var(--text-secondary)] text-sm">Пока никто не оставил отзыв.<br />Будьте первым, кто расскажет о поездке.</p>
-                  <span className="inline-flex items-center gap-2 mt-4 border border-[var(--border)] rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-secondary)]"><PenLine className="w-4 h-4 text-[var(--ocean)]" />Оставить отзыв</span>
+                  {/* Была нарисованная кнопка: <span> без обработчика и без
+                      ссылки. Выглядела как действие и не делала ничего —
+                      владелец так и написал, «не работает». */}
+                  <TourReviewForm tourId={tour.id} />
                 </div>
               )}
             </section>

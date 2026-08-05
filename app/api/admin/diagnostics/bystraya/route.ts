@@ -1,126 +1,189 @@
 /**
- * GET /api/admin/diagnostics/bystraya  (admin-only)
+ * GET /api/admin/diagnostics/bystraya  (admin-only, только чтение)
  *
- * Точная диагностика, почему карточка тура «Сплав по реке Быстрая» не видна на
- * проде. Каталог показывает тур только при is_active + is_published +
- * deleted_at IS NULL (lib/search/tour-search.ts). Публикацию ставит миграция
- * 789. Здесь отвечаем детерминированно: есть ли строка тура, в каком она
- * состоянии, применились ли миграции 788–797 и не падали ли они.
+ * Почему правки состава тура «Сплав по реке Быстрая» не доезжают до карточки.
  *
- * Только чтение, без побочных эффектов.
+ * Владелец 05.08 третий раз прислал одну и ту же строку — «Рыболовные снасти
+ * (аренда 500 руб)» в блоке «не входит», хотя оператор говорит, что снасти
+ * входят в стоимость. Две миграции подряд (819, затем 821) писались вслепую:
+ * живых данных из среды разработки не видно, прод закрыт сетевой политикой.
+ * Обе отчитались «применилась», карточка не изменилась. Ноль изменённых строк
+ * неотличим от успеха — и отличить их можно только отсюда.
+ *
+ * Прошлая версия этого файла отвечала на вопрос, которого уже нет: она искала
+ * тур по жёстко вписанному имени «Однодневная экскурсия СПЛАВ ПО РЕКЕ БЫСТРАЯ»
+ * (миграция 806 переименовала его в «Сплав по реке Быстрая») и проверяла
+ * список миграций, обрывавшийся на 800. То есть на живой базе она сказала бы
+ * «тур не найден» — диагностика, которая устарела молча, хуже её отсутствия:
+ * она даёт ложную уверенность.
+ *
+ * Поэтому здесь нет ни одного вписанного руками названия и ни одного списка,
+ * который надо помнить обновить:
+ *   • туры ищутся по СОДЕРЖАНИЮ и отдаются ВСЕ — без «канонического» выбора.
+ *     Гипотеза «правили не тот тур» проверяется только полным списком;
+ *   • состояние миграций считается сверкой каталога `migrations/` с таблицей
+ *     `_migrations`, а причины падений берутся из `_migration_failures` целиком;
+ *   • типы колонок читаются из `information_schema` — это проверка главной
+ *     гипотезы: если `included/not_included/what_to_bring` на проде `jsonb`, а
+ *     не `text[]`, то все миграции, писавшие в них `ARRAY[...]`, обязаны были
+ *     упасть, и падали молча.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { readdirSync } from 'fs';
+import { join } from 'path';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 
 export const dynamic = 'force-dynamic';
 
-const PARTNER_SLUG = 'kamchatka-rafting';
-const TOUR_TITLE = 'Однодневная экскурсия СПЛАВ ПО РЕКЕ БЫСТРАЯ';
-const MIGRATIONS = [
-  '788_bystraya_tour_honest_dates.sql',
-  '789_bystraya_tour_publish.sql',
-  '790_bystraya_tour_capacity.sql',
-  '793_bystraya_tour_description_from_channel.sql',
-  '794_bystraya_tour_real_photos.sql',
-  '795_bystraya_tour_gallery_expand.sql',
-  '796_bystraya_tour_content_fields.sql',
-  '797_operator_tours_meeting_point.sql',
-  '800_bystraya_tour_force_publish.sql',
+/** Колонки, вокруг типа которых крутится весь разбор. */
+const CONTENT_COLUMNS = [
+  'included', 'not_included', 'what_to_bring',
+  'program', 'safety_notes', 'photos',
 ];
+
+/** Тип, который эти колонки должны иметь по миграции 056. */
+const EXPECTED_UDT = '_text';
+
+interface ColumnType {
+  column_name: string;
+  /** 'ARRAY' для text[], 'jsonb' для jsonb. */
+  data_type: string;
+  /** '_text' для text[], 'jsonb' для jsonb — точнее, чем data_type. */
+  udt_name: string;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   const result: Record<string, unknown> = {};
+  const verdict: string[] = [];
 
-  // 1. Партнёр
+  // ── 1. Типы колонок: главная проверяемая гипотеза ───────────────────────────
+  let columnTypes: ColumnType[] = [];
   try {
-    const p = await pool.query<{ id: string; name: string }>(
-      `SELECT id::text, name FROM partners WHERE slug = $1`, [PARTNER_SLUG],
+    const { rows } = await pool.query<ColumnType>(
+      `SELECT column_name, data_type, udt_name
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'operator_tours'
+          AND column_name = ANY($1)
+        ORDER BY column_name`,
+      [CONTENT_COLUMNS],
     );
-    result.partner = p.rows[0] ?? null;
-  } catch (e) { result.partner_error = e instanceof Error ? e.message : String(e); }
+    columnTypes = rows;
+    result.column_types = rows;
+  } catch (e) {
+    result.column_types_error = e instanceof Error ? e.message : String(e);
+  }
 
-  // 2. Тур: существует ли и в каком состоянии
+  const mistyped = columnTypes.filter(
+    (c) => ['included', 'not_included', 'what_to_bring'].includes(c.column_name)
+      && c.udt_name !== EXPECTED_UDT,
+  );
+
+  // ── 2. Все туры сплава, без выбора одного ───────────────────────────────────
+  // Никакого LIMIT 1: именно «канонический» выбор через ORDER BY ... LIMIT 1
+  // подозревается в том, что правил не тот тур, который видит турист.
   try {
-    const t = await pool.query<{
-      id: string; title: string; is_published: boolean | null; is_active: boolean | null;
-      deleted_at: string | null; activity_type: string | null; base_price: string | null;
-      has_description: boolean; has_meeting_point: boolean; photos_count: number;
-    }>(
-      `SELECT ot.id::text, ot.title, ot.is_published, ot.is_active,
-              ot.deleted_at::text, ot.activity_type, ot.base_price::text,
-              (ot.description IS NOT NULL AND length(ot.description) > 0) AS has_description,
+    const { rows } = await pool.query(
+      `SELECT ot.id::text,
+              ot.title,
+              p.slug         AS operator_slug,
+              p.name         AS operator_name,
+              ot.is_active,
+              ot.is_published,
+              ot.deleted_at::text,
+              ot.base_price::text,
+              ot.activity_type,
+              ot.included,
+              ot.not_included,
+              ot.what_to_bring,
+              (ot.program IS NOT NULL)      AS has_program,
               (ot.meeting_point IS NOT NULL) AS has_meeting_point,
-              COALESCE(array_length(ot.photos, 1), 0) AS photos_count
+              COALESCE(array_length(ot.photos, 1), 0) AS photos_count,
+              ot.created_at::text,
+              ot.updated_at::text
          FROM operator_tours ot
-         JOIN partners p ON p.id = ot.operator_id
-        WHERE p.slug = $1 AND ot.title = $2`,
-      [PARTNER_SLUG, TOUR_TITLE],
+         LEFT JOIN partners p ON p.id = ot.operator_id
+        WHERE ot.title ILIKE '%быстр%'
+           OR ot.activity_type IN ('rafting', 'boat_trip')
+        ORDER BY ot.created_at ASC`,
     );
-    result.tour = t.rows[0] ?? null;
-    result.tour_found = t.rows.length > 0;
+    result.rafting_tours = rows;
+    result.rafting_tours_count = rows.length;
+  } catch (e) {
+    result.rafting_tours_error = e instanceof Error ? e.message : String(e);
+  }
 
-    // 2b. Видна ли в каталоге по фильтру (is_active + is_published + not deleted)
-    if (t.rows[0]) {
-      const row = t.rows[0];
-      result.visible_in_catalog =
-        row.is_active === true && row.is_published === true && row.deleted_at === null;
+  // ── 3. Миграции: сверка каталога с таблицей, без списков вручную ────────────
+  try {
+    const { rows } = await pool.query<{ name: string }>('SELECT name FROM _migrations');
+    const applied = new Set(rows.map((r) => r.name));
+
+    let files: string[] = [];
+    try {
+      files = readdirSync(join(process.cwd(), 'migrations'))
+        .filter((f) => f.endsWith('.sql'))
+        .sort();
+    } catch {
+      // Каталога нет в образе — тогда про «не применилось» ничего не утверждаем.
+      result.migrations_note = 'каталог migrations/ недоступен в образе — сверка пропущена';
     }
-  } catch (e) { result.tour_error = e instanceof Error ? e.message : String(e); }
 
-  // 3. Будущие даты доступности
-  try {
-    const a = await pool.query<{ future_dates: string }>(
-      `SELECT COUNT(*)::text AS future_dates
-         FROM tour_availability ta
-         JOIN operator_tours ot ON ot.id = ta.operator_tour_id
-         JOIN partners p ON p.id = ot.operator_id
-        WHERE p.slug = $1 AND ot.title = $2
-          AND ta.date >= CURRENT_DATE AND ta.deleted_at IS NULL`,
-      [PARTNER_SLUG, TOUR_TITLE],
-    );
-    result.future_availability_dates = parseInt(a.rows[0]?.future_dates ?? '0', 10);
-  } catch (e) { result.availability_error = e instanceof Error ? e.message : String(e); }
+    if (files.length > 0) {
+      const missing = files.filter((f) => !applied.has(f));
+      result.migrations_total = files.length;
+      result.migrations_applied_count = files.length - missing.length;
+      result.migrations_missing = missing;
+    }
+  } catch (e) {
+    result.migrations_error = e instanceof Error ? e.message : String(e);
+  }
 
-  // 4. Применены ли миграции 788–797
+  // ── 4. Причины падений — целиком, а не по списку имён ───────────────────────
   try {
-    const m = await pool.query<{ name: string }>(
-      `SELECT name FROM _migrations WHERE name = ANY($1)`, [MIGRATIONS],
-    );
-    const applied = new Set(m.rows.map(r => r.name));
-    result.migrations_applied = MIGRATIONS.map(n => ({ name: n, applied: applied.has(n) }));
-  } catch (e) { result.migrations_error = e instanceof Error ? e.message : String(e); }
-
-  // 5. Падавшие миграции (если таблица есть)
-  try {
-    const f = await pool.query<{ name: string; error: string; attempts: number; last_failed_at: string }>(
+    const { rows } = await pool.query(
       `SELECT name, error, attempts, last_failed_at::text
-         FROM _migration_failures WHERE name = ANY($1)`, [MIGRATIONS],
+         FROM _migration_failures ORDER BY name`,
     );
-    result.migration_failures = f.rows;
+    result.migration_failures = rows;
   } catch {
     result.migration_failures = 'таблица _migration_failures недоступна (старый деплой?)';
   }
 
-  // 6. Вердикт — человекочитаемо
-  const verdict: string[] = [];
-  if (result.tour_found === false) {
-    verdict.push('Тур НЕ найден в БД: миграция 060 не создала строку на проде (или slug/title иные). Публиковать нечего.');
-  } else if (result.visible_in_catalog === true) {
-    verdict.push('Тур опубликован и проходит фильтр каталога. Не видно на телефоне → кэш PWA: закрыть-открыть приложение / очистить кэш.');
-  } else {
-    const tour = result.tour as Record<string, unknown> | null;
-    if (tour) {
-      if (tour.is_published !== true) verdict.push('is_published != true → миграция 789 не применилась (см. migrations_applied/failures).');
-      if (tour.is_active !== true) verdict.push('is_active != true.');
-      if (tour.deleted_at !== null) verdict.push('deleted_at проставлен → тур скрыт как удалённый.');
+  // ── 5. Вердикт словами ──────────────────────────────────────────────────────
+  if (mistyped.length > 0) {
+    verdict.push(
+      `Тип колонок расходится с репозиторием: ${mistyped
+        .map((c) => `${c.column_name} = ${c.udt_name === 'jsonb' ? 'jsonb' : c.data_type}`)
+        .join(', ')}. Миграция 056 объявляет их TEXT[], но ADD COLUMN IF NOT EXISTS молча ничего не делает, если колонка уже есть с другим типом. Все миграции, писавшие в них ARRAY[...] (796, 806, 819), обязаны были упасть — см. migration_failures. По этой же причине сохранение тура из кабинета отдавало пустую пятисотку.`,
+    );
+  } else if (columnTypes.length > 0) {
+    verdict.push(
+      'Типы колонок совпадают с репозиторием (text[]). Значит причина не в типе: смотреть rafting_tours — правился ли тот тур, который видит турист, — и migration_failures.',
+    );
+  }
+
+  const failures = result.migration_failures;
+  if (Array.isArray(failures) && failures.length > 0) {
+    verdict.push(`Упавших миграций: ${failures.length}. Причина каждой — в поле error.`);
+  }
+
+  const tours = result.rafting_tours;
+  if (Array.isArray(tours)) {
+    const live = tours.filter(
+      (t) => (t as { deleted_at: string | null }).deleted_at === null,
+    );
+    if (live.length > 1) {
+      verdict.push(
+        `Живых туров сплава ${live.length}, а не один. Любая миграция, выбиравшая один «канонический» тур подзапросом, могла править не тот, который открывает турист.`,
+      );
     }
   }
-  result.verdict = verdict;
 
+  result.verdict = verdict;
   return NextResponse.json(result);
 }

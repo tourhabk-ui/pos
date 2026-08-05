@@ -7,6 +7,7 @@ import {
   Mountain, Thermometer, Fish, Wind, Anchor, Footprints, Plus, Images,
   Upload, Loader2,
 } from 'lucide-react';
+import { readApiResponse } from '@/lib/http/api-response';
 
 // ─────────────────────────────────────────────
 // Типы
@@ -620,17 +621,11 @@ export default function ToursManagement() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    const json: unknown = await res.json();
-    if (!res.ok) {
-      let msg = (typeof json === 'object' && json !== null && 'error' in json)
-        ? String((json as { error: unknown }).error) : 'Ошибка сервера';
-      if (typeof json === 'object' && json !== null && 'details' in json) {
-        const d = (json as { details: { fieldErrors?: Record<string, string[]> } }).details;
-        const fields = Object.entries(d.fieldErrors ?? {}).map(([k, v]) => `${k}: ${v[0]}`).join('; ');
-        if (fields) msg += ` (${fields})`;
-      }
-      throw new Error(msg);
-    }
+    // Тело читаем через общий разбор: `res.json()` на пустом ответе бросал
+    // «Unexpected end of JSON input», и вместо причины отказа человек видел
+    // ошибку браузера (владелец, 05.08).
+    const { error } = await readApiResponse(res);
+    if (error) throw new Error(error);
     fetchTours();
   }
 

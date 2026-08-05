@@ -7,9 +7,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
+import { redactPII } from '@/lib/security/pii-redact';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Отказ базы — это ответ, а не молчание.
+ *
+ * Раньше ни один обработчик здесь не ловил исключений: любой отказ Postgres
+ * ронял роут, Next отдавал пятисотку без тела, и владелец в кабинете видел
+ * «Unexpected end of JSON input» — сообщение о том, что браузер не смог
+ * разобрать пустоту. Настоящая причина («column included is of type jsonb but
+ * expression is of type text[]», нехватка колонки, нарушение ограничения) не
+ * доезжала никуда: ни в интерфейс, ни в понимание.
+ *
+ * Роут admin-only, поэтому текст ошибки Postgres показываем — он состоит из
+ * имён колонок и типов и стоит ровно столько же, сколько доступ к базе. Через
+ * `redactPII` он всё же проходит: сообщения вида `invalid input syntax for
+ * type uuid: "..."` несут ЗНАЧЕНИЕ, а значением может оказаться телефон или
+ * почта туриста.
+ */
+function dbFailure(error: unknown, action: string): NextResponse {
+  const raw = error instanceof Error ? error.message : String(error);
+  return NextResponse.json(
+    { error: `Не удалось ${action}`, reason: redactPII(raw).slice(0, 300) },
+    { status: 500 },
+  );
+}
 
 const UpdateSchema = z.object({
   title: z.string().min(5).max(255).optional(),
@@ -70,28 +95,37 @@ export async function GET(
   const authOrResponse = await requireAdmin(request);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  const tourId = BigInt(params.id);
-
-  const result = await query(
-    `SELECT
-       ot.*, p.company_name AS operator_name,
-       COALESCE(
-         array_agg(tt.tag ORDER BY tt.tag) FILTER (WHERE tt.tag IS NOT NULL),
-         '{}'::text[]
-       ) AS tags
-     FROM operator_tours ot
-     LEFT JOIN partners p ON ot.operator_id = p.id
-     LEFT JOIN operator_tour_tags tt ON ot.id = tt.tour_id
-     WHERE ot.id = $1 AND ot.deleted_at IS NULL
-     GROUP BY ot.id, p.company_name`,
-    [tourId]
-  );
-
-  if (!result.rows[0]) {
-    return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+  let tourId: bigint;
+  try {
+    tourId = BigInt(params.id);
+  } catch {
+    return NextResponse.json({ error: 'Неверный идентификатор тура' }, { status: 400 });
   }
 
-  return NextResponse.json({ success: true, data: result.rows[0] });
+  try {
+    const result = await query(
+      `SELECT
+         ot.*, p.company_name AS operator_name,
+         COALESCE(
+           array_agg(tt.tag ORDER BY tt.tag) FILTER (WHERE tt.tag IS NOT NULL),
+           '{}'::text[]
+         ) AS tags
+       FROM operator_tours ot
+       LEFT JOIN partners p ON ot.operator_id = p.id
+       LEFT JOIN operator_tour_tags tt ON ot.id = tt.tour_id
+       WHERE ot.id = $1 AND ot.deleted_at IS NULL
+       GROUP BY ot.id, p.company_name`,
+      [tourId]
+    );
+
+    if (!result.rows[0]) {
+      return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    return dbFailure(error, 'загрузить тур');
+  }
 }
 
 export async function PATCH(
@@ -101,13 +135,23 @@ export async function PATCH(
   const authOrResponse = await requireAdmin(request);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  const tourId = BigInt(params.id);
+  let tourId: bigint;
+  try {
+    tourId = BigInt(params.id);
+  } catch {
+    return NextResponse.json({ error: 'Неверный идентификатор тура' }, { status: 400 });
+  }
 
   // Проверим что тур существует
-  const existing = await query(
-    `SELECT id FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
-    [tourId]
-  );
+  let existing;
+  try {
+    existing = await query(
+      `SELECT id FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
+      [tourId]
+    );
+  } catch (error) {
+    return dbFailure(error, 'найти тур');
+  }
   if (!existing.rows[0]) {
     return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
   }
@@ -145,40 +189,44 @@ export async function PATCH(
     return NextResponse.json({ error: 'Нет полей для обновления' }, { status: 400 });
   }
 
-  if (fields.length > 0) {
-    values.push(tourId);
-    await query(
-      `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
-       WHERE id = $${idx} AND deleted_at IS NULL`,
-      values
-    );
-  }
-
-  // Обновляем теги — один DELETE + один batch INSERT через UNNEST
-  if (tags !== undefined) {
-    await query(`DELETE FROM operator_tour_tags WHERE tour_id = $1`, [tourId]);
-    if (tags.length > 0) {
-      const normalized = tags.map(t => t.trim().toLowerCase());
+  try {
+    if (fields.length > 0) {
+      values.push(tourId);
       await query(
-        `INSERT INTO operator_tour_tags (tour_id, tag)
-         SELECT $1, UNNEST($2::text[])
-         ON CONFLICT DO NOTHING`,
-        [tourId, normalized],
+        `UPDATE operator_tours SET ${fields.join(', ')}, updated_at = NOW()
+         WHERE id = $${idx} AND deleted_at IS NULL`,
+        values
       );
     }
+
+    // Обновляем теги — один DELETE + один batch INSERT через UNNEST
+    if (tags !== undefined) {
+      await query(`DELETE FROM operator_tour_tags WHERE tour_id = $1`, [tourId]);
+      if (tags.length > 0) {
+        const normalized = tags.map(t => t.trim().toLowerCase());
+        await query(
+          `INSERT INTO operator_tour_tags (tour_id, tag)
+           SELECT $1, UNNEST($2::text[])
+           ON CONFLICT DO NOTHING`,
+          [tourId, normalized],
+        );
+      }
+    }
+
+    const updated = await query(
+      `SELECT ot.*, p.company_name AS operator_name,
+         COALESCE(array_agg(tt.tag ORDER BY tt.tag) FILTER (WHERE tt.tag IS NOT NULL), '{}'::text[]) AS tags
+       FROM operator_tours ot
+       LEFT JOIN partners p ON ot.operator_id = p.id
+       LEFT JOIN operator_tour_tags tt ON ot.id = tt.tour_id
+       WHERE ot.id = $1 GROUP BY ot.id, p.company_name`,
+      [tourId]
+    );
+
+    return NextResponse.json({ success: true, data: updated.rows[0] });
+  } catch (error) {
+    return dbFailure(error, 'сохранить тур');
   }
-
-  const updated = await query(
-    `SELECT ot.*, p.company_name AS operator_name,
-       COALESCE(array_agg(tt.tag ORDER BY tt.tag) FILTER (WHERE tt.tag IS NOT NULL), '{}'::text[]) AS tags
-     FROM operator_tours ot
-     LEFT JOIN partners p ON ot.operator_id = p.id
-     LEFT JOIN operator_tour_tags tt ON ot.id = tt.tour_id
-     WHERE ot.id = $1 GROUP BY ot.id, p.company_name`,
-    [tourId]
-  );
-
-  return NextResponse.json({ success: true, data: updated.rows[0] });
 }
 
 export async function DELETE(
@@ -188,18 +236,27 @@ export async function DELETE(
   const authOrResponse = await requireAdmin(request);
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
-  const tourId = BigInt(params.id);
-
-  const result = await query(
-    `UPDATE operator_tours SET deleted_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id`,
-    [tourId]
-  );
-
-  if (!result.rows[0]) {
-    return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+  let tourId: bigint;
+  try {
+    tourId = BigInt(params.id);
+  } catch {
+    return NextResponse.json({ error: 'Неверный идентификатор тура' }, { status: 400 });
   }
 
-  return NextResponse.json({ success: true, message: 'Тур удалён' });
+  try {
+    const result = await query(
+      `UPDATE operator_tours SET deleted_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id`,
+      [tourId]
+    );
+
+    if (!result.rows[0]) {
+      return NextResponse.json({ error: 'Тур не найден' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: 'Тур удалён' });
+  } catch (error) {
+    return dbFailure(error, 'удалить тур');
+  }
 }

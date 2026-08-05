@@ -122,13 +122,57 @@ export async function GET(req: NextRequest) {
   // наравне с прочитанными и отвергнутыми. Получалось, что страж наказывал сам
   // себя: сработал — точность просела — заглохли и настоящие находки. Его
   // работа видна отдельно, в rejected_by_guard.
+  //
+  // Считаем по находкам, за которые отвечает МОДЕЛЬ (миграция 820, схема
+  // arXiv:2607.28802). Категория говорит, чем находка занята; fault_side — кто
+  // виноват. Отвергнутая находка про сломанный деплой или совравший сторож
+  // ничего не сообщает о том, врёт ли модель, — а до сих пор она гасила
+  // код-находки наравне с настоящими промахами модели.
+  //
+  // fault_side IS NULL — записи до 820: прежнее правило по категории, чтобы
+  // смысл накопленных данных не менялся задним числом.
   const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
     SELECT
       COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text    AS accepted,
       COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text  AS rejected
     FROM evo_growth_issues
     WHERE github_issue_url IS NOT NULL
+      AND (
+        fault_side = 'model'
+        OR (fault_side IS NULL AND category NOT IN ('ux', 'security', 'tech_debt'))
+      )
   `);
+
+  // Раздельная точность: видно, где на самом деле горит. Разбор наших сбоев
+  // 04–05.08 показал, что дороже всего обходился ГРЕЙДЕР — измеритель,
+  // отвечавший не на тот вопрос, — а вовсе не модель.
+  const { rows: byLocation } = await pool.query<{
+    edge: string | null; fault_side: string | null; accepted: string; rejected: string; total: string;
+  }>(`
+    SELECT edge,
+           fault_side,
+           COUNT(*) FILTER (WHERE status IN ('accepted', 'fixed'))::text   AS accepted,
+           COUNT(*) FILTER (WHERE status IN ('rejected', 'ignored'))::text AS rejected,
+           COUNT(*)::text                                                  AS total
+      FROM evo_growth_issues
+     WHERE github_issue_url IS NOT NULL
+       AND fault_side IS NOT NULL
+     GROUP BY edge, fault_side
+     ORDER BY COUNT(*) DESC
+     LIMIT 20
+  `).catch(() => ({ rows: [] as Array<{ edge: string | null; fault_side: string | null; accepted: string; rejected: string; total: string }> }));
+
+  const precisionByLocation = byLocation.map((r) => {
+    const a = Number(r.accepted); const rj = Number(r.rejected);
+    return {
+      edge: r.edge,
+      fault_side: r.fault_side,
+      total: Number(r.total),
+      accepted: a,
+      rejected: rj,
+      precision: a + rj > 0 ? Number((a / (a + rj)).toFixed(2)) : null,
+    };
+  });
   const decision = decidePublish({
     accepted: Number(pr[0]?.accepted ?? 0),
     rejected: Number(pr[0]?.rejected ?? 0),
@@ -163,7 +207,8 @@ export async function GET(req: NextRequest) {
     -- model: кто породил находку. Без него в тикете не видно, дал её флагман
     -- или waterfall тихо съехал на фоллбэк, — а тихое понижение выглядит ровно
     -- как здоровье (см. buildIssueBody).
-    SELECT id, category, severity, file_path, line_number, title, description, suggestion, status, model
+    SELECT id, category, severity, file_path, line_number, title, description, suggestion, status, model,
+           edge, fault_side
     FROM evo_growth_issues
     WHERE status = 'suggested'
       AND github_issue_url IS NULL
@@ -255,6 +300,8 @@ export async function GET(req: NextRequest) {
     precision_note: decision.reason,
     // Кто именно врёт: точность в разрезе моделей-авторов находок.
     precision_by_model: precisionByModel,
+    // Где горит на самом деле: ребро взаимодействия и виновная сторона.
+    precision_by_location: precisionByLocation,
     issues,
   });
 }

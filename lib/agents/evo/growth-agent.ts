@@ -15,6 +15,7 @@ import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
 import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
+import { locateFailure } from '@/lib/agents/evo/failure-taxonomy';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
 export interface GrowthIssue {
@@ -742,10 +743,21 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
       if ((sameFile[0]?.n ?? 0) >= MAX_OPEN_ISSUES_PER_FILE) continue;
     }
 
+    const located = locateFailure({
+      category: issue.category,
+      title: issue.title,
+      description: issue.description,
+      suggestion: issue.suggestion,
+    });
     await pool.query(
-      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null],
+      // edge/fault_side — где сломалось и кого чинить (миграция 820, схема
+      // arXiv:2607.28802). Ставим ДЕТЕРМИНИРОВАННО, по категории и словам
+      // находки: спрашивать модель, виновата ли модель, — то же самое, что
+      // спрашивать подсудимого о приговоре. Не определилось — оставляем NULL,
+      // «не размечено» честнее выдуманной метки.
+      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model, edge, fault_side)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null, located?.edge ?? null, located?.faultSide ?? null],
     );
     newIssues++;
   }

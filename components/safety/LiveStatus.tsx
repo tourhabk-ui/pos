@@ -36,7 +36,34 @@ function fmtDate(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  // Год печатаем, когда он не текущий. Без него «1 июл.» в августе читается как
+  // прошедшая дата — владелец так и прочитал ленту 05.08 («не удаляет старые»),
+  // хотя запись была действующей: просто срок у неё в следующем году.
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('ru-RU', sameYear
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Наши технические TTL из ingest (lib/services/safety/seismic-parser.ts):
+ * дорожные ограничения живут неделю, прочее — сутки или двое. Это срок жизни
+ * ЗАПИСИ, а не срок действия ограничения: МЧС таких дат не сообщает.
+ */
+const TECHNICAL_TTL_HOURS = [24, 48, 24 * 7];
+
+/**
+ * Отличить срок из источника от нашего TTL. Совпал с техническим с точностью до
+ * получаса — значит дату придумали мы, и подписывать её «действует до» нельзя:
+ * это обещание знания, которого у нас нет.
+ */
+export function isTechnicalExpiry(at: string | null, until: string | null): boolean {
+  if (!at || !until) return false;
+  const from = new Date(at).getTime();
+  const to = new Date(until).getTime();
+  if (Number.isNaN(from) || Number.isNaN(to)) return false;
+  const hours = (to - from) / 3_600_000;
+  return TECHNICAL_TTL_HOURS.some((ttl) => Math.abs(hours - ttl) < 0.5);
 }
 
 /**
@@ -51,6 +78,12 @@ const IN_FORCE_TYPES = new Set(['road_closure', 'flood', 'avalanche', 'landslide
 
 export function alertStamp(a: { type: string | null; at: string | null; until: string | null }): string {
   if (a.type && IN_FORCE_TYPES.has(a.type)) {
+    // Срок, выставленный нашим ingest'ом, за срок действия не выдаём: источник
+    // его не сообщал. Тогда честнее показать дату самого сообщения — турист
+    // видит, насколько оно свежее, и не думает, что мы знаем дату открытия.
+    if (isTechnicalExpiry(a.at, a.until)) {
+      return a.at ? `сообщение от ${fmtDate(a.at)}` : 'действует';
+    }
     const until = fmtDate(a.until);
     return until ? `действует до ${until}` : 'действует';
   }
