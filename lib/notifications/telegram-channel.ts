@@ -86,6 +86,50 @@ function logPhotoFallback(photoUrl: string, error: string | undefined, outcome: 
   ).catch(() => { /* лог не должен ронять пост */ });
 }
 
+/**
+ * Альбом фотографий одним постом (sendMediaGroup, до 10 штук).
+ *
+ * Зачем отдельно от tgPostPhoto: у тура есть настоящие снимки оператора, и
+ * показывать один — значит продавать хуже, чем есть. Подпись Telegram берёт с
+ * ПЕРВОГО элемента группы, остальным её давать нельзя — пост развалится.
+ *
+ * Деградация честная и по шагам: не ушёл альбом — пробуем одиночное фото
+ * (у него свой фолбэк в текст), не ушло и оно — остаётся текст. Пустой список
+ * фотографий сюда не передаём: это не «пост без картинок», а ошибка вызова.
+ */
+export async function tgPostMediaGroup(
+  chatId: string,
+  photoUrls: string[],
+  caption: string,
+  botToken?: string,
+): Promise<{ ok: boolean; error?: string; sent: number; fellBackToSingle?: boolean }> {
+  const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return { ok: false, error: 'not configured', sent: 0 };
+  if (photoUrls.length === 0) return { ok: false, error: 'нет фотографий', sent: 0 };
+
+  const photos = photoUrls.slice(0, 10);
+  if (photos.length > 1) {
+    const media = photos.map((url, i) => (
+      i === 0
+        ? { type: 'photo', media: url, caption: caption.slice(0, 1024), parse_mode: 'HTML' }
+        : { type: 'photo', media: url }
+    ));
+    const data = await tgFetchWithRetry(
+      `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMediaGroup`,
+      { chat_id: chatId, media },
+    );
+    if (data.ok) return { ok: true, sent: photos.length };
+    console.error('[tgPostMediaGroup] альбом не ушёл:', data.description ?? 'unknown');
+    query(
+      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+      ['channel_media_group_fallback', JSON.stringify({ count: photos.length, error: data.description ?? 'unknown' })],
+    ).catch(() => { /* лог не должен ронять пост */ });
+  }
+
+  const single = await tgPostPhoto(chatId, photos[0], caption, token);
+  return { ...single, sent: single.ok ? 1 : 0, fellBackToSingle: photos.length > 1 };
+}
+
 // sendPhoto — caption до 1024 символов. Экспорт — для ручных постов
 // (lib/notifications/manual-channel-post.ts), не только для генераторов ниже.
 // fallbackPhotoUrl — вторая попытка (куратор-фото), если основное фото
