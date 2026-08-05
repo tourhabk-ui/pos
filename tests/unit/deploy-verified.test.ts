@@ -38,7 +38,24 @@ describe('деплой проверяется до конца', () => {
 
   it('сверяется коммит: прод должен работать именно на голове main', () => {
     expect(code).toMatch(/EXPECTED_SHA/);
-    expect(code).toMatch(/COMMIT:0:7.*!=.*EXPECTED_SHA:0:7|EXPECTED_SHA:0:7.*!=.*COMMIT:0:7/);
+    expect(code).toMatch(/COMMIT:0:7.*=.*EXPECTED_SHA:0:7|EXPECTED_SHA:0:7.*=.*COMMIT:0:7/);
+  });
+
+  it('сборке дают начаться — сначала ждём наш коммит, потом его исход', () => {
+    // Первый вариант проверки спрашивал статус через секунду после мержа,
+    // видел «active» на ПРОШЛОМ коммите, считал это терминальным состоянием и
+    // краснел, не дав сборке стартовать (прогон 05.08 00:40 по 822a9b8).
+    const waitPhase = code.indexOf('PICKED=1');
+    const buildPhase = code.indexOf('deploy|build|building');
+    expect(waitPhase, 'нет фазы ожидания коммита').toBeGreaterThan(-1);
+    expect(buildPhase, 'ожидание исхода сборки должно идти ПОСЛЕ ожидания коммита')
+      .toBeGreaterThan(waitPhase);
+  });
+
+  it('невзятый в работу коммит назван своей причиной', () => {
+    // «Не доехал» и «автодеплой вообще не сработал» чинятся по-разному.
+    expect(code).toMatch(/так и не взял .* в работу/);
+    expect(code).toMatch(/webhook/);
   });
 
   it('последнее слово — за сайтом, а не за панелью', () => {
