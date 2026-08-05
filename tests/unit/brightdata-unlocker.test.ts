@@ -69,6 +69,26 @@ describe('Вариант B — Native-прокси (когда Bearer недос
   it('Bearer приоритетен: нет ключа → прокси, есть ключ → API', () => {
     expect(helper).toMatch(/if \(!key\) return proxyConfigured\(\) \? fetchViaProxy/);
   });
+
+  /**
+   * Исходник без строк-комментариев. Пояснение в шапке модуля само упоминает и
+   * 22225, и .crt — сторож, читающий файл целиком, спотыкался бы о собственный
+   * текст. Проверять надо код, а не рассказ о нём.
+   */
+  const helperCode = helper.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it('порт по умолчанию не legacy 22225 — тот умирает 25.09.2026', () => {
+    // Письмо Bright Data 05.08: старый порт и корневой сертификат перестают
+    // работать. Нас это не задевает (33335 и никакого .crt), но смена дефолта
+    // на 22225 сломала бы путь B МОЛЧА: fetchViaProxy возвращает null, и
+    // обогащение тихо съезжает на прямой fetch. Пусть падает здесь.
+    expect(helperCode).toMatch(/BRIGHTDATA_PROXY_PORT \|\| '33335'/);
+    expect(helperCode).not.toMatch(/22225/);
+  });
+
+  it('корневой сертификат Bright Data нигде не грузится', () => {
+    expect(helperCode).not.toMatch(/\.crt|ca:\s|rejectUnauthorized/);
+  });
 });
 
 describe('KVERT зовёт Unlocker строго как фолбэк', () => {
