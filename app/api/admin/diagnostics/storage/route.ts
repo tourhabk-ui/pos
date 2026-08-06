@@ -50,10 +50,19 @@ export async function GET(request: NextRequest) {
       verdict: 'S3 работает: тест-объект записан и удалён. Загрузка фото должна работать.',
     });
   } catch (e) {
+    // «UnknownError» без деталей уже стоил круга диагностики (06.08) — имя,
+    // HTTP-статус и текст ответа хранилища выносим наружу целиком.
+    const err = e as Error & { $metadata?: { httpStatusCode?: number }; Code?: string };
+    const detail = [
+      err.name,
+      err.Code && err.Code !== err.name ? err.Code : null,
+      err.$metadata?.httpStatusCode ? `HTTP ${err.$metadata.httpStatusCode}` : null,
+      err.message && err.message !== err.name ? err.message : null,
+    ].filter(Boolean).join(' · ');
     return NextResponse.json({
       success: true,
       ...flags,
-      write_test: redactPII(e instanceof Error ? e.message : 'ошибка записи').slice(0, 300),
+      write_test: redactPII(detail || 'ошибка записи').slice(0, 300),
       verdict:
         'Ключи S3 заданы, но запись не прошла — проверьте значения ключей, имя бакета ' +
         'и права доступа в Timeweb Object Storage.',
