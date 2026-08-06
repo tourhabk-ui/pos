@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/operator-tours';
 import { query } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
+import { pingTourChanged } from '@/lib/seo/indexnow';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,6 +133,8 @@ export async function PATCH(
         );
       }
     }
+
+    pingTourChanged(tourId);
 
     return NextResponse.json({ success: true, data: result.rows[0] });
   } catch (error) {

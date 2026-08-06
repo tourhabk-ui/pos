@@ -9,6 +9,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { redactPII } from '@/lib/security/pii-redact';
+import { pingTourChanged } from '@/lib/seo/indexnow';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -235,6 +236,10 @@ export async function PATCH(
        WHERE ot.id = $1 GROUP BY ot.id, p.company_name`,
       [tourId]
     );
+
+    // Попутный пинг IndexNow: изменённая карточка доходит до переобхода
+    // Яндекса за минуты, а не недели. Ответ сохранения не ждёт пинга.
+    pingTourChanged(tourId);
 
     return NextResponse.json({ success: true, data: updated.rows[0] });
   } catch (error) {
