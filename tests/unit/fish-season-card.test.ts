@@ -84,3 +84,26 @@ describe('карточка тура', () => {
     expect(read('CLAUDE.md')).toMatch(/Когда какая\s+рыба клюёт\?/);
   });
 });
+
+describe('страница вида /fish/[id]: упомянутые виды кликабельны', () => {
+  // Владелец 07.08: «раздел лосось — там перечисление рыб, а у нас есть
+  // описания по видам, нужно открытие страниц описаний». Описание «лосося»
+  // называет чавычу-нерку-кижуча-горбушу-кету — каждое имя стало ссылкой.
+  it('описание и факт идут через DescriptionWithFishLinks с исключением себя', () => {
+    const src = read('app/fish/[id]/page.tsx');
+    const uses = src.match(/<DescriptionWithFishLinks/g) ?? [];
+    expect(uses.length).toBeGreaterThanOrEqual(2);
+    expect(src).toMatch(/excludeId=\{species\.id\}/);
+  });
+
+  it('parseTextChunks: excludeId убирает самоссылку, остальные виды остаются', async () => {
+    const { parseTextChunks } = await import('@/components/shared/DescriptionWithFishLinks');
+    const text = 'Лосось: чавыча и кижуч заходят в реки';
+    const withSelf = parseTextChunks(text).filter(c => c.species).map(c => c.species!.id);
+    expect(withSelf).toContain('losos');
+    const withoutSelf = parseTextChunks(text, 'losos').filter(c => c.species).map(c => c.species!.id);
+    expect(withoutSelf).not.toContain('losos');
+    expect(withoutSelf).toContain('chavycha');
+    expect(withoutSelf).toContain('kizuch');
+  });
+});

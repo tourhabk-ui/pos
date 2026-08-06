@@ -66,6 +66,9 @@ const VOLCANO_ZONES: Record<string, string[]> = {
   'кроноцкий':  ['eastern'],
   'узон':       ['eastern'],
   'жупановский':['eastern'],
+  // Кроноцкий заповедник: сводка Минтура 06.08 не рекомендовала «район вулкана
+  // Крашенинникова» — имени не было в карте, зона терялась.
+  'крашенинникова': ['eastern'],
   'ичинский':   ['western'],
   'алаид':      ['northern'],
   'эбеко':      ['northern'],
@@ -148,7 +151,7 @@ function extractMessages(html: string): Array<{ id: string; text: string; dateti
 // вовсе. Проверено на живой сводке — до правки detectRoadRestriction отдавал null.
 
 const ROAD_RESTRICTION_RE =
-  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)|ограничени[а-яё]*[\s\S]{0,80}?(?:автодорог|дорог|проезд|движени)/i;
+  /закрыт[а-яё]*\s+(?:проезд|дорог|движени)|(?:проезд|движени|дорог|доступ)[а-яё]*[\s\S]{0,120}?(?:закрыт|ограничен|перекрыт)|проезд[а-яё]*[\s\S]{0,120}?по\s+пропуск|пропускн[а-яё]+\s+режим|перекрыт[а-яё]*\s+(?:дорог|проезд|движени)|(?:ограничен|закрыт|перекрыт)[а-яё]*\s+(?:проезд|движени)|ограничени[а-яё]*[\s\S]{0,80}?(?:автодорог|дорог|проезд|движени)|(?:закрыт|перекрыт)[а-яё]*[\s\S]{0,40}?маршрут|маршрут[а-яё]*[\s\S]{0,60}?(?:закрыт|перекрыт)|перекрыти[а-яё]*[\s\S]{0,40}?маршрут/i;
 
 export function detectRoadRestriction(text: string): { severity: 1 | 2 } | null {
   if (!ROAD_RESTRICTION_RE.test(text)) return null;
@@ -549,19 +552,32 @@ const MCHS_DISTRICT_ZONES: Array<[RegExp, string[]]> = [
   [/карагинск/i,    ['eastern']],
   [/пенжинск/i,     ['northern']],
   [/олюторск/i,     ['eastern']],
+  // Соболево — западное побережье. Сводка Минтура 06.08: режим повышенной
+  // готовности из-за выхода медведей в село; без строки алерт уезжал в дефолт.
+  [/соболев/i,      ['western']],
+  // Природные парки: сводки Минтура называют объекты парками, не районами.
+  [/налычев/i,      ['avachinsky']],
 ];
 
 export function mchs_zones(text: string): string[] {
   // Название вулкана в тексте — точнее административного района (переиспользуем
   // ту же карту, что и для КБГС РАН, а не только 9 паттернов по районам).
+  //
+  // ОБЪЕДИНЕНИЕ, а не первый матч: сводка Минтура 06.08 одной строкой не
+  // рекомендовала Ключевской, Безымянный, Мутновский, Шивелуч и Крашенинникова —
+  // это три зоны (northern, avachinsky, eastern). Первый матч оставлял только
+  // northern, и предупреждение о Мутновском не доходило до карточек Авачинской
+  // группы.
   const lower = text.toLowerCase();
-  for (const [volcano, zones] of Object.entries(VOLCANO_ZONES)) {
-    if (lower.includes(volcano)) return zones;
+  const zones = new Set<string>();
+  for (const [volcano, vZones] of Object.entries(VOLCANO_ZONES)) {
+    if (lower.includes(volcano)) vZones.forEach((z) => zones.add(z));
   }
-  for (const [re, zones] of MCHS_DISTRICT_ZONES) {
-    if (re.test(text)) return zones;
+  if (zones.size > 0) return [...zones];
+  for (const [re, dZones] of MCHS_DISTRICT_ZONES) {
+    if (re.test(text)) dZones.forEach((z) => zones.add(z));
   }
-  return ['avachinsky'];
+  return zones.size > 0 ? [...zones] : ['avachinsky'];
 }
 
 /** Стабильный отпечаток заголовка (djb2 по нормализованному тексту). */
@@ -618,6 +634,11 @@ export function splitSummaryItems(text: string): string[] {
  * «одно предупреждение — один item» верно, и дробить его — значит вернуть ту
  * самую шестикратную россыпь одного предупреждения, от которой уходили.
  */
+/** Сводка Минтура о доступности туристических объектов (kamgov.ru/mintur). */
+export function isMinturBulletin(text: string): boolean {
+  return /оперативн[а-я]* сводк/i.test(text) && /доступност[а-я]* туристическ/i.test(text);
+}
+
 export function classifyMchsItems(
   id: string,
   title: string,
@@ -628,10 +649,16 @@ export function classifyMchsItems(
 ): SeismicEvent[] {
   const whole = classifyMchsItem(id, title, description, pubDate, link, sourcePrefix);
 
-  if (title.trim() !== '') return whole ? [whole] : [];
+  // Сводка Минтура — многотемный документ С ЗАГОЛОВКОМ: до 06.08 она целиком
+  // схлопывалась в одно info-событие severity 0, и «закрыты два маршрута»,
+  // «не рекомендуется посещать вулканы …», «медведи в Соболево» до карточек
+  // не доходили вовсе (плоское сохранение стояло с пометкой «построчный разбор
+  // — следующий шаг, когда накопятся образцы»; второй образец принёс владелец).
+  const mintur = isMinturBulletin(`${title} ${description}`);
+  if (title.trim() !== '' && !mintur) return whole ? [whole] : [];
 
   const items = splitSummaryItems(description);
-  if (items.length < 3) return whole ? [whole] : [];
+  if (items.length < (mintur ? 2 : 3)) return whole ? [whole] : [];
 
   // Тема = тип + зоны. Совпали — оставляем строгую: пеплопад с рекомендацией
   // «не приближаться» не должен теряться за нейтральным упоминанием той же горы.
@@ -644,7 +671,9 @@ export function classifyMchsItems(
     if (!prev || ev.severity > prev.severity) byTopic.set(key, ev);
   }
 
-  if (byTopic.size < 2) return whole ? [whole] : [];
+  // У сводки Минтура и ОДНА распознанная угроза ценнее плоского info: пункты
+  // «открыто» законно не классифицируются, порог «≥2 темы» здесь не о том.
+  if (byTopic.size < (mintur ? 1 : 2)) return whole ? [whole] : [];
   return [...byTopic.values()];
 }
 
@@ -705,9 +734,17 @@ export function classifyMchsItem(
     alert_type = 'road_closure';
     severity = detectRoadRestriction(text)!.severity;
     expires_hours = 24 * 7;
+  } else if (/медвед/.test(text) && /выход|вышел|вышли|замечен|населённ|населен|повышенн[а-яё]* готовност/.test(text)) {
+    // Медведи у людей — камчатская опасность номер один без своей категории:
+    // сводка Минтура 06.08 («в с. Соболево режим повышенной готовности в связи
+    // с выходом медведей в населённый пункт») не ловилась ни одной веткой.
+    alert_type = 'info'; severity = 1; expires_hours = 72;
   } else if (
     /вулкан/.test(text) &&
-    /газопепловый выброс|пепловый выброс|пепловое облако|извержени|оползн|обвал|восхождени|сейсмическ|землетрясен/.test(text)
+    // «не рекомендуется посещать вулканы …» и «передвижение в районах вулканов
+    // крайне небезопасно» (сводка Минтура 06.08) — прямые предостережения без
+    // слова про извержение; раньше такие строки отбрасывались.
+    /газопепловый выброс|пепловый выброс|пепловое облако|извержени|оползн|обвал|восхождени|сейсмическ|землетрясен|не рекоменду|небезопасн|воздержаться/.test(text)
   ) {
     // Раньше такие бюллетени (напр. "воздержаться от восхождения на Мутновский —
     // газопепловый выброс, землетрясения в постройке, оползни/обвалы") молча

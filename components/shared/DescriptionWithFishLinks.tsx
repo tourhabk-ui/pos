@@ -9,10 +9,12 @@ interface TextChunk {
   species?: FishSpecies;
 }
 
-function parseTextChunks(text: string): TextChunk[] {
+export function parseTextChunks(text: string, excludeId?: string): TextChunk[] {
   const matches: { start: number; end: number; matched: string; species: FishSpecies }[] = [];
 
-  for (const species of FISH_SPECIES) {
+  // excludeId — вид текущей страницы: описание чавычи упоминает чавычу, и
+  // ссылка на самого себя была бы шумом (страницы /fish/[id], владелец 07.08).
+  for (const species of FISH_SPECIES.filter(s => s.id !== excludeId)) {
     for (const pattern of species.patterns) {
       const re = new RegExp(pattern.source, pattern.flags);
       let m: RegExpExecArray | null;
@@ -42,8 +44,8 @@ function parseTextChunks(text: string): TextChunk[] {
   return chunks;
 }
 
-function ParagraphWithLinks({ text }: { text: string }) {
-  const chunks = useMemo(() => parseTextChunks(text), [text]);
+function ParagraphWithLinks({ text, excludeId }: { text: string; excludeId?: string }) {
+  const chunks = useMemo(() => parseTextChunks(text, excludeId), [text, excludeId]);
   const hasFish = chunks.some(c => c.species);
 
   if (!hasFish) return <p>{text}</p>;
@@ -73,13 +75,15 @@ interface Props {
   paragraphs: string[];
   className?: string;
   style?: React.CSSProperties;
+  /** Вид, на который НЕ ссылаться (текущая страница /fish/[id]). */
+  excludeId?: string;
 }
 
-export default function DescriptionWithFishLinks({ paragraphs, className, style }: Props) {
+export default function DescriptionWithFishLinks({ paragraphs, className, style, excludeId }: Props) {
   return (
     <div className={className} style={style}>
       {paragraphs.map((p, i) => (
-        <ParagraphWithLinks key={i} text={p} />
+        <ParagraphWithLinks key={i} text={p} excludeId={excludeId} />
       ))}
     </div>
   );

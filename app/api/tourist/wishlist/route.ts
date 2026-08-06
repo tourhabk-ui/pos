@@ -133,20 +133,31 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // Два контракта удаления. Карточка тура шлёт JSON {itemType, itemId} — тот
+    // же формат, что у добавления (id строки избранного клиент не знает).
+    // Раньше сервер ждал ТОЛЬКО ?id=, и «убрать из избранного» с карточки не
+    // работало никогда (владелец 07.08: «кнопка не работает»).
     const { searchParams } = new URL(request.url);
     const wishlistId = searchParams.get('id');
 
-    if (!wishlistId) {
-      return NextResponse.json(
-        { success: false, error: 'Укажите ID элемента' } as ApiResponse<null>,
-        { status: 400 }
+    if (wishlistId) {
+      await query(
+        `DELETE FROM tourist_wishlist WHERE id = $1 AND tourist_id = $2`,
+        [wishlistId, profile.id]
+      );
+    } else {
+      const body = await request.json().catch(() => null) as { itemType?: string; itemId?: string } | null;
+      if (!body?.itemType || !body?.itemId) {
+        return NextResponse.json(
+          { success: false, error: 'Укажите id записи либо itemType и itemId' } as ApiResponse<null>,
+          { status: 400 }
+        );
+      }
+      await query(
+        `DELETE FROM tourist_wishlist WHERE tourist_id = $1 AND item_type = $2 AND item_id = $3`,
+        [profile.id, body.itemType, String(body.itemId)]
       );
     }
-
-    await query(
-      `DELETE FROM tourist_wishlist WHERE id = $1 AND tourist_id = $2`,
-      [wishlistId, profile.id]
-    );
 
     return NextResponse.json({
       success: true,
