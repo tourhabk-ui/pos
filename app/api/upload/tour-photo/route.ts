@@ -43,6 +43,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Файл слишком большой (макс. 20 МБ)' }, { status: 400 });
   }
 
+  // Без S3 на проде фото легло бы в файловую систему контейнера и молча
+  // исчезло при следующем деплое (а их по несколько в день). Владелец 06.08:
+  // «фото не добавляются через модерацию» — именно так выглядит эфемерная
+  // запись снаружи. Честный отказ с причиной вместо тихой потери; локальная
+  // разработка живёт на файловом фоллбэке как раньше.
+  if (!isS3Configured && process.env.NODE_ENV === 'production') {
+    return NextResponse.json(
+      {
+        error:
+          'Хранилище фото не настроено: без S3 файл исчез бы при следующем деплое. ' +
+          'Добавьте S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET (Timeweb Object Storage) ' +
+          'в переменные приложения. Проверка: GET /api/admin/diagnostics/storage',
+      },
+      { status: 503 },
+    );
+  }
+
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
 
