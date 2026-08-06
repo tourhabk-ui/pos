@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
+import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { query } from '@/lib/database';
 
 export const revalidate = 3600;
@@ -175,11 +176,15 @@ export default async function FishDetailPage({ params }: Props) {
 
         <div className="max-w-4xl mx-auto px-4 mt-10 space-y-10">
 
-          {/* Описание */}
+          {/* Описание. Упомянутые виды кликабельны (владелец 07.08: «лосось»
+              перечисляет чавычу-нерку-кижуча — а страницы описаний у нас есть,
+              открытие логично). Текущий вид исключён — сам на себя не ссылаемся. */}
           <section>
-            <p className="text-lg text-[var(--text-secondary)] leading-relaxed">
-              {species.shortDesc}
-            </p>
+            <DescriptionWithFishLinks
+              paragraphs={[species.shortDesc]}
+              excludeId={species.id}
+              className="text-lg text-[var(--text-secondary)] leading-relaxed"
+            />
           </section>
 
           {/* Характеристики */}
@@ -234,7 +239,11 @@ export default async function FishDetailPage({ params }: Props) {
                 style={{ color: species.color }}>
                 Интересный факт
               </p>
-              <p className="text-[var(--text-secondary)] leading-relaxed">{species.funFact}</p>
+              <DescriptionWithFishLinks
+                paragraphs={[species.funFact]}
+                excludeId={species.id}
+                className="text-[var(--text-secondary)] leading-relaxed"
+              />
             </div>
           </section>
 
