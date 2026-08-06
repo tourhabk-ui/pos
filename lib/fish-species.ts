@@ -229,9 +229,27 @@ export const FISH_SPECIES: FishSpecies[] = [
 // Build a fast lookup map
 export const FISH_BY_ID = Object.fromEntries(FISH_SPECIES.map(f => [f.id, f]));
 
-const MONTH_NAMES = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+export const MONTH_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
 export function formatSeasonMonths(months: number[]): string {
   if (months.length === 12) return 'Круглый год';
-  return months.map(m => MONTH_NAMES[m - 1]).join(', ');
+  return months.map(m => MONTH_SHORT[m - 1]).join(', ');
+}
+
+/**
+ * Какие виды рыб упомянуты в тексте (заголовок + описание + программа тура).
+ *
+ * Та же связка «тур → рыба», что у ссылок в описании
+ * (DescriptionWithFishLinks): паттерны единого справочника, никакого второго
+ * списка видов. «Лосось» — зонтичное имя пяти видов: когда назван конкретный
+ * вид, зонтик отбрасывается — он не добавляет информации, только раздувает
+ * сезонную сетку.
+ */
+export function detectFishSpecies(text: string): FishSpecies[] {
+  const found = FISH_SPECIES.filter(sp =>
+    // Флаг g у паттернов делает test() статфульным (lastIndex) — сбрасываем.
+    sp.patterns.some(p => new RegExp(p.source, p.flags.replace('g', '')).test(text)),
+  );
+  const specific = found.filter(sp => sp.id !== 'losos');
+  return specific.length > 0 ? specific : found;
 }
