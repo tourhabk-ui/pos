@@ -36,6 +36,14 @@ function getClient(): S3Client {
         secretAccessKey: S3_SECRET_KEY,
       },
       forcePathStyle: true,
+      // AWS SDK с 3.729 по умолчанию шлёт checksum-заголовки
+      // (x-amz-checksum-crc32) и aws-chunked-кодирование, которые
+      // S3-совместимые хранилища не принимают — Timeweb отвечал ошибкой на
+      // КАЖДУЮ запись, наружу это выходило как «UnknownError» (диагностика
+      // 06.08, write_test). WHEN_REQUIRED возвращает поведение классического
+      // S3-клиента: контрольные суммы только там, где их требует операция.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
   return _client;

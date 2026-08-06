@@ -34,6 +34,17 @@ describe('роут загрузки фото тура', () => {
   });
 });
 
+describe('S3-клиент совместим с Timeweb', () => {
+  it('checksum-заголовки нового SDK выключены (WHEN_REQUIRED)', () => {
+    // AWS SDK ≥3.729 по умолчанию шлёт x-amz-checksum-crc32 и aws-chunked,
+    // которые Timeweb отвергает: КАЖДАЯ запись падала «UnknownError»
+    // (диагностика 06.08). Без этих двух опций фото не грузятся вовсе.
+    const src = read('lib/storage/s3.ts');
+    expect(src).toMatch(/requestChecksumCalculation:\s*'WHEN_REQUIRED'/);
+    expect(src).toMatch(/responseChecksumValidation:\s*'WHEN_REQUIRED'/);
+  });
+});
+
 describe('диагностика хранилища', () => {
   const src = read('app/api/admin/diagnostics/storage/route.ts');
 

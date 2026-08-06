@@ -15,6 +15,7 @@ import {
   Star, Briefcase, Pencil, Trash2, X, Save, Shield, ShieldOff,
   AlertCircle, CheckCircle, Upload, ImageIcon,
 } from 'lucide-react';
+import TildaPanel from '@/components/admin/TildaPanel';
 
 interface EditFormData {
   name: string;
@@ -371,7 +372,9 @@ export default function PartnersManagement() {
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-[var(--text-muted)] font-mono">{totalCount} партнёров всего</span>
           </div>
-          <DataTable columns={columns} data={partners} />
+          {/* Вся строка открывает карточку: на телефоне колонка с карандашом
+              уезжает за край экрана, и открыть партнёра было нечем (06.08). */}
+          <DataTable columns={columns} data={partners} onRowClick={(p) => openEdit(p.id)} />
           <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       )}
@@ -669,6 +672,9 @@ export default function PartnersManagement() {
                     </div>
                   </div>
                 </div>
+
+                {/* Ключи Tilda API партнёра — общий блок с экраном «Операторы» */}
+                <TildaPanel operatorId={editId} />
 
                 {/* Toggles */}
                 <div className="space-y-2">

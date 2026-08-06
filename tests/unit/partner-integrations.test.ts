@@ -71,11 +71,29 @@ describe('секрет не покидает админский контур', (
   });
 
   it('в UI-панели секрет вводится type=password и не читается обратно', () => {
-    const src = read('app/hub/admin/operators/_OperatorsClient.tsx');
-    expect(src).toMatch(/TildaPanel/);
+    const src = read('components/admin/TildaPanel.tsx');
     expect(src).toMatch(/type="password"/);
     // После сохранения поля очищаются — ключ не остаётся в состоянии клиента.
     expect(src).toMatch(/setSecretKey\(''\)/);
+  });
+
+  it('панель ОДНА и стоит в обоих админ-экранах партнёров', () => {
+    // Владелец открыл «Управление партнёрами», а панель была только в
+    // «Операторах» (06.08). Обе админки обязаны использовать общий компонент —
+    // расходящиеся копии одного блока платформа уже проходила (#887).
+    for (const screen of [
+      'app/hub/admin/operators/_OperatorsClient.tsx',
+      'app/hub/admin/content/partners/page.tsx',
+    ]) {
+      const src = read(screen);
+      expect(src, `${screen} без общей панели Tilda`).toMatch(/from '@\/components\/admin\/TildaPanel'/);
+      expect(src, `${screen} держит свою копию панели`).not.toMatch(/function TildaPanel/);
+    }
+  });
+
+  it('строка партнёра открывается целиком, а не только карандашом за краем экрана', () => {
+    const src = read('app/hub/admin/content/partners/page.tsx');
+    expect(src).toMatch(/onRowClick=\{\(p\) => openEdit\(p\.id\)\}/);
   });
 });
 
