@@ -16,6 +16,8 @@ import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
+import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
+import { detectFishSpecies } from '@/lib/fish-species';
 
 /* ─── Labels ─── */
 
@@ -357,6 +359,16 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const program = useMemo(() => toProgram(tour.program), [tour.program]);
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
 
+  // Рыбалка по сезонам (владелец 06.08): виды — те же, что подсвечивает
+  // DescriptionWithFishLinks, из единого справочника. Нет упоминаний — нет блока.
+  const fishSpecies = useMemo(
+    () => detectFishSpecies(
+      [tour.title, tour.short_description ?? '', tour.description ?? '',
+        ...program.map(s => `${s.title} ${s.text}`)].join(' '),
+    ),
+    [tour.title, tour.short_description, tour.description, program],
+  );
+
   // Инструментная полоса героя: только подтверждённые данными факты
   // Полоса фактов — ЕДИНСТВЕННОЕ место для сезона, длительности, группы и
   // сложности. Раньше сезон дублировался пилюлей в углу героя, а размер группы —
@@ -516,6 +528,17 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 )}
               </div>
             </section>
+
+            {/* Рыбалка по сезонам — только для туров, где упомянуты виды рыб
+                (решение владельца 06.08). Вопросный заголовок — цитируемый
+                блок для AI-поиска, продолжение GEO-линии. */}
+            {fishSpecies.length > 0 && (
+              <section>
+                <Eyebrow>Рыбалка по сезонам</Eyebrow>
+                <SectionTitle>Когда какая рыба клюёт?</SectionTitle>
+                <FishSeasonCalendar species={fishSpecies} />
+              </section>
+            )}
 
             {/* Программа дня — только если оператор её прислал */}
             {program.length > 0 && (
