@@ -437,6 +437,16 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               {tour.title}
             </h1>
 
+            {/* Самодостаточный ответ в первом экране (SEO-аудит 06.08): AI-поиск
+                берёт ~44% цитат из первых 30% страницы, а до этой правки выше
+                сгиба стояло только название. Текст — подтверждённое описание
+                оператора, из «О туре» он ушёл, чтобы не дублироваться. */}
+            {tour.short_description && (
+              <p className="mt-4 max-w-[52ch] text-[15px] leading-relaxed" style={{ color: 'rgba(255,255,255,.92)', textShadow: '0 1px 18px rgba(0,0,0,.45)' }}>
+                {tour.short_description}
+              </p>
+            )}
+
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-sm" style={{ color: 'rgba(255,255,255,.9)' }}>
               {rating > 0 && (
                 <span className="flex items-center gap-1.5"><Star className="w-4 h-4 text-[var(--warning)] fill-[var(--warning)]" />{rating.toFixed(1)}{tour.review_count ? <span className="opacity-70">· {tour.review_count}</span> : null}</span>
@@ -482,14 +492,12 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
           <div className="lg:col-span-8 space-y-12">
 
-            {/* О туре */}
+            {/* О туре. short_description отсюда переехал в герой (SEO-аудит
+                06.08, цитируемость первого экрана) — здесь остаётся полное
+                описание: один и тот же абзац дважды на странице — неопрятность,
+                за которую мы уже платили (§11, сторож дублирования). */}
             <section>
               <Eyebrow>О туре</Eyebrow>
-              {tour.short_description && (
-                <p className="text-[var(--text-primary)] leading-snug mb-4" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(19px,2.4vw,26px)', letterSpacing: '-0.01em', textWrap: 'balance' }}>
-                  {tour.short_description}
-                </p>
-              )}
               {tour.description && (
                 <DescriptionWithFishLinks
                   paragraphs={tour.description.split('\n').filter(p => p.trim())}
