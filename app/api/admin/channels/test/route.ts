@@ -11,6 +11,7 @@ import {
   postSezonToChannel,
   postSafetyToChannel,
   postAINewsToChannel,
+  maxChannelPost,
 } from '@/lib/notifications/telegram-channel';
 import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.service';
 import { z } from 'zod';
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const Schema = z.object({
-  type: z.enum(['kuzmich_route', 'tip', 'sezon', 'safety', 'ai_news']),
+  type: z.enum(['kuzmich_route', 'tip', 'sezon', 'safety', 'ai_news', 'max']),
   topic: z.string().optional(),
 });
 
@@ -55,6 +56,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // skipLLM: тест проверяет канал (пост+фото), а не генерацию текста —
       // без ожидания LLM цепочка укладывается в таймаут (иначе «Failed to fetch»).
       result = await postAINewsToChannel(testFinding, { skipLLM: true });
+    } else if (type === 'max') {
+      // Прямой тест ТОЛЬКО MAX-канала с сырой причиной отказа. Владелец 06.08:
+      // «MAX канал не публикует новости» — а отказы были fire-and-forget, и
+      // причину не видел никто. Этот тип возвращает её словами.
+      result = await maxChannelPost(
+        topic || '<b>Тест MAX-канала</b>\n\nПроверка публикации: если это сообщение видно в канале — доставка работает.',
+      );
     } else {
       switch (type) {
         case 'kuzmich_route': result = await postKuzmichRoute(); break;

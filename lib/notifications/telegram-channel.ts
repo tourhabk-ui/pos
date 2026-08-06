@@ -164,13 +164,37 @@ export async function tgPostPhoto(
 /** Отправка в MAX канал через MAX Platform API.
  * Экспорт — для ручных постов (manual-channel-post.ts), не только для
  * автоматических публикаторов через postToAllChannels. */
+/**
+ * Отказ MAX — это запись, а не строчка в логе контейнера.
+ *
+ * Владелец 06.08: «MAX канал не публикует новости». Проверить это было
+ * нечем: все зеркала в MAX — fire-and-forget с console.error, который
+ * уходит в лог Timeweb и не читается никем. Сколько постов не дошло и
+ * почему — неизвестно в принципе. Теперь каждый отказ ложится в
+ * ai_actions_log (max_post_failed) с причиной — его видно из админки и
+ * может подхватить Watchdog.
+ */
+async function recordMaxFailure(error: string, text: string): Promise<void> {
+  console.error('[maxChannelPost]', error);
+  try {
+    await query(
+      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+      ['max_post_failed', JSON.stringify({ error: error.slice(0, 300), text_preview: text.slice(0, 120) })],
+    );
+  } catch { /* лог недоступен — хотя бы console остался */ }
+}
+
 export async function maxChannelPost(
   text: string,
   photoUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.MAX_BOT_TOKEN;
   const channelId = process.env.MAX_CHANNEL_ID;
-  if (!token || !channelId) return { ok: false, error: 'MAX_BOT_TOKEN or MAX_CHANNEL_ID not set' };
+  if (!token || !channelId) {
+    const error = `не настроен env: ${!token ? 'MAX_BOT_TOKEN ' : ''}${!channelId ? 'MAX_CHANNEL_ID' : ''}`.trim();
+    await recordMaxFailure(error, text);
+    return { ok: false, error };
+  }
 
   const attachments: Array<Record<string, unknown>> = [];
   if (photoUrl) {
@@ -197,11 +221,21 @@ export async function maxChannelPost(
         body: JSON.stringify(body),
       },
     );
-    const data = await res.json() as { message?: Record<string, unknown>; code?: string; description?: string };
+    // Тело читаем текстом: при отказе MAX может отдать не-JSON, и «Unexpected
+    // end of JSON input» скрыл бы настоящий ответ (тот же урок, что с
+    // сохранением тура 05.08).
+    const raw = await res.text();
+    let data: { message?: Record<string, unknown>; code?: string; description?: string } = {};
+    try { data = JSON.parse(raw); } catch { /* оставляем пустым, ниже покажем raw */ }
     if (data.message) return { ok: true };
-    return { ok: false, error: data.description ?? data.code ?? 'unknown MAX error' };
+    const error = data.description ?? data.code
+      ?? `HTTP ${res.status}: ${raw.replace(/\s+/g, ' ').slice(0, 200) || 'пустой ответ'}`;
+    await recordMaxFailure(error, text);
+    return { ok: false, error };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'MAX fetch error' };
+    const error = e instanceof Error ? e.message : 'MAX fetch error';
+    await recordMaxFailure(error, text);
+    return { ok: false, error };
   }
 }
 
