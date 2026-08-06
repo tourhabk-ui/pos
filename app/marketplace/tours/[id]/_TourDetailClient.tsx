@@ -117,13 +117,27 @@ interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegr
  * Контакты оператора из partners.contacts. Показываем только то, что реально
  * лежит в БД — телефонов и чатов не выдумываем (§8).
  */
+/** +79001234567 → «+7 900 123-45-67» — на кнопке номер должен читаться. */
+function formatPhone(digits: string): string {
+  const m = digits.match(/^\+7(\d{3})(\d{3})(\d{2})(\d{2})$/);
+  return m ? `+7 ${m[1]} ${m[2]}-${m[3]}-${m[4]}` : digits;
+}
+
 function toContacts(v: unknown): OperatorContact[] {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
   const o = v as Record<string, unknown>;
   const out: OperatorContact[] = [];
 
   const phone = typeof o.phone === 'string' ? o.phone.replace(/[^\d+]/g, '') : '';
-  if (phone.length >= 11) {
+  const phone2 = typeof o.phone2 === 'string' ? o.phone2.replace(/[^\d+]/g, '') : '';
+
+  // Один номер — «Позвонить». Два — на кнопках сами номера: две одинаковые
+  // кнопки «Позвонить» не говорят, чем отличаются, а турист в поле может
+  // дозвониться только по одному из них.
+  if (phone.length >= 11 && phone2.length >= 11) {
+    out.push({ label: formatPhone(phone), href: `tel:${phone}`, icon: 'phone' });
+    out.push({ label: formatPhone(phone2), href: `tel:${phone2}`, icon: 'phone' });
+  } else if (phone.length >= 11) {
     out.push({ label: 'Позвонить', href: `tel:${phone}`, icon: 'phone' });
   }
 
