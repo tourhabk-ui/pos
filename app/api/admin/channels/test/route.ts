@@ -14,6 +14,7 @@ import {
   maxChannelPost,
 } from '@/lib/notifications/telegram-channel';
 import type { IntelligenceFinding } from '@/lib/services/intelligence-monitor.service';
+import { query } from '@/lib/database';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -84,6 +85,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const auth = await requireAdmin(req);
   if (auth instanceof NextResponse) return auth;
 
+  // Последние отказы MAX — причина словами, открывается браузером с телефона.
+  // Владелец 06.08 дважды сообщил «в MAX поста нет»; записи ведёт
+  // recordMaxFailure (telegram-channel.ts), здесь — чтение в один клик.
+  let maxFailures: unknown = 'журнал недоступен';
+  try {
+    const { rows } = await query(
+      `SELECT metadata->>'error' AS error,
+              metadata->>'text_preview' AS text_preview,
+              created_at
+         FROM ai_actions_log
+        WHERE action_type = 'max_post_failed'
+        ORDER BY created_at DESC
+        LIMIT 10`,
+    );
+    maxFailures = rows;
+  } catch { /* таблица недоступна — оставляем пометку */ }
+
   return NextResponse.json({
     tourhab_channel: {
       configured: !!process.env.TELEGRAM_CHANNEL_ID,
@@ -94,8 +112,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       link: process.env.TELEGRAM_AI_CHANNEL_LINK ?? null,
     },
     max_channel: {
-      configured: !!process.env.MAX_CHANNEL_ID,
+      configured: !!(process.env.MAX_BOT_TOKEN && process.env.MAX_CHANNEL_ID),
+      token_set: !!process.env.MAX_BOT_TOKEN,
+      channel_id_set: !!process.env.MAX_CHANNEL_ID,
       link: process.env.MAX_CHANNEL_LINK ?? null,
+      recent_failures: maxFailures,
     },
   });
 }

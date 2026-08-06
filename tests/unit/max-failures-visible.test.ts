@@ -56,6 +56,18 @@ describe('админский тест MAX', () => {
     expect(src).toMatch(/await maxChannelPost\(/);
   });
 
+  it('GET отдаёт последние отказы MAX — читается браузером с телефона', () => {
+    // POST с админ-токеном с телефона неудобен; причина должна открываться
+    // одним переходом по ссылке.
+    expect(src).toMatch(/max_post_failed/);
+    expect(src).toMatch(/recent_failures/);
+  });
+
+  it('env-статус раздельный: видно, какой из двух ключей не задан', () => {
+    expect(src).toMatch(/token_set/);
+    expect(src).toMatch(/channel_id_set/);
+  });
+
   it('доступ только администратору', () => {
     expect(src).toMatch(/requireAdmin/);
   });
