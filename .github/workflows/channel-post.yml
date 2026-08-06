@@ -33,16 +33,24 @@ jobs:
 
           BASE="https://vedarai.ru/api/cron/channel-post"
 
-          # Ждём деплой эндпоинта: новый билд отвечает 401 на POST без ключа,
-          # старый — 404/405 (до 30 мин, Docker-сборка Timeweb ~10 мин)
+          # Ждём, пока прод отдаёт ИМЕННО ЭТОТ коммит, а не «какой-нибудь
+          # рабочий эндпоинт». Живой случай 06.08: проверка «отвечает 401»
+          # прошла мгновенно — эндпоинт существовал и в старом контейнере, —
+          # и пост ушёл через старую схему, которая молча отбросила photos:
+          # в канал уехала AI-обложка вместо альбома настоящих кадров.
+          # Формат триггер-файла и код эндпоинта едут одним коммитом — значит
+          # и публиковать можно только когда прод НА этом коммите.
           READY=""
           for i in $(seq 1 30); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$BASE" -d '{}' || echo 000)
-            if [ "$CODE" = "401" ]; then READY=1; echo "endpoint deployed (HTTP 401 без ключа)"; break; fi
-            echo "endpoint not ready (HTTP $CODE), жду 60с ($i/30)"
+            SERVED=$(curl -s --max-time 30 "https://vedarai.ru/version.json" \
+              | python3 -c "import json,sys;print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || echo "")
+            if [ "${SERVED:0:7}" = "${GITHUB_SHA:0:7}" ]; then
+              READY=1; echo "прод на ${SERVED:0:7} — коммит триггера задеплоен"; break
+            fi
+            echo "прод отдаёт ${SERVED:0:7}, ждём ${GITHUB_SHA:0:7} ($i/30)"
             sleep 60
           done
-          if [ -z "$READY" ]; then echo "эндпоинт так и не задеплоился за 30 мин"; exit 1; fi
+          if [ -z "$READY" ]; then echo "прод за 30 мин не перешёл на ${GITHUB_SHA:0:7} — публиковать через старый код нельзя"; exit 1; fi
 
           RESP=$(curl -s --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \

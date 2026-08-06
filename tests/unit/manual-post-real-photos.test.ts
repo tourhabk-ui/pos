@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ManualChannelPostSchema } from '@/lib/notifications/manual-channel-post';
+import { ManualChannelPostSchema, manualPostTextHash } from '@/lib/notifications/manual-channel-post';
 
 const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'lib/notifications/manual-channel-post.ts'), 'utf-8');
@@ -75,6 +75,33 @@ describe('публикация с фото', () => {
     // Ветка догона MAX при tg-дубле: с фото обложка не генерируется и там.
     const dupBranch = code.slice(code.indexOf('if (!maxAlready)'), code.indexOf('return { ok: true, duplicate: true }'));
     expect(dupBranch).toMatch(/post\.photos/);
+  });
+});
+
+describe('дедуп и гонка деплоя', () => {
+  it('пост с фото и пост с тем же текстом — разные публикации', () => {
+    // Живой случай 06.08: гонка деплоя отправила пост через старый контейнер,
+    // тот отбросил photos, и в канал ушла AI-обложка. С чисто текстовым хэшем
+    // альбом был бы навсегда заблокирован как «дубль» того поста.
+    const text = 'Т'.repeat(120);
+    expect(manualPostTextHash(text)).not.toBe(
+      manualPostTextHash(text, ['/images/a.jpg', '/images/b.jpg']),
+    );
+  });
+
+  it('хэш стабилен: одинаковое содержимое — одинаковый хэш', () => {
+    const text = 'Т'.repeat(120);
+    const photos = ['/images/a.jpg', '/images/b.jpg'];
+    expect(manualPostTextHash(text, photos)).toBe(manualPostTextHash(text, photos));
+  });
+
+  it('workflow публикует только когда прод на коммите триггера', () => {
+    // Проверка «эндпоинт отвечает 401» пропускала старый контейнер: формат
+    // триггера и код эндпоинта едут одним коммитом, значит и гейт — по нему.
+    const yml = readFileSync(join(ROOT, '.github/workflows/channel-post.yml'), 'utf-8');
+    expect(yml).toMatch(/version\.json/);
+    expect(yml).toMatch(/GITHUB_SHA/);
+    expect(yml).not.toMatch(/if \[ "\$CODE" = "401" \]; then READY=1/);
   });
 });
 
