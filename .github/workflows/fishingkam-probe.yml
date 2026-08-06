@@ -71,11 +71,19 @@ jobs:
           grep -o '<img[^>]*src="[^"]*"' /tmp/home.flat | grep -o 'src="[^"]*"' | head -10 || true
           echo "img без alt: $(grep -o '<img[^>]*>' /tmp/home.flat | grep -vc 'alt=' || echo 0)"
 
-          section "Ключевые страницы из sitemap (первые 5)"
-          for u in $(grep -o '<loc>[^<]*</loc>' /tmp/sitemap.xml | sed 's/<[^>]*>//g' | head -5); do
+          section "sitemap-store.xml (магазин Tilda — есть ли отдельные страницы туров)"
+          curl -sS -A "$UA" --max-time 30 -w '\ncode=%{http_code}\n' https://fishingkam.ru/sitemap-store.xml -o /tmp/store.xml || true
+          echo "url в sitemap-store: $(grep -c '<loc>' /tmp/store.xml || echo 0)"
+          grep -o '<loc>[^<]*</loc>' /tmp/store.xml | head -40 || true
+
+          section "Страницы товаров из store (первые 5): title/description/h1/ld+json"
+          for u in $(grep -o '<loc>[^<]*</loc>' /tmp/store.xml | sed 's/<[^>]*>//g' | grep -v '^https://fishingkam.ru/$' | head -5); do
             echo "--- $u"
             curl -sSL -A "$UA" --max-time 20 -o /tmp/p.html -w 'code=%{http_code} size=%{size_download}b\n' "$u" || continue
-            tr -d '\n\r' < /tmp/p.html | grep -o '<title[^>]*>[^<]*</title>' | head -1 || echo "title: НЕТ"
-            tr -d '\n\r' < /tmp/p.html | grep -o '<meta[^>]*name="description"[^>]*>' | head -1 || echo "meta description: НЕТ"
-            tr -d '\n\r' < /tmp/p.html | grep -o '<h1[^>]*>.\{0,150\}</h1>' | head -1 || echo "h1: НЕТ"
+            tr -d '\n\r' < /tmp/p.html > /tmp/p.flat
+            grep -o '<title[^>]*>[^<]*</title>' /tmp/p.flat | head -1
+            grep -o '<meta[^>]*name="description"[^>]*>' /tmp/p.flat | head -1
+            grep -o '<h1[^>]*>.\{0,150\}</h1>' /tmp/p.flat | head -1
+            echo "ld+json: $(grep -o 'application/ld+json' /tmp/p.flat | wc -l)"
+            grep -o '<script type="application/ld+json">.\{0,400\}' /tmp/p.flat | head -2 || true
           done
