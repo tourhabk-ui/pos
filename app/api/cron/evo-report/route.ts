@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import { buildIssueTitle, buildIssueBody, selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
-import { verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { verifyAgainstSource, isCredibleFinding } from '@/lib/agents/evo/finding-guard';
 import { decidePublish, applyPublishDecision, issueVerdict } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
 import { z } from 'zod';
@@ -229,6 +229,18 @@ export async function GET(req: NextRequest) {
   const rejected: string[] = [];
 
   for (const f of rows) {
+    // Content-free страж — ЗДЕСЬ, до выбора пробника, и с тем же исходом
+    // 'rejected', что у сверки с исходником. Неделя 30.07–06.08: до-стражевый
+    // мусор оставался 'suggested', каждый прогон выбирался пробником как самая
+    // тяжёлая догадка (applyPublishDecision severity не проверяет достоверность)
+    // и тут же гасился isCredibleFinding внутри selectReportable — который
+    // rejected НЕ ставит. Одна и та же находка занимала единственный слот
+    // пробника вечно: «probe_slots: 1, находок к выносу: 0», точность
+    // заморожена, тормоз не отпускается никогда.
+    if (!isCredibleFinding({ title: f.title, description: f.description ?? '', suggestion: f.suggestion ?? '' })) {
+      rejected.push(f.id);
+      continue;
+    }
     if (!f.file_path) { verified.push(f); continue; }
 
     let src = sourceCache.get(f.file_path);

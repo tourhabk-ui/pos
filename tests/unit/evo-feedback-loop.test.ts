@@ -16,6 +16,8 @@ import { join } from 'node:path';
 import { claimClass, claimSignature, dropRejected, intelSignature } from '@/lib/agents/evo/claim-signature';
 import { checkRouteAuthGate, checkLegacyUsage, checkConsoleLog } from '@/lib/agents/evo/static-checks';
 import { computePrecision, decidePublish, applyPublishDecision, isModelGuess, issueVerdict, MIN_SAMPLE, GUESS_PROBE } from '@/lib/agents/evo/precision';
+import { selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
+import { isCredibleFinding } from '@/lib/agents/evo/finding-guard';
 
 describe('claim-signature: класс претензии, а не формулировка', () => {
   it('семь перефразировок «нет auth» дают ОДИН класс', () => {
@@ -195,6 +197,63 @@ describe('precision: цена ошибки', () => {
     expect(isModelGuess('bug')).toBe(true);
     expect(isModelGuess('security')).toBe(false);
     expect(isModelGuess('intel')).toBe(true);
+  });
+});
+
+describe('пробник не сгорает на недостоверной находке', () => {
+  // Дедлок 30.07–06.08: applyPublishDecision выбирал пробник по severity, не
+  // проверяя достоверность, а isCredibleFinding внутри selectReportable гасил
+  // его на выходе — и rejected не ставил. Одна и та же недостоверная находка
+  // занимала единственный слот пробника каждый прогон: «probe_slots: 1,
+  // находок к выносу: 0» неделю подряд, точность заморожена на 15%, тормоз
+  // не отпускается никогда — вердикт человека физически не мог появиться.
+  const finding = (over: Partial<GrowthFinding>): GrowthFinding => ({
+    id: over.id ?? 'x',
+    category: 'bug',
+    severity: 'medium',
+    file_path: null,
+    line_number: null,
+    title: 'находка',
+    description: null,
+    suggestion: null,
+    ...over,
+  });
+  const brake = decidePublish({ accepted: 0, rejected: MIN_SAMPLE + 2 });
+
+  it('ловушка существует: без пред-фильтра недостоверный пробник даёт 0 issues', () => {
+    const raw = [
+      finding({ id: 'lie', severity: 'critical', title: 'Обернуть создание брони в Prisma-транзакцию' }),
+      finding({ id: 'real', severity: 'medium', title: 'console.log в продакшн-коде обработчика' }),
+    ];
+    const publishable = applyPublishDecision(raw, brake);
+    // Пробник — недостоверный critical; на выходе его убивает isReportable.
+    expect(publishable.map((f) => f.id)).toEqual(['lie']);
+    expect(selectReportable(publishable, 10)).toHaveLength(0);
+  });
+
+  it('контракт: достоверность отсеивается ДО выбора пробника — issue выходит', () => {
+    const raw = [
+      finding({ id: 'lie', severity: 'critical', title: 'Обернуть создание брони в Prisma-транзакцию' }),
+      finding({ id: 'real', severity: 'medium', title: 'console.log в продакшн-коде обработчика' }),
+    ];
+    const credible = raw.filter((f) =>
+      isCredibleFinding({ title: f.title, description: f.description ?? '', suggestion: f.suggestion ?? '' }),
+    );
+    const publishable = applyPublishDecision(credible, brake);
+    expect(selectReportable(publishable, 10).map((f) => f.id)).toEqual(['real']);
+  });
+
+  it('evo-report: страж стоит в цикле сверки, до applyPublishDecision, с исходом rejected', () => {
+    const src = readFileSync(join(process.cwd(), 'app/api/cron/evo-report/route.ts'), 'utf-8');
+    const guardAt = src.indexOf('isCredibleFinding(');
+    const probeAt = src.indexOf('applyPublishDecision(');
+    expect(guardAt, 'content-free страж не вызывается в evo-report').toBeGreaterThan(-1);
+    expect(probeAt).toBeGreaterThan(-1);
+    expect(guardAt, 'страж должен стоять ДО выбора пробника').toBeLessThan(probeAt);
+    // Недостоверное самоочищается (rejected), а не остаётся 'suggested' навечно:
+    // между вызовом стража и выбором пробника есть добавление в rejected.
+    const between = src.slice(guardAt, probeAt);
+    expect(between).toMatch(/rejected\.push\(f\.id\)/);
   });
 });
 
