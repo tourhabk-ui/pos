@@ -18,6 +18,7 @@ import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
 import { detectFishSpecies } from '@/lib/fish-species';
+import { plural } from '@/lib/home/data-freshness';
 
 /* ─── Labels ─── */
 
@@ -306,22 +307,48 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [wishlistError, setWishlistError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
 
+  // Реальное состояние избранного при загрузке. Раньше wishlisted всегда
+  // стартовал false: после перезагрузки тур «выпадал» из избранного, а ошибки
+  // глотались молча — снаружи это «кнопка не работает» (владелец 07.08).
+  useEffect(() => {
+    fetch('/api/tourist/wishlist?type=tour')
+      .then(r => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        const rows = (j as { data?: Array<{ item_id: string }> } | null)?.data;
+        if (Array.isArray(rows) && rows.some(x => String(x.item_id) === String(tour.id))) {
+          setWishlisted(true);
+        }
+      })
+      .catch(() => { /* гость — просто пустое сердце */ });
+  }, [tour.id]);
+
   const handleWishlist = useCallback(async () => {
     if (wishlistLoading) return;
     setWishlistLoading(true);
+    setWishlistError(null);
     try {
       const res = await fetch('/api/tourist/wishlist', {
         method: wishlisted ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemType: 'tour', itemId: tour.id }),
+        body: JSON.stringify({ itemType: 'tour', itemId: String(tour.id) }),
       });
       if (res.status === 401) { router.push(`/auth/login?from=/marketplace/tours/${tour.id}`); return; }
-      if (res.ok) setWishlisted(w => !w);
-    } catch { /* silent */ } finally { setWishlistLoading(false); }
+      const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
+      if (res.ok && data.success !== false) {
+        setWishlisted(w => !w);
+      } else {
+        // Причина словами, не молчание: «Профиль не найден» и «кнопка не
+        // работает» — разные проблемы, и различить их может только текст.
+        setWishlistError(data.error ?? 'Не удалось обновить избранное');
+      }
+    } catch {
+      setWishlistError('Нет связи с сервером');
+    } finally { setWishlistLoading(false); }
   }, [tour.id, wishlisted, wishlistLoading, router]);
 
   const handleShare = useCallback(() => {
@@ -732,6 +759,18 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 Отзывы
                 {reviews.length > 0 && <span className="text-sm font-normal text-[var(--text-muted)] ml-1" style={{ fontFamily: FM }}>({reviews.length})</span>}
               </SectionTitle>
+              {/* Есть отзывы — есть рейтинг (владелец 07.08): сводка над
+                  списком из rating/review_count тура, которые пересчитываются
+                  из живых отзывов при каждой публикации. */}
+              {reviews.length > 0 && rating > 0 && (
+                <div className="flex items-center gap-2.5 mb-5">
+                  <span className="text-[var(--text-primary)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 28, letterSpacing: '-0.02em' }}>{rating.toFixed(1)}</span>
+                  <div>
+                    <Stars rating={Math.round(rating)} />
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{tour.review_count ?? reviews.length} {plural(tour.review_count ?? reviews.length, 'отзыв', 'отзыва', 'отзывов')}</p>
+                  </div>
+                </div>
+              )}
               {reviews.length > 0 ? (
                 <div className="space-y-5">
                   {reviews.map(r => (
@@ -821,6 +860,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <Heart className={`w-4 h-4 ${wishlisted ? 'fill-current' : ''}`} />{wishlisted ? 'В избранном' : 'В избранное'}
                 </button>
               </div>
+              {wishlistError && (
+                <p className="mt-2 text-xs text-[var(--danger)] text-center">{wishlistError}</p>
+              )}
             </div>
           </aside>
         </div>

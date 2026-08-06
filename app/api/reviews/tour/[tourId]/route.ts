@@ -175,6 +175,18 @@ export async function POST(
       [id, userId, authorName, rating, comment || '', valueForColumn(photos, 'photos', columnTypes)]
     );
 
+    // Есть отзывы — есть рейтинг (владелец 07.08). rating/review_count тура
+    // пересчитываются из живых отзывов, а не живут отдельной рукой: числа,
+    // которые никто не пересчитывает, врут (087 записала «31 отзыв» при трёх).
+    await query(
+      `UPDATE operator_tours SET
+         rating = (SELECT ROUND(AVG(rating)::numeric, 1) FROM operator_tour_reviews WHERE tour_id = $1),
+         review_count = (SELECT COUNT(*) FROM operator_tour_reviews WHERE tour_id = $1),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    ).catch(() => { /* рейтинг догонит следующий отзыв — сам отзыв уже сохранён */ });
+
     return NextResponse.json({
       success: true,
       data: result.rows[0],
