@@ -4,27 +4,58 @@
  * Отзыв о туре — форма вместо нарисованной кнопки.
  *
  * Владелец 05.08: «оставить отзыв не работает». Так и было: в карточке стоял
- * `<span>`, стилизованный под кнопку, без обработчика и без ссылки. Элемент
- * выглядел как действие и не делал ничего — тот же класс, что мёртвая ссылка на
- * `/hub/tour/{id}` в фиде Авито: интерфейс обещает то, чего за ним нет.
+ * `<span>`, стилизованный под кнопку, без обработчика и без ссылки.
+ *
+ * 06.08 — второй слой того же «не работает»: форма писала в старую таблицу
+ * reviews (tour_id UUID), а карточка читает operator_tour_reviews (BIGINT) —
+ * отправка падала всегда, а прошла бы — отзыв никто бы не увидел. Теперь API
+ * пишет в живую таблицу, и появились фото (владелец: «нет возможности
+ * загрузить фото»): до 3 снимков, загрузка сразу при выборе, гейт тот же —
+ * только после завершённой поездки.
  *
  * Правило платформы (`POST /api/reviews/tour/[tourId]`): отзыв может оставить
  * только тот, у кого есть ЗАВЕРШЁННАЯ бронь этого тура. Правило верное — оно
- * защищает от накрутки, — и врать о нём нельзя. Поэтому форма не притворяется
- * доступной всем: гостю честно сказано, что отзыв открывается после поездки, а
- * отказ сервера показывается его же словами, а не «что-то пошло не так».
+ * защищает от накрутки, — и врать о нём нельзя: отказ сервера показывается
+ * его же словами, а не «что-то пошло не так».
  */
 
-import { useState } from 'react';
-import { PenLine, Star, Check } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { PenLine, Star, Check, Camera, X, Loader2 } from 'lucide-react';
 
 type State = 'idle' | 'form' | 'sending' | 'sent';
+
+const MAX_PHOTOS = 3;
 
 export default function TourReviewForm({ tourId }: { tourId: string | number }) {
   const [state, setState] = useState<State>('idle');
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function uploadPhoto(file: File) {
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('tour_id', String(tourId));
+      const res = await fetch('/api/reviews/photo', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string };
+      if (!res.ok || !data.ok || !data.url) {
+        setError(data.error ?? 'Не удалось загрузить фото');
+        return;
+      }
+      setPhotos(p => (p.includes(data.url!) ? p : [...p, data.url!]).slice(0, MAX_PHOTOS));
+    } catch {
+      setError('Нет связи с сервером. Фото не загружено.');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
 
   async function submit() {
     if (rating < 1) {
@@ -37,7 +68,7 @@ export default function TourReviewForm({ tourId }: { tourId: string | number }) 
       const res = await fetch(`/api/reviews/tour/${tourId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rating, comment: comment.trim() }),
+        body: JSON.stringify({ rating, comment: comment.trim(), photos }),
       });
       const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) {
@@ -59,7 +90,7 @@ export default function TourReviewForm({ tourId }: { tourId: string | number }) 
     return (
       <p className="inline-flex items-center gap-2 mt-4 text-sm text-[var(--success)]">
         <Check className="w-4 h-4" />
-        Спасибо, отзыв отправлен — он появится после проверки.
+        Спасибо, отзыв опубликован — обновите страницу, чтобы его увидеть.
       </p>
     );
   }
@@ -110,6 +141,47 @@ export default function TourReviewForm({ tourId }: { tourId: string | number }) 
         className="ds-input w-full mt-3 resize-y"
       />
 
+      {/* Фото: до 3, загружаются сразу при выборе */}
+      <div className="mt-3">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); }}
+        />
+        {photos.length > 0 && (
+          <div className="flex gap-2 mb-2">
+            {photos.map((url) => (
+              <div key={url} className="relative w-16 h-16 rounded-lg overflow-hidden bg-[var(--bg-hover)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="Фото к отзыву" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPhotos(p => p.filter(u => u !== url))}
+                  aria-label="Убрать фото"
+                  className="absolute top-0.5 right-0.5 p-0.5 rounded-full bg-black/55 text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {photos.length < MAX_PHOTOS && (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-2 text-sm text-[var(--ocean)] hover:underline disabled:opacity-60"
+            style={{ minHeight: 44 }}
+          >
+            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+            {uploading ? 'Загружаем фото…' : `Добавить фото (до ${MAX_PHOTOS})`}
+          </button>
+        )}
+      </div>
+
       {error && (
         <p className="mt-2 text-sm text-[var(--danger)]">{error}</p>
       )}
@@ -118,7 +190,7 @@ export default function TourReviewForm({ tourId }: { tourId: string | number }) 
         <button
           type="button"
           onClick={submit}
-          disabled={state === 'sending'}
+          disabled={state === 'sending' || uploading}
           className="ds-btn ds-btn-primary disabled:opacity-60"
           style={{ minHeight: 44 }}
         >

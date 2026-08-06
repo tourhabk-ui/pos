@@ -1,20 +1,45 @@
+/**
+ * Отзывы о туре — чтение и запись ОДНОЙ таблицы: operator_tour_reviews.
+ *
+ * До 06.08 здесь было раздвоение: GET и POST работали со старой `reviews`
+ * (tour_id UUID, FK на удалённую таблицу tours), а карточка тура показывает
+ * operator_tour_reviews (tour_id BIGINT, миграция 087). Вставка числового id
+ * в UUID-колонку падает всегда — «Оставить отзыв» не срабатывал ни разу, а
+ * catch прятал причину за «Ошибка при создании отзыва». Даже пройди вставка —
+ * отзыв ушёл бы в таблицу, которую никто не читает.
+ *
+ * Правила записи:
+ *  - отзыв только при завершённой брони этого тура (гейт честности);
+ *  - один отзыв на тур от пользователя;
+ *  - фото — только с нашего S3 или из /images/ (чужие хосты не встраиваем);
+ *  - отказ БД наружу словами (redactPII), не немым 500 — слепота этого catch
+ *    уже стоила круга диагностики.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
+import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
-// Отзыв туриста (§4): rating проверялся вручную, но comment уходил в БД без
-// границы — авторизованный пользователь мог залить строку любого размера.
+/** Фото из отзыва: наш S3 или наш относительный путь — ничего чужого. */
+function isOwnPhotoUrl(u: string): boolean {
+  return u.startsWith('https://s3.twcstorage.ru/') || (u.startsWith('/') && !u.startsWith('//'));
+}
+
 const ReviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
   comment: z.string().trim().max(4000).optional().default(''),
+  photos: z.array(z.string().max(500)).max(3).optional().default([]),
 });
 
 /**
- * GET /api/reviews/tour/[tourId] - Public
+ * GET /api/reviews/tour/[tourId] — публичный список из той же таблицы,
+ * что рендерит карточка (иначе API и страница показывали бы разные отзывы).
  */
 export async function GET(
   request: NextRequest,
@@ -22,146 +47,59 @@ export async function GET(
 ) {
   try {
     const { tourId } = await params;
+    const id = parseInt(tourId);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, error: 'Неверный id тура' } as ApiResponse<null>, { status: 400 });
+    }
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const rating = searchParams.get('rating');
-    const sortBy = searchParams.get('sortBy') || 'recent'; // recent, rating_high, rating_low
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20')));
     const offset = (page - 1) * limit;
 
-    // Build query
-    let queryStr = `
-      SELECT 
-        r.id,
-        r.rating,
-        r.comment,
-        r.is_verified,
-        r.operator_reply,
-        r.operator_reply_at,
-        r.created_at,
-        u.name as user_name,
-        u.id as user_id,
-        COALESCE(array_agg(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL), '{}') as photos
-      FROM reviews r
-      JOIN users u ON r.user_id = u.id
-      LEFT JOIN review_assets ra ON r.id = ra.review_id
-      LEFT JOIN assets a ON ra.asset_id = a.id
-      WHERE r.tour_id = $1
-    `;
-
-    const sqlParams: unknown[] = [tourId];
-    let paramIndex = 2;
-
-    // Rating filter
-    if (rating) {
-      queryStr += ` AND r.rating = $${paramIndex}`;
-      sqlParams.push(parseInt(rating));
-      paramIndex++;
-    }
-
-    queryStr += ` GROUP BY r.id, u.id, u.name`;
-
-    // Sorting
-    switch (sortBy) {
-      case 'rating_high':
-        queryStr += ` ORDER BY r.rating DESC, r.created_at DESC`;
-        break;
-      case 'rating_low':
-        queryStr += ` ORDER BY r.rating ASC, r.created_at DESC`;
-        break;
-      default:
-        queryStr += ` ORDER BY r.created_at DESC`;
-    }
-
-    queryStr += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    sqlParams.push(limit, offset);
-
-    const result = await query(queryStr, sqlParams);
-
-    // Get total count
-    let countQuery = 'SELECT COUNT(*) FROM reviews WHERE tour_id = $1';
-    const countParams: unknown[] = [tourId];
-    
-    if (rating) {
-      countQuery += ' AND rating = $2';
-      countParams.push(parseInt(rating));
-    }
-
-    const countResult = await query<{ count: string }>(countQuery, countParams);
-    const totalCount = parseInt(countResult.rows[0].count);
-
-    // Get rating summary
-    const summaryResult = await query<{
-      total_reviews: string;
-      avg_rating: string | null;
-      five_star: string;
-      four_star: string;
-      three_star: string;
-      two_star: string;
-      one_star: string;
+    const result = await query<{
+      id: number; author_name: string; author_city: string | null;
+      rating: number; comment: string; trip_date: string | null;
+      photos: string[] | null; created_at: string;
     }>(
-      `SELECT
-        COUNT(*) as total_reviews,
-        AVG(rating) as avg_rating,
-        COUNT(*) FILTER (WHERE rating = 5) as five_star,
-        COUNT(*) FILTER (WHERE rating = 4) as four_star,
-        COUNT(*) FILTER (WHERE rating = 3) as three_star,
-        COUNT(*) FILTER (WHERE rating = 2) as two_star,
-        COUNT(*) FILTER (WHERE rating = 1) as one_star
-      FROM reviews
-      WHERE tour_id = $1`,
-      [tourId]
+      `SELECT id, author_name, author_city, rating, comment, trip_date, photos, created_at
+         FROM operator_tour_reviews
+        WHERE tour_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3`,
+      [id, limit, offset]
     );
 
+    const summaryResult = await query<{
+      total_reviews: string; avg_rating: string | null;
+    }>(
+      `SELECT COUNT(*) AS total_reviews, AVG(rating) AS avg_rating
+         FROM operator_tour_reviews WHERE tour_id = $1`,
+      [id]
+    );
     const summary = summaryResult.rows[0];
-
-    const reviews = result.rows.map(row => ({
-      id: row.id,
-      userId: row.user_id,
-      userName: row.user_name,
-      rating: row.rating,
-      comment: row.comment,
-      isVerified: row.is_verified,
-      operatorReply: row.operator_reply,
-      operatorReplyAt: row.operator_reply_at,
-      photos: row.photos,
-      createdAt: row.created_at
-    }));
+    const totalCount = parseInt(summary.total_reviews);
 
     return NextResponse.json({
       success: true,
       data: {
-        reviews,
+        reviews: result.rows,
         summary: {
-          totalReviews: parseInt(summary.total_reviews),
+          totalReviews: totalCount,
           avgRating: summary.avg_rating ? parseFloat(summary.avg_rating).toFixed(2) : '0.00',
-          distribution: {
-            5: parseInt(summary.five_star),
-            4: parseInt(summary.four_star),
-            3: parseInt(summary.three_star),
-            2: parseInt(summary.two_star),
-            1: parseInt(summary.one_star)
-          }
         },
-        pagination: {
-          page,
-          limit,
-          totalCount,
-          totalPages: Math.ceil(totalCount / limit)
-        }
-      }
+        pagination: { page, limit, totalCount, totalPages: Math.ceil(totalCount / limit) },
+      },
     } as ApiResponse<unknown>);
-
-  } catch (error) {
+  } catch {
     return NextResponse.json({
       success: false,
-      error: 'Ошибка при получении отзывов'
+      error: 'Ошибка при получении отзывов',
     } as ApiResponse<null>, { status: 500 });
   }
 }
 
 /**
- * POST /api/reviews/tour/[tourId] - Create a review for a tour (auth required)
+ * POST /api/reviews/tour/[tourId] — отзыв туриста (auth + завершённая бронь).
  */
 export async function POST(
   request: NextRequest,
@@ -173,6 +111,11 @@ export async function POST(
     const userId = authResult.userId;
 
     const { tourId } = await params;
+    const id = parseInt(tourId);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, error: 'Неверный id тура' } as ApiResponse<null>, { status: 400 });
+    }
+
     let rawBody: unknown;
     try { rawBody = await request.json(); }
     catch { return NextResponse.json({ success: false, error: 'Неверный формат запроса' } as ApiResponse<null>, { status: 400 }); }
@@ -185,8 +128,9 @@ export async function POST(
       return NextResponse.json({ success: false, error: msg } as ApiResponse<null>, { status: 400 });
     }
     const { rating, comment } = parsed.data;
+    const photos = parsed.data.photos.filter(isOwnPhotoUrl);
 
-    // Check if user has completed booking for this tour
+    // Гейт честности: отзыв — только у того, кто реально съездил.
     const bookingCheck = await query(
       `SELECT id FROM operator_bookings
        WHERE user_id = $1
@@ -194,47 +138,55 @@ export async function POST(
        AND booking_status = 'completed'
        AND deleted_at IS NULL
        LIMIT 1`,
-      [userId, tourId]
+      [userId, id]
     );
-
     if (bookingCheck.rows.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'Вы можете оставить отзыв только после завершения тура'
+        error: 'Вы можете оставить отзыв только после завершения тура',
       } as ApiResponse<null>, { status: 403 });
     }
 
-    // Check if user already reviewed this tour
-    const existingReview = await query(
-      'SELECT id FROM reviews WHERE user_id = $1 AND tour_id = $2',
-      [userId, tourId]
+    // Один отзыв на тур. user_id появился миграцией 832 — если она отстала,
+    // запрос упадёт и причина уйдёт наружу словами (catch ниже).
+    const existing = await query(
+      `SELECT id FROM operator_tour_reviews WHERE user_id = $1 AND tour_id = $2 LIMIT 1`,
+      [userId, id]
     );
-
-    if (existingReview.rows.length > 0) {
+    if (existing.rows.length > 0) {
       return NextResponse.json({
         success: false,
-        error: 'Вы уже оставили отзыв на этот тур'
+        error: 'Вы уже оставили отзыв на этот тур',
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Create review
+    const userRow = await query<{ name: string | null }>(
+      `SELECT name FROM users WHERE id = $1`, [userId]
+    );
+    const authorName = userRow.rows[0]?.name?.trim() || 'Гость Ведара';
+
+    // Тип photos берём из схемы, не из предположения — урок operator_tours,
+    // где TEXT[] на проде год был jsonb и сохранение молча падало.
+    const columnTypes = await getColumnTypes('operator_tour_reviews');
     const result = await query(
-      `INSERT INTO reviews (user_id, tour_id, rating, comment)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [userId, tourId, rating, comment || '']
+      `INSERT INTO operator_tour_reviews (tour_id, user_id, author_name, rating, comment, photos)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, author_name, rating, comment, photos, created_at`,
+      [id, userId, authorName, rating, comment || '', valueForColumn(photos, 'photos', columnTypes)]
     );
 
     return NextResponse.json({
       success: true,
       data: result.rows[0],
-      message: 'Отзыв успешно добавлен'
+      message: 'Отзыв опубликован',
     } as ApiResponse<unknown>);
-
   } catch (error) {
+    // Причина наружу словами: «Ошибка при создании отзыва» без деталей уже
+    // прятала несовпадение типов колонок целый сезон.
+    const detail = error instanceof Error ? redactPII(error.message).slice(0, 200) : '';
     return NextResponse.json({
       success: false,
-      error: 'Ошибка при создании отзыва'
+      error: detail ? `Не удалось сохранить отзыв: ${detail}` : 'Ошибка при создании отзыва',
     } as ApiResponse<null>, { status: 500 });
   }
 }

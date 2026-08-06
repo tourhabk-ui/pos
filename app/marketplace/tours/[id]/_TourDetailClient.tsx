@@ -92,6 +92,7 @@ interface TourReview {
   rating: number;
   comment: string;
   trip_date: string | null;
+  photos?: string[] | null;
 }
 
 /* ─── Helpers ─── */
@@ -746,8 +747,28 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                         <div className="text-right shrink-0"><Stars rating={r.rating} />{r.trip_date && <p className="text-xs text-[var(--text-muted)] mt-1">{r.trip_date}</p>}</div>
                       </div>
                       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{r.comment}</p>
+                      {(r.photos?.length ?? 0) > 0 && (
+                        <div className="flex gap-2 mt-3">
+                          {r.photos!.slice(0, 3).map((url) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={url}
+                              src={url}
+                              alt={`Фото из отзыва ${r.author_name}`}
+                              loading="lazy"
+                              className="w-20 h-20 rounded-lg object-cover bg-[var(--bg-hover)]"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
+                  {/* Форма доступна и при существующих отзывах — раньше она
+                      рендерилась только в пустом состоянии, и второй отзыв
+                      оставить было неоткуда. */}
+                  <div className="text-center">
+                    <TourReviewForm tourId={tour.id} />
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-10 px-6 border border-dashed border-[var(--border)] rounded-lg">

@@ -70,6 +70,8 @@ export interface TourCardReview {
   rating: number;
   comment: string;
   trip_date: string | null;
+  /** Фото туристов (миграция 832); до неё колонки нет — карточка это переживает. */
+  photos?: string[] | null;
 }
 
 /** Колонки, добавленные миграцией 809 — их может не быть, если она отстала. */
@@ -127,17 +129,23 @@ export async function getTourForCard(id: number): Promise<TourCardRow | null> {
 }
 
 export async function getTourReviews(tourId: number): Promise<TourCardReview[]> {
+  const sql = (withPhotos: boolean) =>
+    `SELECT id, author_name, author_city, rating, comment, trip_date${withPhotos ? ', photos' : ''}
+       FROM operator_tour_reviews
+      WHERE tour_id = $1
+      ORDER BY created_at DESC
+      LIMIT 6`;
   try {
-    const { rows } = await pool.query<TourCardReview>(
-      `SELECT id, author_name, author_city, rating, comment, trip_date
-         FROM operator_tour_reviews
-        WHERE tour_id = $1
-        ORDER BY created_at DESC
-        LIMIT 6`,
-      [tourId],
-    );
+    const { rows } = await pool.query<TourCardReview>(sql(true), [tourId]);
     return rows;
-  } catch {
-    return [];
+  } catch (e) {
+    if (!isUndefinedColumn(e)) return [];
+    // Миграция 832 (photos) ещё не применилась — отзывы без фото, но живые.
+    try {
+      const { rows } = await pool.query<TourCardReview>(sql(false), [tourId]);
+      return rows;
+    } catch {
+      return [];
+    }
   }
 }
