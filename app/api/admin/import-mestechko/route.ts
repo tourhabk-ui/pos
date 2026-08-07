@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { pool } from '@/lib/db-pool';
 import { hashPassword } from '@/lib/auth/password';
 
@@ -549,10 +550,17 @@ export async function GET(req: NextRequest) {
     );
 
     let userId: string;
+    let oneTimePassword: string | null = null;
     if (existingUser.rows.length > 0) {
       userId = existingUser.rows[0].id as string;
     } else {
-      const pwHash = await hashPassword('1234567890');
+      // Пароль — криптослучайный, а не предсказуемый литерал (находка
+      // эволюции #999): предсказуемый пароль оператора = вход любому, кто
+      // знает email. Пароль
+      // возвращается один раз в ответе импорта (эндпоинт под CRON_SECRET,
+      // виден только администратору) и требует смены при первом входе.
+      oneTimePassword = randomBytes(12).toString('base64url');
+      const pwHash = await hashPassword(oneTimePassword);
       const newUser = await client.query(
         `INSERT INTO users (email, name, role, password_hash, preferences)
          VALUES ($1, $2, 'operator', $3, $4::jsonb)
@@ -648,6 +656,9 @@ export async function GET(req: NextRequest) {
       success: true,
       operator_id: operatorId,
       user_id: userId,
+      // Пароль показывается ОДИН раз (эндпоинт под CRON_SECRET). null — если
+      // пользователь уже существовал: у него свой пароль, новый не создавался.
+      one_time_password: oneTimePassword,
       inserted,
       tours: insertedTitles,
     });
