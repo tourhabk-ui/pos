@@ -30,9 +30,23 @@ export default function FishSeasonCalendar({ species }: Props) {
   return (
     <div>
       {/* Сводка текстом, не только заливкой ячеек: предложение читают
-          AI-поиск (GEO) и скринридеры. */}
+          AI-поиск (GEO) и скринридеры. Имена видов — ссылки на их страницы,
+          тем же стилем, что в описании тура (владелец 07.08: «почему нет
+          ссылок по видам рыб»). */}
       <p className="text-[15px] text-[var(--text-secondary)] leading-relaxed mb-3">
-        {rows.map(sp => `${sp.name} — ${sp.season.toLowerCase()}`).join('; ')}.
+        {rows.map((sp, i) => (
+          <span key={sp.id}>
+            <Link
+              href={`/fish/${sp.id}`}
+              className="font-medium underline decoration-dotted underline-offset-2 transition-colors hover:no-underline"
+              style={{ color: sp.color, textDecorationColor: `${sp.color}70` }}
+            >
+              {sp.name}
+            </Link>
+            {` — ${sp.season.toLowerCase()}`}
+            {i < rows.length - 1 ? '; ' : '.'}
+          </span>
+        ))}
       </p>
 
       {inSeason.length > 0 && (
