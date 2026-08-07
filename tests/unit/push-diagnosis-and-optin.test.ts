@@ -49,8 +49,10 @@ describe('Подписка на push доступна без логина', () =
   // подписок оставалось 0, хотя кнопку вынесли на /safety (02.08). Эндпоинт
   // обязан принимать анонима: user_id в схеме NULLABLE, broadcast шлёт всем.
   it('POST не заперт за requireAuth', () => {
-    expect(subscribe, 'requireAuth вернулся — аноним снова не сможет подписаться')
-      .not.toMatch(/requireAuth/);
+    // Ищем именно ВЫЗОВ requireAuth(...), а не слово: в комментарии роут
+    // объясняет, почему requireAuth убрали, — упоминание там законно.
+    expect(subscribe, 'requireAuth() вернулся — аноним снова не сможет подписаться')
+      .not.toMatch(/requireAuth\s*\(/);
     expect(subscribe, 'нет опциональной аутентификации').toMatch(/getUserFromRequest/);
   });
   it('аноним пишется как user_id NULL, а не роняет запрос', () => {
