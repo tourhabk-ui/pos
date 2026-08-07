@@ -886,16 +886,20 @@ export async function ingestMchsAlerts(): Promise<ParseResult> {
       const items = parseMchsItems(xml);
       result.rawItems += items.length; // фид жив = отдал items (даже если ни один не ЧП)
       for (const it of items) {
-        const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link);
-        if (!event) continue;
-        result.events.push(event);
-        try {
-          // Один и тот же бюллетень может попасть в несколько разделов сайта —
-          // saveEvent дедуплицирует по external_id (ON CONFLICT DO NOTHING).
-          const status = await saveEvent(event);
-          if (status === 'inserted') result.inserted++;
-          else result.skipped++;
-        } catch (e) { result.errors.push((e as Error).message); }
+        // Множественная форма: обычный item остаётся одним событием, а
+        // многотемная сводка (Минтур) разбирается построчно — 07.08 владелец
+        // поймал, что фидовый путь звал единственную форму и разбор сводки
+        // не срабатывал вовсе.
+        for (const event of classifyMchsItems(it.id, it.title, it.desc, it.pubDate, it.link)) {
+          result.events.push(event);
+          try {
+            // Один и тот же бюллетень может попасть в несколько разделов сайта —
+            // saveEvent дедуплицирует по external_id (ON CONFLICT DO NOTHING).
+            const status = await saveEvent(event);
+            if (status === 'inserted') result.inserted++;
+            else result.skipped++;
+          } catch (e) { result.errors.push((e as Error).message); }
+        }
       }
     }
   } catch (e) {
@@ -960,15 +964,16 @@ export async function ingestNewsFeeds(skipPrefixes: string[] = []): Promise<Pars
 
     for (const xml of xmls) {
       for (const it of parseMchsItems(xml)) {
-        const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link, source.prefix);
-        if (!event) continue;
-        result.events.push(event);
-        try {
-          const status = await saveEvent(event);
-          if (status === 'inserted') result.inserted++;
-          else result.skipped++;
-        } catch (e) {
-          result.errors.push((e as Error).message);
+        // Множественная форма: сводка Минтура разбирается построчно (07.08).
+        for (const event of classifyMchsItems(it.id, it.title, it.desc, it.pubDate, it.link, source.prefix)) {
+          result.events.push(event);
+          try {
+            const status = await saveEvent(event);
+            if (status === 'inserted') result.inserted++;
+            else result.skipped++;
+          } catch (e) {
+            result.errors.push((e as Error).message);
+          }
         }
       }
     }
@@ -991,15 +996,17 @@ export async function ingestNewsFeedXmls(xmls: string[], prefix: string): Promis
   // Разные пути гос-сайта бывают алиасами одного фида — дедуп по содержимому.
   for (const xml of [...new Set(xmls.filter((x) => x && x.trim().length > 0))]) {
     for (const it of parseMchsItems(xml)) {
-      const event = classifyMchsItem(it.id, it.title, it.desc, it.pubDate, it.link, prefix);
-      if (!event) continue;
-      result.events.push(event);
-      try {
-        const status = await saveEvent(event);
-        if (status === 'inserted') result.inserted++;
-        else result.skipped++;
-      } catch (e) {
-        result.errors.push((e as Error).message);
+      // Множественная форма: именно этим путём (раннер → kamgov XML) приходит
+      // сводка Минтура — одиночная форма схлопывала её в один info (07.08).
+      for (const event of classifyMchsItems(it.id, it.title, it.desc, it.pubDate, it.link, prefix)) {
+        result.events.push(event);
+        try {
+          const status = await saveEvent(event);
+          if (status === 'inserted') result.inserted++;
+          else result.skipped++;
+        } catch (e) {
+          result.errors.push((e as Error).message);
+        }
       }
     }
   }

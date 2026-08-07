@@ -77,6 +77,22 @@ describe('живая сводка 06.08 разбирается на событи
   });
 });
 
+describe('фидовые пути зовут множественную форму классификатора', () => {
+  it('RSS-конвейеры (МЧС и kamgov) используют classifyMchsItems, не одиночную', () => {
+    // 07.08: разбор сводки был готов, но фидовый путь звал classifyMchsItem
+    // (единственную форму) — сводка Минтура из kamgov-RSS шла мимо разборщика,
+    // и владелец справедливо спросил «где предупреждения с сайта минтуризма».
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const { join } = require('node:path') as typeof import('node:path');
+    const src = readFileSync(join(process.cwd(), 'lib/services/safety/seismic-parser.ts'), 'utf-8');
+    // Одиночная форма как ВЫЗОВ допустима только внутри classifyMchsItems и
+    // в разборе соцпостов без заголовка — но не в фидовых циклах по items.
+    const feedCalls = src.match(/const event = classifyMchsItem\(/g) ?? [];
+    expect(feedCalls, 'фидовый цикл откатился на одиночный классификатор').toHaveLength(0);
+    expect((src.match(/classifyMchsItems\(it\.id/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('зоны объединяются, а не первый матч', () => {
   it('перечисление вулканов трёх зон даёт все три', () => {
     const zones = mchs_zones('не рекомендуется посещать вулканы Ключевской, Мутновский и Крашенинникова');

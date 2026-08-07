@@ -50,6 +50,7 @@ interface Tour {
  */
 import { activityLabel, locationLabel, priceUnitLabel } from '@/lib/tours/labels';
 import { photoSrc } from '@/lib/images/variant';
+import { detectFishSpecies } from '@/lib/fish-species';
 
 const ACTIVITY_IMAGES: Record<string, string> = {
   fishing:    '/images/activities/fishing.jpg',
@@ -280,6 +281,12 @@ function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[
   const seen = new Set<string>();
   const act = ACTIVITY_FEATURE[tour.activity_type];
   if (act) { out.push(act); seen.add(act.label); }
+  // Виды рыб — единым справочником (детект тот же, что у сезонной сетки):
+  // «Летняя: чавыча и нерка» без слова «рыбалка» иначе оставалась без иконки.
+  if (!seen.has('Рыбалка') && detectFishSpecies(text).length > 0) {
+    out.push({ Icon: Fish, label: 'Рыбалка' });
+    seen.add('Рыбалка');
+  }
   for (const r of FEATURE_RULES) {
     if (out.length >= 4) break;
     if (r.re.test(text) && !seen.has(r.label)) { out.push({ Icon: r.Icon, label: r.label }); seen.add(r.label); }
