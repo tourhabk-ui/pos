@@ -24,6 +24,10 @@ export async function GET(request: NextRequest) {
     access_key_set: !!process.env.S3_ACCESS_KEY,
     secret_key_set: !!process.env.S3_SECRET_KEY,
     bucket_set: !!process.env.S3_BUCKET,
+    // Имя бакета — НЕ секрет: нужно сверить глазами, в тот ли бакет пишет
+    // приложение (владелец 07.08 смотрел на пустой бакет и не понимал, туда ли
+    // уходят загрузки). Ключи по-прежнему только флагами.
+    bucket: process.env.S3_BUCKET || null,
     endpoint: process.env.S3_ENDPOINT || 'https://s3.twcstorage.ru (по умолчанию)',
   };
 
@@ -39,14 +43,21 @@ export async function GET(request: NextRequest) {
   }
 
   // Ключи могут быть заданы, но неверны — проверяем фактом записи.
+  // ?keep=1 — НЕ удалять тест-объект: чтобы владелец увидел, как файл реально
+  // появляется в бакете (0 ГБ пугает, а загрузка сама себя удаляла). Файл
+  // крошечный (4 байта), можно удалить вручную из панели.
+  const keep = new URL(request.url).searchParams.get('keep') === '1';
   const testKey = `diagnostics/storage-ping-${Date.now()}.txt`;
   try {
-    await uploadToS3(testKey, Buffer.from('ping'), 'text/plain');
-    await deleteFromS3(testKey).catch(() => { /* мусор в бакете не критичен */ });
+    const { url } = await uploadToS3(testKey, Buffer.from('ping'), 'text/plain');
+    if (!keep) await deleteFromS3(testKey).catch(() => { /* мусор в бакете не критичен */ });
     return NextResponse.json({
       success: true,
       ...flags,
       write_test: 'ok',
+      // При keep=1 — ссылка на записанный файл: открой её и увидишь «ping»,
+      // а в дашборде бакета появится этот объект (объём перестанет быть 0 ГБ).
+      test_object: keep ? url : null,
       verdict: 'S3 работает: тест-объект записан и удалён. Загрузка фото должна работать.',
     });
   } catch (e) {
