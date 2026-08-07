@@ -95,3 +95,17 @@ describe('форма и показ', () => {
     expect(sql).toMatch(/operator_tour_reviews/);
   });
 });
+
+describe('выдуманные отзывы 087 убраны (решение владельца 07.08)', () => {
+  it('миграция 833: сид без user_id удалён, рейтинг пересчитан от живых', () => {
+    const sql = read('migrations/833_remove_fake_reviews_087.sql');
+    // Идентификация по факту (user_id IS NULL = до пути записи), не по списку имён.
+    expect(sql).toMatch(/DELETE FROM operator_tour_reviews WHERE user_id IS NULL/);
+    expect(sql).toMatch(/AVG\(r\.rating\)/);
+    expect(sql).toMatch(/Источник: владелец/);
+  });
+
+  it('833 стоит после 832 (user_id должен существовать к моменту DELETE)', () => {
+    expect(read('migrations/832_tour_reviews_write_path.sql')).toMatch(/user_id/);
+  });
+});
