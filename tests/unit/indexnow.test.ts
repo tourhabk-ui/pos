@@ -55,6 +55,55 @@ describe('пинг подключён к путям записи тура', () =
   });
 });
 
+describe('канонический адрес тура один — /catalog/tours/', () => {
+  // Карточка тура живёт по двум URL (catalog и marketplace), но «настоящий»
+  // адрес — один: его подаёт sitemap и на него ведёт навигация. Раньше каждая
+  // страница объявляла каноном саму себя, а пинг слал marketplace — мы сами
+  // делили сигналы тура между двумя адресами.
+  it('sitemap подаёт туры по /catalog/tours/', () => {
+    expect(read('app/sitemap.ts')).toMatch(/\/catalog\/tours\/\$\{row\.id\}/);
+  });
+
+  it('пинг изменения тура шлёт канонический адрес, не marketplace', () => {
+    const lib = read('lib/seo/indexnow.ts');
+    expect(lib).toMatch(/\/catalog\/tours\/\$\{tourId\}/);
+    expect(lib).not.toMatch(/\/marketplace\/tours\//);
+  });
+
+  it('обе страницы тура объявляют каноном /catalog/tours/', () => {
+    for (const file of [
+      'app/catalog/tours/[id]/page.tsx',
+      'app/marketplace/tours/[id]/page.tsx',
+    ]) {
+      const src = read(file);
+      const canon = /canonical:\s*`\$\{SITE\}([^`]*)`/.exec(src);
+      expect(canon, `${file}: canonical не найден`).toBeTruthy();
+      expect(canon![1], `${file}: канон должен вести на /catalog/tours/`).toMatch(/^\/catalog\/tours\//);
+      expect(src, `${file}: JSON-LD должен строиться на каноне`).toMatch(/canonicalUrl: `\$\{SITE\}\/catalog\/tours\//);
+    }
+  });
+});
+
+describe('пинг подключён к правкам мест и маршрутов', () => {
+  it('админ-правка места пингует адрес как в sitemap (slug, иначе ark_id)', () => {
+    const src = read('app/api/admin/places/[id]/route.ts');
+    expect(src).toMatch(/pingPlaceChanged\(/);
+    expect(src, 'адрес пинга должен предпочитать slug').toMatch(/slug \?\? .*ark_id/);
+    expect(src).not.toMatch(/await pingPlaceChanged/);
+  });
+
+  it('импорт паспортов маршрутов пингует обогащённые маршруты', () => {
+    const src = read('app/api/admin/import/route-passports/route.ts');
+    expect(src).toMatch(/pingRoutesChanged\(/);
+    expect(src, 'адрес пинга должен предпочитать slug').toMatch(/slug \?\? /);
+  });
+
+  it('пустой список маршрутов не создаёт пинга', () => {
+    const lib = read('lib/seo/indexnow.ts');
+    expect(lib).toMatch(/slugsOrIds\.length === 0\) return/);
+  });
+});
+
 describe('поведение пинга', () => {
   it('пустой список — не ошибка и не запрос', async () => {
     const r = await pingIndexNow([]);

@@ -89,6 +89,19 @@ async function log(action: string, metadata: Record<string, unknown>): Promise<v
  * Попутный пинг об изменении тура: не ждёт результата и не влияет на ответ
  * сохранения. Зовётся из путей записи тура.
  */
+// Канонический адрес карточки тура — /catalog/tours/[id]: его подаёт sitemap,
+// на него ведёт навигация («Туры» → /catalog). Пинг обязан совпадать с
+// каноном — иначе мы сами сообщаем Яндексу два разных «настоящих» адреса.
+// Сторож согласованности: tests/unit/indexnow.test.ts.
 export function pingTourChanged(tourId: string | number | bigint): void {
-  void pingIndexNow([`/marketplace/tours/${tourId}`, '/catalog']).catch(() => {});
+  void pingIndexNow([`/catalog/tours/${tourId}`, '/catalog']).catch(() => {});
+}
+
+export function pingPlaceChanged(slugOrId: string): void {
+  void pingIndexNow([`/places/${slugOrId}`, '/places']).catch(() => {});
+}
+
+export function pingRoutesChanged(slugsOrIds: Array<string | number>): void {
+  if (slugsOrIds.length === 0) return;
+  void pingIndexNow([...slugsOrIds.map((s) => `/routes/${s}`), '/routes']).catch(() => {});
 }
