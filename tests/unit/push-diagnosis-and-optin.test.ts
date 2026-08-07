@@ -15,6 +15,7 @@ import { join } from 'node:path';
 
 const watchdog = readFileSync(join(process.cwd(), 'lib/agents/watchdog.ts'), 'utf-8');
 const safety = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
+const subscribe = readFileSync(join(process.cwd(), 'app/api/push/subscribe/route.ts'), 'utf-8');
 
 describe('Watchdog: точный диагноз недоставки push', () => {
   it('различает три причины, а не общее «проверь VAPID»', () => {
@@ -39,5 +40,25 @@ describe('Опт-ин подписки на публичной /safety', () => {
   });
   it('с safety-рамкой (не голая кнопка)', () => {
     expect(safety).toMatch(/Предупреждения о безопасности/);
+  });
+});
+
+describe('Подписка на push доступна без логина', () => {
+  // Публичная кнопка + приватный эндпоинт = аноним жмёт «Включить», браузер
+  // подписывается, POST отдаёт 401, подписка не сохраняется. Ровно поэтому
+  // подписок оставалось 0, хотя кнопку вынесли на /safety (02.08). Эндпоинт
+  // обязан принимать анонима: user_id в схеме NULLABLE, broadcast шлёт всем.
+  it('POST не заперт за requireAuth', () => {
+    // Ищем именно ВЫЗОВ requireAuth(...), а не слово: в комментарии роут
+    // объясняет, почему requireAuth убрали, — упоминание там законно.
+    expect(subscribe, 'requireAuth() вернулся — аноним снова не сможет подписаться')
+      .not.toMatch(/requireAuth\s*\(/);
+    expect(subscribe, 'нет опциональной аутентификации').toMatch(/getUserFromRequest/);
+  });
+  it('аноним пишется как user_id NULL, а не роняет запрос', () => {
+    expect(subscribe).toMatch(/auth\?\.userId\s*\?\?\s*null/);
+  });
+  it('повторная анонимная подписка не обнуляет ранее связанного пользователя', () => {
+    expect(subscribe).toMatch(/COALESCE\(\$1, push_subscriptions\.user_id\)/);
   });
 });
