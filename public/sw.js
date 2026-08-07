@@ -4,8 +4,9 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v22'; // bumped: таймаут на висящую сеть (полевой прогон 04.08 на EDGE — переходы не отваливались, а висели молча)
+const CACHE_NAME = 'kamchatour-v23'; // bumped: страницы туров были cache-first -> отдавали старый HTML с мёртвыми чанками (белый экран, «иконки пропали»); теперь network-first, а бамп чистит накопленный протухший HTML у застрявших
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
+const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
@@ -474,11 +475,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Страницы туров: cache-first + LRU
+  // Страницы туров: network-first + кэш офлайн + LRU (как /places).
+  //
+  // Было cache-first (`return cached || fetch`): один раз закэшированная
+  // страница тура отдавалась из кэша ВСЕГДА, сеть дёргалась лишь в фоне. После
+  // деплоя старый HTML ссылался на чанки старой сборки `/_next/static/<hash>`,
+  // Next их удалял → 404 → белый экран и павшая гидратация. Именно это читалось
+  // как «PWA плохо работает» и «иконки пропали, нужен хард-рефреш» (07.08).
+  // Network-first отдаёт свежее сразу, а офлайн по-прежнему берётся из кэша —
+  // тот же контракт, что у карточек мест.
   if (isTourPage(request.url)) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const fetchPromise = fetch(request).then((response) => {
+      fetch(request)
+        .then((response) => {
           if (response.ok) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then(async (cache) => {
@@ -487,13 +496,11 @@ self.addEventListener('fetch', (event) => {
             });
           }
           return response;
-        }).catch(() => {
-          // Офлайн: возвращаем кэш или fallback
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
           return cached || caches.match('/offline');
-        });
-
-        return cached || fetchPromise;
-      })
+        })
     );
     return;
   }
