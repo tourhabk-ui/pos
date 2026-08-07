@@ -126,4 +126,19 @@ describe('витрина не врёт цифрой', () => {
     expect(API).toContain('is_not_found');
     expect(PAGE).toContain('Карта переходов');
   });
+
+  it('воронка просмотр → бронь: считает по турам, боты и отмены исключены', () => {
+    // Просмотры карточек туров ищутся по пути и id извлекается из пути,
+    // брони — из operator_bookings за тот же срок, отменённые не в счёт.
+    expect(API).toContain("path ~ '^/(marketplace|catalog)/tours/[0-9]+$'");
+    expect(API).toContain("substring(path from '/tours/([0-9]+)')");
+    expect(API).toContain('FROM operator_bookings');
+    expect(API).toContain("booking_status <> 'cancelled'");
+    // Воронка людская — тот же фильтр ботов (${HUMAN}), что у остальных поведенческих.
+    const funnelBlock = API.slice(API.indexOf('tour_views AS'), API.indexOf('tour_bookings AS'));
+    expect(funnelBlock).toContain('${HUMAN}');
+    // Витрина честна про атрибуцию и не-веб-брони.
+    expect(PAGE).toContain('Просмотр → бронь');
+    expect(PAGE).toMatch(/Telegram и Кузьмича|веб-конверсия это пол/);
+  });
 });

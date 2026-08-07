@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [totals, daily, topPaths, topReferrers, coverage, edges, pages, sessions, notFound] = await Promise.all([
+    const [totals, daily, topPaths, topReferrers, coverage, edges, pages, sessions, notFound, funnel] = await Promise.all([
       pool.query<{
         today_hits: string; today_uniques: string;
         week_hits: string; week_visitor_days: string;
@@ -146,6 +146,48 @@ export async function GET(request: NextRequest) {
         ORDER BY hits DESC
         LIMIT 10
       `),
+      // Воронка «просмотр карточки тура -> бронь» ПО ТУРАМ, 30 дней.
+      // Просмотры — из page_views (пути /marketplace/tours/N и /catalog/tours/N,
+      // id тура вынимаем из пути). Брони — из operator_bookings за тот же срок.
+      // Честно про атрибуцию: visitor_hash суточный и анонимный, а бронь несёт
+      // user_id — связать конкретный просмотр с конкретной бронью нельзя, это
+      // АГРЕГАТ за период. Часть броней приходит из Telegram/Кузьмича, не с
+      // сайта, поэтому веб-конверсия — это ПОЛ, реальная не ниже. Оба факта
+      // называем подписью в UI, а не прячем.
+      pool.query<{
+        tour_id: string; title: string; is_published: boolean;
+        views: string; viewer_days: string; bookings: string;
+      }>(`
+        WITH tour_views AS (
+          SELECT (substring(path from '/tours/([0-9]+)'))::bigint AS tour_id,
+                 COUNT(*) AS views,
+                 COUNT(DISTINCT visitor_hash) FILTER (WHERE visitor_hash IS NOT NULL) AS viewer_days
+            FROM page_views
+           WHERE created_at >= NOW() - INTERVAL '30 days'
+             AND ${HUMAN}
+             AND path ~ '^/(marketplace|catalog)/tours/[0-9]+$'
+           GROUP BY 1
+        ),
+        tour_bookings AS (
+          SELECT operator_tour_id AS tour_id, COUNT(*) AS bookings
+            FROM operator_bookings
+           WHERE created_at >= NOW() - INTERVAL '30 days'
+             AND booking_status <> 'cancelled'
+           GROUP BY 1
+        )
+        SELECT ot.id::text AS tour_id,
+               ot.title,
+               ot.is_published,
+               COALESCE(tv.views, 0)::text       AS views,
+               COALESCE(tv.viewer_days, 0)::text AS viewer_days,
+               COALESCE(tb.bookings, 0)::text    AS bookings
+          FROM tour_views tv
+          FULL JOIN tour_bookings tb ON tb.tour_id = tv.tour_id
+          JOIN operator_tours ot ON ot.id = COALESCE(tv.tour_id, tb.tour_id)
+         WHERE ot.deleted_at IS NULL
+         ORDER BY COALESCE(tv.views, 0) DESC, COALESCE(tb.bookings, 0) DESC
+         LIMIT 20
+      `),
     ]);
 
     const t = totals.rows[0];
@@ -176,6 +218,14 @@ export async function GET(request: NextRequest) {
           avgDepth: s?.avg_depth == null ? null : Number(s.avg_depth),
         },
         not_found: notFound.rows.map(r => ({ path: r.path, hits: Number(r.hits) })),
+        funnel: funnel.rows.map(r => ({
+          tourId: Number(r.tour_id),
+          title: r.title,
+          isPublished: r.is_published,
+          views: Number(r.views),
+          viewerDays: Number(r.viewer_days),
+          bookings: Number(r.bookings),
+        })),
         // Показываем подпись, только если есть строки БЕЗ хэша (значит уники
         // начались позже просмотров и раннее посчитать нельзя)
         uniques_since: cov?.has_unhashed ? (cov.uniques_since ?? null) : null,
