@@ -320,6 +320,9 @@ var lat=null,lng=null,open_id=null;
 
 function showLastSignal(){
   var box=document.getElementById('last-signal-box');
+  // Подсказка «где была связь» нужна только ОФЛАЙН: при живой сети она уводит
+  // к точке многочасовой давности вместо текущих координат.
+  if(navigator.onLine){ box.style.display='none'; return; }
   // Показываем последнюю позицию ТОЛЬКО когда она реально есть и не протухла.
   // readLastKnown честно вернёт null для пустого/битого/будущего/старого — тогда
   // блок скрыт, а не показывает пустое обещание.
@@ -539,6 +542,10 @@ function updateCoverageLinks(){
 updateCoverageLinks();
 window.addEventListener('online',updateCoverageLinks);
 window.addEventListener('offline',updateCoverageLinks);
+// Блок «последний сигнал» живёт по тому же правилу: сеть появилась — спрятать,
+// сеть пропала — показать (если точка реально есть).
+window.addEventListener('online',showLastSignal);
+window.addEventListener('offline',showLastSignal);
 
 // Копировать координаты
 function copyCoords(){
