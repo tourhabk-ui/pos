@@ -102,3 +102,30 @@ describe('service worker не подсовывает HTML вместо RSC-пе�
       .toBeGreaterThanOrEqual(19);
   });
 });
+
+describe('страницы туров отдаются network-first, а не из протухшего кэша', () => {
+  // Повод (владелец, 07.08): «PWA очень плохо работает». Карточка тура была
+  // cache-first — SW отдавал старый HTML со ссылками на чанки прежней сборки
+  // (/_next/static/<hash>), Next их удалял после деплоя -> 404 -> белый экран,
+  // «иконки пропали, нужен хард-рефреш». У карточек мест этой болезни нет —
+  // они уже network-first; тур обязан вести себя так же.
+  const code = SW.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it('ветка isTourPage начинается с fetch, а не с caches.match', () => {
+    const branchAt = code.indexOf('if (isTourPage(request.url))');
+    expect(branchAt, 'ветки страниц туров нет вовсе').toBeGreaterThan(-1);
+    const branch = code.slice(branchAt, branchAt + 400);
+    const fetchAt = branch.indexOf('fetch(request)');
+    const cacheAt = branch.indexOf('caches.match');
+    expect(fetchAt, 'в ветке тура нет живого fetch').toBeGreaterThan(-1);
+    expect(fetchAt, 'страница тура снова cache-first: caches.match идёт раньше fetch — вернётся протухший HTML')
+      .toBeLessThan(cacheAt === -1 ? Infinity : cacheAt);
+  });
+
+  it('LRU-лимит туров задан числом, а не сравнивается с undefined', () => {
+    // evictOldTourPages сравнивал length > MAX_TOUR_PAGES; без объявления
+    // константы сравнение с undefined всегда ложно и кэш туров не чистился.
+    expect(SW, 'MAX_TOUR_PAGES не объявлен — эвикция туров молча не работает')
+      .toMatch(/const\s+MAX_TOUR_PAGES\s*=\s*\d+/);
+  });
+});

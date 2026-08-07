@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers } from 'lucide-react';
+import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter } from 'lucide-react';
 
 interface TrafficData {
   totals: {
@@ -17,6 +17,7 @@ interface TrafficData {
   pages: Array<{ path: string; views: number; medianMs: number | null; exits: number }>;
   sessions: { total: number; onePage: number; avgDepth: number | null };
   not_found: Array<{ path: string; hits: number }>;
+  funnel: Array<{ tourId: number; title: string; isPublished: boolean; views: number; viewerDays: number; bookings: number }>;
   uniques_since: string | null;
 }
 
@@ -276,6 +277,57 @@ export default function AdminTrafficPage() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Воронка просмотр -> бронь по турам */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Filter className="w-3.5 h-3.5 text-[var(--ocean)]" />
+              <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Просмотр → бронь по турам · 30 дней</p>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">
+              Конверсия = брони / человеко-дни просмотревших. Агрегат за период, не
+              пер-пользователь: суточный хэш просмотра и user_id брони не связать.
+              Часть броней приходит из Telegram и Кузьмича, не с сайта, — веб-конверсия
+              это пол, реальная не ниже. Много просмотров и ноль броней — сигнал к карточке или цене.
+            </p>
+            {data.funnel.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">Просмотров карточек туров пока не зафиксировано.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                      <th className="text-left font-medium pb-2">Тур</th>
+                      <th className="text-right font-medium pb-2">Просмотры</th>
+                      <th className="text-right font-medium pb-2">Смотрело</th>
+                      <th className="text-right font-medium pb-2">Брони</th>
+                      <th className="text-right font-medium pb-2">Конверсия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.funnel.map(f => {
+                      const conv = pct(f.bookings, f.viewerDays);
+                      // Много смотрят, никто не бронирует — оранжевый: карточка не продаёт.
+                      const alarm = f.viewerDays >= 10 && f.bookings === 0;
+                      return (
+                        <tr key={f.tourId} className="border-t border-[var(--border)]">
+                          <td className="py-1.5 pr-3 text-[var(--text-secondary)] max-w-0 truncate" title={f.title}>
+                            {f.title}{!f.isPublished && <span className="text-[var(--text-muted)]"> · скрыт</span>}
+                          </td>
+                          <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{f.views}</td>
+                          <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{f.viewerDays}</td>
+                          <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{f.bookings}</td>
+                          <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: alarm ? 'var(--warning)' : conv > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                            {f.viewerDays > 0 ? `${conv}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
