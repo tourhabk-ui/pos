@@ -1,0 +1,56 @@
+# ВРЕМЕННЫЙ защитный probe нашего собственного прода (vedarai.ru).
+# Повод: два выдуманных "пентест"-отчёта (Blackbox) приписали нам открытые
+# .env/.git, WordPress, phpMyAdmin, Mongo-инъекции. Всё это опровергнуто по
+# коду, но живой хост отсюда не простучать (egress закрыт). Этот workflow
+# проверяет ФАКТОМ, что подозрительные пути отдают 403/404, а защищённые API
+# без токена — 401/403. Ничего не эксплуатирует: только коды ответов на GET.
+# Удаляется сразу после снятия показаний.
+name: Security Probe (temporary, own prod)
+
+on:
+  push:
+    branches: [claude/pos-repository-ercvsa]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Коды ответов подозрительных путей (ожидаем 403/404) и защищённых API (ожидаем 401/403)
+        run: |
+          BASE="https://vedarai.ru"
+          code() {
+            curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE$1" || echo "000"
+          }
+          echo "=== Системные файлы: должны быть НЕ 200 ==="
+          for p in \
+            /.env /.env.local /.env.production /.env.production.local \
+            /.git/config /.git/HEAD /.git/logs/HEAD \
+            /wp-login.php /wp-admin/ /xmlrpc.php /phpmyadmin/ \
+            /phpMyAdmin/ /.env.example /docker-compose.yml /package.json \
+            /next.config.js /Dockerfile /.npmrc /id_rsa /.ssh/id_rsa \
+          ; do
+            printf '%-32s -> %s\n' "$p" "$(code "$p")"
+          done
+          echo
+          echo "=== Защищённые API без токена: должны быть 401/403 (не 200) ==="
+          for p in \
+            /api/admin/analytics/traffic \
+            /api/admin/diagnostics/storage \
+            /api/admin/operator-tours \
+            /api/tourist/wishlist \
+          ; do
+            printf '%-40s -> %s\n' "$p" "$(code "$p")"
+          done
+          echo
+          echo "=== Живой сайт: контрольные точки (ожидаем 200) ==="
+          for p in / /version.json /marketplace ; do
+            printf '%-32s -> %s\n' "$p" "$(code "$p")"
+          done
+          echo
+          echo "=== Заголовки главной (утечки версий/стека) ==="
+          curl -s -D - -o /dev/null --max-time 20 "$BASE/" \
+            | grep -iE '^(server|x-powered-by|x-frame-options|strict-transport-security|content-security-policy|x-content-type-options):' \
+            || echo "(интересных заголовков не видно)"
