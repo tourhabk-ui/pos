@@ -8,7 +8,7 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, X, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check,
+  Phone, Send, AlertTriangle, Check, Video,
 } from 'lucide-react';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
@@ -115,7 +115,7 @@ function toProgram(v: unknown): ProgramStep[] {
   return out;
 }
 
-interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' }
+interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' }
 
 /**
  * Контакты оператора из partners.contacts. Показываем только то, что реально
@@ -148,6 +148,13 @@ function toContacts(v: unknown): OperatorContact[] {
   const tg = typeof o.telegram_channel === 'string' ? o.telegram_channel : '';
   if (tg.startsWith('https://t.me/')) {
     out.push({ label: 'Telegram', href: tg, icon: 'telegram' });
+  }
+
+  // Живой канал с уловами и сплавами продаёт лучше любого текста — показываем,
+  // если у партнёра он есть (владелец 07.08: TikTok «Камчатской рыбалки»).
+  const tiktok = typeof o.tiktok === 'string' ? o.tiktok.trim().replace(/^@/, '') : '';
+  if (/^[\w.]{2,24}$/.test(tiktok)) {
+    out.push({ label: 'TikTok', href: `https://www.tiktok.com/@${tiktok}`, icon: 'video' });
   }
 
   return out;
@@ -741,10 +748,10 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                       <a
                         key={c.href}
                         href={c.href}
-                        {...(c.icon === 'telegram' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                        {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                         className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
                       >
-                        {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                        {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
                         {c.label}
                       </a>
                     ))}
