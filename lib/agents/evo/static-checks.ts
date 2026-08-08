@@ -132,19 +132,36 @@ export function checkRouteAuthGate(path: string, content: string): GrowthIssue[]
   }];
 }
 
+/**
+ * Срезает комментарии, СОХРАНЯЯ структуру строк (замена пробелами) — номера
+ * строк в находках не съезжают. Зачем: первый же прогон с ситами 08.08 дал два
+ * ложных срабатывания на сам finding-guard.ts — «FROM bookings» в комментарии,
+ * цитирующем чужую галлюцинацию, и «console.log» в JSDoc про правило запрета.
+ * Объектив, не отличающий код от комментария о коде, клеймит документацию.
+ * `[^:]` перед `//` бережёт URL (https://…) от обрезания хвоста строки.
+ */
+export function stripCodeComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/.*$/gm, (m, p1: string) => p1 + ' '.repeat(m.length - p1.length));
+}
+
 /** Устаревшие таблицы и импорты — прямые запреты CLAUDE.md §4. */
 export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   if (!(path.startsWith('lib/') || path.startsWith('app/'))) return [];
   if (path.includes('.test.') || path.includes('__tests__')) return [];
 
+  // Паттерны ищем в КОДЕ, не в комментариях (структура строк сохранена —
+  // line_number честный).
+  const code = stripCodeComments(content);
   const issues: GrowthIssue[] = [];
   const lineOf = (re: RegExp): number | undefined => {
-    const idx = content.search(re);
-    return idx < 0 ? undefined : content.slice(0, idx).split('\n').length;
+    const idx = code.search(re);
+    return idx < 0 ? undefined : code.slice(0, idx).split('\n').length;
   };
 
   const defaultPoolImport = /import\s+pool\s+from\s+['"]@\/lib\/db-pool['"]/;
-  if (defaultPoolImport.test(content)) {
+  if (defaultPoolImport.test(code)) {
     issues.push({
       category: 'tech_debt', severity: 'medium', file_path: path, line_number: lineOf(defaultPoolImport),
       title: 'Дефолтный импорт pool вместо именованного',
@@ -154,7 +171,7 @@ export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   }
 
   const legacyBookings = /\bFROM\s+bookings\b/i;
-  if (legacyBookings.test(content)) {
+  if (legacyBookings.test(code)) {
     issues.push({
       category: 'bug', severity: 'high', file_path: path, line_number: lineOf(legacyBookings),
       title: 'Запрос к устаревшей таблице bookings',
@@ -164,7 +181,7 @@ export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   }
 
   const legacyTours = /\bFROM\s+tours\b/i;
-  if (legacyTours.test(content)) {
+  if (legacyTours.test(code)) {
     issues.push({
       category: 'bug', severity: 'high', file_path: path, line_number: lineOf(legacyTours),
       title: 'Запрос к устаревшей таблице tours',
@@ -174,7 +191,7 @@ export function checkLegacyUsage(path: string, content: string): GrowthIssue[] {
   }
 
   const legacyArk = /INSERT\s+INTO\s+agent_route_knowledge/i;
-  if (legacyArk.test(content)) {
+  if (legacyArk.test(code)) {
     issues.push({
       category: 'bug', severity: 'high', file_path: path, line_number: lineOf(legacyArk),
       title: 'INSERT в agent_route_knowledge (это VIEW)',
@@ -191,11 +208,12 @@ export function checkConsoleLog(path: string, content: string): GrowthIssue[] {
   if (!(path.startsWith('lib/') || path.startsWith('app/api/'))) return [];
   if (path.includes('.test.') || path.includes('__tests__')) return [];
 
-  const lines = content.split('\n');
+  // Блочные комментарии прежний построчный срез // не видел: «console.log (…»
+  // в JSDoc клеймился нарушением (прогон 08.08, finding-guard.ts:56).
+  const lines = stripCodeComments(content).split('\n');
   const hits: number[] = [];
   lines.forEach((line, i) => {
-    const code = line.replace(/\/\/.*$/, '');
-    if (/\bconsole\.log\s*\(/.test(code)) hits.push(i + 1);
+    if (/\bconsole\.log\s*\(/.test(line)) hits.push(i + 1);
   });
   if (hits.length === 0) return [];
 
