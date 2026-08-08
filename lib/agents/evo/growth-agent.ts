@@ -534,6 +534,46 @@ severity: critical = утечка данных/обход auth/инъекция/
 // детерминированный (без LLM) — рост окна тут дёшев. Ротация по леджеру.
 const MAX_MOCK_FILES = 20;
 
+/**
+ * Прод-ошибки в петлю эволюции (Эволюция 3.0, п.1, владелец: «действуй»).
+ *
+ * instrumentation.onRequestError пишет каждую серверную ошибку в
+ * ai_actions_log (action_type='server_error', с per-route троттлингом).
+ * Объектив агрегирует их за сутки и рождает детерминированные находки.
+ * Заголовок СТАБИЛЕН (без счётчиков): дедуп находок идёт по file_path+title,
+ * и «Прод 500: /api/x (17 за сутки)» плодил бы новую находку каждый день.
+ */
+export function prodRouteToFile(route: string): string | undefined {
+  if (!route.startsWith('/api/')) return undefined;
+  return `app${route}/route.ts`;
+}
+
+async function scanProdErrors(): Promise<GrowthIssue[]> {
+  const { rows } = await pool.query<{ route: string | null; n: number; last_message: string | null; methods: string | null }>(
+    `SELECT metadata->>'route' AS route,
+            COUNT(*)::int AS n,
+            (ARRAY_AGG(metadata->>'message' ORDER BY created_at DESC))[1] AS last_message,
+            STRING_AGG(DISTINCT metadata->>'method', '/') AS methods
+     FROM ai_actions_log
+     WHERE action_type = 'server_error' AND created_at > NOW() - INTERVAL '25 hours'
+     GROUP BY 1 ORDER BY n DESC LIMIT 20`,
+  );
+  return rows
+    .filter((r): r is typeof r & { route: string } => Boolean(r.route))
+    .map((r) => ({
+      category: 'bug' as const,
+      severity: r.n >= 10 ? ('high' as const) : ('medium' as const),
+      file_path: prodRouteToFile(r.route),
+      title: `Прод 500: ${r.route}`,
+      description:
+        `За сутки ${r.n} серверных ошибок на ${r.route}${r.methods ? ` (${r.methods})` : ''}. ` +
+        `Последняя: ${(r.last_message ?? 'сообщение не записано').slice(0, 200)}. ` +
+        `Источник — журнал onRequestError (прод-факт, не чтение кода).`,
+      suggestion: 'Воспроизвести по сообщению и починить причину; глушить catch-ем нельзя.',
+      model: 'deterministic',
+    }));
+}
+
 async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> {
   const all = await listRepoFiles();
   const clients = clientComponentPaths(all);
@@ -700,6 +740,10 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
     issues.push(...mocks.issues);
     coverage.mock_files_scanned = mocks.scanned;
+    // Прод-ошибки из журнала onRequestError (Эволюция 3.0, п.1): правда с
+    // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
+    // /api/tours жили годами, потому что 500-ки не попадали в петлю.
+    issues.push(...(await scanProdErrors().catch(() => [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
   }

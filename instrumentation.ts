@@ -8,6 +8,45 @@
  * @see https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 
+/**
+ * Прод-ошибки в петлю эволюции (Эволюция 3.0, п.1). Каждая серверная ошибка
+ * запроса пишется в ai_actions_log (action_type='server_error'); ночной Evo
+ * читает журнал объективом scanProdErrors и рождает находки. До этого 500-ки
+ * прода не попадали в петлю вовсе: мёртвый /time-slots и вечный degraded
+ * /api/tours жили годами и вскрылись только ручной пробой 08.08.
+ *
+ * Троттлинг per-route (60 с): штормовая ошибка не заливает журнал — для
+ * находки важен факт и последнее сообщение, а не каждый повтор.
+ */
+const errorLoggedAt = new Map<string, number>();
+const ERROR_LOG_THROTTLE_MS = 60_000;
+
+export async function onRequestError(
+  err: unknown,
+  request: { path?: string; method?: string },
+  context: { routePath?: string; routeType?: string },
+): Promise<void> {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  try {
+    const route = context?.routePath || request?.path || 'unknown';
+    const now = Date.now();
+    if (now - (errorLoggedAt.get(route) ?? 0) < ERROR_LOG_THROTTLE_MS) return;
+    errorLoggedAt.set(route, now);
+
+    const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    const { query } = await import('@/lib/database');
+    await query(
+      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+      ['server_error', JSON.stringify({
+        route,
+        method: request?.method ?? null,
+        kind: context?.routeType ?? null,
+        message,
+      })],
+    );
+  } catch { /* журнал не должен усугублять ошибку, которую фиксирует */ }
+}
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // ── 0. Global safety net ───────────────────────────────────
