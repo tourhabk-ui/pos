@@ -6,6 +6,7 @@ import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { isUuid } from '@/lib/text/slugify';
+import { JsonLd } from '@/components/seo/JsonLd';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -33,6 +34,27 @@ async function resolveToId(idOrSlug: string): Promise<string | null> {
     return (r.rows[0]?.id as string) ?? null;
   } catch {
     return null;
+  }
+}
+
+interface RouteWaypointRow { name: string; lat: number | null; lng: number | null; position: number }
+
+/** Точки маршрута по порядку (route_waypoints → places). Ошибка БД → []. */
+async function getRouteWaypoints(viewId: string): Promise<RouteWaypointRow[]> {
+  try {
+    const r = await query(
+      `SELECT p.name, p.lat, p.lng, rw.position
+         FROM route_waypoints rw
+         JOIN kamchatka_routes kr ON kr.id = rw.route_id
+         JOIN places p ON p.id = rw.place_id
+        WHERE COALESCE(kr.ark_id, kr.id)::text = $1
+        ORDER BY rw.position ASC
+        LIMIT 30`,
+      [viewId],
+    );
+    return r.rows as unknown as RouteWaypointRow[];
+  } catch {
+    return [];
   }
 }
 
@@ -194,10 +216,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     };
     return (
       <>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
+        <JsonLd data={jsonLd} />
         <CategoryPage category={id} />
       </>
     );
@@ -208,6 +227,12 @@ export default async function RouteOrCategoryPage({ params }: Props) {
 
   const route = await getRoute(id);
   if (!route) notFound();
+
+  // Точки маршрута по порядку — для itinerary в JSON-LD: без ItemList с
+  // position поисковики и AI-ответы не понимают, что маршрут — это
+  // ПОСЛЕДОВАТЕЛЬНОСТЬ мест (SEO-аудит владельца 08.08). Ошибка БД не
+  // роняет страницу — разметка просто выходит без itinerary.
+  const waypoints = await getRouteWaypoints(route.id);
 
   // Пришли по UUID, а у объекта есть человекочитаемый slug → 301 на slug
   // (канонический ЧПУ-URL). Так поисковики индексируют один адрес, старые
@@ -248,6 +273,26 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     inLanguage: 'ru',
     touristType: route.activityType ?? route.category,
     keywords: routeKeywords,
+    // Маршрут — это ПОСЛЕДОВАТЕЛЬНОСТЬ мест: itinerary с position — главное
+    // поле TouristTrip для маршрута (без него поисковики и AI видят точку,
+    // а не путь). Точки — из route_waypoints по порядку, с координатами.
+    ...(waypoints.length > 0 ? {
+      itinerary: {
+        '@type': 'ItemList',
+        numberOfItems: waypoints.length,
+        itemListElement: waypoints.map((w, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          item: {
+            '@type': 'TouristAttraction',
+            name: w.name,
+            ...(w.lat != null && w.lng != null
+              ? { geo: { '@type': 'GeoCoordinates', latitude: Number(w.lat), longitude: Number(w.lng) } }
+              : {}),
+          },
+        })),
+      },
+    } : {}),
     // Speakable — для голосовых ответов Алисы AI
     speakable: {
       '@type': 'SpeakableSpecification',
@@ -349,14 +394,8 @@ export default async function RouteOrCategoryPage({ params }: Props) {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
-      />
+      <JsonLd data={jsonLd} />
+      <JsonLd data={breadcrumbLd} />
       <RouteDetailClient id={route.id} />
     </>
   );
