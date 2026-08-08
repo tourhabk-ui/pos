@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Rss, Plus, Trash2, RefreshCw, AlertTriangle, Check, X,
   Play, Clock, Activity, Zap, CheckCircle, XCircle, Send,
-  ChevronDown, ChevronRight, Archive, Bot, Flame,
+  ChevronDown, ChevronRight, Archive, Flame,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -467,20 +467,14 @@ function IntelligenceFeed({ onChange }: { onChange: () => void }) {
                               </div>
                               <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)]">
                                 <span>приоритет: {item.priority}</span>
-                                {item.sent_to_kiloclaw && <span className="text-blue-600">✓ отправлено KiloClaw</span>}
+                                {/* Кнопка «Реализовать» (отправка боту KiloClaw) удалена —
+                                    владелец 08.08: бот выведен. Важные находки уходят в
+                                    эволюцию автоматически: мост bridgeMonitorFindings →
+                                    GitHub Issues → Claude Code. Бейдж ниже — история
+                                    старых отправок, не живой канал. */}
+                                {item.sent_to_kiloclaw && <span>отправлялось KiloClaw (архив)</span>}
                               </div>
                             </div>
-                            {!item.done && (
-                              <button
-                                onClick={() => runAction(entry.id, { action: 'send_to_kiloclaw', itemIdx: item.idx }, 'Отправлено KiloClaw')}
-                                disabled={busy !== null}
-                                className="ds-btn-secondary text-xs whitespace-nowrap"
-                                title="Отправить как задачу в Telegram KiloClaw"
-                              >
-                                <Bot className="w-3 h-3" />
-                                Реализовать
-                              </button>
-                            )}
                           </div>
                         ))}
                       </div>
