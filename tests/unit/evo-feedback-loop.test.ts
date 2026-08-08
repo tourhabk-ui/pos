@@ -431,3 +431,52 @@ export async function POST(req: NextRequest) {
     expect(checkRouteAuthGate('app/api/webhooks/payments/route.ts', src)).toEqual([]);
   });
 });
+
+describe('объективы не клеймят комментарии о коде (прогон 08.08)', () => {
+  // Первый прогон с ситами Эволюции 2.0 дал два ложных срабатывания на сам
+  // finding-guard.ts: «FROM bookings» в //-комментарии, цитирующем чужую
+  // галлюцинацию (#768), и «console.log (…» в JSDoc про правило запрета.
+  // Документация правила — не нарушение правила.
+
+  it('FROM bookings в строчном комментарии — не находка', () => {
+    const src = [
+      "// процитированы `'SELECT * FROM bookings WHERE id = ' + bookingId` и",
+      "const sql = `SELECT * FROM operator_bookings WHERE id = $1`;",
+    ].join('\n');
+    expect(checkLegacyUsage('lib/x.ts', src)).toEqual([]);
+  });
+
+  it('FROM bookings в блочном комментарии — не находка', () => {
+    expect(checkLegacyUsage('lib/x.ts', '/*\n * старый запрос FROM bookings удалён\n */\nexport const a = 1;')).toEqual([]);
+  });
+
+  it('настоящий FROM bookings в коде — по-прежнему находка с честной строкой', () => {
+    const src = "// пояснение\nconst q = `SELECT * FROM bookings WHERE id = $1`;";
+    const found = checkLegacyUsage('lib/x.ts', src);
+    expect(found).toHaveLength(1);
+    expect(found[0].line_number).toBe(2);
+  });
+
+  it('console.log в JSDoc — не находка (дословная строка 56 из finding-guard)', () => {
+    const src = [
+      '/**',
+      ' * console.error заклеймён нарушением. CLAUDE.md: запрещён console.log; console.error',
+      ' * console.log (тот — реальное нарушение, не трогаем).',
+      ' */',
+      'export const x = 1;',
+    ].join('\n');
+    expect(checkConsoleLog('lib/a.ts', src)).toEqual([]);
+  });
+
+  it('настоящий console.log после блочного комментария — находка с честной строкой', () => {
+    const src = '/*\n * шапка\n */\nconsole.log("hi");';
+    const found = checkConsoleLog('lib/a.ts', src);
+    expect(found).toHaveLength(1);
+    expect(found[0].line_number).toBe(4);
+  });
+
+  it('https:// в строке кода не режется как комментарий', () => {
+    const src = "const u = 'https://x.ru'; const q = `SELECT * FROM bookings`;";
+    expect(checkLegacyUsage('lib/x.ts', src)).toHaveLength(1);
+  });
+});
