@@ -48,13 +48,18 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
   // ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые (404 /
-  // fetch failed — сайты сняли ленты). Камчатский safety-слой (МЧС, kamgov)
-  // жив через safety-ingest (seismic-parser), к Scout-RSS не привязан.
+  // fetch failed — сайты сняли ленты).
   // rata/tourprom вернулись 08.08 на новых адресах фидов (редизайн изданий);
   // пороги: Турпром публикует непрерывно, RATA — деловой ритм с паузами на
   // выходные, потому окно шире.
   { key: 'tourprom',      label: 'Турпром',           maxSilenceHours: 72 },
   { key: 'ratanews',      label: 'RATA News',         maxSilenceHours: 120 },
+  // Safety-слой — не RSS: раздел «Камчатка» кормится из external_alerts
+  // (собственный мониторинг: сейсмика КБГС, МЧС, дороги, пожары FIRMS).
+  // Неделя без ЕДИНОГО события — это не «на Камчатке тихо», это сломанный
+  // ingest: сейсмобюллетени выходят практически ежедневно. Сам ingest-крон
+  // отдельно сторожит Watchdog; здесь — данные, а не процесс.
+  { key: 'safety_layer',  label: 'Safety-слой',       maxSilenceHours: 168 },
 ] as const;
 
 export interface ScoutSourceState {

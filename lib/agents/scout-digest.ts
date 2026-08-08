@@ -4,10 +4,12 @@
  * Scout Digest — ежедневный разведывательный дайджест.
  * Запускается раз в сутки через /api/cron/scout-digest.
  *
- * Собирает RSS-сигналы из 3 областей:
+ * Собирает сигналы из 4 областей:
  *   1. AI & Tech — что нового в AI для применения к платформе
  *   2. Travel Industry — новости туриндустрии РФ
- *   3. Камчатка — конкуренты, спрос, события
+ *   3. Референсы и рынок — передовые travel-tech продукты
+ *   4. Камчатка — события региона; кормится НЕ из RSS, а из собственного
+ *      safety-слоя (external_alerts: сейсмика КБГС, МЧС, дороги, пожары)
  *
  * Синтезирует через AI → отправляет дайджест в Telegram.
  * Хранит результат в agent_memory для истории.
@@ -83,9 +85,8 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   // на одном международном Skift, а категория 'travel' не имела ни одного
   // источника. Издания пережили редизайн, фиды вернулись на НОВЫХ адресах —
   // найдены в HTML главных и проверены пробой с раннера (run 31239764170:
-  // живой RSS 2.0 со свежими item). Раздел «Камчатка» пока без RSS-источника:
-  // kamgov снят 01.08 по недоступности с прода, новых свидетельств нет;
-  // регион-safety жив через safety-ingest (seismic-parser).
+  // живой RSS 2.0 со свежими item). Раздел «Камчатка» кормится не отсюда,
+  // а из собственного safety-слоя — см. SAFETY_LAYER_SOURCE ниже.
   { key: 'tourprom', url: 'https://www.tourprom.ru/feed/rss.xml', label: 'Турпром',   category: 'travel' },
   { key: 'ratanews', url: 'https://ratanews.ru/rss.xml',          label: 'RATA News', category: 'travel' },
 
@@ -104,8 +105,68 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   // URL из РФ (из песочницы домены отдают 403, проверить нельзя — не выдумываю).
 ];
 
+/**
+ * Safety-слой как источник раздела «Камчатка» (решение владельца 08.08:
+ * «делай камчатку из safety-слоя»). Регион остался без RSS: kamgov снят 01.08
+ * (ленты нет), а WAF режет даже раннеры. При этом собственный мониторинг —
+ * сейсмика КБГС, МЧС (t.me/vk/max), kamgov-XML, пожары FIRMS — уже складывает
+ * события в external_alerts. Дайджест читает СВОЮ БД, а не чужую ленту:
+ * этот источник не может «снять RSS» или закрыться WAF'ом.
+ */
+export const SAFETY_LAYER_SOURCE = {
+  key: 'safety_layer',
+  label: 'Safety-слой',
+  category: 'kamchatka' as SourceCategory,
+};
+
+/** Потолок сигналов safety-слоя за прогон — раздел, а не сводка МЧС целиком. */
+const SAFETY_ALERTS_LIMIT = 8;
+
+interface SafetyAlertRow {
+  title: string | null;
+  source_url: string | null;
+}
+
+/** Строки external_alerts → сигналы дайджеста (чистая, тестируется без БД). */
+export function alertsToItems(rows: SafetyAlertRow[]): RssItem[] {
+  const items: RssItem[] = [];
+  for (const r of rows) {
+    const title = (r.title ?? '').trim();
+    if (title.length <= 5) continue;
+    items.push({ title, url: r.source_url ?? '', source: SAFETY_LAYER_SOURCE.label });
+  }
+  return items;
+}
+
+/**
+ * Свежие события безопасности региона за сутки. Пустой день — честный 'empty'
+ * (на Камчатке тихо), ошибка БД — 'error': отчёт здоровья различает их так же,
+ * как у RSS-фидов. Окно 25 часов — как у объектива прод-ошибок: суточный крон
+ * с точным окном в 24ч терял бы события на стыке запусков.
+ */
+async function fetchSafetyLayerSource(): Promise<SourceFetch> {
+  const s = SAFETY_LAYER_SOURCE;
+  try {
+    const { rows } = await pool.query<SafetyAlertRow>(
+      `SELECT title, source_url
+         FROM external_alerts
+        WHERE created_at > NOW() - INTERVAL '25 hours'
+        ORDER BY severity DESC NULLS LAST, created_at DESC
+        LIMIT $1`,
+      [SAFETY_ALERTS_LIMIT],
+    );
+    const items = alertsToItems(rows);
+    return { key: s.key, label: s.label, category: s.category, items, status: items.length > 0 ? 'ok' : 'empty' };
+  } catch (e) {
+    return { key: s.key, label: s.label, category: s.category, items: [], status: 'error', error: ((e as Error).message || 'unknown').slice(0, 160) };
+  }
+}
+
 // Метки AI-источников — для отдельного поста в @ai_hub_money
 const AI_LABELS = new Set(RSS_SOURCES.filter(s => s.category === 'ai').map(s => s.label));
+
+// Все источники разведки для метаданных выпуска: RSS плюс safety-слой.
+const ALL_SOURCE_LABELS = [...RSS_SOURCES.map(s => s.label), SAFETY_LAYER_SOURCE.label];
 
 // Общий ретрай-хелпер с backoff+jitter (Roitman §18.7.1) — переиспользуем
 // вместо локальной реализации без jitter, которая ретраила ЛЮБую ошибку
@@ -456,8 +517,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // перед отправкой — чтобы почти дословный повтор не ушёл подписчикам.
   const publishedDigests = await recentPublishedDigests();
 
-  // Collect RSS in parallel — с честным статусом каждого источника
-  const fetched = await Promise.all(RSS_SOURCES.map(fetchSource));
+  // Collect signals in parallel — RSS плюс safety-слой, с честным статусом каждого
+  const fetched = await Promise.all([...RSS_SOURCES.map(fetchSource), fetchSafetyLayerSource()]);
   const allItems: RssItem[] = [];
   for (const f of fetched) allItems.push(...f.items);
 
@@ -514,7 +575,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
 - Раздел "AI & Tech" — любые новые модели, инструменты, агенты, обновления Claude/GPT/Gemini/Cursor, автоматизация, веб-разработка. Мы активно используем AI в разработке — даже косвенно полезное включай.
 - Раздел "Туриндустрия" — туризм в РФ и мире, онлайн-бронирование, OTA, CRM для туроператоров, новые тренды. Другие регионы — допустимы как контекст или аналогия.
 - Раздел "Референсы и рынок" — передовые travel-tech продукты и новинки (Skift, Product Hunt): конкретные фичи/паттерны, которые можно перенять на нашу платформу (планировщик, бронирование, ИИ-помощник, офлайн, карты). Пиши, ЧТО именно сделали и что из этого нам стоит рассмотреть.
-- Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен.
+- Раздел "Камчатка" — ЛЮБЫЕ новости о Камчатском крае: туризм, экология, транспорт, инфраструктура, погода, безопасность. Мы обслуживаем туристов на Камчатке — любой контекст о регионе ценен. Сигналы с пометкой [Safety-слой] — события из нашего собственного мониторинга безопасности региона (сейсмика, вулканы, дороги, пожары): излагай сам факт из заголовка, это и есть новость региона.
 - "Нет значимых сигналов за сегодня" — ТОЛЬКО если в разделе буквально ноль материалов. Если есть хоть что-то — пиши.
 
 НЕ ВРАТЬ. Пиши только то, что есть в сигналах:
@@ -765,7 +826,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       compiled_truth: digest,
       metadata: {
         signals: dedupedItems.length, raw_signals: allItems.length, fresh_signals: freshItems.length,
-        sources: RSS_SOURCES.map(s => s.label),
+        sources: ALL_SOURCE_LABELS,
         // Честный per-source статус: какой фид отдал материал, а какой молчит/упал.
         // Тот же отчёт, что уезжает в ответ крона — чтобы история и разбор по
         // горячим следам показывали одно и то же, а не две похожие таблицы.
@@ -780,7 +841,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
       agent_id: 'evo',
       memory_type: 'intelligence',
       key: `scout_digest_${dateKey}`,
-      value: { slug, signals: freshItems.length, sources: RSS_SOURCES.map(s => s.label) },
+      value: { slug, signals: freshItems.length, sources: ALL_SOURCE_LABELS },
       confidence: 0.8,
       source: 'scout_digest_cron',
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
