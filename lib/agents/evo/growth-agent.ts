@@ -683,6 +683,78 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
   return null; // хоть какой-то поток до денег есть — воронка не «сломана», цифры видны в scan-журнале
 }
 
+/**
+ * Кузьмич-евал в петле (Эволюция 3.0, п.6, владелец 08.08: «эволюция»).
+ *
+ * Еженедельный faithfulness-евал (kuzmich-eval / kuzmich-eval-live) уже
+ * гоняет живой retrieval Кузьмича через судью и алертит в Telegram — но
+ * алерт никто не «берёт в работу»: деградация ответов туристам оставалась
+ * оперативным сигналом без хвоста в трекере. Линза читает последний прогон
+ * каждого источника за 8 суток из agent_run_history и превращает плохой
+ * итог в находку 'suggested' — дальше её выносит issue-reporter, как любую.
+ * Детерминированно: цифры — из журнала прогона, не из чтения кода.
+ */
+export interface KuzmichEvalRunRow {
+  agent_id: string;
+  status: string;
+  pass_rate: number | null;
+  wilson_low: number | null;
+}
+
+/** Чистая: худший итог евала → находка (или null, если всё зелёное). */
+export function pickKuzmichEvalFinding(runs: KuzmichEvalRunRow[]): GrowthIssue | null {
+  if (runs.length === 0) return null; // евал не гонялся — его liveness сторожит Watchdog, не эта линза
+  const base = { category: 'bug' as const, model: 'deterministic', status: 'suggested' as const };
+  const label = (r: KuzmichEvalRunRow) => (r.agent_id === 'kuzmich-eval-live' ? 'живые вопросы туристов' : 'фикстура');
+  const numbers = (r: KuzmichEvalRunRow) =>
+    `pass_rate ${r.pass_rate ?? '—'}, нижняя граница Уилсона ${r.wilson_low ?? '—'} (источник: ${label(r)}). ` +
+    'Данные — журнал agent_run_history прогона kuzmich-eval (факт, не чтение кода).';
+
+  // Худшее сначала: завал faithfulness → падение самого прогона → слепой судья.
+  const lowScore = runs.find((r) => r.status === 'failed' && r.pass_rate !== null);
+  if (lowScore) {
+    return {
+      ...base, severity: 'high',
+      title: 'Кузьмич-евал: ответы расходятся с данными',
+      description: `Faithfulness ниже порога 0.8 — Кузьмич отвечает туристам фактами, которых нет в его контексте. ${numbers(lowScore)}`,
+      suggestion: 'Открыть cases последнего прогона (журнал kuzmich-eval), найти вопросы со score ≤ 2 и понять, что сломалось: retrieval не приносит данные или промпт разрешил досочинять. Особо строго — факты безопасности.',
+    };
+  }
+  const crashed = runs.find((r) => r.status === 'failed');
+  if (crashed) {
+    return {
+      ...base, severity: 'medium',
+      title: 'Кузьмич-евал: прогон падает',
+      description: `Последний прогон евала упал целиком — регрессия качества сейчас не измеряется. ${numbers(crashed)}`,
+      suggestion: 'Посмотреть error_msg прогона в agent_run_history и починить сам евал: пока он падает, деградацию ответов Кузьмича первым увидит турист.',
+    };
+  }
+  const blindJudge = runs.find((r) => r.status === 'partial');
+  if (blindJudge) {
+    return {
+      ...base, severity: 'medium',
+      title: 'Кузьмич-евал: судья недоступен',
+      description: `Больше 30% ответов остались без вердикта — итог прогона не «всё хорошо», а «нечем судить». ${numbers(blindJudge)}`,
+      suggestion: 'Проверить парк судей (/api/cron/health): какой провайдер отвалился и почему. Пока судья слеп, pass_rate завышен по построению.',
+    };
+  }
+  return null;
+}
+
+async function scanKuzmichEval(): Promise<GrowthIssue[]> {
+  const { rows } = await pool.query<KuzmichEvalRunRow>(
+    `SELECT DISTINCT ON (agent_id) agent_id, status,
+            (metadata->>'pass_rate')::float AS pass_rate,
+            (metadata->>'wilson_low')::float AS wilson_low
+     FROM agent_run_history
+     WHERE agent_id IN ('kuzmich-eval', 'kuzmich-eval-live')
+       AND started_at > NOW() - INTERVAL '8 days'
+     ORDER BY agent_id, started_at DESC`,
+  );
+  const finding = pickKuzmichEvalFinding(rows);
+  return finding ? [finding] : [];
+}
+
 async function scanFunnel(): Promise<GrowthIssue[]> {
   // Ретенция журнала маяка — той же рукой, что его читает.
   await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch(() => {});
@@ -898,6 +970,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     // /api/tours жили годами, потому что 500-ки не попадали в петлю.
     issues.push(...(await scanProdErrors().catch(() => [] as GrowthIssue[])));
     issues.push(...(await scanFunnel().catch(() => [] as GrowthIssue[])));
+    issues.push(...(await scanKuzmichEval().catch(() => [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
   }
