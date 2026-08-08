@@ -71,6 +71,12 @@ export interface GrowthScanResult {
   decision_model?: string | null;
   /** Причина немоты/кривого ответа решателя — null при здоровом прогоне. */
   decision_error?: string | null;
+  /**
+   * Ступени waterfall до выбранной модели (пакет D, 08.08). По ним алерт
+   * отличает «флагман-релей не настроен» (штатный DeepSeek — не тревога)
+   * от «настроен, но молчит» (понижение — тревога с причиной).
+   */
+  decision_provenance?: string[] | null;
 }
 
 // ── Code-level scans ─────────────────────────────────────────────────────
@@ -339,6 +345,8 @@ interface CodeReviewResult {
   model?: string | null;
   /** Причина немоты или кривого ответа решателя; null — здоровое ревью. */
   decisionError?: string | null;
+  /** Ступени waterfall до выбранной модели (пакет D) — при любом исходе. */
+  provenance?: string[] | null;
 }
 
 async function aiCodeReview(): Promise<CodeReviewResult> {
@@ -438,11 +446,11 @@ severity: critical = утечка данных/обход auth/инъекция/
 
   try {
     // Сильный решатель: DeepSeek (последний) → Qwen (последний), достижимы из РФ
-    const { text: result, model: decisionModel, error: decisionError } = await callAIDecisionDetailed(messages);
+    const { text: result, model: decisionModel, error: decisionError, provenance } = await callAIDecisionDetailed(messages);
     if (!result) {
       // Немота решателя — с причиной по ступеням waterfall (01.08: баланс
       // DeepSeek был жив, а прогоны молчали — без причины это не чинится).
-      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null };
+      return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, decisionError: decisionError ?? null, provenance: provenance ?? null };
     }
 
     const jsonStr = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -460,6 +468,7 @@ severity: critical = утечка данных/обход auth/инъекция/
         issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source,
         model: decisionModel ?? null,
         decisionError: `ответ ${decisionModel ?? '?'} не распарсился: ${(e as Error).message.slice(0, 120)}`,
+        provenance: provenance ?? null,
       };
     }
 
@@ -507,7 +516,7 @@ severity: critical = утечка данных/обход auth/инъекция/
     for (const m of mapped) if (m.file_path) findingsByFile[m.file_path] = (findingsByFile[m.file_path] ?? 0) + 1;
     await recordReviewed(pool, findingsByFile, reviewFiles).catch(() => {});
 
-    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null };
+    return { issues: mapped, staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source, model: decisionModel ?? null, decisionError: null, provenance: provenance ?? null };
   } catch {
     return { issues: [], staticIssues, listed: candidates.length, reviewed: fileBlocks.length, source };
   }
@@ -661,6 +670,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   // Кто думал в этом прогоне. null — ревью не запускалось или никто не ответил.
   let decisionModel: string | null = null;
   let decisionError: string | null = null;
+  let decisionProvenance: string[] | null = null;
 
   if (scanType === 'full' || scanType === 'code') {
     const [dead, debt] = await Promise.all([scanDeadCode(), scanTechDebt()]);
@@ -685,6 +695,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     coverage.files_reviewed = review.reviewed;
     decisionModel = review.model ?? null;
     decisionError = review.decisionError ?? null;
+    decisionProvenance = review.provenance ?? null;
     // Детерминированный объектив на фейк-витрины (мок-данные, кнопки-пустышки).
     const mocks = await scanMocks().catch(() => ({ issues: [] as GrowthIssue[], scanned: 0 }));
     issues.push(...mocks.issues);
@@ -773,6 +784,6 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     [JSON.stringify(new Date().toISOString())],
   );
 
-  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel, decision_error: decisionError };
+  return { issues, new_issues: newIssues, scan_id: scanId, duration_ms: Date.now() - start, coverage, decision_model: decisionModel, decision_error: decisionError, decision_provenance: decisionProvenance };
 }
 

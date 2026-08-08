@@ -23,6 +23,8 @@ interface ScanShape {
   /** Кто считал прогон: флагман или фоллбэк waterfall. */
   decision_model?: string | null;
   decision_error?: string | null;
+  /** Ступени waterfall до выбранной модели (пакет D) — основа различения. */
+  decision_provenance?: string[] | null;
   coverage?: {
     source?: string;
     files_listed?: number;
@@ -80,12 +82,24 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
   const processed = e?.processed ?? 0;
 
   const blind = coverageBlind(s);
-  // Аудит считал не флагман — повод сказать вслух. Waterfall съезжает на
-  // DeepSeek/Qwen молча (нет ключа, лёг релей), и снаружи прогон выглядит
-  // здоровым: зелёный, с находками. Раз владелец требует, чтобы аудит считала
-  // самая сильная модель, тихое понижение обязано быть слышным.
-  // Прогон, где ревью не запускалось (модели нет вовсе), понижением не считаем.
-  const downgraded = Boolean(s?.decision_model) && !isFlagshipDecision(s?.decision_model);
+  // «Не флагман» — это ДВА разных состояния, и до 08.08 алерт их не различал,
+  // крича «ФОЛЛБЭК, проверьте ключ и релей» на ШТАТНОГО решателя DeepSeek
+  // каждую ночь (политика владельца 04.08: «решатель дипсик либо опус»; релей
+  // на опуса — опция, а не обязанность). Теперь по провенансу ступеней:
+  //  - релей не настроен (все флагман-ступени «нет ключа») → DeepSeek штатен,
+  //    тревога не нужна — строка информационная;
+  //  - релей настроен, но флагман не ответил → настоящий съезд, тревога с
+  //    ПРИЧИНОЙ из провенанса вместо гадания «ключ или релей».
+  // Прогоны без провенанса (до пакета D) считаем понижением, как раньше.
+  const prov = s?.decision_provenance ?? null;
+  const flagshipSteps = (prov ?? []).filter((p) => /^(flagship|anthropic):/.test(p));
+  const relayNotConfigured =
+    flagshipSteps.length > 0 &&
+    flagshipSteps.every((p) => /ключа нет|нет ключа|нет ключа\/релея/.test(p));
+  const downgraded =
+    Boolean(s?.decision_model) &&
+    !isFlagshipDecision(s?.decision_model) &&
+    (prov === null || !relayNotConfigured);
   // Решатель МОЛЧИТ: файлы в ревью уходили, а модель ответа не записана —
   // значит ни один провайдер не ответил (или ответ не распарсился). Хуже
   // тихого понижения: «0 находок» неотличимо от «никто не смотрел». Найдено
@@ -106,8 +120,8 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
       : `Прочёс: source=${cov?.source ?? '?'}, отревьюено ${cov?.files_reviewed ?? 0}, мок-скан ${cov?.mock_files_scanned ?? 0}\n`) +
     (s?.decision_model
       ? (downgraded
-        ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — не флагман. Проверьте ключ и релей.\n`
-        : `Модель аудита: ${s.decision_model}\n`)
+        ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — флагман не ответил.\n${flagshipSteps.length ? `Причина: ${flagshipSteps.join(' | ').slice(0, 300)}\n` : 'Причина не записана — прогон до пакета D.\n'}`
+        : `Модель аудита: ${s.decision_model}${relayNotConfigured ? ' — штатный решатель (флагман-релей не настроен)' : ''}\n`)
       : (mute
         ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но ответа нет — «0 находок» ничего не значит.\n${s?.decision_error ? `Причина: ${s.decision_error}\n` : 'Причина не записана — прогон до диагностики 01.08.\n'}`
         : '')) +

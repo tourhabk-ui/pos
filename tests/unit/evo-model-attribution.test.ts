@@ -153,3 +153,48 @@ describe('немота решателя приходит с причиной (01
     expect(GROWTH).toMatch(/model: decisionModel \?\? null,\s*\n\s*decisionError/);
   });
 });
+
+describe('провенанс решателя: штатный DeepSeek против настоящего съезда (пакет D)', () => {
+  const quiet = { evolution: { processed: 0 }, rescue: { alerts: [] }, errors: [] as string[] };
+  const scanWith = (provenance: string[] | null, extra: Record<string, unknown> = {}) => ({
+    issues: [], new_issues: 0, duration_ms: 1000,
+    coverage: { source: 'github', files_listed: 900, files_reviewed: 20, mock_files_scanned: 20 },
+    decision_model: 'deepseek-chat',
+    decision_provenance: provenance,
+    ...extra,
+  });
+
+  it('релей не настроен → DeepSeek штатен: тихий прогон БЕЗ тревоги', () => {
+    // Ровно ночной кейс 07-08.08: ключей флагмана нет, политика владельца
+    // «дипсик либо опус» — DeepSeek тут не понижение, а штатный решатель.
+    const text = buildEvoAlert({
+      scan: scanWith(['flagship: пустой ответ или нет ключа/релея', 'anthropic: ключа нет']),
+      ...quiet,
+    });
+    expect(text).toBeNull();
+  });
+
+  it('релей не настроен, но есть новости → строка информационная, не ФОЛЛБЭК', () => {
+    const text = buildEvoAlert({
+      scan: scanWith(['flagship: пустой ответ или нет ключа/релея', 'anthropic: ключа нет'], { new_issues: 2 }),
+      ...quiet,
+    });
+    expect(text).toContain('штатный решатель');
+    expect(text).not.toContain('ФОЛЛБЭК');
+  });
+
+  it('релей настроен, но флагман молчит → тревога С ПРИЧИНОЙ из провенанса', () => {
+    const text = buildEvoAlert({
+      scan: scanWith(['flagship: пустой ответ или нет ключа/релея', 'anthropic: HTTP 500 upstream error']),
+      ...quiet,
+    });
+    expect(text).toContain('ФОЛЛБЭК');
+    expect(text).toContain('HTTP 500');
+    expect(text).not.toContain('Проверьте ключ и релей');
+  });
+
+  it('прогон без провенанса (до пакета D) — считается понижением, как раньше', () => {
+    const text = buildEvoAlert({ scan: scanWith(null), ...quiet });
+    expect(text).toContain('ФОЛЛБЭК');
+  });
+});
