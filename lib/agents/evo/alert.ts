@@ -70,7 +70,20 @@ export function isFlagshipDecision(model: string | null | undefined): boolean {
 /**
  * Возвращает HTML-текст для Telegram или null, если отправлять нечего.
  */
-export function buildEvoAlert(result: EvoAlertInput): string | null {
+/**
+ * EVO_FLAGSHIP_DEFERRED — осознанное решение владельца «флагман отложен»
+ * (08.08: «пока не буду пополнять баланс, ближе к продакшену переключим»).
+ * С флагом настоящий съезд с флагмана печатается информационной строкой, а не
+ * тревогой: напоминать 3×/день о принятом решении — тот же волк-крикун.
+ * Перед переключением на Опуса флаг УДАЛИТЬ из env Timeweb — любой съезд
+ * снова станет громким. Параметр opts — для тестов; в бою читается env.
+ */
+export function buildEvoAlert(
+  result: EvoAlertInput,
+  opts?: { flagshipDeferred?: boolean },
+): string | null {
+  const flagshipDeferred =
+    opts?.flagshipDeferred ?? ['1', 'true', 'yes'].includes((process.env.EVO_FLAGSHIP_DEFERRED ?? '').toLowerCase());
   const s = result.scan as ScanShape | null;
   const e = result.evolution as EvolutionShape | null;
   const r = result.rescue as RescueShape | null;
@@ -99,7 +112,8 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
   const downgraded =
     Boolean(s?.decision_model) &&
     !isFlagshipDecision(s?.decision_model) &&
-    (prov === null || !relayNotConfigured);
+    (prov === null || !relayNotConfigured) &&
+    !flagshipDeferred;
   // Решатель МОЛЧИТ: файлы в ревью уходили, а модель ответа не записана —
   // значит ни один провайдер не ответил (или ответ не распарсился). Хуже
   // тихого понижения: «0 находок» неотличимо от «никто не смотрел». Найдено
@@ -121,7 +135,13 @@ export function buildEvoAlert(result: EvoAlertInput): string | null {
     (s?.decision_model
       ? (downgraded
         ? `<b>Аудит считал ФОЛЛБЭК: ${s.decision_model}</b> — флагман не ответил.\n${flagshipSteps.length ? `Причина: ${flagshipSteps.join(' | ').slice(0, 300)}\n` : 'Причина не записана — прогон до пакета D.\n'}`
-        : `Модель аудита: ${s.decision_model}${relayNotConfigured ? ' — штатный решатель (флагман-релей не настроен)' : ''}\n`)
+        : `Модель аудита: ${s.decision_model}${
+            relayNotConfigured
+              ? ' — штатный решатель (флагман-релей не настроен)'
+              : flagshipDeferred && !isFlagshipDecision(s.decision_model)
+                ? ` — флагман отложен владельцем (EVO_FLAGSHIP_DEFERRED)${flagshipSteps.length ? `; флагман: ${flagshipSteps.join(' | ').slice(0, 200)}` : ''}`
+                : ''
+          }\n`)
       : (mute
         ? `<b>РЕШАТЕЛЬ МОЛЧИТ</b>: файлы ушли в ревью, но ответа нет — «0 находок» ничего не значит.\n${s?.decision_error ? `Причина: ${s.decision_error}\n` : 'Причина не записана — прогон до диагностики 01.08.\n'}`
         : '')) +
