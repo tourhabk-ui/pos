@@ -1,15 +1,26 @@
 {
-  "note": "Вердикт Qwen после смены QWEN_BASE_URL на intl. Этот же пуш триггерит ребилд Timeweb с новой env; немедленная проба может показать ещё старый контейнер — контрольная через 12 мин (run 7).",
-  "run": 6,
-  "bytes": 5000,
+  "note": "Двойная проба: (1) вердикт Qwen после смены QWEN_BASE_URL (ребилд докатился); (2) живость кандидатов RSS для возврата отрасли/региона в разведку — маркеры <rss/<feed.",
+  "run": 7,
+  "bytes": 700,
   "timeout": 120,
   "urls": [
-    "https://vedarai.ru/api/cron/health"
+    "https://vedarai.ru/api/cron/health",
+    "https://www.tourprom.ru/rss/",
+    "https://www.tourprom.ru/news/rss/",
+    "https://ratanews.ru/rss/",
+    "https://www.atorus.ru/rss.xml",
+    "https://kamgov.ru/rss",
+    "https://www.kam24.ru/rss/",
+    "https://kam24.ru/rss/news/",
+    "https://kamchatinfo.com/rss/",
+    "https://41.mchs.gov.ru/rss"
   ],
   "grep": [
     "настроен верно",
     "настроен другой шлюз",
-    "dashscope-intl",
-    "\"qwen\":true"
+    "\"qwen\":true",
+    "<rss",
+    "<feed",
+    "<?xml"
   ]
 }
