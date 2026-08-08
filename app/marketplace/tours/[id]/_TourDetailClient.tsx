@@ -145,9 +145,16 @@ function toContacts(v: unknown): OperatorContact[] {
     out.push({ label: 'Позвонить', href: `tel:${phone}`, icon: 'phone' });
   }
 
+  // Личный чат менеджера (contacts.telegram_contact, 841) — куда писать;
+  // канал (telegram_channel, 834) — что смотреть. Подписи различают их.
+  const tgc = typeof o.telegram_contact === 'string' ? o.telegram_contact.trim().replace(/^@/, '') : '';
+  if (/^[A-Za-z0-9_]{5,32}$/.test(tgc)) {
+    out.push({ label: 'Написать в Telegram', href: `https://t.me/${tgc}`, icon: 'telegram' });
+  }
+
   const tg = typeof o.telegram_channel === 'string' ? o.telegram_channel : '';
   if (tg.startsWith('https://t.me/')) {
-    out.push({ label: 'Telegram', href: tg, icon: 'telegram' });
+    out.push({ label: tgc ? 'Telegram-канал' : 'Telegram', href: tg, icon: 'telegram' });
   }
 
   // Живой канал с уловами и сплавами продаёт лучше любого текста — показываем,

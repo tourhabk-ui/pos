@@ -1,10 +1,7 @@
 {
-  "note": "TAAFT travel-itineraries — что перенять для Ведара (просьба владельца 08.08)",
-  "urls": [
-    "https://taaft.com/travel-itineraries",
-    "https://theresanaiforthat.com/s/travel+itinerary/"
-  ],
-  "bytes": 20000,
-  "timeout": 45,
+  "note": "fishingkam полный HTML — точные факты для карточек (аудит 08.08)",
+  "urls": ["https://fishingkam.ru/"],
+  "bytes": 780000,
+  "timeout": 60,
   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 }
