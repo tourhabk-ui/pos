@@ -17,7 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { verifyCronSecret } from '@/lib/auth/cron';
-import { buildIssueTitle, buildIssueBody, selectReportable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
+import { buildIssueTitle, buildIssueBody, selectReportable, isAutoRunnable, type GrowthFinding } from '@/lib/agents/evo/issue-reporter';
 import { verifyAgainstSource, isCredibleFinding } from '@/lib/agents/evo/finding-guard';
 import { decidePublish, applyPublishDecision, issueVerdict } from '@/lib/agents/evo/precision';
 import { githubFetch } from '@/lib/agents/evo/github-fetch';
@@ -290,6 +290,10 @@ export async function GET(req: NextRequest) {
     body: buildIssueBody(f),
     severity: f.severity,
     category: f.category,
+    // Эволюция 3.0, п.3: классы, которые рука может чинить сама. Раннер по
+    // этому флагу (и только при EVO_AUTOPR=1) вешает метку agent-proposal —
+    // её подхватывает claude.yml и ведёт находку до draft-PR.
+    auto_runnable: isAutoRunnable(f),
   }));
 
   return NextResponse.json({
