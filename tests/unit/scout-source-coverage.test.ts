@@ -18,7 +18,7 @@
  * не показывает, из чего сложился.
  */
 import { describe, it, expect } from 'vitest';
-import { RSS_SOURCES } from '@/lib/agents/scout-digest';
+import { RSS_SOURCES, SAFETY_LAYER_SOURCE } from '@/lib/agents/scout-digest';
 import {
   SCOUT_SOURCE_EXPECTATIONS,
   buildSourceReport,
@@ -28,11 +28,14 @@ import {
 
 describe('сторож покрывает всю разведку', () => {
   const watched = new Set(SCOUT_SOURCE_EXPECTATIONS.map((e) => e.key));
-  const configured = new Set(RSS_SOURCES.map((s) => s.key));
+  // Настроенные источники — это не только RSS: раздел «Камчатка» кормится
+  // из safety-слоя (external_alerts), и он сторожится наравне с фидами.
+  const allSources = [...RSS_SOURCES, SAFETY_LAYER_SOURCE];
+  const configured = new Set(allSources.map((s) => s.key));
 
-  it('каждый настроенный фид имеет порог тишины', () => {
-    const unwatched = RSS_SOURCES.filter((s) => !watched.has(s.key)).map((s) => s.key);
-    expect(unwatched, 'фид без ожидания не сторожится и не попадёт в dead_sources').toEqual([]);
+  it('каждый настроенный источник имеет порог тишины', () => {
+    const unwatched = allSources.filter((s) => !watched.has(s.key)).map((s) => s.key);
+    expect(unwatched, 'источник без ожидания не сторожится и не попадёт в dead_sources').toEqual([]);
   });
 
   it('нет ожиданий по фидам, которых уже нет', () => {
