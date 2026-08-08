@@ -1292,6 +1292,14 @@ export interface DecisionResult {
       здоровыми; баланс DeepSeek при этом был жив — причина в другом,
       и без этого поля её было не увидеть. */
   error?: string;
+  /**
+   * Ступени, пройденные ДО выбранной модели, — при любом исходе, не только при
+   * немоте (Эволюция 2.0, пакет D). До 08.08 массив причин выбрасывался при
+   * успехе, и по прогону нельзя было отличить «флагман-релей не настроен»
+   * (штатный DeepSeek, тревога не нужна) от «настроен, но молчит» (понижение,
+   * тревога с причиной). Алерт теперь различает эти состояния фактом.
+   */
+  provenance?: string[];
 }
 
 /**
@@ -1325,7 +1333,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
     const flag = await callOpenRouterModel(payload, flagshipModel, {
       timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
     });
-    if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel };
+    if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
     why.push('flagship: пустой ответ или нет ключа/релея');
   } catch (e) { why.push(`flagship: ${(e as Error).message.slice(0, 100)}`); }
 
@@ -1373,7 +1381,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
               prompt_tokens: data.usage?.input_tokens,
               completion_tokens: data.usage?.output_tokens,
             });
-            return { text, model: `anthropic:${antModel}` };
+            return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
           }
           why.push('anthropic: пустой ответ');
         } else {
@@ -1409,7 +1417,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
         if (res.ok) {
           const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: ProviderUsage };
           const text = data?.choices?.[0]?.message?.content;
-          if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model }; }
+          if (text?.trim()) { logLLMUsage(model, data.usage); return { text, model, provenance: why.slice() }; }
           why.push(`deepseek(${model}): пустой ответ`);
           continue; // пустой body — беда конкретной модели, пробуем следующую
         }
@@ -1436,7 +1444,7 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   // Qwen и Kimi остаются доступны для ДРУГИХ задач (callAIWaterfall/callAIFast,
   // зрение) — здесь убран только путь принятия решений.
 
-  return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована' };
+  return { text: null, model: null, error: why.join(' | ').slice(0, 600) || 'причина не зафиксирована', provenance: why.slice() };
 }
 
 // Диагностика ПРИЧИНЫ, почему callQwen молчит: реальный POST в
