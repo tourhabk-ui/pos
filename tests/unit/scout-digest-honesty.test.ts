@@ -85,3 +85,29 @@ describe('промпт запрещает додумывать и натягив
     expect(SRC).toMatch(/Натянутая привязка/);
   });
 });
+
+describe('немых выходов больше нет: каждый пропуск выпуска называет причину (07-08.08)', () => {
+  // Крон разведчика был success ежедневно, а дайджеста не было с 01.08 —
+  // шесть выходов digest_sent:false не несли причины, и неделю тишины не
+  // заметил никто. Сторож: любой return с digest_sent: false обязан нести
+  // digest_skip_reason (кроме случаев с условным спредом telegram_send_failed).
+  const SRC = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
+
+  it('каждый return с digest_sent: false несёт digest_skip_reason', () => {
+    const falseReturns = SRC.split('\n').filter((l) => l.includes('digest_sent: false'));
+    expect(falseReturns.length).toBeGreaterThanOrEqual(7);
+    for (const line of falseReturns) {
+      expect(line, `немой выход: ${line.trim()}`).toMatch(/digest_skip_reason/);
+    }
+  });
+
+  it('неотправленный телеграм тоже назван (условный спред при digest_sent: sent)', () => {
+    expect((SRC.match(/digest_skip_reason: 'telegram_send_failed'/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('health следит за свежестью дайджеста по артефакту', () => {
+    const HEALTH = readFileSync(join(process.cwd(), 'app/api/cron/health/route.ts'), 'utf-8');
+    expect(HEALTH).toMatch(/Разведчик молчит/);
+    expect(HEALTH).toMatch(/intel\/scout\//);
+  });
+});
