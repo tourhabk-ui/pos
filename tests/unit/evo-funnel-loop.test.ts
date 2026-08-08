@@ -6,14 +6,15 @@
  * Главный вопрос платформы — доходит ли кто-то до денег — не сторожил никто.
  * Контур: page_views (СВОЯ метрика, PageViewTracker — просмотры без ботов) +
  * маяк /api/funnel (только booking_start: взаимодействие, которого нет в
- * page_views) + Метрика (независимый свидетель) + leads/operator_bookings
- * (низ) → объектив scanFunnel → ОДНА находка за прогон (самое верхнее
- * сломанное звено) → категория 'funnel' наружу через issue-reporter.
- * Первая версия дублировала просмотры своим маяком — владелец 08.08:
- * «у нас была настроена своя метрика».
+ * page_views) + leads/operator_bookings (низ) → объектив scanFunnel → ОДНА
+ * находка за прогон (самое верхнее сломанное звено) → категория 'funnel'
+ * наружу через issue-reporter.
+ * Первая версия дублировала просмотры своим маяком («у нас была настроена
+ * своя метрика») и читала Яндекс.Метрику через API — убрано по слову
+ * владельца 08.08: «YANDEX_METRIKA_TOKEN не нужен, у нас свой».
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pickFunnelFinding, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
 import { OUTWARD_CATEGORIES } from '@/lib/agents/evo/issue-reporter';
@@ -73,29 +74,14 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
     expect(f?.status).toBe('suggested');
     expect(f?.description).toContain('визитов 0');
   });
-
-  it('Метрика в описании: подключена — цифра, нет — честное «не подключена»', () => {
-    expect(pickFunnelFinding(counts({ metrika_visits: 41 }))?.description).toContain('по Метрике 41');
-    expect(pickFunnelFinding(counts({}))?.description).toContain('Метрика не подключена');
-  });
 });
 
-describe('Метрика — независимый свидетель верха воронки', () => {
-  it('объектив читает Метрику и берёт максимум из двух источников', () => {
-    expect(GROWTH).toMatch(/fetchMetrikaWeek\(\)\.catch/);
-    expect(GROWTH).toMatch(/Math\.max\(views\[0\]\?\.visits \?\? 0, metrikaVisits \?\? 0\)/);
-  });
-
-  it('health диагностирует Метрику: token_set/ok/цифры видны пробе', () => {
+describe('чтение Яндекс.Метрики через API убрано (владелец 08.08: «у нас свой»)', () => {
+  it('в репо нет читалки Reporting API и упоминаний её токена', () => {
+    expect(existsSync(join(ROOT, 'lib/analytics/metrika-report.ts'))).toBe(false);
+    expect(GROWTH).not.toMatch(/fetchMetrikaWeek|YANDEX_METRIKA_TOKEN/);
     const HEALTH = readFileSync(join(ROOT, 'app/api/cron/health/route.ts'), 'utf-8');
-    expect(HEALTH).toMatch(/metrika_diag: metrikaDiag/);
-    expect(HEALTH).toMatch(/token_set && !metrikaDiag\.ok/);
-  });
-
-  it('без токена читалка честно отвечает token_set:false, не бросая', () => {
-    const METRIKA = readFileSync(join(ROOT, 'lib/analytics/metrika-report.ts'), 'utf-8');
-    expect(METRIKA).toMatch(/return \{ token_set: false, counter, ok: false \}/);
-    expect(METRIKA).toMatch(/YANDEX_METRIKA_TOKEN/);
+    expect(HEALTH).not.toMatch(/metrika_diag|fetchMetrikaWeek/);
   });
 });
 
