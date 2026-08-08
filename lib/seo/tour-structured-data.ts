@@ -91,9 +91,16 @@ export function buildTourStructuredData(
 ): Record<string, unknown> {
   const { canonicalUrl, siteUrl, activityLabel } = opts;
   const price = parseFloat(String(tour.base_price));
-  const images = tour.tour_image
+  // Абсолютные URL картинок — требование Google для rich results: проверка
+  // прода 08.08 показала относительные пути («/images/...») в @graph, из-за
+  // которых звёзды и цена в выдаче могут не появиться.
+  const toAbsolute = (u: string) =>
+    u.startsWith('http') ? u : `${siteUrl}${u.startsWith('/') ? '' : '/'}${u}`;
+  const images = (tour.tour_image
     ? [tour.tour_image, ...(tour.photos ?? [])]
-    : (tour.photos ?? []);
+    : (tour.photos ?? []))
+    .filter(Boolean)
+    .map(toAbsolute);
   const hasRating = tour.rating != null && Number(tour.rating) > 0;
 
   const aggregateRating = hasRating
@@ -157,9 +164,15 @@ export function buildTourStructuredData(
     '@type': 'TouristTrip',
     '@id': `${canonicalUrl}#trip`,
     name: tour.title,
-    ...(tour.description ? { description: String(tour.description) } : {}),
+    // Чистый текст до 500 символов: сырой HTML в разметке — мусор для
+    // поисковиков, а сверхдлинное описание модели всё равно режут.
+    ...(tour.description ? { description: stripHtmlTags(String(tour.description)).slice(0, 500) } : {}),
     inLanguage: 'ru',
-    ...(activityLabel ? { touristType: activityLabel } : {}),
+    // touristType — массивом (AI-модели читают его как теги аудитории):
+    // активность + локация, без выдуманных ярлыков.
+    ...(activityLabel
+      ? { touristType: [activityLabel, ...(tour.location_name ? [tour.location_name] : [])] }
+      : {}),
     keywords: [tour.title, activityLabel, tour.location_name ?? 'Камчатка', 'туры Камчатка', 'Камчатский край']
       .filter(Boolean)
       .join(', '),
