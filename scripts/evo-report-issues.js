@@ -21,6 +21,12 @@ const PROD_URL = process.env.TOURHAB_URL || 'https://vedarai.ru';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const REPO = process.env.EVO_REPO || 'tourhabk-ui/pos';
 const LABEL = 'evo';
+// Эволюция 3.0, п.3: метка авто-запуска руки — её подхватывает claude.yml и
+// ведёт находку до draft-PR. Вешается только на auto_runnable-находки (whitelist
+// в issue-reporter) и только при EVO_AUTOPR=1: ключ руки без кредитов = красные
+// прогоны, включает владелец переменной Actions.
+const AUTO_LABEL = 'agent-proposal';
+const AUTOPR_ENABLED = process.env.EVO_AUTOPR === '1';
 
 function log(stage, message, data = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), stage, message, ...data }));
@@ -78,11 +84,24 @@ function ensureLabel() {
   }
 }
 
-function createIssue(title, body) {
+function ensureAutoLabel() {
+  try {
+    gh(['label', 'create', AUTO_LABEL, '--repo', REPO, '--color', '1D76DB',
+      '--description', 'Авто-запуск руки (claude.yml ведёт до draft-PR)', '--force']);
+  } catch (e) {
+    log('WARN', 'не удалось создать/обновить метку авто-запуска (не критично)', { error: String(e) });
+  }
+}
+
+function createIssue(title, body, autoRunnable) {
   // Тело передаём аргументом, а НЕ через временный файл: execFileSync не
   // использует shell, поэтому произвольный/многострочный текст безопасен, а
   // сетевые данные не пишутся на диск (CodeQL: network→file / insecure temp).
-  return gh(['issue', 'create', '--repo', REPO, '--title', title, '--body', body, '--label', LABEL]);
+  const args = ['issue', 'create', '--repo', REPO, '--title', title, '--body', body, '--label', LABEL];
+  // Метка авто-запуска — при создании issue: claude.yml слушает событие
+  // labeled и стартует сам. Только whitelisted-классы и только при флаге.
+  if (autoRunnable && AUTOPR_ENABLED) args.push('--label', AUTO_LABEL);
+  return gh(args);
 }
 
 async function callback(reported) {
@@ -132,14 +151,15 @@ async function main() {
   if (findings.length === 0) return;
 
   ensureLabel();
+  if (AUTOPR_ENABLED && findings.some((f) => f.auto_runnable)) ensureAutoLabel();
 
   const reported = [];
   for (const f of findings) {
     try {
       const existing = findExistingIssue(f.title);
-      const url = existing || createIssue(f.title, f.body);
+      const url = existing || createIssue(f.title, f.body, f.auto_runnable === true);
       reported.push({ id: f.id, issue_url: url });
-      log(existing ? 'DEDUP' : 'CREATE', f.title, { url });
+      log(existing ? 'DEDUP' : 'CREATE', f.title, { url, auto: f.auto_runnable === true && AUTOPR_ENABLED });
     } catch (e) {
       log('ERROR', 'не удалось завести issue', { id: f.id, error: String(e) });
     }
