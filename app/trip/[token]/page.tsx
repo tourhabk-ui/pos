@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { JsonLd } from '@/components/seo/JsonLd';
 import { TripShareClient } from './_TripShareClient';
 
 interface PageProps {
@@ -39,5 +40,30 @@ export default async function TripSharePage({ params }: PageProps) {
   const { token } = await params;
   const trip = await fetchTrip(token);
   if (!trip) notFound();
-  return <TripShareClient trip={trip} token={token} />;
+
+  // TouristTrip + itinerary по дням: шарящийся план — публичная страница,
+  // и поисковикам/AI-ответам нужна её точная семантика, а не голый HTML.
+  const days = Array.isArray(trip.days) ? trip.days as Array<{ day: number; title: string }> : [];
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'TouristTrip',
+    name: trip.title,
+    description: `Маршрут по Камчатке на ${days.length} дней`,
+    itinerary: {
+      '@type': 'ItemList',
+      numberOfItems: days.length,
+      itemListElement: days.map((d, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: `День ${d.day}: ${d.title}`,
+      })),
+    },
+  };
+
+  return (
+    <>
+      <JsonLd data={jsonLd} />
+      <TripShareClient trip={trip} token={token} />
+    </>
+  );
 }

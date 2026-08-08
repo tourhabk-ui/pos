@@ -1,6 +1,7 @@
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
+import { PLAN_PRESETS } from '@/lib/plans/presets';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -46,6 +47,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
+    // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
+    // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
+    { url: `${BASE}/plans`,                lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.85 },
+    ...PLAN_PRESETS.map((p) => ({
+      url: `${BASE}/plans/${p.slug}`, lastModified: STABLE, changeFrequency: 'weekly' as const, priority: 0.8,
+    })),
     { url: `${BASE}/planning`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/catalog`,              lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
     { url: `${BASE}/accommodations`,       lastModified: RECENT,      changeFrequency: 'daily',   priority: 0.8 },
