@@ -33,6 +33,31 @@ describe('840: телефоны партнёра', () => {
   });
 });
 
+describe('841: поправка номеров + личный Telegram (второе сообщение владельца)', () => {
+  const MIG841 = readFileSync(join(ROOT, 'migrations/841_kamfishing_phones_fix.sql'), 'utf-8');
+
+  it('номер 999 из 840 заменён верным, второй совпал', () => {
+    expect(MIG841).toContain("'phone',  '+79247808011'");
+    expect(MIG841).toContain("'phone2', '+79147822222'");
+  });
+
+  it('личный ТГ хранится username-ом, отдельно от канала', () => {
+    expect(MIG841).toContain("'telegram_contact', 'labanalex'");
+    expect(MIG841).not.toMatch(/telegram_channel/);
+  });
+
+  it('идемпотентно и адресно, как 840', () => {
+    expect(MIG841).toMatch(/IS DISTINCT FROM/);
+    expect(MIG841).toMatch(/name ILIKE '%камчатская рыбалка%'/);
+  });
+
+  it('карточка рендерит личный чат кнопкой «Написать в Telegram», канал — «Telegram-канал»', () => {
+    expect(CARD).toMatch(/telegram_contact/);
+    expect(CARD).toMatch(/Написать в Telegram/);
+    expect(CARD).toMatch(/Telegram-канал/);
+  });
+});
+
 describe('карточка показывает часы звонков', () => {
   it('phone_hours читается из contacts и рендерится под кнопками', () => {
     expect(CARD).toMatch(/phone_hours/);
