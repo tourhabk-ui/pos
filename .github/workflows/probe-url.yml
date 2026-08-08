@@ -73,3 +73,29 @@ jobs:
             head -c "${BYTES}" /tmp/body | tr -d '\r'
             echo ""
           done
+
+          # Необязательные POST-пробы (приёмка MCP 08.08: tools/call руками из
+          # раннера — JSON-RPC не проверить GET-ом). Формат в probe-url.json:
+          #   "post": [{"url": "...", "body": {...}}]
+          # Правило секрета то же и ТОЛЬКО по хосту — см. case выше.
+          N=$(python3 -c "import json; print(len(json.load(open('.github/triggers/probe-url.json')).get('post', [])))")
+          for i in $(seq 0 $((N-1))); do
+            PURL=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json'))['post'][$i]['url'])")
+            python3 -c "import json; print(json.dumps(json.load(open('.github/triggers/probe-url.json'))['post'][$i].get('body', {})))" > /tmp/postbody.json
+            echo "════════════════════════════════════════════════"
+            echo "POST: $PURL"
+            case "$PURL" in
+              https://vedarai.ru/*)
+                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
+                  -H "Authorization: Bearer ${CRON_SECRET}" -H "Content-Type: application/json" \
+                  -X POST --data-binary @/tmp/postbody.json "$PURL" || echo 000);;
+              *)
+                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
+                  -H "Content-Type: application/json" \
+                  -X POST --data-binary @/tmp/postbody.json "$PURL" || echo 000);;
+            esac
+            echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
+            echo "── первые ${BYTES} байт ──"
+            head -c "${BYTES}" /tmp/body | tr -d '\r'
+            echo ""
+          done
