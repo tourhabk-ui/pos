@@ -1,16 +1,15 @@
 {
-  "note": "Разбор молчания разведчика: крон зелёный ежедневно, дайджеста нет с 01.08. Тело ответа покажет, что происходит внутри.",
-  "run": 5,
+  "note": "Вердикт Qwen после смены QWEN_BASE_URL на intl. Этот же пуш триггерит ребилд Timeweb с новой env; немедленная проба может показать ещё старый контейнер — контрольная через 12 мин (run 7).",
+  "run": 6,
   "bytes": 5000,
-  "timeout": 300,
+  "timeout": 120,
   "urls": [
-    "https://vedarai.ru/api/cron/scout-digest"
+    "https://vedarai.ru/api/cron/health"
   ],
   "grep": [
-    "\"success\":true",
-    "digest",
-    "rss",
-    "error",
-    "skip"
+    "настроен верно",
+    "настроен другой шлюз",
+    "dashscope-intl",
+    "\"qwen\":true"
   ]
 }
