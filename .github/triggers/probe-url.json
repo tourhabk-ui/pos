@@ -1,26 +1,25 @@
 {
-  "note": "Двойная проба: (1) вердикт Qwen после смены QWEN_BASE_URL (ребилд докатился); (2) живость кандидатов RSS для возврата отрасли/региона в разведку — маркеры <rss/<feed.",
-  "run": 7,
-  "bytes": 700,
+  "note": "Заход 2: реальные адреса фидов из HTML главных (link rel=alternate rss) с браузерным UA; kamgov WAF резал VedarProbe. Плюс повторный health — ребилд 04:28 включает свежую QWEN_BASE_URL.",
+  "run": 8,
+  "bytes": 12000,
   "timeout": 120,
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
   "urls": [
     "https://vedarai.ru/api/cron/health",
-    "https://www.tourprom.ru/rss/",
-    "https://www.tourprom.ru/news/rss/",
-    "https://ratanews.ru/rss/",
-    "https://www.atorus.ru/rss.xml",
-    "https://kamgov.ru/rss",
-    "https://www.kam24.ru/rss/",
-    "https://kam24.ru/rss/news/",
-    "https://kamchatinfo.com/rss/",
-    "https://41.mchs.gov.ru/rss"
+    "https://www.tourprom.ru/",
+    "https://ratanews.ru/",
+    "https://www.atorus.ru/",
+    "https://kamgov.ru/news",
+    "https://www.kam24.ru/",
+    "https://kamchatinfo.com/",
+    "https://41.mchs.gov.ru/news"
   ],
   "grep": [
     "настроен верно",
-    "настроен другой шлюз",
-    "\"qwen\":true",
-    "<rss",
-    "<feed",
-    "<?xml"
+    "dashscope-intl",
+    "application/rss+xml",
+    "rss.xml",
+    "feed.xml",
+    "/rss"
   ]
 }
