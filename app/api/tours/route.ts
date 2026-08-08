@@ -234,6 +234,16 @@ export async function GET(request: NextRequest) {
     } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>);
 
   } catch (error) {
+    // Деградация была немой: причина глоталась, и «tours: []» на проде месяцами
+    // выглядел как «туров нет», а не как «схема разошлась» (вскрытие пробой
+    // 08.08: прод отвечает degraded:true, причину не знает никто). Пишем её в
+    // журнал — следующий же вызов сам называет сломанную колонку.
+    try {
+      await query(
+        `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+        ['tours_listing_degraded', JSON.stringify({ error: error instanceof Error ? error.message : String(error) })],
+      );
+    } catch { /* БД недоступна целиком — деградируем молча, как раньше */ }
     return NextResponse.json({
       success: true,
       data: {
