@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
@@ -21,6 +21,20 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Предвыбор даты из ?date= (день плана, «Мой план 2.0» B-3): клик
+  // «забронировать» из дня плана не должен заставлять вводить дату, которую
+  // план уже знает. Читаем на клиенте через window.location — серверный
+  // searchParams выбил бы карточку тура из ISR-кэша. Мусор отбрасывается,
+  // уже введённую руками дату не перетираем.
+  useEffect(() => {
+    try {
+      const d = new URLSearchParams(window.location.search).get('date');
+      if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        setFormData(prev => (prev.booking_date ? prev : { ...prev, booking_date: d }));
+      }
+    } catch { /* предвыбор необязателен */ }
+  }, []);
+
   // Маяк воронки: первое касание формы — событие booking_start, один раз за
   // жизнь компонента (сервер дополнительно дедупит час на посетителя).
   const [funnelStarted, setFunnelStarted] = useState(false);
