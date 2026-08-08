@@ -42,20 +42,21 @@ jobs:
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
           # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
           TIMEOUT=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('timeout', 60))")
-          # Необязательный "auth": false — НЕ слать CRON_SECRET. Обязателен,
-          # когда пробим ЧУЖИЕ хосты (напр. ссылки каталога AI-инструментов):
-          # секрет не должен уходить третьим сторонам. Дефолт true — наши
-          # cron-эндпоинты продолжают работать без правок конфига.
-          AUTH=$(python3 -c "import json; print('1' if json.load(open('.github/triggers/probe-url.json')).get('auth', True) else '0')")
-          echo "UA: $UA · timeout: ${TIMEOUT}s · auth: $AUTH"
+          echo "UA: $UA · timeout: ${TIMEOUT}s"
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
-            if [ "$AUTH" = "1" ]; then
-              CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
-            else
-              CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000)
-            fi
+            # CRON_SECRET — ТОЛЬКО своему домену, детерминированно по URL.
+            # Конфиг-флаг auth (утро 08.08) провалился в тот же день: смешанная
+            # проба health+чужой-URL ушла с дефолтным auth=true, и секрет
+            # уехал на сторонний хост. Правило, зависящее от дисциплины
+            # заполняющего конфиг, — не защита; проверка хоста — защита.
+            case "$u" in
+              https://vedarai.ru/*)
+                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
+              *)
+                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000);;
+            esac
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
