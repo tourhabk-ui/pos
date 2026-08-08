@@ -30,6 +30,14 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 export interface DigestResult {
   signals_found: number;
   digest_sent: boolean;
+  /**
+   * Почему выпуск НЕ ушёл (немота 01-08.08: шесть выходов digest_sent:false
+   * без причины — неделя тишины при зелёном кроне, вскрыто пробой).
+   * synthesis_null | all_sections_empty | unsourced_percents |
+   * factcheck_judge_mute | unsupported_claims | near_repeat | no_rss_items |
+   * telegram_send_failed. Отсутствует — выпуск ушёл.
+   */
+  digest_skip_reason?: string;
   duration_ms: number;
   /** Здоровье источников за прогон: сколько живых из всех и какие молчат. */
   sources_ok?: number;
@@ -447,7 +455,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const health = await recordSourceHealthAndAlert(fetched);
 
   if (allItems.length === 0) {
-    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health };
+    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'no_rss_items', duration_ms: Date.now() - start, ...health };
   }
 
   // Cross-run dedup: URL за 30 суток + заголовок за 7 (см. filterUnseen)
@@ -465,7 +473,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     const sent = await tgSend(
       `<b>Дайджест ${new Date().toLocaleDateString('ru-RU')}</b>\n\nНовых сигналов за сутки нет. Мониторинг продолжается.`,
     );
-    return { signals_found: 0, digest_sent: sent, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: 0, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // Дедупликация: одна история из нескольких источников → одна запись
@@ -543,7 +551,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   }
 
   if (!digest) {
-    return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'synthesis_null', duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // Все разделы пусты — НЕ публикуем. Раньше здесь всё равно шёл tgSend, и в
@@ -555,7 +563,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // четвёртом (напр. «Референсы») есть настоящий сигнал.
   const allEmpty = (digest.match(/Нет значимых сигналов за сегодня/g) ?? []).length >= 4;
   if (allEmpty) {
-    return { signals_found: 0, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    return { signals_found: 0, digest_sent: false, digest_skip_reason: 'all_sections_empty', duration_ms: Date.now() - start, ...health, repeats_suppressed };
   }
 
   // ── Фактчек основного дайджеста ────────────────────────────────────────────
@@ -575,13 +583,13 @@ export async function runScoutDigest(): Promise<DigestResult> {
       if (retry) { digest = retry; bad = unsourcedPercents(digest, signalsList); }
     }
     if (bad.length > 0) {
-      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'unsourced_percents', duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
 
     let claims = await unsupportedClaims(digest, signalsList);
     // null — судья не ответил: не выпускаем (сбой гейта = отмена, не пропуск).
     if (claims === null) {
-      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'factcheck_judge_mute', duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
     if (claims.length > 0) {
       const fix: ChatMessage[] = [
@@ -594,7 +602,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
     }
     if (claims === null || claims.length > 0) {
       // Лучше не выпустить дайджест, чем выпустить с выдумкой (или непроверенным).
-      return { signals_found: freshItems.length, digest_sent: false, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: claims === null ? 'factcheck_judge_mute' : 'unsupported_claims', duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
   }
 
@@ -603,7 +611,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
   // свежие и завтра пойдут в новый синтез; провалился именно текст выпуска.
   if (isNearRepeatOfPrevious(digest, publishedDigests)) {
     return {
-      signals_found: freshItems.length, digest_sent: false, repeat_blocked: true,
+      signals_found: freshItems.length, digest_sent: false, repeat_blocked: true, digest_skip_reason: 'near_repeat',
       duration_ms: Date.now() - start, ...health, repeats_suppressed,
     };
   }
@@ -770,5 +778,5 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // Non-critical
   }
 
-  return { signals_found: dedupedItems.length, digest_sent: sent, duration_ms: Date.now() - start, ...health, repeats_suppressed };
+  return { signals_found: dedupedItems.length, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed };
 }

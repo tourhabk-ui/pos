@@ -101,6 +101,31 @@ async function checkDB(): Promise<HealthIssue[]> {
     }
   } catch { /* ai_actions_log может не существовать */ }
 
+  // Разведчик: живость меряем по АРТЕФАКТУ (свежесть дайджеста), не по коду
+  // ответа крона. Урок 01-08.08: крон success ежедневно, а последний дайджест —
+  // недельной давности; шесть немых выходов digest_sent:false прятали причину,
+  // и тишину не заметил никто. Причина конкретного пропуска теперь в
+  // digest_skip_reason ответа cron/scout-digest.
+  try {
+    const lastDigest = await pool.query<{ slug: string }>(
+      `SELECT slug FROM agent_knowledge
+        WHERE agent_id = 'scout' AND type = 'intel' AND slug LIKE 'intel/scout/%'
+        ORDER BY slug DESC LIMIT 1`,
+    );
+    const slugDate = lastDigest.rows[0]?.slug?.replace('intel/scout/', '');
+    if (!slugDate) {
+      issues.push({ level: 'warn', text: 'Разведчик: ни одного дайджеста в agent_knowledge' });
+    } else {
+      const ageH = (Date.now() - new Date(`${slugDate}T07:00:00Z`).getTime()) / 3_600_000;
+      if (ageH > 48) {
+        issues.push({
+          level: 'warn',
+          text: `Разведчик молчит: последний дайджест ${slugDate} (${Math.round(ageH / 24)} дн назад). Причина пропуска — digest_skip_reason в ответе cron/scout-digest.`,
+        });
+      }
+    }
+  } catch { /* agent_knowledge может не существовать */ }
+
   // OCTO: expire ON_HOLD bookings (hold_expires_at < NOW).
   // booked_slots не трогаем: OCTO больше не пишет счётчик (единственный
   // писатель — payment-webhook, семантика «оплаченные»); смена статуса на
