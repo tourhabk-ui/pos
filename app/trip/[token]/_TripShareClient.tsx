@@ -37,6 +37,14 @@ interface Trip {
   days: DayPlan[];
   transport_by_day: Record<string, string>;
   top_tours?: Record<string, ShareTour>;
+  /** Доступность на дату дня: day → {date, remaining} (share-API, B-4). */
+  availability?: Record<string, { date: string; remaining: number }>;
+}
+
+/** «12.08» из YYYY-MM-DD — для строки доступности. */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${d}.${m}`;
 }
 
 /** Статус дня из safety-слоя платформы (fail-soft: нет данных — блока нет). */
@@ -222,20 +230,35 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                 </div>
                 {/* Реальный тур к этому дню: план ведёт к брони, а не только
                     показывает цены «от-до» — отличие от планировщиков,
-                    которые «plan brilliantly; do not book». */}
-                {tour && (
-                  <Link href={`/catalog/tours/${tour.id}`}
-                    className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
-                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{tour.title}</div>
-                      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{tour.operator_name}</div>
-                    </div>
-                    <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
-                      от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
-                    </span>
-                  </Link>
-                )}
+                    которые «plan brilliantly; do not book». Дата дня уходит
+                    в ?date= — форма брони подхватит её сама (B-3), а строка
+                    мест — честная занятость на эту дату (B-4). */}
+                {tour && (() => {
+                  const avail = trip.availability?.[String(day.day)];
+                  const href = avail
+                    ? `/catalog/tours/${tour.id}?date=${avail.date}`
+                    : `/catalog/tours/${tour.id}`;
+                  return (
+                    <Link href={href}
+                      className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
+                      style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{tour.title}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {tour.operator_name}
+                          {avail && (
+                            <span style={{ color: 'var(--success)' }}>
+                              {' '}· на {shortDate(avail.date)} — {avail.remaining} {avail.remaining === 1 ? 'место' : avail.remaining < 5 ? 'места' : 'мест'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
+                        от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
+                      </span>
+                    </Link>
+                  );
+                })()}
               </div>
             );
           })}
