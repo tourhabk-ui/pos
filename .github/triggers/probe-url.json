@@ -1,14 +1,7 @@
 {
-  "note": "Аудит fishingkam 08.08: факты партнёра (группа/трансфер/база/контакты) + битые фото на туре 6",
-  "urls": [
-    "https://fishingkam.ru/",
-    "https://fishingkam.ru/uslugi-i-ceny",
-    "https://vedarai.ru/catalog/tours/6",
-    "https://vedarai.ru/images/fishingkam/__.jpeg",
-    "https://vedarai.ru/images/fishingkam/__.640.webp"
-  ],
-  "bytes": 24000,
-  "timeout": 45,
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-  "grep": ["трансфер", "групп", "человек", "база", "номер", "повар", "снасти", "WhatsApp", "wa.me", "t.me", "@", "руб", "сутки", "__.jpeg", "__.640.webp", "Программа"]
+  "note": "fishingkam полный HTML — точные факты для карточек (аудит 08.08)",
+  "urls": ["https://fishingkam.ru/"],
+  "bytes": 780000,
+  "timeout": 60,
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 }
