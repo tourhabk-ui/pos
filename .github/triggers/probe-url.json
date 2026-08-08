@@ -1,16 +1,15 @@
 {
-  "note": "Прогон Evo с новыми ситами (пакеты A и D, деплой 02c3e26): decision_provenance в ответе, DeepSeek штатен. Таймаут 300 — полный прогон ~100 с.",
-  "run": 3,
-  "bytes": 9000,
-  "timeout": 300,
+  "note": "Вердикт Qwen после trim() (#1013 задеплоен): ушло ли «настроен другой шлюз».",
+  "run": 4,
+  "bytes": 5000,
+  "timeout": 120,
   "urls": [
-    "https://vedarai.ru/api/cron/evo?type=full"
+    "https://vedarai.ru/api/cron/health"
   ],
   "grep": [
-    "decision_provenance",
-    "\"decision_model\":\"deepseek",
-    "ключа нет",
-    "\"decision_error\":null",
-    "\"success\":true"
+    "настроен верно",
+    "настроен другой шлюз",
+    "Qwen недоступен",
+    "credit balance"
   ]
 }
