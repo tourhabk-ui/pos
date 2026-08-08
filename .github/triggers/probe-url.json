@@ -1,25 +1,18 @@
 {
-  "note": "Заход 2: реальные адреса фидов из HTML главных (link rel=alternate rss) с браузерным UA; kamgov WAF резал VedarProbe. Плюс повторный health — ребилд 04:28 включает свежую QWEN_BASE_URL.",
-  "run": 8,
-  "bytes": 12000,
+  "note": "Заход 3: валидация найденных фидов (tourprom, ratanews) как RSS + свежий вердикт Qwen (ребилд 04:28 должен был докатиться).",
+  "run": 9,
+  "bytes": 900,
   "timeout": 120,
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
   "urls": [
     "https://vedarai.ru/api/cron/health",
-    "https://www.tourprom.ru/",
-    "https://ratanews.ru/",
-    "https://www.atorus.ru/",
-    "https://kamgov.ru/news",
-    "https://www.kam24.ru/",
-    "https://kamchatinfo.com/",
-    "https://41.mchs.gov.ru/news"
+    "https://www.tourprom.ru/feed/rss.xml",
+    "https://ratanews.ru/rss.xml"
   ],
   "grep": [
     "настроен верно",
-    "dashscope-intl",
-    "application/rss+xml",
-    "rss.xml",
-    "feed.xml",
-    "/rss"
+    "dashscope-intl.aliyuncs.com/compatible-mode",
+    "<rss",
+    "<item>",
+    "<title>"
   ]
 }
