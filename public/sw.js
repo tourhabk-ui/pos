@@ -4,9 +4,10 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v24'; // bumped: /sos и /emergency в precache — блок «последний сигнал» стал офлайн-only, застрявшие копии экранов надо заменить
+const CACHE_NAME = 'kamchatour-v25'; // bumped: /trip/[token] и share-API в кэше — план поездки должен открываться без связи (C-6)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
+const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
@@ -150,6 +151,16 @@ function isPlaceApiRequest(url) {
   return /^\/api\/places\/[a-f0-9-]+$/i.test(new URL(url).pathname);
 }
 
+// План поездки /trip/[token] и его данные (C-6): план смотрят дома по Wi-Fi,
+// а идут по нему там, где связи нет. Токен — uuid, 36 символов.
+function isTripPage(url) {
+  return /^\/trip\/[a-f0-9-]{36}$/i.test(new URL(url).pathname);
+}
+
+function isTripApiRequest(url) {
+  return /^\/api\/trips\/share\/[a-f0-9-]{36}(\/gpx)?$/i.test(new URL(url).pathname);
+}
+
 // Проверка: статический ассет Next.js
 function isStaticAsset(url) {
   const pathname = new URL(url).pathname;
@@ -177,6 +188,16 @@ async function evictOldTourPages(cache) {
   const tourKeys = keys.filter((req) => isTourPage(req.url));
   if (tourKeys.length > MAX_TOUR_PAGES) {
     const toDelete = tourKeys.slice(0, tourKeys.length - MAX_TOUR_PAGES);
+    await Promise.all(toDelete.map((key) => cache.delete(key)));
+  }
+}
+
+// LRU-эвикция: старые планы поездок, оставляем MAX_TRIP_PAGES
+async function evictOldTripPages(cache) {
+  const keys = await cache.keys();
+  const tripKeys = keys.filter((req) => isTripPage(req.url));
+  if (tripKeys.length > MAX_TRIP_PAGES) {
+    const toDelete = tripKeys.slice(0, tripKeys.length - MAX_TRIP_PAGES);
     await Promise.all(toDelete.map((key) => cache.delete(key)));
   }
 }
@@ -426,6 +447,30 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // /api/trips/share/[token] (+ /gpx) — данные и GPX плана поездки (C-6):
+  // network-first, офлайн — из кэша. Тот же контракт, что у /api/places.
+  if (isTripApiRequest(url.href)) {
+    event.respondWith(
+      caches.open(API_CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(request);
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            cache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          if (cached) return cached;
+          return new Response(JSON.stringify({ success: false, error: 'Нет подключения. Откройте план онлайн заранее.' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      })
+    );
+    return;
+  }
+
   // Остальные API — не кэшируем
   if (url.pathname.startsWith('/api/')) return;
 
@@ -493,6 +538,30 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME).then(async (cache) => {
               await cache.put(request, clone);
               await evictOldTourPages(cache);
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          return cached || caches.match('/offline');
+        })
+    );
+    return;
+  }
+
+  // Планы поездок /trip/[token]: network-first + кэш офлайн + LRU (как туры).
+  // План смотрят дома, идут по нему без связи — та же полевая логика, что
+  // у карточек мест: открыл онлайн один раз — офлайн страница живёт.
+  if (isTripPage(request.url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(async (cache) => {
+              await cache.put(request, clone);
+              await evictOldTripPages(cache);
             });
           }
           return response;

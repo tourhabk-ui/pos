@@ -68,10 +68,12 @@ describe('персональный ответ не оседает в кэше', 
   });
 
   it('service worker этот путь не кэширует', () => {
-    // В sw.js отдельная кэширующая ветка есть только у /api/places/[id];
-    // если появится общая для /api/trips — персональные данные лягут в общий кэш.
+    // Персональные /api/trips/* в общий кэш попадать не должны — на общем
+    // телефоне поездка одного достанется другому. Единственное исключение —
+    // /api/trips/share/[token] (C-6, офлайн-план): он публичен по построению
+    // (отдаёт только is_public = TRUE), в нём нет идентичности из сессии.
     const sw = readFileSync(join(ROOT, 'public/sw.js'), 'utf-8');
-    expect(sw, '/api/trips попал в кэширование service worker`а').not.toMatch(/api\/trips/);
+    expect(sw, 'в service worker попал не-share путь /api/trips').not.toMatch(/api\\?\/trips(?!\\?\/share)/);
   });
 });
 
