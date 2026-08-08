@@ -393,6 +393,13 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
 
   const program = useMemo(() => toProgram(tour.program), [tour.program]);
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
+  // Часы звонков (contacts.phone_hours, миграция 840) — строка из БД как есть.
+  const phoneHours = useMemo(() => {
+    const o = tour.operator_contacts;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return '';
+    const h = (o as Record<string, unknown>).phone_hours;
+    return typeof h === 'string' ? h.trim().slice(0, 120) : '';
+  }, [tour.operator_contacts]);
 
   // Рыбалка по сезонам (владелец 06.08): виды — те же, что подсвечивает
   // DescriptionWithFishLinks, из единого справочника. Нет упоминаний — нет блока.
@@ -743,18 +750,25 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                 </div>
 
                 {contacts.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-[var(--border)] flex flex-wrap gap-2">
-                    {contacts.map(c => (
-                      <a
-                        key={c.href}
-                        href={c.href}
-                        {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                        className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
-                      >
-                        {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
-                        {c.label}
-                      </a>
-                    ))}
+                  <div className="mt-4 pt-4 border-t border-[var(--border)]">
+                    <div className="flex flex-wrap gap-2">
+                      {contacts.map(c => (
+                        <a
+                          key={c.href}
+                          href={c.href}
+                          {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                          className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
+                        >
+                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                          {c.label}
+                        </a>
+                      ))}
+                    </div>
+                    {/* Часы звонков из partners.contacts.phone_hours (840):
+                        когда партнёр берёт трубку — факт из БД, не выдумка. */}
+                    {phoneHours && (
+                      <p className="text-xs text-[var(--text-muted)] mt-2">Звонки: {phoneHours}</p>
+                    )}
                   </div>
                 )}
               </div>
