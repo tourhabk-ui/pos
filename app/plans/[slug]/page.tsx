@@ -107,6 +107,15 @@ export default async function PlanPresetPage({ params }: PageProps) {
         '@type': 'ListItem',
         position: i + 1,
         name: `День ${d.day}: ${d.title}`,
+        // Сущность с координатами, не голое имя: geo — сильный сигнал места
+        // для AI-ответов, а coords у дня движок даёт всегда.
+        item: {
+          '@type': 'TouristAttraction',
+          name: d.title,
+          ...(Array.isArray(d.coords) && d.coords.length === 2
+            ? { geo: { '@type': 'GeoCoordinates', latitude: d.coords[0], longitude: d.coords[1] } }
+            : {}),
+        },
       })),
     },
     url: `${SITE}/plans/${preset.slug}`,

@@ -35,6 +35,15 @@ export interface TourSeoInput {
   season_end?: string | number | Date | null;
   /** Что входит в тур — для amenityFeature (ответы Алисы «что входит»). */
   included?: string[] | null;
+  /**
+   * Программа тура (operator_tours.program, JSONB [{title,text}], §11) —
+   * источник itinerary: AI-ответы пересказывают именно последовательность
+   * этапов. Выдуманных этапов-заглушек не строим: нет программы — нет
+   * itinerary.
+   */
+  program?: unknown;
+  /** Точка сбора (operator_tours.meeting_point) — первая позиция itinerary. */
+  meeting_point?: string | null;
 }
 
 export interface TourReviewSeoInput {
@@ -82,6 +91,51 @@ function seasonMonth(v: unknown): number | null {
   if (Number.isInteger(asNum) && asNum >= 1 && asNum <= 12) return asNum;
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d.getUTCMonth() + 1;
+}
+
+/**
+ * Itinerary тура из РЕАЛЬНЫХ данных: точка сбора + этапы программы
+ * (operator_tours.program). AI-ответы пересказывают именно последовательность
+ * этапов, поэтому это одно из самых сильных полей TouristTrip — но выдуманных
+ * заглушек («сбор группы и выезд») здесь сознательно нет: нет программы —
+ * нет itinerary, схема описывает действительность.
+ */
+function buildItinerary(tour: TourSeoInput): Record<string, unknown> {
+  const steps: Array<{ name: string; description?: string }> = [];
+
+  if (tour.meeting_point) {
+    const mp = stripHtmlTags(String(tour.meeting_point)).slice(0, 120).trim();
+    if (mp) steps.push({ name: 'Место сбора', description: mp });
+  }
+
+  if (Array.isArray(tour.program)) {
+    for (const raw of tour.program.slice(0, 12)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const p = raw as { title?: unknown; text?: unknown };
+      const title = typeof p.title === 'string' ? stripHtmlTags(p.title).slice(0, 120).trim() : '';
+      const text = typeof p.text === 'string' ? stripHtmlTags(p.text).slice(0, 200).trim() : '';
+      if (!title && !text) continue;
+      steps.push({ name: title || text.slice(0, 80), ...(title && text ? { description: text } : {}) });
+    }
+  }
+
+  if (steps.length === 0) return {};
+  return {
+    itinerary: {
+      '@type': 'ItemList',
+      numberOfItems: steps.length,
+      itemListElement: steps.map((s, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: s.name,
+        item: {
+          '@type': i === 0 && tour.meeting_point ? 'Place' : 'TouristAttraction',
+          name: s.name,
+          ...(s.description ? { description: s.description } : {}),
+        },
+      })),
+    },
+  };
 }
 
 export function buildTourStructuredData(
@@ -215,6 +269,7 @@ export function buildTourStructuredData(
           })),
         }
       : {}),
+    ...buildItinerary(tour),
   };
 
   // BreadcrumbList — хлебные крошки в выдаче (Главная → Туры → активность → тур).
