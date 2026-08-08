@@ -43,7 +43,9 @@ export default async function TripSharePage({ params }: PageProps) {
 
   // TouristTrip + itinerary по дням: шарящийся план — публичная страница,
   // и поисковикам/AI-ответам нужна её точная семантика, а не голый HTML.
-  const days = Array.isArray(trip.days) ? trip.days as Array<{ day: number; title: string }> : [];
+  // item — TouristAttraction с координатами дня (не голое имя): сущность
+  // с geo — сильный сигнал места для AI-ответов.
+  const days = Array.isArray(trip.days) ? trip.days as Array<{ day: number; title: string; coords?: [number, number] }> : [];
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'TouristTrip',
@@ -56,6 +58,13 @@ export default async function TripSharePage({ params }: PageProps) {
         '@type': 'ListItem',
         position: i + 1,
         name: `День ${d.day}: ${d.title}`,
+        item: {
+          '@type': 'TouristAttraction',
+          name: d.title,
+          ...(Array.isArray(d.coords) && d.coords.length === 2
+            ? { geo: { '@type': 'GeoCoordinates', latitude: d.coords[0], longitude: d.coords[1] } }
+            : {}),
+        },
       })),
     },
   };

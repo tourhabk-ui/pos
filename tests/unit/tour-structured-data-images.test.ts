@@ -51,3 +51,58 @@ describe('buildTourStructuredData: находки аудита прода 08.08'
     expect(desc.length).toBeLessThanOrEqual(500);
   });
 });
+
+describe('itinerary тура — из реальной программы, без выдуманных этапов', () => {
+  interface ItineraryNode {
+    itinerary?: {
+      numberOfItems: number;
+      itemListElement: Array<{ position: number; name: string; item: { '@type': string; name: string; description?: string } }>;
+    };
+  }
+
+  it('точка сбора + этапы программы, по порядку, чистый текст', () => {
+    const data = buildTourStructuredData(
+      tour({
+        meeting_point: 'Парковка у визит-центра, 08:00',
+        program: [
+          { title: 'Сплав', text: '<b>Три часа</b> по реке с рыбалкой.' },
+          { title: 'Обед на берегу', text: 'Уха из свежего улова.' },
+        ],
+      }),
+      [], OPTS,
+    ) as unknown as Graph;
+    const trip = data['@graph'][1] as ItineraryNode;
+    const items = trip.itinerary!.itemListElement;
+    expect(trip.itinerary!.numberOfItems).toBe(3);
+    expect(items[0]!).toMatchObject({ position: 1, name: 'Место сбора' });
+    expect(items[0]!.item['@type']).toBe('Place');
+    expect(items[1]!).toMatchObject({ position: 2, name: 'Сплав' });
+    expect(items[1]!.item.description).toBe('Три часа по реке с рыбалкой.');
+    expect(items[1]!.item['@type']).toBe('TouristAttraction');
+  });
+
+  it('нет программы и точки сбора — нет itinerary (заглушек не строим)', () => {
+    const data = buildTourStructuredData(tour({}), [], OPTS) as unknown as Graph;
+    expect((data['@graph'][1] as ItineraryNode).itinerary).toBeUndefined();
+  });
+
+  it('мусор в program не роняет билдер', () => {
+    const data = buildTourStructuredData(
+      tour({ program: [null, 42, { нет: 'полей' }, { title: '', text: '' }] }),
+      [], OPTS,
+    ) as unknown as Graph;
+    expect((data['@graph'][1] as ItineraryNode).itinerary).toBeUndefined();
+  });
+});
+
+describe('itinerary планов — сущности с координатами', () => {
+  it('/trip/[token] и /plans/[slug]: item — TouristAttraction с geo дня', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const { join } = require('node:path') as typeof import('node:path');
+    for (const p of ['app/trip/[token]/page.tsx', 'app/plans/[slug]/page.tsx']) {
+      const src = readFileSync(join(process.cwd(), p), 'utf-8');
+      expect(src, p).toMatch(/'@type': 'TouristAttraction',\s*\n\s*name: d\.title/);
+      expect(src, p).toMatch(/GeoCoordinates', latitude: d\.coords\[0\], longitude: d\.coords\[1\]/);
+    }
+  });
+});
