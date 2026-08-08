@@ -83,6 +83,15 @@ const makeTripPlanSchema = z.object({
   interests: looseString(300).optional(),
 });
 
+// ── get_tour_availability ───────────────────────────────────────────────────
+// Свободные даты и места тура (Эволюция 3.0, п.4). Даты/числа приходят
+// строками (как все args) — executor валидирует и клампит сам.
+const getTourAvailabilitySchema = z.object({
+  tour: looseString(200),
+  date_from: looseString(20).optional(),
+  days: looseString(10).optional(),
+});
+
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
 const searchTaaftSchema = z.object({
@@ -276,6 +285,25 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: makeTripPlanSchema,
+  },
+  get_tour_availability: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'get_tour_availability',
+        description: 'Свободные даты и места КОНКРЕТНОГО тура из реальной занятости броней. Используй всегда, когда турист спрашивает «когда есть места», «свободно ли на дату», «на какие даты можно» — не называй даты и места по памяти, только отсюда.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tour: { type: 'string', description: 'Название тура, ключевое слово или числовой ID' },
+            date_from: { type: 'string', description: 'С какой даты смотреть, YYYY-MM-DD. Не сказано — с сегодня.' },
+            days: { type: 'string', description: 'Окно в днях (1–31). Не сказано — 14.' },
+          },
+          required: ['tour'],
+        },
+      },
+    },
+    schema: getTourAvailabilitySchema,
   },
   search_taaft: {
     definition: {

@@ -1677,6 +1677,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       const { makeTripPlanForKuzmich } = await import('@/lib/kuzmich/trip-plan-tool');
       return await makeTripPlanForKuzmich({ days: args.days, interests: args.interests });
     }
+    if (name === 'get_tour_availability') {
+      const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');
+      return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days });
+    }
     return 'Неизвестный инструмент.';
   } catch {
     return 'Ошибка при выполнении запроса.';

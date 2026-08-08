@@ -40,6 +40,33 @@ export const CREATE_LEAD_TOOL = {
   },
 } as const;
 
+/**
+ * create_booking_request — заявка на бронь КОНКРЕТНОГО тура на дату
+ * (Эволюция 3.0, п.4 — MCP-бронирование, владелец 08.08: «делай»).
+ *
+ * Это ЗАЯВКА, не бронь: исполнение проверяет реальную занятость на дату
+ * (движок планера — тот же расчёт, что у гейта брони) и создаёт лид через
+ * общий createLead() (скоринг, дедуп, уведомление менеджеру). Оператор
+ * подтверждает голосом/чатом; слоты фантомными бронями не блокируются,
+ * платёжный контур не задет.
+ */
+export const BOOKING_REQUEST_TOOL = {
+  name: 'create_booking_request',
+  description: 'Заявка на бронь конкретного тура на дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — это не мгновенная бронь и не оплата. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tour: { type: 'string', description: 'Название тура или числовой ID (из get_tours / get_tour_availability)' },
+      date: { type: 'string', description: 'Дата тура, YYYY-MM-DD' },
+      participants: { type: 'string', description: 'Сколько человек (1–30). Не сказано — 1.' },
+      name: { type: 'string', description: 'Имя туриста' },
+      phone: { type: 'string', description: 'Телефон для подтверждения (обязателен)' },
+      comment: { type: 'string', description: 'Пожелания, вопросы, состав группы' },
+    },
+    required: ['tour', 'date', 'name', 'phone'],
+  },
+} as const;
+
 export interface PublicMcpTool {
   name: string;
   description: string;
@@ -56,12 +83,13 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
       inputSchema: t.definition.function.parameters,
     })),
   CREATE_LEAD_TOOL,
+  BOOKING_REQUEST_TOOL,
 ];
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
 
 export const MCP_SERVER_INFO = {
   name: 'vedar-mcp',
-  version: '2.1.0',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры, жильё, снаряжение, трансферы, погода. Плюс заявка на подбор тура (create_lead).',
+  version: '2.2.0',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, погода, план поездки. Записи две: заявка на подбор (create_lead) и заявка на бронь тура на дату (create_booking_request) — обе подтверждает человек.',
 } as const;
