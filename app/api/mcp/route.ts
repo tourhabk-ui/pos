@@ -22,11 +22,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead } from '@/lib/leads/create';
+import { createRateLimiter } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+// ── Rate-limit по IP (Эволюция 3.0, п.4) ─────────────────────
+// Вход анонимный, поэтому лимит — единственный тормоз для абьюза. Чтение
+// щедрое (агент в диалоге дёргает несколько инструментов подряд), запись
+// жёсткая: заявки создают работу живому менеджеру.
+const readLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+const writeLimiter = createRateLimiter({ windowMs: 600_000, max: 5 });
+const WRITE_TOOLS = new Set<string>([CREATE_LEAD_TOOL.name, BOOKING_REQUEST_TOOL.name]);
+
+function clientIp(request: NextRequest): string {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+}
 
 // Определения инструментов и список наружу — в lib/mcp/public-tools.ts:
 // тот же список нужен манифесту /.well-known/mcp.json, а два списка
@@ -38,6 +51,71 @@ const createLeadArgsSchema = z.object({
   comment: z.string().trim().min(10, 'Опишите запрос хотя бы в 10 символах').max(2000),
   interest: z.string().trim().max(200).optional(),
 });
+
+// ── create_booking_request (Эволюция 3.0, п.4) ───────────────
+// Заявка на бронь конкретного тура на дату. НЕ бронь: реальную бронь создаёт
+// оператор после звонка (никакого INSERT в operator_bookings отсюда — роут,
+// пишущий брони, обязан жить по правилам комиссий §7, и это не наш случай).
+// Занятость проверяется движком планера — тем же расчётом, что у гейта брони:
+// нет мест → заявка не создаётся, агенту честно отдаются ближайшие даты.
+const bookingRequestArgsSchema = z.object({
+  tour: z.string().trim().min(1, 'Укажите тур: название или ID').max(200),
+  date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате YYYY-MM-DD'),
+  participants: z.coerce.number().int().min(1).max(30).default(1),
+  name: z.string().trim().min(2, 'Имя короче 2 символов').max(120),
+  phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50),
+  comment: z.string().trim().max(2000).optional(),
+});
+
+async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Promise<string> {
+  const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
+  }
+  const { tour: tourQuery, date, participants, name, phone, comment } = parsed.data;
+
+  const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
+  const tour = await resolveTourByQuery(tourQuery);
+  if (!tour) {
+    return `Тур по запросу "${tourQuery}" не найден среди активных — заявка не создана. Уточните тур через get_tours или get_tour_availability.`;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (date < today) {
+    return `Дата ${date} уже прошла — заявка не создана. Свободные даты: get_tour_availability.`;
+  }
+
+  const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
+  const cache = createPlannerCache();
+  const slots = await fetchAvailabilityForTour(String(tour.id), date, date, cache);
+  const remaining = slots[0]?.remaining ?? 0;
+  if (remaining < participants) {
+    // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
+    const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
+    const nearest = (await fetchAvailabilityForTour(String(tour.id), today, horizon, cache))
+      .filter((s) => s.remaining >= participants)
+      .slice(0, 5)
+      .map((s) => `${s.date} (${s.remaining} мест)`);
+    return `На ${date} у тура "${tour.title}" ${remaining === 0 ? 'нет свободных мест' : `только ${remaining} мест, а нужно ${participants}`} — заявка не создана. ` +
+      (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
+  }
+
+  const leadId = await createLead({
+    name,
+    phone,
+    comment:
+      `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.` +
+      (comment ? ` ${comment}` : ''),
+    route_title: tour.title,
+    source_url: 'mcp://vedar/booking',
+    source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants },
+  });
+  if (!leadId) {
+    throw new Error('Не удалось сохранить заявку — попробуйте позже');
+  }
+  return `Заявка на бронь принята (номер ${leadId}): "${tour.title}", ${date}, ${participants} чел. ` +
+    `На ${date} свободно ${remaining} мест. Оператор подтвердит бронь по телефону ${phone}. Это заявка, не оплата.`;
+}
 
 async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
@@ -66,6 +144,9 @@ async function executeTool(name: string, rawArgs: Record<string, unknown>): Prom
   }
   if (name === CREATE_LEAD_TOOL.name) {
     return executeCreateLead(rawArgs);
+  }
+  if (name === BOOKING_REQUEST_TOOL.name) {
+    return executeCreateBookingRequest(rawArgs);
   }
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
@@ -140,6 +221,16 @@ export async function POST(request: NextRequest) {
       case 'tools/call': {
         const toolName = typeof params?.name === 'string' ? params.name : '';
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>;
+
+        // Rate-limit до исполнения: превышение — обычный tool-ответ с isError,
+        // агент его прочитает и подождёт (429 на JSON-RPC клиенты реагируют хуже).
+        const limiter = WRITE_TOOLS.has(toolName) ? writeLimiter : readLimiter;
+        if (!limiter.check(`${WRITE_TOOLS.has(toolName) ? 'w' : 'r'}:${clientIp(request)}`)) {
+          return NextResponse.json(jsonrpcSuccess(id, {
+            content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }],
+            isError: true,
+          }));
+        }
 
         try {
           const text = await executeTool(toolName, toolArgs);

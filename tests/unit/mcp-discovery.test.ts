@@ -46,13 +46,20 @@ describe('манифест не расходится с сервером', () =>
 });
 
 describe('наружу — только то, что можно', () => {
-  it('единственный пишущий инструмент — заявка', () => {
+  it('пишущих инструментов ровно два, и оба — заявки, которые подтверждает человек', () => {
+    // create_booking_request добавлен Эволюцией 3.0 п.4 (план согласован
+    // владельцем 08.08): это заявка на бронь с проверкой реальной занятости,
+    // НЕ мгновенная бронь — исполнение идёт в общий createLead, оператор
+    // подтверждает голосом. Мгновенной брони и оплаты наружу по-прежнему нет.
     const writers = PUBLIC_MCP_TOOLS.filter((t) => /create|book|order|pay|cancel|delete|update/i.test(t.name));
-    expect(writers.map((t) => t.name)).toEqual(['create_lead']);
+    expect(writers.map((t) => t.name).sort()).toEqual(['create_booking_request', 'create_lead']);
   });
 
-  it('брони и оплаты наружу нет', () => {
+  it('мгновенной брони и оплаты наружу нет', () => {
     for (const t of PUBLIC_MCP_TOOLS) {
+      // Единственное исключение — заявка на бронь (см. выше): слово booking в
+      // имени есть, самой брони — нет (сторож исполнения: mcp-booking.test.ts).
+      if (t.name === 'create_booking_request') continue;
       expect(t.name, `${t.name}: бронирование анонимному агенту не отдаём`).not.toMatch(/booking|payment|invoice/i);
     }
   });
@@ -65,7 +72,8 @@ describe('наружу — только то, что можно', () => {
 
   it('в описаниях инструментов нет личных данных туристов', () => {
     for (const t of PUBLIC_MCP_TOOLS) {
-      if (t.name === 'create_lead') continue; // там телефон — это ввод, а не выдача
+      // У заявок телефон — это ввод, а не выдача
+      if (t.name === 'create_lead' || t.name === 'create_booking_request') continue;
       expect(t.description, `${t.name}`).not.toMatch(/паспорт|email|почт[аы]|телефон туриста/i);
     }
   });
