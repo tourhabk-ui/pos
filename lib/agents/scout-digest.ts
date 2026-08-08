@@ -78,6 +78,17 @@ export const RSS_SOURCES: Array<{ key: string; url: string; label: string; categ
   { key: 'skift',         url: 'https://skift.com/feed/',            label: 'Skift',        category: 'reference' },
   { key: 'producthunt',   url: 'https://www.producthunt.com/feed',   label: 'Product Hunt', category: 'reference' },
 
+  // Туриндустрия РФ — возвращение 08.08. Оба источника были сняты 01.08 как
+  // мёртвые (сайты убили старые ленты), из-за чего раздел «Туриндустрия» жил
+  // на одном международном Skift, а категория 'travel' не имела ни одного
+  // источника. Издания пережили редизайн, фиды вернулись на НОВЫХ адресах —
+  // найдены в HTML главных и проверены пробой с раннера (run 31239764170:
+  // живой RSS 2.0 со свежими item). Раздел «Камчатка» пока без RSS-источника:
+  // kamgov снят 01.08 по недоступности с прода, новых свидетельств нет;
+  // регион-safety жив через safety-ingest (seismic-parser).
+  { key: 'tourprom', url: 'https://www.tourprom.ru/feed/rss.xml', label: 'Турпром',   category: 'travel' },
+  { key: 'ratanews', url: 'https://ratanews.ru/rss.xml',          label: 'RATA News', category: 'travel' },
+
   // ── УДАЛЕНЫ 01.08 как мёртвые (диагноз по полю error прогона 09:10 UTC) ──
   // Поле error (появилось в #916) дало точную причину, а не «молчит»:
   //   rata     — fetch failed: хост rata-news.ru не отвечает (DNS/блок/лёг);

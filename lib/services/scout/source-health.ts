@@ -47,10 +47,14 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   { key: 'habr_ai',       label: 'Habr AI',           maxSilenceHours: 120 },
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
-  // rata/tourprom/ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые
-  // (404 / fetch failed — сайты сняли ленты). Убраны и отсюда, чтобы health-
-  // монитор не ждал вечно молчащие ключи. Камчатский safety-слой (МЧС, kamgov)
+  // ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые (404 /
+  // fetch failed — сайты сняли ленты). Камчатский safety-слой (МЧС, kamgov)
   // жив через safety-ingest (seismic-parser), к Scout-RSS не привязан.
+  // rata/tourprom вернулись 08.08 на новых адресах фидов (редизайн изданий);
+  // пороги: Турпром публикует непрерывно, RATA — деловой ритм с паузами на
+  // выходные, потому окно шире.
+  { key: 'tourprom',      label: 'Турпром',           maxSilenceHours: 72 },
+  { key: 'ratanews',      label: 'RATA News',         maxSilenceHours: 120 },
 ] as const;
 
 export interface ScoutSourceState {
