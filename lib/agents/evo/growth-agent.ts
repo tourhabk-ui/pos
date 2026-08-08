@@ -16,6 +16,7 @@ import { claimSignature, dropRejected } from '@/lib/agents/evo/claim-signature';
 import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
 import { runStaticChecks } from '@/lib/agents/evo/static-checks';
 import { locateFailure } from '@/lib/agents/evo/failure-taxonomy';
+import { fetchMetrikaWeek } from '@/lib/analytics/metrika-report';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths } from '@/lib/agents/evo/structural-scan';
 
 export interface GrowthIssue {
@@ -601,20 +602,25 @@ async function scanProdErrors(): Promise<GrowthIssue[]> {
  * нужен, и только 'suggested' issue-reporter выносит в GitHub Issues.
  */
 export interface FunnelCounts {
-  visits: number;         // catalog_view + tour_view, уникальные посетители
+  visits: number;         // верх воронки: max(посетители по маяку, визиты Метрики)
   tour_views: number;     // событий tour_view
   booking_starts: number; // событий booking_start
   leads: number;          // заявок за окно
   bookings: number;       // броней за окно
   paid: number;           // из них оплаченных
+  /** Визиты по Метрике за то же окно; null — токен не задан / API не ответил. */
+  metrika_visits?: number | null;
 }
 
 /** Чистая: самое верхнее сломанное звено воронки → находка (или null). */
 export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
+  const metrika = c.metrika_visits != null
+    ? `по Метрике ${c.metrika_visits}`
+    : 'Метрика не подключена (YANDEX_METRIKA_TOKEN)';
   const numbers =
-    `За 7 суток: визитов ${c.visits}, просмотров тура ${c.tour_views}, ` +
+    `За 7 суток: визитов ${c.visits} (${metrika}), просмотров тура ${c.tour_views}, ` +
     `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}. ` +
-    `Источник — funnel_events + leads + operator_bookings (факты, не чтение кода).`;
+    `Источник — funnel_events + Метрика + leads + operator_bookings (факты, не чтение кода).`;
   const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
 
   if (c.visits === 0) {
@@ -664,6 +670,12 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
   // Ретенция журнала маяка — той же рукой, что его читает.
   await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch(() => {});
 
+  // Метрика — независимый свидетель верха воронки: счётчик стоит на каждой
+  // странице и видит посетителей, до которых маяк не дожил (уход до
+  // гидрации, отключённый JS у маяка — но не у счётчика — не бывает, зато
+  // бывает наоборот). Берём максимум из двух источников.
+  const metrika = await fetchMetrikaWeek().catch(() => null);
+
   const [{ rows: top }, { rows: leadRows }, { rows: bookingRows }] = await Promise.all([
     pool.query<{ visits: number; tour_views: number; booking_starts: number }>(
       `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE step IN ('catalog_view', 'tour_view'))::int AS visits,
@@ -682,13 +694,15 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
     ),
   ]);
 
+  const metrikaVisits = metrika?.ok ? (metrika.visits ?? 0) : null;
   const finding = pickFunnelFinding({
-    visits: top[0]?.visits ?? 0,
+    visits: Math.max(top[0]?.visits ?? 0, metrikaVisits ?? 0),
     tour_views: top[0]?.tour_views ?? 0,
     booking_starts: top[0]?.booking_starts ?? 0,
     leads: leadRows[0]?.n ?? 0,
     bookings: bookingRows[0]?.bookings ?? 0,
     paid: bookingRows[0]?.paid ?? 0,
+    metrika_visits: metrikaVisits,
   });
   return finding ? [finding] : [];
 }

@@ -69,6 +69,30 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
     expect(f?.status).toBe('suggested');
     expect(f?.description).toContain('визитов 0');
   });
+
+  it('Метрика в описании: подключена — цифра, нет — честное «не подключена»', () => {
+    expect(pickFunnelFinding(counts({ metrika_visits: 41 }))?.description).toContain('по Метрике 41');
+    expect(pickFunnelFinding(counts({}))?.description).toContain('Метрика не подключена');
+  });
+});
+
+describe('Метрика — независимый свидетель верха воронки', () => {
+  it('объектив читает Метрику и берёт максимум из двух источников', () => {
+    expect(GROWTH).toMatch(/fetchMetrikaWeek\(\)\.catch/);
+    expect(GROWTH).toMatch(/Math\.max\(top\[0\]\?\.visits \?\? 0, metrikaVisits \?\? 0\)/);
+  });
+
+  it('health диагностирует Метрику: token_set/ok/цифры видны пробе', () => {
+    const HEALTH = readFileSync(join(ROOT, 'app/api/cron/health/route.ts'), 'utf-8');
+    expect(HEALTH).toMatch(/metrika_diag: metrikaDiag/);
+    expect(HEALTH).toMatch(/token_set && !metrikaDiag\.ok/);
+  });
+
+  it('без токена читалка честно отвечает token_set:false, не бросая', () => {
+    const METRIKA = readFileSync(join(ROOT, 'lib/analytics/metrika-report.ts'), 'utf-8');
+    expect(METRIKA).toMatch(/return \{ token_set: false, counter, ok: false \}/);
+    expect(METRIKA).toMatch(/YANDEX_METRIKA_TOKEN/);
+  });
 });
 
 describe('контур подключён', () => {
