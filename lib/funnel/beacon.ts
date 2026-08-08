@@ -1,16 +1,15 @@
 /**
- * Маяк воронки (Эволюция 3.0, п.5). Одна функция для клиентских компонентов:
- * шлёт шаг воронки в POST /api/funnel и НИКОГДА не мешает странице —
- * любая ошибка глотается, ответ не ждётся. sendBeacon переживает уход
- * со страницы; fallback — fetch с keepalive.
+ * Маяк воронки (Эволюция 3.0, п.5). Шлёт ВЗАИМОДЕЙСТВИЕ в POST /api/funnel и
+ * НИКОГДА не мешает странице: любая ошибка глотается, ответ не ждётся.
+ * sendBeacon переживает уход со страницы; fallback — fetch с keepalive.
  *
- * Шаги верха воронки (низ — leads/operator_bookings — уже в БД):
- *   catalog_view  — открыт каталог туров
- *   tour_view     — открыта карточка тура (entityId = id тура)
- *   booking_start — первое касание формы брони (entityId = id тура)
+ * Единственный шаг — booking_start (первое касание формы брони, entityId =
+ * id тура). Просмотры страниц маяком НЕ шлём: их уже пишет собственная
+ * метрика (PageViewTracker → page_views), объектив scanFunnel читает её —
+ * владелец 08.08: «у нас была настроена своя метрика».
  */
 
-export type FunnelStep = 'catalog_view' | 'tour_view' | 'booking_start';
+export type FunnelStep = 'booking_start';
 
 export function funnelBeacon(step: FunnelStep, entityId?: string): void {
   try {

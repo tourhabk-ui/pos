@@ -590,9 +590,13 @@ async function scanProdErrors(): Promise<GrowthIssue[]> {
  * пользователя»). Код сторожат другие объективы; этот сторожит ДЕНЬГИ:
  * доходит ли кто-то до каталога → тура → брони → оплаты.
  *
- * Верх воронки — funnel_events (маяк /api/funnel), низ — то, что уже пишется:
- * leads, operator_bookings (created_at, paid_at). Окно — 7 суток: при нулевом
- * трафике суточное окно кричало бы каждый день.
+ * Верх воронки — СОБСТВЕННАЯ метрика page_views (PageViewTracker пишет каждый
+ * просмотр с бот-детектом; владелец 08.08: «у нас была настроена своя
+ * метрика») плюс Метрика как независимый свидетель. funnel_events — только
+ * взаимодействия (booking_start: касание формы — не переход, в page_views
+ * его по построению нет). Низ — то, что уже пишется: leads, operator_bookings
+ * (created_at, paid_at). Окно — 7 суток: при нулевом трафике суточное окно
+ * кричало бы каждый день.
  *
  * Находка — ОДНА за прогон: самое верхнее сломанное звено. Чинить нижнее
  * звено при сломанном верхнем бессмысленно (некому бросать бронь, если никто
@@ -602,9 +606,9 @@ async function scanProdErrors(): Promise<GrowthIssue[]> {
  * нужен, и только 'suggested' issue-reporter выносит в GitHub Issues.
  */
 export interface FunnelCounts {
-  visits: number;         // верх воронки: max(посетители по маяку, визиты Метрики)
-  tour_views: number;     // событий tour_view
-  booking_starts: number; // событий booking_start
+  visits: number;         // верх: max(уникальные из page_views без ботов, визиты Метрики)
+  tour_views: number;     // просмотры карточек тура из page_views (без ботов)
+  booking_starts: number; // касаний формы брони (funnel_events)
   leads: number;          // заявок за окно
   bookings: number;       // броней за окно
   paid: number;           // из них оплаченных
@@ -620,7 +624,7 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
   const numbers =
     `За 7 суток: визитов ${c.visits} (${metrika}), просмотров тура ${c.tour_views}, ` +
     `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}. ` +
-    `Источник — funnel_events + Метрика + leads + operator_bookings (факты, не чтение кода).`;
+    `Источник — page_views (своя метрика) + funnel_events + Метрика + leads + operator_bookings (факты, не чтение кода).`;
   const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
 
   if (c.visits === 0) {
@@ -676,13 +680,19 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
   // бывает наоборот). Берём максимум из двух источников.
   const metrika = await fetchMetrikaWeek().catch(() => null);
 
-  const [{ rows: top }, { rows: leadRows }, { rows: bookingRows }] = await Promise.all([
-    pool.query<{ visits: number; tour_views: number; booking_starts: number }>(
-      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE step IN ('catalog_view', 'tour_view'))::int AS visits,
-              COUNT(*) FILTER (WHERE step = 'tour_view')::int     AS tour_views,
-              COUNT(*) FILTER (WHERE step = 'booking_start')::int AS booking_starts
-         FROM funnel_events
-        WHERE created_at > NOW() - INTERVAL '7 days'`,
+  const [{ rows: views }, { rows: starts }, { rows: leadRows }, { rows: bookingRows }] = await Promise.all([
+    // Просмотры — из собственной метрики: люди (не краулеры) и открытые
+    // карточки тура. Обе публичные карточки тура — /catalog и /marketplace —
+    // рендерят одну реализацию (§11), пути считаем оба.
+    pool.query<{ visits: number; tour_views: number }>(
+      `SELECT COUNT(DISTINCT visitor_hash)::int AS visits,
+              COUNT(*) FILTER (WHERE path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')::int AS tour_views
+         FROM page_views
+        WHERE created_at > NOW() - INTERVAL '7 days' AND is_bot = FALSE`,
+    ),
+    pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM funnel_events
+        WHERE step = 'booking_start' AND created_at > NOW() - INTERVAL '7 days'`,
     ),
     pool.query<{ n: number }>(
       `SELECT COUNT(*)::int AS n FROM leads WHERE created_at > NOW() - INTERVAL '7 days'`,
@@ -696,9 +706,9 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
 
   const metrikaVisits = metrika?.ok ? (metrika.visits ?? 0) : null;
   const finding = pickFunnelFinding({
-    visits: Math.max(top[0]?.visits ?? 0, metrikaVisits ?? 0),
-    tour_views: top[0]?.tour_views ?? 0,
-    booking_starts: top[0]?.booking_starts ?? 0,
+    visits: Math.max(views[0]?.visits ?? 0, metrikaVisits ?? 0),
+    tour_views: views[0]?.tour_views ?? 0,
+    booking_starts: starts[0]?.n ?? 0,
     leads: leadRows[0]?.n ?? 0,
     bookings: bookingRows[0]?.bookings ?? 0,
     paid: bookingRows[0]?.paid ?? 0,
