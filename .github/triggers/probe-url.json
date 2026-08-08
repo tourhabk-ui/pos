@@ -1,14 +1,10 @@
 {
-  "note": "Qwen после удаления QWEN_BASE_URL (деплой c14d2094) + страница k-a.in по просьбе владельца",
+  "note": "TAAFT travel-itineraries — что перенять для Ведара (просьба владельца 08.08)",
   "urls": [
-    "https://vedarai.ru/api/cron/health",
-    "http://k-a.in/KDA.html"
+    "https://taaft.com/travel-itineraries",
+    "https://theresanaiforthat.com/s/travel+itinerary/"
   ],
-  "bytes": 4000,
-  "timeout": 90,
-  "grep": [
-    "\"qwen\":true",
-    "\"qwen\":false",
-    "dashscope-intl.aliyuncs.com/compatible-mode/v1\",\"model\""
-  ]
+  "bytes": 20000,
+  "timeout": 45,
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 }
