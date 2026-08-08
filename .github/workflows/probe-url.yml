@@ -39,11 +39,14 @@ jobs:
           # Необязательный User-Agent: важно для главной — она отдаёт разное
           # дерево телефону и десктопу (page.tsx isMobile). Дефолт — VedarProbe.
           UA=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('ua', 'Mozilla/5.0 (compatible; VedarProbe/1.0)'))")
-          echo "UA: $UA"
+          # Необязательный таймаут (сек): нужен для длинных серверных прогонов
+          # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
+          TIMEOUT=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('timeout', 60))")
+          echo "UA: $UA · timeout: ${TIMEOUT}s"
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
-            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time 60 -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
+            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
