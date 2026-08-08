@@ -162,22 +162,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Если БД недоступна при сборке — sitemap без страниц жилья
   }
 
-  // Маркетплейс-туры
+  // Маркетплейс-туры. Раньше фильтр шёл по is_visible — колонке PLACES,
+  // которой у operator_tours нет: запрос падал, catch молчал, и в sitemap
+  // не было НИ ОДНОЙ карточки тура (аудит «как ИИ видят Ведар», 08.08 —
+  // обходчики не находили каталог). Витринные флаги туров — is_active и
+  // is_published (837).
   let marketplacePages: MetadataRoute.Sitemap = [];
   try {
     const { rows } = await pool.query<{ id: string; updated_at: Date }>(
       `SELECT id, updated_at FROM operator_tours
-       WHERE deleted_at IS NULL AND is_visible = true
+       WHERE deleted_at IS NULL AND is_active = TRUE
+         AND COALESCE(is_published, TRUE) = TRUE
        ORDER BY updated_at DESC LIMIT 500`
     );
     marketplacePages = rows.map(row => ({
       url: `${BASE}/catalog/tours/${row.id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
-      priority: 0.7,
+      priority: 0.85,
     }));
-  } catch {
-    // fallback
+  } catch (e) {
+    // Молчаливый catch прятал сломанный фильтр — теперь причину видно в логах.
+    console.error('[sitemap] туры не попали в sitemap:', e instanceof Error ? e.message : e);
   }
 
   // Подборки (collections)
