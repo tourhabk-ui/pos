@@ -214,3 +214,38 @@ describe('прогресс поиска эскалирует', () => {
     expect(VedarGeo.progressLabel(40)).toMatch(/Повторить/);
   });
 });
+
+describe('«последний сигнал сети» — подсказка только для офлайна', () => {
+  // Блок зовёт к точке, где КОГДА-ТО была связь. Офлайн это спасает («иди туда
+  // за связью»), онлайн — вредит: связь уже есть, а человек в панике может
+  // пойти к точке многочасовой давности за десятки километров. Оба экрана
+  // обязаны показывать блок только при отсутствии сети.
+
+  it('/sos рендерит блок только при lastKnown И отсутствии сети', () => {
+    expect(SOS, 'условие рендера должно требовать офлайн').toMatch(/lastKnown\s*&&\s*!isOnline\s*&&/);
+  });
+
+  it('/sos берёт статус сети из navigator.onLine и следит за сменой', () => {
+    expect(SOS, 'начальное состояние — из navigator.onLine').toMatch(/setIsOnline\(navigator\.onLine\)/);
+    expect(SOS, 'нет подписки на появление сети').toMatch(/addEventListener\('online'/);
+    expect(SOS, 'нет подписки на пропажу сети').toMatch(/addEventListener\('offline'/);
+  });
+
+  it('/emergency прячет блок при живой сети в самом showLastSignal', () => {
+    const fn = /function showLastSignal\(\)\{([\s\S]*?)\n\}/.exec(EMERGENCY);
+    expect(fn, 'showLastSignal не найден').toBeTruthy();
+    expect(fn![1], 'онлайн-ветка должна прятать блок и выходить')
+      .toMatch(/navigator\.onLine[\s\S]{0,120}display\s*=\s*'none'[\s\S]{0,40}return/);
+  });
+
+  it('/emergency пересчитывает блок при смене статуса сети', () => {
+    expect(EMERGENCY).toMatch(/addEventListener\('online',\s*showLastSignal\)/);
+    expect(EMERGENCY).toMatch(/addEventListener\('offline',\s*showLastSignal\)/);
+  });
+
+  it('версия precache-кэша поднята — застрявшие офлайн-копии экранов заменятся', () => {
+    const v = /const\s+CACHE_NAME\s*=\s*'kamchatour-v(\d+)'/.exec(SW);
+    expect(v, 'CACHE_NAME не разобран').toBeTruthy();
+    expect(Number(v![1]), 'бамп кэша откатили ниже версии этой правки').toBeGreaterThanOrEqual(24);
+  });
+});

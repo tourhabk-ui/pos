@@ -109,6 +109,9 @@ export default function SosPage() {
   const [coordsText, setCoordsText] = useState('Определяем...');
   const [geoError, setGeoError] = useState<GeoErrorInfo | null>(null);
   const [lastKnown, setLastKnown] = useState<LastKnown | null>(null);
+  // Блок «последний сигнал сети» — страховка для ОФЛАЙНА. При живой сети он
+  // зовёт к точке многочасовой давности за десятки километров от человека.
+  const [isOnline, setIsOnline] = useState(true);
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -158,6 +161,18 @@ export default function SosPage() {
       locator.start();
     });
     return () => { cancelled = true; locatorRef.current?.stop(); };
+  }, []);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
   }, []);
 
   const retryGeo = () => {
@@ -371,8 +386,9 @@ export default function SosPage() {
         )}
 
         {/* Последняя известная позиция — рендерится ТОЛЬКО когда она реально
-            есть (readLastKnown вернул точку). Никакого обещания при её отсутствии. */}
-        {lastKnown && (
+            есть (readLastKnown вернул точку) И сети нет: онлайн эта подсказка
+            вредна — уводит к устаревшей точке вместо текущих координат. */}
+        {lastKnown && !isOnline && (
           <div style={{
             padding: '10px 14px',
             borderRadius: '12px',

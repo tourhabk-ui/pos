@@ -35,21 +35,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "result=$(npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
+            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; result=$(npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
             "if": "Bash(git commit*)",
             "timeout": 60,
             "statusMessage": "TypeScript проверка перед коммитом..."
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/db-schema-check.sh",
+            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; bash .claude/hooks/db-schema-check.sh",
             "if": "Bash(git commit*)",
             "timeout": 10,
             "statusMessage": "DB schema проверка..."
           },
           {
             "type": "command",
-            "command": "result=$(node .claude/skills/kamchatka/scripts/audit.mjs --staged 2>&1); code=$?; if [ $code -eq 1 ]; then printf '{\"continue\": false, \"stopReason\": \"Audit --staged: критичные нарушения. %s\"}' \"$(echo \"$result\" | grep '\\[ \\]' | head -5 | tr '\\n' ' ')\"; exit 2; fi",
+            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; result=$(node .claude/skills/kamchatka/scripts/audit.mjs --staged 2>&1); code=$?; if [ $code -eq 1 ]; then printf '{\"continue\": false, \"stopReason\": \"Audit --staged: критичные нарушения. %s\"}' \"$(echo \"$result\" | grep '\\[ \\]' | head -5 | tr '\\n' ' ')\"; exit 2; fi",
             "if": "Bash(git commit*)",
             "timeout": 30,
             "statusMessage": "Audit staged файлов..."
