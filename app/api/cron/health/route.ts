@@ -15,7 +15,6 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
-import { fetchMetrikaWeek } from '@/lib/analytics/metrika-report';
 
 export const dynamic = 'force-dynamic';
 
@@ -271,7 +270,7 @@ export async function GET(request: NextRequest) {
   // AI-провайдеры + registration spike (параллельно).
   // MiMo (прямой api.xiaomimimo.com) отключён 04.07.2026 — эндпоинт не отвечал,
   // провайдер убран из живых гонок (см. providers.ts). Поэтому и не мониторим.
-  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag, metrikaDiag] = await Promise.all([
+  const [openrouterOk, anthropicOk, deepseekOk, fuguOk, qwenOk, regSpike, orKeyDiag, qwenKeyDiag, dsKeyDiag] = await Promise.all([
     probeAI(callOpenrouter),
     probeAI(callAnthropic),
     probeAI(callDeepSeek),
@@ -287,10 +286,6 @@ export async function GET(request: NextRequest) {
     // Диагностика DeepSeek: первичный решатель эволюции, а алерт про него был
     // единственным без причины («недоступен» — и всё).
     probeDeepSeekKeyStatus().catch(() => null),
-    // Метрика: глаза воронки на привлечение (объектив scanFunnel читает её же).
-    // token_set:false — не сбой, а «не настроен»; предупреждаем только когда
-    // токен задан, но API не отвечает.
-    fetchMetrikaWeek().catch(() => null),
   ]);
 
   const anyOk = openrouterOk || anthropicOk || deepseekOk || fuguOk || qwenOk;
@@ -324,12 +319,6 @@ export async function GET(request: NextRequest) {
     if (!openrouterOk) issues.push({ level: 'warn', text: 'OpenRouter недоступен' });
     if (process.env.ANTHROPIC_API_KEY && !anthropicOk && !openrouterOk) {
       issues.push({ level: 'warn', text: 'Anthropic недоступен напрямую и через OpenRouter' });
-    }
-    if (metrikaDiag?.token_set && !metrikaDiag.ok) {
-      issues.push({
-        level: 'warn',
-        text: `Метрика: токен задан, но API не отвечает${metrikaDiag.http_status ? ` (HTTP ${metrikaDiag.http_status})` : ''}${metrikaDiag.error ? `: ${metrikaDiag.error.slice(0, 120)}` : ''}`,
-      });
     }
     if (process.env.FUGU_API_KEY && !fuguOk) {
       issues.push({ level: 'warn', text: 'Fugu недоступен (ключ задан, но провайдер не отвечает)' });
@@ -392,7 +381,6 @@ export async function GET(request: NextRequest) {
     operator_registration: regSpike,
     qwen_key_diag: qwenKeyDiag,
     deepseek_key_diag: dsKeyDiag,
-    metrika_diag: metrikaDiag,
     safety_ingest_age_min: seismic.ageMin,
     eco_ledger: eco,
     issues,
