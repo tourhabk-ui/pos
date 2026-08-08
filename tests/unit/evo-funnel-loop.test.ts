@@ -68,6 +68,25 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
     expect(pickFunnelFinding(counts({ visits: 12, tour_views: 9, booking_starts: 3, bookings: 2, paid: 1 }))).toBeNull();
   });
 
+  it('планы смотрят, в туры не переходят → находка канала (П-8)', () => {
+    const healthy = { visits: 12, tour_views: 9, booking_starts: 3, bookings: 2, paid: 1 };
+    const f = pickFunnelFinding(counts({ ...healthy, plan_views: 25, plan_to_tour: 0 }));
+    expect(f?.title).toBe('Воронка: планы смотрят, в туры не переходят');
+    // Канал жив → находки нет; мало просмотров → рано судить, тоже нет
+    expect(pickFunnelFinding(counts({ ...healthy, plan_views: 25, plan_to_tour: 3 }))).toBeNull();
+    expect(pickFunnelFinding(counts({ ...healthy, plan_views: 5, plan_to_tour: 0 }))).toBeNull();
+  });
+
+  it('канал планов не перебивает сломанную основную цепь', () => {
+    const f = pickFunnelFinding(counts({ plan_views: 100, plan_to_tour: 0 }));
+    expect(f?.title).toBe('Воронка: нет визитов');
+  });
+
+  it('цифры планов видны в описании каждой находки', () => {
+    const f = pickFunnelFinding(counts({ plan_views: 7, plan_to_tour: 2 }));
+    expect(f?.description).toContain('планы: просмотров 7, переходов в туры 2');
+  });
+
   it('находка детерминированная, сразу suggested и с цифрами недели', () => {
     const f = pickFunnelFinding(counts({}));
     expect(f?.model).toBe('deterministic');
@@ -97,6 +116,11 @@ describe('контур подключён', () => {
   it('просмотры — из своей метрики и без краулеров', () => {
     expect(GROWTH).toMatch(/is_bot = FALSE/);
     expect(GROWTH).toMatch(/path LIKE '\/catalog\/tours\/%' OR path LIKE '\/marketplace\/tours\/%'/);
+  });
+
+  it('канал планов считается по from_path — ребру карты переходов (П-8)', () => {
+    expect(GROWTH).toMatch(/path LIKE '\/trip\/%' OR path LIKE '\/plans\/%'/);
+    expect(GROWTH).toMatch(/from_path LIKE '\/trip\/%' OR from_path LIKE '\/plans\/%'/);
   });
 
   it('дедуп находок без файла жив: file_path сравнивается через IS NOT DISTINCT FROM', () => {

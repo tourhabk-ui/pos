@@ -613,13 +613,18 @@ export interface FunnelCounts {
   leads: number;          // заявок за окно
   bookings: number;       // броней за окно
   paid: number;           // из них оплаченных
+  /** Просмотры планов (/trip/*, /plans/*) — параллельный канал («Мой план 2.0», П-8). */
+  plan_views?: number;
+  /** Переходы план → карточка тура (page_views.from_path — ребро карты переходов). */
+  plan_to_tour?: number;
 }
 
 /** Чистая: самое верхнее сломанное звено воронки → находка (или null). */
 export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
   const numbers =
     `За 7 суток: визитов ${c.visits}, просмотров тура ${c.tour_views}, ` +
-    `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}. ` +
+    `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}; ` +
+    `планы: просмотров ${c.plan_views ?? 0}, переходов в туры ${c.plan_to_tour ?? 0}. ` +
     `Источник — page_views (своя метрика) + funnel_events + leads + operator_bookings (факты, не чтение кода).`;
   const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
 
@@ -663,6 +668,18 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
       suggestion: 'Проверить платёжный путь: выдаётся ли ссылка/QR, доходят ли вебхуки CloudPayments/Точки, не виснут ли брони в ожидании подтверждения оператора (сверить с алертами Watchdog).',
     };
   }
+  // Параллельный канал — планы («Мой план 2.0», П-8). Проверяется только при
+  // здоровой основной цепи (принцип «одна находка — самое верхнее сломанное
+  // звено» сохранён): планы смотрят, но ни один просмотр не привёл к туру —
+  // канал не работает как канал.
+  if ((c.plan_views ?? 0) >= 20 && (c.plan_to_tour ?? 0) === 0) {
+    return {
+      ...base, severity: 'medium',
+      title: 'Воронка: планы смотрят, в туры не переходят',
+      description: `Страницы планов открывают, но ни одного перехода план → карточка тура. ${numbers}`,
+      suggestion: 'Посмотреть публичный план глазами пришедшего по ссылке: заметна ли кнопка брони в дне, не теряется ли она на телефоне, ведут ли ссылки туда, куда обещают.',
+    };
+  }
   return null; // хоть какой-то поток до денег есть — воронка не «сломана», цифры видны в scan-журнале
 }
 
@@ -674,9 +691,12 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
     // Просмотры — из собственной метрики: люди (не краулеры) и открытые
     // карточки тура. Обе публичные карточки тура — /catalog и /marketplace —
     // рендерят одну реализацию (§11), пути считаем оба.
-    pool.query<{ visits: number; tour_views: number }>(
+    pool.query<{ visits: number; tour_views: number; plan_views: number; plan_to_tour: number }>(
       `SELECT COUNT(DISTINCT visitor_hash)::int AS visits,
-              COUNT(*) FILTER (WHERE path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')::int AS tour_views
+              COUNT(*) FILTER (WHERE path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')::int AS tour_views,
+              COUNT(*) FILTER (WHERE path LIKE '/trip/%' OR path LIKE '/plans/%')::int AS plan_views,
+              COUNT(*) FILTER (WHERE (path LIKE '/catalog/tours/%' OR path LIKE '/marketplace/tours/%')
+                                 AND (from_path LIKE '/trip/%' OR from_path LIKE '/plans/%'))::int AS plan_to_tour
          FROM page_views
         WHERE created_at > NOW() - INTERVAL '7 days' AND is_bot = FALSE`,
     ),
@@ -701,6 +721,8 @@ async function scanFunnel(): Promise<GrowthIssue[]> {
     leads: leadRows[0]?.n ?? 0,
     bookings: bookingRows[0]?.bookings ?? 0,
     paid: bookingRows[0]?.paid ?? 0,
+    plan_views: views[0]?.plan_views ?? 0,
+    plan_to_tour: views[0]?.plan_to_tour ?? 0,
   });
   return finding ? [finding] : [];
 }
