@@ -996,7 +996,11 @@ export async function callKimi(messages: ChatMessage[]): Promise<string | null> 
 export function getQwenConfig(): { apiKey: string | null; base: string; model: string } {
   return {
     apiKey: process.env.DASHSCOPE_API_KEY || null,
-    base: (process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1').replace(/\/+$/, ''),
+    // trim(): значение из панели Timeweb нередко приезжает с хвостовым
+    // пробелом/переводом строки — строгое сравнение шлюзов в probeQwenRegions
+    // на таком «другом» URL честно, но бесполезно ругалось (кейс 08.08:
+    // владелец поставил верный intl-шлюз, а health твердил «настроен другой»).
+    base: (process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1').trim().replace(/\/+$/, ''),
     model: process.env.QWEN_MODEL || 'qwen-plus',
   };
 }
