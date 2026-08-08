@@ -67,7 +67,7 @@ export async function GET(
           td.tour_date,
           COALESCE(SUM(b.participants), 0) as booked_guests,
           $2::integer as max_capacity,
-          ($2::integer - COALESCE(SUM(b.guests_count), 0)) as spots_left
+          ($2::integer - COALESCE(SUM(b.participants), 0)) as spots_left
         FROM tour_dates td
         LEFT JOIN operator_bookings b ON b.operator_tour_id = $1
           AND DATE(b.booking_date) = td.tour_date
