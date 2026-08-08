@@ -84,7 +84,8 @@ describe('MCP create_lead', () => {
     expect(json.result.content[0].text).toContain('Заявка принята');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     const arg = createLeadMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(arg.phone).toBe('+7 900 000-00-00');
+    // Аудит 08.08: телефон нормализуется к +7XXXXXXXXXX до создания лида.
+    expect(arg.phone).toBe('+79000000000');
     expect(arg.comment).toContain('Толбачик');
     expect(arg.source_url).toBe('mcp://vedar');
     expect((arg.source_data as Record<string, unknown>).source).toBe('mcp');
