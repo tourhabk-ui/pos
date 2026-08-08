@@ -109,7 +109,9 @@ export function buildIssueBody(f: GrowthFinding): string {
  * REPORT_LIMIT, и разведка не доехала до трекера НИ РАЗУ — петля «глаза наружу
  * → руки внутрь» была разорвана не логикой, а очередью.
  */
-export const OUTWARD_CATEGORIES = new Set(['intel']);
+// 'funnel' — тоже наружу: сломанное звено воронки чинится руками
+// (владельца или Claude Code), внутренний авто-фикс ему не положен.
+export const OUTWARD_CATEGORIES = new Set(['intel', 'funnel']);
 
 /** Сколько слотов квоты бронируем под разведку (если такие находки есть). */
 export const OUTWARD_RESERVE = 3;

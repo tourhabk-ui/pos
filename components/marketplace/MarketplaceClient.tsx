@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { PRICE_RANGES } from '@/lib/tours/marketplace-constants';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 import {
   MapPin, Users, ChevronRight, Heart, ShoppingCart, Check,
   AlertCircle, Clock, Sparkles, Search, SlidersHorizontal,
@@ -500,6 +501,11 @@ export default function MarketplaceClient({
     const range = PRICE_RANGES.find(r => r.value === priceRange);
     return { price_min: range?.min, price_max: range?.max };
   }, [priceRange]);
+
+  // Маяк воронки: каталог открыт (дедуп на сервере — час на посетителя).
+  useEffect(() => {
+    funnelBeacon('catalog_view');
+  }, []);
 
   // Debounce search
   useEffect(() => {

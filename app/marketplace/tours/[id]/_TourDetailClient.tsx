@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import MessageOperatorButton from '@/components/marketplace/MessageOperatorButton';
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
@@ -318,6 +319,11 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
+
+  // Маяк воронки: карточка тура открыта (дедуп на сервере — час на посетителя).
+  useEffect(() => {
+    funnelBeacon('tour_view', String(tour.id));
+  }, [tour.id]);
 
   // Реальное состояние избранного при загрузке. Раньше wishlisted всегда
   // стартовал false: после перезагрузки тур «выпадал» из избранного, а ошибки
