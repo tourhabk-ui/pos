@@ -236,3 +236,77 @@ describe('находка опровергает сама себя', () => {
     })).toBe(true);
   });
 });
+
+describe('клеймо «нет валидации» при живом Zod в файле (кейс 08.08, #1001)', () => {
+  const BOOKING_SRC = `
+import { z } from 'zod';
+const BookingSchema = z.object({ tour_id: z.number().positive() });
+export async function POST(req: NextRequest) {
+  let body: unknown;
+  try { body = await req.json(); } catch { return err400(); }
+  const parsed = BookingSchema.safeParse(body);
+  if (!parsed.success) return err400();
+  return createBooking(parsed.data);
+}`;
+
+  it('дословный текст issue #1001 глушится по source_has_validation', () => {
+    expect(verifyAgainstSource({
+      title: 'Missing Validation (high)',
+      description: 'The request body is not validated before being used. This could lead to unexpected errors or security vulnerabilities if the data is malformed or malicious. Specifically, the data object from req.json() is directly passed to createBooking without any checks.',
+      suggestion: 'Внедрить схему валидации входящих данных перед передачей в createBooking, используя Zod или Joi.',
+    }, BOOKING_SRC)).toBe('source_has_validation');
+  });
+
+  it('«нет валидации» на файле БЕЗ парсинга схемы — проходит (может быть правдой)', () => {
+    expect(verifyAgainstSource({
+      title: 'Нет валидации',
+      description: 'Тело запроса не проверяется перед использованием',
+      suggestion: 'Добавить Zod-схему',
+    }, 'export async function POST(req){ const d = await req.json(); return save(d); }')).toBeNull();
+  });
+});
+
+describe('клеймо «нет авторизации» у роута, публичного по замыслу (кейс 08.08)', () => {
+  const TRANSFERS_SRC = `
+/**
+ * GET /api/transfers/availability
+ * Проверка доступности трансферов на дату
+ * AUTH: публичный — guest может проверять доступность слотов без авторизации.
+ */
+export async function GET(request: NextRequest) {
+  const bookingsResult = await query('SELECT COUNT(*) FROM transfer_bookings WHERE pickup_date = $1', [date]);
+  return NextResponse.json({ slots });
+}`;
+
+  it('«эндпоинт без авторизации раскрывает данные» глушится по source_declares_public', () => {
+    expect(verifyAgainstSource({
+      title: 'Утечка данных броней трансфера',
+      description: 'Публичный эндпоинт без авторизации выполняет COUNT по transfer_bookings — раскрытие коммерческой информации оператора без аутентификации.',
+      suggestion: 'Добавить requireAuth/requireTransferOperator перед запросом.',
+    }, TRANSFERS_SRC)).toBe('source_declares_public');
+  });
+
+  it('английская декларация Public by design тоже распознаётся', () => {
+    expect(verifyAgainstSource({
+      title: 'No auth on endpoint',
+      description: 'Endpoint is unauthenticated and leaks data',
+      suggestion: 'Add requireAuth',
+    }, '// Public by design: slot selection for booking flow.\nexport async function GET(){}')).toBe('source_declares_public');
+  });
+
+  it('«нет авторизации» на роуте без декларации и без auth — проходит (может быть правдой)', () => {
+    expect(verifyAgainstSource({
+      title: 'Нет авторизации',
+      description: 'Роут отдаёт данные без проверки прав',
+      suggestion: 'Добавить requireAuth',
+    }, 'export async function GET(){ return NextResponse.json(await query("SELECT * FROM x")); }')).toBeNull();
+  });
+
+  it('файл с реальной auth-логикой получает более точную причину source_has_auth', () => {
+    expect(verifyAgainstSource({
+      title: 'Нет авторизации',
+      description: 'Роут без проверки прав, no auth',
+      suggestion: 'Добавить requireAuth',
+    }, '// AUTH: публичный — но есть и опциональная auth\nconst u = await getUserFromRequest(req);')).toBe('source_has_auth');
+  });
+});

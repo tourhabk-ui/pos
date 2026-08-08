@@ -114,6 +114,11 @@ function claimsMissingLock(text: string): boolean {
   return /race\s*condition|гонк[а-яё]|блокиров|locking|конкурент|concurrent|пессимист|oversell|двойн[а-яё]*\s+брон/i.test(text);
 }
 
+/** Находка о «нет валидации входных данных / тело без проверок». */
+function claimsMissingValidation(text: string): boolean {
+  return /валидац|validat[a-z]*|не\s+провер[а-яё]*\s+(?:тел[а-яё]*|данн[а-яё]*|вход)|without\s+(?:\w+\s+)?(?:checks|validation)|unvalidated|malformed\s+or\s+malicious|directly\s+passed/i.test(text);
+}
+
 /**
  * Находка о SQL-инъекции: якобы конкатенация/интерполяция пользовательского
  * ввода в запрос.
@@ -145,6 +150,19 @@ function sourceHasAuth(src: string): boolean {
 }
 function sourceHasLock(src: string): boolean {
   return /FOR\s+UPDATE|\bBEGIN\b|withTransaction|SERIALIZABLE|advisory_lock|pg_advisory/i.test(src);
+}
+function sourceHasValidation(src: string): boolean {
+  // Zod — стандарт проекта (§4 CLAUDE.md); Joi/yup — на случай легаси.
+  return /\.safeParse\s*\(|\.parse\s*\(\s*(?:await\s+)?(?:req|request|body|data)|z\.object\s*\(|Joi\.object|yup\.object/i.test(src);
+}
+/**
+ * Роут сам декларирует публичность: «AUTH: публичный» / «Public by design» в
+ * шапке. Клеймо «нет авторизации» на таком файле — спор с замыслом, а не
+ * находка (кейс 08.08: «утечка броней трансфера» на /api/transfers/availability,
+ * где публичность заявлена комментарием и обоснована — гостевая витрина).
+ */
+function sourceDeclaresPublic(src: string): boolean {
+  return /AUTH:\s*публичн|public\s+by\s+design|Публичный\s+эндпоинт\s+по\s+замыслу/i.test(src);
 }
 
 /**
@@ -187,7 +205,15 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   const text = `${f.title} ${f.description} ${f.suggestion}`;
   if (claimsMissingTryCatch(text) && sourceHasTryCatch(source)) return 'source_has_try_catch';
   if (claimsMissingAuth(text) && sourceHasAuth(source)) return 'source_has_auth';
+  // Не «нет auth, а auth есть», а «нет auth — и его нет НАМЕРЕННО»: роут
+  // декларирует публичность в шапке. Проверяется ПОСЛЕ sourceHasAuth — файл с
+  // реальной auth-логикой получает более точную причину.
+  if (claimsMissingAuth(text) && sourceDeclaresPublic(source)) return 'source_declares_public';
   if (claimsMissingLock(text) && sourceHasLock(source)) return 'source_has_lock';
+  // «Тело не валидируется» при живом Zod-парсинге в файле (кейс 08.08, issue
+  // #1001: «data из req.json() напрямую в createBooking без проверок» — а роут
+  // валидирует BookingSchema.safeParse с 29-й строки).
+  if (claimsMissingValidation(text) && sourceHasValidation(source)) return 'source_has_validation';
 
   // Обратный класс к «нет X, когда X есть»: находка УТВЕРЖДАЕТ, что код есть, и
   // цитирует его — а кода нет. Именно так выглядели issues #768/#770/#772/#774:
