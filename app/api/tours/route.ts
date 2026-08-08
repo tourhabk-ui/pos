@@ -104,33 +104,40 @@ export async function GET(request: NextRequest) {
 
     const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
-    // Строим два варианта запроса: новая схема (post-030) и старая (pre-030)
-    const buildSelect = (newSchema: boolean) => `
+    // Один запрос по РЕАЛЬНОЙ схеме. Прежде здесь были «два варианта схемы»,
+    // оба арма которых были одинаковыми строками (бутафорский фоллбэк), и оба
+    // просили шесть колонок, не существующих ни в одной миграции: season,
+    // coordinates, requirements, reviews_count, images у operator_tours и
+    // gallery у partners. Итог на проде — вечный degraded:true с пустотой
+    // (вскрыто гардом фантомных колонок 08.08). Реальные имена: season_start/
+    // season_end, latitude/longitude, review_count, photos, hero_image;
+    // requirements аналога не имеет — отдаём пусто на уровне маппинга.
+    const selectSql = `
       SELECT
         t.id,
-        ${newSchema ? 't.title AS name' : 't.title AS name'},
+        t.title AS name,
         t.description,
         t.short_description,
-        ${newSchema ? 't.activity_type AS category' : 't.activity_type AS category'},
+        t.activity_type AS category,
         t.difficulty,
-        ${newSchema ? 't.duration_hours AS duration' : 't.duration_hours AS duration'},
-        ${newSchema ? 't.base_price AS price' : 't.base_price AS price'},
+        t.duration_hours AS duration,
+        t.base_price AS price,
         t.currency,
-        t.season,
-        t.coordinates,
-        t.requirements,
+        t.season_start,
+        t.season_end,
+        t.latitude,
+        t.longitude,
         t.included,
         t.not_included,
-        ${newSchema ? 't.max_participants, t.min_participants' : 't.max_participants, t.min_participants'},
+        t.max_participants, t.min_participants,
         t.rating,
-        ${newSchema ? 't.reviews_count' : 't.reviews_count'},
+        t.review_count AS reviews_count,
         t.is_active,
-        ${newSchema ? 't.images,' : 't.images,'}
+        t.photos AS images,
         t.created_at,
         t.updated_at,
         p.name as operator_name,
-        p.hero_image as partner_hero_image,
-        p.gallery as partner_gallery
+        p.hero_image as partner_hero_image
       FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
       ${whereClause} AND t.deleted_at IS NULL
@@ -139,35 +146,23 @@ export async function GET(request: NextRequest) {
     `;
 
     queryParams.push(limit, offset);
+    const result = await query(selectSql, queryParams);
 
-    // Пробуем новую схему (migration 030 applied), при ошибке — старую
-    let result;
-    try {
-      result = await query(buildSelect(true), queryParams);
-    } catch (e) {
-      if (e instanceof Error && e.message.includes('does not exist')) {
-        result = await query(buildSelect(false), queryParams);
-      } else {
-        throw e;
-      }
-    }
-
-    // Подсчёт (аналогично)
-    const countBase = (_newSchema: boolean) =>
-      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause} AND t.deleted_at IS NULL`;
-    let countResult;
-    try {
-      countResult = await query<TotalRow>(countBase(true), queryParams.slice(0, -2));
-    } catch {
-      countResult = await query<TotalRow>(countBase(false), queryParams.slice(0, -2));
-    }
+    const countResult = await query<TotalRow>(
+      `SELECT COUNT(*)::int AS total FROM operator_tours t ${whereClause} AND t.deleted_at IS NULL`,
+      queryParams.slice(0, -2),
+    );
     const total = parseInt(countResult.rows[0]?.total ?? '0');
 
     const tours: TourResponse[] = result.rows.map(row => {
       const included = Array.isArray(row.included) ? (row.included as string[]) : [];
       const notIncluded = Array.isArray(row.not_included) ? (row.not_included as string[]) : [];
-      const season = Array.isArray(row.season) ? row.season : [];
-      const coordinates = Array.isArray(row.coordinates) ? row.coordinates : [];
+      // Схема хранит сезон парой дат, а точку — парой координат; форму ответа
+      // (массивы) сохраняем для совместимости с потребителями.
+      const season = [row.season_start, row.season_end].filter(Boolean);
+      const lat = typeof row.latitude === 'string' ? parseFloat(row.latitude as string) : (row.latitude as number | null);
+      const lng = typeof row.longitude === 'string' ? parseFloat(row.longitude as string) : (row.longitude as number | null);
+      const coordinates = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : [];
 
       return {
         id: row.id as string,
@@ -181,7 +176,7 @@ export async function GET(request: NextRequest) {
         currency: (row.currency as string) || 'RUB',
         season,
         coordinates,
-        requirements: Array.isArray(row.requirements) ? (row.requirements as string[]) : [],
+        requirements: [],
         included,
         notIncluded,
         maxGroupSize: typeof row.max_participants === 'number' ? row.max_participants : 20,
@@ -201,14 +196,12 @@ export async function GET(request: NextRequest) {
           };
           const own = parseArr(row.images);
           if (own.length > 0) return own;
-          // 2. Галерея оператора (только полные пути)
-          const gallery = parseArr(row.partner_gallery);
-          if (gallery.length > 0) return [gallery[0]];
-          // 3. Hero-фото оператора
+          // 2. Hero-фото оператора (partners.gallery не существует — фантом,
+          //    вскрытый гардом 08.08; hero_image — реальная колонка)
           const hero = typeof row.partner_hero_image === 'string' && (row.partner_hero_image as string).startsWith('/')
             ? row.partner_hero_image as string : null;
           if (hero) return [hero];
-          // 4. Категорийный fallback
+          // 3. Категорийный fallback
           const cat = CATEGORY_ALIAS[row.category as string] || (row.category as string);
           return [CATEGORY_IMAGES[cat] || '/images/bento/mutnovsky.jpg'];
         })(),

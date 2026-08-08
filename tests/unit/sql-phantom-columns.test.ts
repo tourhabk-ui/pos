@@ -1,0 +1,236 @@
+/**
+ * Гард фантомных колонок: SQL в коде ссылается только на колонки, существующие
+ * в миграциях (Эволюция 2.0, пакет B, владелец 08.08).
+ *
+ * Прецеденты класса: operator_bookings.guests_count (#1007 — 500 на слотах
+ * групповых туров) и operator_tours.tour_type (роут time-slots не работал
+ * НИКОГДА: колонки нет ни в одной из 339 миграций; похоронен в #1008).
+ * Ни tsc, ни тесты без БД такое не ловят — только сверка с миграциями.
+ *
+ * Реестр консервативен (lib/database/schema-registry.ts): DROP игнорируется,
+ * RENAME оставляет оба имени, VIEW — wildcard, таблицы вне миграций не
+ * проверяются. Ложный «фантом» на живой колонке дороже пропущенного.
+ *
+ * Осознанные исключения — в ALLOWLIST с причиной.
+ */
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { join } from 'node:path';
+import {
+  buildSchemaRegistry,
+  findPhantomRefs,
+  applyDdl,
+  type SchemaRegistry,
+} from '@/lib/database/schema-registry';
+
+const ROOT = process.cwd();
+
+/**
+ * БАЗОВАЯ ЛИНИЯ ДОЛГА (первый прогон гарда, 08.08.2026): ссылки на колонки,
+ * которых нет в DDL репозитория. Это НЕ разрешение — это замороженный список
+ * известного долга: гард не даёт ему расти, а снимать записи — по одной,
+ * проверяя каждую (реальная колонка, добавленная в прод руками, → миграция;
+ * фантом → фикс кода). Пять записей /api/tours уже сняты в этом же PR —
+ * они держали листинг в вечном degraded.
+ * Новая запись здесь ЗАПРЕЩЕНА без миграции или явного решения владельца.
+ */
+const BASELINE = new Set<string>([
+  "app/api/admin/operators/verify/route.ts → operators.company_address",
+  "app/api/admin/operators/verify/route.ts → operators.company_inn",
+  "app/api/admin/operators/verify/route.ts → operators.company_name",
+  "app/api/admin/operators/verify/route.ts → operators.user_id",
+  "app/api/admin/operators/verify/route.ts → operators.verification_status",
+  "app/api/admin/operators/verify/route.ts → operators.website",
+  "app/api/ai/knowledge-base/route.ts → partners.contact_info",
+  "app/api/ai/knowledge-base/route.ts → partners.specialization",
+  "app/api/eco-points/route.ts → eco_points.co2_saved_kg",
+  "app/api/eco-points/route.ts → eco_points.total_points",
+  "app/api/eco-points/route.ts → eco_points.trees_equivalent",
+  "app/api/eco-points/route.ts → eco_points.updated_at",
+  "app/api/guide/map/route.ts → operator_tours.guide_id",
+  "app/api/guide/map/route.ts → operator_tours.location",
+  "app/api/guide/map/route.ts → partners.specializations",
+  "app/api/guide/tours/route.ts → operator_tours.includes_equipment",
+  "app/api/guide/tours/route.ts → operator_tours.includes_guide",
+  "app/api/hub/operator/notifications/route.ts → users.full_name",
+  "app/api/hub/operator/profile/route.ts → partners.features",
+  "app/api/import/asset/route.ts → assets.bytes",
+  "app/api/import/asset/route.ts → assets.key",
+  "app/api/import/asset/route.ts → assets.mime",
+  "app/api/import/asset/route.ts → assets.source_url",
+  "app/api/operator/analytics/route.ts → tour_payments.amount",
+  "app/api/operator/guides/route.ts → partners.specializations",
+  "app/api/operator/profile/route.ts → operator_settings.id",
+  "app/api/operator/profile/settings/route.ts → operator_settings.id",
+  "app/api/operator/tours/[id]/generate-tags/route.ts → operator_tours.images",
+  "app/api/operator/transfer-booking/route.ts → operator_bookings.start_date",
+  "app/api/operator/transfer-booking/route.ts → operator_bookings.total_price",
+  "app/api/operators/[slug]/route.ts → partners.faq",
+  "app/api/operators/[slug]/route.ts → partners.features",
+  "app/api/operators/[slug]/route.ts → partners.gallery",
+  "app/api/operators/[slug]/route.ts → partners.reviews_data",
+  "app/api/operators/[slug]/route.ts → partners.season_info",
+  "app/api/payments/webhook/route.ts → operator_bookings.booking_type",
+  "app/api/payments/webhook/route.ts → transfer_schedules.from_location",
+  "app/api/payments/webhook/route.ts → transfer_schedules.to_location",
+  "app/api/planner/compose/route.ts → operators.company_name",
+  "app/api/reviews/my/route.ts → reviews.images",
+  "app/api/tours/[id]/availability/route.ts → operator_bookings.start_date",
+  "app/api/tours/[id]/availability/route.ts → operator_tours.min_group_size",
+  "app/api/tours/[id]/book/route.ts → operator_tours.min_group_size",
+  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.created_at",
+  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.document_type",
+  "app/api/transfer/drivers/[id]/documents/route.ts → driver_documents.issued_at",
+  "app/api/transfer/routes/route.ts → transfer_routes.currency",
+  "app/api/transfer/routes/route.ts → transfer_routes.duration_minutes",
+  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.created_at",
+  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.document_type",
+  "app/api/transfer/vehicles/[id]/documents/route.ts → vehicle_documents.issued_at",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfer_bookings.seats_count",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfer_bookings.transfer_id",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfer_schedules.price",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfer_schedules.total_seats",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfers.departure_date",
+  "app/api/transfers/[routeId]/schedules/route.ts → transfers.schedule_id",
+  "app/api/transfers/operator/dashboard/route.ts → transfer_schedules.operator_id",
+  "app/api/trip/plan/route.ts → operator_tours.coordinates",
+  "app/api/trip/plan/route.ts → operator_tours.season",
+  "app/api/webhooks/cloudpayments/route.ts → transfer_bookings.amount",
+  "app/api/webhooks/cloudpayments/route.ts → transfer_bookings.currency",
+  "app/api/webhooks/cloudpayments/route.ts → transfer_payments.error_message",
+  "app/api/webhooks/cloudpayments/route.ts → transfer_payments.transaction_id",
+  "lib/agents/agencies/operator-agency.ts → operator_tours.created_via",
+  "lib/agents/agencies/transfer-operator-agency.ts → drivers.transfer_operator_id",
+  "lib/agents/agencies/transfer-operator-agency.ts → drivers.user_id",
+  "lib/agents/agencies/transfer-operator-agency.ts → transfers.from_location",
+  "lib/agents/agencies/transfer-operator-agency.ts → transfers.to_location",
+  "lib/agents/agencies/transfer-operator-agency.ts → users.deleted_at",
+  "lib/agents/agencies/transfer-operator-agency.ts → users.status",
+  "lib/agents/evo/rescue-agent.ts → partners.is_active",
+  "lib/agents/execution/initiative-executor.ts → ai_actions_log.agent_id",
+  "lib/agents/execution/initiative-executor.ts → ai_actions_log.details",
+  "lib/agents/sdk/tourist-tools.ts → users.company_name",
+  "lib/agents/tools/agent-toolkits.ts → agent_approvals.agent_id",
+  "lib/agents/tools/board-executor-tools.ts → ai_actions_log.agent_name",
+  "lib/agents/tools/board-executor-tools.ts → ai_actions_log.result",
+  "lib/auth/guide-helpers.ts → operator_tours.difficulty_level",
+  "lib/auth/guide-helpers.ts → operator_tours.guide_id",
+  "lib/auth/guide-helpers.ts → operator_tours.location",
+  "lib/auth/guide-helpers.ts → partners.bio",
+  "lib/auth/guide-helpers.ts → partners.experience_years",
+  "lib/auth/guide-helpers.ts → partners.languages",
+  "lib/auth/guide-helpers.ts → partners.specializations",
+  "lib/auth/guide-helpers.ts → partners.total_earnings",
+  "lib/auth/transfer-helpers.ts → vehicles.rating",
+  "lib/eco/compensation.ts → partners.is_active",
+  "lib/events/agent-bus.ts → ai_actions_log.agent_id",
+  "lib/events/agent-bus.ts → ai_actions_log.status",
+  "lib/kuzmich/transfer-search.ts → transfer_routes.duration_minutes",
+  "lib/notifications/tour-channel-post.ts → operator_tours.location",
+  "lib/octo/service.ts → operator_tours.gallery",
+  "lib/octo/service.ts → operator_tours.hero_image",
+  "lib/planner/compose.ts → users.company_name",
+  "lib/search/tour-recommend.ts → operator_tours.eco_points_reward",
+  "lib/search/tour-recommend.ts → operator_tours.images",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.bear_risks",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.bull_signals",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.call_strategy",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.conversion_prob",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.recommended_action",
+  "lib/services/operators/lead-processor.service.ts → lead_proposals.verdict_urgency",
+  "lib/services/operators/operator-tour-scraper.ts → tour_availability.is_available",
+  "lib/services/operators/support.service.ts → agents.category",
+  "lib/services/operators/support.service.ts → agents.description",
+  "lib/services/operators/support.service.ts → agents.status",
+  "lib/transfers/matching.ts → transfer_drivers.current_location",
+  "lib/transfers/matching.ts → transfer_drivers.experience_years",
+  "lib/transfers/matching.ts → transfer_drivers.is_available",
+  "lib/transfers/matching.ts → transfer_drivers.working_hours",
+  "lib/transfers/matching.ts → transfer_vehicles.driver_id",
+]);
+const ALLOWLIST = BASELINE;
+
+function sqlLiteralsOf(src: string): string[] {
+  const lits = src.match(/`(?:[^`\\]|\\.)*`/gs) ?? [];
+  return lits.filter(
+    (l) => /\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b/i.test(l) && /\b(FROM|INTO|SET)\b/i.test(l),
+  );
+}
+
+describe('парсер DDL миграций', () => {
+  const reg: SchemaRegistry = { tables: new Map(), views: new Set(), created: new Set() };
+  applyDdl(
+    `CREATE TABLE IF NOT EXISTS demo_bookings (
+       id SERIAL PRIMARY KEY,
+       participants INT NOT NULL,
+       booking_status VARCHAR(20) DEFAULT 'new',
+       CONSTRAINT demo_valid CHECK (participants > 0),
+       UNIQUE (id, booking_status)
+     );
+     ALTER TABLE demo_bookings ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+     ALTER TABLE demo_bookings RENAME COLUMN paid_at TO paid_at_ts;
+     CREATE OR REPLACE VIEW demo_view AS SELECT * FROM demo_bookings;`,
+    reg,
+  );
+
+  it('колонки CREATE TABLE и ADD COLUMN попадают в реестр, констрейнты — нет', () => {
+    const cols = reg.tables.get('demo_bookings')!;
+    expect([...cols].sort()).toEqual(['booking_status', 'id', 'paid_at', 'paid_at_ts', 'participants']);
+  });
+
+  it('view регистрируется как wildcard', () => {
+    expect(reg.views.has('demo_view')).toBe(true);
+  });
+
+  it('ловит оба реальных фантома 08.08 на SQL похороненного time-slots', () => {
+    const DEAD_SQL = `
+      SELECT id, title AS name, max_participants AS max_group_size, tour_type, is_active
+      FROM operator_tours t
+      WHERE t.id = $1 AND t.deleted_at IS NULL`;
+    const DEAD_SQL2 = `
+      SELECT td.id, ($2::integer - COALESCE(SUM(b.guests_count), 0)) as spots_left
+      FROM tour_dates td
+      LEFT JOIN operator_bookings b ON b.operator_tour_id = $1`;
+    const real = buildSchemaRegistry();
+    const phantoms1 = findPhantomRefs(DEAD_SQL, real).map((r) => `${r.table}.${r.column}`);
+    const phantoms2 = findPhantomRefs(DEAD_SQL2, real).map((r) => `${r.table}.${r.column}`);
+    expect(phantoms1).toContain('operator_tours.tour_type');
+    expect(phantoms2).toContain('operator_bookings.guests_count');
+  });
+
+  it('живой SQL эндпоинта /slots фантомов не содержит', () => {
+    const src = readFileSync(join(ROOT, 'app/api/tours/[id]/slots/route.ts'), 'utf-8');
+    const real = buildSchemaRegistry();
+    for (const lit of sqlLiteralsOf(src)) {
+      expect(findPhantomRefs(lit, real)).toEqual([]);
+    }
+  });
+});
+
+describe('весь SQL кодовой базы — только существующие колонки', () => {
+  it('app/ и lib/ не ссылаются на колонки, которых нет в миграциях', () => {
+    const reg = buildSchemaRegistry();
+    const files = execSync(`git ls-files 'app/**/*.ts' 'lib/**/*.ts'`, { cwd: ROOT, encoding: 'utf-8' })
+      .trim().split('\n').filter(Boolean);
+
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(join(ROOT, f), 'utf-8');
+      if (!/`/.test(src)) continue;
+      for (const lit of sqlLiteralsOf(src)) {
+        for (const ref of findPhantomRefs(lit, reg)) {
+          const key = `${f} → ${ref.table}.${ref.column}`;
+          if (!ALLOWLIST.has(key)) offenders.push(key);
+        }
+      }
+    }
+
+    const unique = [...new Set(offenders)];
+    expect(
+      unique,
+      `SQL ссылается на колонки, которых нет в миграциях (фантомы класса tour_type/guests_count):\n${unique.join('\n')}\n` +
+      `Если колонка реально существует — проверь парсер/добавь миграцию; осознанное исключение — в ALLOWLIST с причиной.`,
+    ).toEqual([]);
+  });
+});
