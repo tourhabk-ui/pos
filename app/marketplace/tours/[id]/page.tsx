@@ -37,13 +37,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${tour.title} | Реальные туры Камчатки`,
     description: desc,
-    alternates: { canonical: `${SITE}/marketplace/tours/${tour.id}` },
+    // Канон — /catalog/tours/[id]: карточка живёт по двум адресам, но sitemap
+    // и навигация подают каталог. Самоссылающийся canonical здесь делил
+    // сигналы тура между двумя URL.
+    alternates: { canonical: `${SITE}/catalog/tours/${tour.id}` },
     openGraph: {
       title: tour.title,
       description: desc,
       images,
       type: 'website',
-      url: `${SITE}/marketplace/tours/${tour.id}`,
+      url: `${SITE}/catalog/tours/${tour.id}`,
     },
   };
 }
@@ -57,7 +60,7 @@ export default async function TourDetailPage({ params }: Props) {
   if (!tour) notFound();
 
   const structuredData = buildTourStructuredData(tour, reviews, {
-    canonicalUrl: `${SITE}/marketplace/tours/${tour.id}`,
+    canonicalUrl: `${SITE}/catalog/tours/${tour.id}`,
     siteUrl: SITE,
     activityLabel: activityLabel(tour.activity_type),
   });

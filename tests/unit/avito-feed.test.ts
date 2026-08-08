@@ -55,14 +55,14 @@ const tour: ChannelTour = {
 };
 
 describe('ссылка ведёт на живую публичную карточку', () => {
-  it('это /marketplace/tours/{id}, а не несуществующий /hub/tour', () => {
-    expect(tourPublicUrl(27)).toMatch(/\/marketplace\/tours\/27$/);
+  it('это канонический /catalog/tours/{id}, а не несуществующий /hub/tour', () => {
+    expect(tourPublicUrl(27)).toMatch(/\/catalog\/tours\/27$/);
     expect(tourPublicUrl(27)).not.toMatch(/\/hub\//);
   });
 
   it('в описании объявления стоит именно она', () => {
     const xml = generateAvitoXmlFeed([tour]);
-    expect(xml).toContain('/marketplace/tours/27');
+    expect(xml).toContain('/catalog/tours/27');
     expect(xml).not.toContain('/hub/tour/');
   });
 });

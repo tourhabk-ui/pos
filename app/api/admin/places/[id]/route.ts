@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
+import { pingPlaceChanged } from '@/lib/seo/indexnow';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,11 +100,14 @@ export async function PATCH(request: NextRequest, { params }: Props) {
   values.push(id);
 
   try {
-    const { rows } = await pool.query<{ id: string; name: string }>(
-      `UPDATE places SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING id, name`,
+    const { rows } = await pool.query<{ id: string; name: string; slug: string | null; ark_id: string | null }>(
+      `UPDATE places SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING id, name, slug, ark_id`,
       values,
     );
     if (rows.length === 0) return NextResponse.json({ error: 'Место не найдено' }, { status: 404 });
+    // Попутный пинг IndexNow: правка места доходит до переобхода за минуты.
+    // Адрес — как в sitemap: slug, иначе ark_id.
+    pingPlaceChanged(rows[0]!.slug ?? rows[0]!.ark_id ?? rows[0]!.id);
     return NextResponse.json({ ok: true, id: rows[0]!.id, name: rows[0]!.name });
   } catch (err) {
     return NextResponse.json(

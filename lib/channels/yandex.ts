@@ -88,7 +88,7 @@ function buildDescription(tour: ChannelTour): string {
     parts.push(`Включено: ${tour.included.join(', ')}.`);
   }
 
-  parts.push(`Подробнее и бронирование: ${SITE}/marketplace/tours/${tour.id}`);
+  parts.push(`Подробнее и бронирование: ${SITE}/catalog/tours/${tour.id}`);
 
   return parts.join('\n\n').slice(0, 3000);
 }
@@ -133,7 +133,7 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     }
 
     return `    <offer id="${tour.id}" available="true">
-      <url>${escapeXml(`${SITE}/marketplace/tours/${tour.id}`)}</url>
+      <url>${escapeXml(`${SITE}/catalog/tours/${tour.id}`)}</url>
       <name>${escapeXml(tour.title.slice(0, 120))}</name>
       <description>${escapeXml(desc)}</description>
       <price>${price}</price>

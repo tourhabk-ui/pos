@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { callGeminiPDF } from '@/lib/ai/providers';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { pingRoutesChanged } from '@/lib/seo/indexnow';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,7 @@ interface RouteRow {
   id: number;
   title: string;
   source_url: string;
+  slug: string | null;
 }
 
 interface ExtractedData {
@@ -114,7 +116,7 @@ export async function POST(req: NextRequest) {
 
   // Find routes with PDF passport URLs that still need enrichment
   const { rows: routes } = await pool.query<RouteRow>(
-    `SELECT id, title, source_url
+    `SELECT id, title, source_url, slug
      FROM kamchatka_routes
      WHERE source_url LIKE '%route_passports%'
        AND (
@@ -217,6 +219,11 @@ export async function POST(req: NextRequest) {
 
   const ok    = results.filter(r => r.status === 'ok').length;
   const fails = results.filter(r => r.status !== 'ok' && r.status !== 'would_process').length;
+
+  // Попутный пинг IndexNow по обогащённым маршрутам — адрес как в sitemap
+  // (slug, иначе id). Пустой список пинга не создаёт.
+  const okIds = new Set(results.filter(r => r.status === 'ok').map(r => r.id));
+  pingRoutesChanged(routes.filter(r => okIds.has(r.id)).map(r => r.slug ?? r.id));
 
   return NextResponse.json({
     ok: true,
