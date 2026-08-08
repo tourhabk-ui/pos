@@ -1,16 +1,15 @@
 {
-  "note": "health: metrika_diag (токен задан?) + qwen после правок env владельца",
+  "note": "health: Qwen после установки intl-адреса владельцем + metrika_diag (прогон на деплое c0a8dc3c)",
   "urls": [
     "https://vedarai.ru/api/cron/health"
   ],
-  "bytes": 3500,
+  "bytes": 2500,
   "timeout": 90,
   "grep": [
-    "metrika_diag",
-    "\"token_set\":true",
-    "\"token_set\":false",
     "\"qwen\":true",
     "dashscope-intl",
-    "настроен верно"
+    "dashscope.aliyuncs.com/compatible-mode",
+    "\"token_set\":true",
+    "\"token_set\":false"
   ]
 }
