@@ -53,7 +53,7 @@ describe('текст поста — только факты из базы', () =
     // правильная типографика, поэтому сравниваем по нормализованному тексту.
     expect(text.replace(/ /g, ' ')).toContain('13 000 ₽');
     expect(text).toContain('Камчатка Рафтинг');
-    expect(text).toContain(`${BASE}/marketplace/tours/27`);
+    expect(text).toContain(`${BASE}/catalog/tours/27`);
   });
 
   it('пустые поля не превращаются в текст', () => {

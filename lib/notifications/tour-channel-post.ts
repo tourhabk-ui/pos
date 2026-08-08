@@ -109,7 +109,7 @@ export function buildTourPostText(row: TourPostRow, baseUrl: string): string {
   }
 
   lines.push('');
-  lines.push(`<a href="${baseUrl.replace(/\/$/, '')}/marketplace/tours/${row.id}">Подробности и бронирование</a>`);
+  lines.push(`<a href="${baseUrl.replace(/\/$/, '')}/catalog/tours/${row.id}">Подробности и бронирование</a>`);
 
   return lines.join('\n').slice(0, CAPTION_LIMIT);
 }
