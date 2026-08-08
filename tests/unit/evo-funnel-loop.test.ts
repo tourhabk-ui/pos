@@ -4,9 +4,13 @@
  *
  * До этого петля сторожила только код: прод-500, фантомные колонки, моки.
  * Главный вопрос платформы — доходит ли кто-то до денег — не сторожил никто.
- * Контур: маяк /api/funnel (верх воронки) + leads/operator_bookings (низ) →
- * объектив scanFunnel → ОДНА находка за прогон (самое верхнее сломанное
- * звено) → категория 'funnel' наружу через issue-reporter.
+ * Контур: page_views (СВОЯ метрика, PageViewTracker — просмотры без ботов) +
+ * маяк /api/funnel (только booking_start: взаимодействие, которого нет в
+ * page_views) + Метрика (независимый свидетель) + leads/operator_bookings
+ * (низ) → объектив scanFunnel → ОДНА находка за прогон (самое верхнее
+ * сломанное звено) → категория 'funnel' наружу через issue-reporter.
+ * Первая версия дублировала просмотры своим маяком — владелец 08.08:
+ * «у нас была настроена своя метрика».
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -79,7 +83,7 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
 describe('Метрика — независимый свидетель верха воронки', () => {
   it('объектив читает Метрику и берёт максимум из двух источников', () => {
     expect(GROWTH).toMatch(/fetchMetrikaWeek\(\)\.catch/);
-    expect(GROWTH).toMatch(/Math\.max\(top\[0\]\?\.visits \?\? 0, metrikaVisits \?\? 0\)/);
+    expect(GROWTH).toMatch(/Math\.max\(views\[0\]\?\.visits \?\? 0, metrikaVisits \?\? 0\)/);
   });
 
   it('health диагностирует Метрику: token_set/ok/цифры видны пробе', () => {
@@ -96,11 +100,17 @@ describe('Метрика — независимый свидетель верх�
 });
 
 describe('контур подключён', () => {
-  it('объектив в прочёсе и читает все три источника', () => {
+  it('объектив в прочёсе и читает все источники', () => {
     expect(GROWTH).toMatch(/scanFunnel\(\)\.catch/);
+    expect(GROWTH).toMatch(/FROM page_views/);
     expect(GROWTH).toMatch(/FROM funnel_events/);
     expect(GROWTH).toMatch(/FROM leads WHERE created_at/);
     expect(GROWTH).toMatch(/FROM operator_bookings/);
+  });
+
+  it('просмотры — из своей метрики и без краулеров', () => {
+    expect(GROWTH).toMatch(/is_bot = FALSE/);
+    expect(GROWTH).toMatch(/path LIKE '\/catalog\/tours\/%' OR path LIKE '\/marketplace\/tours\/%'/);
   });
 
   it('дедуп находок без файла жив: file_path сравнивается через IS NOT DISTINCT FROM', () => {
@@ -117,21 +127,25 @@ describe('контур подключён', () => {
 });
 
 describe('маяк: API и клиенты', () => {
-  it('API валидирует шаги Zod-ом и не хранит сырой IP', () => {
-    expect(API).toMatch(/z\.enum\(\['catalog_view', 'tour_view', 'booking_start'\]\)/);
-    expect(API).toMatch(/sha256/);
-    expect(API).not.toMatch(/INSERT INTO funnel_events[\s\S]*ip/i);
+  it('единственный шаг маяка — booking_start: просмотры уже пишет своя метрика', () => {
+    expect(API).toMatch(/z\.enum\(\['booking_start'\]\)/);
   });
 
-  it('дедуп на сервере: час на посетителя+шаг+сущность', () => {
+  it('API переиспользует общий инструментарий метрики: хэш с солью, бот-детект, лимитер', () => {
+    expect(API).toMatch(/from '@\/lib\/analytics\/visitor-hash'/);
+    expect(API).toMatch(/isBotUserAgent/);
+    expect(API).toMatch(/createRateLimiter/);
+  });
+
+  it('дедуп на сервере: час на посетителя+тур', () => {
     expect(API).toMatch(/INTERVAL '60 minutes'/);
     expect(API).toMatch(/entity_id IS NOT DISTINCT FROM \$2/);
   });
 
-  it('карточка тура шлёт tour_view, каталог — catalog_view, форма — booking_start', () => {
-    expect(TOUR).toMatch(/funnelBeacon\('tour_view', String\(tour\.id\)\)/);
-    expect(CATALOG).toMatch(/funnelBeacon\('catalog_view'\)/);
+  it('форма брони шлёт booking_start; дублирующих маяков просмотров нет', () => {
     expect(BOOKING).toMatch(/funnelBeacon\('booking_start', String\(tourId\)\)/);
     expect(BOOKING).toMatch(/onFocusCapture=\{markFunnelStart\}/);
+    expect(TOUR).not.toMatch(/funnelBeacon/);
+    expect(CATALOG).not.toMatch(/funnelBeacon/);
   });
 });

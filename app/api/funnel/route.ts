@@ -1,38 +1,44 @@
 /**
- * POST /api/funnel — публичный маяк воронки (Эволюция 3.0, п.5).
+ * POST /api/funnel — публичный маяк ВЗАИМОДЕЙСТВИЙ воронки (Эволюция 3.0, п.5).
  *
  * AUTH: публичный by design — маяк с витрины, у посетителя нет сессии.
- * Пишет ТОЛЬКО счётные события верха воронки (catalog_view / tour_view /
- * booking_start), никаких персональных данных: вместо IP — усечённый
- * sha256(сутки + ip + ua) с суточной солью, склеить дни или восстановить
- * адрес нельзя. Дедуп: тот же посетитель + шаг + сущность чаще раза в час
- * не считается (перезагрузки страницы — не «рост трафика»).
  *
- * Читает журнал ночной объектив scanFunnel (growth-agent) — самое верхнее
- * сломанное звено воронки становится находкой эволюции.
+ * Здесь только события, которых НЕТ в собственной метрике страниц: просмотры
+ * (каталог, карточка тура) уже пишет PageViewTracker → page_views, и объектив
+ * scanFunnel читает их оттуда. Первая версия этого роута дублировала просмотры
+ * своим маяком — владелец 08.08: «у нас была настроена своя метрика».
+ *
+ * Единственный шаг — booking_start: первое касание формы брони. Это
+ * взаимодействие, а не переход, в page_views его по построению нет.
+ *
+ * Без PII: тот же суточный visitorHash с секретной солью, что у page_views
+ * (152-ФЗ), боты отсекаются тем же bot-detect, флуд — тем же rate-limiter.
+ * Дедуп: посетитель+тур чаще раза в час не считается. Сбой — всегда 204:
+ * маяк не должен ломать витрину.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
+import { isBotUserAgent } from '@/lib/analytics/bot-detect';
 
 export const dynamic = 'force-dynamic';
 
 const BodySchema = z.object({
-  step: z.enum(['catalog_view', 'tour_view', 'booking_start']),
+  step: z.enum(['booking_start']),
   entity_id: z.string().max(64).nullish(),
 });
 
-/** Анонимный суточный хэш посетителя: sha256(YYYY-MM-DD + ip + ua), 32 hex. */
-function visitorHash(req: NextRequest): string {
-  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0]!.trim() || 'unknown';
-  const ua = req.headers.get('user-agent') ?? '';
-  const day = new Date().toISOString().slice(0, 10);
-  return createHash('sha256').update(`${day}|${ip}|${ua}`).digest('hex').slice(0, 32);
-}
+const funnelLimiter = createRateLimiter({ windowMs: 10_000, max: 10 });
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request.headers);
+  if (!funnelLimiter.check(ip)) {
+    return new NextResponse(null, { status: 429 });
+  }
+
   let parsed: z.infer<typeof BodySchema>;
   try {
     parsed = BodySchema.parse(await request.json());
@@ -40,8 +46,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Неверный формат события' }, { status: 400 });
   }
 
+  const userAgent = request.headers.get('user-agent') ?? '';
+  // Краулер, трогающий форму, — не воронка; строку не пишем вовсе
+  // (в отличие от page_views, где бот-строки нужны для SEO-наблюдений).
+  if (isBotUserAgent(userAgent)) return new NextResponse(null, { status: 204 });
+
   try {
-    const hash = visitorHash(request);
+    const hash = visitorHash(ip, userAgent, currentDay(), process.env.CRON_SECRET ?? 'vedar');
     await pool.query(
       `INSERT INTO funnel_events (step, entity_id, visitor_hash)
        SELECT $1, $2, $3
