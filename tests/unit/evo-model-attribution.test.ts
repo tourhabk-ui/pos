@@ -198,3 +198,43 @@ describe('провенанс решателя: штатный DeepSeek прот�
     expect(text).toContain('ФОЛЛБЭК');
   });
 });
+
+describe('EVO_FLAGSHIP_DEFERRED: отложенный флагман — решение, а не тревога', () => {
+  const quiet = { evolution: { processed: 0 }, rescue: { alerts: [] }, errors: [] as string[] };
+  const CREDIT_PROV = [
+    'flagship: пустой ответ или нет ключа/релея',
+    'anthropic: HTTP 400 {"type":"error","error":{"message":"Your credit balance is too low"}}',
+  ];
+  const scanDeferred = (extra: Record<string, unknown> = {}) => ({
+    issues: [], new_issues: 0, duration_ms: 1000,
+    coverage: { source: 'github', files_listed: 900, files_reviewed: 20, mock_files_scanned: 20 },
+    decision_model: 'deepseek-chat',
+    decision_provenance: CREDIT_PROV,
+    ...extra,
+  });
+
+  it('с флагом тихий прогон не тревожит, хотя флагман настроен и молчит', () => {
+    // Ровно решение владельца 08.08: баланс не пополняем до продакшена.
+    expect(buildEvoAlert({ scan: scanDeferred(), ...quiet }, { flagshipDeferred: true })).toBeNull();
+  });
+
+  it('с флагом при новостях — информационная строка с причиной, не ФОЛЛБЭК', () => {
+    const text = buildEvoAlert({ scan: scanDeferred({ new_issues: 1 }), ...quiet }, { flagshipDeferred: true });
+    expect(text).toContain('флагман отложен владельцем');
+    expect(text).toContain('credit balance');
+    expect(text).not.toContain('ФОЛЛБЭК');
+  });
+
+  it('БЕЗ флага тот же прогон кричит — снятие флага возвращает тревогу', () => {
+    const text = buildEvoAlert({ scan: scanDeferred(), ...quiet }, { flagshipDeferred: false });
+    expect(text).toContain('ФОЛЛБЭК');
+  });
+
+  it('флаг не глушит немоту решателя — это другой класс тревоги', () => {
+    const text = buildEvoAlert({
+      scan: { ...scanDeferred(), decision_model: null, decision_error: 'все молчат' },
+      ...quiet,
+    }, { flagshipDeferred: true });
+    expect(text).toContain('РЕШАТЕЛЬ МОЛЧИТ');
+  });
+});
