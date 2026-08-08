@@ -183,9 +183,15 @@ interface TourContextRow {
   has_details: boolean | null;
 }
 
-let _tourContextCache: string = '';
-let _tourContextAt = 0;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 мин
+// Раздельные кэши (перф-аудит 08.08, п.5): слоты и цены туров протухают
+// быстрее, чем описания мест и база знаний — один общий TTL заставлял
+// выбирать между свежестью занятости и лишними SQL на каждый холодный чат.
+let _tourCatalogCache = '';
+let _tourCatalogAt = 0;
+const CATALOG_TTL_MS = 3 * 60 * 1000;      // туры: слоты/цены — 3 мин
+let _enrichmentCache = '';
+let _enrichmentAt = 0;
+const ENRICHMENT_TTL_MS = 15 * 60 * 1000;  // места/знания/live — 15 мин
 
 // ── Bot Memory (TG / MAX — без регистрации, хранится в agent_memory) ─────────
 
@@ -375,18 +381,23 @@ async function synthesizeBotNotes(
   } catch { /* fire-and-forget */ }
 }
 
-export async function buildTourContext(): Promise<string> {
-  if (_tourContextCache && Date.now() - _tourContextAt < CACHE_TTL_MS) {
-    return _tourContextCache;
+/**
+ * ТОЛЬКО каталог туров — для MCP get_tours и как ядро промпта Кузьмича.
+ * Перф-аудит 08.08 п.4: агенту для обзора каталога не нужны 100 мест и 50
+ * записей знаний — это лишняя работа и токены на каждый вызов.
+ *
+ * Туры — ОТДЕЛЬНО от обогащения: раньше все три запроса жили в одном
+ * Promise.all под одним catch, и падение любого обнуляло каталог целиком.
+ * Так и случилось (аудит 08.08, «MCP не отдаёт список туров»): JOIN шёл в
+ * users за company_name, а company_name живёт ТОЛЬКО в partners (052) —
+ * «column does not exist» глушился, и Кузьмич с MCP отвечали «Туры не
+ * найдены» при живых турах. Оператор туров — partners (§1).
+ */
+export async function buildTourCatalog(): Promise<string> {
+  if (_tourCatalogCache && Date.now() - _tourCatalogAt < CATALOG_TTL_MS) {
+    return _tourCatalogCache;
   }
   try {
-    // Туры — ОТДЕЛЬНО от places/knowledge: раньше все три запроса жили в одном
-    // Promise.all под одним catch, и падение любого обнуляло каталог целиком.
-    // Так и случилось (аудит владельца 08.08, «MCP не отдаёт список туров»):
-    // JOIN шёл в users за company_name, а company_name живёт ТОЛЬКО в partners
-    // (052: «алиас для name» у партнёров) — «column does not exist» глушился,
-    // и Кузьмич с MCP месяцами отвечали «Туры не найдены» при живых турах.
-    // Оператор туров — partners (§1), как в tour-detail-query.
     const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.multi_day_count, ot.activity_type,
                ot.location_name,
@@ -403,26 +414,6 @@ export async function buildTourContext(): Promise<string> {
         ORDER BY ot.base_price ASC
         LIMIT 40
       `);
-
-    // Места и база знаний — обогащение: их сбой каталог не роняет.
-    const [placesSettled, knowledgeSettled] = await Promise.allSettled([
-      pool.query<{ name: string; category: string; district: string | null; description: string | null }>(`
-        SELECT name, category, district, LEFT(description, 120) AS description
-        FROM places
-        WHERE merged_into_id IS NULL
-        ORDER BY category, name
-        LIMIT 100
-      `),
-      pool.query<{ title: string; compiled_truth: string }>(`
-        SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
-        FROM agent_knowledge
-        WHERE agent_id = 'kuzmich'
-        ORDER BY updated_at DESC
-        LIMIT 50
-      `),
-    ]);
-    const placesResult = placesSettled.status === 'fulfilled' ? placesSettled.value : { rows: [] };
-    const knowledgeResult = knowledgeSettled.status === 'fulfilled' ? knowledgeSettled.value : { rows: [] };
 
     const { rows } = toursResult;
     if (!rows.length) return '';
@@ -444,46 +435,88 @@ export async function buildTourContext(): Promise<string> {
       return `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
     });
 
-    // Places block
-    const placesLines = placesResult.rows.map(p => {
-      const dist = p.district ? ` (${p.district})` : '';
-      const desc = p.description ? ` — ${p.description}` : '';
-      return `${p.name}${dist}${desc}`;
-    });
-
-    // Agent knowledge block
-    const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
-
-    // Live-контекст (погода/новости/МЧС) — тоже обогащение, не роняет каталог.
-    const liveBlock = await loadLiveContext().catch(() => '');
-
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kamchatka' });
-    const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-
-    _tourContextCache = [
-      `СЕГОДНЯ: ${dateStr}, ${timeStr} (Камчатка, UTC+12)`,
-      '',
+    _tourCatalogCache = [
       'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
       ...lines,
       '',
       'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай бронирование первым.',
-      '',
-      placesLines.length ? 'МЕСТА И ДОСТОПРИМЕЧАТЕЛЬНОСТИ КАМЧАТКИ (из базы платформы):' : '',
-      ...placesLines,
-      '',
-      knowledgeLines.length ? 'БАЗА ЗНАНИЙ КУЗЬМИЧА (санатории, трансфер, FAQ):' : '',
-      ...knowledgeLines,
-      liveBlock,
-    ].filter(Boolean).join('\n');
-    _tourContextAt = Date.now();
-    return _tourContextCache;
+    ].join('\n');
+    _tourCatalogAt = Date.now();
+    return _tourCatalogCache;
   } catch (e) {
     // Молчаливый catch прятал сломанный SQL месяцами — «Туры не найдены» при
     // живых турах неотличимо от пустой БД. Ошибку теперь видно в логах прода.
     console.error('[buildTourContext] каталог туров не собрался:', e instanceof Error ? e.message : e);
     return '';
   }
+}
+
+/** Обогащение промпта: места + база знаний + live. Сбой любого блока не
+ *  роняет остальное; каталог туров сюда сознательно не входит. */
+async function buildEnrichment(): Promise<string> {
+  if (_enrichmentCache && Date.now() - _enrichmentAt < ENRICHMENT_TTL_MS) {
+    return _enrichmentCache;
+  }
+  const [placesSettled, knowledgeSettled] = await Promise.allSettled([
+    pool.query<{ name: string; category: string; district: string | null; description: string | null }>(`
+        SELECT name, category, district, LEFT(description, 120) AS description
+        FROM places
+        WHERE merged_into_id IS NULL
+        ORDER BY category, name
+        LIMIT 100
+      `),
+    pool.query<{ title: string; compiled_truth: string }>(`
+        SELECT title, LEFT(compiled_truth, 300) AS compiled_truth
+        FROM agent_knowledge
+        WHERE agent_id = 'kuzmich'
+        ORDER BY updated_at DESC
+        LIMIT 50
+      `),
+  ]);
+  const placesResult = placesSettled.status === 'fulfilled' ? placesSettled.value : { rows: [] };
+  const knowledgeResult = knowledgeSettled.status === 'fulfilled' ? knowledgeSettled.value : { rows: [] };
+
+  const placesLines = placesResult.rows.map(p => {
+    const dist = p.district ? ` (${p.district})` : '';
+    const desc = p.description ? ` — ${p.description}` : '';
+    return `${p.name}${dist}${desc}`;
+  });
+  const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
+
+  // Live-контекст (погода/новости/МЧС) — тоже обогащение, не роняет каталог.
+  const liveBlock = await loadLiveContext().catch(() => '');
+
+  _enrichmentCache = [
+    placesLines.length ? 'МЕСТА И ДОСТОПРИМЕЧАТЕЛЬНОСТИ КАМЧАТКИ (из базы платформы):' : '',
+    ...placesLines,
+    '',
+    knowledgeLines.length ? 'БАЗА ЗНАНИЙ КУЗЬМИЧА (санатории, трансфер, FAQ):' : '',
+    ...knowledgeLines,
+    liveBlock,
+  ].filter(Boolean).join('\n');
+  _enrichmentAt = Date.now();
+  return _enrichmentCache;
+}
+
+/** Полный контекст для промпта Кузьмича: дата + каталог + обогащение.
+ *  Дата теперь собирается на каждый вызов — кэшированный «СЕГОДНЯ» мог
+ *  отставать на весь TTL. */
+export async function buildTourContext(): Promise<string> {
+  const catalog = await buildTourCatalog();
+  if (!catalog) return '';
+  const enrichment = await buildEnrichment().catch(() => '');
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kamchatka' });
+  const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
+
+  return [
+    `СЕГОДНЯ: ${dateStr}, ${timeStr} (Камчатка, UTC+12)`,
+    '',
+    catalog,
+    '',
+    enrichment,
+  ].filter(Boolean).join('\n');
 }
 
 // ── Динамический поиск мест по запросу пользователя ─────────────────────────
@@ -1630,7 +1663,9 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       return result || 'Поиск не дал результатов.';
     }
     if (name === 'get_tours') {
-      const ctx = await buildTourContext();
+      // Только каталог (перф-аудит 08.08, п.4): агенту для обзора не нужны
+      // 100 мест и 50 записей знаний — лишняя работа и токены.
+      const ctx = await buildTourCatalog();
       if (!ctx) return 'Туры не найдены.';
       // Фильтр по типу активности объявлен в схеме с самого начала, но
       // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),
