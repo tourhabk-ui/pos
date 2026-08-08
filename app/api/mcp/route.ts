@@ -24,8 +24,9 @@ import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
-import { createLead } from '@/lib/leads/create';
+import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { createRateLimiter } from '@/lib/rate-limit';
+import { normalizePhone } from '@/lib/mcp/normalize-phone';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +73,14 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Pr
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
   }
-  const { tour: tourQuery, date, participants, name, phone, comment } = parsed.data;
+  const { tour: tourQuery, date, participants, name, comment } = parsed.data;
+
+  // Аудит 08.08, замечание 2: телефон нормализуется, мусор не проходит —
+  // заявка без дозвонного номера бесполезна менеджеру.
+  const phone = normalizePhone(parsed.data.phone);
+  if (!phone) {
+    throw new Error('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+  }
 
   const { resolveTourByQuery } = await import('@/lib/kuzmich/tour-availability-tool');
   const tour = await resolveTourByQuery(tourQuery);
@@ -83,6 +91,16 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>): Pr
   const today = new Date().toISOString().slice(0, 10);
   if (date < today) {
     return `Дата ${date} уже прошла — заявка не создана. Свободные даты: get_tour_availability.`;
+  }
+
+  // Аудит 08.08, замечание 3 — явная идемпотентность по (телефон, тур, дата):
+  // общий дедуп createLead требует ТОЧНОГО совпадения комментария, а агент при
+  // ретрае может переформулировать. Ключ — детерминированный префикс комментария;
+  // SQL живёт в домене лидов (lib/leads/create), не здесь — у MCP своего движка нет.
+  const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
+  const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
+  if (existing) {
+    return `Заявка на бронь "${tour.title}" на ${date} с этого телефона уже есть (номер ${existing}) — новую не создаю. Оператор свяжется по ${phone}.`;
   }
 
   const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
@@ -122,7 +140,11 @@ async function executeCreateLead(rawArgs: Record<string, unknown>): Promise<stri
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки');
   }
-  const { name, phone, comment, interest } = parsed.data;
+  const { name, comment, interest } = parsed.data;
+  const phone = normalizePhone(parsed.data.phone);
+  if (!phone) {
+    throw new Error('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.');
+  }
   const leadId = await createLead({
     name,
     phone,
