@@ -380,8 +380,14 @@ export async function buildTourContext(): Promise<string> {
     return _tourContextCache;
   }
   try {
-    const [toursResult, placesResult, knowledgeResult] = await Promise.all([
-      pool.query<TourContextRow>(`
+    // Туры — ОТДЕЛЬНО от places/knowledge: раньше все три запроса жили в одном
+    // Promise.all под одним catch, и падение любого обнуляло каталог целиком.
+    // Так и случилось (аудит владельца 08.08, «MCP не отдаёт список туров»):
+    // JOIN шёл в users за company_name, а company_name живёт ТОЛЬКО в partners
+    // (052: «алиас для name» у партнёров) — «column does not exist» глушился,
+    // и Кузьмич с MCP месяцами отвечали «Туры не найдены» при живых турах.
+    // Оператор туров — partners (§1), как в tour-detail-query.
+    const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.multi_day_count, ot.activity_type,
                ot.location_name,
                ot.available_slots,
@@ -389,13 +395,17 @@ export async function buildTourContext(): Promise<string> {
                ot.short_description,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
-               u.company_name AS operator_name
+               p.name AS operator_name
         FROM operator_tours ot
-        LEFT JOIN users u ON u.id = ot.operator_id
+        LEFT JOIN partners p ON p.id = ot.operator_id
         WHERE ot.is_active = true AND ot.deleted_at IS NULL
+          AND COALESCE(ot.is_published, TRUE) = TRUE
         ORDER BY ot.base_price ASC
         LIMIT 40
-      `),
+      `);
+
+    // Места и база знаний — обогащение: их сбой каталог не роняет.
+    const [placesSettled, knowledgeSettled] = await Promise.allSettled([
       pool.query<{ name: string; category: string; district: string | null; description: string | null }>(`
         SELECT name, category, district, LEFT(description, 120) AS description
         FROM places
@@ -411,6 +421,8 @@ export async function buildTourContext(): Promise<string> {
         LIMIT 50
       `),
     ]);
+    const placesResult = placesSettled.status === 'fulfilled' ? placesSettled.value : { rows: [] };
+    const knowledgeResult = knowledgeSettled.status === 'fulfilled' ? knowledgeSettled.value : { rows: [] };
 
     const { rows } = toursResult;
     if (!rows.length) return '';
@@ -442,8 +454,8 @@ export async function buildTourContext(): Promise<string> {
     // Agent knowledge block
     const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
 
-    // Load live context: weather + news + MChS alerts
-    const liveBlock = await loadLiveContext();
+    // Live-контекст (погода/новости/МЧС) — тоже обогащение, не роняет каталог.
+    const liveBlock = await loadLiveContext().catch(() => '');
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kamchatka' });
@@ -466,7 +478,10 @@ export async function buildTourContext(): Promise<string> {
     ].filter(Boolean).join('\n');
     _tourContextAt = Date.now();
     return _tourContextCache;
-  } catch {
+  } catch (e) {
+    // Молчаливый catch прятал сломанный SQL месяцами — «Туры не найдены» при
+    // живых турах неотличимо от пустой БД. Ошибку теперь видно в логах прода.
+    console.error('[buildTourContext] каталог туров не собрался:', e instanceof Error ? e.message : e);
     return '';
   }
 }
@@ -1616,7 +1631,26 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     }
     if (name === 'get_tours') {
       const ctx = await buildTourContext();
-      return ctx || 'Туры не найдены.';
+      if (!ctx) return 'Туры не найдены.';
+      // Фильтр по типу активности объявлен в схеме с самого начала, но
+      // executeTool его игнорировал (аудит 08.08). Матчим и слаг (fishing),
+      // и русскую метку (Рыбалка) — модель передаёт слово туриста.
+      const want = (args.activity_type ?? '').trim().toLowerCase();
+      if (!want) return ctx;
+      const { activityLabel } = await import('@/lib/tours/labels');
+      const lines = ctx.split('\n');
+      const isTourLine = (l: string) => /^ID\d+:/.test(l);
+      const matches = (l: string) => {
+        const type = (l.match(/тип:(\S+)/)?.[1] ?? '').toLowerCase();
+        const label = activityLabel(type).toLowerCase();
+        return type.includes(want) || label.includes(want) || (label.length > 2 && want.includes(label));
+      };
+      const kept = lines.filter((l) => !isTourLine(l) || matches(l));
+      if (kept.filter(isTourLine).length === 0) {
+        // Пустой фильтр — не тупик: агент видит весь каталог и предлагает замену.
+        return `По типу «${want}» туров сейчас нет. Полный каталог:\n${ctx}`;
+      }
+      return kept.join('\n');
     }
     if (name === 'get_tour_details') {
       const q = args.name ?? args.query ?? '';
