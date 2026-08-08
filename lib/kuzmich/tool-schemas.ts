@@ -75,6 +75,14 @@ const getWeatherSchema = z.object({});
 
 const safetyStatusSchema = z.object({});
 
+// ── make_trip_plan ──────────────────────────────────────────────────────────
+// План поездки по дням («Мой план 2.0», A-2). Оба поля необязательны:
+// без days — неделя, без interests — классика первой поездки.
+const makeTripPlanSchema = z.object({
+  days: looseString(4).optional(),
+  interests: looseString(300).optional(),
+});
+
 // ── search_taaft ──────────────────────────────────────────────────────────
 // executeTool принимает `task` ИЛИ `query` (args.task ?? args.query).
 const searchTaaftSchema = z.object({
@@ -250,6 +258,24 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
       },
     },
     schema: safetyStatusSchema,
+  },
+  make_trip_plan: {
+    definition: {
+      type: 'function',
+      function: {
+        name: 'make_trip_plan',
+        description: 'Собрать план поездки по Камчатке по дням: зоны, активности, честные цены, предупреждения сезона. Используй, когда туриста интересует «что посмотреть за N дней», «составь маршрут/план поездки», «как спланировать неделю на Камчатке». Ответ содержит ссылку на страницу готового плана с бронью туров.',
+        parameters: {
+          type: 'object',
+          properties: {
+            days: { type: 'string', description: 'Сколько дней поездка (число, 3–21). Не сказано — 7.' },
+            interests: { type: 'string', description: 'Интересы туриста своими словами: «вулканы и медведи», «рыбалка», «море и термальные»' },
+          },
+          required: [],
+        },
+      },
+    },
+    schema: makeTripPlanSchema,
   },
   search_taaft: {
     definition: {

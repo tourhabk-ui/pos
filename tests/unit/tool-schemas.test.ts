@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 
 describe('KUZMICH_TOOLS (generated from the registry)', () => {
-  it('exposes exactly the 11 known tools with their JSON-schema definitions intact', () => {
+  it('exposes exactly the 12 known tools with their JSON-schema definitions intact', () => {
     const names = KUZMICH_TOOLS.map(t => t.function.name).sort();
     expect(names).toEqual([
       'get_guardian_context', 'get_place_info', 'get_tour_details', 'get_tours', 'get_weather',
+      // make_trip_plan — план поездки по дням из движка планера («Мой план
+      // 2.0», A-2, 08.08): ответ с ссылкой на /plans/[slug] с бронью.
+      'make_trip_plan',
       // safety_status — обстановка по краю целиком (05.08): внешний агент
       // спрашивает это первым, а по месту дальше идёт в get_guardian_context.
       'safety_status',

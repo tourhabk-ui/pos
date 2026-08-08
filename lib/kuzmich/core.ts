@@ -1673,6 +1673,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       void Promise.all(tools.slice(0, 2).map((t) => trackToolUsage(t.slug)));
       return formatToolsForKuzmich(tools);
     }
+    if (name === 'make_trip_plan') {
+      const { makeTripPlanForKuzmich } = await import('@/lib/kuzmich/trip-plan-tool');
+      return await makeTripPlanForKuzmich({ days: args.days, interests: args.interests });
+    }
     return 'Неизвестный инструмент.';
   } catch {
     return 'Ошибка при выполнении запроса.';
