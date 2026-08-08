@@ -1,5 +1,20 @@
 import React from 'react';
 
+/**
+ * Универсальная обёртка JSON-LD с экранированием «<» (<): содержимое
+ * script-тега нельзя доверять строке из БД — незакрытый тег в описании тура
+ * разорвал бы разметку страницы (XSS-вектор). Новые страницы используют её,
+ * а не голый JSON.stringify.
+ */
+export function JsonLd({ data }: { data: Record<string, unknown> }) {
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, '\\u003c') }}
+    />
+  );
+}
+
 interface OrganizationJsonLdProps {
   name: string;
   url: string;

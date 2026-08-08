@@ -30,12 +30,14 @@ describe('план ведёт к брони', () => {
 
   it('share-API прикладывает реальный тур к каждой активности плана', () => {
     expect(SHARE_API).toMatch(/top_tours: topTours/);
-    expect(SHARE_API).toMatch(/FROM operator_tours ot/);
-    expect(SHARE_API).toMatch(/ot\.is_active = true AND ot\.is_published = true AND ot\.deleted_at IS NULL/);
+    expect(SHARE_API).toMatch(/topToursByActivity/);
   });
 
-  it('подбор туров не роняет отдачу плана (fail-soft)', () => {
-    expect(SHARE_API).toMatch(/catch \{ \/\* тур-подсказка необязательна \*\/ \}/);
+  it('общий резолвер туров: только живые туры, сбой не роняет план', () => {
+    const RESOLVER = readFileSync(join(ROOT, 'lib/tours/top-tour-by-activity.ts'), 'utf-8');
+    expect(RESOLVER).toMatch(/FROM operator_tours ot/);
+    expect(RESOLVER).toMatch(/ot\.is_active = true AND ot\.is_published = true AND ot\.deleted_at IS NULL/);
+    expect(RESOLVER).toMatch(/catch \{ \/\* тур-подсказка необязательна \*\/ \}/);
   });
 
   it('публичный план рендерит бронь дня', () => {

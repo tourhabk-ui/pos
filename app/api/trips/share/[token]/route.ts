@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { topToursByActivity } from '@/lib/tours/top-tour-by-activity';
 
 export const dynamic = 'force-dynamic';
-
-interface TripShareTour {
-  id: string;
-  title: string;
-  base_price: string;
-  operator_name: string;
-}
 
 export async function GET(
   _request: NextRequest,
@@ -48,28 +42,10 @@ export async function GET(
     // «план, который бронирует» — наше отличие от планировщиков TAAFT
     // (разведка 08.08, карт-бланш владельца). Сбой подбора не роняет план.
     const days = Array.isArray(rows[0]!.days) ? rows[0]!.days as Array<{ activityType?: string; type?: string }> : [];
-    const activities = [...new Set(
-      days
-        .filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'))
-        .map((d) => d.activityType as string),
-    )];
-    const topTours: Record<string, TripShareTour> = {};
-    await Promise.all(activities.map(async (activity) => {
-      try {
-        const { rows: tours } = await pool.query<TripShareTour>(`
-          SELECT
-            ot.id, ot.title, ot.base_price::text,
-            p.name AS operator_name
-          FROM operator_tours ot
-          JOIN partners p ON p.id = ot.operator_id
-          WHERE ot.activity_type = $1
-            AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
-          ORDER BY ot.rating DESC NULLS LAST, ot.base_price ASC
-          LIMIT 1
-        `, [activity]);
-        if (tours[0]) topTours[activity] = tours[0];
-      } catch { /* тур-подсказка необязательна */ }
-    }));
+    const activities = days
+      .filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'))
+      .map((d) => d.activityType as string);
+    const topTours = await topToursByActivity(activities);
 
     return NextResponse.json({ success: true, data: { ...rows[0], top_tours: topTours } });
   } catch {
