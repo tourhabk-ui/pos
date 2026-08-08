@@ -26,6 +26,12 @@ concurrency:
   group: e2e-smoke
   cancel-in-progress: true
 
+# issues: write — красный smoke заводит GitHub Issue (Эволюция 3.0, п.2):
+# раньше падение было просто красным джобом, которого никто не видел.
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -69,3 +75,33 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      # Эволюция 3.0, п.2: красный smoke — это находка, а не просто красный
+      # джоб (падение 07.08 молчало, увидел только ручной аудит). Сток —
+      # GitHub Issue с меткой evo, оттуда берёт Claude Code. Принципиально
+      # БЕЗ похода в vedarai.ru: если прод лёг целиком, репорт через прод
+      # не уйдёт — канал падения не должен зависеть от падающего.
+      - name: Красный smoke → GitHub Issue (метка evo)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE='Ночной smoke прода красный'
+          # Дедуп: открытая issue с этим заголовком уже есть — дописываем
+          # свежий прогон в неё, вторую не заводим.
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "in:title \"$TITLE\"" --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING уже открыта — добавляю прогон"
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" \
+              --body "Smoke снова красный: $RUN_URL" || true
+          else
+            # Метка та же, что у руки эволюции (issue-reporter); --force = идемпотентно
+            gh label create evo --repo "${{ github.repository }}" --color B4761F \
+              --description "Заведено рукой эволюции (Evo Growth Scan)" --force || true
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --label evo \
+              --body "$(printf 'Ночной Playwright-smoke по живому проду (vedarai.ru) упал.\n\nПрогон: %s\nОтчёт: артефакт playwright-report в этом прогоне.\n\nЧто сделать: открыть отчёт, понять — упал прод (тогда чинить регрессию) или изменилась витрина и устарел сам smoke (тогда обновить test/e2e/smoke.spec.ts). Закрыть issue, когда smoke снова зелёный.' "$RUN_URL")"
+          fi
