@@ -8,7 +8,7 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, X, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check, Video,
+  Phone, Send, AlertTriangle, Check, Video, Globe,
 } from 'lucide-react';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
@@ -115,7 +115,7 @@ function toProgram(v: unknown): ProgramStep[] {
   return out;
 }
 
-interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' }
+interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' }
 
 /**
  * Контакты оператора из partners.contacts. Показываем только то, что реально
@@ -162,6 +162,13 @@ function toContacts(v: unknown): OperatorContact[] {
   const tiktok = typeof o.tiktok === 'string' ? o.tiktok.trim().replace(/^@/, '') : '';
   if (/^[\w.]{2,24}$/.test(tiktok)) {
     out.push({ label: 'TikTok', href: `https://www.tiktok.com/@${tiktok}`, icon: 'video' });
+  }
+
+  // Сайт оператора (contacts.website, 842) — прозрачность партнёрства:
+  // турист вправе сверить предложение с первоисточником (аудит 08.08, п.8).
+  const site = typeof o.website === 'string' ? o.website.trim() : '';
+  if (/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}/i.test(site)) {
+    out.push({ label: 'Сайт оператора', href: site, icon: 'site' });
   }
 
   return out;
@@ -766,7 +773,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                           {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                           className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
                         >
-                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
                           {c.label}
                         </a>
                       ))}
