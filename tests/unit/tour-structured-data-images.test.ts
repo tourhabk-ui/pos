@@ -35,10 +35,18 @@ describe('buildTourStructuredData: находки аудита прода 08.08'
     ]);
   });
 
-  it('touristType — массив: активность + локация, без выдуманных ярлыков', () => {
-    const data = buildTourStructuredData(tour({}), [], OPTS) as unknown as Graph;
+  it('touristType — теги аудитории, локация здесь не живёт (патч 08.08)', () => {
+    const data = buildTourStructuredData(tour({ activity_type: 'rafting' }), [], OPTS) as unknown as Graph;
     const trip = data['@graph'][1]!;
-    expect(trip.touristType).toEqual(['Сплав', 'Река Быстрая']);
+    expect(trip.touristType).toEqual(['Сплав', 'Семья', 'Рыбалка']);
+    expect(trip.touristType).not.toContain('Река Быстрая');
+  });
+
+  it('категорийный сплав семейным не объявляется — «Семья» гейтится сложностью', () => {
+    const data = buildTourStructuredData(
+      tour({ activity_type: 'rafting', difficulty: 'hard' }), [], OPTS,
+    ) as unknown as Graph;
+    expect(data['@graph'][1]!.touristType).toEqual(['Сплав', 'Рыбалка']);
   });
 
   it('описание TouristTrip — чистый текст без HTML, не длиннее 500', () => {
@@ -92,6 +100,28 @@ describe('itinerary тура — из реальной программы, бе�
       [], OPTS,
     ) as unknown as Graph;
     expect((data['@graph'][1] as ItineraryNode).itinerary).toBeUndefined();
+  });
+
+  it('geo тура — на ключевых точках (старт/середина/финиш), не на всех (патч 08.08)', () => {
+    const program = Array.from({ length: 6 }, (_, i) => ({ title: `Этап ${i + 1}`, text: 'Описание этапа.' }));
+    const data = buildTourStructuredData(
+      tour({ meeting_point: 'Парковка', program, latitude: '52.87', longitude: '158.7' }),
+      [], OPTS,
+    ) as unknown as Graph;
+    const items = (data['@graph'][1] as ItineraryNode).itinerary!.itemListElement as Array<{ item: { geo?: { latitude: number } } }>;
+    // 7 позиций: geo на 1-й (сбор), средней и последней — район тура, реальные координаты
+    const withGeo = items.map((x, i) => (x.item.geo ? i : -1)).filter((i) => i >= 0);
+    expect(withGeo).toEqual([0, 3, 6]);
+    expect(items[0]!.item.geo!.latitude).toBe(52.87);
+  });
+
+  it('нет координат тура — нет geo в itinerary (не выдумываем)', () => {
+    const data = buildTourStructuredData(
+      tour({ meeting_point: 'Парковка', program: [{ title: 'Сплав', text: 'По реке.' }] }),
+      [], OPTS,
+    ) as unknown as Graph;
+    const items = (data['@graph'][1] as ItineraryNode).itinerary!.itemListElement as Array<{ item: { geo?: unknown } }>;
+    expect(items.every((x) => x.item.geo === undefined)).toBe(true);
   });
 });
 
