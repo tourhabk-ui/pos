@@ -43,6 +43,29 @@ export interface CreateLeadParams {
  * Для дедупликации (тот же телефон + комментарий за 24ч)
  * возвращает ID существующего лида вместо вставки.
  */
+/**
+ * Свежий лид по телефону и ДЕТЕРМИНИРОВАННОМУ префиксу комментария (24ч).
+ * Нужен идемпотентности заявок на бронь из MCP: общий дедуп ниже требует
+ * точного совпадения комментария, а агент при ретрае переформулирует хвост.
+ * Спецсимволы LIKE в префиксе (название тура) экранируются здесь — вызывающему
+ * об этом думать не надо.
+ */
+export async function findRecentLeadByCommentPrefix(phone: string, prefix: string): Promise<string | null> {
+  try {
+    const escaped = prefix.replace(/[\\%_]/g, (m) => `\\${m}`);
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM leads
+        WHERE phone = $1 AND comment LIKE $2 || '%'
+          AND created_at > NOW() - INTERVAL '24 hours'
+        LIMIT 1`,
+      [phone, escaped],
+    );
+    return rows[0]?.id ?? null;
+  } catch {
+    return null; // дедуп опционален — как в createLead
+  }
+}
+
 export async function createLead(params: CreateLeadParams): Promise<string | null> {
   const {
     name,
