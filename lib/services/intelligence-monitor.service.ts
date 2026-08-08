@@ -25,6 +25,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notifications/telegram-channel';
+import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -709,6 +710,16 @@ export async function runIntelligenceCycle(): Promise<IntelligenceReport> {
   if (important.length > 0) {
     await sendTelegramAlert(important);
   }
+
+  // Мост в эволюцию (владелец 08.08: KiloClaw выведен, рука одна — Claude
+  // Code). Важные находки → evo_growth_issues('intel') → issue-reporter →
+  // GitHub Issues. Без моста action items жили write-only в админке.
+  // Сбой моста не роняет цикл разведки.
+  try {
+    await bridgeMonitorFindings(findings.map(f => ({
+      domain: f.domain, urgency: f.urgency, summary: f.summary, action_items: f.action_items,
+    })));
+  } catch { /* мост некритичен для цикла */ }
 
   // Publish AI news to public AI channel
   const aiFindings = findings.filter(f => f.domain === 'ai_tech' && (f.urgency === 'critical' || f.urgency === 'notable'));

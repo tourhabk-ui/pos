@@ -78,6 +78,87 @@ export function parseIntelProposals(raw: string | null): IntelProposal[] {
   return out;
 }
 
+/** Находка монитора для моста — минимальный срез, чтобы не тянуть типы сервиса. */
+export interface MonitorFinding {
+  domain: string;
+  urgency: string;
+  summary: string;
+  action_items: string[];
+}
+
+/** informational не мостим: это фон, а не задача. */
+const MONITOR_URGENCY_TO_SEVERITY: Record<string, string> = {
+  critical: 'high',
+  notable: 'medium',
+};
+
+/**
+ * Чистая: важные находки монитора → предложения-находки эволюции.
+ * action_items монитора уже сформулированы промптом как «конкретное действие
+ * для TourHab» — модель здесь не нужна, мост детерминированный. critical
+ * впереди notable: при капе на прогон слоты достаются срочному.
+ */
+export function monitorFindingsToProposals(
+  findings: MonitorFinding[],
+): Array<IntelProposal & { severity: string }> {
+  const out: Array<IntelProposal & { severity: string }> = [];
+  const ordered = [...findings].sort(
+    (a, b) => (a.urgency === 'critical' ? 0 : 1) - (b.urgency === 'critical' ? 0 : 1),
+  );
+  for (const f of ordered) {
+    const severity = MONITOR_URGENCY_TO_SEVERITY[f.urgency];
+    if (!severity) continue;
+    for (const raw of f.action_items) {
+      // Приоритет «[высокий] — текст» — служебный префикс пункта, не заголовок.
+      const m = /^\s*\[[^\]]+\]\s*[—–-]\s*(.+)$/.exec(raw);
+      const text = (m ? m[1]! : raw).trim();
+      if (text.length < 4 || text.length > 180 || INTEL_GARBAGE.test(text)) continue;
+      out.push({
+        title: text,
+        description: `[${f.domain}] ${f.summary}`.slice(0, 2000),
+        suggestion: text,
+        severity,
+      });
+      if (out.length >= MAX_INTEL_PER_RUN) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Мост Монитор → Эволюция (владелец 08.08: «KiloClaw больше не задействован,
+ * только эта сессия работает»). Раньше action items монитора можно было лишь
+ * отметить руками в админке или отправить боту KiloClaw, которого нет, —
+ * рекомендации копились write-only («0/3 готово» на каждой карточке).
+ * Теперь важные находки идут той же дорогой, что и разведка Scout:
+ * evo_growth_issues('intel') → issue-reporter → GitHub Issues → Claude Code.
+ * Дедуп — intelSignature по всей истории intel: активная тема, отказ
+ * владельца и уже сделанное заново не предлагаются.
+ */
+export async function bridgeMonitorFindings(findings: MonitorFinding[]): Promise<number> {
+  const proposals = monitorFindingsToProposals(findings);
+  if (proposals.length === 0) return 0;
+
+  const { rows: prior } = await pool.query<{ title: string; description: string | null; suggestion: string | null }>(
+    `SELECT title, description, suggestion FROM evo_growth_issues WHERE category = 'intel'`,
+  );
+  const known = new Set(prior.map((r) => intelSignature(r)));
+
+  let bridged = 0;
+  for (const p of proposals) {
+    const sig = intelSignature(p);
+    if (known.has(sig)) continue;
+    known.add(sig);
+    await pool.query(
+      `INSERT INTO evo_growth_issues (category, severity, title, description, suggestion, status)
+       VALUES ('intel', $1, $2, $3, $4, 'suggested')`,
+      [p.severity, p.title, p.description, p.suggestion],
+    );
+    bridged++;
+  }
+  return bridged;
+}
+
 interface DigestRow { slug: string; compiled_truth: string }
 
 /** Последний дайджест внешней разведки Scout (для контекста рассуждений эво). */
