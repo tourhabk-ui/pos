@@ -93,6 +93,25 @@ export default function RegisterRoutePage() {
     setRouteDropdownOpen(false);
   };
 
+  // Предзаполнение из query (C-7): план /trip/[token] приводит сюда с готовым
+  // маршрутом и датами — турист не перенабирает их руками. Только шаг 1 и
+  // никаких ПД: имена и телефоны группы человек вводит сам. Query читается из
+  // window.location — тот же приём, что у формы брони (?date=, B-3), без
+  // хука параметров и Suspense-обвязки. Битое значение просто пропускается.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const name = (q.get('name') ?? '').trim().slice(0, 200);
+    const desc = (q.get('desc') ?? '').trim().slice(0, 2000);
+    const start = q.get('start') ?? '';
+    const end = q.get('end') ?? '';
+    // Только routeName: routeQuery — поле поиска по базе маршрутов, его
+    // предзаполнение дёрнуло бы поиск и открыло дропдаун поверх формы.
+    if (name) setRouteName(name);
+    if (desc) setRouteDescription(desc);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start)) setStartDate(start);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end)) setEndDate(end);
+  }, []);
+
   // Шаг 2: Группа
   const [groupSize, setGroupSize] = useState(1);
   const [members, setMembers] = useState<GroupMember[]>([{ name: '', phone: '', birth_year: '' }]);
