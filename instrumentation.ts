@@ -26,25 +26,31 @@ export async function onRequestError(
   request: { path?: string; method?: string },
   context: { routePath?: string; routeType?: string },
 ): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
-  try {
-    const route = context?.routePath || request?.path || 'unknown';
-    const now = Date.now();
-    if (now - (errorLoggedAt.get(route) ?? 0) < ERROR_LOG_THROTTLE_MS) return;
-    errorLoggedAt.set(route, now);
+  // ПОЗИТИВНЫЙ if-блок, как в register() и доках Next, а не ранний return:
+  // NEXT_RUNTIME инлайнится при сборке, и webpack выбрасывает недостижимую
+  // ветку целиком. Ранний return он статически не устраняет — динамический
+  // импорт lib/database утаскивал pg с node-builtins в edge-бандл, и build
+  // падал «Can't resolve 'stream'» (первый прогон CI этого PR).
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    try {
+      const route = context?.routePath || request?.path || 'unknown';
+      const now = Date.now();
+      if (now - (errorLoggedAt.get(route) ?? 0) < ERROR_LOG_THROTTLE_MS) return;
+      errorLoggedAt.set(route, now);
 
-    const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-    const { query } = await import('@/lib/database');
-    await query(
-      `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
-      ['server_error', JSON.stringify({
-        route,
-        method: request?.method ?? null,
-        kind: context?.routeType ?? null,
-        message,
-      })],
-    );
-  } catch { /* журнал не должен усугублять ошибку, которую фиксирует */ }
+      const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+      const { query } = await import('@/lib/database');
+      await query(
+        `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
+        ['server_error', JSON.stringify({
+          route,
+          method: request?.method ?? null,
+          kind: context?.routeType ?? null,
+          message,
+        })],
+      );
+    } catch { /* журнал не должен усугублять ошибку, которую фиксирует */ }
+  }
 }
 
 export async function register(): Promise<void> {
