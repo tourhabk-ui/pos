@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
 import PlaceSOS from '@/components/places/PlaceSOS';
 import { isUuid } from '@/lib/text/slugify';
+import { JsonLd } from '@/components/seo/JsonLd';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -169,10 +170,7 @@ export default async function PlaceDetailPage({ params }: Props) {
   return (
     <>
       {jsonLd && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
+        <JsonLd data={jsonLd} />
       )}
       <PlaceDetailClient id={arkId} />
       <PlaceSOS />
