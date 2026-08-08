@@ -39,6 +39,10 @@ interface Trip {
   top_tours?: Record<string, ShareTour>;
   /** Доступность на дату дня: day → {date, remaining} (share-API, B-4). */
   availability?: Record<string, { date: string; remaining: number }>;
+  /** Прогноз на дату дня (Open-Meteo, горизонт 16 суток; B-5). */
+  weather?: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }>;
+  /** Запасные туры дня при непогоде (contingency_rules операторов; B-5). */
+  plan_b?: Record<string, Array<{ tour_id: string; title: string }>>;
 }
 
 /** «12.08» из YYYY-MM-DD — для строки доступности. */
@@ -257,6 +261,34 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                         от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
                       </span>
                     </Link>
+                  );
+                })()}
+                {/* Погода на дату дня (B-5): прогноз Open-Meteo по координатам
+                    дня; плохая (ветер/осадки) подсвечивается warning-цветом. */}
+                {(() => {
+                  const w = trip.weather?.[String(day.day)];
+                  if (!w) return null;
+                  const alts = trip.plan_b?.[String(day.day)];
+                  return (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="text-xs" style={{ color: w.bad ? 'var(--warning)' : 'var(--text-muted)' }}>
+                        Прогноз на {shortDate(w.date)}: {w.tempMin}…{w.tempMax} °C · ветер {w.windKmh} км/ч
+                        {w.precipMm > 0 ? ` · осадки ${w.precipMm} мм` : ''} · {w.description}
+                      </div>
+                      {alts && alts.length > 0 && (
+                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          План Б при непогоде:{' '}
+                          {alts.map((a, i) => (
+                            <span key={a.tour_id}>
+                              {i > 0 && ' · '}
+                              <Link href={`/catalog/tours/${a.tour_id}`} style={{ color: 'var(--ocean)' }}>
+                                {a.title}
+                              </Link>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })()}
               </div>

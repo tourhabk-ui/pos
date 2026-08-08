@@ -41,7 +41,7 @@ export async function GET(
     // страница плана должна вести к брони, а не быть витриной цен «от-до»:
     // «план, который бронирует» — наше отличие от планировщиков TAAFT
     // (разведка 08.08, карт-бланш владельца). Сбой подбора не роняет план.
-    const days = Array.isArray(rows[0]!.days) ? rows[0]!.days as Array<{ day?: number; activityType?: string; type?: string }> : [];
+    const days = Array.isArray(rows[0]!.days) ? rows[0]!.days as Array<{ day?: number; activityType?: string; type?: string; coords?: [number, number] }> : [];
     const activityDays = days.filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'));
     const topTours = await topToursByActivity(activityDays.map((d) => d.activityType as string));
 
@@ -69,7 +69,49 @@ export async function GET(
       }));
     }
 
-    return NextResponse.json({ success: true, data: { ...rows[0], top_tours: topTours, availability } });
+    // Погода и «план Б» («Мой план 2.0», B-5). Прогноз Open-Meteo по
+    // координатам дня — только в его горизонте (16 суток). «План Б» — не
+    // сочинение модели: запасные туры заводят операторы в contingency_rules,
+    // показываем их, когда тур дня погодозависим и прогноз плохой
+    // (детерминированные пороги: ветер ≥ 40 км/ч или осадки ≥ 10 мм).
+    // Любой сбой — блок просто не показывается.
+    const weather: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }> = {};
+    const planB: Record<string, Array<{ tour_id: string; title: string }>> = {};
+    if (Number.isFinite(arrivalMs)) {
+      try {
+        const { createPlannerCache, fetchWeatherForecast, fetchContingencyAlternatives } = await import('@/lib/planner');
+        const cache = createPlannerCache();
+        const todayMs = Date.parse(new Date().toISOString().slice(0, 10));
+        const horizonMs = todayMs + 16 * 86400000;
+        await Promise.all(activityDays.map(async (d) => {
+          if (typeof d.day !== 'number' || !Array.isArray(d.coords) || d.coords.length !== 2) return;
+          const dateMs = arrivalMs + (d.day - 1) * 86400000;
+          if (dateMs < todayMs || dateMs >= horizonMs) return;
+          const date = new Date(dateMs).toISOString().slice(0, 10);
+          try {
+            const daysAhead = Math.ceil((dateMs - todayMs) / 86400000) + 1;
+            const forecast = await fetchWeatherForecast(d.coords[0], d.coords[1], Math.min(16, daysAhead));
+            const f = forecast.find((x) => x.date === date);
+            if (!f) return;
+            const bad = f.windKmh >= 40 || f.precipMm >= 10;
+            weather[String(d.day)] = {
+              date, tempMin: Math.round(f.tempMin), tempMax: Math.round(f.tempMax),
+              windKmh: Math.round(f.windKmh), precipMm: Math.round(f.precipMm),
+              description: f.description, bad,
+            };
+            const tour = d.activityType ? topTours[d.activityType] : undefined;
+            if (bad && tour?.weather_dependent) {
+              const alts = await fetchContingencyAlternatives(tour.id, cache);
+              if (alts.length > 0) {
+                planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, title: a.title }));
+              }
+            }
+          } catch { /* погода и план Б необязательны */ }
+        }));
+      } catch { /* движок недоступен — план живёт без погоды */ }
+    }
+
+    return NextResponse.json({ success: true, data: { ...rows[0], top_tours: topTours, availability, weather, plan_b: planB } });
   } catch {
     return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
   }

@@ -15,6 +15,8 @@ export interface TopTour {
   title: string;
   base_price: string;
   operator_name: string;
+  /** Зависимость от погоды — триггер «плана Б» на публичном плане (B-5). */
+  weather_dependent: boolean;
 }
 
 /** По каждому типу активности — лучший тур (рейтинг, затем цена). */
@@ -26,6 +28,7 @@ export async function topToursByActivity(activities: string[]): Promise<Record<s
       const { rows } = await pool.query<TopTour>(`
         SELECT
           ot.id, ot.title, ot.base_price::text,
+          COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
           p.name AS operator_name
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
