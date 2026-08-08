@@ -1,15 +1,16 @@
 {
-  "note": "Вердикт Qwen после trim() (#1013 задеплоен): ушло ли «настроен другой шлюз».",
-  "run": 4,
+  "note": "Разбор молчания разведчика: крон зелёный ежедневно, дайджеста нет с 01.08. Тело ответа покажет, что происходит внутри.",
+  "run": 5,
   "bytes": 5000,
-  "timeout": 120,
+  "timeout": 300,
   "urls": [
-    "https://vedarai.ru/api/cron/health"
+    "https://vedarai.ru/api/cron/scout-digest"
   ],
   "grep": [
-    "настроен верно",
-    "настроен другой шлюз",
-    "Qwen недоступен",
-    "credit balance"
+    "\"success\":true",
+    "digest",
+    "rss",
+    "error",
+    "skip"
   ]
 }
