@@ -1,8 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Copy, Check, MapPin, Calendar, Share2, ExternalLink } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import type { MapMarker } from '@/components/shared/leaflet-types';
+
+const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
 interface DayPlan {
   day: number;
@@ -15,6 +19,14 @@ interface DayPlan {
   defaultTransport: string;
 }
 
+/** Тур к дню — прикладывает share-API (top_tours по activityType). */
+interface ShareTour {
+  id: string;
+  title: string;
+  base_price: string;
+  operator_name: string;
+}
+
 interface Trip {
   id: string;
   title: string;
@@ -24,6 +36,28 @@ interface Trip {
   activities: string[];
   days: DayPlan[];
   transport_by_day: Record<string, string>;
+  top_tours?: Record<string, ShareTour>;
+}
+
+/** Статус дня из safety-слоя платформы (fail-soft: нет данных — блока нет). */
+function useDayStatus(): { title: string | null; hasAlert: boolean } | null {
+  const [status, setStatus] = useState<{ title: string | null; hasAlert: boolean } | null>(null);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch('/api/public/safety-status', { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown } } | null)?.data;
+        if (!data) return;
+        setStatus({
+          title: typeof data.topTitle === 'string' ? data.topTitle : null,
+          hasAlert: data.hasAlert === true,
+        });
+      })
+      .catch(() => { /* нет данных — нет блока */ });
+    return () => ctrl.abort();
+  }, []);
+  return status;
 }
 
 const ZONE_LABELS: Record<string, string> = {
@@ -55,6 +89,17 @@ function formatPrice(from: number, to: number): string {
 
 export function TripShareClient({ trip, token }: { trip: Trip; token: string }) {
   const [copied, setCopied] = useState(false);
+  const dayStatus = useDayStatus();
+
+  // Карта плана: нумерованные точки дней (координаты уже в данных дня).
+  const mapMarkers: MapMarker[] = trip.days
+    .filter((d) => Array.isArray(d.coords) && d.coords.length === 2)
+    .map((d) => ({
+      id: String(d.day),
+      coords: d.coords,
+      title: `День ${d.day}: ${d.title}`,
+      color: d.zone === 'avachinsky' ? 'orange' : d.zone === 'eastern' ? 'blue' : d.zone === 'northern' ? 'green' : 'purple',
+    }));
   const shareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
   const shareText = `${trip.title} — маршрут по Камчатке на ${trip.days.length} дней`;
 
@@ -95,7 +140,22 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               {trip.days.length} {trip.days.length === 1 ? 'день' : trip.days.length < 5 ? 'дня' : 'дней'}
             </span>
           </div>
+          {dayStatus && (
+            <div className="flex items-center gap-2 mt-3 text-sm"
+              style={{ color: dayStatus.hasAlert ? 'var(--warning)' : 'var(--success)' }}>
+              {dayStatus.hasAlert
+                ? <ShieldAlert className="w-4 h-4 flex-none" />
+                : <ShieldCheck className="w-4 h-4 flex-none" />}
+              <span>{dayStatus.hasAlert && dayStatus.title ? dayStatus.title : 'На Камчатке спокойно — данные safety-мониторинга платформы'}</span>
+            </div>
+          )}
         </div>
+
+        {mapMarkers.length > 0 && (
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            <LeafletMap markers={mapMarkers} height="260px" />
+          </div>
+        )}
 
         <div className="rounded-lg p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
@@ -127,6 +187,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             const transport = trip.transport_by_day?.[String(day.day)] || day.defaultTransport;
             const zoneColor = ZONE_COLORS[day.zone] || 'var(--text-secondary)';
             const price = formatPrice(day.priceFrom, day.priceTo);
+            const tour = trip.top_tours?.[day.activityType];
             return (
               <div key={day.day} className="rounded-lg p-4"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -159,6 +220,22 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     </div>
                   )}
                 </div>
+                {/* Реальный тур к этому дню: план ведёт к брони, а не только
+                    показывает цены «от-до» — отличие от планировщиков,
+                    которые «plan brilliantly; do not book». */}
+                {tour && (
+                  <Link href={`/catalog/tours/${tour.id}`}
+                    className="mt-3 flex items-center justify-between gap-2 px-3 py-2 rounded-md transition-colors"
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{tour.title}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{tour.operator_name}</div>
+                    </div>
+                    <span className="text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
+                      от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
+                    </span>
+                  </Link>
+                )}
               </div>
             );
           })}

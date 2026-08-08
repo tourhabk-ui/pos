@@ -386,12 +386,16 @@ function DayCard({
             </button>
           )}
         </div>
-        {/* Top matching tour */}
+        {/* Top matching tour — ведёт на КАРТОЧКУ ТУРА с бронью, не на страницу
+            оператора: id тура в руках, а «план, который бронирует» — наше
+            отличие от 84 планировщиков TAAFT, которые только планируют
+            (разведка 08.08). Оператор виден на самой карточке. */}
         {topTour && day.type === 'activity' && (
           <a
-            href={`/operators/${topTour.operator_slug}`}
+            href={`/catalog/tours/${topTour.id}`}
             target="_blank"
             rel="noopener noreferrer"
+            title="Открыть тур и забронировать"
             className="flex items-center justify-between gap-2 mx-3 mb-2.5 px-2.5 py-1.5 rounded-md bg-[var(--bg-hover)] border border-[var(--border)] hover:border-[var(--ocean)] transition-colors"
           >
             <div className="flex items-center gap-1.5 min-w-0">
@@ -399,7 +403,7 @@ function DayCard({
               <span className="text-[10px] text-[var(--text-secondary)] truncate">{topTour.title}</span>
             </div>
             <span className="text-[10px] font-semibold text-[var(--ocean)] whitespace-nowrap">
-              от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽
+              от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · забронировать
             </span>
           </a>
         )}
