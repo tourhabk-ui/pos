@@ -42,6 +42,26 @@ describe('buildTourContext: обогащение не роняет катало�
   });
 });
 
+describe('перф-аудит 08.08, пп. 4-5: тонкий каталог и раздельные TTL', () => {
+  it('get_tours отдаёт только каталог — без блоба мест и знаний', () => {
+    expect(CORE).toMatch(/const ctx = await buildTourCatalog\(\)/);
+  });
+
+  it('TTL раздельные: туры протухают быстрее обогащения', () => {
+    const catalog = Number(CORE.match(/CATALOG_TTL_MS = (\d+) \* 60 \* 1000/)?.[1]);
+    const enrich = Number(CORE.match(/ENRICHMENT_TTL_MS = (\d+) \* 60 \* 1000/)?.[1]);
+    expect(catalog).toBeGreaterThan(0);
+    expect(enrich).toBeGreaterThan(catalog);
+  });
+
+  it('дата «СЕГОДНЯ» собирается на каждый вызов, а не кэшируется', () => {
+    const composeIdx = CORE.indexOf('export async function buildTourContext');
+    const compose = CORE.slice(composeIdx, composeIdx + 1200);
+    expect(compose).toMatch(/СЕГОДНЯ: \$\{dateStr\}/);
+    expect(compose).not.toMatch(/_tourCatalogCache =/);
+  });
+});
+
 describe('get_tours: фильтр по типу активности применяется', () => {
   it('аргумент activity_type фильтрует строки каталога по слагу и метке', () => {
     expect(CORE).toMatch(/const want = \(args\.activity_type \?\? ''\)\.trim\(\)\.toLowerCase\(\)/);
