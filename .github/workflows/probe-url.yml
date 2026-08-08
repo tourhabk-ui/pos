@@ -42,11 +42,20 @@ jobs:
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
           # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
           TIMEOUT=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('timeout', 60))")
-          echo "UA: $UA · timeout: ${TIMEOUT}s"
+          # Необязательный "auth": false — НЕ слать CRON_SECRET. Обязателен,
+          # когда пробим ЧУЖИЕ хосты (напр. ссылки каталога AI-инструментов):
+          # секрет не должен уходить третьим сторонам. Дефолт true — наши
+          # cron-эндпоинты продолжают работать без правок конфига.
+          AUTH=$(python3 -c "import json; print('1' if json.load(open('.github/triggers/probe-url.json')).get('auth', True) else '0')")
+          echo "UA: $UA · timeout: ${TIMEOUT}s · auth: $AUTH"
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
-            CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
+            if [ "$AUTH" = "1" ]; then
+              CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000)
+            else
+              CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000)
+            fi
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
