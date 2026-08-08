@@ -440,6 +440,11 @@ export const LIVE_STATUS_CSS = `
 .kh-live .alerts i.sev-hi{background:var(--danger)}.kh-live .alerts i.sev-mid{background:var(--warning)}.kh-live .alerts i.sev-lo{background:var(--ocean)}
 .kh-live .alerts .atx{font:500 12px/1.4 var(--font-outfit),system-ui,sans-serif;flex:1}
 .kh-live .alerts .adesc{display:block;margin-top:2px;font:400 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
+/* Свёрнутая бегущая лента: описание в одну строку. Многострочное описание
+   маска окна режет посередине — у владельца 08.08 над «Вилючинским перевалом»
+   висела одинокая строка «полотно…» (хвост записи о реконструкции дороги).
+   Полный текст — в раскрытом состоянии (тап), как и было. */
+.kh-live .ticker.scroll:not(.open) .adesc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 8px)}
 .kh-live .alerts .ago{font:400 8.5px/1 var(--fm);color:var(--text-muted);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.kh-live .ticker.scroll{height:auto;-webkit-mask-image:none;mask-image:none}.kh-live .ticker.scroll .ticker-track{animation:none}}
 .kh-live .safety .src{margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);font:400 8.5px/1.4 var(--fm);color:var(--text-muted)}
