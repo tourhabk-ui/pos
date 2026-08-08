@@ -39,7 +39,7 @@ describe('safety-кластер существует для поиска (ауд
   // единственный уникальный контент ниши (регистрация МЧС, связь в поле,
   // правила природы) — его видимость и есть SEO-стратегия платформы.
   it('страницы кластера объявлены в sitemap', () => {
-    const sm = readFileSync(join(process.cwd(), 'app/sitemap.ts'), 'utf-8');
+    const sm = readFileSync(join(process.cwd(), 'lib/seo/sitemap-entries.ts'), 'utf-8');
     for (const path of ['/register', '/safety/communication', '/eco']) {
       expect(sm, `${path} выпал из sitemap — страница снова невидима для поиска`)
         .toContain(`\${BASE}${path}\``);

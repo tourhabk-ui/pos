@@ -20,7 +20,7 @@ import { PLAN_PRESETS, findPlanPreset } from '@/lib/plans/presets';
 const ROOT = process.cwd();
 const PAGE = readFileSync(join(ROOT, 'app/plans/[slug]/page.tsx'), 'utf-8');
 const HUB = readFileSync(join(ROOT, 'app/plans/page.tsx'), 'utf-8');
-const SITEMAP = readFileSync(join(ROOT, 'app/sitemap.ts'), 'utf-8');
+const SITEMAP = readFileSync(join(ROOT, 'lib/seo/sitemap-entries.ts'), 'utf-8');
 const SHARE_API = readFileSync(join(ROOT, 'app/api/trips/share/[token]/route.ts'), 'utf-8');
 
 // Ключи INTEREST_TO_ZONES движка (lib/planner/engine.ts). Пресет с опечаткой

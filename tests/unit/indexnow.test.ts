@@ -61,7 +61,7 @@ describe('канонический адрес тура один — /catalog/tou
   // страница объявляла каноном саму себя, а пинг слал marketplace — мы сами
   // делили сигналы тура между двумя адресами.
   it('sitemap подаёт туры по /catalog/tours/', () => {
-    expect(read('app/sitemap.ts')).toMatch(/\/catalog\/tours\/\$\{row\.id\}/);
+    expect(read('lib/seo/sitemap-entries.ts')).toMatch(/\/catalog\/tours\/\$\{row\.id\}/);
   });
 
   it('пинг изменения тура шлёт канонический адрес, не marketplace', () => {
@@ -118,8 +118,10 @@ describe('поведение пинга', () => {
   });
 
   it('bulk-подача берёт адреса из sitemap, а не ведёт второй список', () => {
+    // Сборщик переехал в lib/seo/sitemap-entries (runtime-sitemap, 08.08) —
+    // инвариант прежний: один источник адресов на sitemap и IndexNow.
     const bulk = read('app/api/admin/indexnow/bulk/route.ts');
-    expect(bulk).toMatch(/from '@\/app\/sitemap'/);
+    expect(bulk).toMatch(/from '@\/lib\/seo\/sitemap-entries'/);
     expect(bulk).toMatch(/requireAdmin/);
   });
 });
