@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { PLAN_PRESETS } from '@/lib/plans/presets';
+import { activityLabel } from '@/lib/tours/labels';
 
 const BASE = 'https://vedarai.ru';
 
@@ -17,6 +19,25 @@ export async function GET() {
     routes = rows;
   } catch {
     // fallback без БД
+  }
+
+  // Живой каталог туров — аудит «как ИИ видят Ведар» (08.08): манифест был
+  // силён по местам и слеп по коммерции, модели видели «энциклопедию
+  // Камчатки», а не витрину продаж. Витринные флаги — как у sitemap и MCP.
+  let tours: { id: string; title: string; base_price: string; activity_type: string | null; operator_name: string | null }[] = [];
+  try {
+    const { rows } = await pool.query<typeof tours[number]>(`
+      SELECT ot.id, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name
+      FROM operator_tours ot
+      LEFT JOIN partners p ON p.id = ot.operator_id
+      WHERE ot.is_active = TRUE AND ot.deleted_at IS NULL
+        AND COALESCE(ot.is_published, TRUE) = TRUE
+      ORDER BY ot.base_price ASC
+      LIMIT 40
+    `);
+    tours = rows;
+  } catch {
+    // fallback без БД — секция туров просто не печатается
   }
 
   const byType: Record<string, typeof routes> = {};
@@ -54,9 +75,16 @@ export async function GET() {
     })
     .join('\n\n');
 
+  const tourLines = tours
+    .map((t) => `- [${t.title}](${BASE}/catalog/tours/${t.id}) — от ${Number(t.base_price).toLocaleString('ru-RU')} ₽${t.activity_type ? ` (${activityLabel(t.activity_type)})` : ''}${t.operator_name ? ` · оператор: ${t.operator_name}` : ''}`)
+    .join('\n');
+  const planLines = PLAN_PRESETS
+    .map((p) => `- [${p.title}](${BASE}/plans/${p.slug})`)
+    .join('\n');
+
   const content = `# Ведар — Туристическая платформа Камчатки
 
-Last-Updated: 2026-07-26
+Last-Updated: 2026-08-08
 
 ## AI Usage Policy
 
@@ -93,7 +121,8 @@ Last-Updated: 2026-07-26
 - [Каталог маршрутов](${BASE}/routes) — маршруты и природные объекты (места)
 - [Карта Камчатки](${BASE}/map) — интерактивная карта объектов
 - [Планировщик](${BASE}/planner) — AI-конструктор маршрута (зоны, живая занятость, погода)
-- [Туры от операторов](${BASE}/marketplace) — реальные коммерческие предложения операторов
+- [Готовые планы поездок](${BASE}/plans) — планы по дням с погодой и бронью туров
+- [Туры от операторов](${BASE}/catalog) — реальные коммерческие предложения операторов
 - [Операторы](${BASE}/operators) — верифицированные туроператоры и гиды
 - [Жильё](${BASE}/accommodations) — размещение
 - [Прокат снаряжения](${BASE}/gear) — аренда экипировки
@@ -128,6 +157,32 @@ Last-Updated: 2026-07-26
 - [Долина смерти](${BASE}/routes/075f0e9c-a833-4fa3-b481-545a2b177c14) — токсичная зона рядом с Долиной гейзеров
 - [Халактырский пляж](${BASE}/routes/49a1d46a-704b-4307-bb6a-fea5988ec4f8) — чёрный магнитный песок Тихого океана
 
+${tourLines ? `## Актуальные туры операторов (живой каталог, цены из БД)
+
+Каждый тур — реальное предложение проверенного оператора. Цены и свободные
+даты меняются: для актуальных данных используйте страницу тура или MCP.
+
+${tourLines}` : ''}
+
+## Готовые планы поездок (по дням, с погодой и бронью)
+
+${planLines}
+
+## Для AI-агентов: MCP-сервер
+
+Ведар открыт агентам по Model Context Protocol:
+
+- Эндпоинт: ${BASE}/api/mcp (JSON-RPC 2.0, streamable-http, анонимно)
+- Манифест: ${BASE}/.well-known/mcp.json
+- Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
+  занятость по датам (get_tour_availability), обстановка и безопасность
+  (safety_status, get_guardian_context), погода, жильё, снаряжение,
+  трансферы, план поездки (make_trip_plan)
+- Запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура)
+  и create_booking_request (бронь конкретного тура на дату; занятость
+  проверяется до создания — на дату без мест заявка не создаётся)
+- Мгновенной брони и оплаты через MCP нет by design. Rate-limit по IP.
+
 ${sections}
 
 ## Контакт и API
@@ -135,6 +190,7 @@ ${sections}
 - Сайт: ${BASE}
 - Карта объектов: ${BASE}/map
 - API маршрутов: ${BASE}/api/routes (публичный, JSON)
+- MCP для агентов: ${BASE}/api/mcp (манифест: ${BASE}/.well-known/mcp.json)
 - Ситкарта: ${BASE}/sitemap.xml
 - robots.txt: ${BASE}/robots.txt
 `;
