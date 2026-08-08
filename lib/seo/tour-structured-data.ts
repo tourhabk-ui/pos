@@ -44,6 +44,8 @@ export interface TourSeoInput {
   program?: unknown;
   /** Точка сбора (operator_tours.meeting_point) — первая позиция itinerary. */
   meeting_point?: string | null;
+  /** Сложность тура — гейт для тега «Семья» в touristType (hard — не семейный). */
+  difficulty?: string | null;
 }
 
 export interface TourReviewSeoInput {
@@ -94,6 +96,39 @@ function seasonMonth(v: unknown): number | null {
 }
 
 /**
+ * touristType — теги аудитории и формата, НЕ локация (SEO-аудит 08.08:
+ * «Река Быстрая» — это location, AI-модели читают touristType как теги
+ * аудитории). Маппинг детерминированный, по типу активности; ярлык «Семья»
+ * дополнительно гейтится сложностью: категорийный сплав (difficulty=hard)
+ * семейным не объявляем — это было бы утверждение, которого нет в данных.
+ */
+export function buildTouristType(
+  activityLabel: string,
+  activityType?: string | null,
+  difficulty?: string | null,
+): string[] {
+  const tags = new Set<string>();
+  if (activityLabel) tags.add(activityLabel);
+
+  const t = (activityType || activityLabel || '').toLowerCase();
+  const familyOk = difficulty !== 'hard';
+  if (/сплав|rafting|рафт/.test(t)) {
+    if (familyOk) tags.add('Семья');
+    // Камчатская реальность: сплав по Быстрой — это и рыбалка по пути.
+    tags.add('Рыбалка');
+  } else if (/вулкан|восхожд|trek|трек|volcano/.test(t)) {
+    tags.add('Активный отдых');
+  } else if (/рыбал|fishing/.test(t)) {
+    tags.add('Рыбалка');
+  } else if (/терм|источник|купан|hot_spring|thermal/.test(t)) {
+    if (familyOk) tags.add('Семья');
+    tags.add('Релакс');
+  }
+
+  return Array.from(tags).slice(0, 4);
+}
+
+/**
  * Itinerary тура из РЕАЛЬНЫХ данных: точка сбора + этапы программы
  * (operator_tours.program). AI-ответы пересказывают именно последовательность
  * этапов, поэтому это одно из самых сильных полей TouristTrip — но выдуманных
@@ -120,6 +155,21 @@ function buildItinerary(tour: TourSeoInput): Record<string, unknown> {
   }
 
   if (steps.length === 0) return {};
+
+  // Geo на ключевых точках (старт / середина / финиш) — координаты САМОГО
+  // тура: весь тур идёт в одном районе, это реальность, а не выдумка
+  // по-этапных координат. Сущность с geo — сильный сигнал места для AI-ответов.
+  const hasGeo = tour.latitude != null && tour.longitude != null;
+  const geo = hasGeo
+    ? { '@type': 'GeoCoordinates', latitude: Number(tour.latitude), longitude: Number(tour.longitude) }
+    : null;
+  const geoPositions = new Set<number>();
+  if (geo) {
+    geoPositions.add(0);
+    if (steps.length > 1) geoPositions.add(steps.length - 1);
+    if (steps.length >= 4) geoPositions.add(Math.floor(steps.length / 2));
+  }
+
   return {
     itinerary: {
       '@type': 'ItemList',
@@ -132,6 +182,7 @@ function buildItinerary(tour: TourSeoInput): Record<string, unknown> {
           '@type': i === 0 && tour.meeting_point ? 'Place' : 'TouristAttraction',
           name: s.name,
           ...(s.description ? { description: s.description } : {}),
+          ...(geo && geoPositions.has(i) ? { geo } : {}),
         },
       })),
     },
@@ -222,10 +273,10 @@ export function buildTourStructuredData(
     // поисковиков, а сверхдлинное описание модели всё равно режут.
     ...(tour.description ? { description: stripHtmlTags(String(tour.description)).slice(0, 500) } : {}),
     inLanguage: 'ru',
-    // touristType — массивом (AI-модели читают его как теги аудитории):
-    // активность + локация, без выдуманных ярлыков.
+    // touristType — теги аудитории/формата (buildTouristType); локация здесь
+    // не живёт — её место в location/keywords (SEO-аудит 08.08).
     ...(activityLabel
-      ? { touristType: [activityLabel, ...(tour.location_name ? [tour.location_name] : [])] }
+      ? { touristType: buildTouristType(activityLabel, tour.activity_type, tour.difficulty) }
       : {}),
     keywords: [tour.title, activityLabel, tour.location_name ?? 'Камчатка', 'туры Камчатка', 'Камчатский край']
       .filter(Boolean)
