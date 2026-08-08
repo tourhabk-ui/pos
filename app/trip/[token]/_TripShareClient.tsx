@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation } from 'lucide-react';
+import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation, LifeBuoy } from 'lucide-react';
 import Link from 'next/link';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 
@@ -103,6 +103,20 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
   const [copied, setCopied] = useState(false);
   const dayStatus = useDayStatus();
 
+  // Регистрация МЧС из плана (C-7): маршрут и даты уже в плане — несём их в
+  // /register предзаполнением. В query только название, дни и даты; ПД (имена,
+  // телефоны группы) человек вводит сам на форме. Регистрацию подтверждает
+  // сам турист — автоотправки от его имени нет.
+  const mchsQuery = (() => {
+    const q = new URLSearchParams();
+    q.set('name', trip.title.slice(0, 200));
+    const desc = trip.days.map((d) => `День ${d.day}: ${d.title}`).join('\n').slice(0, 2000);
+    if (desc) q.set('desc', desc);
+    if (trip.arrival_date && /^\d{4}-\d{2}-\d{2}$/.test(trip.arrival_date)) q.set('start', trip.arrival_date);
+    if (trip.departure_date && /^\d{4}-\d{2}-\d{2}$/.test(trip.departure_date)) q.set('end', trip.departure_date);
+    return q.toString();
+  })();
+
   // Карта плана: нумерованные точки дней (координаты уже в данных дня).
   const mapMarkers: MapMarker[] = trip.days
     .filter((d) => Array.isArray(d.coords) && d.coords.length === 2)
@@ -187,6 +201,35 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               Точки всех дней с датами — откроется в Organic Maps, Garmin и любом GPS-навигаторе.
               Страница плана сохраняется на телефоне и открывается без интернета.
             </p>
+          </div>
+        )}
+
+        {/* Перед выходом (C-7): регистрация группы в МЧС. Кнопка несёт маршрут
+            и даты плана в /register — там форма группы, PDF-заявление и ссылка
+            на официальную регистрацию. Альтернатива — форма МЧС напрямую. */}
+        {trip.days.length > 0 && (
+          <div className="rounded-lg p-4 space-y-3"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderLeft: '4px solid var(--warning)' }}>
+            <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              <LifeBuoy className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+              Перед выходом — регистрация в МЧС
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Уведомите спасателей о выходе на маршрут: бесплатно, 5 минут.
+              Маршрут и даты из плана подставятся сами — останется вписать состав группы.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`/register?${mchsQuery}`}
+                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
+                style={{ background: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}>
+                <ShieldCheck className="w-4 h-4" />Зарегистрировать маршрут
+              </Link>
+              <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                <ExternalLink className="w-4 h-4" />Форма МЧС напрямую
+              </a>
+            </div>
           </div>
         )}
 
