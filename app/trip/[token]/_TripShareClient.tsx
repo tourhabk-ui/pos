@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation } from 'lucide-react';
 import Link from 'next/link';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 
@@ -169,6 +169,27 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
           </div>
         )}
 
+        {/* Офлайн-план (C-6): за городом на Камчатке связи нет, а план — это
+            координаты. GPX открывается в Organic Maps / Garmin без сети;
+            сама страница кэшируется service worker'ом при первом открытии. */}
+        {mapMarkers.length > 0 && (
+          <div className="rounded-lg p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              <Navigation className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+              В поход без связи
+            </div>
+            <a href={`/api/trips/share/${token}/gpx`} download
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium w-fit"
+              style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
+              <Download className="w-4 h-4" />Скачать GPX для навигатора
+            </a>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Точки всех дней с датами — откроется в Organic Maps, Garmin и любом GPS-навигаторе.
+              Страница плана сохраняется на телефоне и открывается без интернета.
+            </p>
+          </div>
+        )}
+
         <div className="rounded-lg p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
             <Share2 className="w-4 h-4" style={{ color: 'var(--accent)' }} />
@@ -222,6 +243,15 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                           <span className="px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)' }}>
                             {TRANSPORT_LABELS[transport] || transport}
                           </span>
+                        )}
+                        {/* Deep-link в навигатор (C-6): geo: открывает точку дня
+                            в Organic Maps / любых картах телефона — офлайн. */}
+                        {Array.isArray(day.coords) && day.coords.length === 2 && (
+                          <a href={`geo:${day.coords[0]},${day.coords[1]}?z=12`}
+                            className="px-2 py-0.5 rounded-full flex items-center gap-1"
+                            style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)', color: 'var(--success)' }}>
+                            <Navigation className="w-3 h-3" />Навигатор
+                          </a>
                         )}
                       </div>
                     </div>
