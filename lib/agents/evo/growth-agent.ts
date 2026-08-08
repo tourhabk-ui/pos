@@ -21,7 +21,9 @@ import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffilia
 export interface GrowthIssue {
   // 'compliance' — требования закона (маркировка рекламы, 152-ФЗ): не баг и не
   // долг, а внешняя обязанность, у которой своя цена ошибки.
-  category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux' | 'compliance';
+  // 'funnel' — сломанное звено воронки (визиты → тур → бронь → оплата):
+  // не про код, а про то, доходит ли до денег хоть кто-то.
+  category: 'dead_code' | 'security' | 'performance' | 'bug' | 'tech_debt' | 'ux' | 'compliance' | 'funnel';
   severity: 'critical' | 'high' | 'medium' | 'low';
   file_path?: string;
   line_number?: number;
@@ -35,6 +37,13 @@ export interface GrowthIssue {
    * молча съезжает с флагмана на DeepSeek/Qwen).
    */
   model?: string;
+  /**
+   * Начальный статус в трекере. По умолчанию 'open' (модельные находки идут
+   * через триаж Evolution Loop). 'suggested' — для детерминированных находок
+   * с готовым suggestion (воронка): триаж модели им не нужен, а issue-reporter
+   * выносит наружу только 'suggested' — иначе находка не дойдёт до Issues.
+   */
+  status?: 'open' | 'suggested';
 }
 
 /**
@@ -574,6 +583,116 @@ async function scanProdErrors(): Promise<GrowthIssue[]> {
     }));
 }
 
+/**
+ * Воронка в петле эволюции (Эволюция 3.0, п.5, владелец 08.08: «действуй»;
+ * контекст решения — «у нас 2 партнёра с 2 локациями и ни одного
+ * пользователя»). Код сторожат другие объективы; этот сторожит ДЕНЬГИ:
+ * доходит ли кто-то до каталога → тура → брони → оплаты.
+ *
+ * Верх воронки — funnel_events (маяк /api/funnel), низ — то, что уже пишется:
+ * leads, operator_bookings (created_at, paid_at). Окно — 7 суток: при нулевом
+ * трафике суточное окно кричало бы каждый день.
+ *
+ * Находка — ОДНА за прогон: самое верхнее сломанное звено. Чинить нижнее
+ * звено при сломанном верхнем бессмысленно (некому бросать бронь, если никто
+ * не открыл тур), а пять находок разом — шум. Заголовки стабильны (дедуп по
+ * title при file_path NULL — см. IS NOT DISTINCT FROM в saveIssues).
+ * Статус 'suggested' сразу: suggestion детерминированный, триаж модели не
+ * нужен, и только 'suggested' issue-reporter выносит в GitHub Issues.
+ */
+export interface FunnelCounts {
+  visits: number;         // catalog_view + tour_view, уникальные посетители
+  tour_views: number;     // событий tour_view
+  booking_starts: number; // событий booking_start
+  leads: number;          // заявок за окно
+  bookings: number;       // броней за окно
+  paid: number;           // из них оплаченных
+}
+
+/** Чистая: самое верхнее сломанное звено воронки → находка (или null). */
+export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
+  const numbers =
+    `За 7 суток: визитов ${c.visits}, просмотров тура ${c.tour_views}, ` +
+    `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}. ` +
+    `Источник — funnel_events + leads + operator_bookings (факты, не чтение кода).`;
+  const base = { category: 'funnel' as const, model: 'deterministic', status: 'suggested' as const };
+
+  if (c.visits === 0) {
+    return {
+      ...base, severity: 'medium',
+      title: 'Воронка: нет визитов',
+      description: `Верх воронки пуст — за неделю ни одного посетителя каталога или тура. ${numbers}`,
+      suggestion: 'Узкое место — привлечение, не продукт: проверить индексацию (Вебмастер), внешние ссылки, каналы. Чинить карточки/формы при нулевом трафике бессмысленно.',
+    };
+  }
+  if (c.tour_views === 0) {
+    return {
+      ...base, severity: 'high',
+      title: 'Воронка: каталог не ведёт к турам',
+      description: `Посетители есть, но ни одна карточка тура не открыта. ${numbers}`,
+      suggestion: 'Пройти путь каталог → тур глазами туриста: витрина отдаёт туры? карточки кликабельны? не пустая ли выдача фильтров по умолчанию?',
+    };
+  }
+  if (c.booking_starts === 0 && c.leads === 0) {
+    return {
+      ...base, severity: 'high',
+      title: 'Воронка: карточка тура не конвертит',
+      description: `Туры смотрят, но никто не тронул форму брони и не оставил заявку. ${numbers}`,
+      suggestion: 'Проверить карточку тура: видна ли цена и кнопка брони без скролла, работает ли форма на телефоне, не отпугивает ли состав полей.',
+    };
+  }
+  if (c.bookings === 0 && c.leads === 0) {
+    return {
+      ...base, severity: 'high',
+      title: 'Воронка: бронь начинают и бросают',
+      description: `Форму брони трогают, но ни одна бронь и ни одна заявка не созданы. ${numbers}`,
+      suggestion: 'Пройти отправку формы до конца: валидация не съедает ли отправку, понятна ли ошибка, не падает ли API брони (сверить с журналом server_error).',
+    };
+  }
+  if (c.bookings > 0 && c.paid === 0) {
+    return {
+      ...base, severity: 'high',
+      title: 'Воронка: брони есть, оплат нет',
+      description: `Брони создаются, но ни одна не оплачена. ${numbers}`,
+      suggestion: 'Проверить платёжный путь: выдаётся ли ссылка/QR, доходят ли вебхуки CloudPayments/Точки, не виснут ли брони в ожидании подтверждения оператора (сверить с алертами Watchdog).',
+    };
+  }
+  return null; // хоть какой-то поток до денег есть — воронка не «сломана», цифры видны в scan-журнале
+}
+
+async function scanFunnel(): Promise<GrowthIssue[]> {
+  // Ретенция журнала маяка — той же рукой, что его читает.
+  await pool.query(`DELETE FROM funnel_events WHERE created_at < NOW() - INTERVAL '90 days'`).catch(() => {});
+
+  const [{ rows: top }, { rows: leadRows }, { rows: bookingRows }] = await Promise.all([
+    pool.query<{ visits: number; tour_views: number; booking_starts: number }>(
+      `SELECT COUNT(DISTINCT visitor_hash) FILTER (WHERE step IN ('catalog_view', 'tour_view'))::int AS visits,
+              COUNT(*) FILTER (WHERE step = 'tour_view')::int     AS tour_views,
+              COUNT(*) FILTER (WHERE step = 'booking_start')::int AS booking_starts
+         FROM funnel_events
+        WHERE created_at > NOW() - INTERVAL '7 days'`,
+    ),
+    pool.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM leads WHERE created_at > NOW() - INTERVAL '7 days'`,
+    ),
+    pool.query<{ bookings: number; paid: number }>(
+      `SELECT COUNT(*)::int AS bookings, COUNT(paid_at)::int AS paid
+         FROM operator_bookings
+        WHERE created_at > NOW() - INTERVAL '7 days'`,
+    ),
+  ]);
+
+  const finding = pickFunnelFinding({
+    visits: top[0]?.visits ?? 0,
+    tour_views: top[0]?.tour_views ?? 0,
+    booking_starts: top[0]?.booking_starts ?? 0,
+    leads: leadRows[0]?.n ?? 0,
+    bookings: bookingRows[0]?.bookings ?? 0,
+    paid: bookingRows[0]?.paid ?? 0,
+  });
+  return finding ? [finding] : [];
+}
+
 async function scanMocks(): Promise<{ issues: GrowthIssue[]; scanned: number }> {
   const all = await listRepoFiles();
   const clients = clientComponentPaths(all);
@@ -744,6 +863,7 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
     // прода, которой нет в коде — мёртвый роут слотов (#1008) и вечный degraded
     // /api/tours жили годами, потому что 500-ки не попадали в петлю.
     issues.push(...(await scanProdErrors().catch(() => [] as GrowthIssue[])));
+    issues.push(...(await scanFunnel().catch(() => [] as GrowthIssue[])));
     // Структурные объективы: сироты-страницы хабов, POST без формы в UI.
     issues.push(...await scanStructural().catch(() => [] as GrowthIssue[]));
   }
@@ -773,10 +893,14 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
   for (const issue of issues) {
     // Check if this exact issue already exists (any active status — not just 'open').
     // Without this, issues re-appear every scan after Evolution Loop moves them to 'accepted'.
+    // IS NOT DISTINCT FROM: у находок без файла (воронка, прод-500 на
+    // страницах) file_path = NULL, а `NULL = NULL` в SQL — не истина:
+    // сравнение через `=` не находило существующую запись, и такая находка
+    // плодилась бы заново каждый прогон.
     const { rows: existing } = await pool.query<{ id: string }>(
       `SELECT id FROM evo_growth_issues
        WHERE status NOT IN ('rejected', 'ignored')
-         AND file_path = $1
+         AND file_path IS NOT DISTINCT FROM $1
          AND title = $2
        LIMIT 1`,
       [issue.file_path ?? null, issue.title],
@@ -810,9 +934,9 @@ export async function runGrowthScan(scanType: string = 'full'): Promise<GrowthSc
       // находки: спрашивать модель, виновата ли модель, — то же самое, что
       // спрашивать подсудимого о приговоре. Не определилось — оставляем NULL,
       // «не размечено» честнее выдуманной метки.
-      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model, edge, fault_side)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null, located?.edge ?? null, located?.faultSide ?? null],
+      `INSERT INTO evo_growth_issues (scan_id, category, severity, file_path, line_number, title, description, suggestion, model, edge, fault_side, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [scanId, issue.category, issue.severity, issue.file_path ?? null, issue.line_number ?? null, issue.title, issue.description, issue.suggestion, issue.model ?? null, located?.edge ?? null, located?.faultSide ?? null, issue.status ?? 'open'],
     );
     newIssues++;
   }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Phone, Mail, User, ChevronRight } from 'lucide-react';
 import TourDateField from '@/components/marketplace/TourDateField';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 
 interface BookingFormProps {
   tourId: number;
@@ -20,6 +21,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Маяк воронки: первое касание формы — событие booking_start, один раз за
+  // жизнь компонента (сервер дополнительно дедупит час на посетителя).
+  const [funnelStarted, setFunnelStarted] = useState(false);
+  const markFunnelStart = () => {
+    if (funnelStarted) return;
+    setFunnelStarted(true);
+    funnelBeacon('booking_start', String(tourId));
+  };
   const [formData, setFormData] = useState({
     tourist_name: '',
     tourist_email: '',
@@ -80,7 +89,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const maxOpts = Math.min(maxParticipants, 12);
 
   return (
-    <form onSubmit={handleSubmit} className="ds-card p-6 space-y-5">
+    <form onSubmit={handleSubmit} onFocusCapture={markFunnelStart} className="ds-card p-6 space-y-5">
       <div>
         <h2 className="ds-h2 mb-0.5">Оставить заявку на тур</h2>
         {tourTitle && <p className="text-sm text-[var(--text-secondary)]">{tourTitle}</p>}
