@@ -6,7 +6,7 @@ description: >
   Использовать при любых задачах про SEO, посещаемость, индексацию, Яндекс,
   AI-поиск (GEO), Schema.org, метаданные, sitemap. Оркестрирует под-скиллы:
   seo-audit, seo-page, seo-technical, seo-schema, seo-geo, seo-sitemap,
-  seo-content.
+  seo-content, seo-programmatic, seo-images, seo-local.
 user-invocable: true
 argument-hint: "[audit|page|technical|schema|geo|sitemap|content] [url]"
 ---
@@ -58,6 +58,15 @@ argument-hint: "[audit|page|technical|schema|geo|sitemap|content] [url]"
    заголовки, самодостаточные абзацы. Факты — только из БД (§8 CLAUDE.md):
    выдуманных цифр в «цитируемых блоках» быть не может.
 4. `seo-sitemap`, `seo-content`, `seo-page` — точечно.
+5. `seo-programmatic` — наш главный масштабный кейс: 779 страниц мест и
+   294 маршрута генерируются из БД. Чеклист про thin content, index bloat,
+   шаблоны и внутреннюю перелинковку — ровно про /places и /routes.
+6. `seo-images` — 354 фото точек: alt, форматы, lazy, CLS. Части про
+   DataForSEO/конвертацию файлов в песочнице не работают — только чеклист.
+7. `seo-local` — региональный интент. ВАЖНО: скилл Google-центричен
+   (GBP, map pack); для рунка читать через призму Яндекс.Бизнес и
+   Яндекс.Карт — принципы (NAP, отзывы, location pages) переносятся,
+   инструменты нет.
 
 Отчёт — приоритизированный, каждая рекомендация с проверяемым критерием.
 Найденное чинится PR'ами по слову владельца; правки контента мест/туров —
