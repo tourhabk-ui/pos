@@ -15,7 +15,8 @@
  */
 
 import { requestPosition, geoFailureText, type GeoFailure } from '@/lib/geo/current-position';
-import { useState } from 'react';
+import { coastPaths } from '@/lib/geo/coastline';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -136,22 +137,6 @@ interface Placed extends RadarHazard { x: number; y: number; dist: number }
  * Отсюда постоянная приписка про медведей и пустое состояние, которое говорит
  * только о том, что радар реально видит, — не «опасностей нет».
  */
-/**
- * Упрощённая береговая линия юго-восточной Камчатки — опорные точки (lat, lng).
- * Порядок: западный (охотский) берег с севера на юг, затем тихоокеанский с юга
- * на север; замыкание полигона идёт сушей за пределами скопа. Проецируется той
- * же формулой, что и точки радара, поэтому масштаб и сдвиг центра честные.
- * ДЕКОРАЦИЯ ориентирования, не навигация: линия огрублена до ~15 узлов.
- * Первый контур (01.08) рисовал весь полуостров внутри 200-км круга — блоб.
- */
-const COASTLINE: Array<[number, number]> = [
-  [54.3, 155.8], [53.5, 155.9], [53.0, 156.05], [52.5, 156.25], [51.8, 156.45], [51.2, 156.6],
-  [51.0, 156.7], [51.5, 157.2], [52.0, 157.5], [52.35, 158.15], [52.55, 158.35], [52.75, 158.55],
-  [52.87, 158.70], [52.92, 158.55], [53.03, 158.60], [53.02, 158.72], [52.98, 158.90],
-  [53.10, 159.10], [53.15, 159.60], [53.10, 160.00], [53.09, 160.30], [53.25, 159.95],
-  [53.80, 159.90], [54.10, 160.10], [54.50, 160.60],
-];
-
 export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat: number; lng: number; label: string } }) {
   const [c, setC] = useState(center);
   // Состояний четыре, а не три: «ищу» — отдельное. Без него нажатие кнопки
@@ -199,37 +184,22 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
     .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
 
   /**
-   * Берег — та же проекция, что у точек: сдвинулся центр, сдвинулся и берег.
+   * Берег — та же проекция, что у блипов: сдвинулся центр, сдвинулся и берег.
    *
-   * Линия огрублена до пары десятков узлов на весь полуостров, и между
-   * соседними бывает 50-80 км. В круге радиусом 200 км прямая хорда между
-   * такими узлами режет скоп по диагонали через воду — на экране это читалось
-   * как случайные линии (владелец 09.08: «радар сломан»). Поэтому рисуем
-   * только те звенья, где прямая — честное приближение берега, а длинные
-   * оставляем разрывом: пробел говорит «здесь я формы не знаю», а хорда
-   * говорила бы неправду о местности.
+   * Контур приходит из Natural Earth (`lib/geo/coastline`), а не из головы.
+   * До 09.08 здесь лежала ломаная из двух десятков узлов на весь полуостров,
+   * и в круге радиусом 200 км прямые между ними резали скоп диагоналями через
+   * воду — владелец: «радар сломан». Порог длины звена был временной затычкой
+   * к тем же выдуманным узлам; с настоящим контуром он не нужен: разрывы
+   * теперь ровно там, где берег кончается на самом деле.
    */
-  const MAX_SEGMENT_KM = 30;
-  const coastSegments: string[] = [];
-  {
-    let current: string[] = [];
-    let prev: [number, number] | null = null;
-    for (const [la, ln] of COASTLINE) {
-      const x = CX + (((ln - c.lng) * kmLng) / MAX_KM) * R;
-      const y = CY - (((la - c.lat) * kmLat) / MAX_KM) * R;
-      const gapKm = prev
-        ? Math.hypot((la - prev[0]) * kmLat, (ln - prev[1]) * kmLng)
-        : 0;
-      if (prev && gapKm > MAX_SEGMENT_KM) {
-        if (current.length > 1) coastSegments.push(current.join(' '));
-        current = [];
-      }
-      current.push(`${current.length === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`);
-      prev = [la, ln];
-    }
-    if (current.length > 1) coastSegments.push(current.join(' '));
-  }
-  const coastPath = coastSegments.join(' ');
+  const coastSegments = useMemo(
+    () => coastPaths(c, (lat, lng) => [
+      CX + (((lng - c.lng) * kmLng) / MAX_KM) * R,
+      CY - (((lat - c.lat) * kmLat) / MAX_KM) * R,
+    ]),
+    [c, kmLng, kmLat],
+  );
 
   const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
 
@@ -251,16 +221,20 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
             </radialGradient>
             <clipPath id="scopeClip"><circle cx={CX} cy={CY} r={R} /></clipPath>
           </defs>
-          {/* Фон — суша по упрощённой береговой линии (COASTLINE выше),
-              спроецированной формулами радара: масштаб колец и берег совпадают.
-              Декорация ориентирования, aria-hidden. */}
+          {/* Фон — берег из Natural Earth, спроецированный формулами радара:
+              масштаб колец и берег совпадают. Куски рисуются отдельными
+              путями — сшивать их одной линией значило бы провести берег там,
+              где его нет. Ориентир, aria-hidden. */}
           <g clipPath="url(#scopeClip)" aria-hidden>
-            <path
-              d={coastPath}
-              fill="none"
-              stroke="var(--radar)" strokeOpacity="0.55" strokeWidth="1.4"
-              strokeLinejoin="round" strokeLinecap="round"
-            />
+            {coastSegments.map((d, i) => (
+              <path
+                key={i}
+                d={d}
+                fill="none"
+                stroke="var(--radar)" strokeOpacity="0.55" strokeWidth="1.4"
+                strokeLinejoin="round" strokeLinecap="round"
+              />
+            ))}
           </g>
           {rings.map((k, i) => (
             <g key={i}>
@@ -434,7 +408,7 @@ export const LIVE_STATUS_CSS = `
 .kh-live .radar .scope{position:relative;width:100%;max-width:300px;margin:0 auto}
 .kh-live .radar .scope svg{width:100%;height:auto;display:block;overflow:visible}
 .kh-live .radar .rn{font:600 8px var(--font-outfit),system-ui,sans-serif;fill:var(--radar);opacity:.8}
-.kh-live .radar .rk{font:500 6.5px var(--fm),ui-monospace,monospace;fill:var(--radar);opacity:.55}
+.kh-live .radar .rk{font:500 5.5px var(--fm),ui-monospace,monospace;fill:var(--radar);opacity:.45}
 .kh-live .radar .sweep{transform-origin:100px 100px;animation:radarSweep 4.5s linear infinite}
 @keyframes radarSweep{to{transform:rotate(360deg)}}
 .kh-live .radar .pulse{animation:radarPulse 1.6s ease-out infinite;transform-origin:center;transform-box:fill-box}
