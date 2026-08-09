@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
   sampleIndices, spreadElevations, fetchDemBatch, readTrack,
   DEM_SAMPLE_STEP_M, DEM_MAX_M, DEM_MIN_ANSWERED, DEM_PROBE_POINTS,
+  DEM_REQUEST_TIMEOUT_MS,
 } from '@/lib/services/relief/dem-backfill';
 
 /** Прямой трек на восток: шаг примерно stepM метров. */
@@ -100,6 +101,30 @@ describe('чему верить в ответе источника', () => {
 
   it('порог покрытия не позволяет писать трек по паре ответов', () => {
     expect(DEM_MIN_ANSWERED).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it('зависший источник — ошибка партии, а не бесконечное ожидание', async () => {
+    // Прогон 09.08 оборвался по таймауту curl: бюджет проверяется МЕЖДУ
+    // запросами, и застряв внутри одного, роут не возвращался вовсе.
+    let sawSignal = false;
+    const hang = async (_u: unknown, init?: { signal?: AbortSignal }) => {
+      sawSignal = init?.signal instanceof AbortSignal;
+      const e = new Error('aborted');
+      e.name = 'TimeoutError';
+      throw e;
+    };
+    await expect(fetchDemBatch([{ lat: 53, lng: 158 }], hang as unknown as typeof fetch))
+      .rejects.toThrow(/не ответил/);
+    // Предел ставим мы, а не надежда на вежливость чужого хоста.
+    expect(sawSignal).toBe(true);
+    expect(DEM_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+  });
+
+  it('исчерпанный лимит назван лимитом, а не сбоем', async () => {
+    // Иначе следующий прогон будут чинить, а чинить нечего — надо подождать.
+    const limited = async () => new Response('{}', { status: 429 });
+    await expect(fetchDemBatch([{ lat: 53, lng: 158 }], limited))
+      .rejects.toThrow(/лимит запросов/);
   });
 
   it('проба спрашивает точки с заранее известной высотой', () => {

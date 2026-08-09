@@ -98,6 +98,11 @@ jobs:
           for e in d.get('errors', [])[:5]:
               print('  ошибка:', e)
           " || { echo "$RESP" | head -c 400; exit 1; }
+            STOPPED=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('stopped') or '')")
+            if [ -n "$STOPPED" ]; then
+              echo "Прогон остановлен: $STOPPED. Записано за прогон: $((TOTAL + $(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('written',0))")))"
+              exit 0
+            fi
             CHECKED=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('checked',0))")
             WRITTEN=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('written',0))")
             TOTAL=$((TOTAL + WRITTEN))
