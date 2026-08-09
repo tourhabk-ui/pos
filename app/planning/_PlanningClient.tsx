@@ -16,6 +16,11 @@ import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
 } from '@/lib/on-route/eta';
+import {
+  fixInfo, fixLabel, figuresAreLive, canAdvanceWaypoint,
+  readHeading, compassLabel, compassNeedsPermission,
+  type CompassState,
+} from '@/lib/on-route/fix-quality';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -152,11 +157,22 @@ function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (r
 
 // ─── Compass component ────────────────────────────────────────────────────────
 
-function CompassDisplay({ heading }: { heading: number }) {
+/**
+ * Компас рисуется уверенно ТОЛЬКО когда азимут подтверждён.
+ *
+ * До 09.08 стрелка выглядела одинаково всегда — в том числе на iPhone, где
+ * события ориентации без разрешения не приходят вовсе и heading навечно
+ * оставался нулём: человек видел уверенную стрелку, показывающую «север» при
+ * любом повороте телефона. Уверенный прибор при мёртвом датчике опаснее
+ * пустого экрана: пустой заставляет достать карту.
+ */
+function CompassDisplay({ heading, state }: { heading: number; state: CompassState }) {
   const cardinals = [
     { label: 'N', angle: 0 }, { label: 'E', angle: 90 },
     { label: 'S', angle: 180 }, { label: 'W', angle: 270 },
   ];
+  const trusted = state === 'ok';
+  const needleColor = trusted ? 'var(--success)' : 'var(--text-muted)';
   return (
     <div className="relative mx-auto" style={{ width: 160, height: 160 }}>
       <div className="absolute inset-0 rounded-full"
@@ -178,16 +194,21 @@ function CompassDisplay({ heading }: { heading: number }) {
           </span>
         );
       })}
-      {/* Needle — always points North relative to device */}
+      {/* Стрелка на север. Не подтверждён азимут — гасим и не крутим:
+          движущаяся стрелка читается как рабочая. */}
       <div className="absolute inset-0 flex items-center justify-center"
-        style={{ transform: `rotate(${-heading}deg)`, transition: 'transform 0.3s ease' }}>
+        style={{
+          transform: `rotate(${trusted ? -heading : 0}deg)`,
+          transition: 'transform 0.3s ease',
+          opacity: trusted ? 1 : 0.35,
+        }}>
         <svg width="28" height="56" viewBox="0 0 28 56">
-          <polygon points="14,0 8,28 14,24 20,28" fill="var(--success)" />
+          <polygon points="14,0 8,28 14,24 20,28" fill={needleColor} />
           <polygon points="14,56 8,28 14,32 20,28" fill="#4b5563" />
         </svg>
       </div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full bg-[var(--success)]" />
+        <div className="w-2 h-2 rounded-full" style={{ background: needleColor }} />
       </div>
     </div>
   );
@@ -210,7 +231,15 @@ interface SavedWaypoint { lat: number; lng: number; name: string; }
 
 function OnTrailTab() {
   const [heading, setHeading] = useState(0);
-  const [coords, setCoords] = useState<{ lat: number; lng: number; alt: number | null } | null>(null);
+  // Прибор обязан отличать «я знаю» от «я показываю последнее, что видел».
+  const [compassState, setCompassState] = useState<CompassState>('off');
+  const [coords, setCoords] = useState<{
+    lat: number; lng: number; alt: number | null; accuracy: number | null; t: number;
+  } | null>(null);
+  // Возраст фикса тикает сам: без этого «сигнал потерян» никогда не появится,
+  // потому что новых событий от мёртвого GPS не приходит по определению.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [gpsMessage, setGpsMessage] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
   const [gpsError, setGpsError] = useState(false);
@@ -341,6 +370,24 @@ function OnTrailTab() {
     if (routeId) fetchRouteWaypoints(routeId);
   }, [fetchRouteWaypoints]);
 
+  // На iOS 13+ события ориентации не приходят, пока пользователь не разрешит
+  // их ЖЕСТОМ. Без этого heading навсегда оставался нулём, а стрелка —
+  // уверенно «на север» (аудит 09.08). Теперь это видно и починяемо кнопкой.
+  useEffect(() => {
+    if (compassNeedsPermission()) setCompassState('blocked');
+  }, []);
+  const enableCompass = useCallback(async () => {
+    const ctor = (window as unknown as {
+      DeviceOrientationEvent?: { requestPermission?: () => Promise<string> };
+    }).DeviceOrientationEvent;
+    try {
+      const res = await ctor?.requestPermission?.();
+      setCompassState(res === 'granted' ? 'unconfirmed' : 'off');
+    } catch {
+      setCompassState('off');
+    }
+  }, []);
+
   // Режим движения переживает перезапуск: в поле переключать его каждый раз —
   // лишний повод получить враньё во времени.
   useEffect(() => {
@@ -380,13 +427,14 @@ function OnTrailTab() {
   // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      // webkitCompassHeading = iOS true-North heading (0–360, clockwise)
-      // deviceorientationabsolute + 360 - alpha = Android true-North equivalent
-      const webkitHeading = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
-      const h = webkitHeading != null
-        ? webkitHeading
-        : (e.alpha !== null ? (360 - e.alpha) % 360 : null);
-      if (h !== null) setHeading(h);
+      // Азимут берём только там, где он привязан к земной системе координат:
+      // webkitCompassHeading на iOS или alpha с флагом absolute. Без флага
+      // alpha отсчитывается от случайной начальной ориентации — выдавать её
+      // за направление на север нельзя (аудит 09.08).
+      const r = readHeading(e as DeviceOrientationEvent & { webkitCompassHeading?: number });
+      if (!r) return;
+      setHeading(r.heading);
+      setCompassState(r.state);
     };
     // deviceorientationabsolute gives Earth-frame absolute heading (Android Chrome)
     window.addEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
@@ -394,7 +442,14 @@ function OnTrailTab() {
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => {
-          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude });
+          setGpsMessage(null);
+          setCoords({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            alt: pos.coords.altitude,
+            accuracy: typeof pos.coords.accuracy === 'number' ? pos.coords.accuracy : null,
+            t: pos.timestamp ?? Date.now(),
+          });
           // След последнего получаса — из него считается живой темп. Держим
           // в ref: он не должен вызывать перерисовку на каждом GPS-тике.
           const t = Date.now();
@@ -403,8 +458,14 @@ function OnTrailTab() {
           const cutoff = t - 30 * 60 * 1000;
           while (track.length > 0 && track[0].t < cutoff) track.shift();
         },
-        err => { if (err.code === 1) setGpsError(true); },
-        { enableHighAccuracy: true, maximumAge: 5000 }
+        err => {
+          // Раньше замечали только отказ в доступе (код 1), а «позиция
+          // недоступна» и таймаут проходили молча — экран продолжал уверенно
+          // показывать последние координаты.
+          if (err.code === 1) setGpsError(true);
+          else setGpsMessage(err.code === 3 ? 'GPS не отвечает' : 'GPS недоступен здесь');
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 30_000 }
       );
     }
     const timer = setInterval(() => {
@@ -414,12 +475,16 @@ function OnTrailTab() {
     const paceTimer = setInterval(() => {
       setPaceKmh(paceFromTrack(trackRef.current, 900));
     }, 30_000);
+    // Возраст последнего фикса стареет сам по себе — иначе «сигнал потерян»
+    // не появится никогда: мёртвый GPS событий не шлёт.
+    const ageTimer = setInterval(() => setNowTick(Date.now()), 5_000);
     return () => {
       window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
       window.removeEventListener('deviceorientation', handleOrientation as EventListener);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
       clearInterval(paceTimer);
+      clearInterval(ageTimer);
     };
   }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
@@ -437,18 +502,28 @@ function OnTrailTab() {
     snappedRef.current = true;
   }, [coords, waypoints]);
 
-  // Auto-advance waypoint when within 50m
+  // Переход на следующую точку двигает весь маршрут, поэтому решается только
+  // по фиксу, которому можно верить: при точности 300 м человек может стоять
+  // в трёхстах метрах от точки, и «мы дошли» уведёт его от цели (аудит 09.08).
   useEffect(() => {
     if (!coords || waypoints.length === 0) return;
     const wp = waypoints[currentWpIdx];
     if (!wp) return;
     const dist = haversine(coords.lat, coords.lng, wp.lat, wp.lng);
-    if (dist < 0.05 && currentWpIdx < waypoints.length - 1) {
+    const info = fixInfo(coords.t, coords.accuracy, Date.now());
+    if (canAdvanceWaypoint(info, dist) && currentWpIdx < waypoints.length - 1) {
       setCurrentWpIdx(i => i + 1);
     }
   }, [coords, waypoints, currentWpIdx]);
 
   // ─── Computed ──────────────────────────────────────────────────────────────
+
+  // Что прибор знает прямо сейчас: свежесть и точность последнего фикса.
+  const fix = useMemo(
+    () => fixInfo(coords?.t ?? null, coords?.accuracy ?? null, nowTick),
+    [coords, nowTick],
+  );
+  const figuresLive = figuresAreLive(fix);
 
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
@@ -684,8 +759,61 @@ function OnTrailTab() {
         }}
       >
         {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-        {isOffline ? 'Офлайн-режим • Карты доступны' : 'Онлайн • GPS активен'}
+        {/* Про СЕТЬ, и только про неё. Прежняя надпись обещала заодно и
+            рабочие спутники, ничего о них не зная: приёмник может быть мёртв
+            при полном интернете, и наоборот (аудит 09.08). */}
+        {isOffline ? 'Офлайн-режим • Карты доступны' : 'Сеть есть'}
       </div>
+
+      {/* Состояние GPS — отдельной строкой, потому что это отдельный прибор. */}
+      <div
+        className="flex items-center gap-2 px-4 py-2 text-xs"
+        style={{
+          background: figuresLive
+            ? 'color-mix(in srgb, var(--success) 8%, transparent)'
+            : 'color-mix(in srgb, var(--danger) 12%, transparent)',
+          borderBottom: '1px solid var(--border)',
+          color: figuresLive ? 'var(--text-secondary)' : 'var(--danger)',
+        }}
+      >
+        <MapPin className="w-3.5 h-3.5" />
+        {fixLabel(fix)}
+      </div>
+
+      {/* Состояние компаса. Молчащий датчик не должен выглядеть рабочим. */}
+      {compassState !== 'ok' && (
+        <div
+          className="flex items-center gap-2 px-4 py-2 text-xs"
+          style={{
+            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
+            color: 'var(--warning)',
+          }}
+        >
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1">{compassLabel(compassState)}</span>
+          {compassState === 'blocked' && (
+            <button onClick={enableCompass}
+              className="font-semibold underline underline-offset-2 shrink-0">
+              Включить
+            </button>
+          )}
+        </div>
+      )}
+
+      {gpsMessage && (
+        <div
+          className="flex items-center gap-2 px-4 py-2 text-xs"
+          style={{
+            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
+            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
+            color: 'var(--warning)',
+          }}
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+          {gpsMessage}
+        </div>
+      )}
       {gpsError && (
         <div
           className="flex items-center gap-2 px-4 py-2 text-xs"
@@ -705,7 +833,7 @@ function OnTrailTab() {
 
         {/* Compass + route info */}
         <div className="flex flex-col md:flex-row items-center gap-6 w-full">
-          <CompassDisplay heading={heading} />
+          <CompassDisplay heading={heading} state={compassState} />
           <div className="text-center md:text-left">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
@@ -722,10 +850,21 @@ function OnTrailTab() {
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
                 <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
-                <p className="text-5xl font-bold leading-none" style={{ color: 'var(--success)', letterSpacing: '-1px' }}>
+                {/* Мёртвый фикс не стирает цифру — это последнее, что человек
+                    знает о своём положении, — но и не выдаёт её за текущую. */}
+                <p className="text-5xl font-bold leading-none"
+                  style={{
+                    color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
+                    letterSpacing: '-1px',
+                  }}>
                   {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
+                {/* Расстояние — по прямой между точками, а не по тропе. В горах
+                    это разные числа, и молчать об этом нельзя. */}
+                <p className="text-[11px] text-[var(--text-muted)] leading-tight">
+                  по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
+                </p>
 
                 {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
                     «осталось» не отвечает на вопрос поля (владелец 09.08). */}
