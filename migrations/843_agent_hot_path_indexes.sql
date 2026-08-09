@@ -14,8 +14,10 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tour_availability_tour_date
   ON tour_availability (operator_tour_id, date)
   WHERE is_cancelled = FALSE AND deleted_at IS NULL;
 
--- Сумма участников по активным броням даты (LATERAL занятости; условие
--- совпадает с запросом: booking_status NOT IN ('cancelled','rejected'))
+-- Сумма участников по активным броням даты (LATERAL занятости) — предикат
+-- совпадает с запросом: booking_status NOT IN ('cancelled','rejected').
+-- В комментариях миграций не ставить точку с запятой: до фикса 09.08 раннер
+-- резал CONCURRENTLY-файлы по каждой из них и падал посреди этого комментария.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_operator_bookings_tour_date_active
   ON operator_bookings (operator_tour_id, booking_date)
   WHERE booking_status NOT IN ('cancelled', 'rejected');

@@ -19,6 +19,65 @@ function isNonTransactional(sql) {
 }
 
 /**
+ * Режет SQL-файл на выражения по «точке с запятой», понимая синтаксис, а не
+ * байты: разделитель не действует внутри строк ('...', с удвоением ''),
+ * комментариев (--, слэш-звёздочка) и dollar-quoted блоков ($tag$...$tag$).
+ *
+ * Урок миграции 843 (09.08): наивный split по каждому вхождению разрезал
+ * русский SQL-комментарий, содержавший этот символ, пополам — и Postgres
+ * получил «выражение», начинающееся с половины слова из комментария:
+ * `syntax error at or near "условие"`. Из четырёх индексов на прод доехал
+ * один, миграция ретраилась каждый деплой.
+ */
+function splitSqlStatements(sql) {
+  const out = [];
+  let buf = '';
+  let state = 'code'; // code | line | block | quote | dollar
+  let dollarTag = '';
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (state === 'code') {
+      if (ch === '-' && next === '-') {
+        state = 'line'; buf += ch;
+      } else if (ch === '/' && next === '*') {
+        state = 'block'; buf += ch;
+      } else if (ch === "'") {
+        state = 'quote'; buf += ch;
+      } else if (ch === '$') {
+        const m = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+        if (m) { state = 'dollar'; dollarTag = m[0]; buf += m[0]; i += m[0].length; continue; }
+        buf += ch;
+      } else if (ch === ';') {
+        out.push(buf); buf = '';
+      } else {
+        buf += ch;
+      }
+    } else if (state === 'line') {
+      buf += ch;
+      if (ch === '\n') state = 'code';
+    } else if (state === 'block') {
+      if (ch === '*' && next === '/') { buf += '*/'; i += 2; state = 'code'; continue; }
+      buf += ch;
+    } else if (state === 'quote') {
+      if (ch === "'" && next === "'") { buf += "''"; i += 2; continue; }
+      buf += ch;
+      if (ch === "'") state = 'code';
+    } else { // dollar
+      if (sql.startsWith(dollarTag, i)) { buf += dollarTag; i += dollarTag.length; state = 'code'; continue; }
+      buf += ch;
+    }
+    i += 1;
+  }
+  if (buf.trim()) out.push(buf);
+  // Кусок из одних комментариев и пустот — не выражение: нечего слать в базу.
+  return out
+    .map(s => s.trim())
+    .filter(s => s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim().length > 0);
+}
+
+/**
  * Причина отказа сохраняется в базу, а оттуда её показывает аудит и вотчдог.
  * Значит текст уезжает в лог GitHub Actions — то есть за границу. Сообщения
  * Postgres обычно состоят из имён объектов, но некоторые несут значения
@@ -109,7 +168,7 @@ async function main() {
 
         try {
           if (isNonTransactional(sql)) {
-            for (const stmt of sql.split(';').map(s => s.trim()).filter(Boolean)) {
+            for (const stmt of splitSqlStatements(sql)) {
               try { await client.query(stmt + ';'); } catch (e) {
                 if (!isAlreadyExistsError(e.message)) throw e;
               }
@@ -164,4 +223,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { scrubError, isNonTransactional, isAlreadyExistsError };
+module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, splitSqlStatements };
