@@ -122,7 +122,7 @@ function toProgram(v: unknown): ProgramStep[] {
   return out;
 }
 
-interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' | 'whatsapp' }
+interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' | 'whatsapp' | 'max' }
 
 /**
  * Контакты оператора из partners.contacts. Показываем только то, что реально
@@ -176,6 +176,16 @@ function toContacts(v: unknown): OperatorContact[] {
   const tiktok = typeof o.tiktok === 'string' ? o.tiktok.trim().replace(/^@/, '') : '';
   if (/^[\w.]{2,24}$/.test(tiktok)) {
     out.push({ label: 'TikTok', href: `https://www.tiktok.com/@${tiktok}`, icon: 'video' });
+  }
+
+  // MAX (contacts.max) — мессенджер, на который переходят в РФ. Ссылки по
+  // НОМЕРУ в MAX не существует: адрес всегда ведёт на профиль
+  // (max.ru/u/… или max.ru/ник), а профиль знает только его владелец. Поэтому
+  // кнопка появляется, лишь когда партнёр дал ссылку, и принимается только
+  // адрес max.ru: выдуманный адрес — это мёртвая кнопка на карточке.
+  const max = typeof o.max === 'string' ? o.max.trim() : '';
+  if (/^https:\/\/max\.ru\/[A-Za-z0-9_@.\-/]{2,64}$/.test(max)) {
+    out.push({ label: 'Написать в MAX', href: max, icon: 'max' });
   }
 
   // Сайт оператора (contacts.website, 842) — прозрачность партнёрства:
@@ -800,7 +810,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                           {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                           className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
                         >
-                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'whatsapp' ? <MessageCircle className="w-4 h-4 text-[var(--success)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'whatsapp' ? <MessageCircle className="w-4 h-4 text-[var(--success)]" /> : c.icon === 'max' ? <MessageSquare className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
                           {c.label}
                         </a>
                       ))}
