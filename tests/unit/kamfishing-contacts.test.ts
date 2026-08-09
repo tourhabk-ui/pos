@@ -58,6 +58,22 @@ describe('841: поправка номеров + личный Telegram (втор
   });
 });
 
+describe('844: WhatsApp (владелец 09.08: «номер толика на 2222»)', () => {
+  const MIG844 = readFileSync(join(ROOT, 'migrations/844_kamfishing_whatsapp.sql'), 'utf-8');
+
+  it('номер Анатолия +79147822222 — слово владельца, не устаревший wa.me с сайта', () => {
+    expect(MIG844).toContain("'whatsapp', '+79147822222'");
+    expect(MIG844).not.toContain('79992997007');
+    expect(MIG844).toMatch(/IS DISTINCT FROM/);
+    expect(MIG844).toMatch(/name ILIKE '%камчатская рыбалка%'/);
+  });
+
+  it('карточка рендерит кнопку wa.me из contacts.whatsapp с валидацией', () => {
+    expect(CARD).toMatch(/https:\/\/wa\.me\/\$\{wa\}/);
+    expect(CARD).toMatch(/\^\\d\{10,15\}\$/);
+  });
+});
+
 describe('карточка показывает часы звонков', () => {
   it('phone_hours читается из contacts и рендерится под кнопками', () => {
     expect(CARD).toMatch(/phone_hours/);

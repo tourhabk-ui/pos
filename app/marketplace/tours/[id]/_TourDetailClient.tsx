@@ -8,7 +8,7 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, X, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check, Video, Globe,
+  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle,
 } from 'lucide-react';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
@@ -115,7 +115,7 @@ function toProgram(v: unknown): ProgramStep[] {
   return out;
 }
 
-interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' }
+interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' | 'whatsapp' }
 
 /**
  * Контакты оператора из partners.contacts. Показываем только то, что реально
@@ -143,6 +143,13 @@ function toContacts(v: unknown): OperatorContact[] {
     out.push({ label: formatPhone(phone2), href: `tel:${phone2}`, icon: 'phone' });
   } else if (phone.length >= 11) {
     out.push({ label: 'Позвонить', href: `tel:${phone}`, icon: 'phone' });
+  }
+
+  // WhatsApp (contacts.whatsapp, 844) — привычный канал туриста; номер в
+  // E.164, wa.me принимает цифры без плюса.
+  const wa = typeof o.whatsapp === 'string' ? o.whatsapp.replace(/[^\d]/g, '') : '';
+  if (/^\d{10,15}$/.test(wa)) {
+    out.push({ label: 'WhatsApp', href: `https://wa.me/${wa}`, icon: 'whatsapp' });
   }
 
   // Личный чат менеджера (contacts.telegram_contact, 841) — куда писать;
@@ -773,7 +780,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                           {...(c.icon !== 'phone' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                           className="ds-btn ds-btn-secondary text-sm inline-flex items-center gap-2"
                         >
-                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
+                          {c.icon === 'phone' ? <Phone className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'video' ? <Video className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'site' ? <Globe className="w-4 h-4 text-[var(--ocean)]" /> : c.icon === 'whatsapp' ? <MessageCircle className="w-4 h-4 text-[var(--success)]" /> : <Send className="w-4 h-4 text-[var(--ocean)]" />}
                           {c.label}
                         </a>
                       ))}
