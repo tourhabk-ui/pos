@@ -917,25 +917,44 @@ function OnTrailTab() {
                 <p className="text-[var(--text-secondary)] text-sm mb-0.5">
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
-                <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
-                {/* Мёртвый фикс не стирает цифру — это последнее, что человек
-                    знает о своём положении, — но и не выдаёт её за текущую. */}
-                <p className="text-5xl font-bold leading-none"
-                  style={{
-                    color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
-                    letterSpacing: '-1px',
-                  }}>
-                  {distLabel ?? '—'}
-                </p>
-                <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
-                {/* Расстояние — по прямой между точками, а не по тропе. В горах
-                    это разные числа, и молчать об этом нельзя. */}
-                <p className="text-[11px] text-[var(--text-muted)] leading-tight">
-                  по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
-                </p>
+                {distLabel === null ? (
+                  /* Расстояние считается от НАШЕГО положения, и без фикса его
+                     просто нет. Прочерк в шрифте заголовка выглядел серой
+                     полосой — читалось как поломка (скрин владельца 09.08).
+                     Честнее сказать словами, чего ждём. */
+                  <p className="text-sm text-[var(--text-secondary)] mb-1 max-w-[220px]">
+                    Ждём сигнал GPS — расстояние и время появятся сами.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
+                    {/* Мёртвый фикс не стирает цифру — это последнее, что человек
+                        знает о своём положении, — но и не выдаёт её за текущую. */}
+                    <p className="text-5xl font-bold leading-none"
+                      style={{
+                        color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
+                        letterSpacing: '-1px',
+                      }}>
+                      {distLabel}
+                    </p>
+                    {/* Имя точки печатаем, только если оно добавляет знание:
+                        у маршрута из одной точки оно повторяло заголовок. */}
+                    {nextWp?.name && nextWp.name !== activeRouteTitle && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp.name}</p>
+                    )}
+                    {/* Расстояние — по прямой между точками, а не по тропе. В горах
+                        это разные числа, и молчать об этом нельзя. */}
+                    <p className="text-[11px] text-[var(--text-muted)] leading-tight">
+                      по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
+                    </p>
+                  </>
+                )}
 
                 {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
-                    «осталось» не отвечает на вопрос поля (владелец 09.08). */}
+                    «осталось» не отвечает на вопрос поля (владелец 09.08).
+                    Без расстояния считать нечего — тогда и строк нет: «придём
+                    через —» это не сдержанность, а вид поломки. */}
+                {distLabel !== null && (
                 <div className="mt-3 flex flex-col gap-1.5">
                   <p className="text-sm text-[var(--text-secondary)]">
                     <span className="text-[var(--text-muted)]">придём через</span>{' '}
@@ -958,6 +977,8 @@ function OnTrailTab() {
                     </>
                   )}
                 </div>
+
+                )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
                     абсурден, поэтому спрашиваем прямо, а не угадываем. */}
