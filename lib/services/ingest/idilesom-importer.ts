@@ -283,11 +283,16 @@ async function scrapePage(id: string): Promise<ScrapedPlace | null> {
         if (!Array.isArray(parsed) || parsed.length < 3) continue;
         const first = parsed[0];
         if (!Array.isArray(first) || first.length < 2) continue;
-        // GeoJSON = [lng, lat, ele?] — lng is usually > 90 at Kamchatka (155-167)
+        // GeoJSON = [lng, lat, ele?] — на Камчатке долгота 155-167, широта 50-64,
+        // поэтому первое число больше 90 только в порядке «долгота первой».
         const isGeoJSON = Math.abs(first[0] as number) > 90;
+        // Высота — третий элемент, и она обязана переживать ОБА порядка.
+        // Раньше ветка «широта первой» её молча отбрасывала: idilesom отдаёт
+        // именно этот порядок, и на проде 289 маршрутов и 119 683 точки трека
+        // оказались без единой высоты, хотя источник её даёт (замер 09.08).
         const coords: number[][] = isGeoJSON
           ? (parsed as number[][]).map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
-          : (parsed as number[][]).map(p => [p[1], p[0]]);
+          : (parsed as number[][]).map(p => p.length >= 3 ? [p[1], p[0], p[2]] : [p[1], p[0]]);
         if (coords.length > coordinates.length) coordinates = coords;
       } catch { /* skip */ }
     }
@@ -798,4 +803,91 @@ export async function linkIdilesomTracksToPlaces(): Promise<IdilesomLinkResult> 
     duration_ms: Date.now() - t0,
     items,
   };
+}
+
+/* ─── Диагностика формы данных источника ──────────────────────────────────── */
+
+export interface IdilesomShapeSample {
+  id: string;
+  /** Сколько блоков-кандидатов нашла регулярка на странице. */
+  blocks: number;
+  /** Длина точки в самом большом блоке: 2 — без высоты, 3 — с высотой. */
+  tupleLength: number | null;
+  /** Порядок чисел: 'lng-first' (GeoJSON) или 'lat-first' (порядок Leaflet). */
+  order: 'lng-first' | 'lat-first' | null;
+  points: number;
+  /** Сколько точек несут третий элемент — это и есть высота. */
+  pointsWithThird: number;
+  /** Диапазон третьего элемента: похоже ли это на метры над уровнем моря. */
+  thirdMin: number | null;
+  thirdMax: number | null;
+}
+
+export interface IdilesomShapeReport {
+  checked: number;
+  samples: IdilesomShapeSample[];
+  errors: string[];
+  verdict: string;
+}
+
+/**
+ * Что РЕАЛЬНО отдаёт idilesom: форма массива координат, без догадок.
+ *
+ * Замер прода 09.08 показал 289 маршрутов из idilesom и ни одной высоты, хотя
+ * владелец знал, что схема высот на источнике есть. Разбирать это по HTML в
+ * логе бессмысленно — страница весит полтораста килобайт. Здесь страница
+ * читается тем же путём, что и при импорте (с прода, с обходом бот-защиты), а
+ * наружу отдаётся только ФОРМА: длина точки, порядок чисел, диапазон третьего
+ * элемента. Координаты не печатаются — они не нужны для ответа.
+ */
+export async function inspectIdilesomShape(limit = 3): Promise<IdilesomShapeReport> {
+  const listing = await fetchAllIds(1, limit);
+  const errors = [...listing.listingErrors];
+  const samples: IdilesomShapeSample[] = [];
+
+  for (const id of listing.ids.slice(0, limit)) {
+    const fetched = await fetchTextWithFallback(`https://idilesom.com/kam/places/${id}`);
+    if (fetched.text === null) {
+      errors.push(`${id}: ${fetched.error}`);
+      continue;
+    }
+    const html = fetched.text;
+    const blocks = html.match(/\[\s*\[\s*[\d.]+\s*,\s*[\d.]+[\s\S]*?\]\s*\]/g) ?? [];
+
+    let best: number[][] = [];
+    for (const block of blocks) {
+      try {
+        const parsed = JSON.parse(block) as unknown;
+        if (!Array.isArray(parsed) || parsed.length < 3) continue;
+        const first = parsed[0];
+        if (!Array.isArray(first) || first.length < 2) continue;
+        if ((parsed as number[][]).length > best.length) best = parsed as number[][];
+      } catch { /* не наш блок */ }
+    }
+
+    const first = best[0];
+    const thirds = best
+      .map(p => p[2])
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+
+    samples.push({
+      id,
+      blocks: blocks.length,
+      tupleLength: first ? first.length : null,
+      order: first ? (Math.abs(first[0]) > 90 ? 'lng-first' : 'lat-first') : null,
+      points: best.length,
+      pointsWithThird: thirds.length,
+      thirdMin: thirds.length > 0 ? Math.min(...thirds) : null,
+      thirdMax: thirds.length > 0 ? Math.max(...thirds) : null,
+    });
+  }
+
+  const withThird = samples.filter(s => s.pointsWithThird > 0);
+  const verdict = samples.length === 0
+    ? 'Страницы не прочитаны — см. errors'
+    : withThird.length > 0
+      ? `Высоты у источника ЕСТЬ (${withThird.length} из ${samples.length} страниц), порядок: ${withThird[0].order}`
+      : 'Третьего элемента в координатах нет ни на одной проверенной странице';
+
+  return { checked: samples.length, samples, errors, verdict };
 }

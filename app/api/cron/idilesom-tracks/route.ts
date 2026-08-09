@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
-import { backfillIdilesomTracks, linkIdilesomTracksToPlaces } from '@/lib/services/ingest/idilesom-importer';
+import { backfillIdilesomTracks, linkIdilesomTracksToPlaces, inspectIdilesomShape } from '@/lib/services/ingest/idilesom-importer';
 import { logAgentRun } from '@/lib/agents/run-logger';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,21 @@ export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // mode=inspect: только чтение — какая форма у координат на источнике.
+  // Ничего не пишет в базу: это ответ на вопрос «есть ли там высоты вообще»,
+  // который иначе решался бы догадками по стокилобайтной странице.
+  if (request.nextUrl.searchParams.get('mode') === 'inspect') {
+    const raw = parseInt(request.nextUrl.searchParams.get('limit') ?? '3', 10);
+    const limit = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), 10) : 3;
+    try {
+      const report = await inspectIdilesomShape(limit);
+      return NextResponse.json({ success: true, mode: 'inspect', ...report });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ success: false, error: msg.slice(0, 300) }, { status: 500 });
+    }
   }
 
   // mode=link: пост-проход — привязка уже записанных треков к местам по имени
