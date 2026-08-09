@@ -1,14 +1,13 @@
 {
   "urls": [
-    "https://vedarai.ru/catalog/tours/6"
+    "https://vedarai.ru/api/tours-feed"
   ],
-  "bytes": 300,
+  "bytes": 1400,
   "timeout": 45,
   "grep": [
-    "operator_contacts\\\":\\\"",
-    "operator_contacts\\\":{",
-    "operator_contacts\\\":null",
-    "phone_hours",
-    "logo_image"
+    "op_phone",
+    "79247808011",
+    "phone",
+    "error"
   ]
 }
