@@ -710,13 +710,29 @@ function OnTrailTab() {
     const lngs = src.map(p => p.lng);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const latRange = (maxLat - minLat) || 0.0005;
-    const lngRange = (maxLng - minLng) || 0.0005;
+    const midLat = (minLat + maxLat) / 2;
+
+    /**
+     * Проекция с сохранением пропорций. Растягивать широту и долготу каждую
+     * по своей оси нельзя: очертания превращаются в ленту, и «схема трека»
+     * начинает врать о форме маршрута (владелец 09.08 — «трек кринж»).
+     * Переводим градусы в метры (долгота на 53° короче широты примерно в
+     * cos φ раз) и берём ОДИН масштаб по меньшей стороне.
+     */
+    const M_PER_LAT = 110_574;
+    const mPerLng = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const spanX = Math.max((maxLng - minLng) * mPerLng, 1);
+    const spanY = Math.max((maxLat - minLat) * M_PER_LAT, 1);
+    const W = 320, H = 128, PAD = 12;
+    const scale = Math.min((W - PAD * 2) / spanX, (H - PAD * 2) / spanY);
+    // Остаток свободного места делим поровну — рисунок стоит по центру.
+    const offX = (W - spanX * scale) / 2;
+    const offY = (H - spanY * scale) / 2;
 
     const project = (p: { lat: number; lng: number }) => ({
-      x: 10 + ((p.lng - minLng) / lngRange) * 300,
+      x: offX + (p.lng - minLng) * mPerLng * scale,
       // Севернее — выше на экране: ось y в SVG растёт вниз.
-      y: 118 - ((p.lat - minLat) / latRange) * 100,
+      y: H - offY - (p.lat - minLat) * M_PER_LAT * scale,
     });
 
     return {
@@ -725,8 +741,11 @@ function OnTrailTab() {
       // Кружки — это ВСЕГДА путевые точки, а не вершины трека: иначе
       // «текущая точка» подсвечивалась бы на случайной вершине линии.
       dots: waypoints.map((w, i) => ({ ...project(w), i })),
+      // Своя позиция на схеме — самое полезное, что тут может быть. Рисуем
+      // только по живому фиксу: устаревшая точка «вы здесь» хуже её отсутствия.
+      me: coords && figuresLive ? project(coords) : null,
     };
-  }, [track, waypoints]);
+  }, [track, waypoints, coords, figuresLive]);
   const svgPoints = sketch?.points ?? null;
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
@@ -1058,7 +1077,10 @@ function OnTrailTab() {
               </p>
             </div>
             <div className="w-full h-24 rounded-xl overflow-hidden"
-              style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+              style={{
+                background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
+                border: '1px solid var(--border)',
+              }}>
               <svg className="w-full h-full" viewBox="0 0 320 96" preserveAspectRatio="none">
                 {(() => {
                   const pts = ahead.points;
@@ -1096,18 +1118,26 @@ function OnTrailTab() {
             {sketch?.fromTrack ? 'Трек маршрута, вид сверху' : 'Точки маршрута'}
           </p>
           <div className="w-full h-32 rounded-xl overflow-hidden"
-            style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+            style={{
+              background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
+              border: '1px solid var(--border)',
+            }}>
           {svgPoints ? (
-            <svg className="w-full h-full" viewBox="0 0 320 128" preserveAspectRatio="none">
-              {[32, 64, 96].map(y => (
-                <line key={y} x1="0" y1={y} x2="320" y2={y}
-                  stroke="rgba(74,222,128,0.06)" strokeWidth="1" />
-              ))}
+            /* preserveAspectRatio по умолчанию (meet): очертания не тянутся.
+               Сетку убрали — она превращала карту в график, хотя это план
+               местности, а не диаграмма. */
+            <svg className="w-full h-full" viewBox="0 0 320 128">
               <polyline
                 points={svgPoints.map(p => `${p.x},${p.y}`).join(' ')}
                 fill="none" stroke="var(--success)" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round"
               />
+              {sketch?.me && (
+                <>
+                  <circle cx={sketch.me.x} cy={sketch.me.y} r="7" fill="var(--ocean)" opacity="0.25" />
+                  <circle cx={sketch.me.x} cy={sketch.me.y} r="3.5" fill="var(--ocean)" />
+                </>
+              )}
               {(sketch?.dots ?? []).map(({ x, y, i }) => (
                 <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
@@ -1152,7 +1182,12 @@ function OnTrailTab() {
             setShowMap(true);
           }}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--success)', border: '1px solid #1a3620', minHeight: 60 }}>
+          style={{
+            background: 'var(--bg-card)',
+            color: 'var(--success)',
+            border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
+            minHeight: 60,
+          }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </button>
         <a href={coords
