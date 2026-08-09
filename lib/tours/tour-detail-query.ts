@@ -60,7 +60,43 @@ export interface TourCardRow {
   safety_notes?: string[] | null;
   operator_name: string;
   operator_id: string;
-  operator_contacts: unknown;
+  /** Логотип партнёра (`partners.logo_image`) — путь из `public/`, может быть пуст. */
+  operator_logo: string | null;
+  /**
+   * Контакты партнёра. Тип намеренно `Record | null`, а не `unknown`: значение
+   * приводится к объекту здесь, у границы данных (см. `toContactsRecord`), —
+   * дальше по коду его читают как объект и не гадают о форме.
+   */
+  operator_contacts: Record<string, unknown> | null;
+}
+
+/**
+ * Контакты к единой форме — объекту.
+ *
+ * `partners.contacts` объявлена JSONB (миграция 784), и обычно драйвер отдаёт
+ * готовый объект. Но колонка старше своей миграции: `ADD COLUMN IF NOT EXISTS`
+ * на уже существующей колонке — no-op, поэтому на проде тип мог остаться
+ * текстовым, и тогда в карточку приезжает СТРОКА с JSON. Карточка проверяет
+ * `typeof === 'object'` и на строке молча теряет ВСЕ контакты разом — ровно то,
+ * что владелец увидел 09.08: «это лого партнера и нет контактов», при живых
+ * телефонах в базе. Разбор строки здесь стоит одну попытку и снимает целый
+ * класс различий между «схемой в миграциях» и «схемой на проде».
+ */
+export function toContactsRecord(v: unknown): Record<string, unknown> | null {
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+    try {
+      const parsed: unknown = JSON.parse(s);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
+  return null;
 }
 
 export interface TourCardReview {
@@ -95,6 +131,7 @@ function buildSql(withOptional: boolean): string {
       ot.rating, ot.review_count,
       ${withOptional ? OPTIONAL_COLUMNS : ''}
       p.name AS operator_name, p.id AS operator_id,
+      p.logo_image AS operator_logo,
       p.contacts AS operator_contacts
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
@@ -112,16 +149,19 @@ function isUndefinedColumn(e: unknown): boolean {
 }
 
 export async function getTourForCard(id: number): Promise<TourCardRow | null> {
+  const normalize = (row: TourCardRow | undefined): TourCardRow | null =>
+    row ? { ...row, operator_contacts: toContactsRecord(row.operator_contacts) } : null;
+
   try {
     const { rows } = await pool.query<TourCardRow>(buildSql(true), [id]);
-    return rows[0] ?? null;
+    return normalize(rows[0]);
   } catch (e) {
     if (!isUndefinedColumn(e)) return null;
     // Миграция 809 ещё не применилась — отдаём карточку без её полей,
     // вместо того чтобы показать 404 на существующем туре.
     try {
       const { rows } = await pool.query<TourCardRow>(buildSql(false), [id]);
-      return rows[0] ?? null;
+      return normalize(rows[0]);
     } catch {
       return null;
     }
