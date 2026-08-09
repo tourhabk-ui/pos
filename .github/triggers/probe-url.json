@@ -1,7 +1,19 @@
 {
-  "note": "Диагноз-2: сырые ключи contacts в payload карточки тура 6",
   "urls": ["https://vedarai.ru/catalog/tours/6"],
-  "bytes": 800,
+  "bytes": 400,
   "timeout": 45,
-  "grep": ["79247808011", "79147822222", "\"phone\"", "phone\\\":", "phone_hours", "Написать в Telegram", "Telegram-канал", "kamfishing41", "website", "Сайт оператора", "toContacts", "operator_contacts\":\"", "operator_contacts\":{"]
+  "grep": [
+    "Кто проводит",
+    "Проводит этот тур сам",
+    "tel:+7",
+    "t.me/labanalex",
+    "tiktok.com/@",
+    "wa.me/",
+    "Звонки:",
+    "Сайт оператора",
+    "operator_contacts",
+    "labanalex",
+    "logo.png",
+    "400 м²"
+  ]
 }
