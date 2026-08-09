@@ -38,8 +38,10 @@ export async function GET(request: NextRequest) {
   }
 
   const started = new Date();
-  const raw = parseInt(request.nextUrl.searchParams.get('limit') ?? '5', 10);
-  const limit = Number.isFinite(raw) ? raw : 5;
+  // По три маршрута за раз: на длинных треках (полторы тысячи отсчётов)
+  // пятёрка не укладывалась в бюджет и упиралась в шлюз.
+  const raw = parseInt(request.nextUrl.searchParams.get('limit') ?? '3', 10);
+  const limit = Number.isFinite(raw) ? raw : 3;
 
   try {
     const result = await backfillDemElevations({ limit });

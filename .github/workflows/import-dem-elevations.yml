@@ -82,12 +82,22 @@ jobs:
         if: ${{ github.event.inputs.probe_only != 'true' }}
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          LIMIT: ${{ github.event.inputs.batch_limit || '5' }}
+          LIMIT: ${{ github.event.inputs.batch_limit || '3' }}
         run: |
           TOTAL=0
           for i in $(seq 1 25); do
             echo "── Партия $i ──"
             RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/dem-elevations?secret=${CRON_SECRET}&limit=${LIMIT}")
+            # Ответ не JSON — это страница ошибки от шлюза, а не сбой разбора.
+            # Питоновский traceback на это место скрывал причину: прогон 09.08
+            # выглядел упавшим парсером, хотя упёрся в таймаут перед приложением.
+            if ! echo "$RESP" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+              echo "Прод ответил не JSON — вероятно таймаут шлюза. Начало ответа:"
+              echo "$RESP" | head -c 300
+              echo ""
+              echo "Записано за прогон: $TOTAL. Остаток добьёт следующий запуск."
+              exit 0
+            fi
             echo "$RESP" | python3 -c "
           import json,sys
           d=json.load(sys.stdin)
