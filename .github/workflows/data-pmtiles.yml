@@ -149,3 +149,67 @@ jobs:
           path: kamchatka.pmtiles
           retention-days: 14
           compression-level: 0 # PMTiles уже сжат внутри — второй проход впустую
+
+      # Выкладка в объектное хранилище. Шаг молча пропускается, пока секретов
+      # нет: конвейер замера обязан работать и без хранилища — на нём
+      # принималось решение о переезде, и ломать его настройкой нельзя.
+      #
+      # Почему не в образ приложения: 92 МБ не влезают в standalone-сборку
+      # Timeweb (лимит 50 МБ, превышение роняет деплой).
+      - name: Upload to object storage
+        if: ${{ env.S3_BUCKET != '' }}
+        env:
+          S3_BUCKET:     ${{ secrets.MAP_S3_BUCKET }}
+          S3_ENDPOINT:   ${{ secrets.MAP_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.MAP_S3_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MAP_S3_SECRET }}
+          AWS_DEFAULT_REGION: ru-1
+        run: |
+          set -euo pipefail
+          KEY="maps/kamchatka-$(date -u +%Y%m%d).pmtiles"
+          aws --endpoint-url "$S3_ENDPOINT" s3 cp kamchatka.pmtiles "s3://$S3_BUCKET/$KEY" \
+            --content-type application/octet-stream \
+            --cache-control "public, max-age=31536000, immutable"
+          # Имя с датой, а не «latest»: файл, который меняется под тем же
+          # адресом, ломает возобновление закачки — куски от старой и новой
+          # версии сшивались бы в файл, которого никогда не было. Клиент
+          # переключается на новую карту сменой переменной окружения, и старая
+          # остаётся доступной тем, кто качает прямо сейчас.
+          echo "Выложено: $S3_ENDPOINT/$S3_BUCKET/$KEY"
+          {
+            echo ""
+            echo "Выложено в хранилище: \`$KEY\`"
+            echo ""
+            echo "Чтобы приложение начало брать карту отсюда, задайте"
+            echo "\`NEXT_PUBLIC_MAP_PMTILES_URL\` на полный адрес файла."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Проверяем ГЛАЗАМИ раннера, а не надеждой: без Range и без открытых
+      # заголовков формат бесполезен, и узнать об этом в браузере — значит
+      # узнать поздно.
+      - name: Verify Range and CORS
+        if: ${{ env.S3_BUCKET != '' }}
+        env:
+          S3_BUCKET:   ${{ secrets.MAP_S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.MAP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          KEY="maps/kamchatka-$(date -u +%Y%m%d).pmtiles"
+          URL="$S3_ENDPOINT/$S3_BUCKET/$KEY"
+          echo "── проверяем $URL ──"
+          HDR=$(curl -s -D - -o /dev/null -r 0-99 -H 'Origin: https://vedarai.ru' "$URL" || true)
+          echo "$HDR" | grep -iE '^(HTTP/|content-range|content-length|accept-ranges|etag|access-control-)' || true
+          echo "$HDR" | grep -qi '^HTTP/.* 206' || {
+            echo "Хранилище не отдало кусок (нет 206 Partial Content)."
+            echo "PMTiles читается диапазонами байт — без этого формат бесполезен."
+            exit 1
+          }
+          echo "$HDR" | grep -qi 'access-control-allow-origin' || {
+            echo "Нет CORS: браузер не сможет читать файл с vedarai.ru."
+            echo "В настройках бакета разрешить GET и HEAD с origin https://vedarai.ru"
+            echo "и ОТКРЫТЬ заголовки: Content-Length, Content-Range, ETag, Accept-Ranges."
+            echo "Без открытых заголовков возобновление закачки сломается молча:"
+            echo "тело придёт, а размер и версию файла прочитать будет нечем."
+            exit 1
+          }
+          echo "Хранилище отдаёт куски и разрешает браузеру их читать."

@@ -67,7 +67,10 @@ describe('конвейер ничего не деплоит', () => {
     // и до этого решения runtime не трогается.
     expect(wf).toMatch(/upload-artifact/);
     expect(wf).not.toMatch(/git push/);
-    expect(wf).not.toMatch(/vedarai\.ru/);
+    // Проверяем ИНВАРИАНТ «не ходит на прод», а не упоминание домена: адрес
+    // vedarai.ru законно стоит в заголовке Origin, которым проверяется CORS
+    // хранилища. Это вопрос к бакету, а не обращение к приложению.
+    expect(wf).not.toMatch(/vedarai\.ru\/api/);
     expect(wf).toMatch(/permissions:\s*\n\s*contents: read/);
   });
 
@@ -102,5 +105,28 @@ describe('конвейер ничего не деплоит', () => {
 
   it('атрибуция OSM не забыта — это условие ODbL, а не вежливость', () => {
     expect(wf).toMatch(/OpenStreetMap contributors, ODbL/);
+  });
+});
+
+describe('выкладка в хранилище', () => {
+  it('пропускается молча, пока секретов нет', () => {
+    // Конвейер замера обязан работать и без хранилища: на нём принималось
+    // решение о переезде, ломать его настройкой нельзя.
+    expect(wf).toMatch(/if: \$\{\{ env\.S3_BUCKET != '' \}\}/);
+  });
+
+  it('имя файла с датой, а не «latest»', () => {
+    // Файл, меняющийся под тем же адресом, ломает возобновление закачки:
+    // куски старой и новой версии сшились бы в файл, которого не было.
+    expect(wf).toMatch(/kamchatka-\$\(date -u \+%Y%m%d\)\.pmtiles/);
+    expect(wf).not.toMatch(/kamchatka-latest\.pmtiles/);
+  });
+
+  it('Range и CORS проверяются раннером, а не надеждой', () => {
+    // Без 206 формат бесполезен; без открытых заголовков возобновление
+    // сломается молча — тело придёт, а размер и версию прочитать будет нечем.
+    expect(wf).toMatch(/206/);
+    expect(wf).toMatch(/access-control-allow-origin/);
+    expect(wf).toMatch(/Content-Range/);
   });
 });
