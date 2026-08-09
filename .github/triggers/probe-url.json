@@ -1,13 +1,14 @@
 {
   "urls": [
-    "https://vedarai.ru/api/tours-feed"
+    "https://vedarai.ru/api/cron/relief-coverage",
+    "https://vedarai.ru/api/cron/health"
   ],
-  "bytes": 1200,
-  "timeout": 45,
+  "bytes": 2500,
+  "timeout": 60,
   "grep": [
-    "op_phone",
-    "79247808011",
-    "\"phone\"",
-    "Неверный или истекший"
+    "verdict",
+    "withElevation",
+    "843_agent_hot_path_indexes",
+    "idilesom"
   ]
 }
