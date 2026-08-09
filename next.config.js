@@ -58,6 +58,29 @@ const nextConfig = {
 
   async redirects() {
     return [
+      // ── Канон домена ────────────────────────────────────────────────────
+      // tourhab.ru и vedarai.ru отдавали один и тот же сайт. Для поисковика и
+      // для ИИ-агента это два разных сайта с одинаковым содержимым: ссылки,
+      // цитирования и вес делятся пополам, а партнёр ставит ссылку наугад.
+      // Канонические теги уже указывают на vedarai.ru — но тег это лишь
+      // просьба, а 308 это ответ.
+      //
+      // /api ИСКЛЮЧЁН намеренно. Вебхуки (Telegram, MAX, приёмники оплат)
+      // редиректов не ходят: они увидят 308 и посчитают доставку неудачной.
+      // Канон нужен странице, которую читают люди и агенты; интеграции,
+      // прописанные на старый хост, продолжают работать как работали.
+      {
+        source: '/',
+        has: [{ type: 'host', value: '(www\\.)?tourhab\\.ru' }],
+        destination: 'https://vedarai.ru/',
+        permanent: true,
+      },
+      {
+        source: '/:path((?!api/).*)',
+        has: [{ type: 'host', value: '(www\\.)?tourhab\\.ru' }],
+        destination: 'https://vedarai.ru/:path',
+        permanent: true,
+      },
       { source: '/emergency.html',      destination: '/emergency',                       permanent: true },
       { source: '/fishingkam',          destination: '/operators/kamchatskaya-rybalka',  permanent: true },
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
