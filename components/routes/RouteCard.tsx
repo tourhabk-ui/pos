@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useWishlist } from '@/hooks/use-wishlist';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {
@@ -81,28 +81,11 @@ function LegacyCard({ route }: { route: RouteItem }) {
   const currentMonth = new Date().getMonth() + 1;
   const isInSeason = route.bestMonths?.includes(currentMonth) ?? false;
 
-  const [liked, setLiked] = useState(false);
-  const [liking, setLiking] = useState(false);
 
-  const handleFavorite = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (liking || liked) return;
-    setLiking(true);
-    try {
-      const res = await fetch('/api/tourist/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_type: 'route', item_id: route.id, title: route.title }),
-      });
-      if (res.ok) setLiked(true);
-      else if (res.status === 401) {
-        window.location.href = '/auth/signin?redirect=' + encodeURIComponent(window.location.pathname);
-      }
-    } catch { /* silence */ }
-    finally { setLiking(false); }
-  }, [liking, liked, route.id, route.title]);
 
+  // Избранное — общий хук: тело запроса, вход гостя и текст ошибки
+  // живут в одном месте (диалекты карточек ломали кнопку до 09.08).
+  const fav = useWishlist('route', route.id);
   return (
     <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -116,19 +99,19 @@ function LegacyCard({ route }: { route: RouteItem }) {
           )}
           <button
             type="button"
-            onClick={handleFavorite}
-            aria-label={liked ? 'В избранном' : 'В избранное'}
+            onClick={fav.toggle}
+            aria-label={fav.on ? 'В избранном' : 'В избранное'}
             className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200"
             style={{
-              background: liked ? 'var(--accent)' : 'var(--bg-hover)',
-              opacity: liking ? 0.5 : 1,
+              background: fav.on ? 'var(--accent)' : 'var(--bg-hover)',
+              opacity: fav.busy ? 0.5 : 1,
             }}
           >
             <Heart
               className="w-3.5 h-3.5 transition-all"
               style={{
-                color: liked ? 'var(--bg-card)' : 'var(--text-secondary)',
-                fill: liked ? 'var(--bg-card)' : 'none',
+                color: fav.on ? 'var(--bg-card)' : 'var(--text-secondary)',
+                fill: fav.on ? 'var(--bg-card)' : 'none',
               }}
             />
           </button>
