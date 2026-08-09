@@ -21,6 +21,7 @@ import {
   readHeading, compassLabel, compassNeedsPermission,
   type CompassState,
 } from '@/lib/on-route/fix-quality';
+import { remainingRelief } from '@/lib/routes/relief';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -256,6 +257,12 @@ function OnTrailTab() {
   // на одном экране (владелец 09.08). Выбор туриста живёт между сессиями.
   const [travelMode, setTravelMode] = useState<TravelMode>('foot');
   const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
+  // Профиль высот маршрута. Считает сервер по полному треку; здесь только
+  // режем от текущего положения. null или reliable=false — высот в данных нет,
+  // и это говорится словами (владелец 09.08: «без профиля блок декоративен»).
+  const [relief, setRelief] = useState<{
+    reliable: boolean; ascentM: number; descentM: number; points: { dM: number; zM: number }[];
+  } | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -335,6 +342,21 @@ function OnTrailTab() {
         if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
         const data = (j as Record<string, unknown>).data as Record<string, unknown>;
         setActiveRouteTitle(data.title as string);
+        // Рельеф приходит готовым; форму проверяем защитно — молчаливо
+        // «нет данных» лучше, чем график из мусора.
+        const rel = data.relief as {
+          reliable?: unknown; ascentM?: unknown; descentM?: unknown; points?: unknown;
+        } | null | undefined;
+        setRelief(rel && Array.isArray(rel.points) && rel.reliable === true
+          ? {
+              reliable: true,
+              ascentM: Number(rel.ascentM) || 0,
+              descentM: Number(rel.descentM) || 0,
+              points: (rel.points as Array<{ dM: number; zM: number }>).filter(
+                p => Number.isFinite(p?.dM) && Number.isFinite(p?.zM),
+              ),
+            }
+          : null);
         const wps = data.waypoints;
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
@@ -602,9 +624,26 @@ function OnTrailTab() {
     () => routeProgress(legKms, currentWpIdx, distToNext),
     [legKms, currentWpIdx, distToNext],
   );
+  // Рельеф впереди — от текущего положения до следующей точки. Есть он
+  // только когда в данных маршрута реальные высоты: рисовать «↑ 12 м» из шума
+  // нельзя, по этому числу человек решает, идти ли сегодня.
+  const ahead = useMemo(() => {
+    if (!relief || relief.points.length < 2) return null;
+    const fromM = progress.doneKm * 1000;
+    const toM = fromM + (distToNext ?? 0) * 1000;
+    const r = remainingRelief(relief.points, fromM, toM);
+    return r.points.length >= 2 ? r : null;
+  }, [relief, progress.doneKm, distToNext]);
+
   const eta = useMemo(
-    () => etaHours({ distanceKm: distToNext ?? 0, mode: travelMode, recentPaceKmh: paceKmh }),
-    [distToNext, travelMode, paceKmh],
+    () => etaHours({
+      distanceKm: distToNext ?? 0,
+      mode: travelMode,
+      recentPaceKmh: paceKmh,
+      ascentM: ahead?.ascentM ?? null,
+      descentM: ahead?.descentM ?? null,
+    }),
+    [distToNext, travelMode, paceKmh, ahead],
   );
   /**
    * Пока темпа нет — говорим об этом вслух. Молчаливый прочерк турист читает
@@ -951,9 +990,56 @@ function OnTrailTab() {
           </div>
         </div>
 
-        {/* Route track */}
-        <div className="w-full h-32 rounded-xl overflow-hidden"
-          style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+        {/* Профиль высоты впереди — если высоты в данных есть. Иначе ниже
+            идёт СХЕМА ТОЧЕК, и она подписана схемой: прежний график рисовал
+            широту по вертикали и на маршруте с севера на юг выглядел ровным
+            спуском — рельеф, которого нет (аудит 09.08). */}
+        {ahead && (
+          <div className="w-full">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Профиль впереди</p>
+              <p className="text-xs text-[var(--text-secondary)]">
+                <span className="text-[var(--accent)]">↑ {ahead.ascentM} м</span>
+                {' · '}
+                <span className="text-[var(--ocean)]">↓ {ahead.descentM} м</span>
+              </p>
+            </div>
+            <div className="w-full h-24 rounded-xl overflow-hidden"
+              style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+              <svg className="w-full h-full" viewBox="0 0 320 96" preserveAspectRatio="none">
+                {(() => {
+                  const pts = ahead.points;
+                  const maxD = pts[pts.length - 1].dM || 1;
+                  const zs = pts.map(p => p.zM);
+                  const minZ = Math.min(...zs);
+                  const range = Math.max(1, Math.max(...zs) - minZ);
+                  const xy = pts.map(p => ({
+                    x: (p.dM / maxD) * 320,
+                    y: 88 - ((p.zM - minZ) / range) * 76,
+                  }));
+                  const line = xy.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                  return (
+                    <>
+                      <polyline points={`0,96 ${line} 320,96`} fill="rgba(74,222,128,0.12)" stroke="none" />
+                      <polyline points={line} fill="none" stroke="var(--success)" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round" />
+                      {/* «Вы здесь» — начало отрезка, а не абстрактный ноль. */}
+                      <circle cx={xy[0].x} cy={xy[0].y} r="5" fill="var(--accent)" />
+                    </>
+                  );
+                })()}
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {/* Схема точек маршрута */}
+        <div className="w-full">
+          <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1.5">
+            Схема точек{!ahead && ' · рельефа нет в данных маршрута'}
+          </p>
+          <div className="w-full h-32 rounded-xl overflow-hidden"
+            style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
           {svgPoints ? (
             <svg className="w-full h-full" viewBox="0 0 320 128" preserveAspectRatio="none">
               {[32, 64, 96].map(y => (
@@ -979,6 +1065,7 @@ function OnTrailTab() {
               {isLoadingRoute ? 'Загрузка трека…' : 'Выберите маршрут для отображения трека'}
             </div>
           )}
+          </div>
         </div>
 
       </div>
