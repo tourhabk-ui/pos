@@ -1,12 +1,7 @@
 {
-  "note": "MAX deep-link по телефону (какой формат живой) + проверка ротации CRON_SECRET (health)",
-  "urls": [
-    "https://vedarai.ru/api/cron/health",
-    "https://max.ru/+79147822222",
-    "https://max.ru/79147822222",
-    "https://max.ru/u/+79147822222"
-  ],
-  "bytes": 2500,
+  "note": "Диагноз: контакты и лого партнёра на живой карточке тура 6 (скрин владельца 09.08)",
+  "urls": ["https://vedarai.ru/catalog/tours/6"],
+  "bytes": 3000,
   "timeout": 45,
-  "grep": ["Анатол", "профил", "не найден", "404", "qwen", "deepseek"]
+  "grep": ["tel:+79247808011", "tel:+79147822222", "labanalex", "TikTok", "Звонки:", "KamFishing_41", "fishingkam.ru", "logo.png", "operator_contacts", "Минимальная группа", "от 7 000", "400 м²", "Программа", "Кто проводит"]
 }
