@@ -16,6 +16,16 @@
 import { Pool } from 'pg';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+
+// Сплиттер выражений — ОДИН на оба раннера (урок 843: наивный split по точке
+// с запятой резал SQL-комментарии, а здешний фильтр «начинается с --» вдобавок
+// молча выбрасывал выражения, к которым был приклеен ведущий комментарий).
+// Standalone-раннер — CJS для Docker, поэтому импорт через createRequire.
+const requireCjs = createRequire(import.meta.url);
+const { splitSqlStatements } = requireCjs('../../scripts/migrate-standalone.js') as {
+  splitSqlStatements: (sql: string) => string[];
+};
 
 const MIGRATIONS_DIR = resolve(process.cwd(), 'migrations');
 
@@ -102,10 +112,7 @@ async function main() {
       if (nonTx) {
         // Non-transactional: statement by statement, no BEGIN/COMMIT
         console.log(`[APPLY-NOTX] ${file} (non-transactional)`);
-        const statements = sql
-          .split(/;\s*\n/)
-          .map(s => s.trim())
-          .filter(s => s.length > 0 && !s.startsWith('--'));
+        const statements = splitSqlStatements(sql);
 
         for (const stmt of statements) {
           try {
