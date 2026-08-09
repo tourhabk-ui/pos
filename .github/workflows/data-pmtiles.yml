@@ -52,13 +52,14 @@ jobs:
           set -euo pipefail
           get() { python3 -c "import json;print(json.load(open('.github/triggers/pmtiles.json'))['$1'])"; }
           {
-            echo "area=$(get area)"
+            echo "osmurl=$(get osmUrl)"
             echo "bounds=$(get bounds)"
             echo "minzoom=$(get minzoom)"
             echo "maxzoom=$(get maxzoom)"
             echo "version=$(get planetilerVersion)"
           } >> "$GITHUB_OUTPUT"
-          echo "область: $(get area) · рамка: $(get bounds) · зумы $(get minzoom)-$(get maxzoom)"
+          echo "источник: $(get osmUrl)"
+          echo "рамка: $(get bounds) · зумы $(get minzoom)-$(get maxzoom)"
 
       - uses: actions/setup-java@v5
         with:
@@ -74,19 +75,37 @@ jobs:
             "https://github.com/onthegomap/planetiler/releases/download/v${V}/planetiler.jar"
           echo "planetiler.jar: $(du -h planetiler.jar | cut -f1)"
 
+      # Ссылку проверяем ДО скачивания. Первый прогон 09.08 упал на псевдониме
+      # geofabrik: («No matches for russia-far-eastern-fed-district») — ошибка
+      # в одном слове стоила бы получаса ожидания, если бы всплыла после
+      # загрузки семисот мегабайт. Здесь она видна за три секунды.
+      - name: Check source is reachable
+        env:
+          OSM_URL: ${{ steps.cfg.outputs.osmurl }}
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 60 "$OSM_URL" || echo 000)
+          echo "источник отвечает: HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "Выгрузка недоступна по этой ссылке. Проверьте osmUrl в"
+            echo ".github/triggers/pmtiles.json — Geofabrik переименовывает разделы."
+            exit 1
+          fi
+
       - name: Build Kamchatka vector tiles
         env:
-          AREA: ${{ steps.cfg.outputs.area }}
+          OSM_URL: ${{ steps.cfg.outputs.osmurl }}
           BOUNDS: ${{ steps.cfg.outputs.bounds }}
           MINZOOM: ${{ steps.cfg.outputs.minzoom }}
           MAXZOOM: ${{ steps.cfg.outputs.maxzoom }}
         run: |
           set -euo pipefail
-          # --download тянет выгрузку Geofabrik сам; --bounds режет по камчатской
-          # рамке, иначе в файл уедет весь Дальний Восток до Владивостока.
+          # --download тянет выгрузку по прямой ссылке; --bounds режет по
+          # камчатской рамке, иначе в файл уедет весь Дальний Восток до
+          # Владивостока.
           java -Xmx10g -jar planetiler.jar \
             --download \
-            --area="$AREA" \
+            --osm-url="$OSM_URL" \
             --bounds="$BOUNDS" \
             --minzoom="$MINZOOM" \
             --maxzoom="$MAXZOOM" \
@@ -114,7 +133,7 @@ jobs:
             echo "| Что | Значение |"
             echo "|---|---|"
             echo "| Вес файла | **${MB} МБ** |"
-            echo "| Область | ${{ steps.cfg.outputs.area }} |"
+            echo "| Источник | ${{ steps.cfg.outputs.osmurl }} |"
             echo "| Рамка | ${{ steps.cfg.outputs.bounds }} |"
             echo "| Зумы хранения | ${{ steps.cfg.outputs.minzoom }}–${{ steps.cfg.outputs.maxzoom }} |"
             echo ""
