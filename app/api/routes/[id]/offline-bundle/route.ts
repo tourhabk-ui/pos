@@ -1,9 +1,13 @@
 import { query } from '@/lib/database';
 import { lonToTile, latToTile, TILE_HOST } from '@/lib/offline/tiles';
+import { planCorridor, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
 
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
 
+// Прямоугольник остался ЗАПАСНЫМ вариантом — для точек-сущностей без трека
+// (гора, озеро): там коридору неоткуда взяться, и квадрат вокруг координаты
+// честен. Основной путь — коридор по треку, см. lib/offline/route-corridor.
 const ZOOMS = [10, 11, 12]; // 7-9 уже pre-cached глобально по всей Камчатке
 const MAX_TILES = 2000;      // защита от огромных bbox
 const PAD_LAT = 0.135;       // ~15 км отступ
@@ -31,7 +35,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     query(
       `SELECT id, title, description, lat, lng, difficulty, distance_km,
               elevation_gain_m, duration_hours, season, hazards, equipment,
-              mchs_registration_required, mchs_phone, park_name
+              mchs_registration_required, mchs_phone, park_name, geometry
        FROM kamchatka_routes WHERE id = $1 AND (is_visible = TRUE OR is_visible IS NULL)`,
       [id],
     ),
@@ -78,7 +82,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
               NULL AS difficulty, NULL AS distance_km, NULL AS elevation_gain_m,
               NULL AS duration_hours, NULL AS season,
               NULL AS hazards, NULL AS equipment,
-              FALSE AS mchs_registration_required, NULL AS mchs_phone, NULL AS park_name
+              FALSE AS mchs_registration_required, NULL AS mchs_phone, NULL AS park_name,
+              NULL AS geometry
        FROM agent_route_knowledge
        WHERE id = $1 AND is_visible = TRUE AND lat IS NOT NULL AND lng IS NOT NULL`,
       [id],
@@ -106,7 +111,32 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     west:  Math.min(...lngs) - PAD_LNG,
   };
 
-  const tileUrls = tilesForBbox(bbox.north, bbox.south, bbox.east, bbox.west).slice(0, MAX_TILES);
+  /**
+   * Коридор по треку — основной путь.
+   *
+   * Прямоугольник вокруг точек качал не ту карту: у маршрута с одной точкой
+   * трек уходил за край скачанного, у длинного — три четверти пакета уходило
+   * на море и тундру. Вдобавок потолок в 2000 тайлов срезал ХВОСТ списка, а
+   * список шёл от грубых зумов к детальным: первым отваливался единственный
+   * зум, по которому можно идти ногами. Молча.
+   *
+   * Коридор решает всё три: вчетверо меньше веса, детализация до 15 зума и
+   * отказ, названный вслух.
+   */
+  const geo = r.geometry as { coordinates?: unknown } | null;
+  const track: TrackPoint[] = Array.isArray(geo?.coordinates)
+    ? (geo.coordinates as unknown[]).flatMap((c): TrackPoint[] => {
+        if (!Array.isArray(c) || c.length < 2) return [];
+        const lng = Number(c[0]);
+        const lat = Number(c[1]);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? [[lat, lng]] : [];
+      })
+    : [];
+
+  const corridor = track.length >= 2 ? planCorridor(track) : null;
+  const tileUrls = corridor
+    ? corridor.urls
+    : tilesForBbox(bbox.north, bbox.south, bbox.east, bbox.west).slice(0, MAX_TILES);
 
   return Response.json({
     route: {
@@ -137,6 +167,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     bbox,
     tile_urls: tileUrls,
     tile_count: tileUrls.length,
-    zoom_levels: ZOOMS,
+    zoom_levels: corridor ? corridor.zooms : ZOOMS,
+    // Чем покрыта карта — коридором по треку или квадратом вокруг точки.
+    // Экран говорит это человеку: «полоса 2 км вдоль маршрута» и «квадрат
+    // вокруг места» — разные обещания, и путать их нельзя.
+    tile_coverage: corridor ? 'corridor' : 'bbox',
+    corridor_buffer_km: corridor ? corridor.bufferKm : null,
+    // Обещанный вес — до скачивания, чтобы человек решал, ждать или выходить.
+    estimate_mb: corridor ? corridor.estimateMb : null,
+    // Отказ называем вслух: молчаливый срез — это карта, на которую человек
+    // рассчитывал и которой не будет.
+    dropped_zooms: corridor ? corridor.droppedZooms : [],
+    max_zoom: corridor ? Math.max(...corridor.zooms) : Math.max(...ZOOMS),
+    all_zooms: CORRIDOR_ZOOMS,
   });
 }
