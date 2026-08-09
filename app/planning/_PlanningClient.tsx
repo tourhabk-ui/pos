@@ -1045,14 +1045,19 @@ function OnTrailTab() {
         {/* Приборы показываем, только когда им есть что показать: «— м» и
             «0ч 00м» читаются не как «данных нет», а как «сломалось». */}
         {figuresLive && (
-        <div className="grid grid-cols-2 gap-3 w-full">
-          <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-            <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Высота</p>
-            <p className="text-2xl font-bold text-[var(--text-primary)]">
-              {altitude !== null ? `${altitude.toLocaleString('ru')}м` : '— м'}
-              {altitude !== null && <span className="text-[var(--success)] text-base ml-0.5">↑</span>}
-            </p>
-          </div>
+        <div className={`grid gap-3 w-full ${altitude !== null ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {/* Высоту даёт не всякий приёмник: на многих телефонах и почти всегда
+              при позиционировании по Wi-Fi coords.altitude приходит null. Карточка
+              с «— м» крупным жирным шрифтом читается как поломка прибора, а не
+              как «этот телефон высоту не отдаёт» — поэтому её просто нет, а
+              соседняя занимает всю ширину. Стрелки вверх тоже нет: высота здесь
+              абсолютная, а стрелка обещает набор, которого мы не считаем. */}
+          {altitude !== null && (
+            <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Высота</p>
+              <p className="text-2xl font-bold text-[var(--text-primary)]">{altitude.toLocaleString('ru')} м</p>
+            </div>
+          )}
           <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Время в пути</p>
             <p className="text-2xl font-bold text-[var(--text-primary)]">
