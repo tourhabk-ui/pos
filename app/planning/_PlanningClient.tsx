@@ -262,6 +262,10 @@ function OnTrailTab() {
   // и это говорится словами (владелец 09.08: «без профиля блок декоративен»).
   const [relief, setRelief] = useState<{
     reliable: boolean; ascentM: number; descentM: number; points: { dM: number; zM: number }[];
+    // Откуда высоты: из самого трека или дозаполнены моделью рельефа. У
+    // модели нет ям, троп и свежих осыпей — она знает форму земли и не
+    // знает пути по ней, и подпись обязана это сказать.
+    source: string | null;
   } | null>(null);
   // Сам трек: по нему положение и следующая точка переводятся в шкалу профиля.
   // Без этого срез брался по прямым между точками, а профиль размечен по
@@ -350,10 +354,12 @@ function OnTrailTab() {
         // «нет данных» лучше, чем график из мусора.
         const rel = data.relief as {
           reliable?: unknown; ascentM?: unknown; descentM?: unknown; points?: unknown;
+          elevationSource?: unknown;
         } | null | undefined;
         setRelief(rel && Array.isArray(rel.points) && rel.reliable === true
           ? {
               reliable: true,
+              source: typeof rel.elevationSource === 'string' ? rel.elevationSource : null,
               ascentM: Number(rel.ascentM) || 0,
               descentM: Number(rel.descentM) || 0,
               points: (rel.points as Array<{ dM: number; zM: number }>).filter(
@@ -1074,7 +1080,12 @@ function OnTrailTab() {
         {ahead && (
           <div className="w-full">
             <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Профиль впереди</p>
+              <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide">
+                Профиль впереди
+                {relief?.source && (
+                  <span className="normal-case tracking-normal"> · по модели рельефа</span>
+                )}
+              </p>
               <p className="text-xs text-[var(--text-secondary)]">
                 <span className="text-[var(--accent)]">↑ {ahead.ascentM} м</span>
                 {' · '}

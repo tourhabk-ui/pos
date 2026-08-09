@@ -1,0 +1,120 @@
+name: Data — высоты треков из DEM (через прод)
+
+# Дозаполнение высот маршрутов из модели рельефа (SRTM 30 м, OpenTopoData).
+#
+# Зачем: проба прода 09.08 (/api/cron/idilesom-tracks?mode=inspect) показала,
+# что у idilesom координаты двухэлементные — высот в источнике НЕТ вовсе.
+# Из 338 треков высоты несут 6, поэтому профиль на «На маршруте» тёмный, а
+# набор высоты — главное число, по которому турист решает идти или нет, —
+# не считается. Модель рельефа осталась единственным источником.
+#
+# Идёт партиями и медленно намеренно: публичный OpenTopoData отвечает раз в
+# секунду и держит суточный лимит. Прогон не обязан пройти всё за раз —
+# следующий запуск продолжит с того места, где остановился (маршруты с
+# проставленным geometry->>'elevation_source' в выборку не попадают).
+#
+# Запуск:
+#   1. workflow_dispatch — кнопка Run workflow (mode=probe там же).
+#   2. push в main, меняющий .github/triggers/dem-elevations.json.
+#
+# Требует secret CRON_SECRET.
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe_only:
+        description: 'Только проба источника, без записи'
+        required: false
+        default: false
+        type: boolean
+      batch_limit:
+        description: 'Маршрутов на партию (1-50)'
+        required: false
+        default: '5'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/dem-elevations.json'
+
+concurrency:
+  group: dem-elevations
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for deploy
+        run: |
+          for i in $(seq 1 40); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://vedarai.ru/api/cron/dem-elevations")
+            if [ "$CODE" = "401" ]; then
+              echo "Эндпоинт задеплоен (401 без секрета)"
+              exit 0
+            fi
+            echo "probe $i: HTTP $CODE — ждём деплой (30с)"
+            sleep 30
+          done
+          echo "Эндпоинт не появился за 20 минут"
+          exit 1
+
+      # Достижимость источника — половина ответа: модель может отвечать и
+      # врать. Спрашиваем места с заранее известной высотой и печатаем, что
+      # она сказала. Ключевская должна выйти около 4750 м, вода — около нуля.
+      - name: Probe DEM source
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          RESP=$(curl -s --max-time 60 "https://vedarai.ru/api/cron/dem-elevations?secret=${CRON_SECRET}&mode=probe")
+          echo "$RESP" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          if not d.get('success'):
+              print('Источник недоступен:', str(d.get('error'))[:200]); sys.exit(1)
+          print('источник:', d.get('url'), '·', d.get('dataset'))
+          for p in d.get('points', []):
+              print(f\"  {p['name']}: получено {p['got']} (ожидалось {p['expect']})\")
+          "
+
+      - name: Backfill loop
+        if: ${{ github.event.inputs.probe_only != 'true' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ github.event.inputs.batch_limit || '5' }}
+        run: |
+          TOTAL=0
+          for i in $(seq 1 25); do
+            echo "── Партия $i ──"
+            RESP=$(curl -s --max-time 180 "https://vedarai.ru/api/cron/dem-elevations?secret=${CRON_SECRET}&limit=${LIMIT}")
+            echo "$RESP" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print(json.dumps({k: d.get(k) for k in ('success','checked','written','skipped_no_data','failed','points_queried','duration_ms')}, ensure_ascii=False))
+          for it in d.get('items', []):
+              extra = f\" [{it.get('min')}..{it.get('max')} м]\" if it.get('min') is not None else ''
+              print(f\"  {it.get('route')}: {it.get('status')} ({it.get('queried')} отсчётов){extra}\")
+          for e in d.get('errors', [])[:5]:
+              print('  ошибка:', e)
+          " || { echo "$RESP" | head -c 400; exit 1; }
+            CHECKED=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('checked',0))")
+            WRITTEN=$(echo "$RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('written',0))")
+            TOTAL=$((TOTAL + WRITTEN))
+            if [ "$CHECKED" = "0" ]; then
+              echo "Маршрутов без высот не осталось. Записано за прогон: $TOTAL"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "25 партий исчерпаны (записано $TOTAL) — остаток добьёт следующий запуск"
+
+      # Замер после работы: сколько треков реально несут высоты. Отчитываться
+      # числом «записано» мало — важно состояние, а не объём действий.
+      - name: Measure coverage
+        if: ${{ github.event.inputs.probe_only != 'true' }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -s --max-time 60 "https://vedarai.ru/api/cron/relief-coverage?secret=${CRON_SECRET}" | head -c 2000
+          echo ""
