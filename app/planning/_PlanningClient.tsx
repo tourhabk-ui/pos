@@ -12,6 +12,10 @@ import {
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
+import {
+  etaHours, formatEta, paceFromTrack, routeProgress,
+  type TravelMode, type TrackSample,
+} from '@/lib/on-route/eta';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -215,6 +219,13 @@ function OnTrailTab() {
   const startTimeRef = useRef(Date.now());
   const [waypoints, setWaypoints] = useState<SavedWaypoint[]>([]);
   const [currentWpIdx, setCurrentWpIdx] = useState(0);
+  // След GPS для живого темпа и сам темп. Темп пересчитывается по таймеру, а
+  // не на каждом тике: экран не должен дёргаться от шума позиционирования.
+  const trackRef = useRef<TrackSample[]>([]);
+  const [paceKmh, setPaceKmh] = useState<number | null>(null);
+  // Режим движения решает всё: 31.6 км пешком и на машине — разные продукты
+  // на одном экране (владелец 09.08). Выбор туриста живёт между сессиями.
+  const [travelMode, setTravelMode] = useState<TravelMode>('foot');
   const [activeRouteTitle, setActiveRouteTitle] = useState<string | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
@@ -330,6 +341,19 @@ function OnTrailTab() {
     if (routeId) fetchRouteWaypoints(routeId);
   }, [fetchRouteWaypoints]);
 
+  // Режим движения переживает перезапуск: в поле переключать его каждый раз —
+  // лишний повод получить враньё во времени.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('on_route_travel_mode');
+      if (saved === 'car' || saved === 'foot') setTravelMode(saved);
+    } catch { /* приватный режим */ }
+  }, []);
+  const changeTravelMode = useCallback((m: TravelMode) => {
+    setTravelMode(m);
+    try { localStorage.setItem('on_route_travel_mode', m); } catch { /* приватный режим */ }
+  }, []);
+
   // PWA днями живёт в фоне без перемонтирования: возврат на экран — рефетч
   // точек активного маршрута. Скрин владельца 2026-07-19: API уже отдавал
   // починенную координату, а приложение держало вчерашний state в памяти
@@ -369,7 +393,16 @@ function OnTrailTab() {
     window.addEventListener('deviceorientation', handleOrientation as EventListener);
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
-        pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude }),
+        pos => {
+          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude });
+          // След последнего получаса — из него считается живой темп. Держим
+          // в ref: он не должен вызывать перерисовку на каждом GPS-тике.
+          const t = Date.now();
+          const track = trackRef.current;
+          track.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, t });
+          const cutoff = t - 30 * 60 * 1000;
+          while (track.length > 0 && track[0].t < cutoff) track.shift();
+        },
         err => { if (err.code === 1) setGpsError(true); },
         { enableHighAccuracy: true, maximumAge: 5000 }
       );
@@ -377,11 +410,16 @@ function OnTrailTab() {
     const timer = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
+    // Темп — раз в полминуты по следу: чаще незачем, а дёргать экран вредно.
+    const paceTimer = setInterval(() => {
+      setPaceKmh(paceFromTrack(trackRef.current, 900));
+    }, 30_000);
     return () => {
       window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
       window.removeEventListener('deviceorientation', handleOrientation as EventListener);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
+      clearInterval(paceTimer);
     };
   }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
@@ -475,6 +513,36 @@ function OnTrailTab() {
     : distToNext < 1
     ? `${Math.round(distToNext * 1000)} м`
     : `${distToNext.toFixed(1)} км`;
+
+  // ─── Слой хода: осталось · когда придём · сколько прошли ───────────────────
+  // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
+  // ли ещё пять часов или это автопереезд (владелец 09.08).
+
+  // Плечи маршрута по линии между точками — основа прогресса.
+  const legKms = useMemo(
+    () => waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng)),
+    [waypoints],
+  );
+  const progress = useMemo(
+    () => routeProgress(legKms, currentWpIdx, distToNext),
+    [legKms, currentWpIdx, distToNext],
+  );
+  const eta = useMemo(
+    () => etaHours({ distanceKm: distToNext ?? 0, mode: travelMode, recentPaceKmh: paceKmh }),
+    [distToNext, travelMode, paceKmh],
+  );
+  /**
+   * Пока темпа нет — говорим об этом вслух. Молчаливый прочерк турист читает
+   * как поломку (ровно так читалось «0ч 00м» на скрине), а честная строка
+   * объясняет, что цифра появится сама.
+   */
+  const etaNote = eta.hours === null
+    ? null
+    : eta.basis === 'pace+model'
+    ? 'по вашему темпу'
+    : travelMode === 'car'
+    ? 'оценка по линии маршрута'
+    : 'оценка, темп появится через 2–3 минуты';
 
   // SVG track: normalize lat to y-axis — honest representation of waypoint positions
   const svgPoints = (() => {
@@ -658,6 +726,46 @@ function OnTrailTab() {
                   {distLabel ?? '—'}
                 </p>
                 <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
+
+                {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
+                    «осталось» не отвечает на вопрос поля (владелец 09.08). */}
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    <span className="text-[var(--text-muted)]">придём через</span>{' '}
+                    <span className="font-semibold text-[var(--text-primary)]">{formatEta(eta.hours)}</span>
+                  </p>
+                  {etaNote && <p className="text-[11px] text-[var(--text-muted)] leading-tight">{etaNote}</p>}
+                  {progress.totalKm > 0 && (
+                    <>
+                      <p className="text-sm text-[var(--text-secondary)]">
+                        <span className="text-[var(--text-muted)]">пройдено</span>{' '}
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {progress.doneKm.toFixed(1)} / {progress.totalKm.toFixed(1)} км
+                        </span>{' '}
+                        <span className="text-[var(--text-muted)]">· {progress.percent}%</span>
+                      </p>
+                      <div className="h-1.5 rounded-full overflow-hidden w-full max-w-[200px]" style={{ background: 'var(--bg-hover)' }}>
+                        <div className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${progress.percent}%`, background: 'var(--success)' }} />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Режим движения: пеший ETA на 30-километровом плече-переезде
+                    абсурден, поэтому спрашиваем прямо, а не угадываем. */}
+                <div className="mt-3 inline-flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                  {([['foot', 'Пешком'], ['car', 'На машине']] as const).map(([m, label]) => (
+                    <button key={m} onClick={() => changeTravelMode(m)}
+                      aria-pressed={travelMode === m}
+                      className="text-xs font-medium px-3 py-1.5"
+                      style={travelMode === m
+                        ? { background: 'color-mix(in srgb, var(--success) 12%, transparent)', color: 'var(--success)' }
+                        : { color: 'var(--text-muted)' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <button onClick={openRouteModal}
                   className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg mt-3"
                   style={{ background: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)' }}>
