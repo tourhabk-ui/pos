@@ -278,7 +278,14 @@ export async function GET(
           );
           if (pts.length < 2) return null;
           const relief = accumulateRelief(pts);
+          // Откуда взялись высоты. Трек с высотами из GPS и трек, которому
+          // высоты дозаполнены моделью рельефа, — разные по достоверности
+          // данные, и экран обязан их различать: у модели нет ям, троп и
+          // свежих осыпей, она знает только форму земли.
+          const elevationSource =
+            (r.geometry as { elevation_source?: unknown } | null)?.elevation_source;
           return {
+            elevationSource: typeof elevationSource === 'string' ? elevationSource : null,
             distanceM: relief.distanceM,
             ascentM: relief.ascentM,
             descentM: relief.descentM,
