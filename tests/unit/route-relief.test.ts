@@ -163,3 +163,27 @@ describe('данные доезжают до экрана, а экран не в
     expect(screen).toMatch(/\{ahead && \(/);
   });
 });
+
+describe('замер покрытия высотами — вместо рассуждений о нём', () => {
+  const COV = read('app/api/cron/relief-coverage/route.ts');
+
+  it('под секретом и read-only', () => {
+    expect(COV).toMatch(/verifyCronSecret/);
+    expect(COV).not.toMatch(/INSERT|UPDATE|DELETE|DROP|CREATE/);
+  });
+
+  it('порог достоверности берётся из движка, а не заводится второй', () => {
+    expect(COV).toMatch(/MIN_ELEVATION_COVERAGE/);
+    expect(COV).not.toMatch(/0\.6/);
+  });
+
+  it('наружу уходят только счётчики: ни координат, ни названий', () => {
+    expect(COV).not.toMatch(/title/);
+    expect(COV).not.toMatch(/coordinates'\s*\)?\s*AS (geom|coords)/);
+  });
+
+  it('разбивка по источникам трека — видно, кто дал высоты', () => {
+    expect(COV).toMatch(/geometry->>'source'/);
+    expect(COV).toMatch(/GROUP BY source/);
+  });
+});
