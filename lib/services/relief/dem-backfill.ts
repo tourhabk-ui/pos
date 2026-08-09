@@ -204,7 +204,12 @@ export async function backfillDemElevations(opts: {
 } = {}): Promise<BackfillResult> {
   const started = Date.now();
   const limit = Math.min(Math.max(opts.limit ?? 5, 1), 50);
-  const budgetMs = opts.budgetMs ?? 90_000;
+  // Бюджет заметно короче предела шлюза перед приложением. Прогон 09.08
+  // дошёл до длинных треков, партии стали занимать 48-61 с, и следующая
+  // упёрлась в таймаут шлюза: наружу ушла HTML-страница ошибки вместо JSON.
+  // Роут обязан успевать ответить сам — иначе о проделанной работе никто не
+  // узнаёт, хотя записана она уже была.
+  const budgetMs = opts.budgetMs ?? 45_000;
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   const res: BackfillResult = {
