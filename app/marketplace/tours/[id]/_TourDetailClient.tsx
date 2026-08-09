@@ -82,8 +82,15 @@ interface TourFull {
   program?: unknown;
   /** Правила безопасности этого тура — operator_tours.safety_notes (809). */
   safety_notes?: string[] | null;
-  /** Контакты оператора — partners.contacts (телефон/Telegram). */
-  operator_contacts: unknown;
+  /**
+   * Контакты оператора — partners.contacts (телефон/Telegram/сайт). Форму
+   * приводит к объекту серверный запрос (`toContactsRecord`): на проде колонка
+   * могла остаться текстовой, и тогда сюда приезжала СТРОКА с JSON — карточка
+   * молча теряла все контакты разом (владелец 09.08).
+   */
+  operator_contacts: Record<string, unknown> | null;
+  /** Логотип партнёра — partners.logo_image. Нет логотипа — буквенный кружок. */
+  operator_logo?: string | null;
 }
 
 interface TourReview {
@@ -416,9 +423,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
   // Часы звонков (contacts.phone_hours, миграция 840) — строка из БД как есть.
   const phoneHours = useMemo(() => {
-    const o = tour.operator_contacts;
-    if (!o || typeof o !== 'object' || Array.isArray(o)) return '';
-    const h = (o as Record<string, unknown>).phone_hours;
+    const h = tour.operator_contacts?.phone_hours;
     return typeof h === 'string' ? h.trim().slice(0, 120) : '';
   }, [tour.operator_contacts]);
 
@@ -757,12 +762,27 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
               <Eyebrow>Кто проводит</Eyebrow>
               <div className="ds-card p-5">
                 <div className="flex items-center gap-4">
-                  <div
-                    className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 text-white"
-                    style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--accent), color-mix(in srgb, var(--ocean) 55%, #06131a))', fontFamily: FD, fontWeight: 700, fontSize: 20 }}
-                  >
-                    {tour.operator_name.charAt(0).toUpperCase()}
-                  </div>
+                  {/* Логотип партнёра, если он есть в partners.logo_image
+                      (804): своё лицо оператора вызывает больше доверия, чем
+                      буква в кружке. Нет логотипа — остаётся буква. */}
+                  {tour.operator_logo ? (
+                    <div className="w-14 h-14 rounded-full overflow-hidden shrink-0 relative bg-[var(--bg-hover)]">
+                      <Image
+                        src={tour.operator_logo}
+                        alt={`Логотип: ${tour.operator_name}`}
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 text-white"
+                      style={{ background: 'radial-gradient(120% 120% at 30% 20%, var(--accent), color-mix(in srgb, var(--ocean) 55%, #06131a))', fontFamily: FD, fontWeight: 700, fontSize: 20 }}
+                    >
+                      {tour.operator_name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-[var(--text-primary)]" style={{ fontFamily: FD }}>{tour.operator_name}</p>
                     <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5"><CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)]" />Проводит этот тур сам · проверен платформой</p>
