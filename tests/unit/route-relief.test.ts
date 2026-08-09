@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  accumulateRelief, remainingRelief, haversineM,
+  accumulateRelief, remainingRelief, haversineM, distanceAlongTrack,
   ELEVATION_NOISE_M, PROFILE_STEP_M,
 } from '@/lib/routes/relief';
 
@@ -185,5 +185,53 @@ describe('замер покрытия высотами — вместо расс
   it('разбивка по источникам трека — видно, кто дал высоты', () => {
     expect(COV).toMatch(/geometry->>'source'/);
     expect(COV).toMatch(/GROUP BY source/);
+  });
+});
+
+describe('положение переводится в шкалу трека, а не прямых', () => {
+  // Трек-«зигзаг»: путь заметно длиннее прямой между концами — ровно тот
+  // случай, где смешение шкал давало срез профиля не в том месте.
+  const track: Array<[number, number]> = [
+    [53.000, 158.000],
+    [53.002, 158.002],
+    [53.004, 158.000],
+    [53.006, 158.002],
+  ];
+
+  it('старт трека — ноль', () => {
+    expect(distanceAlongTrack(track, 53.0, 158.0)).toBe(0);
+  });
+
+  it('дальше по треку — больше метров', () => {
+    const a = distanceAlongTrack(track, 53.002, 158.002)!;
+    const b = distanceAlongTrack(track, 53.006, 158.002)!;
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(a);
+  });
+
+  it('путь по треку длиннее прямой между концами — это и есть причина правки', () => {
+    const along = distanceAlongTrack(track, 53.006, 158.002)!;
+    const straight = haversineM({ lat: 53.0, lng: 158.0 }, { lat: 53.006, lng: 158.002 });
+    expect(along).toBeGreaterThan(straight);
+  });
+
+  it('точка в стороне привязывается к ближайшей вершине, а не роняет расчёт', () => {
+    const d = distanceAlongTrack(track, 53.0041, 157.9990);
+    expect(d).not.toBeNull();
+    expect(Number.isFinite(d!)).toBe(true);
+  });
+
+  it('без трека или с мусором — null, а не выдуманное число', () => {
+    expect(distanceAlongTrack([], 53, 158)).toBeNull();
+    expect(distanceAlongTrack([[53, 158]], 53, 158)).toBeNull();
+    expect(distanceAlongTrack(track, NaN, 158)).toBeNull();
+  });
+
+  it('экран режет профиль обеими границами по треку', () => {
+    const screen = read('app/planning/_PlanningClient.tsx');
+    expect(screen).toMatch(/distanceAlongTrack\(track, coords\.lat, coords\.lng\)/);
+    expect(screen).toMatch(/distanceAlongTrack\(track, nextWp\.lat, nextWp\.lng\)/);
+    // Прежняя смешанная шкала (пройдено по прямым) больше не участвует.
+    expect(screen).not.toMatch(/fromM = progress\.doneKm/);
   });
 });

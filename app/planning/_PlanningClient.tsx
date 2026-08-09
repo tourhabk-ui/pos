@@ -21,7 +21,7 @@ import {
   readHeading, compassLabel, compassNeedsPermission,
   type CompassState,
 } from '@/lib/on-route/fix-quality';
-import { remainingRelief } from '@/lib/routes/relief';
+import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -263,6 +263,10 @@ function OnTrailTab() {
   const [relief, setRelief] = useState<{
     reliable: boolean; ascentM: number; descentM: number; points: { dM: number; zM: number }[];
   } | null>(null);
+  // Сам трек: по нему положение и следующая точка переводятся в шкалу профиля.
+  // Без этого срез брался по прямым между точками, а профиль размечен по
+  // извилистому пути — на горном маршруте это разные числа в полтора раза.
+  const [track, setTrack] = useState<Array<[number, number]> | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -357,6 +361,8 @@ function OnTrailTab() {
               ),
             }
           : null);
+        const tr = data.track;
+        setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
         const wps = data.waypoints;
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
@@ -628,12 +634,15 @@ function OnTrailTab() {
   // только когда в данных маршрута реальные высоты: рисовать «↑ 12 м» из шума
   // нельзя, по этому числу человек решает, идти ли сегодня.
   const ahead = useMemo(() => {
-    if (!relief || relief.points.length < 2) return null;
-    const fromM = progress.doneKm * 1000;
-    const toM = fromM + (distToNext ?? 0) * 1000;
+    if (!relief || relief.points.length < 2 || !track || !coords || !nextWp) return null;
+    // Обе границы отреза — в ОДНОЙ шкале, по треку: и «я здесь», и следующая
+    // точка. Смешивать прямые с путём нельзя, это и есть враньё о рельефе.
+    const fromM = distanceAlongTrack(track, coords.lat, coords.lng);
+    const toM = distanceAlongTrack(track, nextWp.lat, nextWp.lng);
+    if (fromM === null || toM === null || toM <= fromM) return null;
     const r = remainingRelief(relief.points, fromM, toM);
     return r.points.length >= 2 ? r : null;
-  }, [relief, progress.doneKm, distToNext]);
+  }, [relief, track, coords, nextWp]);
 
   const eta = useMemo(
     () => etaHours({

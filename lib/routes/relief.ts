@@ -164,3 +164,43 @@ export function remainingRelief(
     points: slice.map(p => ({ dM: p.dM - Math.round(fromM), zM: p.zM })),
   };
 }
+
+/* ─── Привязка положения к треку ──────────────────────────────────────────── */
+
+/**
+ * Сколько метров ПО ТРЕКУ пройдено до ближайшей к точке вершины.
+ *
+ * Без этого профиль резался не там, где человек стоит: пройденное считалось по
+ * прямым между путевыми точками, а координата профиля — по извилистому треку.
+ * На горном маршруте трек длиннее прямых в полтора-два раза, значит «профиль
+ * впереди» показывал бы кусок, который давно позади. Ошибка ровно того рода,
+ * что мы чиним на этом экране, поэтому исправлена до выката.
+ *
+ * Метод намеренно грубый — ближайшая ВЕРШИНА, без проекции на отрезок: трек
+ * приходит прореженным, а точность GPS всё равно измеряется десятками метров.
+ * Обещать большего, чем даёт вход, нельзя.
+ */
+export function distanceAlongTrack(
+  track: Array<[number, number]>,
+  lat: number,
+  lng: number,
+): number | null {
+  if (!Array.isArray(track) || track.length < 2) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  let bestIdx = 0;
+  let bestD = Infinity;
+  const cumulative: number[] = [0];
+
+  for (let i = 0; i < track.length; i++) {
+    const [tLat, tLng] = track[i];
+    if (i > 0) {
+      cumulative[i] = cumulative[i - 1] +
+        haversineM({ lat: track[i - 1][0], lng: track[i - 1][1] }, { lat: tLat, lng: tLng });
+    }
+    const d = haversineM({ lat, lng }, { lat: tLat, lng: tLng });
+    if (d < bestD) { bestD = d; bestIdx = i; }
+  }
+
+  return cumulative[bestIdx];
+}
