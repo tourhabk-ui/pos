@@ -13,7 +13,7 @@ import { join } from 'node:path';
 const cfg = JSON.parse(
   readFileSync(join(process.cwd(), '.github/triggers/pmtiles.json'), 'utf-8'),
 ) as {
-  area: string; bounds: string; minzoom: number; maxzoom: number; planetilerVersion: string;
+  osmUrl: string; bounds: string; minzoom: number; maxzoom: number; planetilerVersion: string;
 };
 const wf = readFileSync(join(process.cwd(), '.github/workflows/data-pmtiles.yml'), 'utf-8');
 
@@ -71,9 +71,28 @@ describe('конвейер ничего не деплоит', () => {
     expect(wf).toMatch(/permissions:\s*\n\s*contents: read/);
   });
 
-  it('рамка и область берутся из конфига, а не зашиты в шаге', () => {
+  it('рамка и источник берутся из конфига, а не зашиты в шаге', () => {
     expect(wf).toMatch(/--bounds="\$BOUNDS"/);
-    expect(wf).toMatch(/--area="\$AREA"/);
+    expect(wf).toMatch(/--osm-url="\$OSM_URL"/);
+  });
+
+  it('источник — прямая ссылка, а не псевдоним с нечётким поиском', () => {
+    // Первый прогон 09.08 упал на псевдониме geofabrik: — «No matches for
+    // russia-far-eastern-fed-district». Ошибка в одном слове видна только в
+    // момент запуска, и то не сразу.
+    expect(cfg.osmUrl).toMatch(/^https:\/\/.+\.osm\.pbf$/);
+    // Проверяем КОМАНДУ, а не текст файла: в комментарии слово «geofabrik:»
+    // стоит законно — там объяснено, почему от псевдонима отказались.
+    expect(wf).not.toMatch(/--osm-url="geofabrik:/);
+    expect(wf).not.toMatch(/--area=/);
+  });
+
+  it('доступность источника проверяется ДО скачивания', () => {
+    // Иначе опечатка всплывает после семисот мегабайт загрузки.
+    const check = wf.indexOf('Check source is reachable');
+    const build = wf.indexOf('Build Kamchatka vector tiles');
+    expect(check).toBeGreaterThan(0);
+    expect(check).toBeLessThan(build);
   });
 
   it('вес печатается и превышение названо вслух', () => {
