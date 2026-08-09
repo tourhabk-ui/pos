@@ -668,18 +668,44 @@ function OnTrailTab() {
     : 'оценка, темп появится через 2–3 минуты';
 
   // SVG track: normalize lat to y-axis — honest representation of waypoint positions
-  const svgPoints = (() => {
-    if (waypoints.length < 2) return null;
-    const lats = waypoints.map(w => w.lat);
-    const minLat = Math.min(...lats);
-    const latRange = (Math.max(...lats) - minLat) || 0.001;
-    return waypoints.map((wp, i) => ({
-      x: (i / (waypoints.length - 1)) * 300 + 10,
-      // Higher lat = higher on screen (invert because SVG y increases downward)
-      y: 110 - ((wp.lat - minLat) / latRange) * 84,
-      i,
-    }));
-  })();
+  /**
+   * Схема внизу экрана. Рисуем НАСТОЯЩИЙ трек, если он есть: у маршрута с
+   * одной путевой точкой («Мыс Маячный», скрин владельца 09.08) прежняя схема
+   * не рисовалась вовсе и экран говорил «выберите маршрут», хотя маршрут был
+   * выбран, а трек лежал в ответе API нетронутым.
+   *
+   * Это вид СВЕРХУ (долгота по горизонтали, широта по вертикали), а не профиль
+   * высоты: профиль живёт выше и появляется только на реальных высотах.
+   */
+  const sketch = useMemo(() => {
+    const src: Array<{ lat: number; lng: number }> =
+      track && track.length >= 2
+        ? track.map(([lat, lng]) => ({ lat, lng }))
+        : waypoints;
+    if (src.length < 2) return null;
+
+    const lats = src.map(p => p.lat);
+    const lngs = src.map(p => p.lng);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+    const latRange = (maxLat - minLat) || 0.0005;
+    const lngRange = (maxLng - minLng) || 0.0005;
+
+    const project = (p: { lat: number; lng: number }) => ({
+      x: 10 + ((p.lng - minLng) / lngRange) * 300,
+      // Севернее — выше на экране: ось y в SVG растёт вниз.
+      y: 118 - ((p.lat - minLat) / latRange) * 100,
+    });
+
+    return {
+      fromTrack: Boolean(track && track.length >= 2),
+      points: src.map(project),
+      // Кружки — это ВСЕГДА путевые точки, а не вершины трека: иначе
+      // «текущая точка» подсвечивалась бы на случайной вершине линии.
+      dots: waypoints.map((w, i) => ({ ...project(w), i })),
+    };
+  }, [track, waypoints]);
+  const svgPoints = sketch?.points ?? null;
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
@@ -1045,7 +1071,8 @@ function OnTrailTab() {
         {/* Схема точек маршрута */}
         <div className="w-full">
           <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1.5">
-            Схема точек{!ahead && ' · рельефа нет в данных маршрута'}
+            {sketch?.fromTrack ? 'Схема трека, вид сверху' : 'Схема точек'}
+            {!ahead && ' · рельефа нет в данных маршрута'}
           </p>
           <div className="w-full h-32 rounded-xl overflow-hidden"
             style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
@@ -1060,7 +1087,7 @@ function OnTrailTab() {
                 fill="none" stroke="var(--success)" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round"
               />
-              {svgPoints.map(({ x, y, i }) => (
+              {(sketch?.dots ?? []).map(({ x, y, i }) => (
                 <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
                   fill={i < currentWpIdx ? 'var(--success)' : i === currentWpIdx ? 'var(--accent)' : 'var(--text-muted)'}
@@ -1071,7 +1098,12 @@ function OnTrailTab() {
             </svg>
           ) : (
             <div className="flex items-center justify-center h-full text-[var(--text-secondary)] text-xs">
-              {isLoadingRoute ? 'Загрузка трека…' : 'Выберите маршрут для отображения трека'}
+              {isLoadingRoute
+                ? 'Загрузка трека…'
+                : activeRouteTitle
+                  // Маршрут выбран — значит виноват не выбор, а данные.
+                  ? 'У маршрута нет трека в данных'
+                  : 'Выберите маршрут для отображения трека'}
             </div>
           )}
           </div>
