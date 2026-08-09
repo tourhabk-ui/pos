@@ -59,11 +59,18 @@ jobs:
             # отдаёт 401 — проба публичного JSON была невозможна в принципе.
             case "$u" in
               https://vedarai.ru/api/cron/*)
-                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
+                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
               *)
-                CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000);;
+                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000);;
             esac
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
+            # Заголовки ответа: часть поведения задаётся не нашим кодом, а
+            # прокси перед ним. Например Permissions-Policy может выключить
+            # геолокацию на всём сайте, и по телу страницы этого не увидеть.
+            if [ -s /tmp/headers ]; then
+              echo "── заголовки ──"
+              grep -iE '^(permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control):' /tmp/headers | cut -c1-300
+            fi
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
               while IFS= read -r marker; do
