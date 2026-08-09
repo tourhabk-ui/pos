@@ -553,6 +553,28 @@ function OnTrailTab() {
   );
   const figuresLive = figuresAreLive(fix);
 
+  /**
+   * Состояние экрана. Раньше он всегда показывал полную приборную панель: без
+   * маршрута и без GPS сверху вставало четыре полосы (сеть, GPS, компас,
+   * разрешение — две из них про одно и то же), под ними мёртвый компас и
+   * карточки «— м» и «0ч 00м». Это отчёт системы о себе, а не подсказка, что
+   * делать (владелец 09.08: «неверный empty state»). Теперь экран показывает
+   * ровно то, что соответствует моменту.
+   */
+  const hasRoute = waypoints.length > 0 || Boolean(activeRouteTitle);
+
+  /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
+  const status = useMemo((): { tone: 'warn' | 'info'; text: string; cta?: 'compass' } | null => {
+    if (gpsError) return { tone: 'warn', text: 'Геолокация запрещена — включите её в настройках браузера' };
+    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
+    if (gpsMessage) return { tone: 'warn', text: gpsMessage };
+    if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
+    if (isOffline) return { tone: 'info', text: 'Офлайн-режим: карты и точки маршрута доступны' };
+    if (compassState === 'blocked') return { tone: 'info', text: 'Компас выключен', cta: 'compass' };
+    if (compassState === 'unconfirmed') return { tone: 'warn', text: 'Компас не подтверждён — сверяйтесь с картой' };
+    return null;
+  }, [gpsError, fix, gpsMessage, isOffline, compassState]);
+
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
@@ -793,91 +815,63 @@ function OnTrailTab() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      {/* Network / GPS banners */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 text-xs"
-        style={{
-          background: isOffline
-            ? 'color-mix(in srgb, var(--warning) 15%, transparent)'
-            : 'color-mix(in srgb, var(--success) 12%, transparent)',
-          borderBottom: isOffline
-            ? '1px solid color-mix(in srgb, var(--warning) 25%, transparent)'
-            : '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
-          color: isOffline ? 'var(--warning)' : 'var(--success)',
-        }}
-      >
-        {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-        {/* Про СЕТЬ, и только про неё. Прежняя надпись обещала заодно и
-            рабочие спутники, ничего о них не зная: приёмник может быть мёртв
-            при полном интернете, и наоборот (аудит 09.08). */}
-        {isOffline ? 'Офлайн-режим • Карты доступны' : 'Сеть есть'}
-      </div>
-
-      {/* Состояние GPS — отдельной строкой, потому что это отдельный прибор. */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 text-xs"
-        style={{
-          background: figuresLive
-            ? 'color-mix(in srgb, var(--success) 8%, transparent)'
-            : 'color-mix(in srgb, var(--danger) 12%, transparent)',
-          borderBottom: '1px solid var(--border)',
-          color: figuresLive ? 'var(--text-secondary)' : 'var(--danger)',
-        }}
-      >
-        <MapPin className="w-3.5 h-3.5" />
-        {fixLabel(fix)}
-      </div>
-
-      {/* Состояние компаса. Молчащий датчик не должен выглядеть рабочим. */}
-      {compassState !== 'ok' && (
+      {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
+          это тоже сообщение: всё в порядке, идите. */}
+      {status && (
         <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs"
           style={{
-            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
+            background: status.tone === 'warn'
+              ? 'color-mix(in srgb, var(--warning) 12%, transparent)'
+              : 'color-mix(in srgb, var(--ocean) 10%, transparent)',
+            borderBottom: '1px solid var(--border)',
+            color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
           }}
         >
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="flex-1">{compassLabel(compassState)}</span>
-          {compassState === 'blocked' && (
-            <button onClick={enableCompass}
-              className="font-semibold underline underline-offset-2 shrink-0">
+          {status.tone === 'warn'
+            ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
+          <span className="flex-1">{status.text}</span>
+          {status.cta === 'compass' && (
+            <button onClick={enableCompass} className="font-semibold underline underline-offset-2 shrink-0">
               Включить
             </button>
           )}
         </div>
       )}
 
-      {gpsMessage && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
-          style={{
-            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
-          }}
-        >
-          <AlertCircle className="w-3.5 h-3.5" />
-          {gpsMessage}
-        </div>
-      )}
-      {gpsError && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
-          style={{
-            background: 'color-mix(in srgb, var(--warning) 15%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
-          }}
-        >
-          <AlertCircle className="w-3.5 h-3.5" />
-          Разрешите геолокацию в настройках браузера
-        </div>
-      )}
-
       {/* Main content */}
       <div className="flex-1 px-4 py-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
+
+        {!hasRoute && !isLoadingRoute ? (
+          /* Идти некуда — значит и приборов быть не должно: одно понятное
+             действие вместо компаса без сигнала и нулей в карточках. */
+          <div className="flex flex-col items-center text-center gap-5 py-10">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}>
+              <MapPin className="w-7 h-7" style={{ color: 'var(--success)' }} />
+            </div>
+            <div>
+              <p className="text-lg font-semibold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
+                Маршрут не выбран
+              </p>
+              <p className="text-sm text-[var(--text-secondary)] mt-1.5 max-w-[280px]">
+                Выберите маршрут — и экран станет навигатором: направление,
+                расстояние до точки и время в пути.
+              </p>
+            </div>
+            <button onClick={openRouteModal}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg"
+              style={{ background: 'var(--success)', color: '#08210f' }}>
+              Выбрать маршрут <ChevronRight className="w-4 h-4" />
+            </button>
+            <div className="text-xs text-[var(--text-muted)] space-y-1.5 pt-1">
+              <p>Карты можно скачать заранее — в поле они работают без сети.</p>
+              <p>Компас появится, если у телефона есть датчик.</p>
+            </div>
+          </div>
+        ) : (
+        <>
 
         {/* Compass + route info */}
         <div className="flex flex-col md:flex-row items-center gap-6 w-full">
@@ -982,7 +976,9 @@ function OnTrailTab() {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Приборы показываем, только когда им есть что показать: «— м» и
+            «0ч 00м» читаются не как «данных нет», а как «сломалось». */}
+        {figuresLive && (
         <div className="grid grid-cols-2 gap-3 w-full">
           <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Высота</p>
@@ -998,6 +994,7 @@ function OnTrailTab() {
             </p>
           </div>
         </div>
+        )}
 
         {/* Профиль высоты впереди — если высоты в данных есть. Иначе ниже
             идёт СХЕМА ТОЧЕК, и она подписана схемой: прежний график рисовал
@@ -1042,10 +1039,10 @@ function OnTrailTab() {
           </div>
         )}
 
-        {/* Схема точек маршрута */}
+        {/* Схема маршрута */}
         <div className="w-full">
           <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1.5">
-            Схема точек{!ahead && ' · рельефа нет в данных маршрута'}
+            Точки маршрута
           </p>
           <div className="w-full h-32 rounded-xl overflow-hidden"
             style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
@@ -1076,6 +1073,8 @@ function OnTrailTab() {
           )}
           </div>
         </div>
+        </>
+        )}
 
       </div>
 
