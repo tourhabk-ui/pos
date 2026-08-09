@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
 import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
+import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -262,6 +263,30 @@ export async function GET(
             payload,
           ));
           return pts.length >= 2 ? pts.map(p => [p.lat, p.lng] as [number, number]) : null;
+        })(),
+        /**
+         * Профиль высот считается на сервере по ПОЛНОМУ треку (прореживание
+         * для карты сюда не годится: оно выбрасывает как раз перегибы) и
+         * приходит готовым — клиент только режет его от текущей позиции.
+         * `reliable: false` означает «высот в данных нет»; экран обязан
+         * сказать это словами, а не рисовать линию из ничего.
+         */
+        relief: (() => {
+          const pts = extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          );
+          if (pts.length < 2) return null;
+          const relief = accumulateRelief(pts);
+          return {
+            distanceM: relief.distanceM,
+            ascentM: relief.ascentM,
+            descentM: relief.descentM,
+            minM: relief.minM,
+            maxM: relief.maxM,
+            reliable: relief.reliable,
+            points: relief.points,
+          };
         })(),
         reviews: reviewsResult.rows.map(rv => ({
           id:         String(rv.id),
