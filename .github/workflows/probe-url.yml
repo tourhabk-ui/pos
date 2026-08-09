@@ -49,13 +49,16 @@ jobs:
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
-            # CRON_SECRET — ТОЛЬКО своему домену, детерминированно по URL.
+            # CRON_SECRET — ТОЛЬКО своим крон-роутам, детерминированно по URL.
             # Конфиг-флаг auth (утро 08.08) провалился в тот же день: смешанная
             # проба health+чужой-URL ушла с дефолтным auth=true, и секрет
             # уехал на сторонний хост. Правило, зависящее от дисциплины
-            # заполняющего конфиг, — не защита; проверка хоста — защита.
+            # заполняющего конфиг, — не защита; проверка адреса — защита.
+            # Адрес сузили с домена до /api/cron/ (09.08): секрет нужен только
+            # там, а на публичных роутах чужой Bearer ловит Edge-middleware и
+            # отдаёт 401 — проба публичного JSON была невозможна в принципе.
             case "$u" in
-              https://vedarai.ru/*)
+              https://vedarai.ru/api/cron/*)
                 CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
               *)
                 CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000);;
@@ -95,7 +98,7 @@ jobs:
             echo "════════════════════════════════════════════════"
             echo "POST: $PURL"
             case "$PURL" in
-              https://vedarai.ru/*)
+              https://vedarai.ru/api/cron/*)
                 CODE=$(curl -sL -o /tmp/body -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" \
                   -H "Authorization: Bearer ${CRON_SECRET}" -H "Content-Type: application/json" \
                   -X POST --data-binary @/tmp/postbody.json "$PURL" || echo 000);;

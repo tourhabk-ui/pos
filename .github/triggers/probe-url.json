@@ -2,12 +2,12 @@
   "urls": [
     "https://vedarai.ru/api/tours-feed"
   ],
-  "bytes": 1400,
+  "bytes": 1200,
   "timeout": 45,
   "grep": [
     "op_phone",
     "79247808011",
-    "phone",
-    "error"
+    "\"phone\"",
+    "Неверный или истекший"
   ]
 }

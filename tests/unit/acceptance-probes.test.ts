@@ -16,14 +16,22 @@ const EXPLAIN = readFileSync(join(ROOT, 'app/api/cron/explain-availability/route
 const PLANNER = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf-8');
 
 describe('probe-url: POST-пробы', () => {
-  it('секрет уходит ТОЛЬКО своему домену — то же case-правило, что у GET', () => {
+  it('секрет уходит ТОЛЬКО своим крон-роутам — то же case-правило, что у GET', () => {
     const postBlock = WF.slice(WF.indexOf('POST-пробы'));
     expect(postBlock).toMatch(/case "\$PURL" in/);
-    expect(postBlock).toMatch(/https:\/\/vedarai\.ru\/\*\)/);
-    // Bearer только в vedarai-ветке; чужая ветка — последний wildcard-arm
-    // (первый '*)' — это хвост паттерна vedarai.ru/*).
+    expect(postBlock).toMatch(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/);
+    // Bearer только в крон-ветке; чужая ветка — последний wildcard-arm
+    // (первый '*)' — это хвост паттерна с адресом крон-роутов).
     const foreign = postBlock.slice(postBlock.lastIndexOf('*)'));
     expect(foreign).not.toMatch(/Authorization: Bearer/);
+  });
+
+  it('адрес секрета сузился до крон-роутов: домен целиком больше не адресат', () => {
+    // Публичные роуты нашего же домена от чужого Bearer получали 401 от
+    // Edge-middleware — проба публичного JSON была невозможна (09.08). Заодно
+    // это строго уже прежнего правила: мест, куда уходит секрет, стало меньше.
+    expect(WF).not.toMatch(/https:\/\/vedarai\.ru\/\*\)/);
+    expect(WF.match(/https:\/\/vedarai\.ru\/api\/cron\/\*\)/g) ?? []).toHaveLength(2);
   });
 
   it('тело — из файла триггера, без shell-интерполяции JSON', () => {
