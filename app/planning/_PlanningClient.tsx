@@ -22,6 +22,11 @@ import {
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
+import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
+import {
+  parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
+  type SavedMapRecord,
+} from '@/lib/offline/saved-map';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -313,37 +318,83 @@ function OnTrailTab() {
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
   const previewCacheRef = useRef<Map<string, SavedWaypoint[]>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
+  /** План скачивания: сколько это будет весить, пока не скачано. */
+  const [mapPlan, setMapPlan] = useState<{
+    tiles: number; mb: number; zooms: number[]; dropped: number[];
+    coverage: 'corridor' | 'bbox'; bufferKm: number | null; urls: string[];
+  } | null>(null);
+  /** Заявление о том, что уже лежит в телефоне. */
+  const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
+  const [crumbs, setCrumbs] = useState<Crumb[]>([]);
+  const crumbsRef = useRef<Crumb[]>([]);
+  const crumbsRouteRef = useRef<string | null>(null);
 
-  // Этап 2 офлайн-карты: авто-докачка тайлов коридора маршрута (зум 10-12,
-  // ~15 км паддинг) при активном маршруте. Один раз на маршрут (флаг), только
-  // онлайн — чтобы в поле без сети карта с треком уже была закэширована.
-  const prefetchTiles = useCallback(async (routeId: string) => {
+  /**
+   * План скачивания карты — сколько это будет весить.
+   *
+   * Раньше тайлы качались молча в фоне при первом открытии маршрута. Замысел
+   * добрый, исполнение нет: человек не знал ни что качается, ни сколько это
+   * весит, ни скачалось ли вообще, — а мобильный трафик тратился без спроса.
+   * Проверить готовность было нечем, и единственный момент, когда это можно
+   * проверить, наступал уже без связи.
+   *
+   * Теперь связь тратится по нажатию, а до нажатия виден вес.
+   */
+  const loadMapPlan = useCallback(async (routeId: string) => {
+    try {
+      const raw = localStorage.getItem(savedMapKey(routeId));
+      setSavedMap(parseSavedMap(raw));
+    } catch { /* хранилище может быть закрыто — не повод падать */ }
     if (typeof navigator === 'undefined' || navigator.onLine === false) return;
-    if (!navigator.serviceWorker) return;
-    const flag = `tiles_cached_${routeId}`;
-    try { if (localStorage.getItem(flag)) return; } catch { /* ignore */ }
     try {
       const res = await fetch(`/api/routes/${routeId}/offline-bundle`);
       const data = await res.json();
       if (!res.ok || !Array.isArray(data.tile_urls) || data.tile_urls.length === 0) return;
+      setMapPlan({
+        tiles: Number(data.tile_count) || data.tile_urls.length,
+        mb: Number(data.estimate_mb) || 0,
+        zooms: Array.isArray(data.zoom_levels) ? data.zoom_levels : [],
+        dropped: Array.isArray(data.dropped_zooms) ? data.dropped_zooms : [],
+        coverage: data.tile_coverage === 'bbox' ? 'bbox' : 'corridor',
+        bufferKm: typeof data.corridor_buffer_km === 'number' ? data.corridor_buffer_km : null,
+        urls: data.tile_urls as string[],
+      });
+    } catch { /* тихо: план — удобство, а не условие выхода */ }
+  }, []);
+
+  /** Скачать карту маршрута по явному нажатию. */
+  const saveMap = useCallback(async (routeId: string) => {
+    if (!mapPlan || !navigator.serviceWorker) return;
+    // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
+    // нехватке места — без предупреждения и, по закону подлости, перед
+    // выходом. Отказ браузера не скрываем, он попадёт в запись.
+    const persisted = await requestPersistentStorage();
+    try {
       const reg = await navigator.serviceWorker.ready;
       const sw = reg.active;
       if (!sw) return;
-      setTileDl({ done: 0, total: data.tile_count });
+      setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
         if ((e.data as { regionId?: string })?.regionId !== routeId) return;
         const m = e.data as { type: string; done: number; total: number };
         if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
         if (m.type === 'TILES_DONE') {
           setTileDl(null);
-          try { localStorage.setItem(flag, '1'); } catch { /* ignore */ }
+          const rec: SavedMapRecord = {
+            at: Date.now(), tiles: mapPlan.tiles, mb: mapPlan.mb,
+            zooms: mapPlan.zooms, droppedZooms: mapPlan.dropped,
+            coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, persisted,
+          };
+          setSavedMap(rec);
+          try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
           navigator.serviceWorker.removeEventListener('message', onMsg);
         }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
-      sw.postMessage({ type: 'CACHE_TILES', tiles: data.tile_urls, regionId: routeId });
-    } catch { /* тихо — не критично */ }
-  }, []);
+      sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
+    } catch { /* ignore */ }
+  }, [mapPlan]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
   // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
@@ -402,12 +453,12 @@ function OnTrailTab() {
         if (converted.length > 0) {
           setWaypoints(converted);
           try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: converted })); } catch { /* квота */ }
-          void prefetchTiles(routeId); // авто-докачка тайлов коридора для офлайна
+          void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
       .catch(() => { /* офлайн — уже показали кэш */ })
       .finally(() => setIsLoadingRoute(false));
-  }, [prefetchTiles]);
+  }, [loadMapPlan]);
 
   // Network
   useEffect(() => {
@@ -422,7 +473,16 @@ function OnTrailTab() {
   // Load active route on mount
   useEffect(() => {
     const routeId = localStorage.getItem('active_trail_route_id');
-    if (routeId) fetchRouteWaypoints(routeId);
+    if (!routeId) return;
+    // Свой след поднимаем ДО первого фикса: он про уже пройденное, и ждать
+    // спутников, чтобы показать вчерашний путь, незачем.
+    crumbsRouteRef.current = routeId;
+    try {
+      const restored = parseCrumbs(localStorage.getItem(crumbsKey(routeId)));
+      crumbsRef.current = restored;
+      setCrumbs(restored);
+    } catch { /* хранилище закрыто — начнём след заново */ }
+    fetchRouteWaypoints(routeId);
   }, [fetchRouteWaypoints]);
 
   // На iOS 13+ события ориентации не приходят, пока пользователь не разрешит
@@ -534,6 +594,25 @@ function OnTrailTab() {
           track.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, t });
           const cutoff = t - 30 * 60 * 1000;
           while (track.length > 0 && track[0].t < cutoff) track.shift();
+
+          // Крошки на диск: свой след — единственный способ вернуться, когда
+          // отказало остальное. Прежний след жил в памяти полчаса и умирал
+          // при перезагрузке, а телефон на морозе перезагружается сам.
+          //
+          // Пишем по пройденному расстоянию, а не по времени: час у ручья не
+          // должен съесть квоту хранилища. Совпадение ссылок означает «точка
+          // не добавила знания» — тогда и на диск ходить незачем.
+          const routeForCrumbs = crumbsRouteRef.current;
+          if (routeForCrumbs) {
+            const before = crumbsRef.current;
+            const after = addCrumb(before, { lat: pos.coords.latitude, lng: pos.coords.longitude, t });
+            if (after !== before) {
+              crumbsRef.current = after;
+              setCrumbs(after);
+              try { localStorage.setItem(crumbsKey(routeForCrumbs), serializeCrumbs(after)); }
+              catch { /* квота кончилась — след в памяти всё равно жив */ }
+            }
+          }
         },
         err => {
           // Раньше замечали только отказ в доступе (код 1), а «позиция
@@ -652,6 +731,19 @@ function OnTrailTab() {
         geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
+      // Свой след — отдельной линией и другим цветом. Путать его с маршрутом
+      // нельзя: маршрут это куда идти, след это где человек был. Возвращаются
+      // по второму.
+      ...(crumbs.length >= 2 ? [{
+        coords: [crumbs[0].lat, crumbs[0].lng] as [number, number],
+        title: 'Ваш след',
+        geometry: {
+          type: 'polyline',
+          coordinates: crumbs.map(c => [c.lat, c.lng] as [number, number]),
+          color: '#38BDF8', weight: 3,
+        } as MapMarkerGeometry,
+        suppressBalloon: true,
+      }] : []),
       ...waypoints.map((w, i): MapMarker => ({
         coords: [w.lat, w.lng],
         title: w.name,
@@ -659,7 +751,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [track, waypoints, currentWpIdx, activeRouteTitle]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -1230,14 +1322,65 @@ function OnTrailTab() {
 
       </div>
 
-      {/* Индикатор докачки офлайн-карты (Этап 2) */}
-      {tileDl && tileDl.total > 0 && (
-        <div className="flex items-center gap-2 px-4 py-2 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
-          <Download className="w-3.5 h-3.5 animate-pulse" style={{ color: 'var(--success)' }} />
-          Карта офлайн: {tileDl.done} / {tileDl.total}
-          <span className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
-            <span className="block h-full rounded-full" style={{ width: `${Math.round((tileDl.done / tileDl.total) * 100)}%`, background: 'var(--success)' }} />
-          </span>
+      {/* Карта офлайн: три состояния — качается, сохранена, не сохранена.
+          Раньше строка появлялась только на время фоновой докачки, а
+          проверить готовность было нечем: единственный момент, когда это
+          выясняется, наступал уже без связи. */}
+      {hasRoute && (tileDl || savedMap || mapPlan) && (
+        <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid #21262d' }}>
+          {tileDl && tileDl.total > 0 ? (
+            <div className="flex items-center gap-2">
+              <Download className="w-3.5 h-3.5 animate-pulse" style={{ color: 'var(--success)' }} />
+              Сохраняем карту: {tileDl.done} / {tileDl.total}
+              <span className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
+                <span className="block h-full rounded-full"
+                  style={{ width: `${Math.round((tileDl.done / tileDl.total) * 100)}%`, background: 'var(--success)' }} />
+              </span>
+            </div>
+          ) : savedMap ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} />
+              <span style={{ color: 'var(--text-secondary)' }}>
+                Карта сохранена · {savedMapSummary(savedMap)}
+              </span>
+              {mapPlan && (
+                <button onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
+                  className="underline underline-offset-2" style={{ color: 'var(--ocean)' }}>
+                  Обновить
+                </button>
+              )}
+              {/* Отброшенные зумы и незакреплённое хранилище — то, из-за чего
+                  «сохранено» может не совпасть с тем, что человек ждёт. */}
+              {savedMap.droppedZooms.length > 0 && (
+                <span className="w-full" style={{ color: 'var(--warning)' }}>
+                  Детальные слои не поместились — вблизи карта грубее
+                </span>
+              )}
+              {!savedMap.persisted && (
+                <span className="w-full" style={{ color: 'var(--warning)' }}>
+                  Система может удалить карту при нехватке места на телефоне
+                </span>
+              )}
+            </div>
+          ) : mapPlan ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button onClick={() => { const id = crumbsRouteRef.current; if (id) void saveMap(id); }}
+                className="inline-flex items-center gap-1.5 font-semibold px-3 py-1.5 rounded-lg"
+                style={{
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  color: 'var(--success)',
+                  border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
+                }}>
+                <Download className="w-3.5 h-3.5" />
+                Сохранить карту · {mapPlan.mb} МБ
+              </button>
+              <span>
+                {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
+                  ? `полоса ${mapPlan.bufferKm} км вдоль маршрута`
+                  : 'квадрат вокруг места'}
+              </span>
+            </div>
+          ) : null}
         </div>
       )}
 
