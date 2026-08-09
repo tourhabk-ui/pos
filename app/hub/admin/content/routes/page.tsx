@@ -19,6 +19,14 @@ interface RouteRow {
   hasCoords: boolean;
   isVisible: boolean;
   createdAt: string;
+  /** Представление объединяет места и маршруты — различаем их явно. */
+  kind?: string;
+  /** Точки маршрута (route_waypoints). null — запись не маршрут. */
+  waypoints?: number | null;
+  /** Точек в треке и сколько из них с высотой: по второму видно, будет ли профиль. */
+  trackPoints?: number | null;
+  elevationPoints?: number | null;
+  geometrySource?: string | null;
 }
 
 interface Pagination {
@@ -53,6 +61,10 @@ export default function AdminRoutesPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [visibility, setVisibility] = useState('');
+  // Владелец 09.08: «хочу посмотреть в админке маршруты с точками». Раньше
+  // список смешивал места с маршрутами и ничего не знал про точки.
+  const [kindFilter, setKindFilter] = useState('');
+  const [onlyWithWaypoints, setOnlyWithWaypoints] = useState(false);
   const [page, setPage] = useState(1);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -72,6 +84,8 @@ export default function AdminRoutesPage() {
       if (search) params.set('search', search);
       if (category) params.set('category', category);
       if (visibility) params.set('visibility', visibility);
+      if (kindFilter) params.set('kind', kindFilter);
+      if (onlyWithWaypoints) params.set('withWaypoints', '1');
       const res = await fetch(`/api/admin/content/routes?${params}`);
       const json = await res.json();
       if (json.success) {
@@ -81,7 +95,7 @@ export default function AdminRoutesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, category, visibility]);
+  }, [page, search, category, visibility, kindFilter, onlyWithWaypoints]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -307,6 +321,21 @@ export default function AdminRoutesPage() {
           <option value="visible">Видимые</option>
           <option value="hidden">Скрытые</option>
         </select>
+        {/* Список объединяет места и маршруты — раньше их было не различить. */}
+        <select value={kindFilter} onChange={e => { setKindFilter(e.target.value); setPage(1); }} className="ds-input text-sm">
+          <option value="">Места и маршруты</option>
+          <option value="route">Только маршруты</option>
+          <option value="place">Только места</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={onlyWithWaypoints}
+            onChange={e => { setOnlyWithWaypoints(e.target.checked); setPage(1); }}
+            className="rounded"
+          />
+          Только с точками
+        </label>
       </div>
 
       {/* Bulk actions */}
@@ -338,16 +367,18 @@ export default function AdminRoutesPage() {
               <th className="p-3 text-left text-[var(--text-muted)] font-medium w-28">Категория</th>
               <th className="p-3 text-left text-[var(--text-muted)] font-medium w-32">Источник</th>
               <th className="p-3 text-center text-[var(--text-muted)] font-medium w-16">Гео</th>
+              <th className="p-3 text-center text-[var(--text-muted)] font-medium w-20">Точки</th>
+              <th className="p-3 text-center text-[var(--text-muted)] font-medium w-32">Трек · высоты</th>
               <th className="p-3 text-center text-[var(--text-muted)] font-medium w-24">Видимость</th>
               <th className="p-3 text-center text-[var(--text-muted)] font-medium w-16">Правка</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">Загрузка...</td></tr>
+              <tr><td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">Загрузка...</td></tr>
             )}
             {!loading && routes.length === 0 && (
-              <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">Маршруты не найдены</td></tr>
+              <tr><td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">Маршруты не найдены</td></tr>
             )}
             {!loading && routes.map(r => (
               <tr key={r.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors">
@@ -367,6 +398,34 @@ export default function AdminRoutesPage() {
                 <td className="p-3 text-xs text-[var(--text-muted)] truncate max-w-0 w-32">{r.sourceName ?? '—'}</td>
                 <td className="p-3 text-center">
                   <MapPin className={`w-4 h-4 mx-auto ${r.hasCoords ? 'text-[var(--success)]' : 'text-[var(--text-muted)]'}`} />
+                </td>
+                {/* Точки маршрута: без них маршрут нельзя ни пройти, ни показать
+                    в поле. Прочерк — запись не маршрут, а место. */}
+                <td className="p-3 text-center">
+                  {r.kind !== 'route' ? (
+                    <span className="text-[var(--text-muted)]">—</span>
+                  ) : (r.waypoints ?? 0) > 0 ? (
+                    <span className="text-[var(--text-primary)] font-medium">{r.waypoints}</span>
+                  ) : (
+                    <span className="text-[var(--warning)]">нет</span>
+                  )}
+                </td>
+                {/* Трек и сколько его точек несут высоту: по второму числу
+                    видно, зажжётся ли профиль высот на экране «На маршруте». */}
+                <td className="p-3 text-center text-xs">
+                  {r.kind !== 'route' ? (
+                    <span className="text-[var(--text-muted)]">—</span>
+                  ) : (r.trackPoints ?? 0) < 2 ? (
+                    <span className="text-[var(--text-muted)]">нет трека</span>
+                  ) : (
+                    <span title={r.geometrySource ?? 'источник неизвестен'}>
+                      <span className="text-[var(--text-secondary)]">{r.trackPoints}</span>
+                      {' · '}
+                      {(r.elevationPoints ?? 0) > 0
+                        ? <span className="text-[var(--success)]">{r.elevationPoints} с высотой</span>
+                        : <span className="text-[var(--text-muted)]">без высот</span>}
+                    </span>
+                  )}
                 </td>
                 <td className="p-3 text-center">
                   <button
