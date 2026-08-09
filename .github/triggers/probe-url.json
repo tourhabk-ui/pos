@@ -1,14 +1,14 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/relief-coverage",
-    "https://vedarai.ru/api/cron/health"
+    "https://vedarai.ru/api/cron/relief-coverage"
   ],
   "bytes": 2500,
   "timeout": 60,
   "grep": [
     "verdict",
     "withElevation",
-    "843_agent_hot_path_indexes",
-    "idilesom"
-  ]
+    "idilesom",
+    "DOCTYPE"
+  ],
+  "note": "повтор после деплоя #1062 и #1063"
 }
