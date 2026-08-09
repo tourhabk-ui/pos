@@ -1,17 +1,12 @@
 {
-  "note": "Финальная приёмка 1048-1053: согласованность трёх каналов + счётчики (владелец 08-09.08)",
+  "note": "MAX deep-link по телефону (какой формат живой) + проверка ротации CRON_SECRET (health)",
   "urls": [
-    "https://vedarai.ru/api/cron/explain-availability?tour=6&days=14",
-    "https://vedarai.ru/llms.txt",
-    "https://vedarai.ru/sitemap.xml"
+    "https://vedarai.ru/api/cron/health",
+    "https://max.ru/+79147822222",
+    "https://max.ru/79147822222",
+    "https://max.ru/u/+79147822222"
   ],
-  "post": [
-    { "url": "https://vedarai.ru/api/mcp",
-      "body": { "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": { "name": "get_tours", "arguments": {} } } }
-  ],
-  "bytes": 9000,
-  "timeout": 90,
-  "grep": ["uses_availability_index\": true", "uses_bookings_index\": true", "has_seq_scan_on_bookings\": false", "Актуальные туры операторов", "create_booking_request", "Камчатская рыбалка", "РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ", "МЕСТА И ДОСТОПРИМЕЧАТЕЛЬНОСТИ"],
-  "count": ["/catalog/tours/", "/places/", "/routes/", "/plans/", "<url>"]
+  "bytes": 2500,
+  "timeout": 45,
+  "grep": ["Анатол", "профил", "не найден", "404", "qwen", "deepseek"]
 }
