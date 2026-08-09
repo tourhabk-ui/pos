@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Map as LMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
@@ -95,6 +95,17 @@ export default function LeafletMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LMap | null>(null);
   const clusterRef = useRef<unknown>(null);
+  /**
+   * Карта не завелась — это надо СКАЗАТЬ.
+   *
+   * Инициализация падала в пустой `catch`, и при неудачной загрузке куска
+   * leaflet человек получал ровно чёрный прямоугольник: ни карты, ни ошибки,
+   * ни причины (владелец 09.08: «по кнопке карта открывается чёрный экран»).
+   * На экране навигации это худший из возможных ответов — он неотличим от
+   * «приложение умерло», и проверить нечего.
+   */
+  const [initFailed, setInitFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -430,7 +441,12 @@ export default function LeafletMap({
         );
       }
 
-    }).catch(() => { /* Leaflet init failed — map won't show */ });
+    }).catch(() => {
+      // Чаще всего это несостоявшаяся загрузка куска карты: слабая связь,
+      // холодный кэш, оборванный запрос. Сеть на маршруте именно такая, и
+      // молчать здесь нельзя.
+      setInitFailed(true);
+    });
 
     return () => {
       // Останавливаем GPS-трекинг при размонтировании (экономит батарею)
@@ -452,13 +468,40 @@ export default function LeafletMap({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority]);
+  }, [markers, center, zoom, onMarkerClick, attribution, showUserLocation, locationPriority, retry]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height }}
-      className={`overflow-hidden ${className}`}
-    />
+    <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>
+      <div ref={containerRef} style={{ height: '100%' }} />
+      {initFailed && (
+        <div
+          role="alert"
+          style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24,
+            textAlign: 'center', background: 'var(--bg-primary)',
+          }}
+        >
+          <span style={{ color: 'var(--text-primary)', fontSize: 15, fontWeight: 600 }}>
+            Карта не загрузилась
+          </span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 13, maxWidth: 280, lineHeight: 1.4 }}>
+            Не удалось получить карту — обычно это слабая связь. Точки маршрута и
+            координаты работают без неё.
+          </span>
+          <button
+            type="button"
+            onClick={() => { setInitFailed(false); setRetry(n => n + 1); }}
+            style={{
+              marginTop: 4, padding: '9px 16px', borderRadius: 999, cursor: 'pointer',
+              background: 'none', color: 'var(--ocean)', fontSize: 13, fontWeight: 600,
+              border: '1px solid color-mix(in srgb, var(--ocean) 35%, transparent)',
+            }}
+          >
+            Повторить
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
