@@ -60,17 +60,39 @@ function plausible(v: unknown): DemElevation {
 }
 
 /**
+ * Сколько ждём ответа модели. Без своего предела зависший внешний хост
+ * висит бесконечно: бюджет прогона проверяется МЕЖДУ запросами, и застряв
+ * внутри одного, роут не возвращается вовсе. Прогон 09.08 так и оборвался —
+ * партия 7 висела три минуты, пока не сработал таймаут curl в workflow.
+ * Свой предел превращает зависание в обычную ошибку партии.
+ */
+export const DEM_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
  * Спросить у модели высоты пачки точек. Возвращает массив той же длины:
  * позиция без ответа остаётся null, а не подменяется соседом.
  */
 export async function fetchDemBatch(points: DemPoint[], fetchImpl = fetch): Promise<DemElevation[]> {
   if (points.length === 0) return [];
   const locations = points.map(p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
-  const res = await fetchImpl(DEM_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ locations }),
-  });
+  let res: Response;
+  try {
+    res = await fetchImpl(DEM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locations }),
+      signal: AbortSignal.timeout(DEM_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new Error(`DEM не ответил за ${DEM_REQUEST_TIMEOUT_MS / 1000} с`);
+    }
+    throw err;
+  }
+  // 429 — исчерпан суточный лимит источника, а не сбой. Формулировка важна:
+  // иначе следующий прогон будут чинить, а чинить нечего — надо подождать.
+  if (res.status === 429) throw new Error('DEM: лимит запросов исчерпан, продолжить позже');
   if (!res.ok) throw new Error(`DEM HTTP ${res.status}`);
   const data = (await res.json()) as OpenTopoResponse;
   if (data.status && data.status !== 'OK') {
@@ -163,6 +185,8 @@ export interface BackfillResult {
   failed: number;
   points_queried: number;
   duration_ms: number;
+  /** Почему прогон закончился раньше выборки — пусто, если прошёл штатно. */
+  stopped?: string;
   items: Array<{ route: string; points: number; queried: number; status: string; min?: number; max?: number }>;
   errors: string[];
 }
@@ -212,6 +236,7 @@ export async function backfillDemElevations(opts: {
 
   let lastCall = 0;
   for (const row of rows) {
+    if (res.stopped) break;
     if (Date.now() - started > budgetMs) break;
     res.checked++;
     const track = readTrack(row.geometry);
@@ -232,8 +257,13 @@ export async function backfillDemElevations(opts: {
       try {
         values.push(...await fetchDemBatch(indices.slice(i, i + DEM_BATCH).map(k => track[k]), fetchImpl));
       } catch (err) {
-        res.errors.push(`${row.title}: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200));
+        const msg = err instanceof Error ? err.message : String(err);
+        res.errors.push(`${row.title}: ${msg}`.slice(0, 200));
         broke = true;
+        // Исчерпанный лимит источника — не сбой одного маршрута, а конец
+        // прогона: следующие пойдут в ту же стену и только съедят время,
+        // а в логе останется двадцать одинаковых ошибок вместо одной ясной.
+        if (msg.includes('лимит запросов')) res.stopped = msg;
         break;
       }
     }
