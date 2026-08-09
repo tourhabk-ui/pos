@@ -241,3 +241,59 @@ describe('положение переводится в шкалу трека, а
     expect(screen).not.toMatch(/fromM = progress\.doneKm/);
   });
 });
+
+describe('высоты источника не теряются на импорте', () => {
+  const IMP = read('lib/services/ingest/idilesom-importer.ts');
+
+  it('третий элемент переживает ОБА порядка координат', () => {
+    // Замер прода 09.08: 289 маршрутов из idilesom, 119 683 точки, ноль высот.
+    // Причина — ветка «широта первой» выбрасывала p[2], пока соседняя его
+    // сохраняла. Порядок на Камчатке определяется первым числом: широта 50-64,
+    // долгота 155-167, поэтому lat-first уходил именно в теряющую ветку.
+    expect(IMP).toMatch(/p\.length >= 3 \? \[p\[0\], p\[1\], p\[2\]\] : \[p\[0\], p\[1\]\]/);
+    expect(IMP).toMatch(/p\.length >= 3 \? \[p\[1\], p\[0\], p\[2\]\] : \[p\[1\], p\[0\]\]/);
+    // Прежняя безусловная перестановка без высоты больше не встречается.
+    expect(IMP).not.toMatch(/map\(p => \[p\[1\], p\[0\]\]\)/);
+  });
+
+  it('форму источника можно проверить, а не предполагать', () => {
+    expect(IMP).toMatch(/export async function inspectIdilesomShape/);
+    // Наружу — форма, а не содержимое: длина точки, порядок, диапазон высот.
+    expect(IMP).toMatch(/tupleLength/);
+    expect(IMP).toMatch(/'lng-first' \| 'lat-first'/);
+  });
+
+  it('диагностика ничего не пишет в базу', () => {
+    const route = read('app/api/cron/idilesom-tracks/route.ts');
+    expect(route).toMatch(/get\('mode'\) === 'inspect'/);
+    const start = route.indexOf("=== 'inspect'");
+    const inspectBlock = route.slice(start, route.indexOf("=== 'link'", start));
+    expect(inspectBlock).not.toMatch(/INSERT|UPDATE|DELETE/);
+  });
+});
+
+describe('схема внизу экрана показывает трек, если он есть', () => {
+  const SCREEN = read('app/planning/_PlanningClient.tsx');
+
+  it('маршрут с одной точкой больше не остаётся без схемы', () => {
+    // «Мыс Маячный» (скрин владельца 09.08): точка одна, схема строилась
+    // только из точек и требовала двух — экран показывал пустоту.
+    expect(SCREEN).toMatch(/track && track\.length >= 2\n\s*\? track\.map/);
+  });
+
+  it('кружки — путевые точки, а не вершины трека', () => {
+    expect(SCREEN).toMatch(/dots: waypoints\.map/);
+    expect(SCREEN).toMatch(/\(sketch\?\.dots \?\? \[\]\)\.map/);
+  });
+
+  it('схема подписана видом сверху и не выдаётся за профиль', () => {
+    // Держим смысл, а не формулировку: подпись обязана говорить «вид сверху»
+    // (это план, а не рельеф), а точный текст правится копирайтом.
+    expect(SCREEN).toMatch(/вид сверху/);
+    expect(SCREEN).not.toMatch(/[Пп]рофиль[^\n]{0,30}вид сверху/);
+  });
+
+  it('выбранный маршрут без трека говорит о данных, а не о выборе', () => {
+    expect(SCREEN).toMatch(/У маршрута нет трека в данных/);
+  });
+});
