@@ -48,15 +48,23 @@ jobs:
       - name: Commit result to a branch
         run: |
           set -euo pipefail
-          if git diff --quiet -- lib/geo/kamchatka-coastline.json; then
-            echo "Контур не изменился — коммитить нечего"
-            exit 0
+          if [ ! -s lib/geo/kamchatka-coastline.json ]; then
+            echo "Файл контура не создан — сборка выше не отработала"
+            exit 1
           fi
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
+          # Индексируем ДО проверки изменений. Первый прогон создаёт файл,
+          # которого в репозитории ещё нет, а `git diff` не видит неотслеживаемых
+          # файлов — из-за этого прогон 09.08 отчитался успехом и не положил
+          # ничего («Контур не изменился»). Сравнивать надо индекс с HEAD.
+          git add lib/geo/kamchatka-coastline.json
+          if git diff --cached --quiet -- lib/geo/kamchatka-coastline.json; then
+            echo "Контур не изменился — коммитить нечего"
+            exit 0
+          fi
           BR="data/coastline-$(date -u +%Y%m%d-%H%M)"
           git checkout -b "$BR"
-          git add lib/geo/kamchatka-coastline.json
           git commit -m "Контур берега Камчатки из Natural Earth (10 m, упрощён)"
           git push origin "$BR"
           echo "Ветка $BR готова — открывайте PR"
