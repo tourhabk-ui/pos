@@ -180,8 +180,13 @@ function CompassDisplay({ heading, state }: { heading: number; state: CompassSta
         style={{ background: 'var(--bg-primary)', border: '2px solid color-mix(in srgb, var(--success) 25%, transparent)' }} />
       <div className="absolute inset-2 rounded-full"
         style={{ border: '1px solid rgba(74,222,128,0.12)' }} />
+      {/* Кольцо сторон света крутится ТОЛЬКО с подтверждённым азимутом.
+          Раньше guard стоял лишь на стрелке, и на скрине владельца 09.08
+          вышло худшее из возможного: стрелка погашена и смотрит вверх, а
+          кольцо развёрнуто на 270° — «север справа». Прибор из одного
+          мёртвого датчика делал два противоречащих утверждения. */}
       {cardinals.map(({ label, angle }) => {
-        const rad = ((angle - heading) * Math.PI) / 180;
+        const rad = ((angle - (trusted ? heading : 0)) * Math.PI) / 180;
         const x = 80 + 62 * Math.sin(rad);
         const y = 80 - 62 * Math.cos(rad);
         return (
@@ -189,7 +194,8 @@ function CompassDisplay({ heading, state }: { heading: number; state: CompassSta
             style={{
               left: x, top: y,
               transform: 'translate(-50%, -50%)',
-              color: label === 'N' ? 'var(--success)' : 'var(--text-muted)',
+              color: label === 'N' && trusted ? 'var(--success)' : 'var(--text-muted)',
+              opacity: trusted ? 1 : 0.45,
             }}>
             {label}
           </span>
@@ -232,6 +238,9 @@ interface SavedWaypoint { lat: number; lng: number; name: string; }
 
 function OnTrailTab() {
   const [heading, setHeading] = useState(0);
+  // Земной источник азимута, увиденный хоть раз, отменяет относительный
+  // навсегда — см. подписку на события ниже.
+  const sawAbsoluteRef = useRef(false);
   // Прибор обязан отличать «я знаю» от «я показываю последнее, что видел».
   const [compassState, setCompassState] = useState<CompassState>('off');
   const [coords, setCoords] = useState<{
@@ -460,19 +469,34 @@ function OnTrailTab() {
 
   // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      // Азимут берём только там, где он привязан к земной системе координат:
-      // webkitCompassHeading на iOS или alpha с флагом absolute. Без флага
-      // alpha отсчитывается от случайной начальной ориентации — выдавать её
-      // за направление на север нельзя (аудит 09.08).
+    // Азимут берём только там, где он привязан к земной системе координат:
+    // webkitCompassHeading на iOS, событие deviceorientationabsolute или
+    // alpha с флагом absolute. Без этого alpha отсчитывается от случайной
+    // начальной ориентации телефона — выдавать её за север нельзя.
+    //
+    // Источника два, и они соперничают. На Android Chrome приходят ОБА
+    // события, причём относительное — тоже постоянно. Пока оба шли в один
+    // обработчик, относительное затирало честный азимут через такт, и
+    // предупреждение «компас не подтверждён» висело вечно на исправном
+    // магнитометре (владелец 09.08: «что за баг?»). Поэтому земной источник
+    // выигрывает навсегда: увидели его хоть раз — относительное больше не
+    // слушаем.
+    const handleAbsolute = (e: DeviceOrientationEvent) => {
+      const r = readHeading(e as DeviceOrientationEvent & { webkitCompassHeading?: number }, true);
+      if (!r) return;
+      sawAbsoluteRef.current = true;
+      setHeading(r.heading);
+      setCompassState(r.state);
+    };
+    const handleRelative = (e: DeviceOrientationEvent) => {
+      if (sawAbsoluteRef.current) return;
       const r = readHeading(e as DeviceOrientationEvent & { webkitCompassHeading?: number });
       if (!r) return;
       setHeading(r.heading);
       setCompassState(r.state);
     };
-    // deviceorientationabsolute gives Earth-frame absolute heading (Android Chrome)
-    window.addEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
-    window.addEventListener('deviceorientation', handleOrientation as EventListener);
+    window.addEventListener('deviceorientationabsolute', handleAbsolute as EventListener, true);
+    window.addEventListener('deviceorientation', handleRelative as EventListener);
     if ('geolocation' in navigator) {
       watchRef.current = navigator.geolocation.watchPosition(
         pos => {
@@ -513,8 +537,8 @@ function OnTrailTab() {
     // не появится никогда: мёртвый GPS событий не шлёт.
     const ageTimer = setInterval(() => setNowTick(Date.now()), 5_000);
     return () => {
-      window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
-      window.removeEventListener('deviceorientation', handleOrientation as EventListener);
+      window.removeEventListener('deviceorientationabsolute', handleAbsolute as EventListener, true);
+      window.removeEventListener('deviceorientation', handleRelative as EventListener);
       if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
       clearInterval(timer);
       clearInterval(paceTimer);
