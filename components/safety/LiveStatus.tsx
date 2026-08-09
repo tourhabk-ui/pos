@@ -14,6 +14,7 @@
  * Цвета — только глобальные токены (+ локальный --radar для зелёной развёртки).
  */
 
+import { requestPosition, geoFailureText, type GeoFailure } from '@/lib/geo/current-position';
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
@@ -153,7 +154,10 @@ const COASTLINE: Array<[number, number]> = [
 
 export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center: { lat: number; lng: number; label: string } }) {
   const [c, setC] = useState(center);
-  const [geo, setGeo] = useState<'idle' | 'ok' | 'deny'>('idle');
+  // Состояний четыре, а не три: «ищу» — отдельное. Без него нажатие кнопки
+  // выглядело как молчание на все восемь секунд ожидания (владелец 09.08).
+  const [geo, setGeo] = useState<'idle' | 'busy' | 'ok' | 'deny'>('idle');
+  const [geoErr, setGeoErr] = useState<GeoFailure | null>(null);
   const [sel, setSel] = useState<Placed | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -164,13 +168,19 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
       .catch(() => {});
   };
 
-  const useMyLocation = () => {
-    if (!navigator.geolocation) { setGeo('deny'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setC({ lat: p.coords.latitude, lng: p.coords.longitude, label: 'Ваше местоположение' }); setGeo('ok'); setSel(null); },
-      () => setGeo('deny'),
-      { timeout: 8000, maximumAge: 300000 },
-    );
+  const useMyLocation = async () => {
+    setGeo('busy');
+    setGeoErr(null);
+    const r = await requestPosition({ maxAgeMs: 300_000 });
+    if (r.ok) {
+      setC({ lat: r.lat, lng: r.lng, label: 'Ваше местоположение' });
+      setGeo('ok');
+      setSel(null);
+      return;
+    }
+    // Причина сохраняется: таймаут лечится повтором, запрет — настройками.
+    setGeoErr(r.kind);
+    setGeo('deny');
   };
 
   const R = 92, CX = 100, CY = 100;
@@ -257,7 +267,11 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
       <div className="rmeta">
         <div className="rrow">
           <span className="rc">Центр: <b>{c.label}</b></span>
-          {geo !== 'ok' && <button className="rgeo" onClick={useMyLocation}>Моё местоположение</button>}
+          {geo !== 'ok' && (
+            <button className="rgeo" onClick={useMyLocation} disabled={geo === 'busy'}>
+              {geo === 'busy' ? 'Ищем спутники…' : geo === 'deny' ? 'Попробовать снова' : 'Моё местоположение'}
+            </button>
+          )}
         </div>
         {geo === 'ok' && (
           <button className="rcoord" onClick={copyCoords} title="Скопировать координаты">
@@ -265,7 +279,11 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
             <span>{copied ? 'скопировано' : 'копировать'}</span>
           </button>
         )}
-        {geo === 'deny' && <div className="rhint">Геолокация недоступна — показываю от Петропавловска.</div>}
+        {geo === 'deny' && (
+          <div className="rhint">
+            {geoErr ? geoFailureText(geoErr) : 'Определить местоположение не удалось'}. Пока показываю от Петропавловска.
+          </div>
+        )}
         {sel ? (
           <button className="rsel" onClick={() => setSel(null)}>
             <span className="rdot" style={{ background: LEVEL_COLOR[sel.level] }} />
@@ -400,6 +418,8 @@ export const LIVE_STATUS_CSS = `
 .kh-live .radar .rc{font:400 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .kh-live .radar .rc b{color:var(--text-primary);font-weight:600}
 .kh-live .radar .rgeo{font:600 9px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);background:none;border:1px solid color-mix(in srgb,var(--ocean) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+/* Пока ищем спутники, кнопка должна выглядеть занятой, а не сломанной. */
+.kh-live .radar .rgeo:disabled{opacity:.6;cursor:progress}
 .kh-live .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--text-muted)}
 .kh-live .radar .rhint a{color:var(--ocean);text-decoration:none}
 .kh-live .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--text-primary);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
