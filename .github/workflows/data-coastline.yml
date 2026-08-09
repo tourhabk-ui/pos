@@ -1,0 +1,62 @@
+name: Data — контур берега Камчатки из Natural Earth
+
+# Радар безопасности рисует берег, и рисовать его «по памяти» нельзя: на
+# экране безопасности выдуманная линия — это ложь о местности (CLAUDE.md §8).
+# Прежний контур был ручной ломаной из двух десятков узлов на весь полуостров;
+# в круге радиусом 200 км прямые между ними резали скоп по диагонали через
+# воду (владелец 09.08: «радар сломан»).
+#
+# Отсюда конвейер: раннер (у него есть интернет, в отличие от песочницы
+# разработки) скачивает берег из Natural Earth — общественное достояние,
+# 10 m — режет по камчатской рамке, упрощает Дугласом-Пейкером и кладёт
+# готовый файл в репозиторий отдельной веткой. Данные приходят из источника,
+# а не из головы, и обновляются повторным запуском.
+#
+# Запуск: push в main, меняющий .github/triggers/coastline.json (там же —
+# порог упрощения и потолок точек). Ручной workflow_dispatch интеграции
+# недоступен — 403, поэтому файл-триггер, как у остальных импортов.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/coastline.json'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch, clip and simplify
+        run: |
+          set -euo pipefail
+          EPS=$(python3 -c "import json; print(json.load(open('.github/triggers/coastline.json')).get('epsilon', 0.004))")
+          MAXP=$(python3 -c "import json; print(json.load(open('.github/triggers/coastline.json')).get('maxPoints', 3000))")
+          SRC=$(python3 -c "import json; print(json.load(open('.github/triggers/coastline.json')).get('source', 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_coastline.geojson'))")
+          echo "порог: $EPS° · потолок: $MAXP точек"
+          curl -sSL --max-time 300 -o /tmp/coast.geojson "$SRC"
+          echo "скачано: $(wc -c < /tmp/coast.geojson) байт"
+          python3 scripts/build-kamchatka-coastline.py /tmp/coast.geojson \
+            lib/geo/kamchatka-coastline.json "$EPS" "$MAXP"
+
+      - name: Commit result to a branch
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- lib/geo/kamchatka-coastline.json; then
+            echo "Контур не изменился — коммитить нечего"
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          BR="data/coastline-$(date -u +%Y%m%d-%H%M)"
+          git checkout -b "$BR"
+          git add lib/geo/kamchatka-coastline.json
+          git commit -m "Контур берега Камчатки из Natural Earth (10 m, упрощён)"
+          git push origin "$BR"
+          echo "Ветка $BR готова — открывайте PR"
