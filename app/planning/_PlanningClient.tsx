@@ -29,7 +29,19 @@ const Header = dynamic(
 );
 
 // Карта с треком — только на клиенте (Leaflet не SSR-безопасен)
-const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
+// Карта грузится отдельным куском (leaflet + markercluster). Без подписи
+// нажатие на кнопку выглядело зависанием: чёрный экран на всё время загрузки
+// чанка и первых тайлов, и ни одного признака, что что-то происходит
+// (владелец 09.08: «карта открывается с большой задержкой»).
+const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center"
+      style={{ background: '#0d1117', color: 'var(--text-muted)', fontSize: 13 }}>
+      Загружаем карту…
+    </div>
+  ),
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -467,6 +479,15 @@ function OnTrailTab() {
     return () => { wakeLock?.release().catch(() => {}); };
   }, []);
 
+  // Кусок карты греем заранее, пока человек смотрит на компас. Ждать загрузки
+  // в момент нажатия — значит ждать её в ту минуту, когда карта нужнее всего;
+  // на маршруте это ещё и минута с худшей связью. Промах прогрева ничего не
+  // ломает: обычная динамическая загрузка сработает по нажатию.
+  useEffect(() => {
+    const t = setTimeout(() => { void import('@/components/shared/LeafletMap'); }, 1200);
+    return () => clearTimeout(t);
+  }, []);
+
   // Sensors + timer — run once on mount; timer reads startTimeRef at call time
   useEffect(() => {
     // Азимут берём только там, где он привязан к земной системе координат:
@@ -613,19 +634,26 @@ function OnTrailTab() {
   // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
   // markers — пересборка на каждом рендере (GPS-тики) убивала карту.
+  // Линию рисуем по НАСТОЯЩЕМУ треку, а не по ломаной между точками.
+  // Владелец 09.08 открыл карту на «Мысе Маячном» и увидел одинокий маркер:
+  // у маршрута одна точка, ломаная из одной вершины — это ничто. Трек при
+  // этом был, им же рисуется схема «вид сверху» этажом ниже. Карта навигации
+  // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
   const mapMarkers: MapMarker[] = useMemo(() => {
-    if (waypoints.length === 0) return [];
-    const line = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+    const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
     // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
-    // линию не рисуем, только точки (полевой скрин 20.07)
-    const scattered = isScatteredCollection(line);
+    // ломаную не рисуем, только точки (полевой скрин 20.07). К настоящему
+    // треку это не относится: он путь, а не список мест.
+    const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
+    const line = track && track.length >= 2 ? track : fallback;
+    if (!line && waypoints.length === 0) return [];
     return [
-      ...(scattered ? [] : [{
-        coords: [waypoints[0].lat, waypoints[0].lng] as [number, number],
+      ...(line ? [{
+        coords: line[0],
         title: activeRouteTitle ?? 'Маршрут',
         geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
         suppressBalloon: true,
-      }]),
+      }] : []),
       ...waypoints.map((w, i): MapMarker => ({
         coords: [w.lat, w.lng],
         title: w.name,
@@ -633,7 +661,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [waypoints, currentWpIdx, activeRouteTitle]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -1267,7 +1295,7 @@ function OnTrailTab() {
             aria-label="Закрыть карту">
             <X className="w-5 h-5" />
           </button>
-          {waypoints.length === 0 && (
+          {mapMarkers.length === 0 && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm whitespace-nowrap"
               style={{ background: 'rgba(13,17,23,0.9)', color: 'var(--text-muted)', border: '1px solid #30363d' }}>
               Маршрут не выбран — карта без трека
