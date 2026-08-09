@@ -1,7 +1,7 @@
 {
-  "note": "Диагноз: контакты и лого партнёра на живой карточке тура 6 (скрин владельца 09.08)",
+  "note": "Диагноз-2: сырые ключи contacts в payload карточки тура 6",
   "urls": ["https://vedarai.ru/catalog/tours/6"],
-  "bytes": 3000,
+  "bytes": 800,
   "timeout": 45,
-  "grep": ["tel:+79247808011", "tel:+79147822222", "labanalex", "TikTok", "Звонки:", "KamFishing_41", "fishingkam.ru", "logo.png", "operator_contacts", "Минимальная группа", "от 7 000", "400 м²", "Программа", "Кто проводит"]
+  "grep": ["79247808011", "79147822222", "\"phone\"", "phone\\\":", "phone_hours", "Написать в Telegram", "Telegram-канал", "kamfishing41", "website", "Сайт оператора", "toContacts", "operator_contacts\":\"", "operator_contacts\":{"]
 }
