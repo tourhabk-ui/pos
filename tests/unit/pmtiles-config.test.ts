@@ -1,0 +1,87 @@
+/**
+ * Конфиг сборки своей карты.
+ *
+ * Прогон идёт два часа и качает сотни мегабайт, поэтому ошибку в рамке или
+ * зумах дешевле поймать здесь, чем через два часа по весу файла. Тесты
+ * стерегут ровно то, из-за чего сборка окажется бесполезной: рамка мимо
+ * Камчатки, зумы не те, конвейер начал что-то деплоить.
+ */
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const cfg = JSON.parse(
+  readFileSync(join(process.cwd(), '.github/triggers/pmtiles.json'), 'utf-8'),
+) as {
+  area: string; bounds: string; minzoom: number; maxzoom: number; planetilerVersion: string;
+};
+const wf = readFileSync(join(process.cwd(), '.github/workflows/data-pmtiles.yml'), 'utf-8');
+
+describe('рамка накрывает Камчатку', () => {
+  const [west, south, east, north] = cfg.bounds.split(',').map(Number);
+
+  it('четыре числа в порядке запад,юг,восток,север', () => {
+    expect([west, south, east, north].every(Number.isFinite)).toBe(true);
+    expect(west).toBeLessThan(east);
+    expect(south).toBeLessThan(north);
+  });
+
+  it('Петропавловск, Ключевская и Командоры внутри', () => {
+    // Три угла обитаемой Камчатки. Промах рамки виден только по весу файла
+    // через два часа сборки — здесь он виден сразу.
+    const inside = (lat: number, lng: number) =>
+      lat >= south && lat <= north && lng >= west && lng <= east;
+    expect(inside(53.02, 158.65)).toBe(true);   // Петропавловск
+    expect(inside(56.06, 160.64)).toBe(true);   // Ключевская сопка
+    expect(inside(55.20, 165.98)).toBe(true);   // остров Беринга
+    expect(inside(51.45, 157.00)).toBe(true);   // Курильское озеро, юг
+  });
+
+  it('рамка не разрослась на весь Дальний Восток', () => {
+    // Без --bounds в файл уехал бы Владивосток и Магадан: вес втрое, польза
+    // нулевая.
+    expect(east - west).toBeLessThan(20);
+    expect(north - south).toBeLessThan(20);
+  });
+});
+
+describe('зумы выбраны под пеший маршрут', () => {
+  it('хранение до 14: дальше вектор дорисовывается на устройстве', () => {
+    // 14 — потолок ХРАНЕНИЯ, не показа. У растра так нельзя, там каждый зум
+    // качается отдельно, и в этом вся разница в весе.
+    expect(cfg.maxzoom).toBeGreaterThanOrEqual(13);
+    expect(cfg.maxzoom).toBeLessThanOrEqual(15);
+    expect(cfg.minzoom).toBe(0);
+  });
+
+  it('версия сборщика зафиксирована, а не «latest»', () => {
+    // Плавающая версия делает вес и схему невоспроизводимыми: сравнивать
+     // прогоны между собой станет не с чем.
+    expect(cfg.planetilerVersion).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe('конвейер ничего не деплоит', () => {
+  it('результат уходит артефактом, а не в репозиторий и не на прод', () => {
+    // Фаза 1 по плану — замер. Решение о переезде принимается по весу файла,
+    // и до этого решения runtime не трогается.
+    expect(wf).toMatch(/upload-artifact/);
+    expect(wf).not.toMatch(/git push/);
+    expect(wf).not.toMatch(/vedarai\.ru/);
+    expect(wf).toMatch(/permissions:\s*\n\s*contents: read/);
+  });
+
+  it('рамка и область берутся из конфига, а не зашиты в шаге', () => {
+    expect(wf).toMatch(/--bounds="\$BOUNDS"/);
+    expect(wf).toMatch(/--area="\$AREA"/);
+  });
+
+  it('вес печатается и превышение названо вслух', () => {
+    expect(wf).toMatch(/Своя карта Камчатки: \$\{MB\} МБ/);
+    expect(wf).toMatch(/больше гигабайта/);
+  });
+
+  it('атрибуция OSM не забыта — это условие ODbL, а не вежливость', () => {
+    expect(wf).toMatch(/OpenStreetMap contributors, ODbL/);
+  });
+});

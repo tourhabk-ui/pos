@@ -1,0 +1,132 @@
+name: Data — своя карта Камчатки (PMTiles)
+
+# Фаза 1 плана офлайн-навигации: собрать СВОЮ карту и увидеть её настоящий вес.
+#
+# Зачем вообще уходить с чужих тайлов. Сейчас карту отдаёт tile.openstreetmap.org
+# — сервер сообщества, живущий на пожертвования. Его политика прямо запрещает
+# два наших сценария: массовую выкачку и раздачу тайлов через приложение. Пока
+# трафик мал, никто не замечает; когда заметят, забанят по IP — и офлайн-карта
+# умрёт разом у всех, в поле, где починить нельзя.
+#
+# Данные OSM при этом свободны (ODbL). Несвободна только чужая инфраструктура,
+# и её мы заменяем своей.
+#
+# Почему векторные тайлы, а не растр. Камчатская рамка на 15 зуме — около трёх
+# миллионов картинок, порядка 30 ГБ. Те же данные в векторе — сотни мегабайт,
+# потому что рисует устройство, и любой зум получается из одного набора. Плюс
+# офлайн становится ОДНОЙ закачкой одного файла вместо тысячи запросов за
+# тайлами, каждый из которых может не дойти.
+#
+# ЭТОТ ПРОГОН НИЧЕГО НЕ ДЕПЛОИТ. Результат уходит артефактом, чтобы решение о
+# переезде принималось по замеру, а не по оценке. Если файл выйдет
+# неподъёмным — режем зумы или область, и это видно ДО того, как переписан
+# фронтенд.
+#
+# Запуск: push в main, меняющий .github/triggers/pmtiles.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/pmtiles.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pmtiles
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Выгрузка Дальнего Востока — сотни мегабайт, разбор занимает время.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read config
+        id: cfg
+        run: |
+          set -euo pipefail
+          get() { python3 -c "import json;print(json.load(open('.github/triggers/pmtiles.json'))['$1'])"; }
+          {
+            echo "area=$(get area)"
+            echo "bounds=$(get bounds)"
+            echo "minzoom=$(get minzoom)"
+            echo "maxzoom=$(get maxzoom)"
+            echo "version=$(get planetilerVersion)"
+          } >> "$GITHUB_OUTPUT"
+          echo "область: $(get area) · рамка: $(get bounds) · зумы $(get minzoom)-$(get maxzoom)"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Fetch Planetiler
+        env:
+          V: ${{ steps.cfg.outputs.version }}
+        run: |
+          set -euo pipefail
+          curl -sSL --retry 3 --max-time 600 -o planetiler.jar \
+            "https://github.com/onthegomap/planetiler/releases/download/v${V}/planetiler.jar"
+          echo "planetiler.jar: $(du -h planetiler.jar | cut -f1)"
+
+      - name: Build Kamchatka vector tiles
+        env:
+          AREA: ${{ steps.cfg.outputs.area }}
+          BOUNDS: ${{ steps.cfg.outputs.bounds }}
+          MINZOOM: ${{ steps.cfg.outputs.minzoom }}
+          MAXZOOM: ${{ steps.cfg.outputs.maxzoom }}
+        run: |
+          set -euo pipefail
+          # --download тянет выгрузку Geofabrik сам; --bounds режет по камчатской
+          # рамке, иначе в файл уедет весь Дальний Восток до Владивостока.
+          java -Xmx10g -jar planetiler.jar \
+            --download \
+            --area="$AREA" \
+            --bounds="$BOUNDS" \
+            --minzoom="$MINZOOM" \
+            --maxzoom="$MAXZOOM" \
+            --force \
+            --output=kamchatka.pmtiles
+
+      - name: Measure
+        run: |
+          set -euo pipefail
+          BYTES=$(stat -c%s kamchatka.pmtiles)
+          MB=$((BYTES / 1024 / 1024))
+          echo "═══════════════════════════════════════"
+          echo "Своя карта Камчатки: ${MB} МБ (${BYTES} байт)"
+          echo "═══════════════════════════════════════"
+          # Ориентир для решения. Сотни мегабайт на весь полуостров — это
+          # нормально и несравнимо с 30 ГБ растра; если вышло больше гигабайта,
+          # значит рамка или зумы взяты слишком щедро.
+          if [ "$MB" -gt 1024 ]; then
+            echo "ВНИМАНИЕ: больше гигабайта — для телефона тяжело."
+            echo "Резать зумы (maxzoom) или рамку (bounds) в .github/triggers/pmtiles.json."
+          fi
+          {
+            echo "### Своя карта Камчатки"
+            echo ""
+            echo "| Что | Значение |"
+            echo "|---|---|"
+            echo "| Вес файла | **${MB} МБ** |"
+            echo "| Область | ${{ steps.cfg.outputs.area }} |"
+            echo "| Рамка | ${{ steps.cfg.outputs.bounds }} |"
+            echo "| Зумы хранения | ${{ steps.cfg.outputs.minzoom }}–${{ steps.cfg.outputs.maxzoom }} |"
+            echo ""
+            echo "Зум хранения 14 — не потолок показа: векторные тайлы дорисовываются"
+            echo "на устройстве, на экране это 16–18 без единого лишнего байта."
+            echo ""
+            echo "Данные © OpenStreetMap contributors, ODbL."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kamchatka-pmtiles
+          path: kamchatka.pmtiles
+          retention-days: 14
+          compression-level: 0 # PMTiles уже сжат внутри — второй проход впустую
