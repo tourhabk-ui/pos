@@ -38,6 +38,9 @@ jobs:
           GREP=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('grep', [])))")
           # Необязательный User-Agent: важно для главной — она отдаёт разное
           # дерево телефону и десктопу (page.tsx isMobile). Дефолт — VedarProbe.
+          # Необязательные счётчики вхождений: «тонкий, но 200 OK» sitemap не
+          # должен маскироваться — пустая секция видна нулём, а не отсутствием.
+          COUNTS=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('count', [])))")
           UA=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('ua', 'Mozilla/5.0 (compatible; VedarProbe/1.0)'))")
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
           # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
@@ -68,6 +71,13 @@ jobs:
                   echo "  НЕТ:     $marker"
                 fi
               done <<< "$GREP"
+            fi
+            if [ -n "$COUNTS" ]; then
+              echo "── счётчики ──"
+              while IFS= read -r c; do
+                [ -z "$c" ] && continue
+                echo "  $c: $(grep -o -F -- "$c" /tmp/body | wc -l)"
+              done <<< "$COUNTS"
             fi
             echo "── первые ${BYTES} байт ──"
             head -c "${BYTES}" /tmp/body | tr -d '\r'
