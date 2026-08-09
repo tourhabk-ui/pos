@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const SITEMAP = readFileSync(join(ROOT, 'app/sitemap.ts'), 'utf-8');
+const SITEMAP = readFileSync(join(ROOT, 'lib/seo/sitemap-entries.ts'), 'utf-8');
 const LLMS = readFileSync(join(ROOT, 'app/llms.txt/route.ts'), 'utf-8');
 
 describe('sitemap: туры существуют для обходчиков', () => {

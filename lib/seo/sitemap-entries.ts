@@ -1,3 +1,12 @@
+/**
+ * Сборщик записей sitemap. Жил в app/sitemap.ts (метадата-роут) — и Next
+ * пререндерил его НА СБОРКЕ, где БД на Timeweb недоступна по построению
+ * (Docker-билд без DATABASE_URL): все динамические секции (туры, места,
+ * маршруты) молча пустели, sitemap всегда был «тонкий ~46 URL» (аудит
+ * «как ИИ видят Ведар», 08.08 — 0 карточек туров при живом llms.txt,
+ * который как route-handler исполняется на запросе). Теперь XML отдаёт
+ * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
+ */
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { getCatalogPages } from '@/lib/routes/catalog-sitemap';
@@ -30,7 +39,7 @@ const LOCATION_PRIORITY: Record<string, number> = {
   island:     0.6,
 };
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   // Статические страницы
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE,                            lastModified: new Date(),  changeFrequency: 'hourly',  priority: 1.0 },

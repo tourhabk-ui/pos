@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pingIndexNow } from '@/lib/seo/indexnow';
-import sitemap from '@/app/sitemap';
+import { collectSitemapEntries } from '@/lib/seo/sitemap-entries';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const entries = await sitemap();
+    const entries = await collectSitemapEntries();
     const urls = entries.map((e) => e.url);
     const result = await pingIndexNow(urls);
     return NextResponse.json(result, { status: result.ok ? 200 : 502 });
