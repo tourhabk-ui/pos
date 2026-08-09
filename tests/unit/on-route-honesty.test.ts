@@ -150,3 +150,50 @@ describe('экран пользуется этим, а не рисует уве�
     expect(SCREEN).toMatch(/figuresLive \? 'var\(--success\)' : 'var\(--text-muted\)'/);
   });
 });
+
+describe('экран соответствует моменту, а не отчитывается о датчиках', () => {
+  it('состояний датчиков — одна строка, а не стек баннеров', () => {
+    // Регресс честности из #1061: сверху вставало четыре полосы, две из них
+    // про одно и то же (GPS и разрешение). Владелец 09.08 назвал это криком
+    // системы о себе — и был прав.
+    const banners = SCREEN.match(/borderBottom: '1px solid color-mix/g) ?? [];
+    expect(banners.length).toBeLessThanOrEqual(1);
+    expect(SCREEN).toMatch(/const status = useMemo/);
+  });
+
+  it('всё в порядке — строки нет вовсе', () => {
+    // Тишина тоже сообщение: «иди». Постоянная зелёная плашка «сеть есть»
+    // приучает не читать статусы.
+    expect(SCREEN).toMatch(/return null;\n  \}, \[gpsError, fix, gpsMessage, isOffline, compassState\]\)/);
+    expect(SCREEN).not.toMatch(/'Сеть есть'/);
+  });
+
+  it('без маршрута — одно действие вместо приборной панели', () => {
+    expect(SCREEN).toMatch(/\{!hasRoute && !isLoadingRoute \? \(/);
+    expect(SCREEN).toMatch(/Маршрут не выбран/);
+    expect(SCREEN).toMatch(/Выбрать маршрут/);
+  });
+
+  it('нули не показываются: карточки ждут живого фикса', () => {
+    expect(SCREEN).toMatch(/\{figuresLive && \(\n\s*<div className="grid grid-cols-2/);
+  });
+
+  it('нет фикса — говорим словами, а не прочерком в шрифте заголовка', () => {
+    // Скрин владельца 09.08: вместо расстояния — серая полоса. Это «—»
+    // размером 5xl: читается как поломка, а не как «данных пока нет».
+    expect(SCREEN).toMatch(/Ждём сигнал GPS/);
+    expect(SCREEN).not.toMatch(/\{distLabel \?\? '—'\}/);
+    // И «придём через —» тоже не показываем: считать нечего.
+    expect(SCREEN).toMatch(/\{distLabel !== null && \(/);
+  });
+
+  it('имя точки не дублирует название маршрута', () => {
+    // «Мыс Маячный» печатался дважды: как маршрут и как следующая точка.
+    expect(SCREEN).toMatch(/nextWp\.name !== activeRouteTitle/);
+  });
+
+  it('копирайт человеческий, без разработческого жаргона', () => {
+    expect(SCREEN).not.toMatch(/рельефа нет в данных маршрута/);
+    expect(SCREEN).not.toMatch(/Схема точек/);
+  });
+});

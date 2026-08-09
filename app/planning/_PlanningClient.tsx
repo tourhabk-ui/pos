@@ -553,6 +553,28 @@ function OnTrailTab() {
   );
   const figuresLive = figuresAreLive(fix);
 
+  /**
+   * Состояние экрана. Раньше он всегда показывал полную приборную панель: без
+   * маршрута и без GPS сверху вставало четыре полосы (сеть, GPS, компас,
+   * разрешение — две из них про одно и то же), под ними мёртвый компас и
+   * карточки «— м» и «0ч 00м». Это отчёт системы о себе, а не подсказка, что
+   * делать (владелец 09.08: «неверный empty state»). Теперь экран показывает
+   * ровно то, что соответствует моменту.
+   */
+  const hasRoute = waypoints.length > 0 || Boolean(activeRouteTitle);
+
+  /** Одна строка — самое важное действие сейчас. Всё хорошо — строки нет. */
+  const status = useMemo((): { tone: 'warn' | 'info'; text: string; cta?: 'compass' } | null => {
+    if (gpsError) return { tone: 'warn', text: 'Геолокация запрещена — включите её в настройках браузера' };
+    if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
+    if (gpsMessage) return { tone: 'warn', text: gpsMessage };
+    if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
+    if (isOffline) return { tone: 'info', text: 'Офлайн-режим: карты и точки маршрута доступны' };
+    if (compassState === 'blocked') return { tone: 'info', text: 'Компас выключен', cta: 'compass' };
+    if (compassState === 'unconfirmed') return { tone: 'warn', text: 'Компас не подтверждён — сверяйтесь с картой' };
+    return null;
+  }, [gpsError, fix, gpsMessage, isOffline, compassState]);
+
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
@@ -688,13 +710,29 @@ function OnTrailTab() {
     const lngs = src.map(p => p.lng);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const latRange = (maxLat - minLat) || 0.0005;
-    const lngRange = (maxLng - minLng) || 0.0005;
+    const midLat = (minLat + maxLat) / 2;
+
+    /**
+     * Проекция с сохранением пропорций. Растягивать широту и долготу каждую
+     * по своей оси нельзя: очертания превращаются в ленту, и «схема трека»
+     * начинает врать о форме маршрута (владелец 09.08 — «трек кринж»).
+     * Переводим градусы в метры (долгота на 53° короче широты примерно в
+     * cos φ раз) и берём ОДИН масштаб по меньшей стороне.
+     */
+    const M_PER_LAT = 110_574;
+    const mPerLng = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const spanX = Math.max((maxLng - minLng) * mPerLng, 1);
+    const spanY = Math.max((maxLat - minLat) * M_PER_LAT, 1);
+    const W = 320, H = 128, PAD = 12;
+    const scale = Math.min((W - PAD * 2) / spanX, (H - PAD * 2) / spanY);
+    // Остаток свободного места делим поровну — рисунок стоит по центру.
+    const offX = (W - spanX * scale) / 2;
+    const offY = (H - spanY * scale) / 2;
 
     const project = (p: { lat: number; lng: number }) => ({
-      x: 10 + ((p.lng - minLng) / lngRange) * 300,
+      x: offX + (p.lng - minLng) * mPerLng * scale,
       // Севернее — выше на экране: ось y в SVG растёт вниз.
-      y: 118 - ((p.lat - minLat) / latRange) * 100,
+      y: H - offY - (p.lat - minLat) * M_PER_LAT * scale,
     });
 
     return {
@@ -703,8 +741,11 @@ function OnTrailTab() {
       // Кружки — это ВСЕГДА путевые точки, а не вершины трека: иначе
       // «текущая точка» подсвечивалась бы на случайной вершине линии.
       dots: waypoints.map((w, i) => ({ ...project(w), i })),
+      // Своя позиция на схеме — самое полезное, что тут может быть. Рисуем
+      // только по живому фиксу: устаревшая точка «вы здесь» хуже её отсутствия.
+      me: coords && figuresLive ? project(coords) : null,
     };
-  }, [track, waypoints]);
+  }, [track, waypoints, coords, figuresLive]);
   const svgPoints = sketch?.points ?? null;
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
@@ -819,91 +860,63 @@ function OnTrailTab() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      {/* Network / GPS banners */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 text-xs"
-        style={{
-          background: isOffline
-            ? 'color-mix(in srgb, var(--warning) 15%, transparent)'
-            : 'color-mix(in srgb, var(--success) 12%, transparent)',
-          borderBottom: isOffline
-            ? '1px solid color-mix(in srgb, var(--warning) 25%, transparent)'
-            : '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
-          color: isOffline ? 'var(--warning)' : 'var(--success)',
-        }}
-      >
-        {isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-        {/* Про СЕТЬ, и только про неё. Прежняя надпись обещала заодно и
-            рабочие спутники, ничего о них не зная: приёмник может быть мёртв
-            при полном интернете, и наоборот (аудит 09.08). */}
-        {isOffline ? 'Офлайн-режим • Карты доступны' : 'Сеть есть'}
-      </div>
-
-      {/* Состояние GPS — отдельной строкой, потому что это отдельный прибор. */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 text-xs"
-        style={{
-          background: figuresLive
-            ? 'color-mix(in srgb, var(--success) 8%, transparent)'
-            : 'color-mix(in srgb, var(--danger) 12%, transparent)',
-          borderBottom: '1px solid var(--border)',
-          color: figuresLive ? 'var(--text-secondary)' : 'var(--danger)',
-        }}
-      >
-        <MapPin className="w-3.5 h-3.5" />
-        {fixLabel(fix)}
-      </div>
-
-      {/* Состояние компаса. Молчащий датчик не должен выглядеть рабочим. */}
-      {compassState !== 'ok' && (
+      {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
+          это тоже сообщение: всё в порядке, идите. */}
+      {status && (
         <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs"
           style={{
-            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
+            background: status.tone === 'warn'
+              ? 'color-mix(in srgb, var(--warning) 12%, transparent)'
+              : 'color-mix(in srgb, var(--ocean) 10%, transparent)',
+            borderBottom: '1px solid var(--border)',
+            color: status.tone === 'warn' ? 'var(--warning)' : 'var(--text-secondary)',
           }}
         >
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="flex-1">{compassLabel(compassState)}</span>
-          {compassState === 'blocked' && (
-            <button onClick={enableCompass}
-              className="font-semibold underline underline-offset-2 shrink-0">
+          {status.tone === 'warn'
+            ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
+          <span className="flex-1">{status.text}</span>
+          {status.cta === 'compass' && (
+            <button onClick={enableCompass} className="font-semibold underline underline-offset-2 shrink-0">
               Включить
             </button>
           )}
         </div>
       )}
 
-      {gpsMessage && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
-          style={{
-            background: 'color-mix(in srgb, var(--warning) 12%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
-          }}
-        >
-          <AlertCircle className="w-3.5 h-3.5" />
-          {gpsMessage}
-        </div>
-      )}
-      {gpsError && (
-        <div
-          className="flex items-center gap-2 px-4 py-2 text-xs"
-          style={{
-            background: 'color-mix(in srgb, var(--warning) 15%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)',
-            color: 'var(--warning)',
-          }}
-        >
-          <AlertCircle className="w-3.5 h-3.5" />
-          Разрешите геолокацию в настройках браузера
-        </div>
-      )}
-
       {/* Main content */}
       <div className="flex-1 px-4 py-6 flex flex-col items-center gap-6 max-w-sm mx-auto w-full">
+
+        {!hasRoute && !isLoadingRoute ? (
+          /* Идти некуда — значит и приборов быть не должно: одно понятное
+             действие вместо компаса без сигнала и нулей в карточках. */
+          <div className="flex flex-col items-center text-center gap-5 py-10">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{ background: 'color-mix(in srgb, var(--success) 12%, transparent)' }}>
+              <MapPin className="w-7 h-7" style={{ color: 'var(--success)' }} />
+            </div>
+            <div>
+              <p className="text-lg font-semibold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
+                Маршрут не выбран
+              </p>
+              <p className="text-sm text-[var(--text-secondary)] mt-1.5 max-w-[280px]">
+                Выберите маршрут — и экран станет навигатором: направление,
+                расстояние до точки и время в пути.
+              </p>
+            </div>
+            <button onClick={openRouteModal}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg"
+              style={{ background: 'var(--success)', color: '#08210f' }}>
+              Выбрать маршрут <ChevronRight className="w-4 h-4" />
+            </button>
+            <div className="text-xs text-[var(--text-muted)] space-y-1.5 pt-1">
+              <p>Карты можно скачать заранее — в поле они работают без сети.</p>
+              <p>Компас появится, если у телефона есть датчик.</p>
+            </div>
+          </div>
+        ) : (
+        <>
 
         {/* Compass + route info */}
         <div className="flex flex-col md:flex-row items-center gap-6 w-full">
@@ -923,25 +936,44 @@ function OnTrailTab() {
                 <p className="text-[var(--text-secondary)] text-sm mb-0.5">
                   Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
                 </p>
-                <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
-                {/* Мёртвый фикс не стирает цифру — это последнее, что человек
-                    знает о своём положении, — но и не выдаёт её за текущую. */}
-                <p className="text-5xl font-bold leading-none"
-                  style={{
-                    color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
-                    letterSpacing: '-1px',
-                  }}>
-                  {distLabel ?? '—'}
-                </p>
-                <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp?.name ?? ''}</p>
-                {/* Расстояние — по прямой между точками, а не по тропе. В горах
-                    это разные числа, и молчать об этом нельзя. */}
-                <p className="text-[11px] text-[var(--text-muted)] leading-tight">
-                  по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
-                </p>
+                {distLabel === null ? (
+                  /* Расстояние считается от НАШЕГО положения, и без фикса его
+                     просто нет. Прочерк в шрифте заголовка выглядел серой
+                     полосой — читалось как поломка (скрин владельца 09.08).
+                     Честнее сказать словами, чего ждём. */
+                  <p className="text-sm text-[var(--text-secondary)] mb-1 max-w-[220px]">
+                    Ждём сигнал GPS — расстояние и время появятся сами.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
+                    {/* Мёртвый фикс не стирает цифру — это последнее, что человек
+                        знает о своём положении, — но и не выдаёт её за текущую. */}
+                    <p className="text-5xl font-bold leading-none"
+                      style={{
+                        color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
+                        letterSpacing: '-1px',
+                      }}>
+                      {distLabel}
+                    </p>
+                    {/* Имя точки печатаем, только если оно добавляет знание:
+                        у маршрута из одной точки оно повторяло заголовок. */}
+                    {nextWp?.name && nextWp.name !== activeRouteTitle && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp.name}</p>
+                    )}
+                    {/* Расстояние — по прямой между точками, а не по тропе. В горах
+                        это разные числа, и молчать об этом нельзя. */}
+                    <p className="text-[11px] text-[var(--text-muted)] leading-tight">
+                      по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
+                    </p>
+                  </>
+                )}
 
                 {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
-                    «осталось» не отвечает на вопрос поля (владелец 09.08). */}
+                    «осталось» не отвечает на вопрос поля (владелец 09.08).
+                    Без расстояния считать нечего — тогда и строк нет: «придём
+                    через —» это не сдержанность, а вид поломки. */}
+                {distLabel !== null && (
                 <div className="mt-3 flex flex-col gap-1.5">
                   <p className="text-sm text-[var(--text-secondary)]">
                     <span className="text-[var(--text-muted)]">придём через</span>{' '}
@@ -964,6 +996,8 @@ function OnTrailTab() {
                     </>
                   )}
                 </div>
+
+                )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
                     абсурден, поэтому спрашиваем прямо, а не угадываем. */}
@@ -1008,7 +1042,9 @@ function OnTrailTab() {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Приборы показываем, только когда им есть что показать: «— м» и
+            «0ч 00м» читаются не как «данных нет», а как «сломалось». */}
+        {figuresLive && (
         <div className="grid grid-cols-2 gap-3 w-full">
           <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
             <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1">Высота</p>
@@ -1024,6 +1060,7 @@ function OnTrailTab() {
             </p>
           </div>
         </div>
+        )}
 
         {/* Профиль высоты впереди — если высоты в данных есть. Иначе ниже
             идёт СХЕМА ТОЧЕК, и она подписана схемой: прежний график рисовал
@@ -1040,7 +1077,10 @@ function OnTrailTab() {
               </p>
             </div>
             <div className="w-full h-24 rounded-xl overflow-hidden"
-              style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+              style={{
+                background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
+                border: '1px solid var(--border)',
+              }}>
               <svg className="w-full h-full" viewBox="0 0 320 96" preserveAspectRatio="none">
                 {(() => {
                   const pts = ahead.points;
@@ -1068,25 +1108,36 @@ function OnTrailTab() {
           </div>
         )}
 
-        {/* Схема точек маршрута */}
+        {/* Схема маршрута */}
         <div className="w-full">
           <p className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-1.5">
-            {sketch?.fromTrack ? 'Схема трека, вид сверху' : 'Схема точек'}
-            {!ahead && ' · рельефа нет в данных маршрута'}
+            {/* Подпись говорит, что это на самом деле: вид сверху, а не
+                профиль высоты. Профиль живёт выше и только на реальных
+                высотах. Формулировка человеческая — прежняя была голосом
+                разработчика (владелец 09.08). */}
+            {sketch?.fromTrack ? 'Трек маршрута, вид сверху' : 'Точки маршрута'}
           </p>
           <div className="w-full h-32 rounded-xl overflow-hidden"
-            style={{ background: '#0d1b0e', border: '1px solid #1a3620' }}>
+            style={{
+              background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
+              border: '1px solid var(--border)',
+            }}>
           {svgPoints ? (
-            <svg className="w-full h-full" viewBox="0 0 320 128" preserveAspectRatio="none">
-              {[32, 64, 96].map(y => (
-                <line key={y} x1="0" y1={y} x2="320" y2={y}
-                  stroke="rgba(74,222,128,0.06)" strokeWidth="1" />
-              ))}
+            /* preserveAspectRatio по умолчанию (meet): очертания не тянутся.
+               Сетку убрали — она превращала карту в график, хотя это план
+               местности, а не диаграмма. */
+            <svg className="w-full h-full" viewBox="0 0 320 128">
               <polyline
                 points={svgPoints.map(p => `${p.x},${p.y}`).join(' ')}
                 fill="none" stroke="var(--success)" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round"
               />
+              {sketch?.me && (
+                <>
+                  <circle cx={sketch.me.x} cy={sketch.me.y} r="7" fill="var(--ocean)" opacity="0.25" />
+                  <circle cx={sketch.me.x} cy={sketch.me.y} r="3.5" fill="var(--ocean)" />
+                </>
+              )}
               {(sketch?.dots ?? []).map(({ x, y, i }) => (
                 <circle key={i} cx={x} cy={y}
                   r={i === currentWpIdx ? 5 : 3}
@@ -1108,6 +1159,8 @@ function OnTrailTab() {
           )}
           </div>
         </div>
+        </>
+        )}
 
       </div>
 
@@ -1129,7 +1182,12 @@ function OnTrailTab() {
             setShowMap(true);
           }}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--success)', border: '1px solid #1a3620', minHeight: 60 }}>
+          style={{
+            background: 'var(--bg-card)',
+            color: 'var(--success)',
+            border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
+            minHeight: 60,
+          }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </button>
         <a href={coords
