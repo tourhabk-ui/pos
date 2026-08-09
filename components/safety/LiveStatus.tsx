@@ -198,17 +198,38 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
     .filter((h) => h.dist <= MAX_KM)
     .sort((a, b) => (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0));
 
-  // Берег — та же проекция, что у точек: сдвинулся центр — сдвинулся и берег.
-  // БЕЗ замыкания (Z): берег — открытая линия, а не полигон. Замыкающая хорда
-  // соединяла крайние точки берега прямой через весь скоп — та самая «лишняя
-  // диагональ», из-за которой контур не читался.
-  const coastPath = COASTLINE
-    .map(([la, ln], i) => {
+  /**
+   * Берег — та же проекция, что у точек: сдвинулся центр, сдвинулся и берег.
+   *
+   * Линия огрублена до пары десятков узлов на весь полуостров, и между
+   * соседними бывает 50-80 км. В круге радиусом 200 км прямая хорда между
+   * такими узлами режет скоп по диагонали через воду — на экране это читалось
+   * как случайные линии (владелец 09.08: «радар сломан»). Поэтому рисуем
+   * только те звенья, где прямая — честное приближение берега, а длинные
+   * оставляем разрывом: пробел говорит «здесь я формы не знаю», а хорда
+   * говорила бы неправду о местности.
+   */
+  const MAX_SEGMENT_KM = 30;
+  const coastSegments: string[] = [];
+  {
+    let current: string[] = [];
+    let prev: [number, number] | null = null;
+    for (const [la, ln] of COASTLINE) {
       const x = CX + (((ln - c.lng) * kmLng) / MAX_KM) * R;
       const y = CY - (((la - c.lat) * kmLat) / MAX_KM) * R;
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(' ');
+      const gapKm = prev
+        ? Math.hypot((la - prev[0]) * kmLat, (ln - prev[1]) * kmLng)
+        : 0;
+      if (prev && gapKm > MAX_SEGMENT_KM) {
+        if (current.length > 1) coastSegments.push(current.join(' '));
+        current = [];
+      }
+      current.push(`${current.length === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`);
+      prev = [la, ln];
+    }
+    if (current.length > 1) coastSegments.push(current.join(' '));
+  }
+  const coastPath = coastSegments.join(' ');
 
   const rings = [0.25, 0.5, 1]; // 50 / 100 / 200 км
 
@@ -242,7 +263,12 @@ export function RadarScope({ hazards, center }: { hazards: RadarHazard[]; center
             />
           </g>
           {rings.map((k, i) => (
-            <circle key={i} cx={CX} cy={CY} r={R * k} fill="none" stroke="var(--radar)" strokeOpacity={0.28} strokeWidth={0.8} />
+            <g key={i}>
+              <circle cx={CX} cy={CY} r={R * k} fill="none" stroke="var(--radar)" strokeOpacity={0.28} strokeWidth={0.8} />
+              {/* Кольцо без подписи — узор, а не масштаб. Расстояние радар
+                  знает точно, в отличие от формы берега. */}
+              <text x={CX + 2.5} y={CY - R * k + 8} className="rk">{Math.round(MAX_KM * k)} км</text>
+            </g>
           ))}
           <line x1={CX - R} y1={CY} x2={CX + R} y2={CY} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
           <line x1={CX} y1={CY - R} x2={CX} y2={CY + R} stroke="var(--radar)" strokeOpacity={0.18} strokeWidth={0.7} />
@@ -408,11 +434,14 @@ export const LIVE_STATUS_CSS = `
 .kh-live .radar .scope{position:relative;width:100%;max-width:300px;margin:0 auto}
 .kh-live .radar .scope svg{width:100%;height:auto;display:block;overflow:visible}
 .kh-live .radar .rn{font:600 8px var(--font-outfit),system-ui,sans-serif;fill:var(--radar);opacity:.8}
+.kh-live .radar .rk{font:500 6.5px var(--fm),ui-monospace,monospace;fill:var(--radar);opacity:.55}
 .kh-live .radar .sweep{transform-origin:100px 100px;animation:radarSweep 4.5s linear infinite}
 @keyframes radarSweep{to{transform:rotate(360deg)}}
 .kh-live .radar .pulse{animation:radarPulse 1.6s ease-out infinite;transform-origin:center;transform-box:fill-box}
 @keyframes radarPulse{0%{opacity:.5;transform:scale(.6)}70%{opacity:0;transform:scale(1.8)}100%{opacity:0}}
-.kh-live .radar .clean{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:600 11px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;color:var(--text-secondary);background:var(--bg-primary);padding:6px 10px;border-radius:999px;border:1px solid var(--border)}
+/* Пустое состояние стояло ровно в центре — поверх колец, точки «вы здесь» и
+   развёртки. Опускаем вниз: это подпись, а не заслонка. */
+.kh-live .radar .clean{position:absolute;left:50%;bottom:2%;transform:translateX(-50%);font:600 11px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;color:var(--text-secondary);background:var(--bg-primary);padding:6px 10px;border-radius:999px;border:1px solid var(--border)}
 .kh-live .radar .rmeta{margin-top:14px}
 .kh-live .radar .rrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .kh-live .radar .rc{font:400 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
