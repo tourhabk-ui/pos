@@ -1,20 +1,12 @@
 {
   "urls": [
-    "https://idilesom.com/kam/places"
+    "https://vedarai.ru/safety"
   ],
-  "bytes": 9000,
+  "bytes": 200,
   "timeout": 45,
-  "count": [
-    "/kam/places/1",
-    "/kam/places/2",
-    "/kam/places/3",
-    "/kam/places/4",
-    "/kam/places/5",
-    "/kam/places/6",
-    "/kam/places/7",
-    "/kam/places/8",
-    "/kam/places/9"
+  "grep": [
+    "Моё местоположение",
+    "Ищем спутники"
   ],
-  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-  "note": "ищем реальные id мест: счётчики по первой цифре сузят поиск"
+  "note": "проверяем Permissions-Policy от прокси: выключена ли геолокация на уровне платформы"
 }
