@@ -10,8 +10,11 @@
  *   NEXT_PUBLIC_TELEGRAM_BOT_USERNAME — bot username WITHOUT @
  *   e.g. "KamchatourBot" for @KamchatourBot
  *
- * The bot must also be configured with /setdomain in BotFather
- * to allow logins from tourhab.ru
+ * The bot must also be configured with /setdomain in BotFather. BotFather
+ * accepts ONE domain per bot, and the canonical one is vedarai.ru — since the
+ * host redirect (next.config.js) that is the only host serving login pages.
+ * If /setdomain still points at the legacy host, the widget silently refuses
+ * to render and login looks broken with no error anywhere.
  */
 
 import { useEffect, useRef } from 'react';
