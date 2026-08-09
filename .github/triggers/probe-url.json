@@ -1,14 +1,15 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/relief-coverage"
+    "https://idilesom.com/kam/places"
   ],
-  "bytes": 2500,
-  "timeout": 60,
+  "bytes": 1200,
+  "timeout": 45,
   "grep": [
-    "verdict",
-    "withElevation",
-    "idilesom",
-    "DOCTYPE"
+    "/kam/places/"
   ],
-  "note": "повтор после деплоя #1062 и #1063"
+  "count": [
+    "/kam/places/"
+  ],
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+  "note": "нужен id места, чтобы посмотреть формат массива координат"
 }
