@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { Heart, Loader2, ExternalLink, Mountain } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
+import { WISHLIST_TYPE_LABELS, wishlistHref, isWishlistType } from '@/lib/wishlist/contract';
 
 interface WishlistItem {
   id: string;
@@ -34,25 +35,10 @@ interface FetchedTour {
   detail: TourDetail;
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  tour: 'Тур',
-  accommodation: 'Жильё',
-  partner: 'Партнёр',
-  destination: 'Место',
-  activity: 'Активность',
-};
-
 const DIFFICULTY_LABELS: Record<string, string> = {
   easy: 'Лёгкий',
   medium: 'Средний',
   hard: 'Сложный',
-};
-
-const TYPE_HREFS: Record<string, (id: string) => string> = {
-  tour: (id) => `/tours/${id}`,
-  partner: (id) => `/partners/${id}`,
-  destination: (_id) => `/map`,
-  activity: (id) => `/tours?category=${id}`,
 };
 
 export default function WishlistClient() {
@@ -147,8 +133,10 @@ export default function WishlistClient() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {items.map((item) => {
-              const typeLabel = TYPE_LABELS[item.item_type] ?? item.item_type;
-              const href = TYPE_HREFS[item.item_type]?.(item.item_id) ?? '/tours';
+              const typeLabel = isWishlistType(item.item_type)
+                ? WISHLIST_TYPE_LABELS[item.item_type]
+                : item.item_type;
+              const href = wishlistHref(item.item_type, item.item_id);
               const detail = item.item_type === 'tour'
                 ? tourDetails.get(item.item_id)
                 : undefined;

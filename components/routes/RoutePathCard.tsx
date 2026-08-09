@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useWishlist } from '@/hooks/use-wishlist';
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 
@@ -37,28 +37,11 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
   // отсюда пустые тёмные прямоугольники в каталоге.
   const photoSrc = route.imageUrl ?? null;
 
-  const [liked,  setLiked]  = useState(false);
-  const [liking, setLiking] = useState(false);
 
-  const handleFavorite = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (liking || liked) return;
-    setLiking(true);
-    try {
-      const res = await fetch('/api/tourist/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_type: 'route', item_id: route.id, title: route.title }),
-      });
-      if (res.ok) setLiked(true);
-      else if (res.status === 401) {
-        window.location.href = '/auth/signin?redirect=' + encodeURIComponent(window.location.pathname);
-      }
-    } catch { /* silence */ }
-    finally { setLiking(false); }
-  }, [liking, liked, route.id, route.title]);
 
+  // Избранное — общий хук: тело запроса, вход гостя и текст ошибки
+  // живут в одном месте (диалекты карточек ломали кнопку до 09.08).
+  const fav = useWishlist('route', route.id);
   return (
     <article className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
       {/* ── Фото маршрута ─────────────────────────────────── */}
@@ -92,14 +75,14 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
         {/* Избранное — glass поверх фото */}
         <button
           type="button"
-          onClick={handleFavorite}
-          aria-label={liked ? 'В избранном' : 'В избранное'}
+          onClick={fav.toggle}
+          aria-label={fav.on ? 'В избранном' : 'В избранное'}
           className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 backdrop-blur-md border border-white/15"
-          style={{ background: liked ? 'var(--accent)' : 'rgba(0,0,0,0.4)', opacity: liking ? 0.5 : 1 }}
+          style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.4)', opacity: fav.busy ? 0.5 : 1 }}
         >
           <Heart
             className="w-3.5 h-3.5 transition-all"
-            style={{ color: 'white', fill: liked ? 'white' : 'none' }}
+            style={{ color: 'white', fill: fav.on ? 'white' : 'none' }}
           />
         </button>
       </Link>

@@ -4,11 +4,15 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { getTouristProfile } from '@/lib/auth/tourist-helpers';
+import { WISHLIST_TYPES } from '@/lib/wishlist/contract';
 
+/**
+ * Типы — из общего контракта (`lib/wishlist/contract`), а не своим списком:
+ * витрина слала `place` и `route`, которых здесь не было, и получала 400 на
+ * каждое нажатие (владелец 09.08: «избранное так и не работает»).
+ */
 const AddWishlistItemSchema = z.object({
-  itemType: z.enum(['tour', 'accommodation', 'partner', 'destination', 'activity'], {
-    message: 'Укажите корректный тип элемента',
-  }),
+  itemType: z.enum(WISHLIST_TYPES, { message: 'Укажите корректный тип элемента' }),
   itemId: z.string().min(1, 'Укажите ID элемента'),
   priority: z.enum(['low', 'medium', 'high']).optional(),
   notes: z.string().optional(),

@@ -1,5 +1,6 @@
 'use client';
 
+import { useWishlist } from '@/hooks/use-wishlist';
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -38,23 +39,11 @@ const LOCATION_LABELS: Record<string, string> = {
   river: 'Река', cave: 'Пещера', other: 'Место',
 };
 
-const LS_KEY = 'wishlist_places';
-function isBookmarked(id: string) {
-  try { return (JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[]).includes(id); }
-  catch { return false; }
-}
-function toggleBookmark(id: string) {
-  try {
-    const list = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[];
-    const next = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-    return !list.includes(id);
-  } catch { return false; }
-}
-
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {
   const [detail, setDetail] = useState<DetailData | null>(null);
-  const [bookmarked, setBookmarked] = useState(false);
+  // Лист карты писал отметку только в localStorage — в личный кабинет она не
+  // попадала (владелец 09.08). Тот же контракт, что у витрины и панели точки.
+  const fav = useWishlist('place', initialData.id);
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number | null>(null);
 
@@ -68,10 +57,6 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
     if (delta > 80) onClose();
     dragStartY.current = null;
   }
-
-  useEffect(() => {
-    setBookmarked(isBookmarked(initialData.id));
-  }, [initialData.id]);
 
   // Fetch detail async (only online)
   useEffect(() => {
@@ -106,11 +91,6 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
     } else {
       navigator.clipboard?.writeText(url);
     }
-  }
-
-  function handleBookmark() {
-    const next = toggleBookmark(initialData.id);
-    setBookmarked(next);
   }
 
   return (
@@ -181,15 +161,15 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
               style={{ background: 'var(--accent)' }}>
               <Navigation className="w-4 h-4" /> Навигация
             </a>
-            <button onClick={handleBookmark}
-              aria-label={bookmarked ? 'Убрать из избранного' : 'Добавить в избранное'}
+            <button onClick={fav.toggle}
+              aria-label={fav.on ? 'Убрать из избранного' : 'Добавить в избранное'}
               className="p-2.5 rounded-xl border transition-colors"
               style={{
-                background: bookmarked ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
-                borderColor: bookmarked ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)',
-                color: bookmarked ? 'var(--accent)' : 'var(--text-secondary)',
+                background: fav.on ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
+                borderColor: fav.on ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)',
+                color: fav.on ? 'var(--accent)' : 'var(--text-secondary)',
               }}>
-              <Bookmark className="w-4 h-4" fill={bookmarked ? 'currentColor' : 'none'} />
+              <Bookmark className="w-4 h-4" fill={fav.on ? 'currentColor' : 'none'} />
             </button>
             <button onClick={handleShare}
               aria-label="Поделиться"

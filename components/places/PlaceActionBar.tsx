@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Navigation, Bookmark, Share2, CloudSun } from 'lucide-react';
+import { useWishlist } from '@/hooks/use-wishlist';
 
 interface Props {
   lat: number;
@@ -10,21 +11,14 @@ interface Props {
   name: string;
 }
 
-const LS_KEY = 'wishlist_places';
-
-function getWishlist(): string[] {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[]; }
-  catch { return []; }
-}
-
 export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
-  const [bookmarked, setBookmarked] = useState(false);
+  // Раньше отметка жила только в localStorage этого устройства: в личный
+  // кабинет она не попадала и на втором устройстве исчезала — снаружи это
+  // «избранное не работает» (владелец 09.08). Теперь тот же контракт, что у
+  // витрины, с локальным зеркалом на случай офлайна.
+  const fav = useWishlist('place', placeId);
   const [tempText, setTempText] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; icon: string } | null>(null);
-
-  useEffect(() => {
-    setBookmarked(getWishlist().includes(placeId));
-  }, [placeId]);
 
   useEffect(() => {
     fetch(`/api/weather?lat=${lat}&lng=${lng}`)
@@ -41,19 +35,6 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
       })
       .catch(() => {});
   }, [lat, lng]);
-
-  function toggleBookmark() {
-    const list = getWishlist();
-    let next: string[];
-    if (list.includes(placeId)) {
-      next = list.filter(id => id !== placeId);
-      setBookmarked(false);
-    } else {
-      next = [...list, placeId];
-      setBookmarked(true);
-    }
-    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-  }
 
   function handleShare() {
     if (navigator.share) {
@@ -81,16 +62,16 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
         </a>
 
         <button
-          onClick={toggleBookmark}
-          aria-label={bookmarked ? 'Убрать из избранного' : 'Добавить в избранное'}
+          onClick={fav.toggle}
+          aria-label={fav.on ? 'Убрать из избранного' : 'Добавить в избранное'}
           className="p-2.5 rounded-xl border transition-colors"
           style={{
-            background: bookmarked ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
-            borderColor: bookmarked ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)',
-            color: bookmarked ? 'var(--accent)' : 'var(--text-secondary)',
+            background: fav.on ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-card))' : 'var(--bg-hover)',
+            borderColor: fav.on ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)',
+            color: fav.on ? 'var(--accent)' : 'var(--text-secondary)',
           }}
         >
-          <Bookmark className="w-4 h-4" fill={bookmarked ? 'currentColor' : 'none'} />
+          <Bookmark className="w-4 h-4" fill={fav.on ? 'currentColor' : 'none'} />
         </button>
 
         <button
