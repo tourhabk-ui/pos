@@ -102,6 +102,12 @@ describe('компасу верим только там, где азимут п�
     expect(readHeading({ alpha: 90, absolute: false })?.state).toBe('unconfirmed');
   });
 
+  it('событие земной системы координат подтверждает азимут даже без флага', () => {
+    // Chrome на части Android не ставит `absolute` в самом
+    // deviceorientationabsolute. Гарантия здесь — тип события, а не флаг.
+    expect(readHeading({ alpha: 90 }, true)).toEqual({ heading: 270, state: 'ok' });
+  });
+
   it('пустое событие не даёт направления вовсе', () => {
     expect(readHeading({})).toBeNull();
     expect(readHeading({ alpha: null })).toBeNull();
@@ -201,6 +207,23 @@ describe('экран соответствует моменту, а не отчи
   it('имя точки не дублирует название маршрута', () => {
     // «Мыс Маячный» печатался дважды: как маршрут и как следующая точка.
     expect(SCREEN).toMatch(/nextWp\.name !== activeRouteTitle/);
+  });
+
+  it('относительное событие не затирает подтверждённый азимут', () => {
+    // На Android приходят ОБА события. Пока оба шли в один обработчик,
+    // относительное сбивало состояние через такт, и предупреждение
+    // «компас не подтверждён» висело вечно на исправном магнитометре.
+    expect(SCREEN).toMatch(/sawAbsoluteRef/);
+    expect(SCREEN).toMatch(/if \(sawAbsoluteRef\.current\) return;/);
+    expect(SCREEN).toMatch(/'deviceorientationabsolute', handleAbsolute/);
+    expect(SCREEN).toMatch(/'deviceorientation', handleRelative/);
+  });
+
+  it('кольцо сторон света замирает вместе со стрелкой', () => {
+    // Скрин владельца 09.08: стрелка погашена и смотрит вверх, а кольцо
+    // развёрнуто — «север справа». Один мёртвый датчик, два противоречащих
+    // утверждения в одном приборе.
+    expect(SCREEN).toMatch(/\(angle - \(trusted \? heading : 0\)\)/);
   });
 
   it('копирайт человеческий, без разработческого жаргона', () => {

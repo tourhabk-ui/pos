@@ -120,18 +120,28 @@ export function compassLabel(state: CompassState): string {
  * системе координат; без флага это отсчёт от случайной начальной ориентации,
  * и выдавать его за азимут нельзя.
  */
-export function readHeading(e: {
-  alpha?: number | null;
-  absolute?: boolean;
-  webkitCompassHeading?: number;
-}): { heading: number; state: 'ok' | 'unconfirmed' } | null {
+export function readHeading(
+  e: {
+    alpha?: number | null;
+    absolute?: boolean;
+    webkitCompassHeading?: number;
+  },
+  /**
+   * Событие пришло из земной системы координат по самому своему типу.
+   * `deviceorientationabsolute` по спецификации абсолютное — но Chrome на
+   * части Android не ставит в нём флаг `absolute`. Без этой поправки честный
+   * азимут с магнитометра объявлялся неподтверждённым (владелец 09.08:
+   * «компас не подтверждён, что за баг?»).
+   */
+  earthFrame = false,
+): { heading: number; state: 'ok' | 'unconfirmed' } | null {
   const wk = e.webkitCompassHeading;
   if (typeof wk === 'number' && Number.isFinite(wk)) {
     return { heading: ((wk % 360) + 360) % 360, state: 'ok' };
   }
   if (typeof e.alpha === 'number' && Number.isFinite(e.alpha)) {
     const heading = ((360 - e.alpha) % 360 + 360) % 360;
-    return { heading, state: e.absolute === true ? 'ok' : 'unconfirmed' };
+    return { heading, state: e.absolute === true || earthFrame ? 'ok' : 'unconfirmed' };
   }
   return null;
 }
