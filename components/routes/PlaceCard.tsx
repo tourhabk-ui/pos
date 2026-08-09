@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import { useWishlist } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
   Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Trash2,
@@ -83,6 +84,9 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
   const season = seasonRoman(route.bestMonths);
 
   // Живая погода ближайшей зоны (≤80 км) — окно в реальное место
+  // Избранное — общий хук: тело запроса, вход гостя и текст ошибки
+  // живут в одном месте (диалекты карточек ломали кнопку до 09.08).
+  const fav = useWishlist('place', route.id);
   const [wx, setWx] = useState<ZoneWx | null>(null);
   useEffect(() => {
     if (route.lat == null || route.lng == null) return;
@@ -108,8 +112,6 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
     return () => io.disconnect();
   }, []);
 
-  const [liked,  setLiked]  = useState(false);
-  const [liking, setLiking] = useState(false);
   const [popped, setPopped] = useState(false);
 
   // Админ-удаление места прямо с витрины. isAdmin определяем из localStorage
@@ -149,26 +151,6 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
     }
   }, [deleting, route.id, route.title]);
 
-  const handleFavorite = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (liking || liked) return;
-    setLiking(true);
-    setPopped(true);
-    try { navigator.vibrate?.(12); } catch { /* без вибромотора */ }
-    try {
-      const res = await fetch('/api/tourist/wishlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_type: 'place', item_id: route.id, title: route.title }),
-      });
-      if (res.ok) setLiked(true);
-      else if (res.status === 401) {
-        window.location.href = '/auth/signin?redirect=' + encodeURIComponent(window.location.pathname);
-      }
-    } catch { /* silence */ }
-    finally { setLiking(false); }
-  }, [liking, liked, route.id, route.title]);
 
   const handleInstTap = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -284,15 +266,15 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           {/* Сердце */}
           <button
             type="button"
-            onClick={handleFavorite}
-            aria-label={liked ? 'В избранном' : 'В избранное'}
+            onClick={fav.toggle}
+            aria-label={fav.on ? 'В избранном' : 'В избранное'}
             className={`pc-hrt pc-hit absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
             onAnimationEnd={() => setPopped(false)}
-            style={{ background: liked ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: liking ? 0.6 : 1 }}
+            style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: fav.busy ? 0.6 : 1 }}
           >
             <Heart
               className="w-3.5 h-3.5"
-              style={{ color: 'white', fill: liked ? 'white' : 'none' }}
+              style={{ color: 'white', fill: fav.on ? 'white' : 'none' }}
             />
           </button>
         </div>
