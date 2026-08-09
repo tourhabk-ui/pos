@@ -1,19 +1,14 @@
 {
-  "urls": ["https://vedarai.ru/catalog/tours/6"],
-  "bytes": 400,
+  "urls": [
+    "https://vedarai.ru/catalog/tours/6"
+  ],
+  "bytes": 300,
   "timeout": 45,
   "grep": [
-    "Кто проводит",
-    "Проводит этот тур сам",
-    "tel:+7",
-    "t.me/labanalex",
-    "tiktok.com/@",
-    "wa.me/",
-    "Звонки:",
-    "Сайт оператора",
-    "operator_contacts",
-    "labanalex",
-    "logo.png",
-    "400 м²"
+    "operator_contacts\\\":\\\"",
+    "operator_contacts\\\":{",
+    "operator_contacts\\\":null",
+    "phone_hours",
+    "logo_image"
   ]
 }
