@@ -4,7 +4,7 @@
  * находки, которые страж НЕ должен глушить.
  */
 import { describe, it, expect } from 'vitest';
-import { findingRejectionReason, isCredibleFinding, verifyAgainstSource } from '@/lib/agents/evo/finding-guard';
+import { findingRejectionReason, isCredibleFinding, verifyAgainstSource, namedSqlParam, interpolatedIntoSql } from '@/lib/agents/evo/finding-guard';
 
 describe('finding-guard — режет галлюцинации ночных сканов', () => {
   it('callAIFast заклеймён нарушением (run #255) → reject', () => {
@@ -308,5 +308,87 @@ export async function GET(request: NextRequest) {
       description: 'Роут без проверки прав, no auth',
       suggestion: 'Добавить requireAuth',
     }, '// AUTH: публичный — но есть и опциональная auth\nconst u = await getUserFromRequest(req);')).toBe('source_has_auth');
+  });
+});
+
+/**
+ * Два класса, прошедшие наружу в Issues 08–09.08 и разобранные вручную 10.08.
+ * Оба — про то, что сбой сканирования выглядел как результат сканирования.
+ */
+describe('находки, прошедшие в Issues 08-09.08', () => {
+  /**
+   * Issue #1066 «SQL-инъекция через search в ILIKE (critical)».
+   *
+   * Файл собирает запрос из кусков — `${cte}`, `${whereClause}`, — но куски
+   * состоят из одних плейсхолдеров, а сам `search` уходит ЗНАЧЕНИЕМ параметра.
+   * Прежняя проверка спрашивала «есть ли в файле склейка SQL вообще», видела
+   * интерполяцию рядом с SELECT и пропускала находку как осмысленный спор.
+   */
+  const AUDIT_LOG_SRC = `
+    const params: (string | number)[] = [];
+    let paramIdx = 1;
+    let searchFilter = '';
+    if (search) {
+      searchFilter += \` (action ILIKE $\${paramIdx} OR COALESCE(user_email, '') ILIKE $\${paramIdx})\`;
+      params.push(\`%\${search}%\`);
+      paramIdx++;
+    }
+    const rows = await query(\`\${cte} SELECT * FROM unified\${whereClause} ORDER BY created_at DESC\`, params);
+  `;
+
+  const INJECTION_FINDING = {
+    title: 'SQL-инъекция через search в ILIKE',
+    description: 'Параметр search вставляется в ILIKE-условие через конкатенацию строк, а не через параметр.',
+    suggestion: 'Заменить конкатенацию на параметризованный запрос: WHERE column ILIKE $1.',
+  };
+
+  it('названный параметр в SQL не интерполируется — находка ложна', () => {
+    expect(verifyAgainstSource(INJECTION_FINDING, AUDIT_LOG_SRC)).toBe('source_param_not_in_sql');
+  });
+
+  it('имя параметра вычитывается из текста находки', () => {
+    expect(namedSqlParam(INJECTION_FINDING.description)).toBe('search');
+    // Слова-пустышки за идентификатор не принимаются.
+    expect(namedSqlParam('Параметр запрос вставляется в SQL')).toBeNull();
+  });
+
+  it('значение параметра — не SQL: %${search}% в params.push не считается', () => {
+    expect(interpolatedIntoSql('search', AUDIT_LOG_SRC)).toBe(false);
+  });
+
+  it('настоящая инъекция проходит: имя стоит внутри текста запроса', () => {
+    const REAL = 'const r = await query(`SELECT * FROM users WHERE email = \'${search}\'`);';
+    expect(interpolatedIntoSql('search', REAL)).toBe(true);
+    expect(verifyAgainstSource(INJECTION_FINDING, REAL)).toBeNull();
+  });
+
+  it('склейка через плюс тоже считается настоящей', () => {
+    const REAL = "const sql = 'SELECT * FROM users WHERE id = ' + search;";
+    expect(interpolatedIntoSql('search', REAL)).toBe(true);
+  });
+
+  /** Issue #1020 «Содержимое файлов не передано (high)». */
+  it('жалоба модели на непереданный код — дефект прогона, не находка', () => {
+    expect(findingRejectionReason({
+      title: 'Содержимое файлов не передано',
+      description: 'В запросе указаны только пути к файлам, но сам код не приложен. Без содержимого файлов невозможно провести анализ — любые выводы были бы выдумкой.',
+      suggestion: 'Необходимо запросить у пользователя полный код указанных файлов.',
+    })).toBe('scan_input_missing');
+  });
+
+  it('английский вариант той же жалобы', () => {
+    expect(findingRejectionReason({
+      title: 'Cannot analyze',
+      description: 'File contents were not provided, only paths.',
+      suggestion: 'Please provide the full source.',
+    })).toBe('scan_input_missing');
+  });
+
+  it('находка, которая просто УПОМИНАЕТ файлы, не глушится', () => {
+    expect(findingRejectionReason({
+      title: 'Нет обработки ошибок',
+      description: 'В файле route.ts внешний вызов не обёрнут в try/catch.',
+      suggestion: 'Обернуть fetch в try/catch и логировать ошибку.',
+    })).toBeNull();
   });
 });
