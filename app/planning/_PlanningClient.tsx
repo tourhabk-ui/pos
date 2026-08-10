@@ -22,6 +22,7 @@ import {
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
+import { connectivityState } from '@/lib/on-route/connectivity';
 import {
   trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
@@ -303,6 +304,12 @@ function OnTrailTab() {
   // Без этого срез брался по прямым между точками, а профиль размечен по
   // извилистому пути — на горном маршруте это разные числа в полтора раза.
   const [track, setTrack] = useState<Array<[number, number]> | null>(null);
+  /**
+   * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
+   * «снимок от такого-то часа» — это утверждение о свежести, и брать его
+   * можно только из факта успешного ответа, а не из момента открытия экрана.
+   */
+  const [liveDataAt, setLiveDataAt] = useState<number | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -447,6 +454,10 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        // Отметка свежести ставится по факту успешного ответа, а не по
+        // открытию экрана: иначе «снимок от 14:32» означал бы «я посмотрел в
+        // 14:32», а не «данные такие на 14:32».
+        setLiveDataAt(Date.now());
         const wps = data.waypoints;
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
@@ -703,7 +714,22 @@ function OnTrailTab() {
     if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
     if (gpsMessage) return { tone: 'warn', text: gpsMessage };
     if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
-    if (isOffline) return { tone: 'info', text: 'Офлайн-режим: карты и точки маршрута доступны' };
+    // Ступень связи, а не только режим. Прежняя строка сообщала «офлайн» и
+    // безусловно обещала, что карты и точки доступны, — хотя карта лежит в
+    // телефоне, только если её скачали, а снимок трёхдневной давности
+    // выглядел так же, как живые данные.
+    if (isOffline) {
+      const c = connectivityState({
+        online: false,
+        packageAt: savedMap?.at ?? null,
+        liveAt: liveDataAt,
+        now: Date.now(),
+      });
+      return {
+        tone: c.tone === 'alarm' ? 'warn' : 'info',
+        text: c.detail ? `${c.title}. ${c.detail}` : c.title,
+      };
+    }
     if (compassState === 'blocked') return { tone: 'info', text: 'Компас выключен', cta: 'compass' };
     if (compassState === 'unconfirmed') return { tone: 'warn', text: 'Компас не подтверждён — сверяйтесь с картой' };
     return null;
