@@ -87,13 +87,53 @@ const RISK_LABELS: Record<string, string> = {
  * серым «недоступно», чем зелёным «норма»: и там и там мы про зоны ничего не
  * знаем.
  */
+const RISK_ORDER = ['low', 'moderate', 'high', 'critical'];
+
+/** Важность тревоги на язык зон: 3 — критическая, 2 — высокая, 1 — повышенная. */
+function severityToLevel(severity: number): string {
+  if (severity >= 3) return 'critical';
+  if (severity >= 2) return 'high';
+  if (severity >= 1) return 'moderate';
+  return 'low';
+}
+
 export function zoneBanner(
   known: boolean,
-  levels: string[]
+  levels: string[],
+  /**
+   * Действующие предупреждения, показанные НА ЭТОЙ ЖЕ странице ниже.
+   *
+   * Полевой скриншот владельца 10.08: страница безопасности вела зелёной
+   * плашкой «Обстановка нормальная», а под ней в ленте лежало предупреждение
+   * МЧС о циклоне важности 2 — «Тургруппам воздержаться от выхода на
+   * маршруты», на эту же ночь. Два независимых утверждения об одном мире на
+   * одном экране, и верхнее спокойнее нижнего.
+   *
+   * Причина не в ошибке расчёта: баннер считался ТОЛЬКО по оценке зон
+   * (`danger_assessments`), а тревоги живут в `external_alerts`. Он честно
+   * отвечал за свой источник — и выдавал этот ответ за обстановку целиком.
+   *
+   * Отсюда правило: заголовок страницы не может быть спокойнее худшего
+   * сигнала, который она сама показывает.
+   */
+  alerts: Array<{ severity: number }> = [],
 ): { state: 'unknown' | 'calm' | 'alarm'; level: string | null } {
-  if (!known || levels.length === 0) return { state: 'unknown', level: null };
-  const ORDER = ['low', 'moderate', 'high', 'critical'];
-  const worst = levels.reduce((max, l) => (ORDER.indexOf(l) > ORDER.indexOf(max) ? l : max), 'low');
+  const worstAlert = alerts.reduce((max, a) => Math.max(max, a.severity ?? 0), 0);
+  const alertLevel = alerts.length > 0 ? severityToLevel(worstAlert) : null;
+
+  // Про зоны не знаем ничего — но про тревоги знаем: молчать нельзя.
+  if (!known || levels.length === 0) {
+    if (alertLevel && alertLevel !== 'low') return { state: 'alarm', level: alertLevel };
+    return { state: 'unknown', level: null };
+  }
+
+  const worstZone = levels.reduce(
+    (max, l) => (RISK_ORDER.indexOf(l) > RISK_ORDER.indexOf(max) ? l : max),
+    'low',
+  );
+  const worst = alertLevel && RISK_ORDER.indexOf(alertLevel) > RISK_ORDER.indexOf(worstZone)
+    ? alertLevel
+    : worstZone;
   return { state: worst === 'low' ? 'calm' : 'alarm', level: worst };
 }
 
@@ -182,7 +222,9 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatOpen]);
 
-  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level));
+  // Тревоги в баннер обязательны: иначе шапка страницы объявляет норму над
+  // собственной лентой предупреждений (полевой скриншот 10.08).
+  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level), live?.safety.alerts ?? []);
   const volcanicActive = volcanic.filter(ev => ev.active !== false).length;
 
   const sendRescueMessage = useCallback(async () => {
