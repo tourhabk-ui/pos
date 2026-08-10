@@ -88,6 +88,47 @@ describe('баннер обстановки не выдаёт незнание �
     expect(zoneBanner(true, ['low', 'moderate'])).toEqual({ state: 'alarm', level: 'moderate' });
   });
 
+  it('действующее предупреждение не даёт объявить норму', () => {
+    // Полевой скриншот владельца 10.08: шапка /safety вела зелёной плашкой
+    // «Обстановка нормальная», а ниже на той же странице лежало предупреждение
+    // МЧС о циклоне важности 2 на эту же ночь. Баннер считался только по
+    // зонам и честно отвечал за свой источник — выдавая ответ за обстановку
+    // целиком.
+    const cyclone = [{ severity: 2 }];
+    expect(zoneBanner(true, ['low', 'low'], cyclone).state).toBe('alarm');
+    expect(zoneBanner(true, ['low', 'low'], cyclone).level).toBe('high');
+  });
+
+  it('тревога слышна и когда зоны неизвестны', () => {
+    // Про зоны не знаем ничего, про циклон знаем. «Недоступно» здесь было бы
+    // не скромностью, а умолчанием.
+    expect(zoneBanner(false, [], [{ severity: 3 }])).toEqual({ state: 'alarm', level: 'critical' });
+  });
+
+  it('худшее из двух источников, а не последнее посчитанное', () => {
+    // Зона хуже тревоги — побеждает зона.
+    expect(zoneBanner(true, ['critical'], [{ severity: 1 }]).level).toBe('critical');
+    // Тревога хуже зоны — побеждает тревога.
+    expect(zoneBanner(true, ['moderate'], [{ severity: 3 }]).level).toBe('critical');
+  });
+
+  it('информационная тревога нормы не отменяет', () => {
+    // severity 0 — сводка без угрозы. Красить из-за неё всю страницу значит
+    // приучить не верить красному.
+    expect(zoneBanner(true, ['low'], [{ severity: 0 }]).state).toBe('calm');
+  });
+
+  it('баннер получает ленту той же страницы, а не считается отдельно', () => {
+    // Инвариант, ради которого всё: заголовок не может быть спокойнее
+    // худшего сигнала, который страница показывает ниже.
+    const SRC = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
+    // Последнее вхождение — вызов (первое это объявление). Смотрим окно
+    // аргументов целиком: внутри есть свои скобки, и шаблон «до первой
+    // закрывающей» обрывался на них.
+    const call = SRC.slice(SRC.lastIndexOf('zoneBanner('));
+    expect(call.slice(0, 200)).toContain('safety.alerts');
+  });
+
   it('незнание никогда не окрашено как успех', () => {
     const SRC = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
     const label = SRC.slice(SRC.indexOf('const bannerColor'), SRC.indexOf('return ('));
