@@ -1,24 +1,28 @@
 {
   "urls": [
-    "https://vedarai.ru/",
-    "https://vedarai.ru/api/public/danger-summary"
+    "http://kvert.febras.net/van/index.php?type=1",
+    "http://kvert.febras.net/van/index.php?type=2",
+    "http://kvert.febras.net/van/index.php?type=3",
+    "http://kvert.febras.net/van/index.php?type=4"
   ],
-  "bytes": 2000,
+  "bytes": 1200,
   "timeout": 60,
   "grep": [
-    "Шивелуч",
-    "Безымянн",
-    "Ключевск",
-    "Карымск",
-    "Мутновск",
-    "aviation",
-    "\"ok\":true",
-    "\"ok\":false"
+    "VONA",
+    "Aviation Color Code",
+    "Current aviation colour code",
+    "Volcano Observatory Notice",
+    "Shiveluch",
+    "Bezymianny",
+    "Klyuchevskoy",
+    "Karymsky"
   ],
   "count": [
-    "risk_level",
-    "zone_name"
+    "colour code",
+    "color code",
+    "ORANGE",
+    "YELLOW"
   ],
-  "note": "два вопроса. Первый: активность Шивелуча, Безымянного и Карымского приходит к нам не сводкой МЧС, а авиационными кодами KVERT (volcano_status). Главная показывает вулканы с жёлтым кодом и выше — если их там нет, надо понять, коды зелёные или синк отстал (у kvert-acc в реестре стоит «ноль работы = сломан», и в конце июля источник уже менял формат). Второй: встала ли на прод правка зон (#1090) — вместо пустоты должны прийти оценки либо честный ok:false",
-  "run": 7
+  "note": "синк KVERT падает с 28 июля (13 дней): источник отдаёт HTML вместо VONA, парсер распознаёт ноль вулканов и честно отказывается писать — авиационные коды в volcano_status заморожены. Домен меняли 01.08, формат ушёл следом. Снимаю, что реально лежит на каждом type, чтобы писать парсер по факту, а не по догадке. ВАЖНО: KVERT отдаёт 403 не-российским IP, раннер может не пройти — тогда диагностику придётся снимать с прода",
+  "run": 8
 }
