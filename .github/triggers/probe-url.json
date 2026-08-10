@@ -1,7 +1,7 @@
 {
   "urls": [
-    "http://kvert.febras.net/van/index?type=2",
-    "http://kvert.febras.net/van/index.php?type=2"
+    "http://kvert.febras.net/van/index.php?type=2&lend=en",
+    "http://kvert.febras.net/van/index.php?type=1&lend=en"
   ],
   "bytes": 0,
   "timeout": 60,
@@ -9,23 +9,22 @@
     "VOLCANO OBSERVATORY NOTICE",
     "Current aviation colour code",
     "Current aviation color code",
-    "Шивелуч",
-    "Безымянный",
-    "Ключевской",
-    "SUMMARY OF"
+    "SUMMARY OF",
+    "SHEVELUCH",
+    "charset"
   ],
   "count": [
     "Volcano:",
     "aviation colour code",
-    "ORANGE",
-    "YELLOW"
+    "Issued:",
+    "ORANGE"
   ],
   "around": [
     "Current aviation",
-    "Volcano:"
+    "VOLCANO OBSERVATORY"
   ],
-  "aroundLines": 10,
+  "aroundLines": 16,
   "aroundHits": 1,
-  "note": "владелец указал на index?type=2. Проверяю: лежат ли там сами бюллетени VONA (тогда основной парсер заработает без изменений) и отвечает ли путь без index.php. В прошлой пробе type=2 отдал 1,2 МБ с цветовыми словами, но английских имён вулканов не нашлось — вероятно, имена русские, и грепал я не тем алфавитом",
-  "run": 11
+  "note": "владелец подсказал &lend=en. Русская версия отдаётся, похоже, в cp1251 — поэтому греп по UTF-8 не видел ни кириллицы, ни латиницы, при том что цветовые слова считались. Английская версия должна содержать поля бюллетеня VONA, которые основной парсер понимает без изменений: если так, VONA станет основным путём (выпускается по событию, а не раз в неделю), а сводка останется запасным",
+  "run": 12
 }
