@@ -1,19 +1,25 @@
 {
   "urls": [
-    "http://kvert.febras.net/van/index.php?type=3"
+    "http://kvert.febras.net/van/index.php?type=3&lend=en"
   ],
   "bytes": 0,
   "timeout": 60,
   "grep": [
-    "VONA"
+    "SUMMARY OF",
+    "AVIATION COLOUR CODES",
+    "SHEVELUCH",
+    "KAMCHATKA"
+  ],
+  "count": [
+    "ORANGE",
+    "YELLOW",
+    "GREEN"
   ],
   "around": [
-    "Bezymianny",
-    "ORANGE",
-    "Klyuchevskoy"
+    "SUMMARY OF"
   ],
-  "aroundLines": 14,
+  "aroundLines": 10,
   "aroundHits": 1,
-  "note": "разметка ленты KVERT под новый парсер. Страница на 244 КБ содержит Безымянный, Ключевской, Карымский и цветовые слова, но фразы aviation colour code, по которой ищет наш парсер, там ноль раз — формат сменился, данные на месте. Начало файла бесполезно (три экрана счётчика Яндекса), поэтому смотрим контекст вокруг маркеров",
-  "run": 9
+  "note": "держится ли сводная таблица кодов на английской версии. Если да — ставлю lend=en в основной адрес: язык по умолчанию на сайте может смениться так же незаметно, как сменилась вёрстка, и русская версия отдаётся в cp1251, где разбор развалится молча",
+  "run": 13
 }

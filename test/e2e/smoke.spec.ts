@@ -3,7 +3,12 @@ import { test, expect } from '@playwright/test';
 test.describe('Smoke Tests', () => {
   test('homepage loads and has title', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/TourHab|Камчатка/i);
+    // Основа слова, а не словоформа: заголовок главной — «Ведар — помощник и
+    // планировщик путешествия по Камчатке», и «Камчатка» в него не попадает.
+    // Шесть ночей подряд smoke падал на падеже (04-09.08), и это хуже, чем
+    // просто шум: сторож, который кричит впустую, перестают читать, а следом
+    // не заметят настоящую регрессию.
+    await expect(page).toHaveTitle(/Ведар|TourHab|Камчатк/i);
   });
 
   test('homepage has hero section', async ({ page }) => {
@@ -29,7 +34,10 @@ test.describe('Smoke Tests', () => {
   });
 
   test('auth page loads', async ({ page }) => {
-    await page.goto('/auth');
+    // Именно /auth/login. Страницы /auth не существует — это сегмент с одним
+    // layout, и прод честно отдавал на неё 404, а smoke считал это поломкой
+    // входа. Тот же адрес стоит в middleware, куда уводит неавторизованных.
+    await page.goto('/auth/login');
     await expect(page.locator('body')).toContainText(/вход|регистрация|войти/i);
   });
 
