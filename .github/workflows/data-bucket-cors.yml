@@ -1,0 +1,132 @@
+name: Data — правила CORS у бакета карты
+
+# CORS у объектного хранилища нельзя выставить из кода приложения, а в панели
+# Timeweb этой настройки может не быть вовсе. Зато у нас уже есть ключи,
+# которыми выкладывается карта, — значит правило ставится вызовом S3 API и
+# проверяется тем же прогоном, а не глазами в чужом интерфейсе.
+#
+# Зачем это карте. PMTiles читается диапазонами байт. Браузеру мало разрешения
+# читать ТЕЛО ответа: если не открыть заголовки, код получит данные, но не
+# прочитает ни размер файла, ни его версию — а по ним решается, можно ли
+# продолжить прерванную закачку. Снаружи всё выглядит рабочим, пока человек не
+# свернёт приложение на середине; тогда 92 МБ качаются заново, и причина не
+# видна ниоткуда.
+#
+# БАКЕТ ЖИВОЙ И ОБЩИЙ С ФОТО. put-bucket-cors заменяет конфигурацию целиком,
+# поэтому здесь: сначала читаем и печатаем текущую (это и есть точка отката),
+# затем ДОБАВЛЯЕМ своё правило к существующим, а не затираем их.
+#
+# Запуск: push в main, меняющий .github/triggers/bucket-cors.json.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/bucket-cors.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bucket-cors
+  cancel-in-progress: false
+
+jobs:
+  cors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      S3_BUCKET:      ${{ secrets.MAP_S3_BUCKET || secrets.S3_BUCKET }}
+      S3_ENDPOINT:    ${{ secrets.MAP_S3_ENDPOINT || secrets.S3_ENDPOINT || 'https://s3.twcstorage.ru' }}
+      S3_PUBLIC_BASE: ${{ secrets.MAP_S3_PUBLIC_BASE }}
+      AWS_ACCESS_KEY_ID:     ${{ secrets.MAP_S3_KEY || secrets.S3_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.MAP_S3_SECRET || secrets.S3_SECRET_KEY }}
+      AWS_DEFAULT_REGION:    ${{ secrets.S3_REGION || 'ru-1' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Storage configured?
+        run: |
+          if [ -z "${S3_BUCKET:-}" ]; then
+            echo "Секретов хранилища нет — ставить правила некуда."
+            exit 1
+          fi
+          echo "Бакет: ${S3_BUCKET}"
+
+      # Точка отката. Печатаем ДО изменения: если что-то пойдёт не так, вернуть
+      # прежнюю конфигурацию можно будет прямо из этого лога.
+      - name: Current CORS (точка отката)
+        run: |
+          set -uo pipefail
+          if aws --endpoint-url "$S3_ENDPOINT" s3api get-bucket-cors --bucket "$S3_BUCKET" > current-cors.json 2>err.txt; then
+            echo "── текущая конфигурация ──"
+            cat current-cors.json
+          else
+            echo "── правил CORS сейчас нет ──"
+            cat err.txt || true
+            echo '{"CORSRules":[]}' > current-cors.json
+          fi
+
+      - name: Merge desired rule
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+
+          cur = json.load(open('current-cors.json')).get('CORSRules', [])
+          want = json.load(open('.github/triggers/bucket-cors.json'))['rule']
+
+          def same(a, b):
+              # Правило «наше», если совпадают источники и методы: так повторный
+              # прогон обновляет своё правило, а не плодит копии.
+              return (sorted(a.get('AllowedOrigins', [])) == sorted(b.get('AllowedOrigins', []))
+                      and sorted(a.get('AllowedMethods', [])) == sorted(b.get('AllowedMethods', [])))
+
+          kept = [r for r in cur if not same(r, want)]
+          dropped = len(cur) - len(kept)
+          merged = kept + [want]
+
+          json.dump({'CORSRules': merged}, open('new-cors.json', 'w'), ensure_ascii=False, indent=2)
+          print(f'было правил: {len(cur)}, своих заменено: {dropped}, станет: {len(merged)}')
+          print(json.dumps({'CORSRules': merged}, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Apply
+        run: |
+          set -euo pipefail
+          aws --endpoint-url "$S3_ENDPOINT" s3api put-bucket-cors \
+            --bucket "$S3_BUCKET" --cors-configuration file://new-cors.json
+          echo "Правила применены."
+
+      # Проверяем результат ГЛАЗАМИ раннера. Ответ «применено» от API и
+      # реально открытые заголовки — разные вещи, и различать их надо здесь, а
+      # не в браузере человека, который уже вышел на маршрут.
+      - name: Verify headers on a real object
+        run: |
+          set -euo pipefail
+          KEY=$(python3 -c "import json;print(json.load(open('.github/triggers/bucket-cors.json'))['verifyKey'])")
+          BASE="${S3_PUBLIC_BASE:-$S3_ENDPOINT/$S3_BUCKET}"
+          URL="${BASE%/}/$KEY"
+          echo "── проверяем $URL ──"
+          HDR=$(curl -s -D - -o /dev/null -r 0-99 -H 'Origin: https://vedarai.ru' "$URL" || true)
+          echo "$HDR" | grep -iE '^(HTTP/|content-range|content-length|accept-ranges|etag|access-control-)' || true
+
+          echo "$HDR" | grep -qi '^HTTP/.* 206' || { echo "Хранилище не отдало кусок (нет 206)."; exit 1; }
+          echo "$HDR" | grep -qi 'access-control-allow-origin' || {
+            echo "CORS так и не появился. Возможно, хранилище применяет правила с задержкой —"
+            echo "или отвергло их молча. Сравните вывод шага Merge с текущей конфигурацией."
+            exit 1
+          }
+          # Открытые заголовки — то, ради чего всё и делалось. Их отсутствие
+          # ломает докачку МОЛЧА, поэтому проверяются поимённо.
+          MISSING=""
+          for h in Content-Length Content-Range Accept-Ranges ETag; do
+            echo "$HDR" | grep -i 'access-control-expose-headers' | grep -qi "$h" || MISSING="$MISSING $h"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "Заголовки не открыты браузеру:$MISSING"
+            echo "Тело придёт, а размер и версию файла прочитать будет нечем — докачка сломается молча."
+            exit 1
+          fi
+          echo "Куски отдаются, заголовки открыты. Карту можно качать и докачивать."
