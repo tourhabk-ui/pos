@@ -1,20 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/api/safety/alerts",
-    "https://vedarai.ru/api/public/safety-status"
+    "https://vedarai.ru/api/cron/safety-ingest"
   ],
-  "bytes": 5000,
-  "timeout": 90,
+  "bytes": 6000,
+  "timeout": 180,
   "grep": [
     "циклон",
-    "Циклон",
     "weather",
-    "Тургруппам",
-    "Мильков"
+    "not_configured",
+    "not_fetched",
+    "empty"
   ],
-  "count": [
-    "alert_type"
-  ],
-  "note": "дошёл ли циклон 10.08 до external_alerts после деплоя #1104. safety-ingest крутится каждые 5 минут; если ветки weather в ответе нет — либо пост уже вне окна выдачи источника, либо канал МЧС не отдаёт его нашему ingest.",
-  "run": 20
+  "note": "циклона в external_alerts нет (safety-status: top всё ещё Мутновский, activeCount 19). Вопрос — дошёл ли пост до ingest вообще. GET гоняет полный прогон и печатает отчёт по источникам: МЧС RSS, VK, MAX, КБГС. Пост владельца подписан «в МАХ/ВК» — если эти каналы not_configured/not_fetched, то классификатор ни при чём, до него текст не доезжает.",
+  "run": 21
 }
