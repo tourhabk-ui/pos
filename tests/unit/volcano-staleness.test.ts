@@ -67,7 +67,13 @@ describe('бейдж рисует плашку протухания', () => {
 describe('источник KVERT — живой домен, не мёртвый kscnet.ru', () => {
   const sync = readFileSync(join(process.cwd(), 'lib/agents/kvert-sync.ts'), 'utf-8');
   it('DEFAULT_KVERT_URL на kvert.febras.net (kscnet.ru отдаёт 404 с 01.08)', () => {
-    expect(sync).toMatch(/const DEFAULT_KVERT_URL = 'http:\/\/kvert\.febras\.net\/van\/index\.php\?type=3'/);
-    expect(sync, 'вернулся мёртвый домен kscnet.ru — крон снова ляжет').not.toMatch(/DEFAULT_KVERT_URL = '[^']*kscnet\.ru/);
+    // Стережём СВОЙСТВО адреса, а не его написание. Прежде здесь стояла
+    // полная строка вместе с query — и 10.08 этот сторож не пустил правку,
+    // которая делала источник надёжнее (добавляла lend=en против однобайтовой
+    // кодировки русской версии). Гард, прибитый к формулировке, ловит не
+    // регресс, а любое изменение — и приучает себя обходить.
+    const url = /const DEFAULT_KVERT_URL = '([^']+)'/.exec(sync)?.[1] ?? '';
+    expect(url, 'адрес ленты KVERT потерялся').toContain('kvert.febras.net');
+    expect(url, 'вернулся мёртвый домен kscnet.ru — крон снова ляжет').not.toContain('kscnet.ru');
   });
 });

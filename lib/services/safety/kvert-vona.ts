@@ -209,3 +209,212 @@ export function parseVonaFeed(text: string): ParsedVona[] {
   }
   return out;
 }
+
+// ── Сводная таблица кодов ────────────────────────────────────────────────────
+
+/**
+ * Второй формат KVERT: недельный выпуск со сводкой кодов вместо блоков VONA.
+ *
+ * С 28.07.2026 лента отдаёт страницу, где вместо отдельных бюллетеней стоит
+ * общая таблица, а вулканы сгруппированы по цвету:
+ *
+ *   SUMMARY OF AVIATION COLOUR CODES:
+ *    KAMCHATKA
+ *   SHEVELUCH: <span id='ORANGE'>ORANGE</span>
+ *   BEZYMIANNY, KRASHENINNIKOV: <span id='YELLOW'>YELLOW</span>
+ *   AVACHINSKY, ..., KLYUCHEVSKOY, ...: <span id='GREEN'>GREEN</span>
+ *
+ * Поля `Current aviation colour code:` в ней нет вовсе — по нему и искал
+ * прежний парсер, поэтому распознавал ноль и синк падал тринадцать дней подряд.
+ *
+ * Разбор нарочно консервативен: строкой кодов считается только та, где справа
+ * от двоеточия стоит ОДНО цветовое слово, а слева — прописные латинские имена
+ * через запятую. Прочий текст выпуска (а его сотни килобайт: контакты, правила
+ * цитирования, описания активности) под это не подходит и молча пропускается.
+ * Ошибиться в сторону «не распознал» здесь дешевле: нераспознанное видно по
+ * fetched: 0, а выдуманный код вулкана не видно никак.
+ */
+export function parseAccSummary(html: string): ParsedVona[] {
+  // Текст получаем ДО всякого поиска — разбирать сводку по сырому HTML значит
+  // спотыкаться о теги внутри строки (`<span id='ORANGE'>`).
+  const text = stripTags(html);
+  const at = text.toUpperCase().indexOf('AVIATION COLOUR CODES');
+  if (at < 0) return [];
+
+  // Дата выпуска ищется ДО сводки — она стоит в шапке: «August 06, 2026,
+  // 23:53 UTC». Без неё запись легла бы без отметки о наблюдении, и проверка
+  // устаревания (VOLCANO_STALE_DAYS) не смогла бы сказать, что коды старые.
+  const observedAt = parseReleaseDate(text.slice(Math.max(0, at - 4000), at));
+
+  // Сводка занимает несколько строк сразу за маркером; идём по ним и
+  // останавливаемся на первой же строке, которая под формат не подходит, —
+  // но только после того, как хотя бы одна строка кодов уже нашлась.
+  const lines = text.slice(at).split('\n');
+
+  const out: ParsedVona[] = [];
+  const seen = new Set<string>();
+  let started = false;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const row = parseCodeLine(line);
+    if (!row) {
+      // Заголовки районов («KAMCHATKA», «NORTHERN KURILES») внутри сводки —
+      // не конец таблицы.
+      if (started && isPlainCaps(line)) continue;
+      if (started) break;
+      continue;
+    }
+    started = true;
+
+    const color = parseColor(row.color);
+    if (!color) continue;
+
+    for (const nameRaw of row.names.split(',')) {
+      const volcanoName = nameRaw.trim();
+      if (!volcanoName) continue;
+      const norm = normalizeVolcanoName(volcanoName);
+      // Ключ дедупа — канонический slug там, где он есть: один вулкан не
+      // должен приехать дважды под двумя написаниями.
+      const key = norm?.slug ?? volcanoName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        volcanoName,
+        nameSlug: norm?.slug ?? null,
+        nameRu: norm?.ru ?? null,
+        color,
+        // Сводка даёт только текущий код: предыдущего, высоты вершины, высоты
+        // пепла и текста в ней нет. Пустое поле честнее выдуманного.
+        previousColor: null,
+        summitElevationM: null,
+        ashHeightM: null,
+        area: null,
+        noticeNumber: null,
+        observedAt,
+        summary: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+/** «August 06, 2026, 23:53 UTC» → Date. null — не распознано. */
+function parseReleaseDate(text: string): Date | null {
+  const m = /([A-Z][a-z]+\s+\d{1,2},\s*\d{4}),?\s*(\d{2}):(\d{2})\s*UTC/.exec(text);
+  if (!m) return null;
+  const d = new Date(`${m[1]} ${m[2]}:${m[3]}:00 UTC`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+const COLOR_WORDS = new Set(['GREEN', 'YELLOW', 'ORANGE', 'RED', 'UNASSIGNED']);
+
+/**
+ * Строка сводки «ИМЕНА: ЦВЕТ» → части. null — строка не про коды.
+ *
+ * Разбор строковый, не шаблонный, и намеренно: имена в строке зелёных занимают
+ * под шестьсот символов, и любой шаблон с ленивым квантификатором на таком
+ * входе — заявка на разбор с возвратами. Здесь же одно деление по последнему
+ * двоеточию и две проверки, каждая линейная.
+ */
+function parseCodeLine(line: string): { names: string; color: string } | null {
+  const i = line.lastIndexOf(':');
+  if (i <= 0) return null;
+  const color = line.slice(i + 1).trim().toUpperCase();
+  if (!COLOR_WORDS.has(color)) return null;
+  const names = line.slice(0, i).trim();
+  if (!names || !isNameList(names)) return null;
+  return { names, color };
+}
+
+const NAME_CHARS = new Set([',', ' ', "'", '’', '.', '-', '(', ')']);
+
+/** Список имён вулканов: только прописные латинские и разделители. */
+function isNameList(s: string): boolean {
+  if (!/^[A-Z]/.test(s)) return false;
+  for (const ch of s) {
+    if (ch >= 'A' && ch <= 'Z') continue;
+    if (NAME_CHARS.has(ch)) continue;
+    return false;
+  }
+  return true;
+}
+
+/** Заголовок района внутри сводки: «KAMCHATKA», «NORTHERN KURILES». */
+function isPlainCaps(s: string): boolean {
+  if (s.length > 40) return false;
+  return isNameList(s);
+}
+
+/**
+ * HTML → текст со строками. `<br>` и закрытие блочных тегов дают перенос,
+ * остальные теги снимаются, сущности разворачиваются.
+ *
+ * Проход посимвольный, без шаблонов. Снимать теги регуляркой в этом файле уже
+ * пробовали дважды, и оба раза CodeQL был прав: закрывающий тег бывает и
+ * `</script >`, и `</script foo>`, а `<[^>]*>` спотыкается о `>` внутри
+ * значения атрибута. Догонять разметку шаблоном — заведомо проигранная гонка;
+ * маленький автомат отвечает на вопрос «внутри тега или нет» точно и за один
+ * проход.
+ */
+function stripTags(html: string): string {
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+    if (ch !== '<') { out += ch; i++; continue; }
+
+    // Нашли тег: читаем его имя и доходим до закрывающей скобки, помня про
+    // кавычки — внутри значения атрибута '>' не заканчивает тег.
+    let j = i + 1;
+    let quote = '';
+    let name = '';
+    let readingName = true;
+    while (j < html.length) {
+      const c = html[j];
+      if (quote) {
+        if (c === quote) quote = '';
+      } else if (c === '"' || c === "'") {
+        quote = c;
+      } else if (c === '>') {
+        break;
+      } else if (readingName) {
+        if (c === ' ' || c === '\t' || c === '\n' || c === '/') { if (name) readingName = false; }
+        else name += c;
+      }
+      j++;
+    }
+    // Незакрытый тег в конце документа — остаток отбрасываем, он не текст.
+    const tag = name.toLowerCase().replace(/^\//, '');
+    if (tag === 'br' || tag === 'p' || tag === 'div' || tag === 'tr' || tag === 'td' || tag === 'li' || /^h\d$/.test(tag)) {
+      out += '\n';
+    }
+    i = j + 1;
+  }
+  return decodeEntities(out).replace(/[ \t]+/g, ' ');
+}
+
+const ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'",
+};
+
+/**
+ * Разворачивает HTML-сущности ЗА ОДИН проход.
+ *
+ * Цепочка из `.replace()` по одной сущности разворачивает текст дважды: сперва
+ * `&amp;` превращается в `&`, а следующий шаг видит уже готовое `&lt;` и делает
+ * из него `<`. То есть исходное `&amp;lt;` — экранированная запись строки
+ * `&lt;` — незаметно становится символом `<`. На это указал CodeQL, и он прав:
+ * двойное разворачивание тем и опасно, что выглядит как работающий код.
+ *
+ * Один проход снимает вопрос: то, что появилось при разворачивании, повторно
+ * не читается.
+ */
+function decodeEntities(s: string): string {
+  return s.replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/gi, (whole, name: string) => {
+    return ENTITIES[name.toLowerCase()] ?? whole;
+  });
+}
