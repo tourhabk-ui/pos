@@ -1,15 +1,24 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/kuzmich-eval"
+    "https://vedarai.ru/",
+    "https://vedarai.ru/safety"
   ],
-  "bytes": 9000,
-  "timeout": 300,
+  "bytes": 400,
+  "timeout": 90,
+  "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   "grep": [
-    "context_len\": 0",
-    "\"score\": 1",
-    "\"score\": 2",
-    "нет точных данных"
+    "Мутновск",
+    "циклон",
+    "alerts-now",
+    "Опасность",
+    "Спокойно",
+    "предупрежд"
   ],
-  "note": "Kuzmich Eval дал 10% при пороге 80%, судья при этом отвечал (иначе алерт был бы «судья недоступен»). Нужен сам отчёт: важнее всего context_len по кейсам. Нулевой контекст = сломан retrieval, и Кузьмич отвечает по памяти модели; непустой контекст при score 1 = выдумывает поверх данных. Это разные поломки.",
-  "run": 24
+  "around": [
+    "alerts-now"
+  ],
+  "aroundLines": 6,
+  "aroundHits": 2,
+  "note": "мерка одна: видно ли слово об опасности на самой странице, которую открывает человек с телефона. Не отчёт API. Грепаю по тексту действующего предупреждения (Мутновский) и по классу новой полосы.",
+  "run": 25
 }
