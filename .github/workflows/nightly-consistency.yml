@@ -1,0 +1,88 @@
+name: Nightly — не врёт ли тишина
+
+# Проверка не «зелёное ли в CI», а «одно ли говорят каналы».
+#
+# Платформа рассказывает о турах трижды и по-разному: людям — каталогом,
+# поисковикам — картой сайта, ИИ-агентам — llms.txt и протоколом MCP. Источник
+# один, код разный, и расхождение между ними НИКОГДА не падает: каждый канал по
+# отдельности отвечает 200 и выглядит исправным.
+#
+# Так уже было дважды, и оба раза нашёл владелец, глазами, спустя недели:
+# get_tours отдавал «Туры не найдены» при живых карточках (#1048); карта сайта
+# собиралась на билде без базы и несла полсотни ссылок вместо сотен (#1049).
+#
+# Пороги взяты с ЖИВЫХ значений 10.08, а не с желаемых: сторож, рождённый
+# красным, выключают в первую же неделю.
+#
+# Что здесь НЕ проверяется и не может: компас, пустое состояние экрана, «карта
+# сохранена» после очистки кэша ОС, доверие на карточке партнёра. Это глаза и
+# руки — docs/manual-field-check.md.
+
+on:
+  schedule:
+    - cron: '40 4 * * *'   # после ночного smoke, до утреннего дайджеста
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-consistency
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE: https://vedarai.ru
+      ALT_DOMAIN: https://tourhab.ru
+      # Живое значение 10.08 — 893. Порог с запасом: просадка на сотню бывает
+      # штатной (снятие с публикации), падение вдвое — нет.
+      MIN_SITEMAP_URLS: '600'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: Снять три канала
+        run: |
+          set -uo pipefail
+          curl -s --max-time 60 "$BASE/llms.txt"    -o llms.txt    || true
+          curl -s --max-time 60 "$BASE/sitemap.xml" -o sitemap.xml || true
+          curl -s --max-time 60 -X POST "$BASE/api/mcp" \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}' \
+            -o mcp.json || true
+          # Второй домен: интересует КОД ответа, а не тело.
+          echo "$(curl -s -o alt.body -w '%{http_code}' --max-time 60 "$ALT_DOMAIN/llms.txt" || echo 000)" > alt.code
+          for f in llms.txt sitemap.xml mcp.json; do
+            echo "$f: $( [ -s "$f" ] && wc -c < "$f" || echo 0) байт"
+          done
+
+      - name: Сверить
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --ignore-scripts
+          npx tsx scripts/check-channel-consistency.ts
+
+      # Красное без адресата читать некому. Дедуп по заголовку: свежий прогон
+      # дописывается в открытую issue, вторая не заводится.
+      - name: Завести issue при расхождении
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE='Каналы видимости разошлись'
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "in:title \"$TITLE\"" --json number --jq '.[0].number' || true)
+          BODY=$(printf 'Ночная сверка каналов нашла расхождение.\n\nПрогон: %s\n\n%s\n\nЧто это значит: платформа рассказывает о турах трижды — каталогом, картой сайта и агентам. Расхождение не падает само: каждый канал по отдельности отвечает 200.\n' \
+            "$RUN_URL" "$(cat problems.txt 2>/dev/null || echo 'подробности в логе прогона')")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" --body "$BODY" || true
+          else
+            gh label create evo --repo "${{ github.repository }}" --color B4761F --force || true
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --label evo --body "$BODY"
+          fi
