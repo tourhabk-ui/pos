@@ -49,7 +49,20 @@ jobs:
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
           # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
           TIMEOUT=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('timeout', 60))")
-          echo "UA: $UA · timeout: ${TIMEOUT}s"
+          # Диапазон байт и Origin: нужны, чтобы проверить путь ЧТЕНИЯ карты, а
+          # не только её наличие. PMTiles читается кусками, и «файл отдаётся»
+          # ничего не говорит о том, отдаётся ли КУСОК: 200 вместо 206 значит,
+          # что браузер получит 92 МБ на каждый чих. Origin проверяет вторую
+          # половину — открыты ли заголовки, по которым решается докачка.
+          RANGE=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('range', ''))")
+          ORIGIN=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('origin', ''))")
+          # Именно if, а не `[ ... ] && ...`: шаг идёт под `bash -e`, и
+          # неуспешная проверка как последняя команда строки убила бы прогон,
+          # когда поля просто не заданы.
+          EXTRA=()
+          if [ -n "$RANGE" ];  then EXTRA+=(-r "$RANGE"); fi
+          if [ -n "$ORIGIN" ]; then EXTRA+=(-H "Origin: $ORIGIN"); fi
+          echo "UA: $UA · timeout: ${TIMEOUT}s${RANGE:+ · range: $RANGE}${ORIGIN:+ · origin: $ORIGIN}"
           for u in $URLS; do
             echo "════════════════════════════════════════════════"
             echo "URL: $u"
@@ -63,9 +76,9 @@ jobs:
             # отдаёт 401 — проба публичного JSON была невозможна в принципе.
             case "$u" in
               https://vedarai.ru/api/cron/*)
-                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
+                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
               *)
-                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" "$u" || echo 000);;
+                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} "$u" || echo 000);;
             esac
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             # Заголовки ответа: часть поведения задаётся не нашим кодом, а
@@ -73,7 +86,7 @@ jobs:
             # геолокацию на всём сайте, и по телу страницы этого не увидеть.
             if [ -s /tmp/headers ]; then
               echo "── заголовки ──"
-              grep -iE '^(permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control):' /tmp/headers | cut -c1-300
+              grep -iE '^(HTTP/|permissions-policy|feature-policy|content-security-policy|x-frame-options|strict-transport|server|cache-control|content-range|content-length|accept-ranges|etag|age|x-cache|x-cached|access-control-):' /tmp/headers | cut -c1-300
             fi
             if [ -n "$GREP" ]; then
               echo "── маркеры ──"
