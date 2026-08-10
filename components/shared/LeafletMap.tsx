@@ -106,6 +106,15 @@ export default function LeafletMap({
    */
   const [initFailed, setInitFailed] = useState(false);
   const [retry, setRetry] = useState(0);
+  /**
+   * Своего положения нет, и это сказано вслух.
+   *
+   * Отказ геолокации глотался пустым обработчиком, а синяя точка при этом
+   * стояла в центре карты с первого кадра. Человек видел «себя» там, где его
+   * нет, и никакой разницы между «GPS не дал фикса» и «вот вы» на экране не
+   * было.
+   */
+  const [geoDenied, setGeoDenied] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -403,20 +412,25 @@ export default function LeafletMap({
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         });
-        const userMarker = L.marker([center[0], center[1]], {
-          icon: userIcon,
-          zIndexOffset: 1000,
-        }).addTo(map);
-
-        // Точный круг точности (как в Google Maps / OsmAnd)
-        const accuracyCircle = L.circle([center[0], center[1]], {
-          radius: 1000, // стартовое значение, обновим при первом фиксе
-          color: '#4285f4',
-          fillColor: '#4285f4',
-          fillOpacity: 0.1,
-          weight: 1,
-          interactive: false,
-        }).addTo(map);
+        /**
+         * Синей точки НЕТ, пока нет фикса.
+         *
+         * Раньше маркер и круг точности создавались сразу, в центре карты, с
+         * радиусом 1000 м «до первого фикса». Центр карты — это середина
+         * маршрута, а не человек. Если фикса не случилось (отказ в доступе,
+         * помещение, нет неба), синяя точка так и оставалась там — и выглядела
+         * подтверждённым положением. На экране навигации это худшее из
+         * возможного: человек ведёт себя по точке, которой не существует.
+         *
+         * Владелец 10.08: «а где геолокация, которая определяет моё
+         * положение?» — на карте было несколько синих кружков, и один из них
+         * был не он, а центр маршрута.
+         *
+         * Теперь оба объекта рождаются в обработчике успеха, из настоящих
+         * координат и настоящей точности.
+         */
+        let userMarker: ReturnType<typeof L.marker> | null = null;
+        let accuracyCircle: ReturnType<typeof L.circle> | null = null;
 
         // Отслеживание позиции в реальном времени
         userLocationWatchId = navigator.geolocation.watchPosition(
@@ -424,15 +438,30 @@ export default function LeafletMap({
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
             const acc = pos.coords.accuracy; // метры точности (обычно 5-50м)
-            userMarker.setLatLng([lat, lng]);
-            accuracyCircle.setLatLng([lat, lng]);
-            accuracyCircle.setRadius(acc);
+            setGeoDenied(false);
+            if (!userMarker) {
+              userMarker = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+              accuracyCircle = L.circle([lat, lng], {
+                radius: acc,
+                color: '#4285f4',
+                fillColor: '#4285f4',
+                fillOpacity: 0.1,
+                weight: 1,
+                interactive: false,
+              }).addTo(map);
+            } else {
+              userMarker.setLatLng([lat, lng]);
+              accuracyCircle?.setLatLng([lat, lng]);
+              accuracyCircle?.setRadius(acc);
+            }
             // Центрируем карту на пользователе при первом фиксе или если зум > 12
             if (map.getZoom() >= 12) {
               map.panTo([lat, lng], { animate: true, duration: 0.5 });
             }
           },
-          () => { /* ошибка геолокации — молча */ },
+          // Отказ геолокации назывался молча — и отсутствие точки было
+          // неотличимо от «точка есть, просто не видно». Говорим словами.
+          () => { setGeoDenied(true); },
           {
             enableHighAccuracy: locationPriority === 'highAccuracy',
             maximumAge: 10000, // используем кэшированную позицию до 10 сек
@@ -473,6 +502,20 @@ export default function LeafletMap({
   return (
     <div style={{ height, position: 'relative' }} className={`overflow-hidden ${className}`}>
       <div ref={containerRef} style={{ height: '100%' }} />
+      {showUserLocation && geoDenied && !initFailed && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 1000,
+            padding: '8px 12px', borderRadius: 10, textAlign: 'center',
+            background: 'rgba(13,17,23,0.85)', color: '#fff',
+            fontSize: 12, lineHeight: 1.35, pointerEvents: 'none',
+          }}
+        >
+          Своё положение не определено — нет доступа к геолокации или сигнала.
+          Маршрут и точки на карте настоящие.
+        </div>
+      )}
       {initFailed && (
         <div
           role="alert"
