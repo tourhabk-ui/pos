@@ -41,6 +41,10 @@ jobs:
           # Необязательные счётчики вхождений: «тонкий, но 200 OK» sitemap не
           # должен маскироваться — пустая секция видна нулём, а не отсутствием.
           COUNTS=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('count', [])))")
+          # Маркеры, вокруг которых печатать контекст (см. ниже), и сколько.
+          AROUND=$(python3 -c "import json; print('\n'.join(json.load(open('.github/triggers/probe-url.json')).get('around', [])))")
+          AROUND_LINES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundLines', 8))")
+          AROUND_HITS=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('aroundHits', 2))")
           UA=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('ua', 'Mozilla/5.0 (compatible; VedarProbe/1.0)'))")
           # Необязательный таймаут (сек): нужен для длинных серверных прогонов
           # (полный /api/cron/evo идёт ~100 с — дефолтные 60 обрубали бы его).
@@ -88,6 +92,21 @@ jobs:
                 [ -z "$c" ] && continue
                 echo "  $c: $(grep -o -F -- "$c" /tmp/body | wc -l)"
               done <<< "$COUNTS"
+            fi
+            # Необязательный контекст вокруг маркера. Начало файла бесполезно,
+            # когда нужное лежит в середине: страница KVERT на 244 КБ начинается
+            # тремя экранами счётчика Яндекса, а коды вулканов — глубоко внутри.
+            # Просить больше байт с начала значит листать boilerplate; здесь
+            # печатаются строки ВОКРУГ совпадения.
+            if [ -n "$AROUND" ]; then
+              echo "── контекст вокруг маркеров ──"
+              while IFS= read -r a; do
+                [ -z "$a" ] && continue
+                echo "  ── $a ──"
+                # Разбиваем по '>' и режем длину: одна минифицированная строка
+                # HTML способна занять весь лог целиком.
+                tr '>' '>\n' < /tmp/body | grep -m "$AROUND_HITS" -A "$AROUND_LINES" -F -- "$a" | cut -c1-200 || echo "  (не найдено)"
+              done <<< "$AROUND"
             fi
             echo "── первые ${BYTES} байт ──"
             head -c "${BYTES}" /tmp/body | tr -d '\r'
