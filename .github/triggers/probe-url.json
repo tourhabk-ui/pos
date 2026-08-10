@@ -1,19 +1,27 @@
 {
   "urls": [
-    "http://kvert.febras.net/van/index.php?type=3"
+    "https://t.me/s/ivsfebras_kvert"
   ],
   "bytes": 0,
   "timeout": 60,
   "grep": [
-    "VONA"
+    "SHEVELUCH",
+    "Шивелуч",
+    "ORANGE",
+    "оранжев",
+    "AVIATION",
+    "авиацион",
+    "tgme_widget_message_text"
+  ],
+  "count": [
+    "tgme_widget_message_text",
+    "datetime"
   ],
   "around": [
-    "Bezymianny",
-    "ORANGE",
-    "Klyuchevskoy"
+    "tgme_widget_message_text"
   ],
-  "aroundLines": 14,
-  "aroundHits": 1,
-  "note": "разметка ленты KVERT под новый парсер. Страница на 244 КБ содержит Безымянный, Ключевской, Карымский и цветовые слова, но фразы aviation colour code, по которой ищет наш парсер, там ноль раз — формат сменился, данные на месте. Начало файла бесполезно (три экрана счётчика Яндекса), поэтому смотрим контекст вокруг маркеров",
-  "run": 9
+  "aroundLines": 12,
+  "aroundHits": 2,
+  "note": "владелец предложил канал KVERT в Telegram как второй источник кодов вулканов. Публичную ленту t.me/s/<channel> можно читать обычной страницей, без бота и без прав администратора. Смотрю, что там реально лежит: язык, формат, есть ли цветовые коды — и годится ли лента как запасной путь, когда основной источник снова сменит вёрстку",
+  "run": 10
 }
