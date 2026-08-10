@@ -167,6 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           KEY="maps/kamchatka-$(date -u +%Y%m%d).pmtiles"
+          echo "$KEY" > .map-key
           aws --endpoint-url "$S3_ENDPOINT" s3 cp kamchatka.pmtiles "s3://$S3_BUCKET/$KEY" \
             --content-type application/octet-stream \
             --cache-control "public, max-age=31536000, immutable"
@@ -175,13 +176,14 @@ jobs:
           # версии сшивались бы в файл, которого никогда не было. Клиент
           # переключается на новую карту сменой переменной окружения, и старая
           # остаётся доступной тем, кто качает прямо сейчас.
-          echo "Выложено: $S3_ENDPOINT/$S3_BUCKET/$KEY"
+          echo "Выложено: $KEY"
           {
             echo ""
             echo "Выложено в хранилище: \`$KEY\`"
             echo ""
             echo "Чтобы приложение начало брать карту отсюда, задайте"
-            echo "\`NEXT_PUBLIC_MAP_PMTILES_URL\` на полный адрес файла."
+            echo "\`NEXT_PUBLIC_MAP_PMTILES_URL\` на полный адрес файла —"
+            echo "тот, что проверен следующим шагом."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Проверяем ГЛАЗАМИ раннера, а не надеждой: без Range и без открытых
@@ -190,12 +192,19 @@ jobs:
       - name: Verify Range and CORS
         if: ${{ env.S3_BUCKET != '' }}
         env:
-          S3_BUCKET:   ${{ secrets.MAP_S3_BUCKET }}
-          S3_ENDPOINT: ${{ secrets.MAP_S3_ENDPOINT }}
+          S3_BUCKET:      ${{ secrets.MAP_S3_BUCKET }}
+          S3_ENDPOINT:    ${{ secrets.MAP_S3_ENDPOINT }}
+          S3_PUBLIC_BASE: ${{ secrets.MAP_S3_PUBLIC_BASE }}
         run: |
           set -euo pipefail
-          KEY="maps/kamchatka-$(date -u +%Y%m%d).pmtiles"
-          URL="$S3_ENDPOINT/$S3_BUCKET/$KEY"
+          KEY=$(cat .map-key)
+          # Публичный адрес НЕ выводим из эндпоинта: хранилища раздают файлы
+          # то путём (endpoint/бакет/ключ), то поддоменом (бакет.endpoint/ключ),
+          # и угадывание дало бы падение проверки на верно настроенном бакете —
+          # худший вид ложной тревоги. Адрес берём из панели хранилища, а
+          # догадка остаётся запасным вариантом.
+          BASE="${S3_PUBLIC_BASE:-$S3_ENDPOINT/$S3_BUCKET}"
+          URL="${BASE%/}/$KEY"
           echo "── проверяем $URL ──"
           HDR=$(curl -s -D - -o /dev/null -r 0-99 -H 'Origin: https://vedarai.ru' "$URL" || true)
           echo "$HDR" | grep -iE '^(HTTP/|content-range|content-length|accept-ranges|etag|access-control-)' || true
