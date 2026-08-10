@@ -56,6 +56,65 @@ describe('миграция 792 схлопывает уже накопленны�
   });
 });
 
+/**
+ * Второй заход того же дефекта — 10.08, через другую дверь.
+ *
+ * Дедуп вставки (выше) ловит повтор при ЖИВОМ оригинале. А роут вулканов
+ * намеренно отдаёт неделю истории, и в это окно попадают строки, чей срок уже
+ * вышел: дедуп до них не дотягивается по построению. Проба прода вернула
+ * «Сохраняется риск схода оползней и обвалов с вулкана Мутновского» СЕМЬ раз —
+ * ровно тот экран, что владелец снимал 01.08, когда он висел трижды.
+ *
+ * Отсюда два обязательства, и оба обязаны жить в РОУТЕ, а не в клиенте:
+ * клиентский дедуп работает после отсечки LIMIT и потому не полон — а тот,
+ * что стоял в /hub/safety, вдобавок включал created_at в ключ и не схлопывал
+ * ничего вообще.
+ */
+describe('вулканы: одна угроза — одна строка, истёкшее названо истёкшим', () => {
+  const ROUTE = readFileSync(join(process.cwd(), 'app/api/safety/volcanic/route.ts'), 'utf-8');
+
+  it('повторы схлопываются по СОДЕРЖАНИЮ, а не по id или времени', () => {
+    // created_at в ключе — это и есть та ошибка, из-за которой дедуп молчал:
+    // суточная сводка приходит новым постом, время у дублей всегда разное.
+    expect(ROUTE).toMatch(/DISTINCT ON \([^)]*lower\(title\)/);
+    expect(ROUTE).not.toMatch(/DISTINCT ON \([^)]*created_at/);
+  });
+
+  it('ключ регистронезависим — как в ленте главной', () => {
+    // Один пункт сводки, перенабранный с другой заглавной, иначе разойдётся
+    // на две строки. Тем же приёмом схлопывается лента в app/_home/data.ts.
+    const HOME = readFileSync(join(process.cwd(), 'app/_home/data.ts'), 'utf-8');
+    expect(HOME).toMatch(/DISTINCT ON \(lower\(title\)\)/);
+    expect(ROUTE).toMatch(/lower\(COALESCE\(description, ''\)\)/);
+  });
+
+  it('из группы остаётся свежайшая — она несёт актуальный срок и ссылку', () => {
+    expect(ROUTE).toMatch(/ORDER BY lower\(title\)[\s\S]*?created_at DESC/);
+  });
+
+  it('схлопывание идёт ДО отсечки: иначе двадцать повторов вытеснят всё живое', () => {
+    expect(ROUTE.indexOf('DISTINCT ON')).toBeLessThan(ROUTE.lastIndexOf('LIMIT'));
+  });
+
+  it('ответ говорит, действует предупреждение или это история недели', () => {
+    expect(ROUTE).toMatch(/expires_at > NOW\(\)\)\s*AS active/);
+  });
+
+  it('страница отличает истёкшее и считает только действующие', () => {
+    const CLIENT = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
+    expect(CLIENT).toMatch(/ev\.active === false/);
+    // Счётчик в шапке раздела по всему списку обещал бы угрозы, которых нет.
+    expect(CLIENT).toMatch(/volcanicActive/);
+  });
+
+  it('свой дедуп в кабинете не воскрешает: источник правды один', () => {
+    const HUB = readFileSync(join(process.cwd(), 'app/hub/safety/_SafetyHubClient.tsx'), 'utf-8');
+    const body = HUB.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    expect(body, 'дедуп вернулся на клиент — он неполон после LIMIT')
+      .not.toMatch(/volcanicUnique\s*=\s*useMemo/);
+  });
+});
+
 describe('зоны и склонение на /safety', () => {
   const CLIENT = readFileSync(join(process.cwd(), 'app/safety/_SafetyClient.tsx'), 'utf-8');
 

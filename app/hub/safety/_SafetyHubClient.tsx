@@ -202,17 +202,18 @@ export default function SafetyHubClient() {
     if (activeTab === 'volcanic' && !volcanicLoaded && !volcanicLoading) fetchVolcanic();
   }, [activeTab, volcanicLoaded, volcanicLoading, fetchVolcanic]);
 
-  // Схлопываем дубли: КБГС/МЧС нередко присылают одну сводку несколько раз
-  // (разные id, одинаковый текст) — показываем каждую один раз.
-  const volcanicUnique = useMemo(() => {
-    const seen = new Set<string>();
-    return volcanic.filter((ev) => {
-      const k = `${ev.title}|${ev.description ?? ''}|${ev.created_at}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-  }, [volcanic]);
+  // Дубли схлопывает РОУТ — одной проверкой на всех, кто его читает.
+  //
+  // Здесь стоял свой дедуп по ключу `title|description|created_at`, и он не
+  // работал: суточная сводка МЧС приходит каждый день НОВЫМ постом с той же
+  // строкой, значит created_at у дублей разный, и ключ у них тоже разный.
+  // Ловилось только буквальное совпадение времени — то есть ничего. Проба
+  // прода 10.08 показала одно предупреждение о Мутновском семь раз.
+  //
+  // Дедуп на клиенте вообще не может быть полным: роут отдаёт не больше
+  // двадцати строк, и если все двадцать — повторы одного текста, схлопывать
+  // на этой стороне уже нечего. Схлопывать нужно до отсечки.
+  const volcanicUnique = volcanic;
 
   const handleRescueSend = useCallback(async () => {
     const text = rescueInput.trim();

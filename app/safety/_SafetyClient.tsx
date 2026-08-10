@@ -38,6 +38,8 @@ interface VolcanicEvent {
   severity: number;
   affected_zones: string[];
   created_at: string;
+  /** Действует сейчас. Роут отдаёт и историю за неделю — её надо отличать. */
+  active?: boolean;
 }
 
 interface WeatherData {
@@ -181,6 +183,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   }, [chatMessages, chatOpen]);
 
   const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level));
+  const volcanicActive = volcanic.filter(ev => ev.active !== false).length;
 
   const sendRescueMessage = useCallback(async () => {
     const text = chatInput.trim();
@@ -420,8 +423,10 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Flame size={16} color="var(--accent)" />
             <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Вулканическая активность</span>
-            {volcanic.length > 0 && (
-              <span style={{ fontSize: 11, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', padding: '2px 6px', borderRadius: 10 }}>{volcanic.length}</span>
+            {/* Считаем ДЕЙСТВУЮЩИЕ. Роут отдаёт ещё и неделю истории, и счётчик
+                по всему списку обещал бы угрозы, которых уже нет. */}
+            {volcanicActive > 0 && (
+              <span style={{ fontSize: 11, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', padding: '2px 6px', borderRadius: 10 }}>{volcanicActive}</span>
             )}
           </div>
           {volcanicOpen ? <ChevronUp size={15} color="var(--text-secondary)" /> : <ChevronDown size={15} color="var(--text-secondary)" />}
@@ -432,12 +437,17 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
               <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Активных вулканических предупреждений нет.</p>
             ) : (
               volcanic.map(ev => {
-                const sevColor = ev.severity >= 3 ? 'var(--danger)' : ev.severity === 2 ? 'var(--warning)' : 'var(--text-secondary)';
+                // Истёкшее показываем как историю недели, а не как угрозу: тем
+                // же кеглем и цветом оно читается как «действует сейчас».
+                const past = ev.active === false;
+                const sevColor = past
+                  ? 'var(--text-muted)'
+                  : ev.severity >= 3 ? 'var(--danger)' : ev.severity === 2 ? 'var(--warning)' : 'var(--text-secondary)';
                 return (
-                  <div key={ev.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                  <div key={ev.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', opacity: past ? 0.6 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{ev.title}</span>
-                      <span style={{ fontSize: 11, color: sevColor }}>Уровень {ev.severity}</span>
+                      <span style={{ fontWeight: 600, color: past ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: 13 }}>{ev.title}</span>
+                      <span style={{ fontSize: 11, color: sevColor }}>{past ? 'Завершено' : `Уровень ${ev.severity}`}</span>
                     </div>
                     {ev.description && <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>{ev.description}</p>}
                     {ev.affected_zones.length > 0 && (
