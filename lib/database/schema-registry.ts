@@ -214,7 +214,12 @@ export function extractColumnRefs(sqlRaw: string): ColumnRef[] {
     let sm: RegExpExecArray | null;
     while ((sm = selRe.exec(sql)) !== null) {
       for (const rawItem of splitTopLevel(sm[1])) {
-        const item = rawItem.trim();
+        // Приведение типа не меняет того, что слева от него стоит колонка:
+        // `updated_at::text` — такая же ссылка, как голый `updated_at`.
+        // Пока каст глушил весь элемент списка, гард пропустил фантом
+        // danger_assessments.updated_at, и /api/public/danger-summary месяцами
+        // отдавал пустоту вместо оценки риска по зонам — молча, через catch.
+        const item = rawItem.trim().replace(/::\s*[\w[\]. ]+/g, '');
         // Функции, звёздочки, литералы, alias.col (уже учтён) — не голые колонки.
         if (!item || /[(*.'":]/.test(item)) continue;
         const im = /^([a-zA-Z_][\w]*)/.exec(item);

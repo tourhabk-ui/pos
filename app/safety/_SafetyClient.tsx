@@ -70,6 +70,31 @@ const RISK_LABELS: Record<string, string> = {
   critical: 'Критическая',
 };
 
+/**
+ * Что сказать в баннере обстановки.
+ *
+ * Вынесено из компонента, потому что здесь решается не оформление, а
+ * утверждение о мире. До 10.08 баннер брал максимум по пустому списку зон,
+ * получал `low` и объявлял обстановку нормальной — при том, что роут зон падал
+ * на несуществующей колонке и список ВСЕГДА приходил пустым. Зелёная плашка на
+ * странице безопасности, посчитанная из нуля данных, — ровно тот случай,
+ * ради которого платформа и существует.
+ *
+ * `known: false` — оценки нет (запрос не удался). Пустой список при
+ * `known: true` — оценок нет в базе. Наружу оба случая честнее показать
+ * серым «недоступно», чем зелёным «норма»: и там и там мы про зоны ничего не
+ * знаем.
+ */
+export function zoneBanner(
+  known: boolean,
+  levels: string[]
+): { state: 'unknown' | 'calm' | 'alarm'; level: string | null } {
+  if (!known || levels.length === 0) return { state: 'unknown', level: null };
+  const ORDER = ['low', 'moderate', 'high', 'critical'];
+  const worst = levels.reduce((max, l) => (ORDER.indexOf(l) > ORDER.indexOf(max) ? l : max), 'low');
+  return { state: worst === 'low' ? 'calm' : 'alarm', level: worst };
+}
+
 const ACTION_LABELS: Record<string, string> = {
   NORMAL:                 '',
   WATCH:                  'Наблюдение',
@@ -118,6 +143,9 @@ import type { SafetyLiveData } from '@/app/_home/data';
 
 export default function SafetyClient({ live }: { live: SafetyLiveData | null }) {
   const [zones, setZones] = useState<ZoneData[]>([]);
+  // Отдельно от самого списка: «зон нет» и «оценку не посчитали» — разные
+  // сообщения, и второе нельзя показывать зелёным.
+  const [zonesKnown, setZonesKnown] = useState(true);
   const [seismic, setSeismic] = useState<SeismicEvent[]>([]);
   const [seismicSource, setSeismicSource] = useState<string>('');
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
@@ -134,7 +162,14 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
 
   useEffect(() => {
     void Promise.all([
-      fetch('/api/public/danger-summary').then(r => r.json()).then((d: { zones?: ZoneData[] }) => setZones(d.zones ?? [])).catch(() => {}),
+      fetch('/api/public/danger-summary')
+        .then(r => r.json())
+        .then((d: { ok?: boolean; zones?: ZoneData[] }) => {
+          setZones(d.zones ?? []);
+          // ok === false — оценка не посчиталась. Это не «зон нет».
+          setZonesKnown(d.ok !== false);
+        })
+        .catch(() => setZonesKnown(false)),
       fetch('/api/safety/seismic').then(r => r.json()).then((d: { events?: SeismicEvent[]; source?: string }) => { setSeismic(d.events ?? []); setSeismicSource(d.source ?? ''); }).catch(() => {}),
       fetch('/api/safety/volcanic').then(r => r.json()).then((d: { events?: VolcanicEvent[] }) => setVolcanic(d.events ?? [])).catch(() => {}),
       fetch('/api/safety/weather').then(r => r.json()).then((d: WeatherData) => setWeather(d.tempC ? d : null)).catch(() => {}),
@@ -145,10 +180,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, chatOpen]);
 
-  const maxRisk = zones.reduce((max, z) => {
-    const order = ['low', 'moderate', 'high', 'critical'];
-    return order.indexOf(z.risk_level) > order.indexOf(max) ? z.risk_level : max;
-  }, 'low');
+  const banner = zoneBanner(zonesKnown, zones.map(z => z.risk_level));
 
   const sendRescueMessage = useCallback(async () => {
     const text = chatInput.trim();
@@ -217,8 +249,14 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     }
   }, [chatInput, chatLoading, chatMessages]);
 
-  const bannerColor = RISK_COLORS[maxRisk] ?? 'var(--success)';
-  const bannerLabel = maxRisk === 'low' ? 'Обстановка нормальная' : `Опасность: ${RISK_LABELS[maxRisk]}`;
+  const bannerColor = banner.state === 'unknown'
+    ? 'var(--text-muted)'
+    : (RISK_COLORS[banner.level ?? 'low'] ?? 'var(--success)');
+  const bannerLabel = banner.state === 'unknown'
+    ? 'Оценка по зонам сейчас недоступна'
+    : banner.state === 'calm'
+      ? 'Обстановка нормальная'
+      : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}`;
 
   return (
     // paddingBottom — под фиксированный таб-бар: без него последняя карточка
