@@ -22,6 +22,9 @@ import {
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
+import {
+  trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
+} from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
@@ -719,6 +722,21 @@ function OnTrailTab() {
   // у маршрута одна точка, ломаная из одной вершины — это ничто. Трек при
   // этом был, им же рисуется схема «вид сверху» этажом ниже. Карта навигации
   // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
+  /**
+   * Происхождение линии на карте: снятый трек или ломаная между точками.
+   * Считается по плотности точек — флага в данных нет, миграция 168 ничего
+   * не проставила (см. lib/routes/track-fidelity).
+   */
+  const lineFidelity: TrackFidelity = useMemo(() => {
+    const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+    const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
+    const line = track && track.length >= 2 ? track : fallback;
+    // Ломаная, собранная нами из путевых точек, — заведомо набросок:
+    // считать её плотность незачем, происхождение известно точно.
+    if (!track || track.length < 2) return line ? 'sketch' : 'unknown';
+    return trackFidelity(track);
+  }, [track, waypoints]);
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
     // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
@@ -728,10 +746,23 @@ function OnTrailTab() {
     const line = track && track.length >= 2 ? track : fallback;
     if (!line && waypoints.length === 0) return [];
     return [
+      // Линия рисуется по своему происхождению. Часть маршрутов имеет
+      // geometry, построенную прямыми от точки к точке (migration 168) — в
+      // её же комментарии это названо «rough visual track». До экрана
+      // оговорка не доезжала: ломаная приходила тем же полем и рисовалась
+      // тем же сплошным зелёным, что и снятый GPS-трек.
+      //
+      // В поле разница решающая: по снятому треку идти можно, а прямая между
+      // точками на камчатском рельефе проходит через каньон и реку — и
+      // выглядит на карте так же уверенно.
       ...(line ? [{
         coords: line[0],
         title: activeRouteTitle ?? 'Маршрут',
-        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+        geometry: {
+          type: 'polyline',
+          coordinates: line,
+          ...trackFidelityStyle(lineFidelity),
+        } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
       // Свой след — отдельной линией и другим цветом. Путать его с маршрутом
@@ -1286,6 +1317,15 @@ function OnTrailTab() {
                 разработчика (владелец 09.08). */}
             {sketch?.fromTrack ? 'Трек маршрута, вид сверху' : 'Точки маршрута'}
           </p>
+          {/* Чем является линия. Пунктир и приглушённый цвет читаются не
+              всеми и не на солнце; на экране, по которому идут, происхождение
+              нужно сказать словами. Для снятого трека подписи нет — молчание
+              здесь и означает «это настоящий трек». */}
+          {trackFidelityLabel(lineFidelity) && (
+            <p className="text-[11px] leading-snug mb-1.5" style={{ color: 'var(--warning)' }}>
+              {trackFidelityLabel(lineFidelity)}
+            </p>
+          )}
           <div className="w-full h-32 rounded-xl overflow-hidden"
             style={{
               background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
