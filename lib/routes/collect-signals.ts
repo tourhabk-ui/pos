@@ -57,7 +57,7 @@ export function isInSeason(season: string | null, month: number): boolean | null
 
 interface RouteRow { zone: string | null; season: string | null; lat: string | null; lng: string | null }
 interface PointRow { zone: string | null; lat: string | null; lng: string | null }
-interface AlertRow { title: string; severity: number | null }
+interface AlertRow { title: string; severity: number | null; alert_type: string | null }
 interface VolcanoRow { name: string; acc: string }
 
 /** Опорные точки маршрута: он сам плюс его путевые точки. */
@@ -131,10 +131,24 @@ const SEVERITY_WHEN_UNSET = 1;
  * Кузьмич и guardian-context; условие «expires_at > NOW()» в одиночку молча
  * выкидывает целый класс записей.
  */
-async function loadAlerts(zones: string[], q: QueryFn): Promise<Array<{ title: string; severity: number }> | null> {
+/**
+ * Отпечаток для дедупликации.
+ *
+ * Один и тот же документ приходит дважды, когда у поста нет заголовка и он
+ * достраивается из тела: проба 10.08 показала на маршруте две копии новости о
+ * переправе — с severity 2 и 1, у второй к заголовку приклеен кусок текста.
+ * Сравнение по полному заголовку их не сводит, сравнение по началу — сводит.
+ */
+function alertFingerprint(title: string): string {
+  return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 60);
+}
+
+async function loadAlerts(
+  zones: string[], q: QueryFn,
+): Promise<Array<{ title: string; severity: number; type: string | null }> | null> {
   try {
     const { rows } = await q<AlertRow>(
-      `SELECT title, severity::int AS severity
+      `SELECT title, severity::int AS severity, alert_type
          FROM external_alerts
         WHERE (expires_at IS NULL OR expires_at > NOW())
           AND (
@@ -146,12 +160,23 @@ async function loadAlerts(zones: string[], q: QueryFn): Promise<Array<{ title: s
         LIMIT 50`,
       [zones],
     );
-    return rows.map((r) => ({
-      title: r.title,
-      severity: Number.isFinite(Number(r.severity)) && r.severity !== null
-        ? Number(r.severity)
-        : SEVERITY_WHEN_UNSET,
-    }));
+    // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
+    // первой остаётся самая тяжёлая копия дубля, а не случайная.
+    const seen = new Set<string>();
+    const out: Array<{ title: string; severity: number; type: string | null }> = [];
+    for (const r of rows) {
+      const key = alertFingerprint(r.title);
+      if (key === '' || seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        title: r.title,
+        severity: Number.isFinite(Number(r.severity)) && r.severity !== null
+          ? Number(r.severity)
+          : SEVERITY_WHEN_UNSET,
+        type: r.alert_type,
+      });
+    }
+    return out;
   } catch {
     return null;
   }

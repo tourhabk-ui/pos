@@ -154,6 +154,66 @@ describe('запреты сильнее сомнений', () => {
   });
 });
 
+describe('из нескольких запретов показывается тот, что называет опасность', () => {
+  // Проба на проде 10.08: рядом висели «Экстренное предупреждение (опасное
+  // метеорологическое явление)», «Сохраняется риск схода оползней с
+  // Мутновского» — и шапка суточного бюллетеня. Порядок был по свежести,
+  // свежайшей оказалась шапка, и человек читал «На контроле ЦУКС по состоянию
+  // на 06.00» вместо названной опасности.
+
+  it('канцелярский info уступает названной опасности', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [
+        { title: 'На контроле ЦУКС по состоянию на 06.00', severity: 2, type: 'info' },
+        { title: 'Экстренное предупреждение: очень сильный дождь', severity: 2, type: 'weather' },
+      ],
+    });
+    expect(v.status).toBe('no');
+    expect(v.reason).toContain('дождь');
+    expect(v.reason).not.toContain('ЦУКС');
+  });
+
+  it('статус от выбора текста не зависит', () => {
+    // Выбор влияет на то, ЧТО прочитает человек, а не на то, пускать ли его.
+    const only = goVerdict({
+      ...CLEAR, alerts: [{ title: 'Канцелярская строка', severity: 2, type: 'info' }],
+    });
+    expect(only.status).toBe('no');
+    expect(only.code).toBe('alert_ban');
+  });
+
+  it('среди названных опасностей порядок входа сохраняется', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [
+        { title: 'Сход оползней с Мутновского', severity: 2, type: 'volcanic_eruption' },
+        { title: 'Очень сильный дождь', severity: 2, type: 'weather' },
+      ],
+    });
+    expect(v.reason).toContain('оползней');
+  });
+
+  it('то же правило для предупреждений важности 1', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [
+        { title: 'Сводка о доступности объектов', severity: 1, type: 'info' },
+        { title: 'Вилючинский перевал: проезд по пропускам', severity: 1, type: 'road_closure' },
+      ],
+    });
+    expect(v.code).toBe('alert_warning');
+    expect(v.reason).toContain('перевал');
+  });
+
+  it('без категории вердикт работает как раньше', () => {
+    // Поле необязательное: старые вызовы и офлайн-данные его не несут.
+    const v = goVerdict({ ...CLEAR, alerts: [{ title: 'Сход лавин', severity: 2 }] });
+    expect(v.status).toBe('no');
+    expect(v.reason).toContain('лавин');
+  });
+});
+
 describe('осторожность называет свою причину', () => {
   const cases: Array<[string, Partial<RouteSignals>, string]> = [
     ['оранжевый вулкан', { volcanoes: [{ name: 'Мутновский', acc: 'orange' }] }, 'volcano_orange'],
