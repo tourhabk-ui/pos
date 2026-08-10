@@ -1,22 +1,23 @@
 {
   "urls": [
-    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/shtormovye-i-ekstrennye-preduprezhdeniya/rss",
-    "https://vedarai.ru/api/cron/safety-ingest"
+    "https://m.vk.ru/public32123991",
+    "https://vk.com/mchs_kamchatka"
   ],
-  "bytes": 4000,
-  "timeout": 180,
+  "bytes": 1200,
+  "timeout": 60,
   "grep": [
-    "циклон",
-    "Циклон",
-    "тургрупп",
-    "weather",
-    "подтопл"
+    "mchs_kamchatka",
+    "public32123991",
+    "32123991",
+    "МЧС",
+    "Камчат"
   ],
   "around": [
-    "иклон"
+    "og:url",
+    "<title"
   ],
-  "aroundLines": 6,
-  "aroundHits": 3,
-  "note": "решающая проверка: несёт ли САМ фид МЧС (раздел штормовых и экстренных предупреждений) текст про циклон. Если несёт — рвётся у нас, если нет — канал не тот. Вторым прогон ingest после деплоя погодной ветки.",
-  "run": 22
+  "aroundLines": 2,
+  "aroundHits": 2,
+  "note": "владелец прислал m.vk.ru/public32123991 — сверяю, тот ли это паблик, что мы опрашиваем через wall.get domain=mchs_kamchatka. Если id и короткое имя относятся к разным сообществам, мы читаем не тот канал.",
+  "run": 23
 }
