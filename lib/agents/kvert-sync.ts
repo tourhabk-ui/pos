@@ -21,7 +21,18 @@ import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, parseAccSummary, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 
-const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3';
+/**
+ * Лента кодов, английская версия.
+ *
+ * `lend=en` — не косметика. Русская версия той же страницы отдаётся в
+ * однобайтовой кодировке, и разбор развалился бы молча: цветовые слова
+ * (латиница) продолжали бы находиться, а имена вулканов — нет, то есть синк
+ * отчитался бы разобранной пустотой вместо явного отказа. Именно так эта
+ * страница и выглядела в пробе 10.08: шесть ORANGE и восемь YELLOW при нуле
+ * найденных имён. Английская версия снимает вопрос кодировки целиком и не
+ * зависит от того, какой язык сайт решит отдать по умолчанию.
+ */
+const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3&lend=en';
 
 export interface KvertSyncResult {
   fetched: number;    // распознано VONA-блоков
