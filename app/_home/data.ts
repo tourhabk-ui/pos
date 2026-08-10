@@ -35,8 +35,20 @@ export interface SafetySnapshot {
   alerts: SafetyAlert[];
   volcanoes: ElevatedVolcano[];
   updatedAt: string | null;
+  /**
+   * Снимок получен со сбоем — цифрам верить нельзя.
+   *
+   * Раньше catch отдавал нули молча, и шапка главной писала «Спокойно» из
+   * ничего: ноль предупреждений после упавшего запроса неотличим от нуля в
+   * спокойный день. Тот же дефект чинили на /safety (#1090). Хуже того, он
+   * мешал и разбору: 10.08 коды вулканов не дошли до главной, и понять — то ли
+   * их нет, то ли запрос упал — было нельзя именно из-за этого молчания.
+   */
+  degraded?: boolean;
 }
 export interface ZonesSnapshot {
+  /** Снимок получен со сбоем: «0 из 0 открыто» — это не обстановка. */
+  degraded?: boolean;
   open: number;
   total: number;
   updatedAt: string | null;
@@ -147,8 +159,9 @@ async function fetchSafety(): Promise<SafetySnapshot> {
       volcanoes,
       updatedAt: freshRes.rows[0]?.last_update ?? null,
     };
-  } catch {
-    return { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null };
+  } catch (err) {
+    console.error('[home] fetchSafety failed:', err);
+    return { activeCount: 0, maxSeverity: 0, alerts: [], volcanoes: [], updatedAt: null, degraded: true };
   }
 }
 
@@ -166,8 +179,9 @@ async function fetchZones(): Promise<ZonesSnapshot> {
       total: parseInt(row?.total ?? '0'),
       updatedAt: row?.last_update ?? null,
     };
-  } catch {
-    return { open: 0, total: 0, updatedAt: null };
+  } catch (err) {
+    console.error('[home] fetchZones failed:', err);
+    return { open: 0, total: 0, updatedAt: null, degraded: true };
   }
 }
 
