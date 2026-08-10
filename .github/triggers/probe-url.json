@@ -1,24 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/llms.txt"
+    "https://vedarai.ru/api/places?type=volcano&limit=20",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%9A%D0%BB%D1%8E%D1%87%D0%B5%D0%B2%D1%81%D0%BA",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%9A%D1%80%D0%BE%D0%BD%D0%BE%D1%86%D0%BA",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%9A%D0%B8%D0%B7%D0%B8%D0%BC%D0%B5%D0%BD",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%A1%D0%B5%D0%BC%D1%8F%D1%87%D0%B8%D0%BA",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%A8%D0%B8%D0%B2%D0%B5%D0%BB%D1%83%D1%87",
+    "https://vedarai.ru/api/places?limit=20&q=%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD",
+    "https://vedarai.ru/api/cron/kvert-sync"
   ],
-  "bytes": 600,
-  "timeout": 60,
-  "count": [
-    "catalog/tours",
-    "marketplace/tours"
-  ],
-  "around": [
-    "catalog/tours"
-  ],
-  "aroundLines": 3,
-  "aroundHits": 5,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}
-    }
-  ],
-  "note": "прошлый прогон я задал с bytes 0 и тел ответов не увидел — ID туров нужны, чтобы сверить три канала. Здесь: сколько туров отдаёт MCP и какие ссылки на туры лежат в llms.txt. Сверяем с sitemap, где catalog/tours ровно 3 при 893 URL всего",
-  "run": 17
+  "bytes": 3000,
+  "timeout": 90,
+  "note": "имена вулканов в places: KVERT сопоставляет 8 из 68, а KLYUCHEVSKOY/KRONOTSKY/KIZIMEN/MALY SEMYACHIK словарю известны. Нужны настоящие написания places.name, чтобы чинить resolvePlaceArkId по фактам, а не по догадке. Последним — прогон kvert-sync со списком unmatched.",
+  "run": 18
 }
