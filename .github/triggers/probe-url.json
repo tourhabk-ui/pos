@@ -1,25 +1,18 @@
 {
   "urls": [
-    "http://kvert.febras.net/van/index.php?type=3&lend=en"
+    "https://vedarai.ru/api/cron/kvert-acc"
   ],
-  "bytes": 0,
-  "timeout": 60,
+  "bytes": 1500,
+  "timeout": 120,
   "grep": [
-    "SUMMARY OF",
-    "AVIATION COLOUR CODES",
-    "SHEVELUCH",
-    "KAMCHATKA"
+    "\"success\":true",
+    "Шивелуч",
+    "sheveluch",
+    "не VONA"
   ],
   "count": [
-    "ORANGE",
-    "YELLOW",
-    "GREEN"
+    "unmatched"
   ],
-  "around": [
-    "SUMMARY OF"
-  ],
-  "aroundLines": 10,
-  "aroundHits": 1,
-  "note": "держится ли сводная таблица кодов на английской версии. Если да — ставлю lend=en в основной адрес: язык по умолчанию на сайте может смениться так же незаметно, как сменилась вёрстка, и русская версия отдаётся в cp1251, где разбор развалится молча",
-  "run": 13
+  "note": "первый запуск синка KVERT после починки парсера. До этого он падал каждые шесть часов с 28 июля: источник сменил формат, поле Current aviation colour code исчезло, парсер распознавал ноль. Смотрим fetched/upserted/matched — сколько вулканов разобрано и сколько сопоставлено с точками",
+  "run": 14
 }
