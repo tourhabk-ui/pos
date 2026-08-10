@@ -26,6 +26,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
+import RouteVerdict from '@/components/routes/RouteVerdict';
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 
@@ -731,6 +732,15 @@ export default function RouteDetailClient({ id }: { id: string }) {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ── ВЕРДИКТ НА СЕГОДНЯ ───────────────────────────────────────────────
+          Стоит выше всех подробностей: человек приходит сюда с одним
+          вопросом, и ответ на него не должен лежать под пятью секциями.
+          Блок не исчезает при отказе сети — молчание читалось бы как
+          «всё спокойно». */}
+      <div className="max-w-6xl mx-auto px-4 md:px-8 pt-6">
+        <RouteVerdict routeId={route.id} />
       </div>
 
       {/* ── ОПЕРАТИВНЫЕ ОГРАНИЧЕНИЯ ─────────────────────────────────────────── */}
