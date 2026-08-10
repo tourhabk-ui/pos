@@ -1,31 +1,24 @@
 {
   "urls": [
-    "https://vedarai.ru/llms.txt",
-    "https://vedarai.ru/sitemap.xml",
-    "https://tourhab.ru/llms.txt"
+    "https://vedarai.ru/llms.txt"
   ],
-  "bytes": 0,
+  "bytes": 600,
   "timeout": 60,
-  "grep": [
-    "catalog/tours",
-    "Ведар",
-    "TourHab"
-  ],
   "count": [
     "catalog/tours",
-    "<url>",
-    "<loc>"
+    "marketplace/tours"
   ],
+  "around": [
+    "catalog/tours"
+  ],
+  "aroundLines": 3,
+  "aroundHits": 5,
   "post": [
     {
       "url": "https://vedarai.ru/api/mcp",
       "body": {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}
-    },
-    {
-      "url": "https://vedarai.ru/api/mcp",
-      "body": {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"safety_status","arguments":{}}}
     }
   ],
-  "note": "проверка по чек-листу владельца: согласованность трёх каналов видимости (MCP / llms.txt / sitemap.xml), тонкий ли sitemap, два ли канона доменов, и не отдаёт ли MCP пустой каталог при живых турах. Считаем числа, а не смотрим на зелёное",
-  "run": 16
+  "note": "прошлый прогон я задал с bytes 0 и тел ответов не увидел — ID туров нужны, чтобы сверить три канала. Здесь: сколько туров отдаёт MCP и какие ссылки на туры лежат в llms.txt. Сверяем с sitemap, где catalog/tours ровно 3 при 893 URL всего",
+  "run": 17
 }
