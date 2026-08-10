@@ -103,11 +103,20 @@ describe('итог читается человеком', () => {
 });
 
 describe('проверка доступна с прода', () => {
-  const SRC = readFileSync(join(process.cwd(), 'app/api/cron/relief-coverage/route.ts'), 'utf-8');
+  const SRC = readFileSync(join(process.cwd(), 'app/api/cron/relief-sanity/route.ts'), 'utf-8');
+  const COV = readFileSync(join(process.cwd(), 'app/api/cron/relief-coverage/route.ts'), 'utf-8');
 
-  it('живёт рядом с замером покрытия, а не отдельным эндпоинтом', () => {
-    expect(SRC).toMatch(/mode'\) === 'sanity'/);
+  it('свой роут, а не режим замера покрытия', () => {
+    // Замер объявлен счётчиками без имён и координат — это записано в его
+    // шапке и стережётся отдельным гардом. Сверка по своей природе обязана
+    // называть маршруты поимённо, иначе находкой нельзя воспользоваться.
+    // Два разных обещания не живут в одном ответе.
     expect(SRC).toMatch(/checkRoutes\(parsed\)/);
+    expect(COV).not.toMatch(/title/);
+  });
+
+  it('ничего не пишет: находка — повод посмотреть, а не переписать данные', () => {
+    expect(SRC).not.toMatch(/INSERT|UPDATE|DELETE|DROP/);
   });
 
   it('высоты берутся из третьего числа координат, с проверкой типа', () => {
@@ -116,9 +125,5 @@ describe('проверка доступна с прода', () => {
     expect(SRC).toMatch(/jsonb_typeof\(c\) = 'array'/);
   });
 
-  it('чинить автоматически не пытаемся', () => {
-    // Имена мест на Камчатке путаные; подгонка геометрии под название сделает
-    // ложь достовернее, а не правду вернее.
-    expect(SRC).not.toMatch(/UPDATE kamchatka_routes[\s\S]{0,200}sanity/);
-  });
+
 });
