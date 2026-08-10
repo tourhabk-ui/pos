@@ -41,9 +41,12 @@ export async function GET() {
   try {
     // DISTINCT ON схлопывает повторы по СОДЕРЖАНИЮ, оставляя свежайший:
     // именно он несёт актуальный срок действия и ссылку на последний пост.
+    // Ключ регистронезависимый — тем же приёмом схлопывается лента главной
+    // (app/_home/data.ts): один и тот же пункт сводки, перенабранный с другой
+    // заглавной, иначе разошёлся бы на две строки.
     const { rows } = await pool.query<VolcanicEvent>(`
       SELECT * FROM (
-        SELECT DISTINCT ON (title, COALESCE(description, ''))
+        SELECT DISTINCT ON (lower(title), lower(COALESCE(description, '')))
           id::text,
           title,
           description,
@@ -56,7 +59,7 @@ export async function GET() {
         FROM external_alerts
         WHERE alert_type = 'volcanic_eruption'
           AND (expires_at IS NULL OR expires_at > NOW() - INTERVAL '7 days')
-        ORDER BY title, COALESCE(description, ''), created_at DESC
+        ORDER BY lower(title), lower(COALESCE(description, '')), created_at DESC
       ) u
       ORDER BY active DESC, created_at DESC
       LIMIT 20

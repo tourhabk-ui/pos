@@ -76,11 +76,20 @@ describe('вулканы: одна угроза — одна строка, ис�
   it('повторы схлопываются по СОДЕРЖАНИЮ, а не по id или времени', () => {
     // created_at в ключе — это и есть та ошибка, из-за которой дедуп молчал:
     // суточная сводка приходит новым постом, время у дублей всегда разное.
-    expect(ROUTE).toMatch(/DISTINCT ON \(title, COALESCE\(description, ''\)\)/);
+    expect(ROUTE).toMatch(/DISTINCT ON \([^)]*lower\(title\)/);
+    expect(ROUTE).not.toMatch(/DISTINCT ON \([^)]*created_at/);
+  });
+
+  it('ключ регистронезависим — как в ленте главной', () => {
+    // Один пункт сводки, перенабранный с другой заглавной, иначе разойдётся
+    // на две строки. Тем же приёмом схлопывается лента в app/_home/data.ts.
+    const HOME = readFileSync(join(process.cwd(), 'app/_home/data.ts'), 'utf-8');
+    expect(HOME).toMatch(/DISTINCT ON \(lower\(title\)\)/);
+    expect(ROUTE).toMatch(/lower\(COALESCE\(description, ''\)\)/);
   });
 
   it('из группы остаётся свежайшая — она несёт актуальный срок и ссылку', () => {
-    expect(ROUTE).toMatch(/ORDER BY title, COALESCE\(description, ''\), created_at DESC/);
+    expect(ROUTE).toMatch(/ORDER BY lower\(title\)[\s\S]*?created_at DESC/);
   });
 
   it('схлопывание идёт ДО отсечки: иначе двадцать повторов вытеснят всё живое', () => {
