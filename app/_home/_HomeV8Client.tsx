@@ -92,7 +92,7 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
 
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
-  const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity });
+  const pill = safetyPill({ activeCount: safety.activeCount, maxSeverity: safety.maxSeverity, degraded: safety.degraded });
 
   // Режим «я в поездке» (коммит 5): единственный источник — auth-scoped
   // GET /api/trips/active (identity из сессии, data:null без режима).
@@ -848,6 +848,8 @@ const CSS = `
 .v7 .pill{display:inline-flex;align-items:center;gap:6px;flex:none;min-height:30px;padding:0 10px;border-radius:999px;text-decoration:none;font:600 10.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.02em;color:var(--text-primary);border:1px solid var(--border);white-space:nowrap;transition:background .2s}
 .v7 .pill i{width:7px;height:7px;border-radius:50%;flex:none}
 .v7 .pill-calm i{background:var(--success)}
+/* Незнание — не спокойствие: приглушённый серый, а не зелёный. */
+.v7 .pill-unknown i{background:var(--text-muted)}
 .v7 .pill-warning i{background:var(--warning)}
 .v7 .pill-danger{border-color:color-mix(in srgb,var(--danger) 55%,transparent)}
 .v7 .pill-danger i{background:var(--danger)}

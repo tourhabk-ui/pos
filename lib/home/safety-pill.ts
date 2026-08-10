@@ -20,7 +20,7 @@
  * себя место: пилюля стоит в шапке и обновляется с каждым рендером.
  */
 
-export type SafetyTone = 'calm' | 'warning' | 'danger';
+export type SafetyTone = 'calm' | 'warning' | 'danger' | 'unknown';
 
 export interface SafetyPill {
   tone: SafetyTone;
@@ -45,9 +45,21 @@ export interface SafetyPillInput {
   maxSeverity: number;
   /** Сколько строк максимум могла вернуть выборка — при равенстве счётчик неполон. */
   limit?: number;
+  /**
+   * Снимок получен со сбоем: цифрам верить нельзя.
+   *
+   * Без этого флага ноль предупреждений после упавшего запроса неотличим от
+   * нуля предупреждений в спокойный день, и шапка главной пишет «Спокойно» из
+   * ничего. Ровно так вёл себя баннер на /safety, пока роут зон падал на
+   * несуществующей колонке (#1090): зелёная плашка, посчитанная из нуля данных.
+   */
+  degraded?: boolean;
 }
 
-export function safetyPill({ activeCount, maxSeverity, limit = 5 }: SafetyPillInput): SafetyPill {
+export function safetyPill({ activeCount, maxSeverity, limit = 5, degraded = false }: SafetyPillInput): SafetyPill {
+  // Молчание источника — не спокойствие. Проверяется ПЕРВОЙ: при сбое
+  // счётчики нулевые, и любая ветка ниже прочла бы их как хорошую новость.
+  if (degraded) return { tone: 'unknown', text: 'Обстановка неизвестна' };
   if (activeCount <= 0) return { tone: 'calm', text: 'Спокойно' };
   // severity 2+ — тот же порог, по которому уходит push-рассылка и краснеет
   // recommender_status. Одно правило на всю платформу, не отдельное для витрины.
