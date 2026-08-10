@@ -1,22 +1,9 @@
 {
   "urls": [
-    "https://vedarai.ru/",
-    "https://vedarai.ru/safety"
+    "https://vedarai.ru/api/cron/verdict-census?limit=40"
   ],
-  "bytes": 0,
-  "timeout": 90,
-  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36",
-  "grep": [
-    "alerts-now",
-    "an-tx",
-    "Обстановка нормальная",
-    "Опасность:"
-  ],
-  "around": [
-    "alerts-now"
-  ],
-  "aroundLines": 8,
-  "aroundHits": 1,
-  "note": "мерка одна: КЛАСС отрендеренного блока, а не слово в HTML. alerts-now — полоса предупреждений на главной (#1108). На /safety ждём, что «Обстановка нормальная» исчезла в пользу «Опасность: …» (#1110), но он смержен только что и мог не выкатиться.",
-  "run": 27
+  "bytes": 9000,
+  "timeout": 180,
+  "note": "Перепись вердиктов (#1117). Сначала limit=40 — померить время и убедиться, что limited_to честно назван; полный прогон 294 маршрутов следующей пробой. Смотрим by_status, by_code и главное — signal_null против signal_empty: первое значит, что молчит источник, и чинить надо его, а не пороги.",
+  "run": 28
 }
