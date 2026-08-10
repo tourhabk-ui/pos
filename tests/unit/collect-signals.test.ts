@@ -167,6 +167,53 @@ describe('важность предупреждения не подменяет�
   });
 });
 
+describe('дубли одного документа не занимают два слота', () => {
+  it('копия с приклеенным куском тела схлопывается с оригиналом', async () => {
+    // Настоящий случай с прода 10.08: у поста без заголовка он достраивается
+    // из тела, и одна новость легла дважды — с severity 2 и 1.
+    const long = 'Спасатели окажут помощь тургруппе в наведении верёвочной переправы через реку';
+    const s = await collectRouteSignals(ROUTE_ID, {
+      query: stubQuery(withRoute({
+        alerts: [
+          { title: long, severity: 2, alert_type: 'info' },
+          { title: `${long} По сообщению заявителя, зарегистрирована`, severity: 1, alert_type: 'info' },
+        ],
+      })),
+      month: 7,
+    });
+    expect(s.alerts).toHaveLength(1);
+    // Остаётся тяжёлая копия: порядок запроса — важность, затем свежесть.
+    expect(s.alerts?.[0].severity).toBe(2);
+  });
+
+  it('разные предупреждения не схлопываются', async () => {
+    const s = await collectRouteSignals(ROUTE_ID, {
+      query: stubQuery(withRoute({
+        alerts: [
+          { title: 'Экстренное предупреждение: очень сильный дождь', severity: 2, alert_type: 'weather' },
+          { title: 'Сохраняется риск схода оползней с вулкана Мутновского', severity: 2, alert_type: 'volcanic_eruption' },
+        ],
+      })),
+      month: 7,
+    });
+    expect(s.alerts).toHaveLength(2);
+  });
+
+  it('категория доезжает до вердикта — по ней выбирается текст', async () => {
+    const s = await collectRouteSignals(ROUTE_ID, {
+      query: stubQuery(withRoute({
+        alerts: [
+          { title: 'Канцелярская сводка', severity: 2, alert_type: 'info' },
+          { title: 'Очень сильный дождь', severity: 2, alert_type: 'weather' },
+        ],
+      })),
+      month: 7,
+    });
+    expect(s.alerts?.[0].type).toBe('info');
+    expect(goVerdict(s).reason).toContain('дождь');
+  });
+});
+
 describe('код вулкана не додумывается', () => {
   it('неизвестный код становится unassigned, а не зелёным', async () => {
     const s = await collectRouteSignals(ROUTE_ID, {

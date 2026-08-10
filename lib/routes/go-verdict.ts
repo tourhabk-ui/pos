@@ -80,8 +80,14 @@ export type VerdictReasonCode =
  * зелёный, второе разрешает.
  */
 export interface RouteSignals {
-  /** Действующие предупреждения, накрывающие зоны маршрута. */
-  alerts: Array<{ title: string; severity: number }> | null;
+  /**
+   * Действующие предупреждения, накрывающие зоны маршрута.
+   *
+   * `type` — категория классификатора (`weather`, `flood`, `volcanic_eruption`,
+   * `road_closure`, `info`…). Нужна не для правил, а для выбора того, ЧТО
+   * показать человеку, когда запретов несколько.
+   */
+  alerts: Array<{ title: string; severity: number; type?: string | null }> | null;
   /** Коды KVERT вулканов на коридоре маршрута. */
   volcanoes: Array<{ name: string; acc: Acc }> | null;
   /** Маршрут в своём сезоне сейчас. `null` — сезон в данных не задан. */
@@ -128,13 +134,47 @@ function missingCritical(s: RouteSignals): string[] {
 const ACC_BLOCKING: Acc[] = ['red'];
 const ACC_WARNING: Acc[] = ['orange'];
 
+/**
+ * Категории, которые называют опасность. `info` — не называет.
+ *
+ * Классификатор ставит `info` там, где тема не легла ни в одну категорию:
+ * медведи у посёлка, сводка Минтура, прочее разное. Такой алерт может дорасти
+ * до запрета порогом «обращаются к туристам и велят не идти», но заголовок у
+ * него, как правило, канцелярский.
+ */
+const NAMED_HAZARD_TYPES = new Set([
+  'tsunami_warning', 'volcanic_eruption', 'weather', 'flood', 'fire_danger',
+  'road_closure', 'earthquake', 'ashfall',
+]);
+
+/**
+ * Из нескольких подходящих предупреждений выбрать то, которое ЧТО-ТО ГОВОРИТ.
+ *
+ * Проба на проде 10.08 показала, зачем это нужно. На маршруте висели рядом
+ * «Экстренное предупреждение (опасное метеорологическое явление)», «Сохраняется
+ * риск схода оползней с вулкана Мутновского» — и шапка суточного бюллетеня.
+ * Порядок был по свежести, свежайшей оказалась шапка, и человек читал
+ * «На контроле ЦУКС по состоянию на 06.00» вместо названной опасности.
+ *
+ * Сам бюллетень теперь отсекается жанровым стражем, но правило остаётся:
+ * когда запретов несколько, показывать надо тот, что называет опасность.
+ * Порядок внутри группы сохраняется входным (важность, затем свежесть) —
+ * выбор влияет только на ТЕКСТ, не на статус.
+ */
+function mostSpecific<T extends { severity: number; type?: string | null }>(
+  alerts: T[], minSeverity: number,
+): T | undefined {
+  const fit = alerts.filter((a) => a.severity >= minSeverity);
+  return fit.find((a) => a.type != null && NAMED_HAZARD_TYPES.has(a.type)) ?? fit[0];
+}
+
 export function goVerdict(s: RouteSignals): Verdict {
   const unknown = missingCritical(s);
 
   // ── Запреты ─────────────────────────────────────────────────────────────
   // Severity 2 у нас означает прямой запрет либо угрозу жизни: этот порог
   // выставляет классификатор МЧС (см. addressesTouristsWithBan).
-  const ban = (s.alerts ?? []).find((a) => a.severity >= 2);
+  const ban = mostSpecific(s.alerts ?? [], 2);
   if (ban) {
     return { status: 'no', code: 'alert_ban', reason: `МЧС: ${ban.title}`, unknown };
   }
@@ -172,7 +212,7 @@ export function goVerdict(s: RouteSignals): Verdict {
     };
   }
 
-  const warn = (s.alerts ?? []).find((a) => a.severity >= 1);
+  const warn = mostSpecific(s.alerts ?? [], 1);
   if (warn) {
     return { status: 'caution', code: 'alert_warning', reason: warn.title, unknown };
   }
