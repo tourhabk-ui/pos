@@ -75,8 +75,28 @@ function flagsForeignStack(text: string): boolean {
  * Причина отклонить находку как недостоверную, либо null если находка проходит.
  * Строка-код причины идёт в телеметрию скана.
  */
+/**
+ * Находка не о продукте, а о самом прогоне: модели не передали содержимое
+ * файлов, и она честно об этом сообщает.
+ *
+ * Кейс — issue #1020 «Содержимое файлов не передано (high)»: модель написала,
+ * что без кода «любые выводы были бы выдумкой», и была права. Но это дефект
+ * конвейера, а не баг платформы, и в Issues он попал с меткой high severity.
+ * То есть сбой сканирования выглядел как результат сканирования — ровно тот
+ * класс, против которого весь этот страж и заведён.
+ *
+ * Такую находку надо гасить и чинить прогон, а не заводить задачу разработчику.
+ */
+function complainsAboutMissingInput(text: string): boolean {
+  const noInput = /содержимо[а-яё]*\s+файл[а-яё]*\s+не\s+(?:передан|предоставл|прилож)|сам\s+код\s+не\s+прилож|указаны\s+только\s+пути|file\s+contents?\s+(?:were\s+)?not\s+(?:provided|supplied|included)|no\s+(?:file\s+)?(?:contents?|source)\s+(?:was\s+)?provided/i;
+  const cannotAnalyse = /невозможно\s+пров[ео]сти\s+анализ|анализ\s+невозможен|были\s+бы\s+выдумкой|cannot\s+(?:perform|do)\s+(?:the\s+)?analysis|unable\s+to\s+analy[sz]e/i;
+  const asksForCode = /запросить\s+у\s+пользовател[а-яё]*\s+.{0,40}код|请求|provide\s+the\s+(?:full\s+)?(?:code|source)/i;
+  return noInput.test(text) || (cannotAnalyse.test(text) && asksForCode.test(text));
+}
+
 export function findingRejectionReason(f: CandidateFinding): string | null {
   const text = `${f.title} ${f.description} ${f.suggestion}`;
+  if (complainsAboutMissingInput(text)) return 'scan_input_missing';
   if (incoherentSameToken(text)) return 'incoherent_same_token';
   if (flagsSanctionedCallAIFast(text)) return 'sanctioned_callaifast';
   if (flagsSanctionedConsoleError(text)) return 'sanctioned_console_error';
@@ -231,5 +251,64 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   const line = claimedLineNumber(text);
   if (line !== null && line > source.split('\n').length) return 'line_out_of_range';
 
+  // Инъекция названа поимённо, а названного параметра в SQL нет.
+  //
+  // Проверка выше спрашивает «есть ли в файле склейка SQL вообще», и этого
+  // мало: запрос законно собирают из кусков, состоящих ИЗ ОДНИХ плейсхолдеров.
+  // Так прошла issue #1066 про app/api/admin/audit-log — там `${cte}` и
+  // `${whereClause}`, то есть SQL из `$1`, `$2`, а сам `search` уходит
+  // значением параметра. Файл выглядел «со склейкой», спор — осмысленным,
+  // находка — правдоподобной. Вопрос надо задавать точнее.
+  if (claimsSqlInjection(text)) {
+    const named = namedSqlParam(text);
+    if (named && !interpolatedIntoSql(named, source)) return 'source_param_not_in_sql';
+  }
+
   return null;
+}
+
+/**
+ * Имя параметра, который находка обвиняет в подстановке: «Параметр search
+ * вставляется…», «через `search`», «значение userId попадает в запрос».
+ *
+ * Возвращает только простой идентификатор латиницей — тот, который можно
+ * честно поискать в исходнике. Ничего не нашлось — null, и проверка молчит.
+ */
+export function namedSqlParam(text: string): string | null {
+  const pats = [
+    /[Пп]араметр[а-яё]*\s+`?([a-z_][\w]{2,30})`?/,
+    /`([a-z_][\w]{2,30})`\s+вставля/i,
+    /через\s+`?([a-z_][\w]{2,30})`?\s+(?:в|into)\b/i,
+  ];
+  for (const p of pats) {
+    const m = p.exec(text);
+    // Слова-пустышки, за которыми нет идентификатора кода.
+    if (m && !/^(the|this|query|запрос|value|input|user|data)$/i.test(m[1])) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Попадает ли идентификатор внутрь интерполяции в SQL-литерале.
+ *
+ * Смотрим только на `${...}` внутри шаблонных литералов, где есть SQL-слово, и
+ * на склейку через `+`. Если имени там нет ни разу — в текст запроса оно не
+ * уходит, что бы находка ни утверждала. Значение параметра (`params.push(...)`)
+ * под это не подпадает и правильно: `%${search}%` в аргументе — не SQL.
+ */
+export function interpolatedIntoSql(name: string, src: string): boolean {
+  const SQL_WORD = /(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE|VALUES|ILIKE|LIKE)/i;
+  const ident = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  for (const lit of src.match(/`[^`]*`/g) ?? []) {
+    if (!SQL_WORD.test(lit)) continue;
+    for (const expr of lit.match(/\$\{[^}]*\}/g) ?? []) {
+      if (ident.test(expr)) return true;
+    }
+  }
+  // Склейка обычных строк: '... WHERE id = ' + userId
+  const concat = new RegExp(
+    `['"][^'"]*(?:SELECT|INSERT|UPDATE|DELETE|WHERE|VALUES|ILIKE|LIKE)[^'"]*['"]\\s*\\+\\s*[^;]*${name}`,
+    'i',
+  );
+  return concat.test(src);
 }
