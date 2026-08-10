@@ -360,7 +360,7 @@ function isPlainCaps(s: string): boolean {
  * маленький автомат отвечает на вопрос «внутри тега или нет» точно и за один
  * проход.
  */
-function stripTags(html: string): string {
+function stripTagsRaw(html: string): string {
   let out = '';
   let i = 0;
   while (i < html.length) {
@@ -394,7 +394,30 @@ function stripTags(html: string): string {
     }
     i = j + 1;
   }
-  return decodeEntities(out).replace(/[ \t]+/g, ' ');
+  return out.replace(/[ \t]+/g, ' ');
+}
+
+/** Разметка → текст: снять теги, затем один раз развернуть сущности. */
+function stripTags(html: string): string {
+  return decodeEntities(stripTagsRaw(html));
+}
+
+/**
+ * Текст из ЭКРАНИРОВАННОЙ разметки — когда HTML приехал внутри XML-узла и
+ * потому записан сущностями: `&lt;p style=&quot;…&quot;&gt;текст&lt;/p&gt;`.
+ *
+ * Так МЧС отдаёт тело экстренных предупреждений в `yandex:full-text`.
+ *
+ * Порядок обязателен и ровно один: сперва развернуть сущности (иначе тегов
+ * ещё нет и снимать нечего), потом снять теги — и БЕЗ повторного разворота.
+ * Поэтому здесь `stripTagsRaw`, а не `stripTags`: второй разворот превратил
+ * бы записанное автором `&amp;lt;` в настоящий `<`. Это тот самый дефект
+ * двойного разворачивания, на который CodeQL уже указывал в этом файле.
+ */
+export function textFromEscapedHtml(escaped: string): string {
+  return stripTagsRaw(decodeEntities(escaped))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 const ENTITIES: Record<string, string> = {
