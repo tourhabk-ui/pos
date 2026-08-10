@@ -68,7 +68,10 @@ interface RoutePreview {
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
-  { id: 'maps',      label: 'Карты скачаны (450 МБ)',       done: false },
+  // Подпись без числа: настоящий вес приходит из записи о скачанном
+  // регионе и подставляется в effectiveChecklist. Константа «450 МБ» была
+  // числом, которого никто не мерил, на чек-листе готовности к выходу.
+  { id: 'maps',      label: 'Карты региона скачаны',       done: false },
   { id: 'mchs',      label: 'МЧС регистрация оформлена',    done: false },
   { id: 'offline',   label: 'Маршрут сохранён офлайн',      done: false },
   { id: 'emergency', label: 'Контакты экстренных служб',    done: false },
@@ -1594,17 +1597,45 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   });
 
   // Reactive checklist state
-  const { status: mapsStatus, progress: mapsProgress, error: mapsError, download: downloadMaps } = useOfflineRegion('avacha-group');
+  const { status: mapsStatus, progress: mapsProgress, error: mapsError, regionMeta, download: downloadMaps } = useOfflineRegion('avacha-group');
   const [hasActiveRoute, setHasActiveRoute] = useState(false);
+  /**
+   * Свидетельство, что карта этого маршрута ДЕЙСТВИТЕЛЬНО лежит в телефоне.
+   *
+   * Галочка «Маршрут сохранён офлайн» ставилась от `hasActiveRoute` — то есть
+   * от того, что маршрут выбран. Ни одного скачанного байта за ней не стояло,
+   * а человек уходил в поле, отметив себе, что всё взято.
+   */
+  const [savedRouteMap, setSavedRouteMap] = useState<SavedMapRecord | null>(null);
 
   useEffect(() => {
-    setHasActiveRoute(!!localStorage.getItem('active_trail_route_id'));
+    const routeId = localStorage.getItem('active_trail_route_id');
+    setHasActiveRoute(!!routeId);
+    if (!routeId) { setSavedRouteMap(null); return; }
+    try {
+      setSavedRouteMap(parseSavedMap(localStorage.getItem(savedMapKey(routeId))));
+    } catch { setSavedRouteMap(null); }
   }, []);
 
   // Override 'done' for auto-computed items
   const effectiveChecklist = checklist.map(item => {
-    if (item.id === 'maps') return { ...item, done: mapsStatus === 'cached' };
-    if (item.id === 'offline') return { ...item, done: hasActiveRoute };
+    if (item.id === 'maps') {
+      // Вес — из настоящей записи о скачанном регионе. В подписи стояло
+      // «450 МБ» константой: число, которое никто не мерил, на чек-листе
+      // готовности к выходу.
+      const mb = regionMeta ? Math.max(1, Math.round(regionMeta.sizeBytes / 1024 / 1024)) : null;
+      return {
+        ...item,
+        done: mapsStatus === 'cached',
+        label: mb ? `Карты региона скачаны · ${mb} МБ` : 'Карты региона скачаны',
+      };
+    }
+    // «Маршрут сохранён офлайн» отмечался от того, что маршрут ВЫБРАН
+    // (`hasActiveRoute`). То есть галочка про готовность к отсутствию связи
+    // ставилась сама, без единого скачанного байта, — и человек уходил в
+    // поле, отметив себе, что всё взято. Настоящее свидетельство одно:
+    // запись о завершённой закачке карты этого маршрута.
+    if (item.id === 'offline') return { ...item, done: savedRouteMap !== null };
     if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
     return item;
   });
