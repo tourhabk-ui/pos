@@ -1,23 +1,15 @@
 {
   "urls": [
-    "https://m.vk.ru/public32123991",
-    "https://vk.com/mchs_kamchatka"
+    "https://vedarai.ru/api/cron/kuzmich-eval"
   ],
-  "bytes": 1200,
-  "timeout": 60,
+  "bytes": 9000,
+  "timeout": 300,
   "grep": [
-    "mchs_kamchatka",
-    "public32123991",
-    "32123991",
-    "МЧС",
-    "Камчат"
+    "context_len\": 0",
+    "\"score\": 1",
+    "\"score\": 2",
+    "нет точных данных"
   ],
-  "around": [
-    "og:url",
-    "<title"
-  ],
-  "aroundLines": 2,
-  "aroundHits": 2,
-  "note": "владелец прислал m.vk.ru/public32123991 — сверяю, тот ли это паблик, что мы опрашиваем через wall.get domain=mchs_kamchatka. Если id и короткое имя относятся к разным сообществам, мы читаем не тот канал.",
-  "run": 23
+  "note": "Kuzmich Eval дал 10% при пороге 80%, судья при этом отвечал (иначе алерт был бы «судья недоступен»). Нужен сам отчёт: важнее всего context_len по кейсам. Нулевой контекст = сломан retrieval, и Кузьмич отвечает по памяти модели; непустой контекст при score 1 = выдумывает поверх данных. Это разные поломки.",
+  "run": 24
 }
