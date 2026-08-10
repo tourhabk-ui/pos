@@ -235,19 +235,21 @@ export function parseVonaFeed(text: string): ParsedVona[] {
  * fetched: 0, а выдуманный код вулкана не видно никак.
  */
 export function parseAccSummary(html: string): ParsedVona[] {
-  const marker = /SUMMARY\s+OF[\s\S]{0,120}?AVIATION\s+COLOU?R\s+CODES/i;
-  const at = html.search(marker);
+  // Текст получаем ДО всякого поиска — разбирать сводку по сырому HTML значит
+  // спотыкаться о теги внутри строки (`<span id='ORANGE'>`).
+  const text = stripTags(html);
+  const at = text.toUpperCase().indexOf('AVIATION COLOUR CODES');
   if (at < 0) return [];
 
   // Дата выпуска ищется ДО сводки — она стоит в шапке: «August 06, 2026,
   // 23:53 UTC». Без неё запись легла бы без отметки о наблюдении, и проверка
   // устаревания (VOLCANO_STALE_DAYS) не смогла бы сказать, что коды старые.
-  const observedAt = parseReleaseDate(html.slice(Math.max(0, at - 4000), at));
+  const observedAt = parseReleaseDate(text.slice(Math.max(0, at - 4000), at));
 
-  // Сводка занимает несколько строк сразу за маркером; берём с запасом и
-  // останавливаемся на первой же строке, которая под формат не подходит,
+  // Сводка занимает несколько строк сразу за маркером; идём по ним и
+  // останавливаемся на первой же строке, которая под формат не подходит, —
   // но только после того, как хотя бы одна строка кодов уже нашлась.
-  const lines = stripTags(html.slice(at)).split('\n');
+  const lines = text.slice(at).split('\n');
 
   const out: ParsedVona[] = [];
   const seen = new Set<string>();
@@ -257,20 +259,20 @@ export function parseAccSummary(html: string): ParsedVona[] {
     const line = raw.trim();
     if (!line) continue;
 
-    const m = /^([A-Z][A-Z\s,'’.\-()]{2,600}?):\s*(GREEN|YELLOW|ORANGE|RED|UNASSIGNED)\s*$/.exec(line);
-    if (!m) {
+    const row = parseCodeLine(line);
+    if (!row) {
       // Заголовки районов («KAMCHATKA», «NORTHERN KURILES») внутри сводки —
       // не конец таблицы.
-      if (started && /^[A-Z][A-Z\s]{2,40}$/.test(line)) continue;
+      if (started && isPlainCaps(line)) continue;
       if (started) break;
       continue;
     }
     started = true;
 
-    const color = parseColor(m[2]);
+    const color = parseColor(row.color);
     if (!color) continue;
 
-    for (const nameRaw of m[1].split(',')) {
+    for (const nameRaw of row.names.split(',')) {
       const volcanoName = nameRaw.trim();
       if (!volcanoName) continue;
       const norm = normalizeVolcanoName(volcanoName);
@@ -308,21 +310,91 @@ function parseReleaseDate(text: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+const COLOR_WORDS = new Set(['GREEN', 'YELLOW', 'ORANGE', 'RED', 'UNASSIGNED']);
+
+/**
+ * Строка сводки «ИМЕНА: ЦВЕТ» → части. null — строка не про коды.
+ *
+ * Разбор строковый, не шаблонный, и намеренно: имена в строке зелёных занимают
+ * под шестьсот символов, и любой шаблон с ленивым квантификатором на таком
+ * входе — заявка на разбор с возвратами. Здесь же одно деление по последнему
+ * двоеточию и две проверки, каждая линейная.
+ */
+function parseCodeLine(line: string): { names: string; color: string } | null {
+  const i = line.lastIndexOf(':');
+  if (i <= 0) return null;
+  const color = line.slice(i + 1).trim().toUpperCase();
+  if (!COLOR_WORDS.has(color)) return null;
+  const names = line.slice(0, i).trim();
+  if (!names || !isNameList(names)) return null;
+  return { names, color };
+}
+
+const NAME_CHARS = new Set([',', ' ', "'", '’', '.', '-', '(', ')']);
+
+/** Список имён вулканов: только прописные латинские и разделители. */
+function isNameList(s: string): boolean {
+  if (!/^[A-Z]/.test(s)) return false;
+  for (const ch of s) {
+    if (ch >= 'A' && ch <= 'Z') continue;
+    if (NAME_CHARS.has(ch)) continue;
+    return false;
+  }
+  return true;
+}
+
+/** Заголовок района внутри сводки: «KAMCHATKA», «NORTHERN KURILES». */
+function isPlainCaps(s: string): boolean {
+  if (s.length > 40) return false;
+  return isNameList(s);
+}
+
 /**
  * HTML → текст со строками. `<br>` и закрытие блочных тегов дают перенос,
  * остальные теги снимаются, сущности разворачиваются.
  *
- * Тег ищется как «< до первого >» — без попыток догонять конкретные
- * закрывающие теги регуляркой. Разбор `</script >` и `</script foo>` шаблоном
- * — тупик, на который CodeQL уже указывал в этом же файле; здесь он и не
- * нужен: содержимое script/style не подходит под формат строки кодов и
- * отсеивается следующим шагом.
+ * Проход посимвольный, без шаблонов. Снимать теги регуляркой в этом файле уже
+ * пробовали дважды, и оба раза CodeQL был прав: закрывающий тег бывает и
+ * `</script >`, и `</script foo>`, а `<[^>]*>` спотыкается о `>` внутри
+ * значения атрибута. Догонять разметку шаблоном — заведомо проигранная гонка;
+ * маленький автомат отвечает на вопрос «внутри тега или нет» точно и за один
+ * проход.
  */
 function stripTags(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|td|li|h\d)>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+    if (ch !== '<') { out += ch; i++; continue; }
+
+    // Нашли тег: читаем его имя и доходим до закрывающей скобки, помня про
+    // кавычки — внутри значения атрибута '>' не заканчивает тег.
+    let j = i + 1;
+    let quote = '';
+    let name = '';
+    let readingName = true;
+    while (j < html.length) {
+      const c = html[j];
+      if (quote) {
+        if (c === quote) quote = '';
+      } else if (c === '"' || c === "'") {
+        quote = c;
+      } else if (c === '>') {
+        break;
+      } else if (readingName) {
+        if (c === ' ' || c === '\t' || c === '\n' || c === '/') { if (name) readingName = false; }
+        else name += c;
+      }
+      j++;
+    }
+    // Незакрытый тег в конце документа — остаток отбрасываем, он не текст.
+    const tag = name.toLowerCase().replace(/^\//, '');
+    if (tag === 'br' || tag === 'p' || tag === 'div' || tag === 'tr' || tag === 'td' || tag === 'li' || /^h\d$/.test(tag)) {
+      out += '\n';
+    }
+    i = j + 1;
+  }
+  return out
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
