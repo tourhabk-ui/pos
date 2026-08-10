@@ -22,6 +22,10 @@ import {
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
+import { connectivityState } from '@/lib/on-route/connectivity';
+import {
+  trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
+} from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
@@ -68,7 +72,10 @@ interface RoutePreview {
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
-  { id: 'maps',      label: 'Карты скачаны (450 МБ)',       done: false },
+  // Подпись без числа: настоящий вес приходит из записи о скачанном
+  // регионе и подставляется в effectiveChecklist. Константа «450 МБ» была
+  // числом, которого никто не мерил, на чек-листе готовности к выходу.
+  { id: 'maps',      label: 'Карты региона скачаны',       done: false },
   { id: 'mchs',      label: 'МЧС регистрация оформлена',    done: false },
   { id: 'offline',   label: 'Маршрут сохранён офлайн',      done: false },
   { id: 'emergency', label: 'Контакты экстренных служб',    done: false },
@@ -297,6 +304,12 @@ function OnTrailTab() {
   // Без этого срез брался по прямым между точками, а профиль размечен по
   // извилистому пути — на горном маршруте это разные числа в полтора раза.
   const [track, setTrack] = useState<Array<[number, number]> | null>(null);
+  /**
+   * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
+   * «снимок от такого-то часа» — это утверждение о свежести, и брать его
+   * можно только из факта успешного ответа, а не из момента открытия экрана.
+   */
+  const [liveDataAt, setLiveDataAt] = useState<number | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showMap, setShowMap] = useState(false);
@@ -441,6 +454,10 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        // Отметка свежести ставится по факту успешного ответа, а не по
+        // открытию экрана: иначе «снимок от 14:32» означал бы «я посмотрел в
+        // 14:32», а не «данные такие на 14:32».
+        setLiveDataAt(Date.now());
         const wps = data.waypoints;
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
@@ -697,7 +714,22 @@ function OnTrailTab() {
     if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
     if (gpsMessage) return { tone: 'warn', text: gpsMessage };
     if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
-    if (isOffline) return { tone: 'info', text: 'Офлайн-режим: карты и точки маршрута доступны' };
+    // Ступень связи, а не только режим. Прежняя строка сообщала «офлайн» и
+    // безусловно обещала, что карты и точки доступны, — хотя карта лежит в
+    // телефоне, только если её скачали, а снимок трёхдневной давности
+    // выглядел так же, как живые данные.
+    if (isOffline) {
+      const c = connectivityState({
+        online: false,
+        packageAt: savedMap?.at ?? null,
+        liveAt: liveDataAt,
+        now: Date.now(),
+      });
+      return {
+        tone: c.tone === 'alarm' ? 'warn' : 'info',
+        text: c.detail ? `${c.title}. ${c.detail}` : c.title,
+      };
+    }
     if (compassState === 'blocked') return { tone: 'info', text: 'Компас выключен', cta: 'compass' };
     if (compassState === 'unconfirmed') return { tone: 'warn', text: 'Компас не подтверждён — сверяйтесь с картой' };
     return null;
@@ -716,6 +748,21 @@ function OnTrailTab() {
   // у маршрута одна точка, ломаная из одной вершины — это ничто. Трек при
   // этом был, им же рисуется схема «вид сверху» этажом ниже. Карта навигации
   // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
+  /**
+   * Происхождение линии на карте: снятый трек или ломаная между точками.
+   * Считается по плотности точек — флага в данных нет, миграция 168 ничего
+   * не проставила (см. lib/routes/track-fidelity).
+   */
+  const lineFidelity: TrackFidelity = useMemo(() => {
+    const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+    const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
+    const line = track && track.length >= 2 ? track : fallback;
+    // Ломаная, собранная нами из путевых точек, — заведомо набросок:
+    // считать её плотность незачем, происхождение известно точно.
+    if (!track || track.length < 2) return line ? 'sketch' : 'unknown';
+    return trackFidelity(track);
+  }, [track, waypoints]);
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
     // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
@@ -725,10 +772,23 @@ function OnTrailTab() {
     const line = track && track.length >= 2 ? track : fallback;
     if (!line && waypoints.length === 0) return [];
     return [
+      // Линия рисуется по своему происхождению. Часть маршрутов имеет
+      // geometry, построенную прямыми от точки к точке (migration 168) — в
+      // её же комментарии это названо «rough visual track». До экрана
+      // оговорка не доезжала: ломаная приходила тем же полем и рисовалась
+      // тем же сплошным зелёным, что и снятый GPS-трек.
+      //
+      // В поле разница решающая: по снятому треку идти можно, а прямая между
+      // точками на камчатском рельефе проходит через каньон и реку — и
+      // выглядит на карте так же уверенно.
       ...(line ? [{
         coords: line[0],
         title: activeRouteTitle ?? 'Маршрут',
-        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+        geometry: {
+          type: 'polyline',
+          coordinates: line,
+          ...trackFidelityStyle(lineFidelity),
+        } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
       // Свой след — отдельной линией и другим цветом. Путать его с маршрутом
@@ -1081,9 +1141,15 @@ function OnTrailTab() {
                 {activeRouteTitle && (
                   <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
                 )}
-                <p className="text-[var(--text-secondary)] text-sm mb-0.5">
-                  Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
-                </p>
+                {/* Счётчик — про порядок, а у маршрута из одной точки порядка
+                    нет. «Точка 1 из 1» рядом с «до следующей точки · 18.5 км»
+                    читается как «вы пришли, идти ещё 18 километров» (скрин
+                    владельца 10.08). Одна точка — цель, а не позиция. */}
+                {waypoints.length > 1 && (
+                  <p className="text-[var(--text-secondary)] text-sm mb-0.5">
+                    Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
+                  </p>
+                )}
                 {distLabel === null ? (
                   /* Расстояние считается от НАШЕГО положения, и без фикса его
                      просто нет. Прочерк в шрифте заголовка выглядел серой
@@ -1094,7 +1160,9 @@ function OnTrailTab() {
                   </p>
                 ) : (
                   <>
-                    <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
+                    <p className="text-[var(--text-muted)] text-xs mb-2">
+                      {waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                    </p>
                     {/* Мёртвый фикс не стирает цифру — это последнее, что человек
                         знает о своём положении, — но и не выдаёт её за текущую. */}
                     <p className="text-5xl font-bold leading-none"
@@ -1275,6 +1343,15 @@ function OnTrailTab() {
                 разработчика (владелец 09.08). */}
             {sketch?.fromTrack ? 'Трек маршрута, вид сверху' : 'Точки маршрута'}
           </p>
+          {/* Чем является линия. Пунктир и приглушённый цвет читаются не
+              всеми и не на солнце; на экране, по которому идут, происхождение
+              нужно сказать словами. Для снятого трека подписи нет — молчание
+              здесь и означает «это настоящий трек». */}
+          {trackFidelityLabel(lineFidelity) && (
+            <p className="text-[11px] leading-snug mb-1.5" style={{ color: 'var(--warning)' }}>
+              {trackFidelityLabel(lineFidelity)}
+            </p>
+          )}
           <div className="w-full h-32 rounded-xl overflow-hidden"
             style={{
               background: 'color-mix(in srgb, var(--success) 6%, var(--bg-card))',
@@ -1372,7 +1449,12 @@ function OnTrailTab() {
                   border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
                 }}>
                 <Download className="w-3.5 h-3.5" />
-                Сохранить карту · {mapPlan.mb} МБ
+                {/* Ноль на кнопке — не размер, а его отсутствие, и читается он
+                    как «бесплатно». Если веса нет, честнее не называть числа:
+                    сервер режет квадрат по 2000 тайлов, за кнопкой стоят
+                    десятки мегабайт мобильного трафика (скрин владельца 10.08,
+                    «Сохранить карту · 0 МБ»). */}
+                {mapPlan.mb > 0 ? `Сохранить карту · ${mapPlan.mb} МБ` : 'Сохранить карту'}
               </button>
               <span>
                 {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
@@ -1581,17 +1663,45 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   });
 
   // Reactive checklist state
-  const { status: mapsStatus, progress: mapsProgress, error: mapsError, download: downloadMaps } = useOfflineRegion('avacha-group');
+  const { status: mapsStatus, progress: mapsProgress, error: mapsError, regionMeta, download: downloadMaps } = useOfflineRegion('avacha-group');
   const [hasActiveRoute, setHasActiveRoute] = useState(false);
+  /**
+   * Свидетельство, что карта этого маршрута ДЕЙСТВИТЕЛЬНО лежит в телефоне.
+   *
+   * Галочка «Маршрут сохранён офлайн» ставилась от `hasActiveRoute` — то есть
+   * от того, что маршрут выбран. Ни одного скачанного байта за ней не стояло,
+   * а человек уходил в поле, отметив себе, что всё взято.
+   */
+  const [savedRouteMap, setSavedRouteMap] = useState<SavedMapRecord | null>(null);
 
   useEffect(() => {
-    setHasActiveRoute(!!localStorage.getItem('active_trail_route_id'));
+    const routeId = localStorage.getItem('active_trail_route_id');
+    setHasActiveRoute(!!routeId);
+    if (!routeId) { setSavedRouteMap(null); return; }
+    try {
+      setSavedRouteMap(parseSavedMap(localStorage.getItem(savedMapKey(routeId))));
+    } catch { setSavedRouteMap(null); }
   }, []);
 
   // Override 'done' for auto-computed items
   const effectiveChecklist = checklist.map(item => {
-    if (item.id === 'maps') return { ...item, done: mapsStatus === 'cached' };
-    if (item.id === 'offline') return { ...item, done: hasActiveRoute };
+    if (item.id === 'maps') {
+      // Вес — из настоящей записи о скачанном регионе. В подписи стояло
+      // «450 МБ» константой: число, которое никто не мерил, на чек-листе
+      // готовности к выходу.
+      const mb = regionMeta ? Math.max(1, Math.round(regionMeta.sizeBytes / 1024 / 1024)) : null;
+      return {
+        ...item,
+        done: mapsStatus === 'cached',
+        label: mb ? `Карты региона скачаны · ${mb} МБ` : 'Карты региона скачаны',
+      };
+    }
+    // «Маршрут сохранён офлайн» отмечался от того, что маршрут ВЫБРАН
+    // (`hasActiveRoute`). То есть галочка про готовность к отсутствию связи
+    // ставилась сама, без единого скачанного байта, — и человек уходил в
+    // поле, отметив себе, что всё взято. Настоящее свидетельство одно:
+    // запись о завершённой закачке карты этого маршрута.
+    if (item.id === 'offline') return { ...item, done: savedRouteMap !== null };
     if (item.id === 'gear') return { ...item, done: gearChecked.size === GEAR_LIST.length };
     return item;
   });
