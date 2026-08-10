@@ -94,7 +94,21 @@ if (updated === readme) {
 }
 
 if (CHECK) {
-  console.error('README отстал: цифры «Масштаб» устарели. Запусти: node scripts/update-readme-stats.mjs');
+  // Называем расхождение построчно. Сообщение «цифры устарели» без цифр
+  // отправляет чинить вслепую: 10.08 гард покраснел в CI и был зелёным
+  // локально на том же коммите, и понять причину по логу было нельзя.
+  // Сторож, который не говорит, ЧТО разошлось, — сам образец той болезни,
+  // которую мы весь день ловим.
+  const current = new Map(
+    [...(readme.match(re)?.[0] ?? '').matchAll(/^\| ([^|]+?) \| (.+?) \|$/gm)]
+      .map((m) => [m[1].trim(), m[2].trim()]),
+  );
+  console.error('README отстал. Расхождения (в файле → на диске):');
+  for (const [k, v] of rows) {
+    const was = current.get(k);
+    if (was !== String(v)) console.error(`  ${k}: ${was ?? '—'} → ${v}`);
+  }
+  console.error('Запусти: node scripts/update-readme-stats.mjs');
   process.exit(1);
 }
 
