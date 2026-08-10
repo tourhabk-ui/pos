@@ -1,12 +1,22 @@
 {
   "urls": [
-    "https://5u8mlere5l.cdn.twcstorage.ru/maps/kamchatka-20260810.pmtiles",
-    "https://s3.twcstorage.ru/maps/kamchatka-20260810.pmtiles"
+    "https://vedarai.ru/",
+    "https://vedarai.ru/safety"
   ],
   "bytes": 0,
-  "timeout": 60,
-  "range": "0-99",
-  "origin": "https://vedarai.ru",
-  "note": "проверка пути ЧТЕНИЯ карты через CDN. Нужны две вещи и обе тихие в случае поломки: 206 Partial Content (иначе браузер тянет 92 МБ целиком на каждый чих) и access-control-expose-headers с Content-Range/Content-Length/Accept-Ranges/ETag (иначе тело придёт, а размер и версию файла прочитать нечем — докачка сломается молча). Второй URL без имени бакета — заведомо 404, он здесь как контроль, что различаем ответ CDN и ответ хранилища.",
-  "run": 26
+  "timeout": 90,
+  "ua": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36",
+  "grep": [
+    "alerts-now",
+    "an-tx",
+    "Обстановка нормальная",
+    "Опасность:"
+  ],
+  "around": [
+    "alerts-now"
+  ],
+  "aroundLines": 8,
+  "aroundHits": 1,
+  "note": "мерка одна: КЛАСС отрендеренного блока, а не слово в HTML. alerts-now — полоса предупреждений на главной (#1108). На /safety ждём, что «Обстановка нормальная» исчезла в пользу «Опасность: …» (#1110), но он смержен только что и мог не выкатиться.",
+  "run": 27
 }
