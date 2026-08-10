@@ -13,6 +13,12 @@ export interface MapMarkerGeometry {
   coordinates: [number, number][];
   color?: string;
   weight?: number;
+  /**
+   * Пунктир. Нужен там, где линия — не снятый путь, а построение: подход от
+   * места человека до тропы идёт по азимуту, и рисовать его сплошным значило
+   * бы обещать тропу там, где её никто не снимал.
+   */
+  dashArray?: string;
 }
 
 export interface MapMarker {

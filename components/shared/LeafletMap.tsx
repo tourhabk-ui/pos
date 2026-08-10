@@ -295,18 +295,25 @@ export default function LeafletMap({
               fillOpacity: 0.15,
             }).addTo(map);
           } else {
-            // Маршрут-линия (трек): толстая полупрозрачная подложка + тонкая яркая линия сверху — как в OsmAnd/Gaia GPS
-            L.polyline(coords, {
-              color: geomHex,
-              weight: (marker.geometry.weight ?? 3) + 3,
-              opacity: 0.25,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }).addTo(map);
+            const dash = marker.geometry.dashArray;
+            // Подложка — только у сплошных линий. У пунктирной она залила бы
+            // просветы и вернула вид снятого пути, от которого пунктир и
+            // отличает построение.
+            if (!dash) {
+              // Маршрут-линия (трек): толстая полупрозрачная подложка + тонкая яркая линия сверху — как в OsmAnd/Gaia GPS
+              L.polyline(coords, {
+                color: geomHex,
+                weight: (marker.geometry.weight ?? 3) + 3,
+                opacity: 0.25,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }).addTo(map);
+            }
             L.polyline(coords, {
               color: geomHex,
               weight: marker.geometry.weight ?? 3,
-              opacity: 0.9,
+              opacity: dash ? 0.75 : 0.9,
+              dashArray: dash,
               lineCap: 'round',
               lineJoin: 'round',
             }).addTo(map);

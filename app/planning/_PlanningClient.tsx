@@ -12,6 +12,7 @@ import {
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
+import { approachPlan } from '@/lib/on-route/approach';
 import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
@@ -246,6 +247,12 @@ function CompassDisplay({ heading, state }: { heading: number; state: CompassSta
 }
 
 // ─── Haversine distance (km) ──────────────────────────────────────────────────
+
+
+/** Километры для глаз: под километром — метры, иначе десятые. */
+function fmtKm(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} м` : `${km.toFixed(1)} км`;
+}
 
 function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
@@ -763,6 +770,23 @@ function OnTrailTab() {
     return trackFidelity(track);
   }, [track, waypoints]);
 
+  /**
+   * Путь от МЕСТА ЧЕЛОВЕКА вдоль тропы, а не по прямой через залив.
+   *
+   * Скриншот владельца 11.08: «до точки 20.3 км по прямой», человек в
+   * Петропавловске, цель — в Авачинской бухте, трек уходит на юго-запад.
+   * Прямая между ними пересекает залив: число честно буквально и бесполезно
+   * по существу, а нарисованной линии не соответствует вовсе.
+   */
+  const approach = useMemo(() => {
+    if (!coords || !nextWp || !track || track.length < 2) return null;
+    return approachPlan(
+      { lat: coords.lat, lng: coords.lng },
+      { lat: nextWp.lat, lng: nextWp.lng },
+      track.map(([lat, lng]) => ({ lat, lng })),
+    );
+  }, [coords, nextWp, track]);
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
     // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
@@ -791,6 +815,22 @@ function OnTrailTab() {
         } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
+      // Подход: от человека до тропы. Пунктиром и приглушённо — это НЕ тропа,
+      // а прямая по азимуту, и рисовать её тем же уверенным зелёным значило бы
+      // обещать путь там, где его никто не снимал.
+      ...(approach && approach.userOffTrack && coords ? [{
+        coords: [coords.lat, coords.lng] as [number, number],
+        title: 'Выход на тропу',
+        geometry: {
+          type: 'polyline',
+          coordinates: [
+            [coords.lat, coords.lng],
+            [approach.joinAt.lat, approach.joinAt.lng],
+          ] as Array<[number, number]>,
+          color: 'gray', weight: 2, dashArray: '6 6',
+        } as MapMarkerGeometry,
+        suppressBalloon: true,
+      }] : []),
       // Свой след — отдельной линией и другим цветом. Путать его с маршрутом
       // нельзя: маршрут это куда идти, след это где человек был. Возвращаются
       // по второму.
@@ -811,7 +851,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approach, coords]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -839,7 +879,11 @@ function OnTrailTab() {
     return { center, markers, scattered };
   }, [preview]);
 
-  const distToNext = coords && nextWp
+  // Без трека считать вдоль нечего — тогда прямая и остаётся, но подписана
+  // прямой. С треком главным числом становится путь, которым идут.
+  const distToNext = approach
+    ? approach.totalKm
+    : coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
     : null;
   const distLabel = distToNext === null ? null
@@ -1177,11 +1221,28 @@ function OnTrailTab() {
                     {nextWp?.name && nextWp.name !== activeRouteTitle && (
                       <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp.name}</p>
                     )}
-                    {/* Расстояние — по прямой между точками, а не по тропе. В горах
-                        это разные числа, и молчать об этом нельзя. */}
+                    {/* Из чего сложилось число. Подход и выход — прямые, и
+                        выдавать их за путь по тропе нельзя: на камчатском
+                        рельефе прямая проходит через каньон и реку. */}
                     <p className="text-[11px] text-[var(--text-muted)] leading-tight">
-                      по прямой{fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
+                      {approach
+                        ? [
+                            approach.userOffTrack ? `${fmtKm(approach.approachKm)} до тропы` : null,
+                            `${fmtKm(approach.alongTrackKm)} по тропе`,
+                            approach.targetOffTrack ? `${fmtKm(approach.exitKm)} от тропы до точки` : null,
+                          ].filter(Boolean).join(' · ')
+                        : 'по прямой'}
+                      {fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
                     </p>
+                    {approach?.targetOffTrack && (
+                      /* Расхождение данных, а не рельефа: линия рисуется по
+                         geometry маршрута, а точка приходит из route_waypoints.
+                         Промолчать значило бы показать на карте одно, а в
+                         числе другое — ровно то, что владелец увидел в поле. */
+                      <p className="text-[11px] text-[var(--warning)] leading-tight mt-0.5">
+                        Точка стоит в стороне от трека
+                      </p>
+                    )}
                   </>
                 )}
 
