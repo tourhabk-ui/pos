@@ -298,7 +298,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       {live && (
         <section id="radar" className="kh-live" style={{ marginBottom: 24 }}>
           <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
-          <RadarScope hazards={live.radar.hazards} center={live.radar.center} />
+          <RadarScope hazards={live.radar.hazards} center={live.radar.center} degraded={live.radar.degraded} />
           {(live.safety.alerts.length > 0 || live.seismic.events.length > 0) && (
             <div className="safety">
               {live.safety.alerts.length > 0 && <AlertsTicker alerts={live.safety.alerts} />}

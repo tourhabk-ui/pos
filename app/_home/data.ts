@@ -80,6 +80,14 @@ export interface Hazard {
 export interface RadarSnapshot {
   hazards: Hazard[];
   center: { lat: number; lng: number; label: string };
+  /**
+   * Часть источников не ответила — на круге показано НЕ всё.
+   *
+   * Без этого флага пустой радар после упавшего запроса выглядит так же, как
+   * пустой радар в спокойный день, и подпись «рядом нет» становится обещанием,
+   * которого никто не давал.
+   */
+  degraded?: boolean;
 }
 
 export interface HomeV8Data {
@@ -277,8 +285,9 @@ function quakeLevel(m: number): HazardLevel {
 // достопримечательность, а не угроза; блиц «до 95°C» на каждом источнике — и
 // неправда, и «крик волка», обесценивающий настоящую опасность (trust-first).
 // Температурная осторожность источника — контекст на карточке места, не радар.
-async function fetchRadarBase(): Promise<Hazard[]> {
+async function fetchRadarBase(): Promise<{ hazards: Hazard[]; degraded: boolean }> {
   const hazards: Hazard[] = [];
+  let degraded = false;
   try {
     const volc = await query<{ name: string; lat: string; lng: string; acc: string }>(
       `SELECT p.name, p.lat::text, p.lng::text, vs.aviation_color_code AS acc
@@ -294,8 +303,60 @@ async function fetchRadarBase(): Promise<Hazard[]> {
         note: `Вулкан, KVERT ${ACC_LABEL_SHORT[v.acc] ?? v.acc}. Держитесь вне закрытой зоны.`,
       });
     }
-  } catch { /* пропускаем блок */ }
-  return hazards;
+  } catch (err) {
+    console.error('[home] радар: вулканы не выбрались:', err);
+    degraded = true;
+  }
+
+  // Всё остальное, у чего есть координаты: сейсмособытия и предупреждения
+  // источников. Раньше радар знал ТОЛЬКО volcano_status, а подпись под ним
+  // обещала «сейсмики и тревог вулканов рядом нет» — то есть говорила за два
+  // источника, зная один.
+  //
+  // Полевой случай 10.08: у владельца в 70 км Мутновский с активным
+  // предупреждением МЧС («сохраняется риск схода оползней, не приближаться»),
+  // а радар показывал пустой круг. Формально честно — код KVERT у Мутновского
+  // зелёный, извержения нет, опасность другого рода. Но человек читает не про
+  // источники, он читает «рядом чисто», и пустой круг на первом экране раздела
+  // безопасности звучит как разрешение идти.
+  try {
+    const alerts = await query<{
+      title: string; description: string | null; alert_type: string | null;
+      severity: number | null; lat: string; lng: string; magnitude: string | null;
+    }>(
+      `SELECT title, description, alert_type, severity::int AS severity,
+              lat::text, lng::text, magnitude::text
+         FROM external_alerts
+        WHERE expires_at > NOW()
+          AND lat IS NOT NULL AND lng IS NOT NULL
+        ORDER BY severity DESC NULLS LAST, created_at DESC
+        LIMIT 60`,
+    );
+    for (const a of alerts.rows) {
+      const lat = parseFloat(a.lat), lng = parseFloat(a.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const type = (a.alert_type ?? '').toLowerCase();
+      const mag = a.magnitude ? parseFloat(a.magnitude) : NaN;
+      const kind: HazardKind = /volcan|ash/.test(type) ? 'volcano'
+        : /quake|seismic|earth/.test(type) ? 'quake'
+        : 'report';
+      // Магнитуда — точнее декларированной важности там, где она есть.
+      const level: HazardLevel = Number.isFinite(mag) ? quakeLevel(mag)
+        : (a.severity ?? 0) >= 3 ? 'critical'
+        : (a.severity ?? 0) >= 2 ? 'danger'
+        : 'warning';
+      hazards.push({
+        lat, lng, level, kind,
+        label: a.title,
+        note: a.description?.slice(0, 200) ?? a.title,
+      });
+    }
+  } catch (err) {
+    console.error('[home] радар: предупреждения не выбрались:', err);
+    degraded = true;
+  }
+
+  return { hazards, degraded };
 }
 
 const ACC_LABEL_SHORT: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
@@ -365,7 +426,18 @@ export async function getSafetyLiveData(): Promise<SafetyLiveData> {
       note: `Землетрясение${e.depth != null ? `, глубина ${Math.round(e.depth)} км` : ''}.`,
     }));
 
-  const radar: RadarSnapshot = { hazards: [...radarBase, ...quakeHazards, ...reportHazards], center: PETROPAVLOVSK };
+  // Дубли по координате: одно и то же событие приходит и предупреждением с
+  // координатами, и строкой сейсмофида. Ключ — округлённая точка плюс вид: без
+  // этого на круге появлялись бы две метки в одном месте.
+  const seen = new Set<string>();
+  const hazards = [...radarBase.hazards, ...quakeHazards, ...reportHazards].filter((h) => {
+    const key = `${h.kind}:${h.lat.toFixed(3)}:${h.lng.toFixed(3)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const radar: RadarSnapshot = { hazards, center: PETROPAVLOVSK, degraded: radarBase.degraded };
   return { safety, seismic, radar };
 }
 
