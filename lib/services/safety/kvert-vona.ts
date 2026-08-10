@@ -209,3 +209,123 @@ export function parseVonaFeed(text: string): ParsedVona[] {
   }
   return out;
 }
+
+// ── Сводная таблица кодов ────────────────────────────────────────────────────
+
+/**
+ * Второй формат KVERT: недельный выпуск со сводкой кодов вместо блоков VONA.
+ *
+ * С 28.07.2026 лента отдаёт страницу, где вместо отдельных бюллетеней стоит
+ * общая таблица, а вулканы сгруппированы по цвету:
+ *
+ *   SUMMARY OF AVIATION COLOUR CODES:
+ *    KAMCHATKA
+ *   SHEVELUCH: <span id='ORANGE'>ORANGE</span>
+ *   BEZYMIANNY, KRASHENINNIKOV: <span id='YELLOW'>YELLOW</span>
+ *   AVACHINSKY, ..., KLYUCHEVSKOY, ...: <span id='GREEN'>GREEN</span>
+ *
+ * Поля `Current aviation colour code:` в ней нет вовсе — по нему и искал
+ * прежний парсер, поэтому распознавал ноль и синк падал тринадцать дней подряд.
+ *
+ * Разбор нарочно консервативен: строкой кодов считается только та, где справа
+ * от двоеточия стоит ОДНО цветовое слово, а слева — прописные латинские имена
+ * через запятую. Прочий текст выпуска (а его сотни килобайт: контакты, правила
+ * цитирования, описания активности) под это не подходит и молча пропускается.
+ * Ошибиться в сторону «не распознал» здесь дешевле: нераспознанное видно по
+ * fetched: 0, а выдуманный код вулкана не видно никак.
+ */
+export function parseAccSummary(html: string): ParsedVona[] {
+  const marker = /SUMMARY\s+OF[\s\S]{0,120}?AVIATION\s+COLOU?R\s+CODES/i;
+  const at = html.search(marker);
+  if (at < 0) return [];
+
+  // Дата выпуска ищется ДО сводки — она стоит в шапке: «August 06, 2026,
+  // 23:53 UTC». Без неё запись легла бы без отметки о наблюдении, и проверка
+  // устаревания (VOLCANO_STALE_DAYS) не смогла бы сказать, что коды старые.
+  const observedAt = parseReleaseDate(html.slice(Math.max(0, at - 4000), at));
+
+  // Сводка занимает несколько строк сразу за маркером; берём с запасом и
+  // останавливаемся на первой же строке, которая под формат не подходит,
+  // но только после того, как хотя бы одна строка кодов уже нашлась.
+  const lines = stripTags(html.slice(at)).split('\n');
+
+  const out: ParsedVona[] = [];
+  const seen = new Set<string>();
+  let started = false;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const m = /^([A-Z][A-Z\s,'’.\-()]{2,600}?):\s*(GREEN|YELLOW|ORANGE|RED|UNASSIGNED)\s*$/.exec(line);
+    if (!m) {
+      // Заголовки районов («KAMCHATKA», «NORTHERN KURILES») внутри сводки —
+      // не конец таблицы.
+      if (started && /^[A-Z][A-Z\s]{2,40}$/.test(line)) continue;
+      if (started) break;
+      continue;
+    }
+    started = true;
+
+    const color = parseColor(m[2]);
+    if (!color) continue;
+
+    for (const nameRaw of m[1].split(',')) {
+      const volcanoName = nameRaw.trim();
+      if (!volcanoName) continue;
+      const norm = normalizeVolcanoName(volcanoName);
+      // Ключ дедупа — канонический slug там, где он есть: один вулкан не
+      // должен приехать дважды под двумя написаниями.
+      const key = norm?.slug ?? volcanoName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        volcanoName,
+        nameSlug: norm?.slug ?? null,
+        nameRu: norm?.ru ?? null,
+        color,
+        // Сводка даёт только текущий код: предыдущего, высоты вершины, высоты
+        // пепла и текста в ней нет. Пустое поле честнее выдуманного.
+        previousColor: null,
+        summitElevationM: null,
+        ashHeightM: null,
+        area: null,
+        noticeNumber: null,
+        observedAt,
+        summary: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+/** «August 06, 2026, 23:53 UTC» → Date. null — не распознано. */
+function parseReleaseDate(text: string): Date | null {
+  const m = /([A-Z][a-z]+\s+\d{1,2},\s*\d{4}),?\s*(\d{2}):(\d{2})\s*UTC/.exec(text);
+  if (!m) return null;
+  const d = new Date(`${m[1]} ${m[2]}:${m[3]}:00 UTC`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * HTML → текст со строками. `<br>` и закрытие блочных тегов дают перенос,
+ * остальные теги снимаются, сущности разворачиваются.
+ *
+ * Тег ищется как «< до первого >» — без попыток догонять конкретные
+ * закрывающие теги регуляркой. Разбор `</script >` и `</script foo>` шаблоном
+ * — тупик, на который CodeQL уже указывал в этом же файле; здесь он и не
+ * нужен: содержимое script/style не подходит под формат строки кодов и
+ * отсеивается следующим шагом.
+ */
+function stripTags(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|td|li|h\d)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ');
+}

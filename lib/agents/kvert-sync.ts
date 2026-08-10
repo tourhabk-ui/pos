@@ -18,7 +18,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { parseVonaFeed, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { parseVonaFeed, parseAccSummary, normalizeVolcanoName, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 
 const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3';
@@ -105,7 +105,13 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
     if (res.ok) { text = await res.text(); sourceType = res.headers.get('content-type'); }
   } catch { /* прямой путь недоступен — попробуем Unlocker ниже */ }
 
+  // Два формата ленты, и оба живые. Блоки VONA — исторический; с 28.07.2026
+  // KVERT отдаёт недельный выпуск со сводной таблицей кодов. Пробуем сначала
+  // VONA (он богаче: высота пепла, предыдущий код, текст), затем сводку.
+  // Порядок важен: сводка есть и в тех выпусках, где блоки VONA тоже есть, а
+  // терять из-за неё детали не за чем.
   let parsed = parseVonaFeed(text);
+  if (parsed.length === 0) parsed = parseAccSummary(text);
 
   // Фолбэк Bright Data Web Unlocker: только если прямой путь не дал VONA
   // (блок по IP / CAPTCHA / geo-заглушка) И ключ задан. Платный, потому строго
@@ -113,7 +119,8 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   if (parsed.length === 0 && brightDataAvailable()) {
     const unlocked = await brightDataFetch(url, { country: 'ru', timeoutMs: 30_000 });
     if (unlocked) {
-      const viaParsed = parseVonaFeed(unlocked);
+      const vona = parseVonaFeed(unlocked);
+      const viaParsed = vona.length > 0 ? vona : parseAccSummary(unlocked);
       if (viaParsed.length > 0) { text = unlocked; parsed = viaParsed; via = 'brightdata'; sourceType = 'brightdata/raw'; }
     }
   }
