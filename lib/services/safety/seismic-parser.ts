@@ -9,6 +9,7 @@
  */
 
 import { query } from '@/lib/database';
+import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -921,7 +922,7 @@ export async function fetchMchsFeedXml(): Promise<string[]> {
   return results.filter((xml): xml is string => xml !== null);
 }
 
-function parseMchsItems(xml: string): Array<{ id: string; title: string; link: string; pubDate: string; desc: string }> {
+export function parseMchsItems(xml: string): Array<{ id: string; title: string; link: string; pubDate: string; desc: string }> {
   const itemRe = /<item>([\s\S]*?)<\/item>/g;
   const tagRe  = (t: string) => new RegExp(`<${t}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${t}>|<${t}[^>]*>([^<]*)<\\/${t}>`, 'i');
   const items: Array<{ id: string; title: string; link: string; pubDate: string; desc: string }> = [];
@@ -936,7 +937,27 @@ function parseMchsItems(xml: string): Array<{ id: string; title: string; link: s
     const title   = get('title');
     const link    = get('link');
     const pubDate = get('pubDate');
-    const desc    = get('description');
+    // Тело предупреждения у МЧС лежит НЕ в description.
+    //
+    // Проба фида 10.08, раздел «Штормовые и экстренные предупреждения»:
+    //   <title>Экстренное предупреждение на 11 августа 2026 г.
+    //          (опасное метеорологическое явление)</title>
+    //   <description></description>          ← пусто
+    //   <yandex:full-text>&lt;p&gt;К берегам Камчатки приближается
+    //          охотоморский циклон… Туристическим группам…&lt;/p&gt;
+    //
+    // То есть мы читали заголовок без текста: «экстренное предупреждение на
+    // 11 августа» без единого слова о том, что за явление, где и кому. Из 40
+    // элементов фида классифицировались 5 — остальные приходили пустыми не
+    // потому, что там нечего сказать, а потому, что мы смотрели не в тот узел.
+    // Именно так потерялся циклон, о котором МЧС писала прямым текстом:
+    // «повышена вероятность пропажи, травмирования и гибели людей вне
+    // населённых пунктов, осуществляющих туристическую деятельность».
+    //
+    // content:encoded — тот же приём в обычных RSS; берём и его.
+    const desc = get('description')
+      || textFromEscapedHtml(get('yandex:full-text'))
+      || textFromEscapedHtml(get('content:encoded'));
     const guid    = get('guid') || `${pubDate}-${idx++}`;
     items.push({ id: guid, title, link, pubDate, desc });
   }
