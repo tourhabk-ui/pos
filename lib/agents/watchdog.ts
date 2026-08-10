@@ -11,6 +11,12 @@
  *   4. SOS-сигналы без реакции > 30 мин
  *   5. Сейсмо-крон (safety-ingest) мёртв > 15 мин
  *   6. Любой safety-крон из реестра мёртв (liveness по cron-registry)
+ *   7. Крон работает вхолостую — запускается, отчитывается успехом, не делает
+ *      работы (cron-idle)
+ *   8. Крон падает подряд — запускается и каждый раз отчитывается отказом
+ *      (cron-failing). Между 6 и 7 была щель: liveness считает упавший прогон
+ *      отметкой о жизни, а сторож холостых смотрит только успешные прогоны и
+ *      постоянно падающего не видит вовсе.
  *
  * Все алерты → Telegram (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).
  */
@@ -21,12 +27,13 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { CRON_REGISTRY } from '@/lib/agents/cron-registry';
 import { computeLiveness } from '@/lib/agents/cron-liveness';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
+import { findFailingCrons, formatFailingCrons, FAILING_RUNS_THRESHOLD, type CronStatusRow } from '@/lib/agents/cron-failing';
 import { findUnappliedMigrations, formatUnappliedMigrations } from '@/lib/agents/migration-status';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'migration_unapplied' | 'migration_failed';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed';
   count: number;
   details: string;
   /**
@@ -681,6 +688,47 @@ async function checkIdleCrons(): Promise<WatchdogAlert | null> {
 }
 
 /**
+ * Кроны, которые падают подряд. Третий вопрос после «жив ли» и «сделал ли».
+ *
+ * Между ними есть щель: liveness читает историю без разбора статуса и считает
+ * упавший прогон отметкой о жизни; сторож холостых берёт `status = 'success'` и
+ * у постоянно падающего не находит истории вовсе. Синк авиационных кодов
+ * вулканов прожил в этой щели тринадцать дней. Разбор — в lib/agents/cron-failing.ts.
+ */
+async function checkFailingCrons(): Promise<WatchdogAlert | null> {
+  try {
+    const ids = CRON_REGISTRY.map(e => e.agentId).filter((id): id is string => id !== null);
+    if (ids.length === 0) return null;
+
+    // Статус берём вместе со строкой: срез окна — в чистой функции.
+    const { rows } = await pool.query<CronStatusRow>(
+      `SELECT agent_id, status, ended_at::text AS ended_at, error_msg AS error
+         FROM agent_run_history
+        WHERE agent_id = ANY($1) AND ended_at IS NOT NULL
+        ORDER BY ended_at DESC
+        LIMIT $2`,
+      [ids, ids.length * FAILING_RUNS_THRESHOLD * 4],
+    );
+
+    const failing = findFailingCrons(CRON_REGISTRY, rows);
+    if (failing.length === 0) return null;
+
+    const safetyKeys = new Set(CRON_REGISTRY.filter(e => e.tier === 'safety').map(e => e.key));
+    const critical = failing.some(c => safetyKeys.has(c.key));
+
+    return {
+      type: 'cron_failing',
+      count: failing.length,
+      critical,
+      details: `Крон отчитывается отказом подряд — ${formatFailingCrons(failing)}.`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkFailingCrons failed:', err);
+    return null;
+  }
+}
+
+/**
  * Миграции, которые не применились. Раннер намеренно не роняет деплой на
  * упавшей миграции (пишет «[migrate] ✗», считает ошибку и всё равно поднимает
  * сервер) — решение верное: платформа, которой пользуются в поле, не должна
@@ -763,7 +811,7 @@ async function checkFailedMigrations(): Promise<WatchdogAlert | null> {
 export async function runWatchdog(): Promise<WatchdogResult> {
   const start = Date.now();
 
-  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations, failedMigrations] = await Promise.all([
+  const [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations] = await Promise.all([
     checkUnconfirmedBookings(),
     checkUnconfirmedStayBookings(),
     checkPendingGearRentals(),
@@ -775,11 +823,12 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkDeadSafetyCrons(),
     checkUndeliveredSafetyPush(),
     checkIdleCrons(),
+    checkFailingCrons(),
     checkUnappliedMigrations(),
     checkFailedMigrations(),
   ]);
 
-  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, unappliedMigrations, failedMigrations].filter(Boolean) as WatchdogAlert[];
+  const alerts = [bookings, stayBookings, gearRentals, transferBookings, operators, leads, sos, seismic, safetyCrons, pushUndelivered, idleCrons, failingCrons, unappliedMigrations, failedMigrations].filter(Boolean) as WatchdogAlert[];
 
   if (alerts.length > 0) {
     const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
