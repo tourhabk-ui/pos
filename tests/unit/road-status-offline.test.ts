@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { pushCopy } from '@/lib/services/safety/push-copy';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const BY_REGION = read('app/api/routes/by-region/route.ts');
@@ -86,8 +87,12 @@ describe('пуш при закрытии дороги', () => {
   });
 
   it('у пуша свой заголовок и совет «до выезда», а не чужой про землетрясение', () => {
-    expect(CRON).toContain("alert.alert_type === 'road_closure'");
-    expect(CRON).toContain('Ограничение проезда — Камчатка');
-    expect(CRON).toContain('Проверьте подъезд до выезда');
+    // Раньше проверялась строка `alert.alert_type === 'road_closure'` внутри
+    // крона — и гард не пустил вынос текстов в отдельный модуль, хотя правка
+    // делала пуш честнее. Проверяем поведение, а не место, где оно написано.
+    const copy = pushCopy({ alertType: 'road_closure', title: 'Закрыт проезд к Вачкажцу' });
+    expect(copy.title).toContain('Ограничение проезда');
+    expect(copy.title).not.toMatch(/Землетрясение/);
+    expect(copy.body).toMatch(/до выезда/);
   });
 });

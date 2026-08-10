@@ -7,6 +7,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { sendPushBroadcast } from '@/lib/notifications/web-push';
+import { pushCopy } from '@/lib/services/safety/push-copy';
 import {
   SAFETY_SOURCE_EXPECTATIONS,
   recordSourceHealth,
@@ -221,25 +222,17 @@ async function dispatchPushAlerts(): Promise<{ dispatched: number; skipped: numb
 
     let dispatched = 0;
     for (const alert of rows) {
-      const isTsunami = alert.alert_type === 'tsunami_warning';
-      // fire_danger попадает сюда при severity>=2 (крупный очаг): без своей
-      // ветки пуш назывался бы «Землетрясение M?» — чужой заголовок про пожар.
-      const isFire = alert.alert_type === 'fire_danger';
-      const isRoad = alert.alert_type === 'road_closure';
-      const pushTitle = isTsunami
-        ? 'УГРОЗА ЦУНАМИ — Камчатка'
-        : isFire
-          ? 'Природный пожар — Камчатка'
-          : isRoad
-            ? 'Ограничение проезда — Камчатка'
-            : `Землетрясение M${alert.magnitude ? Number(alert.magnitude).toFixed(1) : '?'} — Камчатка`;
-      const pushBody = isTsunami
-        ? `${alert.description?.slice(0, 100) ?? alert.title}. Уходите вверх ≥30 м от воды.`
-        : isFire
-          ? `${alert.title}. Сверьте маршрут — возможны перекрытия и задымление.`
-          : isRoad
-            ? `${alert.title}. Проверьте подъезд до выезда.`
-            : `${alert.title}. Если у берега — немедленно вверх ≥30 м.`;
+      // Текст пуша — в lib/services/safety/push-copy. Лестница из трёх `?:`
+      // стояла здесь и всё незнакомое отправляла как землетрясение с командой
+      // «уходите вверх от воды»: вулкан, паводок и метель приходили человеку
+      // чужой инструкцией. У неизвестного типа теперь инструкции нет вовсе —
+      // придуманное действие в поле опаснее отсутствующего.
+      const { title: pushTitle, body: pushBody } = pushCopy({
+        alertType: alert.alert_type,
+        title: alert.title,
+        description: alert.description,
+        magnitude: alert.magnitude != null ? Number(alert.magnitude) : null,
+      });
 
       const result = await sendPushBroadcast({
         title: pushTitle,
