@@ -1,18 +1,31 @@
 {
   "urls": [
-    "https://vedarai.ru/"
+    "https://vedarai.ru/llms.txt",
+    "https://vedarai.ru/sitemap.xml",
+    "https://tourhab.ru/llms.txt"
   ],
   "bytes": 0,
   "timeout": 60,
   "grep": [
-    "Шивелуч",
-    "Безымянный",
-    "Авачинский",
-    "Карымский"
+    "catalog/tours",
+    "Ведар",
+    "TourHab"
   ],
   "count": [
-    "acc"
+    "catalog/tours",
+    "<url>",
+    "<loc>"
   ],
-  "note": "последнее звено цепочки: дошли ли живые коды KVERT до экрана. Синк вернул fetched 68, matched 8 — Шивелуч среди сопоставленных, код оранжевый. Главная показывает вулканы с жёлтым кодом и выше, значит он там должен появиться. Если нет — разрыв между базой и витриной, и его надо искать отдельно",
-  "run": 15
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}
+    },
+    {
+      "url": "https://vedarai.ru/api/mcp",
+      "body": {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"safety_status","arguments":{}}}
+    }
+  ],
+  "note": "проверка по чек-листу владельца: согласованность трёх каналов видимости (MCP / llms.txt / sitemap.xml), тонкий ли sitemap, два ли канона доменов, и не отдаёт ли MCP пустой каталог при живых турах. Считаем числа, а не смотрим на зелёное",
+  "run": 16
 }
