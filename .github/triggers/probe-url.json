@@ -1,16 +1,22 @@
 {
   "urls": [
+    "https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/shtormovye-i-ekstrennye-preduprezhdeniya/rss",
     "https://vedarai.ru/api/cron/safety-ingest"
   ],
-  "bytes": 6000,
+  "bytes": 4000,
   "timeout": 180,
   "grep": [
     "циклон",
+    "Циклон",
+    "тургрупп",
     "weather",
-    "not_configured",
-    "not_fetched",
-    "empty"
+    "подтопл"
   ],
-  "note": "циклона в external_alerts нет (safety-status: top всё ещё Мутновский, activeCount 19). Вопрос — дошёл ли пост до ingest вообще. GET гоняет полный прогон и печатает отчёт по источникам: МЧС RSS, VK, MAX, КБГС. Пост владельца подписан «в МАХ/ВК» — если эти каналы not_configured/not_fetched, то классификатор ни при чём, до него текст не доезжает.",
-  "run": 21
+  "around": [
+    "иклон"
+  ],
+  "aroundLines": 6,
+  "aroundHits": 3,
+  "note": "решающая проверка: несёт ли САМ фид МЧС (раздел штормовых и экстренных предупреждений) текст про циклон. Если несёт — рвётся у нас, если нет — канал не тот. Вторым прогон ingest после деплоя погодной ветки.",
+  "run": 22
 }
