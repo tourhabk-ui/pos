@@ -23,6 +23,9 @@ import BottomNav from '@/components/shared/BottomNav';
 // Реэкспорт — обратная совместимость импортов (home-alerts-ticker.test.ts и
 // любые внешние потребители формул подписи).
 export { alertStamp, clip } from '@/components/safety/LiveStatus';
+// Те же подписи и та же обрезка, что в ленте на /safety: две поверхности об
+// одном предупреждении обязаны говорить одинаково.
+import { alertStamp as stampAlert, clip as clipText } from '@/components/safety/LiveStatus';
 import type { HomeV8Data, SafetyAlert } from './data';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
@@ -389,6 +392,38 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
           <span className="lv-txt">{fresh.label}</span>
           <Link className="lv-go" href="/safety">Карта сегодня →</Link>
         </section>
+
+        {/* ЧТО ИМЕННО СЛУЧИЛОСЬ. Пилюля в шапке и строка выше сообщают
+            СОСТОЯНИЕ — цветную точку и одно слово. Содержания опасности на
+            главной не было вовсе: сама лента предупреждений жила только на
+            /safety, за переходом. Владелец открыл сайт при девятнадцати
+            действующих предупреждениях, из них одно важности 2, и сказал: «ни
+            слова об опасности». Он прочитал ровно то, что было написано.
+
+            Здесь — текст. Не больше двух строк: главная не подменяет /safety,
+            но и не молчит о том, что там ждёт. Блока нет, когда предупреждений
+            нет: пустая рамка «всё спокойно» — это обещание, которого мы дать
+            не можем. */}
+        {safety.alerts.length > 0 && (
+          <section className="alerts-now" aria-label="Действующие предупреждения">
+            <ul>
+              {safety.alerts.slice(0, 2).map((a, i) => (
+                <li key={`${a.title}-${i}`}>
+                  <i className={a.severity >= 2 ? 'sev-hi' : a.severity === 1 ? 'sev-mid' : 'sev-lo'} />
+                  <span className="an-tx">
+                    {clipText(a.title, 90)}
+                    <span className="an-st">{stampAlert(a)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Link className="an-go" href="/safety">
+              {safety.alerts.length > 2
+                ? `Все предупреждения (${safety.alerts.length}) →`
+                : 'Подробности →'}
+            </Link>
+          </section>
+        )}
 
         {/* АКТИВНАЯ ПОЕЗДКА — только при подтверждённом режиме (см. выше).
             Заголовок и день живут в герое; здесь — плитки-входы. Только
@@ -917,6 +952,21 @@ const CSS = `
 .v7 .live .lv-dot{width:8px;height:8px;border-radius:50%;flex:none;box-sizing:border-box}
 .v7 .live .lv-txt{flex:1;font:500 12px/1.2 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
 .v7 .live .lv-go{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none;white-space:nowrap}
+/* ЧТО именно случилось — текстом, не только цветом. Полоса появляется только
+   при действующих предупреждениях; пустой рамки «всё спокойно» здесь быть не
+   должно. Левая линия цветом опасности: она же отличает эту карточку от
+   соседних, когда цвет точки в глаза не бросается. */
+.v7 .alerts-now{margin:-14px 0 26px;padding:12px 14px;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--danger);border-radius:16px}
+.v7 .alerts-now ul{list-style:none;margin:0;padding:0}
+.v7 .alerts-now li{display:flex;align-items:baseline;gap:10px;padding:5px 0}
+.v7 .alerts-now li+li{border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding-top:9px}
+.v7 .alerts-now li i{width:6px;height:6px;border-radius:50%;flex:none;align-self:center}
+.v7 .alerts-now i.sev-hi{background:var(--danger)}
+.v7 .alerts-now i.sev-mid{background:var(--warning)}
+.v7 .alerts-now i.sev-lo{background:var(--ocean)}
+.v7 .alerts-now .an-tx{flex:1;font:500 12.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary)}
+.v7 .alerts-now .an-st{display:block;margin-top:2px;font:400 10.5px/1.35 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
+.v7 .alerts-now .an-go{display:inline-flex;align-items:center;min-height:44px;font:600 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ocean);text-decoration:none}
 /* Единый видимый фокус. Тонкий браузерный auto-контур на тёмном фото героя
    теряется, а без него человек с клавиатурой или switch-control не понимает,
    где находится. Не снимаем outline без замены. */
@@ -1146,7 +1196,7 @@ const CSS = `
   /* Узкие по смыслу блоки — комфортная центрированная ширина, не весь экран */
   .v7 .find{max-width:640px;margin-left:auto;margin-right:auto}
   .v7 .hero-chips{max-width:760px;margin-left:auto;margin-right:auto;justify-content:center}
-  .v7 .planline,.v7 .live{max-width:640px;margin-left:auto;margin-right:auto}
+  .v7 .planline,.v7 .live,.v7 .alerts-now{max-width:640px;margin-left:auto;margin-right:auto}
   .v7 .firstpick{max-width:520px;margin-left:auto;margin-right:auto}
   .v7 .guide{max-width:760px;margin-left:auto;margin-right:auto}
   .v7 .lead{max-width:680px;margin-left:auto;margin-right:auto}
