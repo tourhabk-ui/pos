@@ -1081,9 +1081,15 @@ function OnTrailTab() {
                 {activeRouteTitle && (
                   <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
                 )}
-                <p className="text-[var(--text-secondary)] text-sm mb-0.5">
-                  Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
-                </p>
+                {/* Счётчик — про порядок, а у маршрута из одной точки порядка
+                    нет. «Точка 1 из 1» рядом с «до следующей точки · 18.5 км»
+                    читается как «вы пришли, идти ещё 18 километров» (скрин
+                    владельца 10.08). Одна точка — цель, а не позиция. */}
+                {waypoints.length > 1 && (
+                  <p className="text-[var(--text-secondary)] text-sm mb-0.5">
+                    Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
+                  </p>
+                )}
                 {distLabel === null ? (
                   /* Расстояние считается от НАШЕГО положения, и без фикса его
                      просто нет. Прочерк в шрифте заголовка выглядел серой
@@ -1094,7 +1100,9 @@ function OnTrailTab() {
                   </p>
                 ) : (
                   <>
-                    <p className="text-[var(--text-muted)] text-xs mb-2">до следующей точки</p>
+                    <p className="text-[var(--text-muted)] text-xs mb-2">
+                      {waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                    </p>
                     {/* Мёртвый фикс не стирает цифру — это последнее, что человек
                         знает о своём положении, — но и не выдаёт её за текущую. */}
                     <p className="text-5xl font-bold leading-none"
@@ -1372,7 +1380,12 @@ function OnTrailTab() {
                   border: '1px solid color-mix(in srgb, var(--success) 20%, transparent)',
                 }}>
                 <Download className="w-3.5 h-3.5" />
-                Сохранить карту · {mapPlan.mb} МБ
+                {/* Ноль на кнопке — не размер, а его отсутствие, и читается он
+                    как «бесплатно». Если веса нет, честнее не называть числа:
+                    сервер режет квадрат по 2000 тайлов, за кнопкой стоят
+                    десятки мегабайт мобильного трафика (скрин владельца 10.08,
+                    «Сохранить карту · 0 МБ»). */}
+                {mapPlan.mb > 0 ? `Сохранить карту · ${mapPlan.mb} МБ` : 'Сохранить карту'}
               </button>
               <span>
                 {mapPlan.coverage === 'corridor' && mapPlan.bufferKm

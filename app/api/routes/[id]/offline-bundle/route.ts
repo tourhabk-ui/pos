@@ -1,6 +1,6 @@
 import { query } from '@/lib/database';
 import { lonToTile, latToTile, TILE_HOST } from '@/lib/offline/tiles';
-import { planCorridor, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
+import { planCorridor, estimateTilesMb, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
 
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
@@ -174,7 +174,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     tile_coverage: corridor ? 'corridor' : 'bbox',
     corridor_buffer_km: corridor ? corridor.bufferKm : null,
     // Обещанный вес — до скачивания, чтобы человек решал, ждать или выходить.
-    estimate_mb: corridor ? corridor.estimateMb : null,
+    // На пути без коридора здесь стоял null: клиент превращал его в ноль, и
+    // кнопка предлагала «Сохранить карту · 0 МБ» перед закачкой на десятки
+    // мегабайт (квадрат режется по MAX_TILES=2000). Считаем по тому же
+    // списку тайлов, что и отдаём, — обещание и работа из одного источника.
+    estimate_mb: corridor ? corridor.estimateMb : estimateTilesMb(tileUrls),
     // Отказ называем вслух: молчаливый срез — это карта, на которую человек
     // рассчитывал и которой не будет.
     dropped_zooms: corridor ? corridor.droppedZooms : [],
