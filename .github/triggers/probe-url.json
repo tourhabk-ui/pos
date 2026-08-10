@@ -1,27 +1,31 @@
 {
   "urls": [
-    "https://t.me/s/ivsfebras_kvert"
+    "http://kvert.febras.net/van/index?type=2",
+    "http://kvert.febras.net/van/index.php?type=2"
   ],
   "bytes": 0,
   "timeout": 60,
   "grep": [
-    "SHEVELUCH",
+    "VOLCANO OBSERVATORY NOTICE",
+    "Current aviation colour code",
+    "Current aviation color code",
     "Шивелуч",
-    "ORANGE",
-    "оранжев",
-    "AVIATION",
-    "авиацион",
-    "tgme_widget_message_text"
+    "Безымянный",
+    "Ключевской",
+    "SUMMARY OF"
   ],
   "count": [
-    "tgme_widget_message_text",
-    "datetime"
+    "Volcano:",
+    "aviation colour code",
+    "ORANGE",
+    "YELLOW"
   ],
   "around": [
-    "tgme_widget_message_text"
+    "Current aviation",
+    "Volcano:"
   ],
-  "aroundLines": 12,
-  "aroundHits": 2,
-  "note": "владелец предложил канал KVERT в Telegram как второй источник кодов вулканов. Публичную ленту t.me/s/<channel> можно читать обычной страницей, без бота и без прав администратора. Смотрю, что там реально лежит: язык, формат, есть ли цветовые коды — и годится ли лента как запасной путь, когда основной источник снова сменит вёрстку",
-  "run": 10
+  "aroundLines": 10,
+  "aroundHits": 1,
+  "note": "владелец указал на index?type=2. Проверяю: лежат ли там сами бюллетени VONA (тогда основной парсер заработает без изменений) и отвечает ли путь без index.php. В прошлой пробе type=2 отдал 1,2 МБ с цветовыми словами, но английских имён вулканов не нашлось — вероятно, имена русские, и грепал я не тем алфавитом",
+  "run": 11
 }
