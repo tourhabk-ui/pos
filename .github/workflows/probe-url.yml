@@ -63,6 +63,13 @@ jobs:
           # прежних проб не меняется.
           RETRIES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('retries', 0))")
           RETRY_DELAY=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('retryDelay', 60))")
+          # Маркер нового кода. Повтора по коду ответа мало: роут, который
+          # существовал и ДО правки, отвечает 200 сразу — со старым кодом.
+          # Так вышло 10.08 с переписью вердиктов: проба вернула прошлые
+          # цифры за 2 секунды, и стухший ответ выглядел точно как свежий.
+          # `until` — строка, которой в старом ответе быть не может; пока её
+          # нет, ждём так же, как ждали бы 404. Пусто — проверки нет.
+          UNTIL=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('until', ''))")
           # Именно if, а не `[ ... ] && ...`: шаг идёт под `bash -e`, и
           # неуспешная проверка как последняя команда строки убила бы прогон,
           # когда поля просто не заданы.
@@ -92,10 +99,20 @@ jobs:
               # Повторяем только «ещё не выкатилось»: 404 на новом роуте, 502
               # на перезапускающемся контейнере, 000 на оборванном соединении.
               # 401 и 500 — ответы работающего кода, их повторять незачем.
-              case "$CODE" in 404|502|503|000) ;; *) break;; esac
-              [ "$attempt" -ge "$RETRIES" ] && break
+              STALE=""
+              case "$CODE" in
+                404|502|503|000) STALE="код $CODE";;
+                *)
+                  # Ответ есть, но кода правки в нём ещё нет — значит отвечает
+                  # прежняя сборка. Ждём так же, как ждали бы отсутствия роута.
+                  if [ -n "$UNTIL" ] && ! grep -qF -- "$UNTIL" /tmp/body; then
+                    STALE="нет маркера «$UNTIL»"
+                  fi;;
+              esac
+              [ -z "$STALE" ] && break
+              [ "$attempt" -ge "$RETRIES" ] && { echo "  СТАРЫЙ ОТВЕТ: $STALE — попытки кончились, ниже данные ПРЕЖНЕЙ сборки"; break; }
               attempt=$((attempt+1))
-              echo "  HTTP $CODE — попытка $attempt из $RETRIES, ждём ${RETRY_DELAY}с (похоже, выкат ещё идёт)"
+              echo "  $STALE — попытка $attempt из $RETRIES, ждём ${RETRY_DELAY}с (похоже, выкат ещё идёт)"
               sleep "$RETRY_DELAY"
             done
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)${RETRIES:+ | попыток: $((attempt+1))}"
