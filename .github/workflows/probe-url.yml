@@ -56,6 +56,13 @@ jobs:
           # половину — открыты ли заголовки, по которым решается докачка.
           RANGE=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('range', ''))")
           ORIGIN=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('origin', ''))")
+          # Повтор при 404/502/000: проба сразу после мержа обгоняет сборку
+          # Timeweb и снимает СТАРЫЙ прод. Так уже вышло 10.08 с переписью
+          # вердиктов — 404 через 17 секунд после пуша. Ждать «на глаз» перед
+          # пушем ненадёжно: время сборки не постоянно. Дефолт 0 — поведение
+          # прежних проб не меняется.
+          RETRIES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('retries', 0))")
+          RETRY_DELAY=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('retryDelay', 60))")
           # Именно if, а не `[ ... ] && ...`: шаг идёт под `bash -e`, и
           # неуспешная проверка как последняя команда строки убила бы прогон,
           # когда поля просто не заданы.
@@ -74,13 +81,24 @@ jobs:
             # Адрес сузили с домена до /api/cron/ (09.08): секрет нужен только
             # там, а на публичных роутах чужой Bearer ловит Edge-middleware и
             # отдаёт 401 — проба публичного JSON была невозможна в принципе.
-            case "$u" in
-              https://vedarai.ru/api/cron/*)
-                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
-              *)
-                CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} "$u" || echo 000);;
-            esac
-            echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
+            attempt=0
+            while : ; do
+              case "$u" in
+                https://vedarai.ru/api/cron/*)
+                  CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} -H "Authorization: Bearer ${CRON_SECRET}" "$u" || echo 000);;
+                *)
+                  CODE=$(curl -sL -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$TIMEOUT" -A "$UA" ${EXTRA[@]+"${EXTRA[@]}"} "$u" || echo 000);;
+              esac
+              # Повторяем только «ещё не выкатилось»: 404 на новом роуте, 502
+              # на перезапускающемся контейнере, 000 на оборванном соединении.
+              # 401 и 500 — ответы работающего кода, их повторять незачем.
+              case "$CODE" in 404|502|503|000) ;; *) break;; esac
+              [ "$attempt" -ge "$RETRIES" ] && break
+              attempt=$((attempt+1))
+              echo "  HTTP $CODE — попытка $attempt из $RETRIES, ждём ${RETRY_DELAY}с (похоже, выкат ещё идёт)"
+              sleep "$RETRY_DELAY"
+            done
+            echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)${RETRIES:+ | попыток: $((attempt+1))}"
             # Заголовки ответа: часть поведения задаётся не нашим кодом, а
             # прокси перед ним. Например Permissions-Policy может выключить
             # геолокацию на всём сайте, и по телу страницы этого не увидеть.
