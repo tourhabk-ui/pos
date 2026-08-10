@@ -140,8 +140,14 @@ describe('интеграция с кроном safety-ingest', () => {
     expect(src).toContain("entryFor('firms'");
     expect(src).toContain("requiresEnv: 'FIRMS_MAP_KEY'");
     // Пуш при severity>=2 не должен называть пожар «Землетрясение M?».
-    expect(src).toContain("alert.alert_type === 'fire_danger'");
-    expect(src).toContain('Природный пожар — Камчатка');
+    // Проверяется поведение, а не строка в кроне: прежняя привязка к
+    // `alert.alert_type === 'fire_danger'` не пустила вынос текстов в
+    // отдельный модуль, хотя правка чинила чужую инструкцию у всех
+    // остальных типов.
+    const { pushCopy } = await import('@/lib/services/safety/push-copy');
+    const copy = pushCopy({ alertType: 'fire_danger', title: 'Крупный очаг у Ключей' });
+    expect(copy.title).toContain('Природный пожар');
+    expect(copy.title).not.toMatch(/Землетрясение/);
   });
 
   it('FIRMS осознанно вне dead-source реестра (сезонная пустота — норма)', async () => {
