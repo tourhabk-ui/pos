@@ -26,7 +26,8 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 
 import SafetyWarnings from '@/components/safety/SafetyWarnings';
-import RouteVerdict from '@/components/routes/RouteVerdict';
+import RouteVerdict, { useRouteVerdict } from '@/components/routes/RouteVerdict';
+import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentation';
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 
@@ -468,6 +469,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
       .catch(() => {});
   }, [route, id]);
 
+  // Один запрос вердикта на страницу: его читают и блок наверху, и строка под
+  // кнопкой навигации. Два fetch дали бы два источника правды об одном дне.
+  const verdictData = useRouteVerdict(id);
+
   const handleStartNavigation = useCallback(() => {
     if (!route) return;
     try { localStorage.setItem('active_trail_route_id', route.id); } catch { /* ignore */ }
@@ -740,7 +745,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
           Блок не исчезает при отказе сети — молчание читалось бы как
           «всё спокойно». */}
       <div className="max-w-6xl mx-auto px-4 md:px-8 pt-6">
-        <RouteVerdict routeId={route.id} />
+        <RouteVerdict routeId={route.id} data={verdictData} />
       </div>
 
       {/* ── ОПЕРАТИВНЫЕ ОГРАНИЧЕНИЯ ─────────────────────────────────────────── */}
@@ -1136,6 +1141,23 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     >
                       <Navigation className="w-4 h-4" /> Начать навигацию
                     </button>
+                  )}
+                  {/* Запрет НЕ запирает вход в поле. Кнопка ведёт на полевой
+                      экран — след, офлайн-карта, ступень связи, — а он нужен
+                      именно тому, кто уже вышел и как раз узнал про запрет.
+                      Бан адресован тому, кто ещё дома. Поэтому строка, а не
+                      disabled: сказать обязаны, отобрать инструменты — нет. */}
+                  {navWaypoints.length >= 2 && verdictData
+                    && verdictInlineNote(verdictData.verdict.status, verdictData.verdict.reason) && (
+                    <p
+                      className="text-xs leading-snug pl-3"
+                      style={{
+                        borderLeft: `2px solid ${verdictLook(verdictData.verdict.status).color}`,
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {verdictInlineNote(verdictData.verdict.status, verdictData.verdict.reason)}
+                    </p>
                   )}
                   <div className="flex gap-2">
                     <a
