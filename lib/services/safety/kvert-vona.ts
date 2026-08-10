@@ -394,10 +394,27 @@ function stripTags(html: string): string {
     }
     i = j + 1;
   }
-  return out
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/[ \t]+/g, ' ');
+  return decodeEntities(out).replace(/[ \t]+/g, ' ');
+}
+
+const ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'",
+};
+
+/**
+ * Разворачивает HTML-сущности ЗА ОДИН проход.
+ *
+ * Цепочка из `.replace()` по одной сущности разворачивает текст дважды: сперва
+ * `&amp;` превращается в `&`, а следующий шаг видит уже готовое `&lt;` и делает
+ * из него `<`. То есть исходное `&amp;lt;` — экранированная запись строки
+ * `&lt;` — незаметно становится символом `<`. На это указал CodeQL, и он прав:
+ * двойное разворачивание тем и опасно, что выглядит как работающий код.
+ *
+ * Один проход снимает вопрос: то, что появилось при разворачивании, повторно
+ * не читается.
+ */
+function decodeEntities(s: string): string {
+  return s.replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/gi, (whole, name: string) => {
+    return ENTITIES[name.toLowerCase()] ?? whole;
+  });
 }

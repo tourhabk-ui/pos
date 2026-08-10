@@ -147,3 +147,23 @@ function readSync(): string {
   const { join } = require('node:path') as typeof import('node:path');
   return readFileSync(join(process.cwd(), 'lib/agents/kvert-sync.ts'), 'utf-8');
 }
+
+describe('сущности разворачиваются один раз', () => {
+  it('&amp;lt; остаётся текстом «&lt;», а не превращается в «<»', () => {
+    // Цепочка из .replace() по одной сущности разворачивает дважды: сперва
+    // &amp; даёт &, следующий шаг видит готовое &lt; и делает из него <.
+    // На это указал CodeQL. Двойное разворачивание опасно тем, что выглядит
+    // как работающий код.
+    const src = `SUMMARY OF AVIATION COLOUR CODES:<br />
+      A&amp;lt;B: <span id='GREEN'>GREEN</span><br />`;
+    const names = parseAccSummary(src).map(v => v.volcanoName);
+    expect(names.join(' ')).not.toContain('<');
+  });
+
+  it('обычные сущности всё же разворачиваются', () => {
+    const src = `SUMMARY OF AVIATION COLOUR CODES:<br />
+      SHEVELUCH&nbsp;: <span id='ORANGE'>ORANGE</span><br />`;
+    // Неразвёрнутый &nbsp; оставил бы в имени мусор и сорвал сопоставление.
+    expect(parseAccSummary(src).find(v => v.nameSlug === 'sheveluch')?.color).toBe('orange');
+  });
+});
