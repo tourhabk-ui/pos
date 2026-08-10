@@ -1,30 +1,25 @@
 {
   "urls": [
-    "http://kvert.febras.net/van/index.php?type=2&lend=en",
-    "http://kvert.febras.net/van/index.php?type=1&lend=en"
+    "http://kvert.febras.net/van/index.php?type=3&lend=en"
   ],
   "bytes": 0,
   "timeout": 60,
   "grep": [
-    "VOLCANO OBSERVATORY NOTICE",
-    "Current aviation colour code",
-    "Current aviation color code",
     "SUMMARY OF",
+    "AVIATION COLOUR CODES",
     "SHEVELUCH",
-    "charset"
+    "KAMCHATKA"
   ],
   "count": [
-    "Volcano:",
-    "aviation colour code",
-    "Issued:",
-    "ORANGE"
+    "ORANGE",
+    "YELLOW",
+    "GREEN"
   ],
   "around": [
-    "Current aviation",
-    "VOLCANO OBSERVATORY"
+    "SUMMARY OF"
   ],
-  "aroundLines": 16,
+  "aroundLines": 10,
   "aroundHits": 1,
-  "note": "владелец подсказал &lend=en. Русская версия отдаётся, похоже, в cp1251 — поэтому греп по UTF-8 не видел ни кириллицы, ни латиницы, при том что цветовые слова считались. Английская версия должна содержать поля бюллетеня VONA, которые основной парсер понимает без изменений: если так, VONA станет основным путём (выпускается по событию, а не раз в неделю), а сводка останется запасным",
-  "run": 12
+  "note": "держится ли сводная таблица кодов на английской версии. Если да — ставлю lend=en в основной адрес: язык по умолчанию на сайте может смениться так же незаметно, как сменилась вёрстка, и русская версия отдаётся в cp1251, где разбор развалится молча",
+  "run": 13
 }
