@@ -175,6 +175,8 @@ interface RouteDetail {
   passportAgency: string | null;
   /** GPS-трек [lat, lng][] (прорежен на сервере); null — трека нет */
   track?: [number, number][] | null;
+  /** Происхождение линии, как записано в геометрии; null — записи нет. */
+  geometrySource?: string | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
   operationalAlerts?: OperationalAlert[];
@@ -499,8 +501,9 @@ export default function RouteDetailClient({ id }: { id: string }) {
     const navWaypoints = (route.waypoints ?? []).filter(
       (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
     );
+    const usingServerTrack = (route.track?.length ?? 0) >= 2;
     const trackCoords: [number, number][] | null =
-      (route.track?.length ?? 0) >= 2
+      usingServerTrack
         ? route.track!
         : navWaypoints.length >= 2
           ? navWaypoints.map(w => [w.lat, w.lng] as [number, number])
@@ -509,7 +512,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
     const mapCenter: [number, number] = route.lat != null && route.lng != null
       ? [Number(route.lat), Number(route.lng)]
       : trackCoords?.[0] ?? [53.02, 158.65];
-    const track = trackLine(trackCoords);
+    // Род линии — по ЗАПИСАННОМУ источнику, а не по плотности точек:
+    // серверный трек несёт свой источник из geometry.source (null = в данных
+    // не записан, и это говорится словами), ломаная по waypoints — синтетика
+    // по построению, у неё источник известен без API.
+    const track = trackLine(
+      trackCoords,
+      usingServerTrack ? (route.geometrySource ?? null) : 'waypoints_synthetic',
+    );
     const cardMapMarkers: MapMarker[] = [
       {
         coords: mapCenter,
