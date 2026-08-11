@@ -25,20 +25,11 @@
 import { pool } from '@/lib/db-pool';
 import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
-import { isScatteredCollection, boundingSpanKm, maxSegmentKm } from '@/lib/routes/geometry-compact';
-import { waypointFit, type WaypointFitVerdict } from '@/lib/routes/shape-match';
+import { boundingSpanKm } from '@/lib/routes/geometry-compact';
+import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
-
-/**
- * Прыжок в линии, за которым она перестаёт быть путём, км.
- *
- * То же число, которым судит `isScatteredCollection` на экране выбора —
- * своего порога не заводим. Отличается только НАБОР признаков: у линии
- * габарит не улика (см. ниже), у набора точек — улика.
- */
-const COLLECTION_JUMP_KM = 25;
 
 export interface RouteFlaw {
   id: string;
@@ -214,7 +205,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // будет числиться чинимым — а чинить там нечего, там другая сущность.
     // У НАБОРА ТОЧЕК считаются оба признака: места по краю и прыгают, и
     // разбросаны — габарит там говорит о разбросанности.
-    const scatteredWps = wpPairs.length >= 2 && isScatteredCollection(wpPairs);
+    const scatteredWps = pointsAreCollection(wps);
     // У СПЛОШНОЙ ЛИНИИ габарит не значит ничего: он равен длине маршрута.
     // Первый прогон это и показал — «Сплав по реке Камчатка. Путешествие
     // длиной в 500 км» (габарит 282 км), «Зимник Анавгай — Тигиль» (192),
@@ -225,7 +216,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // Подборку от длинного пути отличает НЕПРЕРЫВНОСТЬ: у сплава шаг между
     // точками метры, у подборки — прыжок в десятки километров. Поэтому для
     // линии берётся только тот признак, который здесь что-то значит.
-    const scatteredGeo = maxSegmentKm(pairs) > COLLECTION_JUMP_KM;
+    const scatteredGeo = routeIntegrity(track, wps).verdict === 'not_a_path';
     if (scatteredWps || scatteredGeo) {
       collections += 1;
       if (scatteredWps) collections_by_waypoints += 1;
