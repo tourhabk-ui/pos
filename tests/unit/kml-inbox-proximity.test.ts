@@ -98,14 +98,37 @@ describe('однозначность: два почти одинаковых к�
   });
 });
 
-describe('правило подключено к импорту, а не лежит библиотекой', () => {
-  it('импорт спрашивает габарит трека прежде, чем привязывать по близости', () => {
-    const src = require('node:fs').readFileSync(
-      require('node:path').join(process.cwd(), 'lib/import/kml-inbox.ts'), 'utf-8',
-    ) as string;
-    expect(src).toMatch(/trackSpanKm\([\s\S]{0,80}PROXIMITY_MAX_TRACK_KM/);
-    expect(src).toMatch(/AMBIGUOUS_MARGIN_KM/);
-    // Мерки «до одного конца» остаться не должно: она и была дефектом.
+/**
+ * ── Что стало с этими порогами 11.08 ───────────────────────────────────────
+ *
+ * Три условия выше сузили дыру, но не закрыли: они всё равно спрашивали
+ * близость к якорю, а перепись показала, что якорь на Камчатке общий —
+ * четыре маршрута на кордоне «Центральный», одна координата на всех. Величина,
+ * одинаковая у десятков записей, ключом быть не может, поэтому близость из
+ * импорта убрана целиком (см. tests/unit/anchor-not-a-key.test.ts).
+ *
+ * Пороги остались и продолжают проверяться выше — ими пересуживаются УЖЕ
+ * СДЕЛАННЫЕ привязки: судить вчерашние решения надо той меркой, которая
+ * называет их слабость.
+ */
+describe('пороги переехали из импорта в пересуд прошлого', () => {
+  const read = (p: string) => require('node:fs').readFileSync(
+    require('node:path').join(process.cwd(), p), 'utf-8',
+  ) as string;
+
+  it('пересуд привязок ими судит', () => {
+    const audit = read('lib/routes/track-attachment-audit.ts');
+    expect(audit).toMatch(/PROXIMITY_MAX_TRACK_KM/);
+    expect(audit).toMatch(/AMBIGUOUS_MARGIN_KM/);
+  });
+
+  it('импорт по близости больше не привязывает', () => {
+    // Поведением это закрыто в anchor-not-a-key; здесь — что мерки близости
+    // в импорте не осталось и «на всякий случай» не вернулась.
+    const src = read('lib/import/kml-inbox.ts');
+    expect(src).not.toMatch(/distanceToTrackKm\([\s\S]{0,200}candidates/);
+    expect(src).not.toMatch(/match_by:\s*'proximity'/);
+    // Мерки «до одного конца» остаться не должно: она и была первым дефектом.
     expect(src).not.toMatch(/haversineKm\(last\[1\], last\[0\]/);
   });
 });

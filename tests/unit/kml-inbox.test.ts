@@ -87,14 +87,21 @@ describe('importKmlTrack — правила честности', () => {
     expect(out.status).toBe('imported');
   });
 
-  it('матч по близости, когда имя не совпало (центр маршрута < 4 км от старта трека)', async () => {
+  it('имя не совпало — на ревью, даже если якорь чужого маршрута рядом', async () => {
+    // Раньше здесь ждали match_by «proximity». Перепись 11.08 сняла близость
+    // с роли улики: якорь на Камчатке общий (четыре маршрута на кордоне
+    // «Центральный», одна координата на всех), и близость к нему говорит о
+    // кордоне, а не о маршруте. Подробности — anchor-not-a-key.test.ts.
     queryMock.mockImplementation(async (sql: string) => {
       if (/SELECT id, title/.test(sql)) return { rows: [route({ title: 'Совсем другое имя' })] };
       return { rows: [] };
     });
     const out = await importKmlTrack('x.kml', KML('Неизвестное озеро', COORDS));
-    expect(out.status).toBe('imported');
-    expect(out.match_by).toBe('proximity');
+    expect(out.status).toBe('created_hidden');
+    expect(out.match_by).toBeUndefined();
+    // Именно UPDATE чужой записи; INSERT новой скрытой — как раз ожидаемое
+    // (в нём есть своё ON CONFLICT DO UPDATE, потому и якорим на начало).
+    expect(queryMock.mock.calls.some(c => /^\s*UPDATE/.test(c[0] as string))).toBe(false);
   });
 
   it('нет совпадений — создаётся СКРЫТЫЙ маршрут (очередь на ревью), не публикация', async () => {
