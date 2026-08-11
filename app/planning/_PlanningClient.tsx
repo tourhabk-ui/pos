@@ -820,6 +820,37 @@ function OnTrailTab() {
   // положения была про другую ломаную.
   useEffect(() => { alongRef.current = null; }, [track]);
 
+  /**
+   * Линия подхода для КАРТЫ — с огрублённым положением.
+   *
+   * LeafletMap пересоздаёт карту при смене identity массива маркеров, и об
+   * этом прямо сказано у соседнего useMemo. Первая редакция подхода положила
+   * в зависимости `coords`, который меняется на КАЖДОМ фиксе GPS: карта
+   * перестраивалась по нескольку раз в минуту, мигала и сбрасывала зум —
+   * владелец увидел это в поле как «карта постоянно перезагружается».
+   *
+   * Поэтому в зависимостях лежат не координаты, а их огрубление до четвёртого
+   * знака (~11 м): человек стоит — identity не меняется вовсе, идёт — линия
+   * догоняет шагами по одиннадцать метров, что на масштабе карты незаметно.
+   *
+   * И линия рисуется только когда человек в стороне от тропы. На тропе ей
+   * нечего показывать, а каждая лишняя перерисовка — это мигание в поле.
+   */
+  const offTrackNow = approach?.userOffTrack === true;
+  const coarseLat = coords ? Math.round(coords.lat * 1e4) : null;
+  const coarseLng = coords ? Math.round(coords.lng * 1e4) : null;
+  const joinLat = approach ? Math.round(approach.joinAt.lat * 1e4) : null;
+  const joinLng = approach ? Math.round(approach.joinAt.lng * 1e4) : null;
+  const approachLine = useMemo(() => {
+    if (!offTrackNow || coarseLat === null || coarseLng === null || joinLat === null || joinLng === null) {
+      return null;
+    }
+    return {
+      from: [coarseLat / 1e4, coarseLng / 1e4] as [number, number],
+      to: [joinLat / 1e4, joinLng / 1e4] as [number, number],
+    };
+  }, [offTrackNow, coarseLat, coarseLng, joinLat, joinLng]);
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
     // Паутина «35 мест по всему краю»: сегменты >25 км — это не трек,
@@ -851,15 +882,12 @@ function OnTrailTab() {
       // Подход: от человека до тропы. Пунктиром и приглушённо — это НЕ тропа,
       // а прямая по азимуту, и рисовать её тем же уверенным зелёным значило бы
       // обещать путь там, где его никто не снимал.
-      ...(approach && approach.userOffTrack && coords ? [{
-        coords: [coords.lat, coords.lng] as [number, number],
+      ...(approachLine ? [{
+        coords: approachLine.from,
         title: 'Выход на тропу',
         geometry: {
           type: 'polyline',
-          coordinates: [
-            [coords.lat, coords.lng],
-            [approach.joinAt.lat, approach.joinAt.lng],
-          ] as Array<[number, number]>,
+          coordinates: [approachLine.from, approachLine.to] as Array<[number, number]>,
           color: 'gray', weight: 2, dashArray: '6 6',
         } as MapMarkerGeometry,
         suppressBalloon: true,
@@ -884,7 +912,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approach, coords]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
