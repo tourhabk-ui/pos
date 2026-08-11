@@ -78,6 +78,17 @@ export interface DataRepairResult {
   renamed_places: number;
   normalized_types: number;
   merged_coord_subset: number;
+  /**
+   * ОТЧЁТ (никогда не пишет): вложение имени на расстоянии больше порога
+   * слияния — «Жупановский» ⊂ «Вулкан Жупановский», но их разделяют
+   * километры, и Шаг 8 (< 150 м) их не берёт.
+   *
+   * Скриншот владельца 12.08: обе стоят на карте рядом двумя маркерами —
+   * одна гора двумя местами. Порог в 150 м откалиброван по точечным
+   * объектам, а вулкан — объект в десятки километров. Прежде чем трогать
+   * порог — список: сколько пар, на каких расстояниях, каких типов.
+   */
+  subset_far_pairs: number;
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
   fixed_route_coords: number;
@@ -347,6 +358,7 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
     renamed_places: 0,
     normalized_types: 0,
     merged_coord_subset: 0,
+    subset_far_pairs: 0,
     merged_morph: 0,
     fixed_route_coords: 0,
     anchored_from_place: 0,
@@ -865,6 +877,40 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
       } catch (err) {
         res.errors++;
         items.push({ step: 'coord_subset', place: dupe.name, detail: `ошибка: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+      }
+    }
+  }
+
+  // ── Шаг 8b: ОТЧЁТ — вложенные имена дальше порога слияния ────────────────
+  // Не пишет НИКОГДА, даже с apply: слияние на километровых расстояниях —
+  // решение по списку, не по правилу. Урок Эссо действует и здесь: общая
+  // близость сама по себе ничего не доказывает, поэтому в отчёте расстояние
+  // и типы обеих записей — по ним и судить.
+  {
+    const FAR_KM = 30;
+    for (let i = 0; i < coordCand.length; i++) {
+      const a = coordCand[i];
+      if (hiddenSubset.has(a.id) || !a.is_visible) continue;
+      for (let j = i + 1; j < coordCand.length; j++) {
+        const b = coordCand[j];
+        if (hiddenSubset.has(b.id) || !b.is_visible) continue;
+        const km = haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number);
+        if (km <= 0.15 || km > FAR_KM) continue;
+        const wa = wordsById.get(a.id) as Set<string>;
+        const wb = wordsById.get(b.id) as Set<string>;
+        if (!isStrictSubset(wa, wb) && !isStrictSubset(wb, wa)) continue;
+        res.subset_far_pairs++;
+        if (res.subset_far_pairs <= 15) {
+          items.push({
+            step: 'subset_far',
+            place: a.name,
+            detail: `«${a.name}» ⟷ «${b.name}» · ${km.toFixed(1)} км · ${
+              a.location_type === b.location_type
+                ? (a.location_type ?? 'без типа')
+                : `типы разные: ${a.location_type ?? '?'} / ${b.location_type ?? '?'}`
+            }`,
+          });
+        }
       }
     }
   }

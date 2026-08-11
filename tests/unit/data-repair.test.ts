@@ -750,3 +750,82 @@ describe('only: применяется один шаг, остальные ос�
     expect((await runDataRepair(false, 'source_note')).only).toBe('source_note');
   });
 });
+
+/**
+ * Шаг 8b: вложенные имена ДАЛЬШЕ порога слияния — отчёт, не действие.
+ *
+ * Скриншот владельца 12.08: на карте рядом два маркера — «Вулкан
+ * Жупановский» и «Жупановский». Одна гора двумя местами в паре километров
+ * друг от друга. Шаг 8 сливает вложенные имена только ближе 150 м: порог
+ * откалиброван по точечным объектам, а вулкан — объект в десятки километров,
+ * и его дубль прошёл сквозь все чистки.
+ *
+ * Прежде чем трогать порог — список. Отчёт не пишет никогда, даже с apply:
+ * слияние на километровых расстояниях — решение по списку, не по правилу.
+ */
+describe('шаг 8b: вложенные имена дальше 150 м', () => {
+  /** Тот самый случай: вулкан и его «короткое» имя в 3 км. */
+  const PLACES = [
+    { id: 'p1', name: 'Вулкан Жупановский', lat: 53.589, lng: 159.147,
+      location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 100, ark_id: null },
+    { id: 'p2', name: 'Жупановский', lat: 53.589, lng: 159.192,
+      location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 10, ark_id: null },
+  ];
+
+  function scene() {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes('FROM places p') && sql.includes('desc_len')) {
+        return Promise.resolve({ rows: PLACES });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('пара видна в отчёте с расстоянием и типом', async () => {
+    scene();
+    const res = await runDataRepair(true);
+    expect(res.subset_far_pairs).toBe(1);
+    const item = res.items.find((i) => i.step === 'subset_far');
+    expect(item!.detail).toContain('Жупановский');
+    expect(item!.detail).toContain('км');
+    expect(item!.detail).toContain('volcano');
+  });
+
+  it('шаг 8 (слияние) её по-прежнему не трогает — расстояние больше порога', async () => {
+    scene();
+    const res = await runDataRepair(true);
+    expect(res.merged_coord_subset).toBe(0);
+  });
+
+  it('отчёт не пишет даже с apply', async () => {
+    // Проверяем адресно, по id пары: в apply штатно пишет шаг 5 (скрытие
+    // мест-статей по фиксированному списку имён), и запрет «никаких UPDATE
+    // вообще» ловил бы его, а не наш отчёт. Первая редакция теста ровно так
+    // и упала — на чужом законном действии.
+    scene();
+    await runDataRepair(false);
+    const touchedPair = queryMock.mock.calls.some(([sql, params]) =>
+      /UPDATE places SET is_visible = false WHERE id/.test(String(sql ?? ''))
+      && Array.isArray(params) && (params.includes('p1') || params.includes('p2')));
+    expect(touchedPair).toBe(false);
+  });
+
+  it('невложенные имена на том же расстоянии в отчёт не идут', async () => {
+    // «Горелый» и «Мутновский» тоже стоят недалеко — но это разные вулканы,
+    // и близость сама по себе ничего не доказывает (урок Эссо).
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes('FROM places p') && sql.includes('desc_len')) {
+        return Promise.resolve({ rows: [
+          { ...PLACES[0], name: 'Вулкан Горелый' },
+          { ...PLACES[1], name: 'Вулкан Мутновский' },
+        ] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+    expect((await runDataRepair(true)).subset_far_pairs).toBe(0);
+  });
+});
