@@ -168,9 +168,15 @@ export interface DuplicateAudit {
    *
    * Пары «стоят в одной точке» ничего не говорят сами по себе — надо знать,
    * СКОЛЬКО различных точек обслуживают четыреста двадцать один маршрут.
-   * Если их шестьдесят, то якорь — это не адрес маршрута, а адрес кордона,
-   * и всякая привязка по близости опиралась на величину, общую у десятков
-   * записей.
+   *
+   * Замер 11.08 ответил: 287 точек, самое большое скопление — три записи, и
+   * те про одно («Поход вокруг Толбачиков» и «Поход вокруг Толбачиков.
+   * Камчатка»). То есть якорь РАЗЛИЧАЕТ, вопреки ожиданию, с которым это
+   * поле заводилось. Ожидание строилось на 6188 парах «стоят рядом», а те
+   * оказались артефактом `Number(null) === 0` в этой же переписи.
+   *
+   * Поле оставлено: без него вернуться к тому же неверному выводу нечем
+   * помешать.
    */
   distinct_anchors: number;
   /** Крупнейшие скопления: по названиям видно, что это за общая точка. */
@@ -178,12 +184,41 @@ export interface DuplicateAudit {
   by_kind: Record<DuplicateKind, number>;
   /** Сколько маршрутов участвует хотя бы в одной паре-двойнике. */
   routes_in_duplicates: number;
+  /**
+   * Сколько записей вовсе без координат.
+   *
+   * Число, которое пряталось за `Number(null) === 0`: такие маршруты вставали
+   * нулевой широтой в Гвинейском заливе и попадали в пары «стоят рядом» друг
+   * с другом. Оно должно быть на виду — маршрут без якоря не показать на
+   * карте и не найти «рядом со мной», и это отдельная беда, не двойники.
+   */
+  routes_without_anchor: number;
   thresholds: { same_spot_km: number; stem_len: number };
   worst: DuplicatePair[];
   duration_ms: number;
 }
 
 interface Row { id: string; title: string | null; lat: string | null; lng: string | null }
+
+/**
+ * Число из колонки, которой может не быть.
+ *
+ * `Number(null)` — это НОЛЬ, и в первом прогоне переписи 11.08 он стоил
+ * ложного вывода. Маршруты без координат приходили нулевой широтой и нулевой
+ * долготой, то есть все вставали в одну точку в Гвинейском заливе, — и
+ * перепись отчиталась о 6188 парах «стоят рядом». Из этих пар был сделан
+ * вывод, что якорь маршрута общий и потому бесполезен; на деле общей была
+ * ПУСТОТА, а настоящих точек в справочнике 287 на 421 запись.
+ *
+ * Тот же класс дефекта, за которым эта перепись и охотилась, в самом
+ * охотнике: отсутствие величины приняло вид величины. Отдельная функция —
+ * чтобы `Number(` в этом файле больше не встречалось над данными из БД.
+ */
+function num(v: string | null): number | null {
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 export async function runDuplicateAudit(): Promise<DuplicateAudit> {
   const startedAt = Date.now();
@@ -206,11 +241,14 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     .filter((r) => parseInt(r.n, 10) > 1)
     .slice(0, 12)
     .map((r) => ({
-      lat: Number(r.lat),
-      lng: Number(r.lng),
+      // Через ту же воронку, хотя запрос уже отсёк NULL: одно правило в одном
+      // месте — иначе второе разойдётся с первым (за сутки это случилось дважды).
+      lat: num(r.lat),
+      lng: num(r.lng),
       routes: parseInt(r.n, 10),
       sample: r.sample ?? [],
-    }));
+    }))
+    .filter((c): c is AnchorCluster => c.lat !== null && c.lng !== null);
 
   const res = await pool.query<Row>(
     `SELECT id::text, title, lat::text, lng::text
@@ -224,8 +262,8 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
       id: r.id,
       title: r.title as string,
       norm: normalizeTitle(r.title as string),
-      lat: Number(r.lat),
-      lng: Number(r.lng),
+      lat: num(r.lat),
+      lng: num(r.lng),
     }))
     .filter((r) => r.norm !== '');
 
@@ -240,11 +278,11 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
       const a = routes[i], b = routes[j];
       const sameName = a.norm === b.norm;
 
-      // Расстояние считается, только если обе координаты годные. Отсутствие
-      // координат — не ноль километров: пара без координат судится именем.
-      const haveCoords = Number.isFinite(a.lat) && Number.isFinite(a.lng)
-        && Number.isFinite(b.lat) && Number.isFinite(b.lng);
-      const km = haveCoords ? haversineKm(a.lat, a.lng, b.lat, b.lng) : Infinity;
+      // Расстояние считается, только если обе координаты ЕСТЬ. Отсутствие
+      // координат — не ноль километров и не нулевая широта: пара без
+      // координат судится именем, а «рядом ли они» остаётся неизвестным.
+      const haveCoords = a.lat !== null && a.lng !== null && b.lat !== null && b.lng !== null;
+      const km = haveCoords ? haversineKm(a.lat!, a.lng!, b.lat!, b.lng!) : Infinity;
       const sameSpot = km <= SAME_SPOT_KM;
 
       let kind: DuplicateKind | null = null;
@@ -278,6 +316,7 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     anchor_clusters,
     by_kind,
     routes_in_duplicates: involved.size,
+    routes_without_anchor: routes.filter((r) => r.lat === null || r.lng === null).length,
     thresholds: { same_spot_km: SAME_SPOT_KM, stem_len: STEM },
     worst: pairs.slice(0, 25),
     duration_ms: Date.now() - startedAt,

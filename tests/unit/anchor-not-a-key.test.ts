@@ -208,6 +208,42 @@ describe('перепись отвечает на вопрос «сколько �
     expect(audit.anchor_clusters).toHaveLength(2);
   });
 
+  it('маршрут без координат не стоит «рядом» ни с кем', async () => {
+    // Первый прогон 11.08 отчитался о 6188 парах «стоят рядом» — и вывод из
+    // них («якорь общий, а потому бесполезен») был неверным. Причина:
+    // Number(null) — ноль, и записи без координат вставали нулевой широтой в
+    // Гвинейском заливе, все в одной точке. Тот самый класс дефекта, за
+    // которым перепись и охотилась, — в самом охотнике.
+    const noCoords = [
+      { id: 'x1', title: 'Первый безымянный', lat: null, lng: null },
+      { id: 'x2', title: 'Второй безымянный', lat: null, lng: null },
+      { id: 'x3', title: 'Третий безымянный', lat: null, lng: null },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: /GROUP BY/i.test(sql) ? [] : noCoords }));
+
+    const audit = await runDuplicateAudit();
+    expect(audit.by_kind.same_spot_only).toBe(0);
+    expect(audit.by_kind.same_spot_same_subject).toBe(0);
+    // И число называется вслух: маршрут без якоря не показать на карте.
+    expect(audit.routes_without_anchor).toBe(3);
+    expect(audit.distinct_anchors).toBe(0);
+  });
+
+  it('пустая строка координаты — тоже не ноль', async () => {
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({
+        rows: /GROUP BY/i.test(sql) ? [] : [
+          { id: 'y1', title: 'Первый', lat: '', lng: '' },
+          { id: 'y2', title: 'Второй', lat: 'нечисло', lng: '158' },
+        ],
+      }));
+
+    const audit = await runDuplicateAudit();
+    expect(audit.by_kind.same_spot_only).toBe(0);
+    expect(audit.routes_without_anchor).toBe(2);
+  });
+
   it('маршруты в одной точке с разным предметом двойниками не зовутся', async () => {
     // Урок Эссо целиком: общая перевалка — не общий объект.
     const audit = await runDuplicateAudit();
