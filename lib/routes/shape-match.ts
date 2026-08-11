@@ -38,6 +38,7 @@
  */
 
 import { projectOnTrack, straightKm, type GeoPoint } from '@/lib/on-route/approach';
+import { maxSegmentKm, isScatteredCollection } from '@/lib/routes/geometry-compact';
 
 export type WaypointFitVerdict =
   /** Точки лежат на линии и в правильном порядке. */
@@ -133,4 +134,97 @@ export function waypointFit(track: GeoPoint[], waypoints: GeoPoint[]): WaypointF
     inversions,
     coverage: coverage === null ? null : Math.round(coverage * 100) / 100,
   };
+}
+
+/**
+ * ── Целостность маршрута: три сигнала в одном месте ────────────────────────
+ *
+ * Сигналов ровно три, и каждый отвечает на свой вопрос:
+ *
+ *   НЕПРЕРЫВНОСТЬ — это вообще путь? Разрыв в десятки километров означает,
+ *                   что линия склеена из кусков или это набор мест;
+ *   ОТХОД         — точки лежат на этом пути?
+ *   ПОРЯДОК       — они идут по нему в одну сторону?
+ *
+ * До этого они жили в трёх файлах: отход и порядок здесь, непрерывность в
+ * `geometry-compact` плюс собственный порог в переписи. Ровно та конфигурация,
+ * которая за сутки разошлась у нас дважды — SQL-чистка алертов отстала от
+ * TS-стража на один глагол, и правило рисования линии разъехалось по трём
+ * экранам. Поэтому сигналы сведены в одну названную меру.
+ *
+ * Природа мер не менялась: те же функции, тот же порог прыжка, что судит
+ * подборку на экране выбора. Сведено только место, где их спрашивают.
+ */
+
+/**
+ * Разрыв в линии, за которым она перестаёт быть путём, км.
+ *
+ * То же число, которым `isScatteredCollection` судит паутину на экране
+ * выбора. Разница только в НАБОРЕ признаков: у сплошной линии габарит равен
+ * длине маршрута и уликой не является (им «Сплав по реке Камчатка, 500 км»
+ * объявлялся подборкой), а у набора мест — является.
+ */
+export const LINE_BREAK_KM = 25;
+
+export type RouteIntegrity =
+  /** Линия рвётся: это склейка или набор мест, а не путь. */
+  | 'not_a_path'
+  /** Путь есть, но точки лежат в стороне от него. */
+  | 'points_off_path'
+  /** Точки на пути, но идут по нему не в одну сторону. */
+  | 'points_out_of_order'
+  /** Всё сходится. */
+  | 'coherent'
+  /** Судить не из чего. */
+  | 'unknown';
+
+export interface IntegrityReport {
+  verdict: RouteIntegrity;
+  /** Самый длинный разрыв линии, км. NULL — линии нет. */
+  maxGapKm: number | null;
+  /** Посадка точек на линию: отход, порядок, покрытие. */
+  fit: WaypointFit;
+}
+
+/**
+ * Целостность маршрута по трём сигналам.
+ *
+ * Порядок ветвей — от «это не путь» к «путь есть, но точки по нему идут
+ * задом наперёд». Он не косметический: чинится каждый случай своим, и
+ * назвать надо тот, который делает остальные бессмысленными. У набора мест
+ * спрашивать про порядок точек незачем.
+ *
+ * `waypoints` обязаны прийти В ПОРЯДКЕ МАРШРУТА — на случайной перестановке
+ * сигнал порядка был бы шумом, а не измерением.
+ */
+export function routeIntegrity(track: GeoPoint[], waypoints: GeoPoint[]): IntegrityReport {
+  if (track.length < 2) {
+    return {
+      verdict: 'unknown',
+      maxGapKm: null,
+      fit: { verdict: 'unknown', maxOffsetM: null, inversions: null, coverage: null },
+    };
+  }
+
+  const pairs = track.map((p) => [p.lat, p.lng] as [number, number]);
+  const maxGapKm = Math.round(maxSegmentKm(pairs) * 10) / 10;
+  const fit = waypointFit(track, waypoints);
+
+  if (maxGapKm > LINE_BREAK_KM) return { verdict: 'not_a_path', maxGapKm, fit };
+  if (fit.verdict === 'unknown') return { verdict: 'unknown', maxGapKm, fit };
+  if (fit.verdict === 'off_track') return { verdict: 'points_off_path', maxGapKm, fit };
+  if (fit.verdict === 'out_of_order') return { verdict: 'points_out_of_order', maxGapKm, fit };
+  return { verdict: 'coherent', maxGapKm, fit };
+}
+
+/**
+ * Подборка ли это по НАБОРУ ТОЧЕК.
+ *
+ * Здесь работают оба признака — и прыжок, и габарит: места по краю и
+ * прыгают, и разбросаны. Вынесено сюда, чтобы обе половины правила
+ * спрашивались из одного модуля и не разошлись.
+ */
+export function pointsAreCollection(waypoints: GeoPoint[]): boolean {
+  if (waypoints.length < 2) return false;
+  return isScatteredCollection(waypoints.map((w) => [w.lat, w.lng] as [number, number]));
 }

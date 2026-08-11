@@ -15,7 +15,9 @@
  * подгонять не стал, потому что это подгонка инструмента под ответ.
  */
 import { describe, it, expect } from 'vitest';
-import { waypointFit, OFF_TRACK_M } from '@/lib/routes/shape-match';
+import {
+  waypointFit, routeIntegrity, pointsAreCollection, OFF_TRACK_M, LINE_BREAK_KM,
+} from '@/lib/routes/shape-match';
 import type { GeoPoint } from '@/lib/on-route/approach';
 
 /** Тропа на север: 40 точек, около девяти километров. */
@@ -117,10 +119,75 @@ describe('мера подключена к переписи', () => {
     expect(src).toMatch(/worstOffTrackKm/);
   });
 
-  it('подборка по ЛИНИИ судится прыжком, а не габаритом', () => {
+  it('подборка по ЛИНИИ судится разрывом, а не габаритом', () => {
     // Габарит сплошной линии равен длине маршрута: им «Сплав по реке Камчатка,
-    // 500 км» объявлялся подборкой. Прыжок — признак разрыва пути.
-    expect(src).toMatch(/scatteredGeo = maxSegmentKm\(/);
+    // 500 км» объявлялся подборкой. Разрыв — признак того, что пути нет.
+    // К имени вызова не привязываемся: правило проверяется поведением меры
+    // выше, здесь — только что перепись не судит линию габаритом.
     expect(src).not.toMatch(/scatteredGeo = isScatteredCollection\(/);
+    expect(src).not.toMatch(/boundingSpanKm\(pairs\)\s*>/);
+  });
+});
+
+/**
+ * Три сигнала — в одном месте.
+ *
+ * Отход и порядок жили здесь, непрерывность — в geometry-compact, а порог
+ * прыжка был отдельной константой в переписи. Та же конфигурация, которая за
+ * сутки разошлась дважды: SQL-чистка алертов отстала от TS-стража на один
+ * глагол, и правило рисования линии разъехалось по трём экранам.
+ */
+describe('целостность маршрута: три сигнала, один ответ', () => {
+  /** Линия с разрывом: два куска, между ними полкрая. */
+  const BROKEN: GeoPoint[] = [
+    { lat: 53.00, lng: 158.0 }, { lat: 53.01, lng: 158.0 },
+    { lat: 55.90, lng: 158.7 }, { lat: 55.91, lng: 158.7 },
+  ];
+
+  it('линия рвётся — это не путь, и про точки спрашивать незачем', () => {
+    // У набора мест вопрос «в каком порядке идут точки» бессмысленен.
+    expect(routeIntegrity(BROKEN, IN_ORDER).verdict).toBe('not_a_path');
+  });
+
+  it('сплошная длинная линия путём остаётся', () => {
+    // «Сплав по реке Камчатка, 500 км» габаритом объявлялся подборкой.
+    const long: GeoPoint[] = Array.from({ length: 400 }, (_, i) => ({ lat: 53 + i * 0.01, lng: 158 }));
+    expect(routeIntegrity(long, []).maxGapKm!).toBeLessThan(LINE_BREAK_KM);
+    expect(routeIntegrity(long, []).verdict).toBe('unknown'); // точек нет — судить нечем
+  });
+
+  it('порядок ветвей: разрыв важнее отхода, отход важнее порядка', () => {
+    const aside: GeoPoint[] = [{ lat: 53.02, lng: 158.05 }, { lat: 53.0, lng: 158.05 }];
+    expect(routeIntegrity(BROKEN, aside).verdict).toBe('not_a_path');
+    expect(routeIntegrity(TRACK, aside).verdict).toBe('points_off_path');
+    expect(routeIntegrity(TRACK, [...IN_ORDER].reverse()).verdict).toBe('points_out_of_order');
+    expect(routeIntegrity(TRACK, IN_ORDER).verdict).toBe('coherent');
+  });
+
+  it('нет линии — unknown, а не «всё хорошо»', () => {
+    const r = routeIntegrity([], IN_ORDER);
+    expect(r.verdict).toBe('unknown');
+    expect(r.maxGapKm).toBeNull();
+  });
+
+  it('у НАБОРА ТОЧЕК работают оба признака, включая габарит', () => {
+    // Тут габарит — улика: места по краю и прыгают, и разбросаны.
+    const across: GeoPoint[] = [
+      { lat: 53.0, lng: 158.6 }, { lat: 55.9, lng: 158.7 }, { lat: 51.5, lng: 157.1 },
+    ];
+    expect(pointsAreCollection(across)).toBe(true);
+    expect(pointsAreCollection(IN_ORDER)).toBe(false);
+    expect(pointsAreCollection([IN_ORDER[0]])).toBe(false);
+  });
+
+  it('перепись спрашивает сигналы у одной меры, а не считает свои', () => {
+    const src = require('node:fs').readFileSync(
+      require('node:path').join(process.cwd(), 'lib/routes/geometry-audit.ts'), 'utf-8',
+    ) as string;
+    expect(src).toMatch(/routeIntegrity\(/);
+    expect(src).toMatch(/pointsAreCollection\(/);
+    // Своего порога прыжка в переписи остаться не должно.
+    expect(src).not.toMatch(/COLLECTION_JUMP_KM/);
+    expect(src).not.toMatch(/maxSegmentKm\(/);
   });
 });
