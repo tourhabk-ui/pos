@@ -255,6 +255,21 @@ export async function GET(
         pdfUrl:          (r.pdf_url as string | null) ?? null,
         officialPassportUrl: (r.official_passport_url as string | null) ?? null,
         passportAgency:      (r.passport_agency as string | null) ?? null,
+        /**
+         * Происхождение линии — как ЗАПИСАНО в геометрии, без догадок.
+         *
+         * Перепись 11.08 (проба 55): источник записан у 295 линий из 301
+         * (idilesom 257, waypoints_synthetic 19, osm 13, visitkamchatka 6),
+         * а вид линии на экранах выбирала эвристика плотности точек — и на
+         * «Вулкане Жупановском» выдала синтетику за снятый трек. Сплошная
+         * зелёная означает «здесь идут»; по ней идут.
+         *
+         * null — источника в данных нет (шесть записей). Это ЧЕСТНЫЙ null:
+         * экран говорит про него словами, а не рисует одно из известных
+         * состояний. Не путать с отсутствием поля — отсутствие значило бы,
+         * что API не спрашивали.
+         */
+        geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
         // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
         // null = трека нет нигде (geometry, payload.geometry, payload.track)
         track: (() => {

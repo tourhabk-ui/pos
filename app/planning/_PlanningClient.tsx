@@ -928,7 +928,10 @@ function OnTrailTab() {
     // Сборник мест по всему краю (сегменты >25 км) — не трек: линию не
     // рисуем и «Начать по маршруту» не предлагаем
     const scattered = isScatteredCollection(line);
-    const previewLine = trackLine(line);
+    // Источник известен без API: линия только что построена прямыми между
+    // путевыми точками. Синтетика по построению — набросок при любой
+    // плотности, сколько бы точек в маршруте ни было.
+    const previewLine = trackLine(line, 'waypoints_synthetic');
     const markers: MapMarker[] = [
       ...(scattered ? [] : [{
         coords: center,
