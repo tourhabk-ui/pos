@@ -752,80 +752,170 @@ describe('only: применяется один шаг, остальные ос�
 });
 
 /**
- * Шаг 8b: вложенные имена ДАЛЬШЕ порога слияния — отчёт, не действие.
+ * Шаг 8b: похожие ИМЕНА, расстояние как сведение.
  *
- * Скриншот владельца 12.08: на карте рядом два маркера — «Вулкан
- * Жупановский» и «Жупановский». Одна гора двумя местами в паре километров
- * друг от друга. Шаг 8 сливает вложенные имена только ближе 150 м: порог
- * откалиброван по точечным объектам, а вулкан — объект в десятки километров,
- * и его дубль прошёл сквозь все чистки.
+ * Скриншот владельца 12.08: на карте рядом «Вулкан Жупановский» и
+ * «Жупановский» — одна гора двумя местами, между записями три километра.
  *
- * Прежде чем трогать порог — список. Отчёт не пишет никогда, даже с apply:
- * слияние на километровых расстояниях — решение по списку, не по правилу.
+ * Все шаги слияния требуют близости: Шаг 2 — километр, Шаги 8 и 9 — сто
+ * пятьдесят метров. Пороги откалиброваны по ТОЧЕЧНЫМ объектам: источник,
+ * водопад, кордон. Вулкан — объект в десятки километров, и правило, верное
+ * для точки, промахивается на горе. Дубль прошёл сквозь все чистки.
+ *
+ * Решение владельца: «пока сравним по именам». Расстояние перестаёт быть
+ * условием и становится сведением — печатается рядом с парой, чтобы человек
+ * видел, три там километра или триста.
  */
-describe('шаг 8b: вложенные имена дальше 150 м', () => {
-  /** Тот самый случай: вулкан и его «короткое» имя в 3 км. */
-  const PLACES = [
-    { id: 'p1', name: 'Вулкан Жупановский', lat: 53.589, lng: 159.147,
-      location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 100, ark_id: null },
-    { id: 'p2', name: 'Жупановский', lat: 53.589, lng: 159.192,
-      location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 10, ark_id: null },
-  ];
+describe('шаг 8b: похожие имена, расстояние как сведение', () => {
+  const base = {
+    location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 10, ark_id: null,
+  };
+  const place = (id: string, name: string, lat: number | null = 53.589, lng: number | null = 159.147) =>
+    ({ ...base, id, name, lat, lng });
 
-  function scene() {
+  function scene(rows: unknown[]) {
     queryMock.mockImplementation((raw: unknown) => {
       const sql = String(raw ?? '');
-      if (sql.includes('FROM places p') && sql.includes('desc_len')) {
-        return Promise.resolve({ rows: PLACES });
-      }
+      if (sql.includes('FROM places p') && sql.includes('desc_len')) return Promise.resolve({ rows });
       return Promise.resolve({ rows: [], rowCount: 0 });
     });
   }
+  const pairs = (res: Awaited<ReturnType<typeof runDataRepair>>) =>
+    res.items.filter((i) => i.step === 'name_pair');
 
   beforeEach(() => queryMock.mockReset());
 
-  it('пара видна в отчёте с расстоянием и типом', async () => {
-    scene();
+  it('вложенное имя видно на любом расстоянии', async () => {
+    scene([place('p1', 'Вулкан Жупановский'), place('p2', 'Жупановский', 53.589, 159.192)]);
     const res = await runDataRepair(true);
-    expect(res.subset_far_pairs).toBe(1);
-    const item = res.items.find((i) => i.step === 'subset_far');
-    expect(item!.detail).toContain('Жупановский');
-    expect(item!.detail).toContain('км');
-    expect(item!.detail).toContain('volcano');
+    expect(res.name_pairs.subset).toBe(1);
+    expect(pairs(res)[0].detail).toContain('3.0 км');
+    expect(pairs(res)[0].detail).toContain('volcano');
   });
 
-  it('шаг 8 (слияние) её по-прежнему не трогает — расстояние больше порога', async () => {
-    scene();
+  it('расстояние больше не отсекает — только печатается', async () => {
+    scene([
+      place('p1', 'Вулкан Ичинская сопка', 55.6, 157.7),
+      place('p2', 'Ичинская сопка', 51.4, 157.1),
+    ]);
     const res = await runDataRepair(true);
-    expect(res.merged_coord_subset).toBe(0);
+    expect(res.name_pairs.subset).toBe(1);
+    expect(pairs(res)[0].detail).toMatch(/\d{3}\.\d км/);
+  });
+
+  it('перестановка слов — свой род пары', async () => {
+    scene([place('p1', 'Озеро Курильское'), place('p2', 'Курильское озеро')]);
+    expect((await runDataRepair(true)).name_pairs.same_wordset).toBe(1);
+  });
+
+  it('посимвольная тёзка — свой род пары', async () => {
+    scene([place('p1', 'Кутхины баты'), place('p2', 'Кутхины Баты')]);
+    expect((await runDataRepair(true)).name_pairs.same_name).toBe(1);
+  });
+
+  it('целиком родовое короткое имя в дубли НЕ идёт', async () => {
+    // «Озеро» ⊂ «Озеро Курильское» — беда качества имени, а не два описания
+    // одного места. Смешать их с настоящими дублями значило бы утопить список.
+    scene([place('p1', 'Озеро'), place('p2', 'Озеро Курильское')]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(0);
+    expect(res.name_pairs.generic_only).toBe(1);
+  });
+
+  it('разные объекты в пару не попадают', async () => {
+    scene([place('p1', 'Вулкан Горелый'), place('p2', 'Вулкан Мутновский')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(0);
+  });
+
+  it('нет координат — «расстояние неизвестно», а не ноль километров', async () => {
+    scene([place('p1', 'Вулкан Жупановский', null, null), place('p2', 'Жупановский')]);
+    expect(pairs(await runDataRepair(true))[0].detail).toContain('неизвестно');
   });
 
   it('отчёт не пишет даже с apply', async () => {
-    // Проверяем адресно, по id пары: в apply штатно пишет шаг 5 (скрытие
-    // мест-статей по фиксированному списку имён), и запрет «никаких UPDATE
-    // вообще» ловил бы его, а не наш отчёт. Первая редакция теста ровно так
-    // и упала — на чужом законном действии.
-    scene();
+    // Проверяем адресно, по id пары: в apply штатно пишет Шаг 5 (скрытие
+    // мест-статей по списку имён), и запрет «никаких UPDATE вообще» ловил бы
+    // его, а не наш отчёт. Первая редакция теста ровно так и упала — на
+    // чужом законном действии.
+    scene([place('p1', 'Вулкан Жупановский'), place('p2', 'Жупановский', 53.589, 159.192)]);
     await runDataRepair(false);
     const touchedPair = queryMock.mock.calls.some(([sql, params]) =>
       /UPDATE places SET is_visible = false WHERE id/.test(String(sql ?? ''))
       && Array.isArray(params) && (params.includes('p1') || params.includes('p2')));
     expect(touchedPair).toBe(false);
   });
+});
 
-  it('невложенные имена на том же расстоянии в отчёт не идут', async () => {
-    // «Горелый» и «Мутновский» тоже стоят недалеко — но это разные вулканы,
-    // и близость сама по себе ничего не доказывает (урок Эссо).
+/**
+ * Сужение применения одним шагом.
+ *
+ * Конвейер копит шаги с июля. Запустить его целиком ради одного действия
+ * значит согласиться на все сразу: 11.08, чтобы убрать 26 заметок сайта из
+ * справочника маршрутов, apply в том же прогоне спрятал бы ещё шесть мест и
+ * отвязал две путевые точки — о чём никто не просил.
+ *
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+describe('only: применяется один шаг, остальные остаются диагностикой', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  function withNotes() {
     queryMock.mockImplementation((raw: unknown) => {
       const sql = String(raw ?? '');
-      if (sql.includes('FROM places p') && sql.includes('desc_len')) {
-        return Promise.resolve({ rows: [
-          { ...PLACES[0], name: 'Вулкан Горелый' },
-          { ...PLACES[1], name: 'Вулкан Мутновский' },
-        ] });
+      if (sql.includes("= '/note'")) {
+        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', description: null }] });
+      }
+      if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{ n: '0' }] });
+      // Кластер фейковых координат — шаг СТАРШЕ появления `only`.
+      if (sql.includes('HAVING COUNT(*) >= 3') && sql.includes('SELECT lat')) {
+        return Promise.resolve({ rows: [{ lat: 55, lng: 160, n: 3 }] });
+      }
+      if (sql.includes('JOIN (')) {
+        return Promise.resolve({ rows: [{ id: 'p1', ark_id: 'a1', name: 'Бухта Русская', lat: 55, lng: 160 }] });
       }
       return Promise.resolve({ rows: [], rowCount: 0 });
     });
-    expect((await runDataRepair(true)).subset_far_pairs).toBe(0);
+  }
+
+  it('названный шаг пишет', async () => {
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const killed = queryMock.mock.calls.some(([sql]) =>
+      /DELETE FROM kamchatka_routes/.test(String(sql ?? '')));
+    expect(killed).toBe(true);
+  });
+
+  it('шаги СТАРШЕ появления only при сужении молчат', async () => {
+    // Здесь и был бы тихий дефект: сужение, которое глушит только новые шаги,
+    // — сужение мнимое.
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const touchedPlaces = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE\s+places/i.test(String(sql ?? '')));
+    expect(touchedPlaces).toBe(false);
+  });
+
+  it('чужое имя шага — не пишет никто', async () => {
+    withNotes();
+    await runDataRepair(false, 'anchor_from_place');
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE/i.test(String(sql ?? '')));
+    expect(wrote).toBe(false);
+  });
+
+  it('без сужения поведение прежнее, и смысл первого аргумента не перевёрнут', async () => {
+    // true = сухой прогон, как было у трёх десятков существующих вызовов.
+    withNotes();
+    const res = await runDataRepair(true);
+    expect(res.dry_run).toBe(true);
+    expect(res.only).toBeNull();
+    expect(queryMock.mock.calls.some(([sql]) => /^\s*UPDATE/i.test(String(sql ?? '')))).toBe(false);
+  });
+
+  it('чем сужено — видно в ответе', async () => {
+    withNotes();
+    expect((await runDataRepair(false, 'source_note')).only).toBe('source_note');
   });
 });
+

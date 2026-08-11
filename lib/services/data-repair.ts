@@ -20,6 +20,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { normalizeTitle } from '@/lib/import/kml-inbox';
+import { stems } from '@/lib/routes/duplicate-audit';
 import { slugify } from '@/lib/text/slugify';
 import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
@@ -79,16 +80,36 @@ export interface DataRepairResult {
   normalized_types: number;
   merged_coord_subset: number;
   /**
-   * ОТЧЁТ (никогда не пишет): вложение имени на расстоянии больше порога
-   * слияния — «Жупановский» ⊂ «Вулкан Жупановский», но их разделяют
-   * километры, и Шаг 8 (< 150 м) их не берёт.
+   * ОТЧЁТ (никогда не пишет): пары мест, похожих ПО ИМЕНИ, независимо от
+   * расстояния между ними.
    *
-   * Скриншот владельца 12.08: обе стоят на карте рядом двумя маркерами —
-   * одна гора двумя местами. Порог в 150 м откалиброван по точечным
-   * объектам, а вулкан — объект в десятки километров. Прежде чем трогать
-   * порог — список: сколько пар, на каких расстояниях, каких типов.
+   * Решение владельца 12.08: «пока сравним по именам». Расстояние перестаёт
+   * быть условием и становится сведением — оно печатается рядом с парой,
+   * чтобы человек видел, три километра там или триста.
+   *
+   * Почему так. Все шаги слияния (2, 8, 9) требуют близости: 1 км, 150 м,
+   * 150 м. Пороги откалиброваны по ТОЧЕЧНЫМ объектам — источник, водопад,
+   * кордон. Вулкан — объект в десятки километров, и «Вулкан Жупановский» с
+   * «Жупановским» законно стоят в трёх километрах, оставаясь одной горой.
+   * Правило, верное для точки, промахивается на горе — и дубль прошёл сквозь
+   * все чистки, что владелец и увидел на карте.
    */
-  subset_far_pairs: number;
+  name_pairs: {
+    /** Имена совпадают посимвольно (без регистра и ё). */
+    same_name: number;
+    /** Тот же набор слов в другом порядке: «Озеро Курильское» / «Курильское озеро». */
+    same_wordset: number;
+    /** Одно имя строго входит в другое: «Жупановский» ⊂ «Вулкан Жупановский». */
+    subset: number;
+    /**
+     * Пары, где короткое имя целиком родовое («Озеро», «Вулкан»).
+     *
+     * Считаются ОТДЕЛЬНО и в дубли не идут: «Озеро» ⊂ «Озеро Курильское» —
+     * это беда качества имени, а не два описания одного места. Смешать их с
+     * настоящими дублями значило бы утопить список.
+     */
+    generic_only: number;
+  };
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
   fixed_route_coords: number;
@@ -358,7 +379,7 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
     renamed_places: 0,
     normalized_types: 0,
     merged_coord_subset: 0,
-    subset_far_pairs: 0,
+    name_pairs: { same_name: 0, same_wordset: 0, subset: 0, generic_only: 0 },
     merged_morph: 0,
     fixed_route_coords: 0,
     anchored_from_place: 0,
@@ -881,36 +902,54 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
     }
   }
 
-  // ── Шаг 8b: ОТЧЁТ — вложенные имена дальше порога слияния ────────────────
-  // Не пишет НИКОГДА, даже с apply: слияние на километровых расстояниях —
-  // решение по списку, не по правилу. Урок Эссо действует и здесь: общая
-  // близость сама по себе ничего не доказывает, поэтому в отчёте расстояние
-  // и типы обеих записей — по ним и судить.
+  // ── Шаг 8b: ОТЧЁТ — похожие ИМЕНА, расстояние как сведение ──────────────
+  // Не пишет НИКОГДА, даже с apply: сведение записей — решение по списку.
+  //
+  // Сравнение идёт по имени и только по нему; километры печатаются рядом,
+  // чтобы человек видел, три там или триста. Значимые основы берутся из
+  // общего `stems` (lib/routes/duplicate-audit) — четвёртого правила о том,
+  // что в имени родовое, в этом файле не будет: здесь уже живут
+  // sameExactName и nameWordSet.
   {
-    const FAR_KM = 30;
-    for (let i = 0; i < coordCand.length; i++) {
-      const a = coordCand[i];
-      if (hiddenSubset.has(a.id) || !a.is_visible) continue;
-      for (let j = i + 1; j < coordCand.length; j++) {
-        const b = coordCand[j];
-        if (hiddenSubset.has(b.id) || !b.is_visible) continue;
-        const km = haversineKm(a.lat as number, a.lng as number, b.lat as number, b.lng as number);
-        if (km <= 0.15 || km > FAR_KM) continue;
-        const wa = wordsById.get(a.id) as Set<string>;
-        const wb = wordsById.get(b.id) as Set<string>;
-        if (!isStrictSubset(wa, wb) && !isStrictSubset(wb, wa)) continue;
-        res.subset_far_pairs++;
-        if (res.subset_far_pairs <= 15) {
-          items.push({
-            step: 'subset_far',
-            place: a.name,
-            detail: `«${a.name}» ⟷ «${b.name}» · ${km.toFixed(1)} км · ${
-              a.location_type === b.location_type
-                ? (a.location_type ?? 'без типа')
-                : `типы разные: ${a.location_type ?? '?'} / ${b.location_type ?? '?'}`
-            }`,
-          });
+    const named = allPlaces.filter((p) => p.is_visible && nameWordSet(p.name));
+    const seen = new Set<string>();
+    for (let i = 0; i < named.length; i++) {
+      const a = named[i];
+      for (let j = i + 1; j < named.length; j++) {
+        const b = named[j];
+        const wa = nameWords(a.name), wb = nameWords(b.name);
+
+        let kind: 'same_name' | 'same_wordset' | 'subset' | null = null;
+        if (sameExactName(a.name, b.name)) kind = 'same_name';
+        else if (nameWordSet(a.name) === nameWordSet(b.name)) kind = 'same_wordset';
+        else if (isStrictSubset(wa, wb) || isStrictSubset(wb, wa)) kind = 'subset';
+        if (!kind) continue;
+
+        // Короткое имя целиком родовое — беда качества имени, не дубль.
+        const shorter = wa.size <= wb.size ? a : b;
+        if (stems(shorter.name).size === 0) {
+          res.name_pairs.generic_only++;
+          continue;
         }
+
+        res.name_pairs[kind]++;
+        const key = [a.id, b.id].sort().join(':');
+        if (seen.has(key) || res.items.filter((i) => i.step === 'name_pair').length >= 20) continue;
+        seen.add(key);
+
+        const km = (a.lat != null && a.lng != null && b.lat != null && b.lng != null)
+          ? `${haversineKm(a.lat, a.lng, b.lat, b.lng).toFixed(1)} км`
+          // Отсутствие координат — не ноль километров: сказать нечего.
+          : 'расстояние неизвестно';
+        items.push({
+          step: 'name_pair',
+          place: a.name,
+          detail: `[${kind}] «${a.name}» ⟷ «${b.name}» · ${km} · ${
+            a.location_type === b.location_type
+              ? (a.location_type ?? 'без типа')
+              : `типы разные: ${a.location_type ?? '?'} / ${b.location_type ?? '?'}`
+          }`,
+        });
       }
     }
   }
