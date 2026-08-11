@@ -459,3 +459,105 @@ describe('runDataRepair (dry-run)', () => {
   });
 
 });
+
+/**
+ * Шаг 9c: якорь безъякорному маршруту от одноимённого МЕСТА.
+ *
+ * Перепись 11.08: из 421 маршрута 97 не имеют ни координат, ни линии, ни
+ * путевых точек — на карте их нет вовсе. Часть из них тёзки существующих
+ * мест, и тогда координата ВЫВОДИТСЯ, а не выдумывается.
+ *
+ * Главное, что здесь проверяется, — сдержанность правила. Соблазн сравнивать
+ * мягче (по набору слов, по вхождению) велик, и ровно на нём сгорела привязка
+ * треков по близости: срабатывала часто, ошибалась в девяти случаях из
+ * десяти. «Гейзеры Камчатки» — обзорная статья, и сесть на «Долину гейзеров»
+ * она не должна.
+ */
+describe('шаг 9c: якорь от одноимённого места', () => {
+  const ANCHORLESS_SQL = 'lat IS NULL OR lng IS NULL';
+
+  /** Отвечает только на два запроса шага 9c, на остальные — пусто. */
+  function only(routes: Array<{ id: string; title: string }>,
+                places: Array<{ name: string; lat: string; lng: string }>) {
+    queryMock.mockImplementation((raw: unknown) => {
+      // Некоторые шаги зовут pool.query без аргументов (BEGIN/COMMIT идут
+      // отдельным путём) — приводим к строке, а не падаем на undefined.
+      const sql = String(raw ?? '');
+      if (sql.includes(ANCHORLESS_SQL)) return Promise.resolve({ rows: routes });
+      if (sql.includes('FROM places') && sql.includes('name IS NOT NULL')) {
+        return Promise.resolve({ rows: places });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('точный тёзка даёт координату', async () => {
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    const res = await runDataRepair(true);
+    expect(res.anchored_from_place).toBe(1);
+  });
+
+  it('приведение имени берётся готовое: тире, ё и слово «Маршрут»', async () => {
+    // Свой второй нормализатор в этом файле разошёлся бы с первым — в нём уже
+    // живут sameExactName и nameWordSet, третьего правила о том же не будет.
+    only(
+      [{ id: 'r1', title: 'Маршрут Голубые озёра' }],
+      [{ name: 'Голубые озера', lat: '53.1', lng: '158.2' }],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(1);
+  });
+
+  it('похожего имени НЕ хватает: статья не садится на место', async () => {
+    // Тот самый случай: «Гейзеры Камчатки» — обзорная статья, «Долина
+    // гейзеров» — настоящая точка. Мягкое сравнение поставило бы статью
+    // на карту как маршрут.
+    only(
+      [{ id: 'r1', title: 'Гейзеры Камчатки' }, { id: 'r2', title: 'Флора Камчатки' }],
+      [{ name: 'Долина гейзеров', lat: '54.4', lng: '160.1' }],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(0);
+  });
+
+  it('два места с одним именем — выбор человека, не наш', async () => {
+    // Выбирать не на чем: обе координаты одинаково правдоподобны.
+    only(
+      [{ id: 'r1', title: 'Озеро Безымянное' }],
+      [
+        { name: 'Озеро Безымянное', lat: '53.0', lng: '158.0' },
+        { name: 'Озеро Безымянное', lat: '55.0', lng: '160.0' },
+      ],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(0);
+  });
+
+  it('dry-run ничего не пишет', async () => {
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    await runDataRepair(true);
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /UPDATE kamchatka_routes[\s\S]*anchor_source/.test(String(sql)));
+    expect(wrote).toBe(false);
+  });
+
+  it('apply пишет координату и помечает происхождение якоря', async () => {
+    // Метка нужна, чтобы через месяц было видно, откуда взялась точка:
+    // выведена из тёзки, а не снята в поле.
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    await runDataRepair(false);
+    const call = queryMock.mock.calls.find(([sql]) =>
+      /UPDATE kamchatka_routes[\s\S]*anchor_source/.test(String(sql)));
+    expect(call).toBeDefined();
+    expect(String(call![0])).toContain('place_same_name');
+    expect(call![1]).toEqual([53.3, 157.6, 'r1']);
+  });
+});
