@@ -1,16 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/duplicate-routes-audit"
+    "https://vedarai.ru/api/cron/data-repair"
   ],
-  "bytes": 200,
-  "timeout": 180,
+  "bytes": 300,
+  "timeout": 300,
   "retries": 30,
   "retryDelay": 45,
-  "until": "anchorless_by_url_path",
-  "note": "Проба 52: разделы сайта у 97 безъякорных записей и список кандидатов «маршрут — место». Первое отвечает на задачу владельца про статьи: если у kamchatkaland.ru статьи лежат под одним разделом, а маршруты под другим, правило переноса детерминированно. Второе — пары с именами и координатами, чтобы решать глазом: цифра тут ничего не решает, обе ступени показали и верную пару, и вредную.",
-  "grep": ["anchorless_by_url_path", "anchorless_name_candidates"],
-  "around": ["anchorless_by_url_path", "anchorless_name_candidates"],
-  "aroundLines": 40,
-  "aroundHits": 1,
-  "run": 52
+  "until": "hidden_source_notes",
+  "note": "Проба 53: ДИАГНОСТИКА шага 9d, без apply. Сколько записей источник опубликовал как заметки, а не маршруты. Ожидание — около двадцати шести (столько безъякорных под /note дала проба 52); заметно больше означало бы, что под /note лежат и записи С координатами, и тогда прежде применения надо смотреть, что именно там. Список имён — через around по source_note.",
+  "grep": ["hidden_source_notes", "source_note"],
+  "around": ["source_note"],
+  "aroundLines": 3,
+  "aroundHits": 14,
+  "run": 53
 }
