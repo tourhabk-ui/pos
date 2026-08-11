@@ -64,8 +64,6 @@ const BASELINE = new Set<string>([
   "app/api/operator/profile/route.ts → operator_settings.id",
   "app/api/operator/profile/settings/route.ts → operator_settings.id",
   "app/api/operator/tours/[id]/generate-tags/route.ts → operator_tours.images",
-  "app/api/operator/transfer-booking/route.ts → operator_bookings.start_date",
-  "app/api/operator/transfer-booking/route.ts → operator_bookings.total_price",
   "app/api/operators/[slug]/route.ts → partners.faq",
   "app/api/operators/[slug]/route.ts → partners.features",
   "app/api/operators/[slug]/route.ts → partners.gallery",
