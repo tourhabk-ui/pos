@@ -1,16 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/data-repair"
+    "https://vedarai.ru/api/cron/duplicate-routes-audit"
   ],
-  "bytes": 300,
-  "timeout": 300,
+  "bytes": 200,
+  "timeout": 180,
   "retries": 30,
   "retryDelay": 45,
-  "until": "anchored_from_place",
-  "note": "Проба 51: ДИАГНОСТИКА шага 9c, без apply. Сколько из 97 безъякорных маршрутов имеют точного тёзку среди мест. Правило намеренно редкое — большое число здесь было бы поводом насторожиться, а не обрадоваться: значит сравнение вышло мягче задуманного. Применение (apply=1) — отдельной пробой и только после того, как увидим и число, и список имён.",
-  "grep": ["anchored_from_place", "anchor_from_place"],
-  "around": ["anchor_from_place"],
-  "aroundLines": 3,
-  "aroundHits": 12,
-  "run": 51
+  "until": "anchorless_by_url_path",
+  "note": "Проба 52: разделы сайта у 97 безъякорных записей и список кандидатов «маршрут — место». Первое отвечает на задачу владельца про статьи: если у kamchatkaland.ru статьи лежат под одним разделом, а маршруты под другим, правило переноса детерминированно. Второе — пары с именами и координатами, чтобы решать глазом: цифра тут ничего не решает, обе ступени показали и верную пару, и вредную.",
+  "grep": ["anchorless_by_url_path", "anchorless_name_candidates"],
+  "around": ["anchorless_by_url_path", "anchorless_name_candidates"],
+  "aroundLines": 40,
+  "aroundHits": 1,
+  "run": 52
 }
