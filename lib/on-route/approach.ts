@@ -159,10 +159,29 @@ export const DATA_CONFLICT_KM = 2;
 
 export function approachPlan(
   user: GeoPoint, target: GeoPoint, track: GeoPoint[],
+  /**
+   * Готовая проекция человека — из состояния, а не найденная заново.
+   *
+   * Глобальный поиск на каждом фиксе перекидывает проекцию на встречную ветку
+   * радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
+   * человека (см. lib/on-route/projection-window). Когда положение ведётся
+   * состоянием, оно передаётся сюда, и путь считается от него.
+   */
+  userProjection?: TrackProjection | null,
+  /**
+   * Порог «я в стороне», км. Приходит от точности фикса
+   * (lib/on-route/fix-quality → offTrackThresholdM): при +-60 м человек,
+   * идущий ровно по тропе, при фиксированной сотне метров регулярно
+   * оказывался бы в стороне.
+   *
+   * На `targetOffTrack` и `dataConflict` НЕ влияет: положение путевой точки
+   * относительно трека — вопрос данных, GPS к нему отношения не имеет.
+   */
+  userToleranceKm: number = ON_TRACK_TOLERANCE_KM,
 ): ApproachPlan | null {
   if (track.length < 2) return null;
 
-  const up = projectOnTrack(user, track);
+  const up = userProjection ?? projectOnTrack(user, track);
   const tp = projectOnTrack(target, track);
   if (!up || !tp) return null;
 
@@ -177,7 +196,7 @@ export function approachPlan(
     exitKm,
     totalKm: approachKm + alongTrackKm + exitKm,
     targetOffTrack: exitKm > ON_TRACK_TOLERANCE_KM,
-    userOffTrack: approachKm > ON_TRACK_TOLERANCE_KM,
+    userOffTrack: approachKm > userToleranceKm,
     dataConflict: exitKm > DATA_CONFLICT_KM,
   };
 }

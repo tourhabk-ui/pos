@@ -13,6 +13,8 @@ import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 import { approachPlan } from '@/lib/on-route/approach';
+import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
+import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
@@ -788,14 +790,35 @@ function OnTrailTab() {
    * Прямая между ними пересекает залив: число честно буквально и бесполезно
    * по существу, а нарисованной линии не соответствует вовсе.
    */
+  // Положение вдоль трека ведётся СОСТОЯНИЕМ, а не ищется заново на каждом
+  // фиксе. Глобальный поиск перекидывает проекцию на встречную ветку
+  // радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
+  // человека — прибор, чьи показания скачут втрое на месте, перестают читать.
+  const alongRef = useRef<AlongState | null>(null);
   const approach = useMemo(() => {
     if (!coords || !nextWp || !track || track.length < 2) return null;
+    const line = track.map(([lat, lng]) => ({ lat, lng }));
+    // Плохой фикс не двигает положение: иначе окно проекции прыгало бы на
+    // шуме, ради устранения которого оно и заведено. Что показанное при этом
+    // не свежее — говорит fixInfo/figuresAreLive, отдельной сущности не надо.
+    if (fixUsableForNavigation(coords.accuracy ?? null)) {
+      alongRef.current = advanceAlong({ lat: coords.lat, lng: coords.lng }, line, alongRef.current);
+    }
     return approachPlan(
       { lat: coords.lat, lng: coords.lng },
       { lat: nextWp.lat, lng: nextWp.lng },
-      track.map(([lat, lng]) => ({ lat, lng })),
+      line,
+      alongRef.current?.projection ?? null,
+      // Порог отхода — от точности фикса, а не константа: ложное «вы в
+      // стороне» гонит человека искать тропу, которой он и так держится.
+      offTrackThresholdM(coords.accuracy ?? null) / 1000,
     );
   }, [coords, nextWp, track]);
+
+  // Смена маршрута обнуляет историю положения: она была про другой трек.
+  // Трек меняется вместе с маршрутом, поэтому его и достаточно: история
+  // положения была про другую ломаную.
+  useEffect(() => { alongRef.current = null; }, [track]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
