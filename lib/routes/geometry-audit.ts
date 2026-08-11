@@ -52,9 +52,62 @@ export interface CollectionFlaw {
   by: 'waypoints' | 'geometry';
 }
 
+/**
+ * Какие ФОРМЫ геометрии реально лежат в базе.
+ *
+ * Повод — план «корректное чтение геометрии в /planning?mode=trail» (11.08).
+ * Проверка по коду подтвердила две его посылки: `extractTrackpoints` читает
+ * только голый LineString (Feature, FeatureCollection, MultiLineString дают
+ * пустой массив), и диапазоны координат не проверяются вовсе — только
+ * `Number.isFinite`.
+ *
+ * Но план предлагает начать с нормализатора обёрток, а это работа под
+ * случай, которого может не быть: вся геометрия у нас либо синтетический
+ * LineString из путевых точек (миграция 168), либо KML-импорт — тоже
+ * LineString. Значит первым делом надо СОСЧИТАТЬ формы, а не писать разбор
+ * для гипотезы.
+ *
+ * Обратное тоже верно и не зависит от этого числа: `track: null` сейчас
+ * означает и «геометрии нет», и «формат не поддержан», и «координаты
+ * негодные» — три разных факта одним значением. Это тот же дефект, что
+ * `Number(null) === 0`, только в контракте API.
+ */
+export interface GeometryShapes {
+  /** Сколько записей каждой формы: LineString, Feature, MultiLineString, … */
+  by_type: Record<string, number>;
+  /** Обёртки, которые сейчас дают пустой трек молча. */
+  unsupported: number;
+  /**
+   * Линия есть, но вести по ней некуда: координат нет вовсе или одна точка.
+   *
+   * Считается отдельно от «геометрии нет»: для API это разные факты, а
+   * сейчас оба приходят как `track: null`. Из одной точки не построить ни
+   * пути, ни направления — но запись при этом выглядит как «геометрия есть».
+   */
+  empty_or_single: number;
+  /** Координаты вне диапазонов широты/долготы. */
+  out_of_range: number;
+  /**
+   * ОДНОЗНАЧНО перепутанный порядок осей.
+   *
+   * Условие строгое: ВСЕ негодные точки записи объясняются перестановкой —
+   * как [lng, lat] не проходят, как [lat, lng] проходят. Если хотя бы одна
+   * негодная точка не объясняется, запись сюда не попадает: смесь мусора и
+   * перестановки — это разбор человека, а не повод для правила.
+   *
+   * Считается, но НЕ чинится: молча переставить оси значит заменить один
+   * неизвестный факт другим.
+   */
+  suspect_swapped: number;
+  /** Образцы: id и форма — по ним видно, о чём речь. */
+  samples: Array<{ id: string; title: string; type: string; note: string }>;
+}
+
 export interface GeometryAudit {
   routes_total: number;
   routes_counted: number;
+  /** Формы геометрии — см. GeometryShapes. */
+  shapes: GeometryShapes;
   /** Линии нет вовсе — вести не по чему. */
   no_geometry: number;
   /** Линия есть, но точек маршрута нет: сверить не с чем. */
@@ -159,6 +212,79 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
           WHERE (is_visible = TRUE OR is_visible IS NULL) ORDER BY id`,
     limit ? [limit] : [],
   );
+
+  // ── Перепись ФОРМ геометрии ───────────────────────────────────────────────
+  //
+  // Читаем то, что лежит, а не то, что ожидаем прочитать. Порядок именно
+  // такой: сперва узнать, встречаются ли обёртки вообще, и только потом
+  // решать, писать ли для них разбор.
+  const shapes: GeometryShapes = {
+    by_type: {}, unsupported: 0, empty_or_single: 0,
+    out_of_range: 0, suspect_swapped: 0, samples: [],
+  };
+  const inLat = (v: number) => Number.isFinite(v) && v >= -90 && v <= 90;
+  const inLng = (v: number) => Number.isFinite(v) && v >= -180 && v <= 180;
+
+  for (const row of listRes.rows) {
+    const g = row.geometry as { type?: string; coordinates?: unknown } | null;
+    const type = g?.type ?? '(нет геометрии)';
+    shapes.by_type[type] = (shapes.by_type[type] ?? 0) + 1;
+
+    if (g && type !== 'LineString' && type !== '(нет геометрии)') {
+      shapes.unsupported += 1;
+      if (shapes.samples.length < 12) {
+        shapes.samples.push({
+          id: row.id, title: row.title ?? '(без названия)', type,
+          note: 'обёртка не читается — трек выйдет пустым, а причина не назовётся',
+        });
+      }
+      continue;
+    }
+
+    const coords = Array.isArray(g?.coordinates) ? (g!.coordinates as unknown[]) : null;
+    if (!coords) continue;
+
+    // Линия есть, а вести по ней некуда. Для API это НЕ то же самое, что
+    // «геометрии нет», хотя сейчас оба приходят как track: null.
+    if (coords.length < 2) {
+      shapes.empty_or_single += 1;
+      if (shapes.samples.length < 12) {
+        shapes.samples.push({
+          id: row.id, title: row.title ?? '(без названия)', type,
+          note: coords.length === 0 ? 'линия объявлена, координат нет' : 'одна точка — пути нет',
+        });
+      }
+      continue;
+    }
+
+    let bad = 0, swapped = 0;
+    for (const c of coords) {
+      if (!Array.isArray(c) || c.length < 2) continue;
+      const [lng, lat] = c as number[];
+      // GeoJSON: [lng, lat]. Если так не сходится, а наоборот сходится —
+      // порядок осей перепутан. Считаем и называем, но не переставляем.
+      if (inLng(lng) && inLat(lat)) continue;
+      bad += 1;
+      if (inLng(lat) && inLat(lng)) swapped += 1;
+    }
+    if (bad > 0) {
+      shapes.out_of_range += 1;
+      // Однозначность: перестановкой объясняются ВСЕ негодные точки, а не
+      // часть. Смесь мусора и перестановки — разбор человека.
+      const allExplained = swapped === bad;
+      if (allExplained) shapes.suspect_swapped += 1;
+      if (shapes.samples.length < 12) {
+        shapes.samples.push({
+          id: row.id, title: row.title ?? '(без названия)', type,
+          note: allExplained
+            ? `${bad} точек вне диапазона, и все сходятся при обратном порядке осей`
+            : swapped > 0
+              ? `${bad} точек вне диапазона, перестановкой объясняются лишь ${swapped} — разбирать человеку`
+              : `${bad} точек вне диапазона широты/долготы`,
+        });
+      }
+    }
+  }
 
   // Точки берутся одним запросом на всех: 421 отдельный запрос ради того же
   // ответа — трата, а не тщательность.
@@ -275,6 +401,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   return {
     routes_total,
+    shapes,
     routes_counted: listRes.rows.length,
     no_geometry,
     no_waypoints,
