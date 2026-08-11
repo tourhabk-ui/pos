@@ -19,6 +19,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { normalizeTitle } from '@/lib/import/kml-inbox';
 import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
@@ -77,6 +78,14 @@ export interface DataRepairResult {
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
   fixed_route_coords: number;
+  /**
+   * Шаг 9c: якорь безъякорному маршруту от МЕСТА с точно таким же именем.
+   *
+   * Из 421 маршрута 97 не имеют ни координат, ни линии, ни путевых точек
+   * (перепись 11.08). Часть из них — тёзки существующих мест, и тогда якорь
+   * выводится, а не выдумывается.
+   */
+  anchored_from_place: number;
   /** Диагностика (Шаг 10): waypoints дальше порога от опорной точки маршрута */
   waypoint_outliers: number;
   /** Шаг 10b: изолированные точки-беглецы, отвязанные от маршрута (apply) */
@@ -291,6 +300,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     merged_coord_subset: 0,
     merged_morph: 0,
     fixed_route_coords: 0,
+    anchored_from_place: 0,
     waypoint_outliers: 0,
     waypoint_outliers_unlinked: 0,
     errors: 0,
@@ -915,6 +925,89 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
   } catch (err) {
     res.errors++;
     items.push({ step: 'route_coords', detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+  }
+
+  // ── Шаг 9c: якорь безъякорному маршруту от одноимённого МЕСТА ────────────
+  //
+  // Перепись 11.08 (пробы 43-50): из 421 маршрута 97 не имеют ни координат,
+  // ни линии, ни путевых точек. На карте их нет, «рядом со мной» их не
+  // найдёт. Шаг 9b им не помогает — он живёт треком, а трека у них нет.
+  //
+  // Но часть из них ТЁЗКИ существующих мест: справочник мест (779 записей,
+  // lat/lng NOT NULL по схеме) знает, где «Малкинские горячие источники».
+  // Если маршрут назван так же, его якорь — координата этого места. Это
+  // ВЫВОД из имеющегося, а не догадка: тождество утверждают сами имена.
+  //
+  // Почему нельзя мягче. Соблазн — сравнить по набору слов (nameWordSet) или
+  // по вхождению; тогда «Гейзеры Камчатки» (обзорная статья) сядет на
+  // «Долину гейзеров», а «Флора Камчатки» — на что угодно камчатское. Ровно
+  // так сгорела привязка треков по близости: правило срабатывало часто и
+  // ошибалось в девяти случаях из десяти. Поэтому равенство ТОЧНОЕ — и
+  // сработает оно редко. Редко и верно лучше, чем часто и как придётся.
+  //
+  // Нормализатор берётся готовый (`normalizeTitle`): он уже сводит виды тире,
+  // ё/е, кавычки и жанровое слово «Маршрут» в начале. Свой второй здесь
+  // разошёлся бы с первым — в этом файле уже живут `sameExactName` и
+  // `nameWordSet`, и третьего правила о том же не будет.
+  //
+  // Что НЕ делается: не геокодятся названия. «Флора Камчатки» отдала бы
+  // центр полуострова, и на карте появилась бы точка, за которую никто не
+  // отвечает. Без тёзки запись остаётся как есть и видна в переписи.
+  try {
+    const { rows: anchorless } = await pool.query<{ id: string; title: string }>(
+      `SELECT id, title
+         FROM kamchatka_routes
+        WHERE (is_visible = TRUE OR is_visible IS NULL)
+          AND title IS NOT NULL
+          AND (lat IS NULL OR lng IS NULL)`,
+    );
+
+    if (anchorless.length > 0) {
+      const { rows: placeRows } = await pool.query<{ name: string; lat: string; lng: string }>(
+        `SELECT name, lat::text AS lat, lng::text AS lng
+           FROM places
+          WHERE name IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL`,
+      );
+
+      // Тёзка должна быть ОДНА. Два места с одинаковым именем — это выбор
+      // между ними, а выбирать не на чем: дальше идёт человек.
+      const byName = new Map<string, { lat: number; lng: number } | 'ambiguous'>();
+      for (const p of placeRows) {
+        const key = normalizeTitle(p.name);
+        if (key === '') continue;
+        byName.set(key, byName.has(key)
+          ? 'ambiguous'
+          : { lat: Number(p.lat), lng: Number(p.lng) });
+      }
+
+      for (const r of anchorless) {
+        const hit = byName.get(normalizeTitle(r.title));
+        if (!hit || hit === 'ambiguous') continue;
+        if (!dryRun) {
+          await pool.query(
+            `UPDATE kamchatka_routes
+                SET lat = $1, lng = $2,
+                    metadata = COALESCE(metadata, '{}'::jsonb)
+                               || jsonb_build_object('anchor_source', 'place_same_name'),
+                    updated_at = NOW()
+              WHERE id = $3`,
+            [hit.lat, hit.lng, r.id],
+          );
+        }
+        res.anchored_from_place++;
+        items.push({
+          step: 'anchor_from_place',
+          place: r.title,
+          detail: `координаты не было — от одноимённого места ${hit.lat.toFixed(4)}, ${hit.lng.toFixed(4)}`,
+        });
+      }
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({
+      step: 'anchor_from_place',
+      detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`,
+    });
   }
 
   // ── Шаг 10: кривые waypoints — отчёт + безопасный анлинк беглецов ────────
