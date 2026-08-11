@@ -104,7 +104,12 @@ export function routeUrl(
 
   switch (app) {
     case 'organic': {
-      // om://route?sll=lat,lng&saddr=..&dll=lat,lng&daddr=..&type=vehicle|pedestrian
+      // Схема и значения type сверены с исходниками Organic Maps, не по памяти:
+      //   форма — iphone/Maps/Tests/.../GeoNavigationToOMURLConverterTests.swift
+      //     "om://route?sll=<a>&saddr=&dll=<b>&daddr=&type=<router>"
+      //   значения — libs/routing/router.cpp, ToString/FromString(RouterType):
+      //     "vehicle" | "pedestrian" | "bicycle" | "transit" | "ruler"
+      //   (FromString сравнивает строго, поэтому строчные буквы обязательны)
       const type = mode === 'car' ? 'vehicle' : 'pedestrian';
       return `om://route?sll=${c(from.lat)},${c(from.lng)}`
         + `&saddr=${encodeURIComponent(title(from, 'Я'))}`
