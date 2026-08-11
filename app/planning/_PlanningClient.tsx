@@ -13,6 +13,7 @@ import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 import { approachPlan } from '@/lib/on-route/approach';
+import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
 import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
@@ -788,14 +789,28 @@ function OnTrailTab() {
    * Прямая между ними пересекает залив: число честно буквально и бесполезно
    * по существу, а нарисованной линии не соответствует вовсе.
    */
+  // Положение вдоль трека ведётся СОСТОЯНИЕМ, а не ищется заново на каждом
+  // фиксе. Глобальный поиск перекидывает проекцию на встречную ветку
+  // радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
+  // человека — прибор, чьи показания скачут втрое на месте, перестают читать.
+  const alongRef = useRef<AlongState | null>(null);
   const approach = useMemo(() => {
     if (!coords || !nextWp || !track || track.length < 2) return null;
+    const line = track.map(([lat, lng]) => ({ lat, lng }));
+    const next = advanceAlong({ lat: coords.lat, lng: coords.lng }, line, alongRef.current);
+    alongRef.current = next;
     return approachPlan(
       { lat: coords.lat, lng: coords.lng },
       { lat: nextWp.lat, lng: nextWp.lng },
-      track.map(([lat, lng]) => ({ lat, lng })),
+      line,
+      next?.projection ?? null,
     );
   }, [coords, nextWp, track]);
+
+  // Смена маршрута обнуляет историю положения: она была про другой трек.
+  // Трек меняется вместе с маршрутом, поэтому его и достаточно: история
+  // положения была про другую ломаную.
+  useEffect(() => { alongRef.current = null; }, [track]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);

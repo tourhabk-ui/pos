@@ -159,10 +159,19 @@ export const DATA_CONFLICT_KM = 2;
 
 export function approachPlan(
   user: GeoPoint, target: GeoPoint, track: GeoPoint[],
+  /**
+   * Готовая проекция человека — из состояния, а не найденная заново.
+   *
+   * Глобальный поиск на каждом фиксе перекидывает проекцию на встречную ветку
+   * радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
+   * человека (см. lib/on-route/projection-window). Когда положение ведётся
+   * состоянием, оно передаётся сюда, и путь считается от него.
+   */
+  userProjection?: TrackProjection | null,
 ): ApproachPlan | null {
   if (track.length < 2) return null;
 
-  const up = projectOnTrack(user, track);
+  const up = userProjection ?? projectOnTrack(user, track);
   const tp = projectOnTrack(target, track);
   if (!up || !tp) return null;
 
