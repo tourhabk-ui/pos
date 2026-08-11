@@ -150,3 +150,31 @@ describe('оглавление по темам', () => {
     expect(groupByTopic([article({ topic: '   ' })])[0].topic).toBe('Разное');
   });
 });
+
+/**
+ * Раздел в sitemap.
+ *
+ * Урок 08.08: туры существовали, а в sitemap не попадали — и для поиска их не
+ * было вовсе. Раздел, который никто не находит, сделан наполовину.
+ */
+describe('раздел виден поиску', () => {
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(process.cwd(), 'lib/seo/sitemap-entries.ts'), 'utf-8',
+  ) as string;
+
+  it('оглавление раздела в sitemap', () => {
+    expect(src).toMatch(/\$\{BASE\}\/articles`/);
+  });
+
+  it('и сами статьи, а не только оглавление', () => {
+    // Иначе обходчик увидит раздел и ни одного текста в нём.
+    expect(src).toMatch(/FROM articles/);
+    expect(src).toMatch(/articlePages/);
+    expect(src).toMatch(/\.\.\.articlePages/);
+  });
+
+  it('недоступная БД не подставляет выдуманные адреса', () => {
+    // Список адресов «на всякий случай» отправил бы обходчика на 404.
+    expect(src).toMatch(/articlePages[\s\S]{0,600}catch/);
+  });
+});
