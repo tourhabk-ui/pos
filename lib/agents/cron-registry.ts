@@ -212,6 +212,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     everyMin: MONTH, tier: 'quality', agentId: 'kuzmich-redteam', triggerable: false,
   },
   {
+    // Разбор находок эволюции идёт НА РАННЕРЕ: api.anthropic.com закрыт по
+    // гео из России, где стоит прод, а раннер вне РФ — релей не нужен.
+    // В прод ходит только за находками (evo-issues), сам ничего не пишет.
+    key: 'evo-judge', label: 'Evo Judge',
+    description: 'Разбор находок эволюции сильной моделью на раннере.',
+    workflow: 'evo-judge.yml', cron: '20 6 * * *', schedule: 'ежедневно · 06:20 UTC',
+    everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
+  },
+  {
     key: 'kb-gap', label: 'KB Gap',
     description: 'Анализ пробелов в знаниях Кузьмича.',
     workflow: 'cron-kb-gap.yml', cron: '0 4 * * *', schedule: 'ежедневно · 04:00 UTC',
@@ -392,6 +401,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // ── Качество ────────────────────────────────────────────────────────────
   'kuzmich-eval': 'unknown',
   'kuzmich-redteam': 'unknown',
+  // Ноль разобранных находок означает, что сканеру нечего было предъявить —
+  // это штатно и желательно. Отказ самого разбора нулём не выглядит: скрипт
+  // падает без ключа и помечает неотвеченное «не разобрано», а не «шум».
+  'evo-judge': 'normal',
   'kb-gap': 'unknown',
 
   // ── Рост ────────────────────────────────────────────────────────────────
