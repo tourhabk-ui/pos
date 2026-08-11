@@ -11,6 +11,8 @@
  * подход и выход не выдаются за путь по тропе.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   projectOnTrack, approachPlan, straightKm, ON_TRACK_TOLERANCE_KM, DATA_CONFLICT_KM,
 } from '@/lib/on-route/approach';
@@ -145,5 +147,25 @@ describe('когда точка и трек про разное — считат
     )!;
     expect(p.userOffTrack).toBe(true);
     expect(p.dataConflict).toBe(false);
+  });
+});
+
+describe('проекция одна на весь экран', () => {
+  it('рельеф режется той же проекцией, что считает расстояние', async () => {
+    // Было две реализации одного понятия: расстояние — проекцией на ЗВЕНО,
+    // рельеф — по ближайшей ВЕРШИНЕ. Вершины прореженного трека стоят через
+    // сотни метров, и два числа про одно положение расходились.
+    const src = readFileSync(join(process.cwd(), 'lib/routes/relief.ts'), 'utf-8');
+    expect(src).toMatch(/from '@\/lib\/on-route\/approach'/);
+    expect(src).toMatch(/projectOnTrack\(/);
+    expect(src).not.toMatch(/bestIdx/);
+  });
+
+  it('точка сбоку от середины длинного звена не округляется до вершины', async () => {
+    const { distanceAlongTrack } = await import('@/lib/routes/relief');
+    // Звено в 11 км: вершинная привязка дала бы 0 либо 11 км, сегментная — 5.5.
+    const m = distanceAlongTrack([[53.00, 158.00], [53.10, 158.00]], 53.05, 158.01)!;
+    expect(m).toBeGreaterThan(4000);
+    expect(m).toBeLessThan(7000);
   });
 });

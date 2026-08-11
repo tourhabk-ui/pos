@@ -165,20 +165,27 @@ export function remainingRelief(
   };
 }
 
+import { projectOnTrack } from '@/lib/on-route/approach';
+
 /* ─── Привязка положения к треку ──────────────────────────────────────────── */
 
 /**
- * Сколько метров ПО ТРЕКУ пройдено до ближайшей к точке вершины.
+ * Сколько метров ПО ТРЕКУ пройдено до проекции точки на трек.
  *
  * Без этого профиль резался не там, где человек стоит: пройденное считалось по
  * прямым между путевыми точками, а координата профиля — по извилистому треку.
  * На горном маршруте трек длиннее прямых в полтора-два раза, значит «профиль
- * впереди» показывал бы кусок, который давно позади. Ошибка ровно того рода,
- * что мы чиним на этом экране, поэтому исправлена до выката.
+ * впереди» показывал бы кусок, который давно позади.
  *
- * Метод намеренно грубый — ближайшая ВЕРШИНА, без проекции на отрезок: трек
- * приходит прореженным, а точность GPS всё равно измеряется десятками метров.
- * Обещать большего, чем даёт вход, нельзя.
+ * Раньше метод был грубым — ближайшая ВЕРШИНА, без проекции на отрезок, с
+ * оговоркой «трек всё равно прорежен, а GPS всё равно неточен». Оговорка не
+ * выдержала проверки: на одном экране расстояние считалось проекцией на
+ * ЗВЕНО (lib/on-route/approach), а рельеф — по вершинам, и два числа про одно
+ * и то же положение расходились тем сильнее, чем реже стоят вершины. Вершины
+ * прореженного трека стоят через сотни метров — это не «грубее на метры».
+ *
+ * Теперь правило одно и живёт в одном месте. Вторая реализация того же
+ * понятия — это не запас прочности, а два ответа на один вопрос.
  */
 export function distanceAlongTrack(
   track: Array<[number, number]>,
@@ -188,19 +195,12 @@ export function distanceAlongTrack(
   if (!Array.isArray(track) || track.length < 2) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  let bestIdx = 0;
-  let bestD = Infinity;
-  const cumulative: number[] = [0];
+  const points = track.map(([tLat, tLng]) => ({ lat: tLat, lng: tLng }));
+  const pr = projectOnTrack({ lat, lng }, points);
+  if (!pr) return null;
 
-  for (let i = 0; i < track.length; i++) {
-    const [tLat, tLng] = track[i];
-    if (i > 0) {
-      cumulative[i] = cumulative[i - 1] +
-        haversineM({ lat: track[i - 1][0], lng: track[i - 1][1] }, { lat: tLat, lng: tLng });
-    }
-    const d = haversineM({ lat, lng }, { lat: tLat, lng: tLng });
-    if (d < bestD) { bestD = d; bestIdx = i; }
-  }
-
-  return cumulative[bestIdx];
+  let sum = 0;
+  for (let i = 0; i < pr.segment; i++) sum += haversineM(points[i], points[i + 1]);
+  sum += haversineM(points[pr.segment], pr.point);
+  return sum;
 }
