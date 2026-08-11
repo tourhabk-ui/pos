@@ -97,6 +97,40 @@ export function shareStem(a: string, b: string): boolean {
   return false;
 }
 
+/**
+ * Концы пути, если название их называет: «Пиначево — Центральный».
+ *
+ * Возвращает null, когда название устроено иначе («Вулкан Горелый»).
+ * Приведение уже свело все виды тире к дефису и убрало пробелы вокруг него,
+ * поэтому делить можно по одному символу.
+ */
+export function endpoints(title: string): [string, string] | null {
+  const parts = normalizeTitle(title).split('-').map((s) => s.trim()).filter(Boolean);
+  return parts.length === 2 ? [parts[0], parts[1]] : null;
+}
+
+/**
+ * Про одно ли эти два названия.
+ *
+ * Общий конец пути — не общий маршрут, и это не тонкость, а картина
+ * справочника. Скопления якорей 11.08: на кордоне «Центральный» стоят
+ * «Авачинский — Центральный», «Радыгино — Центральный», «5 стройка —
+ * Центральный», «Центральный — Таловские источники». Слово «Центральный»
+ * у них общее ПО УСТРОЙСТВУ НАЗВАНИЯ: так называется точка, из которой они
+ * расходятся. Считать их одним предметом — та же ошибка, что считать одним
+ * маршрутом всё, что выходит из Эссо, только на уровне букв, а не координат.
+ *
+ * Поэтому у названий-пар предметом считается ПАРА концов целиком: совпасть
+ * должны оба, в любом порядке (обратный обход — тот же путь). Названия иного
+ * устройства судятся как прежде — по общей значимой основе.
+ */
+export function sameSubject(a: string, b: string): boolean {
+  const ea = endpoints(a), eb = endpoints(b);
+  if (!ea || !eb) return shareStem(a, b);
+  return (shareStem(ea[0], eb[0]) && shareStem(ea[1], eb[1]))
+    || (shareStem(ea[0], eb[1]) && shareStem(ea[1], eb[0]));
+}
+
 export type DuplicateKind =
   /** Названия совпадают после приведения — двойник наверняка. */
   | 'same_name'
@@ -118,8 +152,29 @@ export interface DuplicatePair {
   anchorKm: number;
 }
 
+/** Сколько маршрутов делит одну и ту же точку якоря. */
+export interface AnchorCluster {
+  lat: number;
+  lng: number;
+  routes: number;
+  /** Несколько названий — по ним видно, ЧТО это за точка. */
+  sample: string[];
+}
+
 export interface DuplicateAudit {
   routes_counted: number;
+  /**
+   * Насколько якорь вообще различает маршруты.
+   *
+   * Пары «стоят в одной точке» ничего не говорят сами по себе — надо знать,
+   * СКОЛЬКО различных точек обслуживают четыреста двадцать один маршрут.
+   * Если их шестьдесят, то якорь — это не адрес маршрута, а адрес кордона,
+   * и всякая привязка по близости опиралась на величину, общую у десятков
+   * записей.
+   */
+  distinct_anchors: number;
+  /** Крупнейшие скопления: по названиям видно, что это за общая точка. */
+  anchor_clusters: AnchorCluster[];
   by_kind: Record<DuplicateKind, number>;
   /** Сколько маршрутов участвует хотя бы в одной паре-двойнике. */
   routes_in_duplicates: number;
@@ -132,6 +187,30 @@ interface Row { id: string; title: string | null; lat: string | null; lng: strin
 
 export async function runDuplicateAudit(): Promise<DuplicateAudit> {
   const startedAt = Date.now();
+
+  // Сколько РАЗЛИЧНЫХ точек обслуживают справочник. Округление до пятого
+  // знака (~1 м) — чтобы «та же точка» не рассыпалась на шум последних цифр.
+  const clusterRes = await pool.query<{ lat: string; lng: string; n: string; sample: string[] }>(
+    `SELECT round(lat::numeric, 5)::text AS lat,
+            round(lng::numeric, 5)::text AS lng,
+            COUNT(*)::text AS n,
+            (array_agg(title ORDER BY title))[1:4] AS sample
+       FROM kamchatka_routes
+      WHERE (is_visible = TRUE OR is_visible IS NULL)
+        AND lat IS NOT NULL AND lng IS NOT NULL AND title IS NOT NULL
+      GROUP BY 1, 2
+      ORDER BY COUNT(*) DESC`,
+  );
+  const distinct_anchors = clusterRes.rows.length;
+  const anchor_clusters: AnchorCluster[] = clusterRes.rows
+    .filter((r) => parseInt(r.n, 10) > 1)
+    .slice(0, 12)
+    .map((r) => ({
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+      routes: parseInt(r.n, 10),
+      sample: r.sample ?? [],
+    }));
 
   const res = await pool.query<Row>(
     `SELECT id::text, title, lat::text, lng::text
@@ -170,7 +249,7 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
 
       let kind: DuplicateKind | null = null;
       if (sameName) kind = 'same_name';
-      else if (sameSpot) kind = shareStem(a.title, b.title) ? 'same_spot_same_subject' : 'same_spot_only';
+      else if (sameSpot) kind = sameSubject(a.title, b.title) ? 'same_spot_same_subject' : 'same_spot_only';
       if (!kind) continue;
 
       by_kind[kind] += 1;
@@ -195,6 +274,8 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
 
   return {
     routes_counted: routes.length,
+    distinct_anchors,
+    anchor_clusters,
     by_kind,
     routes_in_duplicates: involved.size,
     thresholds: { same_spot_km: SAME_SPOT_KM, stem_len: STEM },
