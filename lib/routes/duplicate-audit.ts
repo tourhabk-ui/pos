@@ -1,0 +1,204 @@
+/**
+ * lib/routes/duplicate-audit.ts
+ *
+ * Сколько маршрутов в справочнике описывают одно и то же.
+ *
+ * ── Откуда взялся вопрос ───────────────────────────────────────────────────
+ *
+ * Пересуд привязок 11.08 дал 106 «неоднозначных» — треков, рядом с которыми
+ * стоит другой маршрут вплотную. Разбор показал, что это в основном не чужие
+ * привязки, а НАШИ СОБСТВЕННЫЕ ДВОЙНИКИ:
+ *
+ *   «Вулкан Горелый»                 ⟷ «Вулкан Горелый»
+ *   «Маршрут Пиначево - Центральный» ⟷ «Маршрут Пиначево — Центральный»
+ *   «Озеро Толмачева»                ⟷ «На каяках по озеру Толмачево»
+ *
+ * Вторая пара отличается только видом тире. Совпадение по имени их не
+ * склеило, они живут двумя записями, и трек лёг на ту из них, чей якорь в
+ * семидесяти четырёх километрах от него.
+ *
+ * Значит часть «лажи с маршрутами» не про геометрию вовсе: объектов в
+ * справочнике больше, чем мест на Камчатке.
+ *
+ * ── Чего этот модуль НЕ делает ─────────────────────────────────────────────
+ *
+ * Не объявляет дубликатом по одной близости якорей. Урок Эссо: на Камчатке
+ * маршруты стартуют из общих посёлков, и «две записи в одной точке» —
+ * законная картина для перевалки. Близость идёт уликой только вместе с
+ * похожим именем; всё остальное считается отдельно и называется своим
+ * именем — «стоят рядом», а не «дубликаты».
+ *
+ * READ-ONLY: ничего не пишет и ничего не сливает.
+ */
+
+import { pool } from '@/lib/db-pool';
+import { normalizeTitle } from '@/lib/import/kml-inbox';
+
+/** Насколько близко якоря, чтобы вопрос вообще возник, км. */
+export const SAME_SPOT_KM = 0.3;
+
+/** Слова короче этого в сравнении имён не участвуют: «на», «по», «и». */
+const MIN_TOKEN = 4;
+
+/**
+ * Сколько начальных букв слова сравнивать.
+ *
+ * Русское словоизменение меняет хвост: Толмачева / Толмачево / Толмачевом.
+ * Шести букв хватает, чтобы «толмач» совпало, и мало, чтобы совпало что-то
+ * постороннее.
+ */
+const STEM = 6;
+
+const R = 6371;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const t = (d: number) => (d * Math.PI) / 180;
+  const dLat = t(lat2 - lat1), dLng = t(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(t(lat1)) * Math.cos(t(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * Родовые слова, общие для половины справочника.
+ *
+ * «Вулкан Горелый» и «Вулкан Мутновский» делят слово «вулкан», но общего у
+ * них ровно столько же, сколько у двух улиц слово «улица». Основа роднит,
+ * только если она в имени СОБСТВЕННОМ.
+ *
+ * Список намеренно короткий и из наших же названий: длинный список общих слов
+ * начинает выкусывать смысл («источники» в «Малкинские источники» — родовое,
+ * а вот «Дачные горячие источники» без него теряет половину имени, поэтому
+ * решает не одно слово, а наличие ХОТЯ БЫ ОДНОЙ негородовой общей основы).
+ */
+const GENERIC = new Set([
+  'вулкан', 'сопка', 'гора', 'хребет', 'перевал', 'кальде',
+  'озеро', 'озера', 'озеру', 'река', 'реки', 'ручей', 'бухта', 'залив',
+  'источ', 'термал', 'водопа', 'долина', 'кордон', 'парк', 'мыс',
+  'маршру', 'поход', 'тропа', 'тур', 'экскур', 'камчат',
+]);
+
+/** Значимые основы слов названия. Родовые слова отбрасываются. */
+export function stems(title: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of normalizeTitle(title).split(/[^\p{L}\p{N}]+/u)) {
+    if (w.length < MIN_TOKEN) continue;
+    const stem = w.slice(0, STEM);
+    if (GENERIC.has(stem)) continue;
+    out.add(stem);
+  }
+  return out;
+}
+
+/** Есть ли у названий общая значимая основа. */
+export function shareStem(a: string, b: string): boolean {
+  const sa = stems(a);
+  for (const s of stems(b)) if (sa.has(s)) return true;
+  return false;
+}
+
+export type DuplicateKind =
+  /** Названия совпадают после приведения — двойник наверняка. */
+  | 'same_name'
+  /** Якоря в одной точке И названия про одно — очень вероятно двойник. */
+  | 'same_spot_same_subject'
+  /**
+   * Якоря в одной точке, названия про разное.
+   *
+   * НЕ дубликат: на Камчатке это обычная перевалка, откуда расходятся разные
+   * маршруты (урок Эссо). Считается отдельно, чтобы не выдать общий порог за
+   * общий объект.
+   */
+  | 'same_spot_only';
+
+export interface DuplicatePair {
+  kind: DuplicateKind;
+  a: { id: string; title: string };
+  b: { id: string; title: string };
+  anchorKm: number;
+}
+
+export interface DuplicateAudit {
+  routes_counted: number;
+  by_kind: Record<DuplicateKind, number>;
+  /** Сколько маршрутов участвует хотя бы в одной паре-двойнике. */
+  routes_in_duplicates: number;
+  thresholds: { same_spot_km: number; stem_len: number };
+  worst: DuplicatePair[];
+  duration_ms: number;
+}
+
+interface Row { id: string; title: string | null; lat: string | null; lng: string | null }
+
+export async function runDuplicateAudit(): Promise<DuplicateAudit> {
+  const startedAt = Date.now();
+
+  const res = await pool.query<Row>(
+    `SELECT id::text, title, lat::text, lng::text
+       FROM kamchatka_routes
+      WHERE (is_visible = TRUE OR is_visible IS NULL)
+        AND title IS NOT NULL`,
+  );
+
+  const routes = res.rows
+    .map((r) => ({
+      id: r.id,
+      title: r.title as string,
+      norm: normalizeTitle(r.title as string),
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+    }))
+    .filter((r) => r.norm !== '');
+
+  const by_kind: Record<DuplicateKind, number> = {
+    same_name: 0, same_spot_same_subject: 0, same_spot_only: 0,
+  };
+  const pairs: DuplicatePair[] = [];
+  const involved = new Set<string>();
+
+  for (let i = 0; i < routes.length; i++) {
+    for (let j = i + 1; j < routes.length; j++) {
+      const a = routes[i], b = routes[j];
+      const sameName = a.norm === b.norm;
+
+      // Расстояние считается, только если обе координаты годные. Отсутствие
+      // координат — не ноль километров: пара без координат судится именем.
+      const haveCoords = Number.isFinite(a.lat) && Number.isFinite(a.lng)
+        && Number.isFinite(b.lat) && Number.isFinite(b.lng);
+      const km = haveCoords ? haversineKm(a.lat, a.lng, b.lat, b.lng) : Infinity;
+      const sameSpot = km <= SAME_SPOT_KM;
+
+      let kind: DuplicateKind | null = null;
+      if (sameName) kind = 'same_name';
+      else if (sameSpot) kind = shareStem(a.title, b.title) ? 'same_spot_same_subject' : 'same_spot_only';
+      if (!kind) continue;
+
+      by_kind[kind] += 1;
+      if (kind !== 'same_spot_only') {
+        involved.add(a.id);
+        involved.add(b.id);
+      }
+      pairs.push({
+        kind,
+        a: { id: a.id, title: a.title },
+        b: { id: b.id, title: b.title },
+        anchorKm: haveCoords ? Math.round(km * 100) / 100 : -1,
+      });
+    }
+  }
+
+  // Сначала уверенные двойники, потом «одно место, один предмет».
+  const order: Record<DuplicateKind, number> = {
+    same_name: 0, same_spot_same_subject: 1, same_spot_only: 2,
+  };
+  pairs.sort((x, y) => order[x.kind] - order[y.kind] || x.anchorKm - y.anchorKm);
+
+  return {
+    routes_counted: routes.length,
+    by_kind,
+    routes_in_duplicates: involved.size,
+    thresholds: { same_spot_km: SAME_SPOT_KM, stem_len: STEM },
+    worst: pairs.slice(0, 25),
+    duration_ms: Date.now() - startedAt,
+  };
+}
