@@ -233,12 +233,26 @@ describe('положение переводится в шкалу трека, а
     expect(distanceAlongTrack(track, NaN, 158)).toBeNull();
   });
 
-  it('экран режет профиль обеими границами по треку', () => {
+  it('экран режет профиль обеими границами по треку и в ОДНОЙ шкале', () => {
     const screen = read('app/planning/_PlanningClient.tsx');
-    expect(screen).toMatch(/distanceAlongTrack\(track, coords\.lat, coords\.lng\)/);
-    expect(screen).toMatch(/distanceAlongTrack\(track, nextWp\.lat, nextWp\.lng\)/);
+    // Проверяется обещание, а не форма вызова: прежняя привязка к точной
+    // сигнатуре не пустила добавление шкалы полного трека — то самое
+    // исправление, ради которого этот тест и стоит.
+    expect(screen).toMatch(/const fromM = distanceAlongTrack\(track, coords\.lat, coords\.lng/);
+    expect(screen).toMatch(/const toM = distanceAlongTrack\(track, nextWp\.lat, nextWp\.lng/);
     // Прежняя смешанная шкала (пройдено по прямым) больше не участвует.
     expect(screen).not.toMatch(/fromM = progress\.doneKm/);
+    // Обе границы получают ОДНУ шкалу — иначе срез снова уедет.
+    const from = screen.slice(screen.indexOf('const fromM = distanceAlongTrack'));
+    expect(from.slice(0, 200)).toContain('trackDm');
+    expect(from.slice(0, 400).split('const toM')[1] ?? '').toContain('trackDm');
+  });
+
+  it('без шкалы срез профиля не строится вовсе', () => {
+    // Показать срез в чужой мерке значит соврать о рельефе впереди: профиль
+    // индексирован полной длиной, а прореженная ломаная короче.
+    const screen = read('app/planning/_PlanningClient.tsx');
+    expect(screen).toMatch(/if \(!trackDm\) return null;/);
   });
 });
 
