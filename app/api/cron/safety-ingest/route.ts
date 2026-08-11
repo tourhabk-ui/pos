@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
+import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
@@ -305,6 +306,7 @@ function buildResponse(
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
   extras?: { delegated_to_heartbeat?: string[] },
+  pruned?: PruneResult,
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -405,6 +407,9 @@ function buildResponse(
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
+    // Сколько протухших по жанру записей снято этим прогоном. Ноль здесь —
+    // «проверено, чисто», а не «не проверяли»: поле есть всегда.
+    pruned_genres: pruned ?? null,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
     // #883 (A): источники, которых в этом ответе НЕТ числами, потому что их
     // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
@@ -435,6 +440,15 @@ export async function GET(req: Request) {
     firms: firmsResult,
     total_inserted: ingestAllResult.total_inserted + firmsResult.inserted,
   };
+  // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
+  // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
+  // старой записи — репортаж «спасатели обеспечили безопасность тургруппы».
+  // Страж этот глагол знает, но запись попала в базу раньше него, а ручная
+  // чистка (миграция 846) шла своим списком глаголов на SQL и до «обеспечила
+  // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
+  // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
+  // он разложит отбракованное по точкам заново.
+  const pruned = await pruneRejectedGenres(query);
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
@@ -450,7 +464,7 @@ export async function GET(req: Request) {
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get');
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get', undefined, pruned);
 }
 
 const HtmlBodySchema = z.object({
@@ -553,6 +567,15 @@ export async function POST(req: Request) {
     total_inserted: telegramResult.total_inserted
       + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0),
   };
+  // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
+  // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
+  // старой записи — репортаж «спасатели обеспечили безопасность тургруппы».
+  // Страж этот глагол знает, но запись попала в базу раньше него, а ручная
+  // чистка (миграция 846) шла своим списком глаголов на SQL и до «обеспечила
+  // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
+  // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
+  // он разложит отбракованное по точкам заново.
+  const pruned = await pruneRejectedGenres(query);
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
@@ -572,5 +595,5 @@ export async function POST(req: Request) {
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
-  });
+  }, pruned);
 }
