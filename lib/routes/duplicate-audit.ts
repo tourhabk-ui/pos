@@ -193,6 +193,16 @@ export interface DuplicateAudit {
    * карте и не найти «рядом со мной», и это отдельная беда, не двойники.
    */
   routes_without_anchor: number;
+  /**
+   * Откуда взялись записи без якоря — по источнику и категории.
+   *
+   * Сто двенадцать записей из четырёхсот двадцати одной нельзя ни показать на
+   * карте, ни найти «рядом со мной». Чинить их можно двумя очень разными
+   * способами — дозаполнить координаты или удалить как мусор импорта, — и
+   * выбор зависит от того, ОДИН это источник или все понемногу. Пока это
+   * неизвестно, любая правка будет догадкой.
+   */
+  anchorless_by_source: Array<{ source: string; category: string; routes: number; sample: string[] }>;
   thresholds: { same_spot_km: number; stem_len: number };
   worst: DuplicatePair[];
   duration_ms: number;
@@ -249,6 +259,30 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
       sample: r.sample ?? [],
     }))
     .filter((c): c is AnchorCluster => c.lat !== null && c.lng !== null);
+
+  // Происхождение записей без якоря. Отдельным запросом, а не по строкам
+  // ниже: источник нужен только здесь, и тащить его через всю попарную
+  // развёртку значит носить с собой то, что нужно одной строке отчёта.
+  const anchorlessRes = await pool.query<{
+    source: string | null; category: string | null; n: string; sample: string[];
+  }>(
+    `SELECT source_name AS source, category, COUNT(*)::text AS n,
+            (array_agg(title ORDER BY title))[1:3] AS sample
+       FROM kamchatka_routes
+      WHERE (is_visible = TRUE OR is_visible IS NULL)
+        AND title IS NOT NULL
+        AND (lat IS NULL OR lng IS NULL)
+      GROUP BY 1, 2
+      ORDER BY COUNT(*) DESC`,
+  );
+  const anchorless_by_source = anchorlessRes.rows.map((r) => ({
+    // «(не указан)», а не пустая строка: отсутствие источника — это тоже
+    // сведение о происхождении, и его надо видеть, а не принимать за пробел.
+    source: r.source ?? '(не указан)',
+    category: r.category ?? '(без категории)',
+    routes: parseInt(r.n, 10),
+    sample: r.sample ?? [],
+  }));
 
   const res = await pool.query<Row>(
     `SELECT id::text, title, lat::text, lng::text
@@ -317,6 +351,7 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     by_kind,
     routes_in_duplicates: involved.size,
     routes_without_anchor: routes.filter((r) => r.lat === null || r.lng === null).length,
+    anchorless_by_source,
     thresholds: { same_spot_km: SAME_SPOT_KM, stem_len: STEM },
     worst: pairs.slice(0, 25),
     duration_ms: Date.now() - startedAt,
