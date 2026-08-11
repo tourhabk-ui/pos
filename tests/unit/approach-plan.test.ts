@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  projectOnTrack, approachPlan, straightKm, ON_TRACK_TOLERANCE_KM,
+  projectOnTrack, approachPlan, straightKm, ON_TRACK_TOLERANCE_KM, DATA_CONFLICT_KM,
 } from '@/lib/on-route/approach';
 
 /** Тропа с юга на север по одному меридиану: удобно считать в уме. */
@@ -115,5 +115,35 @@ describe('прямая по-прежнему считается прямой', (
     const byLat = straightKm({ lat: 53, lng: 158 }, { lat: 54, lng: 158 });
     const byLng = straightKm({ lat: 53, lng: 158 }, { lat: 53, lng: 159 });
     expect(byLng).toBeLessThan(byLat);
+  });
+});
+
+describe('когда точка и трек про разное — считать нечего', () => {
+  it('цель в двадцати километрах от трека: это не длинный подход, а кривые данные', () => {
+    // Скриншот 11.08: «Мыс Маячный» на южном берегу входа в Авачинскую бухту,
+    // трек — по дорогам вдоль северного, между ними вода. Экран показывал
+    // «20.3 км» и «придём через 5 ч 45 м» — числа, по которым не дойти.
+    const p = approachPlan(
+      { lat: 53.02, lng: 158.00 }, { lat: 53.10, lng: 158.40 }, MERIDIAN,
+    )!;
+    expect(p.exitKm).toBeGreaterThan(DATA_CONFLICT_KM);
+    expect(p.dataConflict).toBe(true);
+  });
+
+  it('двести метров в стороне — обычная неточность, не конфликт', () => {
+    const p = approachPlan(
+      { lat: 53.02, lng: 158.00 }, { lat: 53.10, lng: 158.003 }, MERIDIAN,
+    )!;
+    expect(p.dataConflict).toBe(false);
+  });
+
+  it('порог считает ТОЛЬКО отрыв цели: далеко стоящий человек данные не портит', () => {
+    // Турист может законно быть в тридцати километрах от начала маршрута.
+    // Это про него, а не про качество данных маршрута.
+    const p = approachPlan(
+      { lat: 53.02, lng: 158.50 }, { lat: 53.10, lng: 158.00 }, MERIDIAN,
+    )!;
+    expect(p.userOffTrack).toBe(true);
+    expect(p.dataConflict).toBe(false);
   });
 });
