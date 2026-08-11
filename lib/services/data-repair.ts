@@ -60,6 +60,8 @@ export interface RepairItem {
 
 export interface DataRepairResult {
   dry_run: boolean;
+  /** Чем сужено применение: имя шага или null, если применяются все. */
+  only: string | null;
   bogus_clusters: number;
   bogus_places: number;
   coords_from_track: number;
@@ -288,11 +290,43 @@ interface TrackRow {
   geometry: { coordinates?: number[][] } | null;
 }
 
-export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
+/**
+ * Ремонт данных.
+ *
+ * @param dryRun  true — только диагностика, ни одного UPDATE.
+ * @param only    имя шага (`step` в items). Задан — ПРИМЕНЯЕТ только его,
+ *                остальные в этом прогоне остаются диагностикой.
+ *
+ * Зачем `only`. Конвейер копил шаги с июля, и запустить его целиком ради
+ * одного действия значит согласиться на все сразу: чтобы 11.08 убрать 26
+ * заметок сайта из справочника маршрутов, apply в том же прогоне спрятал бы
+ * ещё шесть мест и отвязал две путевые точки — о чём никто не просил.
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+export async function runDataRepair(dryRunInput = true, only?: string): Promise<DataRepairResult> {
   const t0 = Date.now();
+
+  const apply = !dryRunInput;
+
+  // Шаг пишет, только если применяем вообще И (не сужено ИЛИ сужено именно
+  // на него).
+  const writes = (step: string) => apply && (!only || only === step);
+
+  // А шаги, написанные до появления `only`, спрашивают `dryRun` напрямую —
+  // их десяток, и переписывать все ради одного прогона значит трогать
+  // работающее без нужды. Поэтому при сужении они видят обычный сухой
+  // прогон: сужение ОБЯЗАНО глушить и их, иначе адресность мнимая и apply
+  // по одному шагу тихо применит остальные.
+  //
+  // Имя параметра не трогаем: смысл первого аргумента у него «сухой прогон»,
+  // и переворот значения молча инвертировал бы три десятка существующих
+  // вызовов — тот самый дефект, за которым мы охотимся весь день.
+  const dryRun = dryRunInput || Boolean(only);
   const items: RepairItem[] = [];
   const res: DataRepairResult = {
-    dry_run: dryRun,
+    dry_run: dryRunInput,
+    only: only ?? null,
     bogus_clusters: 0,
     bogus_places: 0,
     coords_from_track: 0,
@@ -993,7 +1027,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
       for (const r of anchorless) {
         const hit = byName.get(normalizeTitle(r.title));
         if (!hit || hit === 'ambiguous') continue;
-        if (!dryRun) {
+        if (writes('anchor_from_place')) {
           await pool.query(
             `UPDATE kamchatka_routes
                 SET lat = $1, lng = $2,
@@ -1057,7 +1091,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
           AND substring(source_url from '^https?://[^/]+(/[^/?#]*)') = '/note'`,
     );
     for (const n of notes) {
-      if (!dryRun) {
+      if (writes('source_note')) {
         await pool.query(
           `UPDATE kamchatka_routes
               SET is_visible = FALSE,

@@ -1,10 +1,16 @@
 /**
- * GET /api/cron/data-repair?secret=<CRON_SECRET>[&apply=1]
+ * GET /api/cron/data-repair?secret=<CRON_SECRET>[&apply=1][&only=<шаг>]
  *
  * Ремонт географических данных по итогам инвентаризации: фейковые
  * координаты-заглушки, дубли мест, привязка треков всех источников,
  * нормализация source_name, места-статьи. Без apply=1 — dry-run
  * (диагностика, ни одного UPDATE). Дергается workflow'ом data-repair.yml.
+ *
+ * `only=<шаг>` сужает ПРИМЕНЕНИЕ до одного шага; остальные в этом прогоне
+ * остаются диагностикой. Понадобилось 11.08: чтобы убрать 26 заметок сайта
+ * из справочника маршрутов, пришлось бы запустить apply целиком — а он в том
+ * же прогоне спрятал бы ещё шесть мест и отвязал две путевые точки, о чём
+ * никто не просил. Согласие на одно действие не есть согласие на все.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,9 +29,10 @@ export async function GET(request: NextRequest) {
   }
 
   const apply = request.nextUrl.searchParams.get('apply') === '1';
+  const only = request.nextUrl.searchParams.get('only') ?? undefined;
   const startedAt = new Date();
   try {
-    const result = await runDataRepair(!apply);
+    const result = await runDataRepair(!apply, only);
 
     void logAgentRun({
       agent_id: 'data-repair',

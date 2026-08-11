@@ -636,3 +636,75 @@ describe('шаг 9d: заметки источника', () => {
     expect((await runDataRepair(true)).hidden_source_notes).toBe(0);
   });
 });
+
+/**
+ * Сужение применения одним шагом.
+ *
+ * Конвейер копит шаги с июля. Запустить его целиком ради одного действия
+ * значит согласиться на все сразу: 11.08, чтобы убрать 26 заметок сайта из
+ * справочника маршрутов, apply в том же прогоне спрятал бы ещё шесть мест и
+ * отвязал две путевые точки — о чём никто не просил.
+ *
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+describe('only: применяется один шаг, остальные остаются диагностикой', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  function withNotes() {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes("= '/note'") && sql.includes('SELECT')) {
+        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }] });
+      }
+      // Кластер фейковых координат — шаг СТАРШЕ появления `only`.
+      if (sql.includes('HAVING COUNT(*) >= 3') && sql.includes('SELECT lat')) {
+        return Promise.resolve({ rows: [{ lat: 55, lng: 160, n: 3 }] });
+      }
+      if (sql.includes('JOIN (')) {
+        return Promise.resolve({ rows: [{ id: 'p1', ark_id: 'a1', name: 'Бухта Русская', lat: 55, lng: 160 }] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  it('названный шаг пишет', async () => {
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const hid = queryMock.mock.calls.some(([sql]) =>
+      /is_visible = FALSE[\s\S]*source_section_note/.test(String(sql ?? '')));
+    expect(hid).toBe(true);
+  });
+
+  it('шаги СТАРШЕ появления only при сужении молчат', async () => {
+    // Здесь и был бы тихий дефект: сужение, которое глушит только новые шаги,
+    // — сужение мнимое.
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const touchedPlaces = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE\s+places/i.test(String(sql ?? '')));
+    expect(touchedPlaces).toBe(false);
+  });
+
+  it('чужое имя шага — не пишет никто', async () => {
+    withNotes();
+    await runDataRepair(false, 'anchor_from_place');
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE/i.test(String(sql ?? '')));
+    expect(wrote).toBe(false);
+  });
+
+  it('без сужения поведение прежнее, и смысл первого аргумента не перевёрнут', async () => {
+    // true = сухой прогон, как было у трёх десятков существующих вызовов.
+    withNotes();
+    const res = await runDataRepair(true);
+    expect(res.dry_run).toBe(true);
+    expect(res.only).toBeNull();
+    expect(queryMock.mock.calls.some(([sql]) => /^\s*UPDATE/i.test(String(sql ?? '')))).toBe(false);
+  });
+
+  it('чем сужено — видно в ответе', async () => {
+    withNotes();
+    expect((await runDataRepair(false, 'source_note')).only).toBe('source_note');
+  });
+});
