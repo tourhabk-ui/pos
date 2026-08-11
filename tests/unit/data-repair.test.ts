@@ -827,6 +827,42 @@ describe('шаг 8b: похожие имена, расстояние как св
     expect((await runDataRepair(true)).name_pairs.subset).toBe(0);
   });
 
+  it('добавлено имя СОБСТВЕННОЕ — это другой объект, не дубль', async () => {
+    // Проба 56: одно короткое слово цепляло всё, где оно встречается.
+    // «Камень» дал шесть пар, верна из них одна. Разница между именами
+    // обязана быть родовой — иначе перед нами два разных места.
+    scene([place('p1', 'Камень'), place('p2', 'Камень Амбон')]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(0);
+    expect(res.name_pairs.distinct_extra).toBe(1);
+  });
+
+  it('добавлены только РОДОВЫЕ слова — та же гора', async () => {
+    scene([place('p1', 'Камень'), place('p2', 'Вулкан Камень')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(1);
+  });
+
+  it('«Узон» и «Кальдера вулкана Узон» — одно место', async () => {
+    scene([place('p1', 'Узон'), place('p2', 'Кальдера вулкана Узон')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(1);
+  });
+
+  it('тропа, названная по долине, самой долиной не становится', async () => {
+    // «Долина смерти» ⊂ «Тропа медведя (долина смерти)»: добавлено «медведя»
+    // — слово собственное, объект другой.
+    scene([place('p1', 'Долина смерти'), place('p2', 'Тропа медведя (долина смерти)')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(0);
+  });
+
+  it('в паре сперва короткое имя, потом длинное', async () => {
+    // Порядок в строке отчёта — не косметика: по нему видно, что чему
+    // вложено, без сверки длин глазом.
+    scene([place('p2', 'Вулкан Камень'), place('p1', 'Камень')]);
+    const res = await runDataRepair(true);
+    const line = res.items.find((i) => i.step === 'name_pair')!.detail;
+    expect(line.indexOf('«Камень»')).toBeLessThan(line.indexOf('«Вулкан Камень»'));
+  });
+
   it('нет координат — «расстояние неизвестно», а не ноль километров', async () => {
     scene([place('p1', 'Вулкан Жупановский', null, null), place('p2', 'Жупановский')]);
     expect(pairs(await runDataRepair(true))[0].detail).toContain('неизвестно');
