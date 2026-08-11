@@ -34,7 +34,9 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { importKmlTrack } from '@/lib/import/kml-inbox';
-import { runDuplicateAudit, endpoints, sameSubject } from '@/lib/routes/duplicate-audit';
+import {
+  runDuplicateAudit, endpoints, sameSubject, isLatinTitle,
+} from '@/lib/routes/duplicate-audit';
 
 beforeEach(() => {
   poolQueryMock.mockReset();
@@ -252,6 +254,43 @@ describe('перепись отвечает на вопрос «сколько �
     // Отсутствие источника — тоже сведение, а не пробел в таблице.
     expect(audit.anchorless_by_source[1].source).toBe('(не указан)');
     expect(audit.anchorless_by_source[1].category).toBe('(без категории)');
+  });
+
+  it('маршрутность подтверждается уликами, а не названием', async () => {
+    // «История Камчатки» — статья сайта, затянутая скрейпером в справочник
+    // МАРШРУТОВ. Судить об этом по словам было бы гаданием; проверяемый факт —
+    // что у записи нет ни координат, ни линии, ни единой путевой точки.
+    const anchorless = [
+      { id: 'a1', title: 'История Камчатки', has_geometry: false, waypoints: '0' },
+      { id: 'a2', title: 'Растения Камчатки', has_geometry: false, waypoints: '0' },
+      { id: 'a3', title: 'Озеро Крокур', has_geometry: true, waypoints: '0' },
+      { id: 'a4', title: 'SUP-маршрут по реке Пиначевская', has_geometry: false, waypoints: '4' },
+      { id: 'a5', title: 'dachnye istochniki', has_geometry: false, waypoints: '0' },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: /route_waypoints/i.test(sql) ? anchorless : [] }));
+
+    const e = (await runDuplicateAudit()).anchorless_evidence;
+    expect(e.nothing_at_all).toBe(3);
+    expect(e.has_geometry).toBe(1);
+    expect(e.has_waypoints).toBe(1);
+    expect(e.nothing_at_all_sample).toContain('История Камчатки');
+    // Линия или точки — свидетельство места; такие дозаполняют, а не удаляют.
+    expect(e.nothing_at_all_sample).not.toContain('Озеро Крокур');
+    expect(e.nothing_at_all_sample).not.toContain('SUP-маршрут по реке Пиначевская');
+  });
+
+  it('латинский заголовок — слаг из адреса, и он в отдельном счёте', async () => {
+    // «dachnye istochniki» и «Дачные источники» — одна и та же точка двумя
+    // записями, и совпадение по имени их не склеит никогда. Это переименовать,
+    // а не удалить, поэтому счёт отдельный от «ничем не подтверждена».
+    expect(isLatinTitle('dachnye istochniki')).toBe(true);
+    expect(isLatinTitle('gornyy massiv vachkazhets')).toBe(true);
+    expect(isLatinTitle('Дачные источники')).toBe(false);
+    // Латиница внутри русского названия — законна, это не слаг.
+    expect(isLatinTitle('SUP-маршрут по реке Пиначевская')).toBe(false);
+    // И запись без единой буквы слагом не объявляем.
+    expect(isLatinTitle('5')).toBe(false);
   });
 
   it('пустая строка координаты — тоже не ноль', async () => {
