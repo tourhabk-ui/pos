@@ -25,6 +25,7 @@
 import { pool } from '@/lib/db-pool';
 import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
+import { isScatteredCollection, boundingSpanKm } from '@/lib/routes/geometry-compact';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -36,6 +37,16 @@ export interface RouteFlaw {
   worstOffTrackKm: number;
   waypoints: number;
   trackPoints: number;
+}
+
+export interface CollectionFlaw {
+  id: string;
+  title: string;
+  /** Габарит набора, км: сколько края он накрывает. */
+  spanKm: number;
+  waypoints: number;
+  /** По чему опознана подборка. */
+  by: 'waypoints' | 'geometry';
 }
 
 export interface GeometryAudit {
@@ -57,6 +68,27 @@ export interface GeometryAudit {
   consistent: number;
   /** Порог, по которому считался конфликт. */
   conflict_km: number;
+  /**
+   * Не маршрут, а подборка мест: точки разбросаны по краю, пути между ними
+   * нет по смыслу.
+   *
+   * Считается ТЕМ ЖЕ правилом, что уже не даёт предлагать «идти по маршруту»
+   * на экране выбора (`isScatteredCollection`: сегмент длиннее 25 км ИЛИ
+   * габарит набора шире 25 км). Своего порога не заводим: второе правило об
+   * одном и том же разойдётся с первым — это мы уже проходили с чисткой
+   * алертов.
+   *
+   * Разделение обязано идти ДО сведения данных в единый слой. Иначе реестр
+   * честно запишет геометрию объекту, у которого пути нет вовсе, и закрепит
+   * бессмыслицу вместо того, чтобы её убрать.
+   */
+  collections: number;
+  /** Из них подборка видна по разбросу ТОЧЕК. */
+  collections_by_waypoints: number;
+  /** Из них подборка видна по разбросу самой ЛИНИИ (точек могло не быть). */
+  collections_by_geometry: number;
+  /** Худшие подборки: по ним видно, что это тематические наборы, а не пути. */
+  worst_collections: CollectionFlaw[];
   /** Худшие расхождения — с них и начинать разбор. */
   worst: RouteFlaw[];
   duration_ms: number;
@@ -129,7 +161,9 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   let no_geometry = 0, no_waypoints = 0, sketch_geometry = 0, surveyed_geometry = 0;
   let conflicting = 0, consistent = 0;
+  let collections = 0, collections_by_waypoints = 0, collections_by_geometry = 0;
   const flaws: RouteFlaw[] = [];
+  const collectionFlaws: CollectionFlaw[] = [];
 
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
     const track = geometryToTrack(r.geometry);
@@ -137,10 +171,32 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
     // trackFidelity считает по парам [широта, долгота] — тому же виду, что
     // приходит с экрана; форму приводим здесь, правило не дублируем.
-    if (trackFidelity(track.map((p) => [p.lat, p.lng] as [number, number])) === 'sketch') sketch_geometry += 1;
+    const pairs = track.map((p) => [p.lat, p.lng] as [number, number]);
+    if (trackFidelity(pairs) === 'sketch') sketch_geometry += 1;
     else surveyed_geometry += 1;
 
     const wps = byRoute.get(r.id) ?? [];
+    const wpPairs = wps.map((w) => [w.lat, w.lng] as [number, number]);
+
+    // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
+    // Иначе объект без пути по смыслу попадёт в «конфликтующие маршруты» и
+    // будет числиться чинимым — а чинить там нечего, там другая сущность.
+    const scatteredWps = wpPairs.length >= 2 && isScatteredCollection(wpPairs);
+    const scatteredGeo = isScatteredCollection(pairs);
+    if (scatteredWps || scatteredGeo) {
+      collections += 1;
+      if (scatteredWps) collections_by_waypoints += 1;
+      else collections_by_geometry += 1;
+      collectionFlaws.push({
+        id: r.id,
+        title: r.title ?? '(без названия)',
+        spanKm: Math.round(boundingSpanKm(scatteredWps ? wpPairs : pairs)),
+        waypoints: wps.length,
+        by: scatteredWps ? 'waypoints' : 'geometry',
+      });
+      return;
+    }
+
     if (wps.length === 0) { no_waypoints += 1; return; }
 
     let worst = 0;
@@ -163,6 +219,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   });
 
   flaws.sort((a, b) => b.worstOffTrackKm - a.worstOffTrackKm);
+  collectionFlaws.sort((a, b) => b.spanKm - a.spanKm);
 
   return {
     routes_total,
@@ -174,6 +231,10 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     conflicting,
     consistent,
     conflict_km: DATA_CONFLICT_KM,
+    collections,
+    collections_by_waypoints,
+    collections_by_geometry,
+    worst_collections: collectionFlaws.slice(0, 15),
     worst: flaws.slice(0, 15),
     duration_ms: Date.now() - startedAt,
   };
