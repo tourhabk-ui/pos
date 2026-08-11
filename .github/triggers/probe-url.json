@@ -1,16 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/data-repair"
+    "https://vedarai.ru/api/cron/route-data-audit"
   ],
-  "bytes": 300,
+  "bytes": 900,
   "timeout": 300,
   "retries": 30,
   "retryDelay": 45,
-  "until": "hidden_source_notes",
-  "note": "Проба 53: ДИАГНОСТИКА шага 9d, без apply. Сколько записей источник опубликовал как заметки, а не маршруты. Ожидание — около двадцати шести (столько безъякорных под /note дала проба 52); заметно больше означало бы, что под /note лежат и записи С координатами, и тогда прежде применения надо смотреть, что именно там. Список имён — через around по source_note.",
-  "grep": ["hidden_source_notes", "source_note"],
-  "around": ["source_note"],
-  "aroundLines": 3,
-  "aroundHits": 14,
-  "run": 53
+  "until": "suspect_swapped",
+  "note": "Проба 54: формы геометрии. Ожидание записано заранее, чтобы себя проверить: by_type почти сплошной LineString, unsupported ноль или единицы. Если так — нормализатор Feature/MultiLineString не нужен, работа сводится к валидации диапазонов и раздельным статусам missing/unsupported/invalid. Если unsupported заметен — значит я неверно понял, откуда берётся геометрия, и прав план Manus, а не я. Отдельно смотрю suspect_swapped: перепутанные оси объясняли бы «линию, которая идёт не туда» лучше любой гипотезы про обёртки.",
+  "grep": ["shapes", "unsupported", "suspect_swapped"],
+  "around": ["shapes"],
+  "aroundLines": 30,
+  "aroundHits": 1,
+  "run": 54
 }
