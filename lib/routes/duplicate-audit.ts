@@ -260,9 +260,13 @@ export interface DuplicateAudit {
    * Пятнадцать с путевыми точками — единственная группа, где положение
    * выводится из имеющегося, а не выдумывается (миграция 847).
    *
+   * Чем СТАТЬЮ отличить от маршрута — см. `anchorless_by_url_path`: адрес
+   * страницы у источника, а не слова в названии.
+   *
    * Все они при этом видимы: перепись считает только `is_visible` — то есть
    * «Растения Камчатки» лежат в справочнике маршрутов как маршрут.
    */
+  anchorless_by_url_path: Array<{ path: string; routes: number; sample: string[] }>;
   anchorless_evidence: {
     /** Ни координат, ни линии, ни путевых точек — маршрутность ничем не подтверждена. */
     nothing_at_all: number;
@@ -349,6 +353,32 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
       GROUP BY 1, 2
       ORDER BY COUNT(*) DESC`,
   );
+  // Что о безъякорной записи говорит АДРЕС её страницы у источника.
+  //
+  // Задача владельца 11.08 («статьи — из маршрутов в описание мест») упирается
+  // в улику: по названию статья от маршрута не отличается, это доказала проба
+  // 49. А сайт-источник раскладывает свои страницы по разделам сам, и раздел —
+  // его собственное утверждение о том, что за страницу он опубликовал. Мы это
+  // утверждение читаем, а не выводим из слов.
+  const urlPathRes = await pool.query<{ path: string | null; n: string; sample: string[] }>(
+    `SELECT substring(source_url from '^https?://[^/]+(/[^/?#]*)') AS path,
+            COUNT(*)::text AS n,
+            (array_agg(title ORDER BY title))[1:4] AS sample
+       FROM kamchatka_routes
+      WHERE (is_visible = TRUE OR is_visible IS NULL)
+        AND title IS NOT NULL
+        AND (lat IS NULL OR lng IS NULL)
+      GROUP BY 1
+      ORDER BY COUNT(*) DESC`,
+  );
+  const anchorless_by_url_path = urlPathRes.rows.map((r) => ({
+    // «(адреса нет)», а не пустая строка: отсутствие адреса означает, что
+    // сказать о записи нечего, и это надо видеть, а не принимать за раздел.
+    path: r.path ?? '(адреса нет)',
+    routes: parseInt(r.n, 10),
+    sample: r.sample ?? [],
+  }));
+
   const anchorless_by_source = anchorlessRes.rows.map((r) => ({
     // «(не указан)», а не пустая строка: отсутствие источника — это тоже
     // сведение о происхождении, и его надо видеть, а не принимать за пробел.
@@ -453,6 +483,7 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     routes_in_duplicates: involved.size,
     routes_without_anchor: routes.filter((r) => r.lat === null || r.lng === null).length,
     anchorless_by_source,
+    anchorless_by_url_path,
     anchorless_evidence: {
       nothing_at_all: nothingAtAll.length,
       has_geometry: hasGeometry,

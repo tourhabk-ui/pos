@@ -256,6 +256,24 @@ describe('перепись отвечает на вопрос «сколько �
     expect(audit.anchorless_by_source[1].category).toBe('(без категории)');
   });
 
+  it('раздел сайта в адресе — улика, которой нет в названии', async () => {
+    // Владелец: «статьи — из маршрутов в описание мест». По названию статью
+    // от маршрута не отличить (проба 49), а сайт-источник раскладывает свои
+    // страницы по разделам сам — и раздел это его собственное утверждение.
+    const byPath = [
+      { path: '/info', n: '17', sample: ['История Камчатки', 'Растения Камчатки'] },
+      { path: '/marshruty', n: '54', sample: ['5 стройка–Центральный'] },
+      { path: null, n: '26', sample: ['Без адреса'] },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: /substring\(source_url/i.test(sql) ? byPath : [] }));
+
+    const audit = await runDuplicateAudit();
+    expect(audit.anchorless_by_url_path[0]).toMatchObject({ path: '/info', routes: 17 });
+    // Нет адреса — значит сказать нечего; это не пустой раздел.
+    expect(audit.anchorless_by_url_path[2].path).toBe('(адреса нет)');
+  });
+
   it('маршрутность подтверждается уликами, а не названием', async () => {
     // «История Камчатки» — статья сайта, затянутая скрейпером в справочник
     // МАРШРУТОВ. Судить об этом по словам было бы гаданием; проверяемый факт —
