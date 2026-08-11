@@ -565,75 +565,116 @@ describe('шаг 9c: якорь от одноимённого места', () =>
 /**
  * Шаг 9d: заметки сайта — вон из справочника маршрутов.
  *
- * Задача владельца («статьи — из маршрутов в описание мест») упиралась в
- * улику. По названию статья от маршрута не отличается: проба 49 положила в
- * одну кучу «Флору Камчатки», «Поселок Эссо» и «Восхождение на Плоский
- * Толбачик». Улику дал адрес — проба 52 разложила 97 безъякорных записей по
- * разделам источника начисто: /upload 67, /note 26, /routes 4.
+ * Две команды владельца 11.08 подряд: «статьи — убирать с маршрутов в
+ * описание мест», затем «если не знаешь — удаляй». Шаг исполняет обе, и
+ * порядок здесь не косметический: сперва спасти текст, потом удалять.
+ * Обратный порядок невозможен — удалённое не переносят.
  *
- * Раздел «note» — слово самого источника: он опубликовал заметку. Это
- * читается, а не выводится из смысла заголовка.
+ * Улику дал адрес: по названию статья от маршрута не отличается (проба 49
+ * положила в одну кучу «Флору Камчатки», «Поселок Эссо» и «Восхождение на
+ * Плоский Толбачик»), а раздел источника отличает — проба 52: /note 26.
  */
 describe('шаг 9d: заметки источника', () => {
   const NOTE_SQL = "= '/note'";
 
-  function onlyNotes(rows: Array<{ id: string; title: string; path: string }>) {
-    queryMock.mockImplementation((raw: unknown) => {
+  function scene(opts: {
+    notes: Array<{ id: string; title: string; description: string | null }>;
+    places?: Array<{ id: string; name: string; description: string | null }>;
+    tourRefs?: number;
+  }) {
+    queryMock.mockImplementation((raw: unknown, params?: unknown) => {
       const sql = String(raw ?? '');
-      if (sql.includes(NOTE_SQL) && sql.includes('SELECT')) return Promise.resolve({ rows });
+      if (sql.includes(NOTE_SQL)) return Promise.resolve({ rows: opts.notes });
+      if (sql.includes('FROM places') && sql.includes('name IS NOT NULL')) {
+        return Promise.resolve({ rows: opts.places ?? [] });
+      }
+      if (sql.includes('FROM operator_tours')) {
+        return Promise.resolve({ rows: [{ n: String(opts.tourRefs ?? 0) }] });
+      }
       return Promise.resolve({ rows: [], rowCount: 0 });
     });
   }
 
+  const sqls = () => queryMock.mock.calls.map(([sql]) => String(sql ?? ''));
+
   beforeEach(() => queryMock.mockReset());
 
-  it('заметки считаются', async () => {
-    onlyNotes([
-      { id: 'n1', title: 'Вулканы Камчатки', path: '/note' },
-      { id: 'n2', title: 'Водопады Камчатки', path: '/note' },
-    ]);
-    expect((await runDataRepair(true)).hidden_source_notes).toBe(2);
+  it('нет тёзки — запись удаляется', async () => {
+    // «Растения Камчатки» — обзорная статья про всю Камчатку. Единственного
+    // места у неё нет по смыслу, переносить некуда.
+    scene({ notes: [{ id: 'n1', title: 'Растения Камчатки', description: 'текст' }] });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_deleted).toBe(1);
+    expect(res.notes_text_moved).toBe(0);
+    expect(sqls().some((q) => /DELETE FROM kamchatka_routes/.test(q))).toBe(true);
   });
 
-  it('dry-run не прячет', async () => {
-    onlyNotes([{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }]);
-    await runDataRepair(true);
-    const hid = queryMock.mock.calls.some(([sql]) =>
-      /is_visible = FALSE[\s\S]*source_section_note/.test(String(sql ?? '')));
-    expect(hid).toBe(false);
+  it('есть тёзка — текст переезжает, и ТОЛЬКО потом удаление', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Азабачье', description: 'Длинное описание озера' }],
+      places: [{ id: 'p1', name: 'Озеро Азабачье', description: null }],
+    });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_text_moved).toBe(1);
+    expect(res.notes_deleted).toBe(1);
+
+    const order = sqls();
+    const moved = order.findIndex((q) => /UPDATE places[\s\S]*description/.test(q));
+    const killed = order.findIndex((q) => /DELETE FROM kamchatka_routes/.test(q));
+    expect(moved).toBeGreaterThanOrEqual(0);
+    // Порядок — суть шага: удалённое не переносят.
+    expect(moved).toBeLessThan(killed);
   });
 
-  it('apply снимает видимость и НЕ удаляет запись', async () => {
-    // Вторая половина задачи — «в описание мест» — требует цели, а у обзорной
-    // заметки «Вулканы Камчатки» единственного места нет по смыслу: она про
-    // все вулканы сразу. Пока цель не найдена, текст должен лежать в
-    // сохранности, а не быть стёртым ради чистоты витрины.
-    onlyNotes([{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }]);
-    await runDataRepair(false);
-
-    const calls = queryMock.mock.calls.map(([sql]) => String(sql ?? ''));
-    const hide = calls.find((s) => /is_visible = FALSE[\s\S]*source_section_note/.test(s));
-    expect(hide).toBeDefined();
-    // Ни одного DELETE по маршрутам: скрыть — не значит стереть.
-    expect(calls.some((s) => /DELETE\s+FROM\s+kamchatka_routes/i.test(s))).toBe(false);
+  it('богатое описание места чужим текстом не перетирается', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Поселок Эссо', description: 'кратко' }],
+      places: [{ id: 'p1', name: 'Поселок Эссо', description: 'уже подробное описание посёлка Эссо' }],
+    });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_text_moved).toBe(0);
+    // Запись всё равно уходит: маршрутом она не является.
+    expect(res.notes_deleted).toBe(1);
   });
 
-  it('след причины остаётся в записи', async () => {
-    // Через месяц должно быть видно, что запись спрятана ПО РАЗДЕЛУ
-    // ИСТОЧНИКА, а не по чьему-то впечатлению от названия.
-    onlyNotes([{ id: 'n1', title: 'Бухты Камчатки', path: '/note' }]);
-    await runDataRepair(false);
-    const hide = queryMock.mock.calls
-      .map(([sql]) => String(sql ?? ''))
-      .find((s) => /remove_reason/.test(s));
-    expect(hide).toContain('source_section_note');
+  it('два места с одним именем — не выбираем, текст не переносим', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Безымянное', description: 'текст' }],
+      places: [
+        { id: 'p1', name: 'Озеро Безымянное', description: null },
+        { id: 'p2', name: 'Озеро Безымянное', description: null },
+      ],
+    });
+    expect((await runDataRepair(false, 'source_note')).notes_text_moved).toBe(0);
   });
 
-  it('раздел решает, а не слова в заголовке', async () => {
-    // «Вулканы Камчатки» из /note — заметка. Точно так же названная запись из
-    // другого раздела шагом не трогается: судим по утверждению источника.
-    queryMock.mockImplementation((raw: unknown) => Promise.resolve({ rows: [], rowCount: 0 }));
-    expect((await runDataRepair(true)).hidden_source_notes).toBe(0);
+  it('на запись ссылается тур — не удаляем', async () => {
+    // Удалить её значит сломать страницу тура, а это уже не уборка
+    // справочника. Такие называются поимённо и ждут человека.
+    scene({ notes: [{ id: 'n1', title: 'Вулканы Камчатки', description: 'текст' }], tourRefs: 2 });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_kept_referenced).toBe(1);
+    expect(res.notes_deleted).toBe(0);
+    expect(sqls().some((q) => /DELETE FROM kamchatka_routes/.test(q))).toBe(false);
+  });
+
+  it('точки маршрута удаляются вместе с ним', async () => {
+    // Внешнего ключа у route_waypoints нет — без этой строки остались бы
+    // висеть сироты, ссылающиеся в пустоту.
+    scene({ notes: [{ id: 'n1', title: 'Юг Камчатки', description: null }] });
+    await runDataRepair(false, 'source_note');
+    expect(sqls().some((q) => /DELETE FROM route_waypoints/.test(q))).toBe(true);
+  });
+
+  it('dry-run не удаляет и не переносит', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Азабачье', description: 'текст' }],
+      places: [{ id: 'p1', name: 'Озеро Азабачье', description: null }],
+    });
+    const res = await runDataRepair(true);
+    expect(res.notes_deleted).toBe(1); // счёт ведётся
+    expect(sqls().some((q) => /^\s*DELETE/i.test(q))).toBe(false);
+    expect(sqls().some((q) => /UPDATE places/.test(q))).toBe(false);
   });
 });
 
@@ -654,9 +695,10 @@ describe('only: применяется один шаг, остальные ос�
   function withNotes() {
     queryMock.mockImplementation((raw: unknown) => {
       const sql = String(raw ?? '');
-      if (sql.includes("= '/note'") && sql.includes('SELECT')) {
-        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }] });
+      if (sql.includes("= '/note'")) {
+        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', description: null }] });
       }
+      if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{ n: '0' }] });
       // Кластер фейковых координат — шаг СТАРШЕ появления `only`.
       if (sql.includes('HAVING COUNT(*) >= 3') && sql.includes('SELECT lat')) {
         return Promise.resolve({ rows: [{ lat: 55, lng: 160, n: 3 }] });
@@ -671,9 +713,9 @@ describe('only: применяется один шаг, остальные ос�
   it('названный шаг пишет', async () => {
     withNotes();
     await runDataRepair(false, 'source_note');
-    const hid = queryMock.mock.calls.some(([sql]) =>
-      /is_visible = FALSE[\s\S]*source_section_note/.test(String(sql ?? '')));
-    expect(hid).toBe(true);
+    const killed = queryMock.mock.calls.some(([sql]) =>
+      /DELETE FROM kamchatka_routes/.test(String(sql ?? '')));
+    expect(killed).toBe(true);
   });
 
   it('шаги СТАРШЕ появления only при сужении молчат', async () => {
