@@ -81,8 +81,62 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Конец трека в пределах этого радиуса от точки маршрута = совпадение по близости. */
+/** Габарит трека, км: диагональ его ограничивающего прямоугольника. */
+export function trackSpanKm(coords: number[][]): number {
+  if (coords.length < 2) return 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const [lng, lat] of coords) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  return haversineKm(minLat, minLng, maxLat, maxLng);
+}
+
+/**
+ * Расстояние от точки до ближайшей вершины трека, км.
+ *
+ * Именно до ВСЕГО трека: маршрут может лежать посередине пути, и мерить
+ * только до концов значит не увидеть очевидное совпадение — и увидеть
+ * ложное, когда мимо чужого конца прошли по дороге.
+ */
+export function distanceToTrackKm(lat: number, lng: number, coords: number[][]): number {
+  let best = Infinity;
+  for (const [cLng, cLat] of coords) {
+    const d = haversineKm(lat, lng, cLat, cLng);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/** Якорь маршрута в пределах этого радиуса от ТРЕКА = кандидат на совпадение. */
 export const MAX_MATCH_DIST_KM = 4;
+
+/**
+ * Насколько второй кандидат должен быть дальше первого, чтобы выбор считался
+ * однозначным.
+ *
+ * Без этого «ближайший из двух почти одинаковых» выдаётся за найденный
+ * маршрут. Полевой разбор 11.08: трек «Вулкан Ичинская сопка» привязался к
+ * «Эссовским (Уксичанским) термальным источникам» — разные объекты, и спасло
+ * только то, что у источников трек уже был.
+ */
+export const AMBIGUOUS_MARGIN_KM = 2;
+
+/**
+ * Длиннее этого трек по близости НЕ привязывается — только по имени.
+ *
+ * Причина камчатская и простая: длинный маршрут начинается у посёлка, а
+ * посёлок общий. Эссо — перевалка и к Уксичанским источникам, и к Ичинской
+ * сопке; старт трека в километре от Эссо не говорит о том, КУДА этот трек
+ * ведёт. Для короткого трека тот же километр — почти всё расстояние, и там
+ * близость действительно свидетельствует.
+ *
+ * Ошибка здесь дороже пропуска: непривязанный трек уходит на ревью и ждёт
+ * человека, а привязанный к чужому маршруту ведёт человека не туда.
+ */
+export const PROXIMITY_MAX_TRACK_KM = 10;
 
 /** Источники геометрии, поверх которых community-трек писать МОЖНО. */
 const OVERWRITABLE_SOURCES = new Set(['waypoints_synthetic', 'kml_inbox']);
@@ -95,7 +149,6 @@ export async function importKmlTrack(filename: string, xml: string): Promise<Kml
   }
 
   const [startLng, startLat] = parsed.coordinates[0];
-  const last = parsed.coordinates[parsed.coordinates.length - 1];
 
   const { rows } = await pool.query<{
     id: string; title: string; lat: string; lng: string; geom_source: string | null; has_geometry: boolean;
@@ -114,18 +167,32 @@ export async function importKmlTrack(filename: string, xml: string): Promise<Kml
     lngN: parseFloat(r.lng),
   }));
 
-  // 1) точное совпадение нормализованного названия; 2) ближайший маршрут,
-  // чей центр в MAX_MATCH_DIST_KM от начала ИЛИ конца трека
+  // 1) точное совпадение нормализованного названия — оно и есть надёжное.
   let match = candidates.find(r => normalizeTitle(r.title) === wanted) ?? null;
   let matchBy: 'name' | 'proximity' | null = match ? 'name' : null;
-  if (!match) {
-    let bestDist = MAX_MATCH_DIST_KM;
-    for (const r of candidates) {
-      const d = Math.min(
-        haversineKm(startLat, startLng, r.latN, r.lngN),
-        haversineKm(last[1], last[0], r.latN, r.lngN),
-      );
-      if (d < bestDist) { bestDist = d; match = r; matchBy = 'proximity'; }
+
+  // 2) близость — только как подстраховка и только когда она что-то значит.
+  //
+  // Прежняя редакция брала ОДИН конец трека и сравнивала с центром маршрута.
+  // На Камчатке это систематически неверно: маршруты стартуют из общих
+  // посёлков, и трек в десятки километров привязывался к тому, мимо чьего
+  // порога он прошёл. Так «Вулкан Ичинская сопка» стал «Эссовскими
+  // источниками» (лог импорта 26.07).
+  //
+  // Теперь три условия сразу, и каждое закрывает свою дыру:
+  //   длина  — длинный трек по близости не привязывается вовсе;
+  //   расстояние — считается до ВСЕГО трека, а не до его конца;
+  //   однозначность — второй кандидат обязан быть заметно дальше.
+  if (!match && trackSpanKm(parsed.coordinates) <= PROXIMITY_MAX_TRACK_KM) {
+    const ranked = candidates
+      .map(r => ({ r, d: distanceToTrackKm(r.latN, r.lngN, parsed.coordinates) }))
+      .sort((a, b) => a.d - b.d);
+    const best = ranked[0];
+    const second = ranked[1];
+    const unambiguous = !second || second.d - best.d >= AMBIGUOUS_MARGIN_KM;
+    if (best && best.d <= MAX_MATCH_DIST_KM && unambiguous) {
+      match = best.r;
+      matchBy = 'proximity';
     }
   }
 
