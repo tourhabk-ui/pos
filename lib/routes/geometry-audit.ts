@@ -25,16 +25,28 @@
 import { pool } from '@/lib/db-pool';
 import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
-import { isScatteredCollection, boundingSpanKm } from '@/lib/routes/geometry-compact';
+import { isScatteredCollection, boundingSpanKm, maxSegmentKm } from '@/lib/routes/geometry-compact';
+import { waypointFit, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
 
+/**
+ * Прыжок в линии, за которым она перестаёт быть путём, км.
+ *
+ * То же число, которым судит `isScatteredCollection` на экране выбора —
+ * своего порога не заводим. Отличается только НАБОР признаков: у линии
+ * габарит не улика (см. ниже), у набора точек — улика.
+ */
+const COLLECTION_JUMP_KM = 25;
+
 export interface RouteFlaw {
   id: string;
   title: string;
-  /** Худший отрыв точки от собственной линии, км. */
+  /** Худший отрыв точки от собственной линии, км. Мера БЕЗ порядка. */
   worstOffTrackKm: number;
+  /** Худший отход точки от линии, метры — та же величина точнее. */
+  maxOffsetM: number | null;
   waypoints: number;
   trackPoints: number;
 }
@@ -89,6 +101,21 @@ export interface GeometryAudit {
   collections_by_geometry: number;
   /** Худшие подборки: по ним видно, что это тематические наборы, а не пути. */
   worst_collections: CollectionFlaw[];
+  /**
+   * Как путевые точки сидят на линии — отход И ПОРЯДОК.
+   *
+   * Прежняя мера («самая дальняя точка от линии») верна, но не знает порядка:
+   * трек, проходящий те же места в обратную сторону, по ней неотличим от
+   * правильного. Порядок считается рядом, а не вместо: обе величины остаются
+   * в ответе, и видно, какая из них сработала.
+   *
+   * Каноническую меру похожести кривых (расстояние Фреше) я пробовал первой —
+   * она на этих данных меряет плотность разметки, а не расхождение путей
+   * (почему именно — в lib/routes/shape-match.ts).
+   */
+  by_shape: Record<WaypointFitVerdict, number>;
+  /** Маршруты, где точки на линии, но ПОРЯДОК нарушен — прежняя мера слепа. */
+  worst_order: Array<{ id: string; title: string; inversions: number; waypoints: number; coverage: number | null }>;
   /** Худшие расхождения — с них и начинать разбор. */
   worst: RouteFlaw[];
   duration_ms: number;
@@ -162,8 +189,12 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   let no_geometry = 0, no_waypoints = 0, sketch_geometry = 0, surveyed_geometry = 0;
   let conflicting = 0, consistent = 0;
   let collections = 0, collections_by_waypoints = 0, collections_by_geometry = 0;
+  const by_shape: Record<WaypointFitVerdict, number> = {
+    fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
+  };
   const flaws: RouteFlaw[] = [];
   const collectionFlaws: CollectionFlaw[] = [];
+  const orderCases: Array<{ id: string; title: string; inversions: number; waypoints: number; coverage: number | null }> = [];
 
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
     const track = geometryToTrack(r.geometry);
@@ -181,8 +212,20 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
     // Иначе объект без пути по смыслу попадёт в «конфликтующие маршруты» и
     // будет числиться чинимым — а чинить там нечего, там другая сущность.
+    // У НАБОРА ТОЧЕК считаются оба признака: места по краю и прыгают, и
+    // разбросаны — габарит там говорит о разбросанности.
     const scatteredWps = wpPairs.length >= 2 && isScatteredCollection(wpPairs);
-    const scatteredGeo = isScatteredCollection(pairs);
+    // У СПЛОШНОЙ ЛИНИИ габарит не значит ничего: он равен длине маршрута.
+    // Первый прогон это и показал — «Сплав по реке Камчатка. Путешествие
+    // длиной в 500 км» (габарит 282 км), «Зимник Анавгай — Тигиль» (192),
+    // «Пешеходный поход 5 к.с. по северу Камчатки» (184) были объявлены
+    // подборками. Это настоящие длинные маршруты, и накрывать сотни
+    // километров — их работа, а не признак разбросанности.
+    //
+    // Подборку от длинного пути отличает НЕПРЕРЫВНОСТЬ: у сплава шаг между
+    // точками метры, у подборки — прыжок в десятки километров. Поэтому для
+    // линии берётся только тот признак, который здесь что-то значит.
+    const scatteredGeo = maxSegmentKm(pairs) > COLLECTION_JUMP_KM;
     if (scatteredWps || scatteredGeo) {
       collections += 1;
       if (scatteredWps) collections_by_waypoints += 1;
@@ -204,12 +247,29 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       const pr = projectOnTrack(w, track);
       if (pr && pr.offTrackKm > worst) worst = pr.offTrackKm;
     }
+
+    // Как точки сидят на линии: отход И порядок. Точки приходят упорядоченные
+    // по route_waypoints.position — на случайной перестановке порядок был бы
+    // не измерением, а шумом.
+    const fit = waypointFit(track, wps);
+    by_shape[fit.verdict] += 1;
+    if (fit.inversions !== null && fit.inversions > 0) {
+      orderCases.push({
+        id: r.id,
+        title: r.title ?? '(без названия)',
+        inversions: fit.inversions,
+        waypoints: wps.length,
+        coverage: fit.coverage,
+      });
+    }
+
     if (worst > DATA_CONFLICT_KM) {
       conflicting += 1;
       flaws.push({
         id: r.id,
         title: r.title ?? '(без названия)',
         worstOffTrackKm: Math.round(worst * 10) / 10,
+        maxOffsetM: fit.maxOffsetM,
         waypoints: wps.length,
         trackPoints: track.length,
       });
@@ -220,6 +280,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   flaws.sort((a, b) => b.worstOffTrackKm - a.worstOffTrackKm);
   collectionFlaws.sort((a, b) => b.spanKm - a.spanKm);
+  orderCases.sort((a, b) => b.inversions - a.inversions);
 
   return {
     routes_total,
@@ -235,6 +296,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     collections_by_waypoints,
     collections_by_geometry,
     worst_collections: collectionFlaws.slice(0, 15),
+    by_shape,
+    worst_order: orderCases.slice(0, 10),
     worst: flaws.slice(0, 15),
     duration_ms: Date.now() - startedAt,
   };
