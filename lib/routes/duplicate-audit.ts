@@ -72,11 +72,18 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
  * решает не одно слово, а наличие ХОТЯ БЫ ОДНОЙ негородовой общей основы).
  */
 const GENERIC = new Set([
-  'вулкан', 'сопка', 'гора', 'хребет', 'перевал', 'кальде',
+  'вулкан', 'сопка', 'гора', 'хребет', 'перевал', 'кальдера',
   'озеро', 'озера', 'озеру', 'река', 'реки', 'ручей', 'бухта', 'залив',
-  'источ', 'термал', 'водопа', 'долина', 'кордон', 'парк', 'мыс',
-  'маршру', 'поход', 'тропа', 'тур', 'экскур', 'камчат',
-]);
+  'источник', 'источники', 'горячие', 'термальные', 'водопад', 'долина',
+  'кордон', 'парк', 'мыс', 'маршрут', 'поход', 'тропа', 'тур', 'экскурсия',
+  'камчатка', 'камчатки',
+  // Список пишется ЦЕЛЫМИ словами, а сравнение идёт по той же усечённой
+  // основе, что и у названий. Иначе запись длиннее среза не совпадёт никогда:
+  // до 11.08 здесь лежали 'источ' (пять букв) и 'перевал' (семь) при срезе в
+  // шесть — и «источники» родовым словом не считались, вопреки комментарию
+  // выше. Тест на «Малкинские источники» это и вскрыл. Усечение в одном
+  // месте убирает весь класс ошибки, а не две её строки.
+].map((w) => w.slice(0, STEM)));
 
 /**
  * Заголовок записан латиницей — то есть это слаг из адреса, а не название.
@@ -260,9 +267,42 @@ export interface DuplicateAudit {
    * Пятнадцать с путевыми точками — единственная группа, где положение
    * выводится из имеющегося, а не выдумывается (миграция 847).
    *
+   * Чем СТАТЬЮ отличить от маршрута — см. `anchorless_by_url_path`: адрес
+   * страницы у источника, а не слова в названии.
+   *
    * Все они при этом видимы: перепись считает только `is_visible` — то есть
    * «Растения Камчатки» лежат в справочнике маршрутов как маршрут.
    */
+  anchorless_by_url_path: Array<{ path: string; routes: number; sample: string[] }>;
+  /**
+   * Безъякорный маршрут и МЕСТО, которые, похоже, про одно.
+   *
+   * Точное равенство имён (шаг 9c ремонта) дало НОЛЬ пар на 97 записей. Слово
+   * владельца объяснило почему: «„Малкинские горячие источники“ против
+   * „Малкинские источники“ — но у них одни геоточки». То есть объект один, а
+   * разошлись имена: «горячие» — качество источника, а не часть названия.
+   *
+   * Отсюда не следует «сравнивать мягче». Отсюда следует ПОСМОТРЕТЬ, что
+   * даст ослабление, прежде чем что-то писать в базу. Список кандидатов —
+   * с обоими именами рядом, чтобы пара была видна глазом.
+   *
+   * Две ступени, и они РАЗНЫЕ по надёжности:
+   *
+   *   equal  — наборы значимых основ совпадают. Разница только в родовых
+   *            словах и падежах.
+   *   subset — основы одного строго входят в другой: ровно случай владельца
+   *            («малкин» ⊂ «малкин, горячи»). Слабее: так же выглядит и
+   *            «Гейзеры Камчатки» рядом с «Долиной гейзеров», а это статья
+   *            рядом с настоящей точкой, и склеивать их нельзя.
+   *
+   * Поэтому ступени считаются и показываются ОТДЕЛЬНО. Ни одна из них не
+   * применяется автоматически: сначала глаз, потом запись.
+   */
+  anchorless_name_candidates: {
+    equal: number;
+    subset: number;
+    sample: Array<{ tier: 'equal' | 'subset'; route: string; place: string; lat: number; lng: number }>;
+  };
   anchorless_evidence: {
     /** Ни координат, ни линии, ни путевых точек — маршрутность ничем не подтверждена. */
     nothing_at_all: number;
@@ -349,6 +389,32 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
       GROUP BY 1, 2
       ORDER BY COUNT(*) DESC`,
   );
+  // Что о безъякорной записи говорит АДРЕС её страницы у источника.
+  //
+  // Задача владельца 11.08 («статьи — из маршрутов в описание мест») упирается
+  // в улику: по названию статья от маршрута не отличается, это доказала проба
+  // 49. А сайт-источник раскладывает свои страницы по разделам сам, и раздел —
+  // его собственное утверждение о том, что за страницу он опубликовал. Мы это
+  // утверждение читаем, а не выводим из слов.
+  const urlPathRes = await pool.query<{ path: string | null; n: string; sample: string[] }>(
+    `SELECT substring(source_url from '^https?://[^/]+(/[^/?#]*)') AS path,
+            COUNT(*)::text AS n,
+            (array_agg(title ORDER BY title))[1:4] AS sample
+       FROM kamchatka_routes
+      WHERE (is_visible = TRUE OR is_visible IS NULL)
+        AND title IS NOT NULL
+        AND (lat IS NULL OR lng IS NULL)
+      GROUP BY 1
+      ORDER BY COUNT(*) DESC`,
+  );
+  const anchorless_by_url_path = urlPathRes.rows.map((r) => ({
+    // «(адреса нет)», а не пустая строка: отсутствие адреса означает, что
+    // сказать о записи нечего, и это надо видеть, а не принимать за раздел.
+    path: r.path ?? '(адреса нет)',
+    routes: parseInt(r.n, 10),
+    sample: r.sample ?? [],
+  }));
+
   const anchorless_by_source = anchorlessRes.rows.map((r) => ({
     // «(не указан)», а не пустая строка: отсутствие источника — это тоже
     // сведение о происхождении, и его надо видеть, а не принимать за пробел.
@@ -373,6 +439,55 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
         AND r.title IS NOT NULL
         AND (r.lat IS NULL OR r.lng IS NULL)`,
   );
+
+  // Кандидаты «маршрут без якоря ⟷ место»: что дало бы ослабление равенства.
+  // Только отчёт. Ослаблять правило ремонта по этим цифрам — отдельное
+  // решение, и принимается оно, посмотрев на пары, а не на число.
+  const nameCandidates: DuplicateAudit['anchorless_name_candidates'] = {
+    equal: 0, subset: 0, sample: [],
+  };
+  {
+    const { rows: placeRows } = await pool.query<{ name: string; lat: string; lng: string }>(
+      `SELECT name, lat::text AS lat, lng::text AS lng
+         FROM places
+        WHERE name IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL`,
+    );
+    const places = placeRows
+      // Имя может не прийти, хотя запрос его требует: строка без имени по
+      // имени и не сопоставляется, а падать на ней незачем.
+      .filter((p): p is { name: string; lat: string; lng: string } => typeof p.name === 'string' && p.name !== '')
+      .map((p) => ({ name: p.name, lat: num(p.lat), lng: num(p.lng), core: stems(p.name) }))
+      .filter((p): p is { name: string; lat: number; lng: number; core: Set<string> } =>
+        p.core.size > 0 && p.lat !== null && p.lng !== null);
+
+    const isSubset = (a: Set<string>, b: Set<string>) => {
+      if (a.size === 0 || a.size >= b.size) return false;
+      for (const s of a) if (!b.has(s)) return false;
+      return true;
+    };
+    const sameSet = (a: Set<string>, b: Set<string>) => {
+      if (a.size !== b.size) return false;
+      for (const s of a) if (!b.has(s)) return false;
+      return true;
+    };
+
+    for (const r of evidenceRes.rows) {
+      if (typeof r.title !== 'string' || r.title === '') continue;
+      const core = stems(r.title);
+      if (core.size === 0) continue;
+      for (const p of places) {
+        const tier: 'equal' | 'subset' | null = sameSet(core, p.core) ? 'equal'
+          : (isSubset(core, p.core) || isSubset(p.core, core)) ? 'subset' : null;
+        if (!tier) continue;
+        nameCandidates[tier] += 1;
+        if (nameCandidates.sample.length < 20) {
+          nameCandidates.sample.push({ tier, route: r.title, place: p.name, lat: p.lat, lng: p.lng });
+        }
+      }
+    }
+    // Сначала надёжная ступень: по ней и судить, стоит ли смотреть вторую.
+    nameCandidates.sample.sort((a, b) => (a.tier === b.tier ? 0 : a.tier === 'equal' ? -1 : 1));
+  }
 
   const nothingAtAll: string[] = [];
   const latinTitles: string[] = [];
@@ -453,6 +568,8 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     routes_in_duplicates: involved.size,
     routes_without_anchor: routes.filter((r) => r.lat === null || r.lng === null).length,
     anchorless_by_source,
+    anchorless_by_url_path,
+    anchorless_name_candidates: nameCandidates,
     anchorless_evidence: {
       nothing_at_all: nothingAtAll.length,
       has_geometry: hasGeometry,

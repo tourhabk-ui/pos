@@ -35,7 +35,7 @@ vi.mock('@/lib/db-pool', () => ({
 
 import { importKmlTrack } from '@/lib/import/kml-inbox';
 import {
-  runDuplicateAudit, endpoints, sameSubject, isLatinTitle,
+  runDuplicateAudit, endpoints, sameSubject, isLatinTitle, stems,
 } from '@/lib/routes/duplicate-audit';
 
 beforeEach(() => {
@@ -254,6 +254,73 @@ describe('перепись отвечает на вопрос «сколько �
     // Отсутствие источника — тоже сведение, а не пробел в таблице.
     expect(audit.anchorless_by_source[1].source).toBe('(не указан)');
     expect(audit.anchorless_by_source[1].category).toBe('(без категории)');
+  });
+
+  it('раздел сайта в адресе — улика, которой нет в названии', async () => {
+    // Владелец: «статьи — из маршрутов в описание мест». По названию статью
+    // от маршрута не отличить (проба 49), а сайт-источник раскладывает свои
+    // страницы по разделам сам — и раздел это его собственное утверждение.
+    const byPath = [
+      { path: '/info', n: '17', sample: ['История Камчатки', 'Растения Камчатки'] },
+      { path: '/marshruty', n: '54', sample: ['5 стройка–Центральный'] },
+      { path: null, n: '26', sample: ['Без адреса'] },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: /substring\(source_url/i.test(sql) ? byPath : [] }));
+
+    const audit = await runDuplicateAudit();
+    expect(audit.anchorless_by_url_path[0]).toMatchObject({ path: '/info', routes: 17 });
+    // Нет адреса — значит сказать нечего; это не пустой раздел.
+    expect(audit.anchorless_by_url_path[2].path).toBe('(адреса нет)');
+  });
+
+  it('ступень «основы совпали» НЕ отделяет верную пару от вредной', async () => {
+    // Точное равенство имён дало ноль пар на 97 записей (проба 51). Слово
+    // владельца объяснило почему: «„Малкинские горячие источники“ против
+    // „Малкинские источники“ — у них одни геоточки». Объект один, разошлись
+    // имена, и «горячие» с «источниками» — родовые слова.
+    //
+    // Так вот, если их отбросить, В ОДНУ ступень попадают обе пары:
+    //
+    //   «Малкинские горячие источники» ⟷ «Малкинские источники»   верно
+    //   «Гейзеры Камчатки»             ⟷ «Долина гейзеров»        СТАТЬЯ
+    //
+    // У обеих значимая основа одна и та же. Значит ослабление правила записи
+    // до совпадения основ поставило бы обзорную статью на настоящую точку —
+    // и никакая цифра этого не покажет, покажут только имена. Поэтому здесь
+    // отчёт с именами, а правило ремонта остаётся строгим.
+    const anchorless = [
+      { id: 'a1', title: 'Малкинские горячие источники', has_geometry: false, waypoints: '0' },
+      { id: 'a2', title: 'Гейзеры Камчатки', has_geometry: false, waypoints: '0' },
+    ];
+    const places = [
+      { name: 'Малкинские источники', lat: '53.3', lng: '157.6' },
+      { name: 'Долина гейзеров', lat: '54.4', lng: '160.1' },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({
+        rows: /route_waypoints/i.test(sql) ? anchorless
+          : /FROM places/i.test(sql) ? places : [],
+      }));
+
+    const c = (await runDuplicateAudit()).anchorless_name_candidates;
+    expect(c.equal).toBe(2);
+    const pairs = c.sample.map((x) => `${x.route} → ${x.place}`);
+    expect(pairs).toContain('Малкинские горячие источники → Малкинские источники');
+    expect(pairs).toContain('Гейзеры Камчатки → Долина гейзеров');
+    // Координата кандидата в ответе: без неё пару не проверить по карте.
+    expect(c.sample[0].lat).toBeGreaterThan(50);
+  });
+
+  it('родовое слово длиннее среза раньше не отбрасывалось', () => {
+    // Латентный баг, вскрытый этим же тестом: основа режется до шести букв, а
+    // в списке родовых лежало 'источ' (пять) и 'перевал' (семь) — они не
+    // совпадали никогда, и «источники» значились именем собственным вопреки
+    // комментарию рядом. Теперь список пишется целыми словами и усекается тем
+    // же срезом — класс ошибки закрыт, а не две её строки.
+    expect(stems('Малкинские источники')).toEqual(new Set(['малкин']));
+    expect(stems('Авачинский перевал')).toEqual(new Set(['авачин']));
+    expect(stems('Дачные горячие источники')).toEqual(new Set(['дачные']));
   });
 
   it('маршрутность подтверждается уликами, а не названием', async () => {
