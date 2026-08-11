@@ -179,8 +179,12 @@ describe('перепись отвечает на вопрос «сколько �
   ];
 
   beforeEach(() => {
+    // Различаем по round(lat — «GROUP BY» есть и у запроса про записи без
+    // якоря, а он отвечает другой формой.
     poolQueryMock.mockImplementation((sql: string) =>
-      Promise.resolve({ rows: /GROUP BY/i.test(sql) ? CLUSTER_ROWS : ROUTE_ROWS }));
+      Promise.resolve({
+        rows: /round\(lat/i.test(sql) ? CLUSTER_ROWS : /lat IS NULL/i.test(sql) ? [] : ROUTE_ROWS,
+      }));
   });
 
   it('считает точки, а не маршруты', async () => {
@@ -228,6 +232,26 @@ describe('перепись отвечает на вопрос «сколько �
     // И число называется вслух: маршрут без якоря не показать на карте.
     expect(audit.routes_without_anchor).toBe(3);
     expect(audit.distinct_anchors).toBe(0);
+  });
+
+  it('у записей без якоря спрашивается происхождение', async () => {
+    // Сто двенадцать записей из четырёхсот двадцати одной чинятся двумя очень
+    // разными способами — дозаполнить или удалить как мусор импорта, — и
+    // выбор зависит от того, один это источник или все понемногу.
+    const bySource = [
+      { source: 'idilesom', category: 'trekking', n: '80', sample: ['Первый', 'Второй'] },
+      { source: null, category: null, n: '32', sample: ['Третий'] },
+    ];
+    poolQueryMock.mockImplementation((sql: string) =>
+      Promise.resolve({
+        rows: /lat IS NULL/i.test(sql) ? bySource : /GROUP BY/i.test(sql) ? [] : [],
+      }));
+
+    const audit = await runDuplicateAudit();
+    expect(audit.anchorless_by_source[0]).toMatchObject({ source: 'idilesom', routes: 80 });
+    // Отсутствие источника — тоже сведение, а не пробел в таблице.
+    expect(audit.anchorless_by_source[1].source).toBe('(не указан)');
+    expect(audit.anchorless_by_source[1].category).toBe('(без категории)');
   });
 
   it('пустая строка координаты — тоже не ноль', async () => {
