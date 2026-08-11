@@ -62,6 +62,60 @@ describe('счёт форм', () => {
   });
 });
 
+/**
+ * Происхождение линии против эвристики плотности.
+ *
+ * Проба 54 закрыла вопрос про обёртки — их нет ни одной. Зато показала
+ * другое: из 301 линии 277 считаются «снятым треком», и основание для этого
+ * одно — плотность точек. А снятый трек на карте рисуется сплошной зелёной
+ * линией, и человек читает её как «здесь идут».
+ *
+ * По §12 вид линии обязан соответствовать происхождению, а происхождение
+ * записано в самой геометрии. Прежде чем менять рисование — сосчитать, что в
+ * этом поле есть: правило, опёртое на пустое поле, будет хуже эвристики.
+ */
+describe('происхождение линии', () => {
+  it('источник считается, а его отсутствие называется словами', async () => {
+    scene([
+      { id: '1', title: 'Из KML', geometry: { ...GOOD, source: 'kml_inbox' } },
+      { id: '2', title: 'Синтетика', geometry: { ...GOOD, source: 'waypoints_synthetic' } },
+      { id: '3', title: 'Без метки', geometry: GOOD },
+      { id: '4', title: 'Нет линии', geometry: null },
+    ]);
+    const { shapes } = await runGeometryAudit();
+    expect(shapes.by_source['kml_inbox']).toBe(1);
+    expect(shapes.by_source['waypoints_synthetic']).toBe(1);
+    // Пустое поле — тоже сведение: именно оно решает, можно ли опереться на
+    // источник вместо эвристики.
+    expect(shapes.by_source['(не указан)']).toBe(1);
+    // Записи без геометрии в счёт источников не идут: у них его нет по сути.
+    expect(Object.values(shapes.by_source).reduce((a, b) => a + b, 0)).toBe(3);
+  });
+
+  it('синтетика, выданная за снятый трек, считается отдельно', async () => {
+    // Цена угадывания: набросок предъявляется человеку как путь.
+    const dense = {
+      type: 'LineString',
+      coordinates: Array.from({ length: 200 }, (_, i) => [158.6 + i * 0.0005, 53 + i * 0.0003]),
+      source: 'waypoints_synthetic',
+    };
+    scene([{ id: '1', title: 'Плотная синтетика', geometry: dense }]);
+    const { shapes } = await runGeometryAudit();
+    expect(shapes.synthetic_called_surveyed).toBe(1);
+    expect(shapes.samples[0].note).toContain('синтетика');
+  });
+
+  it('настоящий источник в этот счёт не попадает', async () => {
+    const dense = {
+      type: 'LineString',
+      coordinates: Array.from({ length: 200 }, (_, i) => [158.6 + i * 0.0005, 53 + i * 0.0003]),
+      source: 'kml_inbox',
+    };
+    scene([{ id: '1', title: 'Настоящий трек', geometry: dense }]);
+    expect((await runGeometryAudit()).shapes.synthetic_called_surveyed).toBe(0);
+  });
+});
+
 describe('линия есть, а вести некуда', () => {
   it('пустая и одноточечная считаются отдельно от «геометрии нет»', async () => {
     // Для API это разные факты, а сейчас оба приходят как track: null.

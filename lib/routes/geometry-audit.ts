@@ -75,6 +75,29 @@ export interface CollectionFlaw {
 export interface GeometryShapes {
   /** Сколько записей каждой формы: LineString, Feature, MultiLineString, … */
   by_type: Record<string, number>;
+  /**
+   * Чем ЗАПИСАНО происхождение линии: kml_inbox, osm, idilesom,
+   * waypoints_synthetic, «не указан».
+   *
+   * Проба 54 закрыла вопрос про обёртки — их нет. Зато она показала другое:
+   * из 301 линии 277 считаются «снятым треком», и основание для этого одно —
+   * эвристика плотности точек (`track-fidelity`). А на карте снятый трек
+   * рисуется сплошной зелёной линией, и человек читает её как «здесь идут».
+   *
+   * По §12 вид линии обязан соответствовать происхождению. Происхождение
+   * записано в самой геометрии (`geometry.source`), и спрашивать надо его, а
+   * не угадывать по числу точек. Прежде чем менять рисование — сосчитать,
+   * что в этом поле есть на самом деле: правило, опёртое на пустое поле,
+   * будет хуже эвристики, а не лучше.
+   */
+  by_source: Record<string, number>;
+  /**
+   * Расхождение: линия из СИНТЕТИЧЕСКОГО источника, а эвристика зовёт её
+   * снятым треком.
+   *
+   * Это и есть цена угадывания — набросок, нарисованный как путь.
+   */
+  synthetic_called_surveyed: number;
   /** Обёртки, которые сейчас дают пустой трек молча. */
   unsupported: number;
   /**
@@ -219,16 +242,27 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // такой: сперва узнать, встречаются ли обёртки вообще, и только потом
   // решать, писать ли для них разбор.
   const shapes: GeometryShapes = {
-    by_type: {}, unsupported: 0, empty_or_single: 0,
+    by_type: {}, by_source: {}, synthetic_called_surveyed: 0,
+    unsupported: 0, empty_or_single: 0,
     out_of_range: 0, suspect_swapped: 0, samples: [],
   };
+  /** Источники, которые по своей природе НЕ являются снятым путём. */
+  const SYNTHETIC = new Set(['waypoints_synthetic', 'synthetic']);
   const inLat = (v: number) => Number.isFinite(v) && v >= -90 && v <= 90;
   const inLng = (v: number) => Number.isFinite(v) && v >= -180 && v <= 180;
 
   for (const row of listRes.rows) {
-    const g = row.geometry as { type?: string; coordinates?: unknown } | null;
+    const g = row.geometry as { type?: string; coordinates?: unknown; source?: string } | null;
     const type = g?.type ?? '(нет геометрии)';
     shapes.by_type[type] = (shapes.by_type[type] ?? 0) + 1;
+
+    if (g) {
+      // «(не указан)», а не пустая строка: отсутствие записи о происхождении
+      // — тоже сведение, и именно оно решает, можно ли вообще опереться на
+      // источник вместо эвристики.
+      const src = g.source ?? '(не указан)';
+      shapes.by_source[src] = (shapes.by_source[src] ?? 0) + 1;
+    }
 
     if (g && type !== 'LineString' && type !== '(нет геометрии)') {
       shapes.unsupported += 1;
@@ -320,8 +354,23 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // trackFidelity считает по парам [широта, долгота] — тому же виду, что
     // приходит с экрана; форму приводим здесь, правило не дублируем.
     const pairs = track.map((p) => [p.lat, p.lng] as [number, number]);
-    if (trackFidelity(pairs) === 'sketch') sketch_geometry += 1;
+    const fidelity = trackFidelity(pairs);
+    if (fidelity === 'sketch') sketch_geometry += 1;
     else surveyed_geometry += 1;
+
+    // Цена угадывания: линия из СИНТЕТИЧЕСКОГО источника, которую эвристика
+    // зовёт снятым треком. На карте такая рисуется сплошной зелёной — то
+    // есть набросок предъявляется человеку как путь, по которому идут.
+    const src = (r.geometry as { source?: string } | null)?.source;
+    if (fidelity !== 'sketch' && src && SYNTHETIC.has(src)) {
+      shapes.synthetic_called_surveyed += 1;
+      if (shapes.samples.length < 12) {
+        shapes.samples.push({
+          id: r.id, title: r.title ?? '(без названия)', type: 'LineString',
+          note: `источник «${src}» — синтетика, а плотность точек выдаёт её за снятый трек`,
+        });
+      }
+    }
 
     const wps = byRoute.get(r.id) ?? [];
     const wpPairs = wps.map((w) => [w.lat, w.lng] as [number, number]);
