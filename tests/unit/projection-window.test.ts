@@ -199,3 +199,29 @@ describe('плохой фикс не двигает положение и не �
     expect(screen).toMatch(/figuresAreLive|figuresLive/);
   });
 });
+
+describe('карта не пересобирается на каждом фиксе GPS', () => {
+  const SCREEN = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+
+  it('в зависимостях маркеров нет ни coords, ни approach', () => {
+    // LeafletMap пересоздаёт карту при смене identity массива маркеров. Обе
+    // величины меняются на КАЖДОМ фиксе, и карта перестраивалась по нескольку
+    // раз в минуту: мигание и сброс зума в поле.
+    const deps = SCREEN.slice(SCREEN.indexOf('const mapMarkers'));
+    const depsLine = deps.slice(0, deps.indexOf(');') + 2).split('\n').filter(l => l.includes('}, ['))[0] ?? '';
+    expect(depsLine).not.toMatch(/\bcoords\b/);
+    expect(depsLine).not.toMatch(/\bapproach\b(?!Line)/);
+  });
+
+  it('линия подхода огрублена до метров, а не следует за каждым фиксом', () => {
+    // Человек стоит — identity не меняется вовсе; идёт — линия догоняет
+    // шагами, незаметными на масштабе карты.
+    expect(SCREEN).toMatch(/Math\.round\(coords\.lat \* 1e4\)/);
+    expect(SCREEN).toMatch(/const approachLine = useMemo\(/);
+  });
+
+  it('линия рисуется только когда человек в стороне от тропы', () => {
+    // На тропе ей нечего показывать, а лишняя перерисовка — мигание в поле.
+    expect(SCREEN).toMatch(/if \(!offTrackNow/);
+  });
+});
