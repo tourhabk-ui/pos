@@ -45,6 +45,8 @@ const Header = dynamic(
 // нажатие на кнопку выглядело зависанием: чёрный экран на всё время загрузки
 // чанка и первых тайлов, и ни одного признака, что что-то происходит
 // (владелец 09.08: «карта открывается с большой задержкой»).
+const NavigateTo = dynamic(() => import('@/components/shared/NavigateTo'), { ssr: false });
+
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
   loading: () => (
@@ -1621,6 +1623,25 @@ function OnTrailTab() {
               </span>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Дорогу до точки строит настоящий навигатор.
+          Слово владельца 11.08: «смысл людям пользоваться нашей кривой, если
+          есть другие». Наш роутер на пробе того же вечера отвечал «пути нет»
+          на четыре километра по городу, а Organic Maps ведёт до Маячного за
+          27 км. Спорить не с чем: дорога — не наша задача, наша начинается
+          там, где их маршрут кончается. Особенно это нужно там, где данные
+          маршрута не сходятся и мы честно сняли своё число: человеку всё
+          равно надо туда попасть. */}
+      {nextWp && (
+        <div className="px-4 pb-2">
+          <NavigateTo
+            to={{ lat: nextWp.lat, lng: nextWp.lng, name: nextWp.name ?? activeRouteTitle ?? 'Точка маршрута' }}
+            from={coords ? { lat: coords.lat, lng: coords.lng, name: 'Я' } : null}
+            mode="car"
+            title="Проложить дорогу до точки"
+          />
         </div>
       )}
 

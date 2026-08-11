@@ -64,15 +64,38 @@ export function haversineM(lat1: number, lng1: number, lat2: number, lng2: numbe
   return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-/** Ближайший узел графа к точке (линейный скан — подграф небольшой). */
-export function nearestNode(nodes: Iterable<RoadNode>, lat: number, lng: number): { node: RoadNode; distance_m: number } | null {
+/**
+ * Ближайший узел графа к точке (линейный скан — подграф небольшой).
+ *
+ * `allowed` — узлы, которые вообще имеет смысл рассматривать. Без него
+ * привязка садится на ЛЮБОЙ ближайший узел, в том числе на такой, из
+ * которого в этом режиме не выйти: подграф грузится по bbox, и рёбра с
+ * концом за его границей отброшены, так что висячие узлы там есть всегда.
+ * Сесть на такой узел значит гарантированно не найти пути, стоя в двадцати
+ * метрах от настоящего перекрёстка, — и списать это на «дороги нет».
+ */
+export function nearestNode(
+  nodes: Iterable<RoadNode>, lat: number, lng: number, allowed?: Set<number>,
+): { node: RoadNode; distance_m: number } | null {
   let best: RoadNode | null = null;
   let bestD = Infinity;
   for (const n of nodes) {
+    if (allowed && !allowed.has(n.id)) continue;
     const d = haversineM(lat, lng, n.lat, n.lng);
     if (d < bestD) { bestD = d; best = n; }
   }
   return best ? { node: best, distance_m: Math.round(bestD) } : null;
+}
+
+/** Узлы, у которых есть хотя бы одно ребро, проходимое этим режимом. */
+export function routableNodes(edges: RoadEdge[], mode: TravelMode): Set<number> {
+  const ids = new Set<number>();
+  for (const e of edges) {
+    if (!Number.isFinite(edgeCostSeconds(e, mode))) continue;
+    ids.add(e.from);
+    ids.add(e.to);
+  }
+  return ids;
 }
 
 // ── Мини-куча (бинарная) для очереди A* ──────────────────────────────────────
@@ -118,6 +141,81 @@ export interface RouteResult {
   geometry: Array<[number, number]>;
 }
 
+/** Списки смежности по рёбрам; рёбра двунаправленные. */
+function adjacency(edges: RoadEdge[]): Map<number, Array<{ edge: RoadEdge; to: number; reversed: boolean }>> {
+  const adj = new Map<number, Array<{ edge: RoadEdge; to: number; reversed: boolean }>>();
+  const add = (from: number, to: number, edge: RoadEdge, reversed: boolean) => {
+    let list = adj.get(from);
+    if (!list) { list = []; adj.set(from, list); }
+    list.push({ edge, to, reversed });
+  };
+  for (const e of edges) {
+    add(e.from, e.to, e, false);
+    add(e.to, e.from, e, true);
+  }
+  return adj;
+}
+
+/**
+ * Узлы, достижимые из startId.
+ *
+ * `mode === null` — связность по данным как таковая: есть ли вообще
+ * нарисованный путь. `mode` задан — связность для этого способа
+ * передвижения, с учётом непроходимых рёбер.
+ *
+ * Различие не академическое. «Дороги в ту сторону у нас нет» и «дорога
+ * есть, но машина по ней не пройдёт» — разные ответы человеку, и лечатся
+ * они разным: первое — импортом данных, второе — выбором режима.
+ */
+export function componentFrom(edges: RoadEdge[], startId: number, mode: TravelMode | null = null): Set<number> {
+  const adj = adjacency(edges);
+  const seen = new Set<number>([startId]);
+  const stack = [startId];
+  while (stack.length > 0) {
+    const cur = stack.pop() as number;
+    for (const { edge, to } of adj.get(cur) ?? []) {
+      if (seen.has(to)) continue;
+      if (mode !== null && !Number.isFinite(edgeCostSeconds(edge, mode))) continue;
+      seen.add(to);
+      stack.push(to);
+    }
+  }
+  return seen;
+}
+
+/**
+ * Почему пути нет — код и числа, которыми это можно проверить.
+ *
+ * `findPath` возвращает `null`, и голое «пути нет» одинаково звучит и
+ * когда дороги действительно нет, и когда наш граф рассыпан на куски.
+ * Это ровно то, чего платформа не должна себе позволять: отсутствие
+ * результата в форме результата. Здесь оно разбирается на два разных
+ * утверждения, и каждое подкреплено размером компоненты.
+ */
+export type PathFailure = 'disconnected' | 'mode_blocked';
+
+export interface PathDiagnosis {
+  reason: PathFailure;
+  /** Узлов достижимо из старта по данным (без учёта режима). */
+  reachable_any: number;
+  /** Узлов достижимо из старта именно этим режимом. */
+  reachable_mode: number;
+}
+
+export function diagnoseFailure(
+  edges: RoadEdge[], startId: number, goalId: number, mode: TravelMode,
+): PathDiagnosis {
+  const byData = componentFrom(edges, startId, null);
+  const byMode = componentFrom(edges, startId, mode);
+  return {
+    // Цель в общей компоненте, но не в компоненте режима — путь нарисован,
+    // просто этим способом по нему не пройти.
+    reason: byData.has(goalId) ? 'mode_blocked' : 'disconnected',
+    reachable_any: byData.size,
+    reachable_mode: byMode.size,
+  };
+}
+
 /**
  * A* от startId к goalId. Рёбра двунаправленные (oneway на Камчатке
  * пренебрежимо мало вне города; учтём при необходимости).
@@ -134,17 +232,7 @@ export function findPath(
   if (!goal || !start) return null;
   if (startId === goalId) return { path: [startId], seconds: 0, meters: 0, geometry: [[start.lat, start.lng]] };
 
-  // Списки смежности: для каждого узла — исходящие рёбра (в обе стороны)
-  const adj = new Map<number, Array<{ edge: RoadEdge; to: number; reversed: boolean }>>();
-  const add = (from: number, to: number, edge: RoadEdge, reversed: boolean) => {
-    let list = adj.get(from);
-    if (!list) { list = []; adj.set(from, list); }
-    list.push({ edge, to, reversed });
-  };
-  for (const e of edges) {
-    add(e.from, e.to, e, false);
-    add(e.to, e.from, e, true);
-  }
+  const adj = adjacency(edges);
 
   // Эвристика: оптимистичное время по прямой (макс. скорость режима)
   const hSpeedMs = (mode === 'car' ? 90 : FOOT_SPEED_KMH) / 3.6;
