@@ -1250,9 +1250,18 @@ function OnTrailTab() {
                     <p className="text-[11px] text-[var(--text-muted)] leading-tight">
                       {approach
                         ? [
-                            approach.userOffTrack ? `${fmtKm(approach.approachKm)} до тропы` : null,
-                            `${fmtKm(approach.alongTrackKm)} по тропе`,
-                            approach.targetOffTrack ? `${fmtKm(approach.exitKm)} от тропы до точки` : null,
+                            approach.userOffTrack ? `${fmtKm(approach.approachKm)} до линии` : null,
+                            /* Слово «тропа» заслуживает только снятый трек.
+                               У полутора сотен маршрутов geometry — прямые
+                               между точками (миграция 168), и «12 км по
+                               тропе» там означает длину прямой. Это та же
+                               прямая через залив, из-за которой писался
+                               #1119, только этажом выше: не в подписи, а
+                               ВНУТРИ числа, которое зовётся путём. */
+                            `${fmtKm(approach.alongTrackKm)} ${
+                              lineFidelity === 'surveyed' ? 'по тропе' : 'по ломаной между точками'
+                            }`,
+                            approach.targetOffTrack ? `${fmtKm(approach.exitKm)} от линии до точки` : null,
                           ].filter(Boolean).join(' · ')
                         : 'по прямой'}
                       {fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
