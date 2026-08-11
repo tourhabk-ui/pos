@@ -78,6 +78,24 @@ const GENERIC = new Set([
   'маршру', 'поход', 'тропа', 'тур', 'экскур', 'камчат',
 ]);
 
+/**
+ * Заголовок записан латиницей — то есть это слаг из адреса, а не название.
+ *
+ * «dachnye istochniki», «ganalskie vostryaki», «mayak petropavlovskiy mys
+ * vertikalnyy» — так скрейпер подставил кусок URL вместо заголовка страницы.
+ * Беда не косметическая: «Дачные источники» лежат в справочнике ОТДЕЛЬНОЙ
+ * записью, и совпадение по имени эти две никогда не склеит.
+ *
+ * Судим по наличию кириллицы, а не по списку слов: латинские буквы в русском
+ * названии встречаются законно («SUP-маршрут по реке Пиначевская»), а вот
+ * полное отсутствие кириллицы в названии камчатского маршрута — признак
+ * машинного происхождения. Заодно отсекаются записи вроде «5 стройка»: в них
+ * кириллица есть.
+ */
+export function isLatinTitle(title: string): boolean {
+  return /[a-z]/i.test(title) && !/[а-яё]/i.test(title);
+}
+
 /** Значимые основы слов названия. Родовые слова отбрасываются. */
 export function stems(title: string): Set<string> {
   const out = new Set<string>();
@@ -203,6 +221,46 @@ export interface DuplicateAudit {
    * неизвестно, любая правка будет догадкой.
    */
   anchorless_by_source: Array<{ source: string; category: string; routes: number; sample: string[] }>;
+  /**
+   * Чем безъякорная запись подтверждает, что она вообще маршрут.
+   *
+   * Разбор по источнику (проба 48) показал, что «сто двенадцать без
+   * координат» — не одна беда, а три разные, и мерить их одним числом
+   * бессмысленно:
+   *
+   *   1. Не маршруты вовсе. «История Камчатки», «Растения Камчатки»,
+   *      «Когда лучше ехать на Камчатку» — статьи сайта kamchatkaland.ru,
+   *      затянутые скрейпером в справочник МАРШРУТОВ. Координат у них нет не
+   *      по недосмотру: у статьи нет места.
+   *   2. Заголовок — слаг из адреса. «dachnye istochniki», «ganalskie
+   *      vostryaki», «gornyy massiv vachkazhets». Запись про настоящее место,
+   *      но названа машинным именем — и потому не склеивается с одноимённой
+   *      кириллической («Дачные источники» лежит отдельной записью).
+   *   3. Настоящие места без координат: озёра, источники, SUP-маршруты.
+   *      Этим координату надо дозаполнить.
+   *
+   * Различить первую группу от третьей можно НЕ по названию (это была бы
+   * догадка), а по уликам: есть ли линия, есть ли путевые точки. Запись без
+   * координат, без геометрии и без единой путевой точки не подтверждает свою
+   * маршрутность ничем — и это факт о данных, а не мнение о названии.
+   *
+   * Все они при этом видимы: перепись считает только `is_visible` — то есть
+   * «Растения Камчатки» лежат в справочнике маршрутов как маршрут.
+   */
+  anchorless_evidence: {
+    /** Ни координат, ни линии, ни путевых точек — маршрутность ничем не подтверждена. */
+    nothing_at_all: number;
+    /** Линия есть — место настоящее, потерялась только точка якоря. */
+    has_geometry: number;
+    /** Путевые точки есть. */
+    has_waypoints: number;
+    /** Заголовок записан латиницей: слаг из адреса вместо названия. */
+    latin_title: number;
+    /** Образцы самой безнадёжной группы — по ним человек и решает. */
+    nothing_at_all_sample: string[];
+    /** Образцы латинских заголовков: их надо переименовать, а не удалять. */
+    latin_title_sample: string[];
+  };
   thresholds: { same_spot_km: number; stem_len: number };
   worst: DuplicatePair[];
   duration_ms: number;
@@ -284,6 +342,33 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     sample: r.sample ?? [],
   }));
 
+  // Улики маршрутности у безъякорных. Спрашиваем данные, а не название:
+  // «История Камчатки» — не маршрут по своей природе, но судить об этом по
+  // словам значило бы гадать, а вот отсутствие линии И путевых точек —
+  // проверяемый факт.
+  const evidenceRes = await pool.query<{
+    id: string; title: string; has_geometry: boolean; waypoints: string;
+  }>(
+    `SELECT r.id::text, r.title,
+            (r.geometry IS NOT NULL) AS has_geometry,
+            (SELECT COUNT(*) FROM route_waypoints w WHERE w.route_id = r.id)::text AS waypoints
+       FROM kamchatka_routes r
+      WHERE (r.is_visible = TRUE OR r.is_visible IS NULL)
+        AND r.title IS NOT NULL
+        AND (r.lat IS NULL OR r.lng IS NULL)`,
+  );
+
+  const nothingAtAll: string[] = [];
+  const latinTitles: string[] = [];
+  let hasGeometry = 0, hasWaypoints = 0;
+  for (const r of evidenceRes.rows) {
+    const wps = parseInt(r.waypoints, 10) || 0;
+    if (r.has_geometry) hasGeometry += 1;
+    if (wps > 0) hasWaypoints += 1;
+    if (!r.has_geometry && wps === 0) nothingAtAll.push(r.title);
+    if (isLatinTitle(r.title)) latinTitles.push(r.title);
+  }
+
   const res = await pool.query<Row>(
     `SELECT id::text, title, lat::text, lng::text
        FROM kamchatka_routes
@@ -352,6 +437,14 @@ export async function runDuplicateAudit(): Promise<DuplicateAudit> {
     routes_in_duplicates: involved.size,
     routes_without_anchor: routes.filter((r) => r.lat === null || r.lng === null).length,
     anchorless_by_source,
+    anchorless_evidence: {
+      nothing_at_all: nothingAtAll.length,
+      has_geometry: hasGeometry,
+      has_waypoints: hasWaypoints,
+      latin_title: latinTitles.length,
+      nothing_at_all_sample: nothingAtAll.slice(0, 12),
+      latin_title_sample: latinTitles.slice(0, 12),
+    },
     thresholds: { same_spot_km: SAME_SPOT_KM, stem_len: STEM },
     worst: pairs.slice(0, 25),
     duration_ms: Date.now() - startedAt,
