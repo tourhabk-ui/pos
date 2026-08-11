@@ -19,6 +19,7 @@ import {
   Share2, Copy,
 } from 'lucide-react';
 import type { MapMarker } from '@/components/shared/leaflet-types';
+import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
@@ -1123,13 +1124,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       });
     });
 
-    // Polyline
+    // Линия между днями плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard).
+    // Она соединяет центры зон, между которыми бывает триста километров и
+    // хребет. Сплошная оранжевая под словом «Маршрут» читалась как проход:
+    // и вид, и подпись обещали то, чего никто не снимал.
     if (zoneOrder.length >= 2) {
       result.push({
         id: 'route_line',
         coords: zoneOrder[0].coords,
-        title: 'Маршрут',
-        geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), color: 'orange', weight: 3 },
+        title: CONNECTOR_TITLES.planOrder,
+        geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), ...connectorLine() },
       });
     }
 
