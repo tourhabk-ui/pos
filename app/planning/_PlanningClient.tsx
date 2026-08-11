@@ -30,6 +30,7 @@ import {
   trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
+import { connectorLine, CONNECTOR_TITLES, trackLine } from '@/lib/map/line-standard';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
   type SavedMapRecord,
@@ -886,11 +887,14 @@ function OnTrailTab() {
       // обещать путь там, где его никто не снимал.
       ...(approachLine ? [{
         coords: approachLine.from,
-        title: 'Выход на тропу',
+        title: CONNECTOR_TITLES.approach,
         geometry: {
           type: 'polyline',
           coordinates: [approachLine.from, approachLine.to] as Array<[number, number]>,
-          color: 'gray', weight: 2, dashArray: '6 6',
+          // Подход — ПОСТРОЕНИЕ по азимуту, не снятый путь. Вид берётся из
+          // общего стандарта (lib/map/line-standard), а не собирается тут:
+          // ровно так правило и разъезжалось по экранам.
+          ...connectorLine(),
         } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
@@ -924,13 +928,17 @@ function OnTrailTab() {
     // Сборник мест по всему краю (сегменты >25 км) — не трек: линию не
     // рисуем и «Начать по маршруту» не предлагаем
     const scattered = isScatteredCollection(line);
+    const previewLine = trackLine(line);
     const markers: MapMarker[] = [
       ...(scattered ? [] : [{
         coords: center,
         title: preview.title,
         color: 'teal',
         type: MarkerType.POI,
-        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+        // Превью строится по ПУТЕВЫМ ТОЧКАМ, а не по снятому треку: это
+        // ломаная между местами, и сплошная зелёная в четыре пикселя обещала
+        // здесь тропу, которой никто не снимал. Вид — из общего стандарта.
+        geometry: { type: 'polyline', coordinates: line, ...(previewLine?.style ?? connectorLine()) } as MapMarkerGeometry,
       }]),
       ...preview.wps.map((w, i) => ({
         coords: [w.lat, w.lng] as [number, number],

@@ -20,6 +20,7 @@ import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
+import { trackLine } from '@/lib/map/line-standard';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
@@ -508,6 +509,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
     const mapCenter: [number, number] = route.lat != null && route.lng != null
       ? [Number(route.lat), Number(route.lng)]
       : trackCoords?.[0] ?? [53.02, 158.65];
+    const track = trackLine(trackCoords);
     const cardMapMarkers: MapMarker[] = [
       {
         coords: mapCenter,
@@ -516,8 +518,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
         color: 'red',
         type: MarkerType.TOUR,
         category: route.locationType ?? 'other',
-        ...(trackCoords
-          ? { geometry: { type: 'polyline' as const, coordinates: trackCoords, color: 'red', weight: 4 } }
+        // Линия рисуется по своему происхождению (lib/map/line-standard).
+        // Сплошная в четыре пикселя — обещание тропы, а у полутора сотен
+        // маршрутов geometry построена миграцией 168 прямыми между точками:
+        // такая линия проходит через каньон и реку и выглядела здесь ровно
+        // так же уверенно, как снятый GPS-трек.
+        ...(track
+          ? { geometry: { type: 'polyline' as const, coordinates: trackCoords as [number, number][], ...track.style } }
           : {}),
       },
       ...navWaypoints.map(w => ({
@@ -529,7 +536,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
         category: w.locationType ?? 'other',
       })),
     ];
-    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers };
+    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track };
   }, [route]);
 
   if (loading) {
@@ -558,7 +565,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
   }
 
   const hasGeo = route.lat != null && route.lng != null;
-  const { navWaypoints, trackCoords, mapCenter, cardMapMarkers } = mapData;
+  const { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track } = mapData;
   const hasTrack = trackCoords != null;
   const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
@@ -1209,6 +1216,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   height="240px"
                   className="w-full rounded-lg"
                 />
+                {/* Второй канал того же факта: на карточке в 240 пикселей
+                    пунктир от сплошной отличит не каждый глаз, а решение
+                    «идти по этой линии» человек принимает именно здесь. */}
+                {track && track.caption !== '' && (
+                  <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
+                )}
               </section>
             )}
 
@@ -1368,6 +1381,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     height="220px"
                     className="w-full rounded-lg"
                   />
+                  {/* Второй канал того же факта: на карточке в 240 пикселей
+                      пунктир от сплошной отличит не каждый глаз, а решение
+                      «идти по этой линии» человек принимает именно здесь. */}
+                  {track && track.caption !== '' && (
+                    <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
+                  )}
                 </div>
               )}
 
