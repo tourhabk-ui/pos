@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
-import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
+import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 
@@ -258,11 +258,29 @@ export async function GET(
         // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
         // null = трека нет нигде (geometry, payload.geometry, payload.track)
         track: (() => {
-          const pts = decimateTrack(extractTrackpoints(
+          const { points } = decimateTrackWithScale(extractTrackpoints(
             r.geometry as { type?: string; coordinates?: number[][] } | null,
             payload,
           ));
-          return pts.length >= 2 ? pts.map(p => [p.lat, p.lng] as [number, number]) : null;
+          return points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null;
+        })(),
+        /**
+         * Шкала трека: сколько метров ПОЛНОГО трека приходится на каждую
+         * оставленную после прореживания точку.
+         *
+         * Прореживание берёт каждую N-ю точку, поэтому ломаная короче
+         * исходной — тем сильнее, чем извилистее путь. Профиль высот при этом
+         * считается по полному треку. Без этой шкалы клиент мерил положение
+         * одной меркой, а резал профиль другой, и срез уезжал к началу на
+         * сотни метров. Две мерки для одного расстояния — тот же дефект, что
+         * мы чиним на этом экране, только в контракте API.
+         */
+        track_dm: (() => {
+          const { points, dm } = decimateTrackWithScale(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return points.length >= 2 ? dm : null;
         })(),
         /**
          * Профиль высот считается на сервере по ПОЛНОМУ треку (прореживание

@@ -311,6 +311,10 @@ function OnTrailTab() {
   // Без этого срез брался по прямым между точками, а профиль размечен по
   // извилистому пути — на горном маршруте это разные числа в полтора раза.
   const [track, setTrack] = useState<Array<[number, number]> | null>(null);
+  // Шкала трека: метры ПОЛНОГО трека на каждую оставленную точку.
+  // Без неё положение мерилось по прореженной ломаной, а профиль —
+  // по полному треку, и срез рельефа уезжал к началу.
+  const [trackDm, setTrackDm] = useState<number[] | null>(null);
   /**
    * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
    * «снимок от такого-то часа» — это утверждение о свежести, и брать его
@@ -461,6 +465,12 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        const dm = (data as Record<string, unknown>).track_dm;
+        setTrackDm(Array.isArray(dm) && Array.isArray(tr) && dm.length === tr.length
+          ? (dm as number[])
+          // Длины не совпали — шкале верить нельзя, и подставлять
+          // «почти подходящую» нельзя тем более.
+          : null);
         // Отметка свежести ставится по факту успешного ответа, а не по
         // открытию экрана: иначе «снимок от 14:32» означал бы «я посмотрел в
         // 14:32», а не «данные такие на 14:32».
@@ -919,12 +929,16 @@ function OnTrailTab() {
     if (!relief || relief.points.length < 2 || !track || !coords || !nextWp) return null;
     // Обе границы отреза — в ОДНОЙ шкале, по треку: и «я здесь», и следующая
     // точка. Смешивать прямые с путём нельзя, это и есть враньё о рельефе.
-    const fromM = distanceAlongTrack(track, coords.lat, coords.lng);
-    const toM = distanceAlongTrack(track, nextWp.lat, nextWp.lng);
+    // Обе границы — в шкале ПОЛНОГО трека, той же, в которой лежит профиль.
+    // Пока шкалы нет (старый ответ API), срез не строится вовсе: показать его
+    // в чужой мерке значит соврать о рельефе впереди.
+    if (!trackDm) return null;
+    const fromM = distanceAlongTrack(track, coords.lat, coords.lng, trackDm);
+    const toM = distanceAlongTrack(track, nextWp.lat, nextWp.lng, trackDm);
     if (fromM === null || toM === null || toM <= fromM) return null;
     const r = remainingRelief(relief.points, fromM, toM);
     return r.points.length >= 2 ? r : null;
-  }, [relief, track, coords, nextWp]);
+  }, [relief, track, trackDm, coords, nextWp]);
 
   const eta = useMemo(
     () => etaHours({

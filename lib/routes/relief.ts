@@ -16,6 +16,8 @@
  * числу турист решает, идти ли ему сегодня.
  */
 
+import { projectOnTrack } from '@/lib/on-route/approach';
+
 export interface ReliefPoint {
   /** Расстояние от начала маршрута, м. */
   dM: number;
@@ -165,7 +167,6 @@ export function remainingRelief(
   };
 }
 
-import { projectOnTrack } from '@/lib/on-route/approach';
 
 /* ─── Привязка положения к треку ──────────────────────────────────────────── */
 
@@ -191,6 +192,19 @@ export function distanceAlongTrack(
   track: Array<[number, number]>,
   lat: number,
   lng: number,
+  /**
+   * Шкала полного трека: `scaleDm[i]` — метры до i-й точки ПО ПОЛНОМУ треку.
+   *
+   * Трек приходит прореженным, и его собственная длина меньше настоящей — тем
+   * сильнее, чем извилистее путь. Профиль высот индексирован полной длиной,
+   * поэтому без шкалы срез профиля уезжает к началу на сотни метров. Со
+   * шкалой ответ считается в той же мерке, в которой лежит профиль.
+   *
+   * Без неё функция по-прежнему считает по прореженной ломаной — это законно
+   * для «сколько я прошёл», но не для среза профиля; вызывающий обязан знать
+   * разницу.
+   */
+  scaleDm?: number[] | null,
 ): number | null {
   if (!Array.isArray(track) || track.length < 2) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -198,6 +212,13 @@ export function distanceAlongTrack(
   const points = track.map(([tLat, tLng]) => ({ lat: tLat, lng: tLng }));
   const pr = projectOnTrack({ lat, lng }, points);
   if (!pr) return null;
+
+  if (scaleDm && scaleDm.length === track.length) {
+    // На самих точках это точно, между ними — линейно по доле вдоль звена.
+    const a = scaleDm[pr.segment];
+    const b = scaleDm[Math.min(pr.segment + 1, scaleDm.length - 1)];
+    if (Number.isFinite(a) && Number.isFinite(b)) return a + (b - a) * pr.t;
+  }
 
   let sum = 0;
   for (let i = 0; i < pr.segment; i++) sum += haversineM(points[i], points[i + 1]);
