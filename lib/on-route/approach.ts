@@ -168,6 +168,16 @@ export function approachPlan(
    * состоянием, оно передаётся сюда, и путь считается от него.
    */
   userProjection?: TrackProjection | null,
+  /**
+   * Порог «я в стороне», км. Приходит от точности фикса
+   * (lib/on-route/fix-quality → offTrackThresholdM): при +-60 м человек,
+   * идущий ровно по тропе, при фиксированной сотне метров регулярно
+   * оказывался бы в стороне.
+   *
+   * На `targetOffTrack` и `dataConflict` НЕ влияет: положение путевой точки
+   * относительно трека — вопрос данных, GPS к нему отношения не имеет.
+   */
+  userToleranceKm: number = ON_TRACK_TOLERANCE_KM,
 ): ApproachPlan | null {
   if (track.length < 2) return null;
 
@@ -186,7 +196,7 @@ export function approachPlan(
     exitKm,
     totalKm: approachKm + alongTrackKm + exitKm,
     targetOffTrack: exitKm > ON_TRACK_TOLERANCE_KM,
-    userOffTrack: approachKm > ON_TRACK_TOLERANCE_KM,
+    userOffTrack: approachKm > userToleranceKm,
     dataConflict: exitKm > DATA_CONFLICT_KM,
   };
 }

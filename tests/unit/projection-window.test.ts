@@ -16,7 +16,10 @@ import { join } from 'node:path';
 import {
   advanceAlong, WINDOW_M, RESET_OFF_TRACK_KM, type AlongState,
 } from '@/lib/on-route/projection-window';
-import { projectOnTrack, type GeoPoint } from '@/lib/on-route/approach';
+import { projectOnTrack, approachPlan, type GeoPoint } from '@/lib/on-route/approach';
+import {
+  offTrackThresholdM, fixUsableForNavigation, OFF_TRACK_FLOOR_M, OFF_TRACK_CEIL_M,
+} from '@/lib/on-route/fix-quality';
 
 /**
  * Радиальный маршрут: на север по 158.000 и обратно на юг по 158.0005.
@@ -118,12 +121,81 @@ describe('экран действительно ведёт положение с
     // Правило, которое некому вызвать, — мёртвое правило.
     const screen = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
     expect(screen).toMatch(/advanceAlong\(/);
-    expect(screen).toMatch(/approachPlan\([\s\S]{0,200}next\?\.projection/);
+    // Проверяется, что путь считается ОТ ВЕДОМОГО положения, а не от свежего
+    // глобального поиска. К имени переменной не привязываемся: прежняя
+    // редакция ломалась на переименовании, ничего при этом не охраняя.
+    expect(screen).toMatch(/approachPlan\([\s\S]{0,400}alongRef\.current\?\.projection/);
   });
 
   it('смена трека обнуляет историю положения', () => {
     // Иначе положение с прошлого маршрута продолжило бы удерживать окно.
     const screen = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
     expect(screen).toMatch(/alongRef\.current = null;[\s\S]{0,40}\[track\]/);
+  });
+});
+
+describe('порог «я в стороне» растёт с погрешностью фикса', () => {
+  it('хорошее небо — узкий порог, но не уже пола', () => {
+    // При ±5 м порог в десять метров объявлял бы отходом обход лужи.
+    expect(offTrackThresholdM(5)).toBe(OFF_TRACK_FLOOR_M);
+  });
+
+  it('плохое небо — порог шире, иначе идущий по тропе «в стороне»', () => {
+    // Ровно та ошибка в опасную сторону: ложное «вы в стороне» гонит человека
+    // искать тропу, которой он и так держится.
+    expect(offTrackThresholdM(60)).toBeGreaterThan(100);
+    expect(offTrackThresholdM(45)).toBeGreaterThan(offTrackThresholdM(15));
+  });
+
+  it('порог не растёт бесконечно', () => {
+    expect(offTrackThresholdM(500)).toBe(OFF_TRACK_CEIL_M);
+  });
+
+  it('точность неизвестна — берётся потолок, а не пол', () => {
+    // Не знать, насколько врёт датчик, и строго судить человека — худшее
+    // из сочетаний.
+    expect(offTrackThresholdM(null)).toBe(OFF_TRACK_CEIL_M);
+    expect(offTrackThresholdM(NaN)).toBe(OFF_TRACK_CEIL_M);
+    expect(offTrackThresholdM(0)).toBe(OFF_TRACK_CEIL_M);
+  });
+
+  it('порог доезжает до расчёта пути и меняет вердикт «в стороне»', () => {
+    const track = [{ lat: 53, lng: 158 }, { lat: 53.1, lng: 158 }];
+    const user = { lat: 53.05, lng: 158.0008 }; // ~53 м вбок
+    const strict = approachPlan(user, { lat: 53.09, lng: 158 }, track, null, 0.03)!;
+    const loose = approachPlan(user, { lat: 53.09, lng: 158 }, track, null, 0.12)!;
+    expect(strict.userOffTrack).toBe(true);
+    expect(loose.userOffTrack).toBe(false);
+  });
+
+  it('точность не влияет на вопрос «точка стоит в стороне»', () => {
+    // Это вопрос данных маршрута, а не GPS: общий порог склеил бы две разные
+    // природы обратно в одну.
+    const track = [{ lat: 53, lng: 158 }, { lat: 53.1, lng: 158 }];
+    const far = { lat: 53.05, lng: 158.4 };
+    const a = approachPlan({ lat: 53.05, lng: 158 }, far, track, null, 0.025)!;
+    const b = approachPlan({ lat: 53.05, lng: 158 }, far, track, null, 0.12)!;
+    expect(a.dataConflict).toBe(b.dataConflict);
+    expect(a.targetOffTrack).toBe(b.targetOffTrack);
+  });
+});
+
+describe('плохой фикс не двигает положение и не выдаётся за свежий', () => {
+  it('негодный фикс отсекается до обновления окна', () => {
+    expect(fixUsableForNavigation(300)).toBe(false);
+    expect(fixUsableForNavigation(20)).toBe(true);
+    expect(fixUsableForNavigation(null)).toBe(false);
+  });
+
+  it('экран не двигает состояние на негодном фиксе', () => {
+    const screen = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+    expect(screen).toMatch(/if \(fixUsableForNavigation\([\s\S]{0,60}\)\) \{[\s\S]{0,140}advanceAlong/);
+  });
+
+  it('свежесть по-прежнему говорится существующим механизмом, а не новым', () => {
+    // Отбросить плохой фикс и молча оставить прежнюю проекцию — это стухшее
+    // значение под видом текущего.
+    const screen = readFileSync(join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8');
+    expect(screen).toMatch(/figuresAreLive|figuresLive/);
   });
 });

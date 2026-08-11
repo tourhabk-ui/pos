@@ -14,6 +14,7 @@ import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
 import { approachPlan } from '@/lib/on-route/approach';
 import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
+import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
@@ -797,13 +798,20 @@ function OnTrailTab() {
   const approach = useMemo(() => {
     if (!coords || !nextWp || !track || track.length < 2) return null;
     const line = track.map(([lat, lng]) => ({ lat, lng }));
-    const next = advanceAlong({ lat: coords.lat, lng: coords.lng }, line, alongRef.current);
-    alongRef.current = next;
+    // Плохой фикс не двигает положение: иначе окно проекции прыгало бы на
+    // шуме, ради устранения которого оно и заведено. Что показанное при этом
+    // не свежее — говорит fixInfo/figuresAreLive, отдельной сущности не надо.
+    if (fixUsableForNavigation(coords.accuracy ?? null)) {
+      alongRef.current = advanceAlong({ lat: coords.lat, lng: coords.lng }, line, alongRef.current);
+    }
     return approachPlan(
       { lat: coords.lat, lng: coords.lng },
       { lat: nextWp.lat, lng: nextWp.lng },
       line,
-      next?.projection ?? null,
+      alongRef.current?.projection ?? null,
+      // Порог отхода — от точности фикса, а не константа: ложное «вы в
+      // стороне» гонит человека искать тропу, которой он и так держится.
+      offTrackThresholdM(coords.accuracy ?? null) / 1000,
     );
   }, [coords, nextWp, track]);
 
