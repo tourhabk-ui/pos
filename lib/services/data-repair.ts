@@ -86,6 +86,15 @@ export interface DataRepairResult {
    * выводится, а не выдумывается.
    */
   anchored_from_place: number;
+  /**
+   * Шаг 9d: записи, которые источник опубликовал как ЗАМЕТКИ, а не маршруты.
+   *
+   * «Бухты Камчатки», «Водопады Камчатки», «Вулканы Камчатки» лежали в
+   * справочнике маршрутов видимыми. Отличить их от маршрута по названию
+   * нельзя (проба 49), а раздел сайта в адресе отличает (проба 52: /note —
+   * двадцать шесть записей). Снимается только видимость: текст остаётся.
+   */
+  hidden_source_notes: number;
   /** Диагностика (Шаг 10): waypoints дальше порога от опорной точки маршрута */
   waypoint_outliers: number;
   /** Шаг 10b: изолированные точки-беглецы, отвязанные от маршрута (apply) */
@@ -301,6 +310,7 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     merged_morph: 0,
     fixed_route_coords: 0,
     anchored_from_place: 0,
+    hidden_source_notes: 0,
     waypoint_outliers: 0,
     waypoint_outliers_unlinked: 0,
     errors: 0,
@@ -1006,6 +1016,69 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     res.errors++;
     items.push({
       step: 'anchor_from_place',
+      detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`,
+    });
+  }
+
+  // ── Шаг 9d: заметки сайта — вон из справочника МАРШРУТОВ ─────────────────
+  //
+  // Владелец 11.08: «если видишь не маршруты, а статьи — их нужно убирать с
+  // маршрутов в описание мест».
+  //
+  // Задача упиралась в улику. По названию статья от маршрута не отличается —
+  // это измерено (проба 49): «Флора Камчатки», «Поселок Эссо» и «Восхождение
+  // на Плоский Толбачик» попали в одну кучу «нет никаких данных». Гадать о
+  // смысле слов в заголовке нельзя.
+  //
+  // Улику дал АДРЕС. Проба 52 разложила 97 безъякорных записей по разделам
+  // сайта-источника начисто:
+  //
+  //   /upload   67   «5 стройка–Центральный», «SUP-маршрут Полуостров Завойко»
+  //   /note     26   «Бухты Камчатки», «Водопады Камчатки», «Вулканы Камчатки»
+  //   /routes    4   латинские слаги
+  //
+  // Раздел «note» — слово самого источника: он опубликовал заметку, а не
+  // маршрут. Мы это утверждение читаем, а не выводим.
+  //
+  // Что делает шаг: снимает видимость. НЕ УДАЛЯЕТ — текст остаётся в строке
+  // целиком, потому что вторая половина задачи («в описание мест») требует
+  // цели, а у обзорной заметки «Вулканы Камчатки» единственного места нет по
+  // смыслу: она про все вулканы сразу. Пока цель не найдена, текст должен
+  // лежать в сохранности, а не быть стёртым ради чистоты витрины.
+  //
+  // Отметка remove_reason оставляет след: через месяц будет видно, что запись
+  // спрятана по разделу источника, а не по чьему-то впечатлению от названия.
+  try {
+    const { rows: notes } = await pool.query<{ id: string; title: string; path: string }>(
+      `SELECT id, title, substring(source_url from '^https?://[^/]+(/[^/?#]*)') AS path
+         FROM kamchatka_routes
+        WHERE (is_visible = TRUE OR is_visible IS NULL)
+          AND title IS NOT NULL
+          AND substring(source_url from '^https?://[^/]+(/[^/?#]*)') = '/note'`,
+    );
+    for (const n of notes) {
+      if (!dryRun) {
+        await pool.query(
+          `UPDATE kamchatka_routes
+              SET is_visible = FALSE,
+                  metadata = COALESCE(metadata, '{}'::jsonb)
+                             || jsonb_build_object('remove_reason', 'source_section_note'),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [n.id],
+        );
+      }
+      res.hidden_source_notes++;
+      items.push({
+        step: 'source_note',
+        place: n.title,
+        detail: 'источник опубликовал это как заметку (/note), а не как маршрут — снята видимость, текст сохранён',
+      });
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({
+      step: 'source_note',
       detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`,
     });
   }

@@ -561,3 +561,78 @@ describe('шаг 9c: якорь от одноимённого места', () =>
     expect(call![1]).toEqual([53.3, 157.6, 'r1']);
   });
 });
+
+/**
+ * Шаг 9d: заметки сайта — вон из справочника маршрутов.
+ *
+ * Задача владельца («статьи — из маршрутов в описание мест») упиралась в
+ * улику. По названию статья от маршрута не отличается: проба 49 положила в
+ * одну кучу «Флору Камчатки», «Поселок Эссо» и «Восхождение на Плоский
+ * Толбачик». Улику дал адрес — проба 52 разложила 97 безъякорных записей по
+ * разделам источника начисто: /upload 67, /note 26, /routes 4.
+ *
+ * Раздел «note» — слово самого источника: он опубликовал заметку. Это
+ * читается, а не выводится из смысла заголовка.
+ */
+describe('шаг 9d: заметки источника', () => {
+  const NOTE_SQL = "= '/note'";
+
+  function onlyNotes(rows: Array<{ id: string; title: string; path: string }>) {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes(NOTE_SQL) && sql.includes('SELECT')) return Promise.resolve({ rows });
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('заметки считаются', async () => {
+    onlyNotes([
+      { id: 'n1', title: 'Вулканы Камчатки', path: '/note' },
+      { id: 'n2', title: 'Водопады Камчатки', path: '/note' },
+    ]);
+    expect((await runDataRepair(true)).hidden_source_notes).toBe(2);
+  });
+
+  it('dry-run не прячет', async () => {
+    onlyNotes([{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }]);
+    await runDataRepair(true);
+    const hid = queryMock.mock.calls.some(([sql]) =>
+      /is_visible = FALSE[\s\S]*source_section_note/.test(String(sql ?? '')));
+    expect(hid).toBe(false);
+  });
+
+  it('apply снимает видимость и НЕ удаляет запись', async () => {
+    // Вторая половина задачи — «в описание мест» — требует цели, а у обзорной
+    // заметки «Вулканы Камчатки» единственного места нет по смыслу: она про
+    // все вулканы сразу. Пока цель не найдена, текст должен лежать в
+    // сохранности, а не быть стёртым ради чистоты витрины.
+    onlyNotes([{ id: 'n1', title: 'Вулканы Камчатки', path: '/note' }]);
+    await runDataRepair(false);
+
+    const calls = queryMock.mock.calls.map(([sql]) => String(sql ?? ''));
+    const hide = calls.find((s) => /is_visible = FALSE[\s\S]*source_section_note/.test(s));
+    expect(hide).toBeDefined();
+    // Ни одного DELETE по маршрутам: скрыть — не значит стереть.
+    expect(calls.some((s) => /DELETE\s+FROM\s+kamchatka_routes/i.test(s))).toBe(false);
+  });
+
+  it('след причины остаётся в записи', async () => {
+    // Через месяц должно быть видно, что запись спрятана ПО РАЗДЕЛУ
+    // ИСТОЧНИКА, а не по чьему-то впечатлению от названия.
+    onlyNotes([{ id: 'n1', title: 'Бухты Камчатки', path: '/note' }]);
+    await runDataRepair(false);
+    const hide = queryMock.mock.calls
+      .map(([sql]) => String(sql ?? ''))
+      .find((s) => /remove_reason/.test(s));
+    expect(hide).toContain('source_section_note');
+  });
+
+  it('раздел решает, а не слова в заголовке', async () => {
+    // «Вулканы Камчатки» из /note — заметка. Точно так же названная запись из
+    // другого раздела шагом не трогается: судим по утверждению источника.
+    queryMock.mockImplementation((raw: unknown) => Promise.resolve({ rows: [], rowCount: 0 }));
+    expect((await runDataRepair(true)).hidden_source_notes).toBe(0);
+  });
+});
