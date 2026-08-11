@@ -68,6 +68,10 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/collections`,          lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/trending`,             lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.7 },
     { url: `${BASE}/blog`,                 lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.75 },
+    // Раздел статей (11.08): двадцать шесть текстов о природе и крае, до
+    // этого лежавших в справочнике МАРШРУТОВ как маршруты. Без записи здесь
+    // раздел для поиска не существует — ровно так уже пропали туры (08.08).
+    { url: `${BASE}/articles`,             lastModified: new Date(),  changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/guides`,               lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/ai-tools`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.7 },
     { url: `${BASE}/about`,                lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
@@ -126,6 +130,27 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     }));
   } catch {
     // Если БД недоступна при сборке — sitemap без страниц мест
+  }
+
+  // Страницы статей (11.08). Оглавление без страниц — половина работы:
+  // обходчик увидел бы раздел и ни одного текста в нём.
+  let articlePages: MetadataRoute.Sitemap = [];
+  try {
+    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(`
+      SELECT slug, updated_at
+      FROM articles
+      WHERE is_visible = TRUE
+      ORDER BY updated_at DESC
+      LIMIT 500
+    `);
+    articlePages = rows.map((row) => ({
+      url: `${BASE}/articles/${row.slug}`,
+      lastModified: row.updated_at,
+      changeFrequency: 'monthly' as const,
+      priority: 0.6,
+    }));
+  } catch {
+    // БД недоступна — честно без статей, а не выдуманный список адресов.
   }
 
   // Динамические страницы: все видимые маршруты kamchatka_routes
@@ -235,6 +260,7 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     ...staticPages,
     ...categoryPages,
     ...placesPages,
+    ...articlePages,
     ...routePages,
     ...accommodationPages,
     ...marketplacePages,

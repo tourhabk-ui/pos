@@ -20,6 +20,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { normalizeTitle } from '@/lib/import/kml-inbox';
+import { slugify } from '@/lib/text/slugify';
 import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
@@ -91,12 +92,17 @@ export interface DataRepairResult {
   /**
    * Шаг 9d: записи, которые источник опубликовал как ЗАМЕТКИ, а не маршруты.
    *
-   * «Бухты Камчатки», «Водопады Камчатки», «Вулканы Камчатки» лежали в
-   * справочнике маршрутов видимыми. Отличить их от маршрута по названию
-   * нельзя (проба 49), а раздел сайта в адресе отличает (проба 52: /note —
-   * двадцать шесть записей). Снимается только видимость: текст остаётся.
+   * Отличить их от маршрута по названию нельзя (проба 49), а раздел сайта в
+   * адресе отличает (проба 52: /note — двадцать шесть записей).
+   *
+   * Три исхода, и они считаются врозь, потому что означают разное:
+   * текст переехал в место · запись удалена · запись держит ссылка тура.
    */
-  hidden_source_notes: number;
+  notes_text_moved: number;
+  /** Заметка переехала в собственный раздел статей (таблица articles). */
+  notes_to_articles: number;
+  notes_deleted: number;
+  notes_kept_referenced: number;
   /** Диагностика (Шаг 10): waypoints дальше порога от опорной точки маршрута */
   waypoint_outliers: number;
   /** Шаг 10b: изолированные точки-беглецы, отвязанные от маршрута (apply) */
@@ -344,7 +350,10 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
     merged_morph: 0,
     fixed_route_coords: 0,
     anchored_from_place: 0,
-    hidden_source_notes: 0,
+    notes_text_moved: 0,
+    notes_to_articles: 0,
+    notes_deleted: 0,
+    notes_kept_referenced: 0,
     waypoint_outliers: 0,
     waypoint_outliers_unlinked: 0,
     errors: 0,
@@ -1056,58 +1065,133 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
 
   // ── Шаг 9d: заметки сайта — вон из справочника МАРШРУТОВ ─────────────────
   //
-  // Владелец 11.08: «если видишь не маршруты, а статьи — их нужно убирать с
-  // маршрутов в описание мест».
+  // Владелец 11.08, две команды подряд: «статьи — убирать с маршрутов в
+  // описание мест», затем «если не знаешь — удаляй». Шаг исполняет обе:
+  // где для текста есть цель, текст переезжает; где цели нет, запись
+  // удаляется.
   //
-  // Задача упиралась в улику. По названию статья от маршрута не отличается —
-  // это измерено (проба 49): «Флора Камчатки», «Поселок Эссо» и «Восхождение
-  // на Плоский Толбачик» попали в одну кучу «нет никаких данных». Гадать о
-  // смысле слов в заголовке нельзя.
+  // Улика — АДРЕС. По названию статья от маршрута не отличается (проба 49:
+  // «Флора Камчатки», «Поселок Эссо» и «Восхождение на Плоский Толбачик» в
+  // одной куче). Проба 52 разложила 97 безъякорных записей по разделам
+  // источника начисто: /upload 67, /note 26, /routes 4. Раздел «note» —
+  // слово самого источника: он опубликовал заметку, а не маршрут.
   //
-  // Улику дал АДРЕС. Проба 52 разложила 97 безъякорных записей по разделам
-  // сайта-источника начисто:
+  // Проба 53 показала список, и он поправил формулировку: под /note лежат и
+  // обзорные статьи («Растения Камчатки»), и описания настоящих МЕСТ
+  // («Поселок Эссо», «Озеро Азабачье»). Маршрутом не является ни то, ни
+  // другое — поэтому из справочника маршрутов уходят все.
   //
-  //   /upload   67   «5 стройка–Центральный», «SUP-маршрут Полуостров Завойко»
-  //   /note     26   «Бухты Камчатки», «Водопады Камчатки», «Вулканы Камчатки»
-  //   /routes    4   латинские слаги
+  // Порядок: сперва спасти текст, потом удалять. Обратного порядка быть не
+  // может — удалённое не переносят.
   //
-  // Раздел «note» — слово самого источника: он опубликовал заметку, а не
-  // маршрут. Мы это утверждение читаем, а не выводим.
-  //
-  // Что делает шаг: снимает видимость. НЕ УДАЛЯЕТ — текст остаётся в строке
-  // целиком, потому что вторая половина задачи («в описание мест») требует
-  // цели, а у обзорной заметки «Вулканы Камчатки» единственного места нет по
-  // смыслу: она про все вулканы сразу. Пока цель не найдена, текст должен
-  // лежать в сохранности, а не быть стёртым ради чистоты витрины.
-  //
-  // Отметка remove_reason оставляет след: через месяц будет видно, что запись
-  // спрятана по разделу источника, а не по чьему-то впечатлению от названия.
+  // Единственное, что удерживает от удаления, — ссылка коммерческого тура на
+  // эту запись: удалить её значит сломать страницу тура, а это уже не уборка
+  // справочника. Такие остаются и называются в отчёте поимённо.
   try {
-    const { rows: notes } = await pool.query<{ id: string; title: string; path: string }>(
-      `SELECT id, title, substring(source_url from '^https?://[^/]+(/[^/?#]*)') AS path
+    const { rows: notes } = await pool.query<{
+      id: string; title: string; description: string | null;
+      source_url: string | null; source_name: string | null; category: string | null;
+    }>(
+      `SELECT id, title, description, source_url, source_name, category
          FROM kamchatka_routes
-        WHERE (is_visible = TRUE OR is_visible IS NULL)
-          AND title IS NOT NULL
+        WHERE title IS NOT NULL
           AND substring(source_url from '^https?://[^/]+(/[^/?#]*)') = '/note'`,
     );
-    for (const n of notes) {
-      if (writes('source_note')) {
-        await pool.query(
-          `UPDATE kamchatka_routes
-              SET is_visible = FALSE,
-                  metadata = COALESCE(metadata, '{}'::jsonb)
-                             || jsonb_build_object('remove_reason', 'source_section_note'),
-                  updated_at = NOW()
-            WHERE id = $1`,
+
+    if (notes.length > 0) {
+      const { rows: placeRows } = await pool.query<{ id: string; name: string; description: string | null }>(
+        `SELECT id, name, description FROM places WHERE name IS NOT NULL`,
+      );
+      const byName = new Map<string, { id: string; description: string | null } | 'ambiguous'>();
+      for (const pl of placeRows) {
+        if (typeof pl.name !== 'string' || pl.name === '') continue;
+        const key = normalizeTitle(pl.name);
+        if (key === '') continue;
+        byName.set(key, byName.has(key) ? 'ambiguous' : { id: pl.id, description: pl.description });
+      }
+
+      for (const n of notes) {
+        // 1. Текст — в описание места, если у него есть однозначный тёзка и
+        //    описание там беднее. Богатое чужим текстом не перетираем.
+        const hit = byName.get(normalizeTitle(n.title));
+        const text = (n.description ?? '').trim();
+        const target = hit && hit !== 'ambiguous' ? hit : null;
+        const targetLen = (target?.description ?? '').trim().length;
+        if (target && text.length > targetLen) {
+          if (writes('source_note')) {
+            await pool.query(
+              `UPDATE places
+                  SET description = $1,
+                      metadata = COALESCE(metadata, '{}'::jsonb)
+                                 || jsonb_build_object('description_from', 'route_note'),
+                      updated_at = NOW()
+                WHERE id = $2`,
+              [text, target.id],
+            );
+          }
+          res.notes_text_moved++;
+          items.push({
+            step: 'source_note',
+            place: n.title,
+            detail: `текст перенесён в описание одноимённого места (было ${targetLen} символов, стало ${text.length})`,
+          });
+        }
+
+        // 2. Ссылка коммерческого тура держит запись: удаление сломало бы
+        //    страницу тура, а это уже не уборка справочника.
+        const { rows: refs } = await pool.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM operator_tours WHERE route_id = $1`,
           [n.id],
         );
+        if (parseInt(refs[0]?.n ?? '0', 10) > 0) {
+          res.notes_kept_referenced++;
+          items.push({
+            step: 'source_note',
+            place: n.title,
+            detail: 'на запись ссылается тур оператора — не удаляем, нужен разбор человека',
+          });
+          continue;
+        }
+
+        // 3. Заметка переезжает в СВОЙ раздел (миграция 848) и уходит из
+        //    справочника маршрутов.
+        //
+        //    Владелец 11.08: сперва «если не знаешь — удаляй», затем «нужно
+        //    сделать раздел статьи так же как с видами рыб, это было бы
+        //    логичней». Второе решение отменяет первое и оно лучше: «Флора
+        //    Камчатки» — не мусор, это готовый текст про Камчатку, ему нужна
+        //    своя полка, а не корзина. Из справочника МАРШРУТОВ он всё равно
+        //    уходит: маршрутом он не был никогда.
+        //
+        //    Slug — общий `slugify`, тот же, что у маршрутов и мест. Пустой
+        //    (из названия без букв) заменяется на id: адрес обязан быть, и
+        //    непрозрачный адрес честнее выдуманного.
+        const slug = slugify(n.title) || n.id;
+        if (writes('source_note')) {
+          await pool.query(
+            `INSERT INTO articles (slug, title, body, source_url, source_name, topic)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (slug) DO UPDATE
+                SET title = EXCLUDED.title,
+                    body = COALESCE(EXCLUDED.body, articles.body),
+                    updated_at = NOW()`,
+            [slug, n.title, n.description, n.source_url, n.source_name, n.category],
+          );
+          // Точки маршрута — своей строкой: внешнего ключа у них нет, и без
+          // этого остались бы висеть сироты, ссылающиеся в пустоту.
+          await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1`, [n.id]);
+          await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [n.id]);
+        }
+        res.notes_to_articles++;
+        res.notes_deleted++;
+        items.push({
+          step: 'source_note',
+          place: n.title,
+          detail: target
+            ? `заметка (/note): текст сохранён и в описании места, и в разделе статей (/articles/${slug}); из маршрутов убрана`
+            : `заметка (/note): переехала в раздел статей (/articles/${slug}); из маршрутов убрана`,
+        });
       }
-      res.hidden_source_notes++;
-      items.push({
-        step: 'source_note',
-        place: n.title,
-        detail: 'источник опубликовал это как заметку (/note), а не как маршрут — снята видимость, текст сохранён',
-      });
     }
   } catch (err) {
     res.errors++;
