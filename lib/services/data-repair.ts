@@ -109,6 +109,23 @@ export interface DataRepairResult {
      * настоящими дублями значило бы утопить список.
      */
     generic_only: number;
+    /**
+     * Вложение есть, но длинное имя добавляет СОБСТВЕННОЕ слово — значит это
+     * другой объект, а не второе описание того же.
+     *
+     * Проба 56 показала на образцах, чем верная пара отличается от ложной:
+     *
+     *   «Узон» ⊂ «Кальдера вулкана Узон»      добавлено кальдера, вулкана — родовые
+     *   «Камень» ⊂ «Вулкан Камень»            добавлено вулкан — родовое
+     *   «Камень» ⊂ «Камень Амбон»             добавлено АМБОН — имя собственное
+     *   «Фумарола» ⊂ «Фумарола вулкана Дзендзур»  добавлен ДЗЕНДЗУР
+     *   «пещеры» ⊂ «Лавовые пещеры вулкана Толбачик»  добавлен ТОЛБАЧИК
+     *
+     * Одно короткое слово цепляло всё, где оно встречается: «Камень» дал
+     * шесть пар, из них верна одна. Разница между именами обязана быть
+     * РОДОВОЙ — иначе перед нами два разных места, названных похоже.
+     */
+    distinct_extra: number;
   };
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
@@ -379,7 +396,7 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
     renamed_places: 0,
     normalized_types: 0,
     merged_coord_subset: 0,
-    name_pairs: { same_name: 0, same_wordset: 0, subset: 0, generic_only: 0 },
+    name_pairs: { same_name: 0, same_wordset: 0, subset: 0, generic_only: 0, distinct_extra: 0 },
     merged_morph: 0,
     fixed_route_coords: 0,
     anchored_from_place: 0,
@@ -926,10 +943,22 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
         if (!kind) continue;
 
         // Короткое имя целиком родовое — беда качества имени, не дубль.
-        const shorter = wa.size <= wb.size ? a : b;
+        const [shorter, longer] = wa.size <= wb.size ? [a, b] : [b, a];
         if (stems(shorter.name).size === 0) {
           res.name_pairs.generic_only++;
           continue;
+        }
+
+        // Чем длинное имя ОТЛИЧАЕТСЯ от короткого. Если добавлено имя
+        // собственное — это другой объект: «Камень» и «Камень Амбон» разные
+        // места, сколько бы букв они ни делили. Разница обязана быть родовой.
+        if (kind === 'subset') {
+          const shortWords = wa.size <= wb.size ? wa : wb;
+          const extra = [...(wa.size <= wb.size ? wb : wa)].filter((w) => !shortWords.has(w));
+          if (stems(extra.join(' ')).size > 0) {
+            res.name_pairs.distinct_extra++;
+            continue;
+          }
         }
 
         res.name_pairs[kind]++;
@@ -944,7 +973,7 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
         items.push({
           step: 'name_pair',
           place: a.name,
-          detail: `[${kind}] «${a.name}» ⟷ «${b.name}» · ${km} · ${
+          detail: `[${kind}] «${shorter.name}» ⟷ «${longer.name}» · ${km} · ${
             a.location_type === b.location_type
               ? (a.location_type ?? 'без типа')
               : `типы разные: ${a.location_type ?? '?'} / ${b.location_type ?? '?'}`
