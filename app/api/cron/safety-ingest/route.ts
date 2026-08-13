@@ -441,12 +441,26 @@ async function safely<T>(step: string, fn: () => Promise<T>): Promise<T | { erro
   }
 }
 
+/**
+ * Запись heartbeat. Провал записи НЕ глотается молча.
+ *
+ * Здесь стояло `.catch(() => {})`. Это ровно тот дефект, который весь день
+ * ловим, только в самом чувствительном месте: если INSERT не пройдёт, монитор
+ * доложит «сейсмо-ингест молчит» — и снова покажет не туда, а в логе не
+ * останется ни следа о том, что приём был и запись о нём не легла.
+ *
+ * Бросить наверх нельзя: тогда сбой журнала уронил бы приём, а это уже пройдено
+ * (тревога 3805 минут). Поэтому ошибка называется в логе и не идёт дальше.
+ */
 function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
   pool.query(
     `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
      VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
     [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched })],
-  ).catch(() => {});
+  ).catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[safety-ingest] heartbeat НЕ записан:', msg.slice(0, 200));
+  });
 }
 
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)

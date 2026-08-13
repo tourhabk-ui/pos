@@ -29,6 +29,26 @@ import {
 } from '@/lib/services/scout/source-health';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
+/**
+ * Причина пропуска человеческим языком — для алерта, а не для лога.
+ *
+ * Код `all_sections_empty` в Telegram владельцу означает ровно столько же,
+ * сколько молчание: чтобы понять, нужно лезть в исходник. Словарь живёт РЯДОМ
+ * с местами, где причины рождаются, и покрытие сторожит тест: добавили новую
+ * причину — либо назвали её, либо сборка красная. Неизвестный код всё равно
+ * показывается как есть — лучше сырой код, чем «неизвестно».
+ */
+export const SKIP_REASON_LABELS: Record<string, string> = {
+  no_rss_items: 'ни один источник не дал свежих материалов',
+  synthesis_null: 'модель не вернула синтез',
+  all_sections_empty: 'после разбора все разделы оказались пусты',
+  unsourced_percents: 'в тексте проценты без ссылки на источник',
+  factcheck_judge_mute: 'проверяющая модель не ответила — выпуск придержан',
+  unsupported_claims: 'утверждения не подтверждены источниками',
+  near_repeat: 'выпуск почти повторял предыдущий',
+  telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
+};
+
 export interface DigestResult {
   signals_found: number;
   digest_sent: boolean;
