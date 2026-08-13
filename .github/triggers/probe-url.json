@@ -1,16 +1,16 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/data-repair"
+    "https://vedarai.ru/api/cron/safety-ingest"
   ],
-  "bytes": 400,
+  "bytes": 1200,
   "timeout": 300,
   "retries": 30,
   "retryDelay": 45,
-  "until": "distinct_extra",
-  "note": "Проба 57: дубли мест после сужения. Было subset 61, из них по образцам верна примерно шестая часть. Ожидание: subset падает до полутора десятков, distinct_extra забирает остальное. Если subset останется под полсотни — сужение не сработало, и надо смотреть, какие пары уцелели, а не праздновать. Заодно первая проверка переноса заметок после миграции 848: notes_to_articles ждём 26, errors 0. Ненулевой errors означал бы, что таблицы articles на проде нет и шаг падает ТИХО, в items, а не в лицо.",
-  "grep": ["name_pairs", "notes_to_articles", "\"errors\""],
-  "around": ["name_pair"],
-  "aroundLines": 3,
-  "aroundHits": 20,
-  "run": 57
+  "until": "pruned_genres",
+  "note": "Проба 58: приёмка КРИТ-фикса. Дёргаем сейсмо-приём напрямую тем же путём, что и супервизор start.js. Смотрю ТРИ вещи, и порядок важен: (1) success true и ответ вообще пришёл — значит роут больше не падает; (2) errors — если там строка с «prune:», значит уборка всё-таки падает, но приём теперь живёт, и это ровно то разделение, ради которого фикс делался; (3) total_inserted и pruned_genres. Пустой errors при живом ответе означал бы, что уборка проходит и причина молчания была в другом — тогда говорю об этом прямо, а не закрываю задачу.",
+  "grep": ["\"success\"", "pruned_genres", "\"errors\""],
+  "around": ["errors"],
+  "aroundLines": 6,
+  "aroundHits": 2,
+  "run": 58
 }
