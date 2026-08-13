@@ -126,3 +126,40 @@ describe('правило остаётся одно', () => {
     expect(cron).toMatch(/pruneRejectedGenres\([\s\S]{0,200}updateRealTimeStatus\(\)/);
   });
 });
+
+/**
+ * Уборка не имеет права убивать приём.
+ *
+ * Тревога 14.08: «сейсмо-ингест молчит 3805 минут» при SLA в пять. Приём при
+ * этом мог отработать — heartbeat пишется НИЖЕ по коду, и любое падение между
+ * приёмом и записью стирает не данные, а СВИДЕТЕЛЬСТВО того, что приём был.
+ * Монитор видит тишину и объявляет молчание.
+ *
+ * Сейсмика — безопасность людей, чистка жанров — гигиена витрины. Когда
+ * второе роняет первое, порядок важности перевёрнут.
+ */
+describe('чистка жанров не может уронить сейсмо-приём', () => {
+  const src = require('node:fs').readFileSync(
+    require('node:path').join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8',
+  ) as string;
+
+  it('вызов обёрнут, а не голый await', () => {
+    // Голый `await pruneRejectedGenres(query)` был единственным незащищённым
+    // шагом в роуте: ingestAll и updateRealTimeStatus ловят своё внутри.
+    expect(src).not.toMatch(/const pruned = await pruneRejectedGenres\(/);
+    expect(src).toMatch(/safely\('prune'/);
+  });
+
+  it('обёртка возвращает причину, а не глотает ошибку', () => {
+    // Молча проглоченная ошибка означала бы, что чистка перестанет работать
+    // незаметно — тот же класс подмены, только в другую сторону.
+    expect(src).toMatch(/return \{ error: `\$\{step\}/);
+    expect(src).toMatch(/'error' in pruned \? \[pruned\.error\]/);
+  });
+
+  it('оба входа роута защищены, а не только один', () => {
+    // GET дёргает супервизор start.js, POST — воркфлоу. Защита одного входа
+    // оставила бы второй с прежним дефектом: одно правило в двух местах.
+    expect(src.match(/safely\('prune'/g)?.length).toBe(2);
+  });
+});
