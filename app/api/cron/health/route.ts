@@ -15,6 +15,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,8 +105,9 @@ async function checkDB(): Promise<HealthIssue[]> {
   // Разведчик: живость меряем по АРТЕФАКТУ (свежесть дайджеста), не по коду
   // ответа крона. Урок 01-08.08: крон success ежедневно, а последний дайджест —
   // недельной давности; шесть немых выходов digest_sent:false прятали причину,
-  // и тишину не заметил никто. Причина конкретного пропуска теперь в
-  // digest_skip_reason ответа cron/scout-digest.
+  // и тишину не заметил никто. Причина конкретного пропуска теперь ЛЕЖИТ В
+  // ЖУРНАЛЕ (agent_run_history.metadata) и называется прямо в алерте — до
+  // этого она жила только в HTTP-ответе крона, то есть до конца запроса.
   try {
     const lastDigest = await pool.query<{ slug: string }>(
       `SELECT slug FROM agent_knowledge
@@ -120,7 +122,7 @@ async function checkDB(): Promise<HealthIssue[]> {
       if (ageH > 48) {
         issues.push({
           level: 'warn',
-          text: `Разведчик молчит: последний дайджест ${slugDate} (${Math.round(ageH / 24)} дн назад). Причина пропуска — digest_skip_reason в ответе cron/scout-digest.`,
+          text: `Разведчик молчит: последний дайджест ${slugDate} (${Math.round(ageH / 24)} дн назад). ${await lastDigestSkipReason()}`,
         });
       }
     }
@@ -214,6 +216,44 @@ async function checkOperatorRegistrationSpike(): Promise<RegistrationSpikeResult
 // Теперь health следит сам: crit если последний heartbeat старше порога.
 // Tsunami от 185 км ≈ 15 мин — за это окно монитор молчать не имеет права.
 const SEISMIC_STALE_MIN = 15;
+
+/**
+ * Причина последнего пропуска дайджеста — словами, из журнала.
+ *
+ * Раньше здесь стояло «Причина пропуска — digest_skip_reason в ответе
+ * cron/scout-digest»: алерт отправлял человека дёрнуть крон руками, потому что
+ * причина жила только до конца запроса. Теперь её пишет сам крон
+ * (`metadata.digest_skip_reason`), и монитор её называет.
+ *
+ * Три исхода различимы, и это главное: причина есть — назвать; прогон был, а
+ * причины нет — сказать именно это (пропуск без причины сам по себе дефект);
+ * прогонов нет вовсе — сказать и это, потому что «крон не запускался» и «крон
+ * запускался и промолчал» лечатся по-разному.
+ */
+export function formatSkipReason(
+  row: { metadata: unknown; started_at: Date | string } | null,
+): string {
+  if (!row) return 'Прогонов крона в журнале нет — он не запускался.';
+  const meta = row.metadata as { digest_skip_reason?: string | null } | null;
+  const code = meta?.digest_skip_reason ?? null;
+  const when = new Date(row.started_at).toISOString().slice(0, 16).replace('T', ' ');
+  if (!code) return `Последний прогон ${when} UTC причину не записал.`;
+  return `Причина последнего пропуска (${when} UTC): ${SKIP_REASON_LABELS[code] ?? code}.`;
+}
+
+async function lastDigestSkipReason(): Promise<string> {
+  try {
+    const { rows } = await pool.query<{ metadata: unknown; started_at: Date }>(
+      `SELECT metadata, started_at FROM agent_run_history
+        WHERE agent_id = 'scout-digest' ORDER BY started_at DESC LIMIT 1`,
+    );
+    return formatSkipReason(rows[0] ?? null);
+  } catch {
+    // Журнал недоступен — так и сказать. Молчание здесь означало бы, что
+    // причины не было, а это разные вещи.
+    return 'Причину прочитать не удалось: журнал прогонов недоступен.';
+  }
+}
 
 /** Чистая логика: возраст последнего heartbeat → issue (тестируется без БД). */
 export function seismicIssueFromAge(

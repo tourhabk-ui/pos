@@ -34,6 +34,19 @@ export async function GET(req: Request) {
       completion_tokens: usage.completion_tokens,
       llm_calls: usage.llm_calls,
       estimated_cost_usd: usage.estimated_cost_usd,
+      // Причина пропуска ДОЛЖНА пережить запрос.
+      //
+      // runScoutDigest считает её в восьми точках выхода и отдаёт в HTTP-ответ
+      // — а журнал её не брал. Ответ живёт до конца запроса; крон дёргает
+      // GitHub Actions, ответ уходит в лог прогона и через сутки недостижим.
+      // Поэтому монитор здоровья умел сказать только «разведчик молчит,
+      // причина — digest_skip_reason в ответе cron/scout-digest», то есть
+      // отправить человека дёрнуть крон руками. Тринадцать дней молчания —
+      // тринадцать дней, когда причина существовала и была стёрта.
+      //
+      // `null` при отправленном выпуске — это «проверено, причины нет», а не
+      // «не записали»: поле есть всегда.
+      metadata: { digest_skip_reason: result.digest_skip_reason ?? null },
     });
     return Response.json({ success: true, ...result });
   } catch (err) {
