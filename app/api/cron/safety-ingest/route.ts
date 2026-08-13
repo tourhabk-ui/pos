@@ -306,7 +306,10 @@ function buildResponse(
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
   extras?: { delegated_to_heartbeat?: string[] },
-  pruned?: PruneResult,
+  // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
+  // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
+  // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
+  pruned?: PruneResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -319,6 +322,7 @@ function buildResponse(
     ...(ingestResult.firms?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
+    ...(pruned && 'error' in pruned ? [pruned.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -419,6 +423,24 @@ function buildResponse(
   });
 }
 
+/**
+ * Выполнить служебный шаг так, чтобы он не мог уронить приём.
+ *
+ * Возвращает результат либо `{ error }`. Ошибка попадает в ответ и в лог, но
+ * не наверх: тревога 14.08 показала, чем это кончается — падение уборки
+ * стирает heartbeat, и монитор объявляет молчание сейсмо-приёма, хотя данные
+ * приняты. Свидетельство работы дороже результата уборки.
+ */
+async function safely<T>(step: string, fn: () => Promise<T>): Promise<T | { error: string }> {
+  try {
+    return await fn();
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`[safety-ingest] шаг «${step}» не прошёл:`, error.slice(0, 200));
+    return { error: `${step}: ${error.slice(0, 200)}` };
+  }
+}
+
 function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
   pool.query(
     `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
@@ -448,7 +470,18 @@ export async function GET(req: Request) {
   // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
   // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
   // он разложит отбракованное по точкам заново.
-  const pruned = await pruneRejectedGenres(query);
+  //
+  // ── Почему в try, а не голым await ─────────────────────────────────────
+  //
+  // Тревога 14.08: «сейсмо-ингест молчит 3805 минут» при SLA в пять. Приём
+  // при этом мог отработать: heartbeat пишется НИЖЕ по коду, и любое падение
+  // между приёмом и записью стирает не данные, а СВИДЕТЕЛЬСТВО того, что
+  // приём был. Монитор видит тишину и объявляет молчание.
+  //
+  // Уборка не имеет права убивать приём. Сейсмика — безопасность людей,
+  // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
+  // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
+  const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
@@ -575,7 +608,18 @@ export async function POST(req: Request) {
   // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
   // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
   // он разложит отбракованное по точкам заново.
-  const pruned = await pruneRejectedGenres(query);
+  //
+  // ── Почему в try, а не голым await ─────────────────────────────────────
+  //
+  // Тревога 14.08: «сейсмо-ингест молчит 3805 минут» при SLA в пять. Приём
+  // при этом мог отработать: heartbeat пишется НИЖЕ по коду, и любое падение
+  // между приёмом и записью стирает не данные, а СВИДЕТЕЛЬСТВО того, что
+  // приём был. Монитор видит тишину и объявляет молчание.
+  //
+  // Уборка не имеет права убивать приём. Сейсмика — безопасность людей,
+  // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
+  // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
+  const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
   logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
