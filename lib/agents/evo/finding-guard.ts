@@ -251,6 +251,29 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   const line = claimedLineNumber(text);
   if (line !== null && line > source.split('\n').length) return 'line_out_of_range';
 
+  // Находка цитирует вызовы, которых в файле НЕТ ВООБЩЕ.
+  //
+  // Кейс #1159 (и он же #1131, и он же #1106 — одна находка, заведённая
+  // трижды): «на строке 45 вызывается pool.connect(), но отсутствует блок
+  // finally с client.release()». В файле нет ни pool.connect, ни release —
+  // только pool.query, а строка 45 это проверка rate-limiter'а. Модель
+  // описала не этот файл. Прошлые сверки такое не ловили: они спрашивают
+  // «есть ли X, отсутствие которого заявлено», а здесь надо спросить, есть ли
+  // хоть что-то из того, что находка ВИДЕЛА.
+  //
+  // Симметричная ловушка, из-за которой правило именно такое: находка ИМЕЕТ
+  // ПРАВО говорить об отсутствии. #1158 верна ровно потому, что заголовка
+  // X-Telegram-Bot-Api-Secret-Token в файле нет. Поэтому «символ не найден →
+  // отсев» убило бы настоящие находки, и условие другое: отсев, только если
+  // не найден НИ ОДИН из названных вызовов.
+  //
+  // Берём заголовок и описание, но НЕ suggestion: в плане правки законно
+  // предлагают создать то, чего пока нет.
+  const cited = citedCallSymbols(`${f.title} ${f.description}`);
+  if (cited.length > 0 && !cited.some((s) => sourceMentionsSymbol(source, s))) {
+    return 'source_lacks_cited_symbols';
+  }
+
   // Инъекция названа поимённо, а названного параметра в SQL нет.
   //
   // Проверка выше спрашивает «есть ли в файле склейка SQL вообще», и этого
@@ -265,6 +288,45 @@ export function verifyAgainstSource(f: CandidateFinding, source: string | null |
   }
 
   return null;
+}
+
+/**
+ * Вызовы, которые находка ЦИТИРУЕТ как увиденные в файле: `pool.connect()`,
+ * `client.release()`, `getServerSession()`.
+ *
+ * Форма нарочно узкая — только вызов или обращение к члену: `foo.bar` либо
+ * `foo()`. Голые слова не берём: «finally», «POST», «search» встречаются в
+ * прозе и в чужих смыслах, и по ним отсев был бы гаданием. Узкая форма значит,
+ * что чаще всего список окажется пустым и проверка промолчит — это осознанно.
+ * Ложный отсев настоящей находки дороже пропущенной ложной: пропущенную увидит
+ * человек в Issue, отсеянная не появится нигде.
+ */
+export function citedCallSymbols(text: string): string[] {
+  const out = new Set<string>();
+  const add = (raw: string) => {
+    const s = raw.replace(/\(\s*\)$/, '').trim();
+    // Член (есть точка) или вызов (были скобки) — иначе это просто слово.
+    if (!/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)+$/.test(s) && !/\(\s*\)$/.test(raw)) return;
+    if (!/^[A-Za-z_$][\w$.]*$/.test(s)) return;
+    out.add(s);
+  };
+  for (const m of text.matchAll(/`([^`\n]{2,60})`/g)) add(m[1]);
+  for (const m of text.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\(\s*\)/g)) add(m[0]);
+  return [...out];
+}
+
+/**
+ * Есть ли символ в исходнике.
+ *
+ * Для `x.method` ищем ещё и `.method(`: приёмник модель нередко переименовывает
+ * (`client.release` вместо `c.release`), и придираться к имени переменной
+ * значило бы отсеивать находку за пересказ, а не за выдумку.
+ */
+export function sourceMentionsSymbol(source: string, symbol: string): boolean {
+  if (source.includes(symbol)) return true;
+  const dot = symbol.lastIndexOf('.');
+  if (dot === -1) return false;
+  return source.includes(`.${symbol.slice(dot + 1)}(`);
 }
 
 /**
