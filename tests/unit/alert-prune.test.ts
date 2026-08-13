@@ -120,6 +120,24 @@ describe('правило остаётся одно', () => {
     expect(src).not.toMatch(/эвакуирова\|/);
   });
 
+  it('удаление не утверждает, какого типа ключ', () => {
+    // Здесь стояло `id = ANY($1::uuid[])`, а ключ `external_alerts` —
+    // BIGSERIAL (миграция 070). Postgres отвечал «operator does not exist:
+    // bigint = uuid», и удаление не срабатывало НИ РАЗУ: пока протухших
+    // записей не было, ветка не исполнялась, а первая же уронила весь приём.
+    //
+    // Мок в тестах выше SQL не исполняет — он и не мог этого поймать.
+    // Поэтому здесь проверяется сам текст запроса, и проверяется не «uuid
+    // это или bigint», а то, что код вообще не берётся судить о типе:
+    // идентификаторы пришли из SELECT строками, строками и сравниваются.
+    // Утверждение о типе — это то, что уже один раз оказалось ложным.
+    const src = readFileSync(join(process.cwd(), 'lib/services/safety/alert-prune.ts'), 'utf-8');
+    const del = src.match(/DELETE FROM external_alerts[^`]*/)?.[0] ?? '';
+    expect(del).not.toBe('');
+    expect(del).toMatch(/id::text = ANY\(\$1::text\[\]\)/);
+    expect(del).not.toMatch(/::uuid|::bigint|::int/);
+  });
+
   it('крон приёма применяет чистку до пересборки статуса точек', () => {
     // Если чистить ПОСЛЕ, пересборка разложит отбракованное по точкам заново.
     const cron = readFileSync(join(process.cwd(), 'app/api/cron/safety-ingest/route.ts'), 'utf-8');
