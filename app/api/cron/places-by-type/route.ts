@@ -67,6 +67,9 @@ interface PlaceRow {
   has_safety: boolean;
   altitude_m: number | null;
   source_name: string | null;
+  district: string | null;
+  zone: string | null;
+  desc_start: string | null;
   near_id: string | null;
   near_name: string | null;
   dist_m: number | null;
@@ -108,12 +111,14 @@ export async function GET(request: NextRequest) {
 
     const { rows } = await pool.query<PlaceRow>(
       `WITH p AS (
-         SELECT id::text AS id, name, lat, lng, ark_id, is_visible, source_name
+         SELECT id::text AS id, name, lat, lng, ark_id, is_visible, source_name,
+                district, zone, LEFT(description, 160) AS desc_start
            FROM places
           WHERE merged_into_id IS NULL
             AND LOWER(TRIM(COALESCE(location_type, ''))) = LOWER($1)
        )
        SELECT p.id, p.name, p.lat, p.lng, p.is_visible, p.source_name,
+              p.district, p.zone, p.desc_start,
               (ari.route_id IS NOT NULL)     AS has_photo,
               (lsp.agent_route_id IS NOT NULL) AS has_safety,
               lsp.altitude_m,
@@ -156,6 +161,15 @@ export async function GET(request: NextRequest) {
         // их нельзя. Источник говорит, какой импорт принёс запись.
         altM: r.altitude_m,
         src: r.source_name,
+        // Район, зона и начало описания. Проба 77 показала, что высота и
+        // источник пусты у ВСЕХ 145 вулканов — различитель, построенный на
+        // невиданных данных, оказался пустым полем. Описания же по переписи
+        // есть у всех и длиннее 300 символов: место в них названо словами
+        // («на юге полуострова», «в Ключевской группе»), и по словам видно,
+        // дубль перед нами или разные объекты с похожими именами.
+        district: r.district,
+        zone: r.zone,
+        desc: r.desc_start,
         // Ближайший сосед того же вида. null — соседей с настоящими
         // координатами нет; это тоже ответ, а не пустое место.
         near: r.near_id
