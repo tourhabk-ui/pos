@@ -19,6 +19,7 @@ import { findOperatorByChatId, processOperatorMessage, registerOperatorChatId } 
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
+import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
 
 export const dynamic = 'force-dynamic';
@@ -399,6 +400,23 @@ interface TgUpdate {
 // ── POST: Webhook ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Подлинность webhook. Второй слой к проверке выше по коду: секрет — это
+  // единственное, что в запросе нельзя подделать, тогда как from.id и chat.id
+  // пишет тот, кто стучится. Свой секрет на бота, не общий: один секрет на два
+  // бота означает, что компрометация одного открывает второго.
+  //
+  // Не задан — работаем и говорим об этом. Fail-closed остановил бы Кузьмича
+  // для всех туристов до правки окружения, а он в том числе отвечает про
+  // безопасность на маршруте.
+  const verdict = verifyWebhookSecret(
+    request.headers.get('x-telegram-bot-api-secret-token'),
+    process.env.TELEGRAM_KUZMICH_WEBHOOK_SECRET,
+  );
+  if (verdict === 'forbidden') return new NextResponse(null, { status: 401 });
+  if (verdict === 'not_configured') {
+    console.error('[telegram/kuzmich] TELEGRAM_KUZMICH_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+  }
+
   try {
     const update = await request.json() as TgUpdate;
 
@@ -464,13 +482,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const isGroup   = chatType === 'group' || chatType === 'supergroup';
 
     // ── Владелец в личке → admin pipeline ─────────────────────────────────
+    //
+    // Ветка открывает PlatformAgent с role:'admin' и публикацию в канал, а
+    // условие входа — `fromId === ownerId`, где `from.id` приходит В ТЕЛЕ
+    // ЗАПРОСА. Ответ раньше уходил в `msg.chat.id`, тоже из тела: подделав оба
+    // поля, посторонний получал admin-ответы себе в чат. Это тот же дефект,
+    // что закрыт в /api/telegram/admin; чинить одну дверь из двух — не чинить
+    // (сама находка #1158 предупреждала: «иначе дыра просто переезжает»).
+    //
+    // Адресат — ownerId. Для владельца в личке это то же число, что chat.id,
+    // поэтому его работа не меняется; для подделки — данные уходят владельцу,
+    // а не тому, кто их запросил. Обычные (не-владельческие) ветки ниже
+    // по-прежнему отвечают в chat.id: Кузьмич — публичный бот, и там это
+    // единственный правильный адрес.
     if (isPrivate && fromId === ownerId && msg.text) {
       const text = msg.text.trim();
       const cmd  = text.split(' ')[0]?.toLowerCase() ?? '';
       if (cmd.startsWith('/approve_') || cmd.startsWith('/reject_')) {
-        await handleApproval(cmd, chatId);
+        await handleApproval(cmd, ownerId);
       } else {
-        await handleOwnerCommand(cmd, text, chatId);
+        await handleOwnerCommand(cmd, text, ownerId);
       }
       return NextResponse.json({ ok: true });
     }

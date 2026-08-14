@@ -18,6 +18,12 @@
  * Env vars (Timeweb):
  *   TELEGRAM_BOT_TOKEN — токен @kuzmichai_bot
  *   TELEGRAM_OWNER_ID  — Telegram user ID владельца (171286547)
+ *   TELEGRAM_ADMIN_WEBHOOK_SECRET — секрет подлинности webhook (см. POST ниже).
+ *     Пока не задан, роут работает и пишет об этом в лог: ответы всё равно
+ *     уходят только владельцу. Чтобы включить второй слой:
+ *       1) завести переменную в панели Timeweb;
+ *       2) перерегистрировать webhook с тем же значением в secret_token.
+ *     Порядок важен: наоборот — бот замолчит между шагами.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -28,6 +34,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { PlatformAgent } from '@/lib/agents';
 import { scanAllOperatorGroups } from '@/lib/telegram/operator-availability';
+import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 
 const adminGetLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -650,27 +657,58 @@ export async function GET(request: NextRequest) {
 // ── POST: Webhook Telegram ───────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // ── Почему тут две защиты, а не одна ───────────────────────────────────────
+  //
+  // Роут отдаёт лиды с телефонами, HELD-платежи и запускает действия. Вся его
+  // защита состояла из `msg.from.id === ownerId`, а `from.id` приходит В ТЕЛЕ
+  // ЗАПРОСА — его пишет тот, кто стучится. Ответ уходил в `msg.chat.id`, тоже
+  // из тела. То есть кто угодно, зная URL, слал
+  //   {"message":{"text":"/leads","from":{"id":<владелец>},"chat":{"id":<свой>}}}
+  // и получал персональные данные туристов себе в чат. Заголовок
+  // X-Telegram-Bot-Api-Secret-Token в коде не читался вовсе, хотя в шапке файла
+  // написано, что при регистрации webhook он передаётся.
+  //
+  // 1. ОТВЕТ ТОЛЬКО ВЛАДЕЛЬЦУ. `chat.id` из тела не используется нигде: ответ
+  //    идёт в TELEGRAM_OWNER_ID. Даже при подделанном `from.id` данные уходят
+  //    владельцу, а не тому, кто их запросил. Это работает без единой новой
+  //    переменной окружения — потому и сделано первым.
+  // 2. СЕКРЕТ ЗАГОЛОВКА — когда он заведён. Закрывает остаток: запуск действий
+  //    (/testpush, /scanops) чужими руками. Пока TELEGRAM_ADMIN_WEBHOOK_SECRET
+  //    не выставлен, слой честно молчит в лог, а не делает вид, что проверил.
+  //
+  // Fail-closed при незаданном секрете здесь НЕЛЬЗЯ: бот владельца замолчал бы
+  // до правки окружения, и защита данных превратилась бы в отказ сервиса.
+  const verdict = verifyWebhookSecret(
+    request.headers.get('x-telegram-bot-api-secret-token'),
+    process.env.TELEGRAM_ADMIN_WEBHOOK_SECRET,
+  );
+  if (verdict === 'forbidden') return new NextResponse(null, { status: 401 });
+  if (verdict === 'not_configured') {
+    console.error('[telegram/admin] TELEGRAM_ADMIN_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+  }
+
   try {
     const update = await request.json() as TgUpdate;
     const msg = update.message;
     if (!msg?.text) return NextResponse.json({ ok: true });
 
-    const chatId = msg.chat.id;
     const fromId = msg.from?.id;
     const ownerId = parseInt(process.env.TELEGRAM_OWNER_ID ?? '171286547', 10);
 
-    if (fromId !== ownerId) {
-      await reply(chatId, 'Доступ закрыт.');
-      return NextResponse.json({ ok: true });
-    }
+    // Чужому не отвечаем ВООБЩЕ. Прежнее «Доступ закрыт.» уходило в chat.id из
+    // тела — то есть роут работал бесплатным ретранслятором сообщений в любой
+    // чат, куда добавлен бот.
+    if (fromId !== ownerId) return NextResponse.json({ ok: true });
 
     const text = msg.text.trim();
     const cmd = text.split(' ')[0]?.toLowerCase() ?? '';
 
+    // Адресат — ownerId, а не msg.chat.id. В личном чате с ботом это одно и то
+    // же число, поэтому для владельца ничего не меняется.
     if (cmd.startsWith('/')) {
-      await handleCommand(cmd, chatId);
+      await handleCommand(cmd, ownerId);
     } else {
-      await handleFreeText(text, chatId);
+      await handleFreeText(text, ownerId);
     }
   } catch { /* silent */ }
 
