@@ -105,6 +105,15 @@ describe('тип id не утверждается, а обходится', () =>
     expect(CODE).toMatch(/k\.id::text = t\.keep/);
     expect(CODE).not.toMatch(/::uuid\[\]/);
   });
+
+  it('id пары не проверяется как UUID и в Zod', () => {
+    // Вторая половина той же ошибки. `places.id` — TEXT, и в нём живут
+    // рукописные id («d5e6f7a8-b9c0-4123-efab-…») с вариантным полубайтом не
+    // по RFC 4122. Проба 89 на такой паре получила 400 «Invalid input» от
+    // валидатора — запись в базе есть, а дотянуться до неё нельзя.
+    expect(CODE).not.toMatch(/keep: z\.string\(\)\.uuid\(\)/);
+    expect(CODE).not.toMatch(/merge: z\.string\(\)\.uuid\(\)/);
+  });
 });
 
 describe('поимённый режим не подменяет пороговый', () => {

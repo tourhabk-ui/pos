@@ -46,9 +46,22 @@ const BodySchema = z.object({
   dry_run: z.boolean().default(true),
   min_sim: z.number().min(0).max(1).default(0.45),
   max_dist_m: z.number().int().min(10).max(2000).default(500),
-  /** Поимённый режим: слить ровно эти пары. Пороги при этом не применяются. */
+  /**
+   * Поимённый режим: слить ровно эти пары. Пороги при этом не применяются.
+   *
+   * id — строка, НЕ z.string().uuid(): `places.id` в боевой базе — TEXT, и в
+   * нём живут рукописные id вида «d5e6f7a8-b9c0-4123-efab-…», у которых
+   * вариантный полубайт не по RFC 4122. Проба 89 на таком id получила 400 от
+   * валидатора, хотя запись в базе есть. Тип id не утверждается, а обходится —
+   * та же история, что с `::uuid[]` в SQL этого же файла.
+   */
   pairs: z
-    .array(z.object({ keep: z.string().uuid(), merge: z.string().uuid() }))
+    .array(
+      z.object({
+        keep: z.string().trim().min(1).max(64),
+        merge: z.string().trim().min(1).max(64),
+      }),
+    )
     .min(1)
     .max(50)
     .optional(),
