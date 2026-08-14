@@ -305,7 +305,7 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
-  extras?: { delegated_to_heartbeat?: string[] },
+  extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null },
   // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
   // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
   // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
@@ -419,6 +419,11 @@ function buildResponse(
     // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
     // «inserted: 0» после того, как heartbeat уже забрал те же посты.
     delegated_to_heartbeat: extras?.delegated_to_heartbeat,
+    // Возраст последней доставки от воркфлоу, минут. Цифра в ответе, а не
+    // только в алерте: чтобы задержку сейсмо-канала можно было ПОСМОТРЕТЬ,
+    // не дожидаясь, пока она перевалит порог. `null` — доставок в журнале
+    // нет; это разные вещи с «доставка была только что», и путать их нельзя.
+    telegram_seismic_age_min: extras?.telegramSeismicAgeMin,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
@@ -452,15 +457,49 @@ async function safely<T>(step: string, fn: () => Promise<T>): Promise<T | { erro
  * Бросить наверх нельзя: тогда сбой журнала уронил бы приём, а это уже пройдено
  * (тревога 3805 минут). Поэтому ошибка называется в логе и не идёт дальше.
  */
-function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
+function logHeartbeat(
+  startedAt: Date,
+  durationMs: number,
+  totalInserted: number,
+  pushDispatched: number,
+  // Кто именно отработал. Без этого GET и POST в журнале НЕРАЗЛИЧИМЫ, и
+  // вопрос «когда воркфлоу последний раз доставил сейсмику» неотвечаем в
+  // принципе: строки одинаковые. А это и есть тот вопрос, задержку которого
+  // мы весь день не видели — узнали о ней случайно, разбирая другой сбой.
+  trigger: IngestTrigger,
+): void {
   pool.query(
     `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
      VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
-    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched })],
+    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched, trigger })],
   ).catch((e: unknown) => {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[safety-ingest] heartbeat НЕ записан:', msg.slice(0, 200));
   });
+}
+
+/**
+ * Минут с последней доставки сейсмики от воркфлоу. `null` — доставок в журнале
+ * нет вовсе; это НЕ то же самое, что «только что», и путать их нельзя.
+ *
+ * Считается до записи heartbeat текущего прогона не по замыслу, а по факту
+ * порядка вызовов — и это не важно: GET никогда не пишет workflow_post.
+ */
+async function telegramSeismicAgeMin(): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ last_post: string | null }>(
+      `SELECT MAX(ended_at)::text AS last_post
+         FROM agent_run_history
+        WHERE agent_id = 'safety-ingest'
+          AND metadata->>'trigger' = 'workflow_post'
+          AND ended_at > NOW() - INTERVAL '7 days'`,
+    );
+    const last = rows[0]?.last_post ?? null;
+    if (!last) return null;
+    return Math.round((Date.now() - new Date(last).getTime()) / 60_000);
+  } catch {
+    return null;
+  }
 }
 
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
@@ -498,10 +537,14 @@ export async function GET(req: Request) {
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get');
+  // kbgsras и eqkam здесь НЕ пишутся. t.me для хостинга гео-закрыт — heartbeat
+  // их получить не может по построению, и его запись «пусто» каждые пять минут
+  // делала канал вечно свежим на вид независимо от того, доставил воркфлоу или
+  // нет. Владение здоровьем этих двух отдано POST'у: тогда их last_run_at
+  // означает ровно «когда воркфлоу принёс», и задержка становится видимой.
+  // Обратная сторона той же меры уже есть — delegated_to_heartbeat в POST.
   await watchSourceHealth([
-    entryFor('kbgsras', 'КБГС РАН (сейсмо)', ingestResult.kbgsras),
-    entryFor('eqkam', 'EMSD/EQKam (сейсмо)', ingestResult.eqkam),
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -511,7 +554,8 @@ export async function GET(req: Request) {
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get', undefined, pruned);
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
+    { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned);
 }
 
 const HtmlBodySchema = z.object({
@@ -636,7 +680,7 @@ export async function POST(req: Request) {
   const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post');
   // ЛОВУШКА из #883, решённая ПО ПОСТРОЕНИЮ: делегированные источники
   // (vk_mchs, mchs_rss, firms) здесь НЕ упоминаются вовсе — ни ok, ни
   // not_fetched. Отсутствие записи не трогает их строку в
