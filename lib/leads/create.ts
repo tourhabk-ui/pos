@@ -8,6 +8,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { computeQuickScore, classifyLead } from '@/lib/leads/scoring';
+import { normalizeLeadChannel } from '@/lib/leads/channel';
 import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 
 export interface CreateLeadParams {
@@ -102,12 +103,34 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     }
   }
 
-  // ── 3. INSERT ───────────────────────────────────────────────────────────
+  // ── 3. Канал и детерминированная атрибуция оператора ────────────────────
+  // Канал считается один раз при создании (Рост-5: отчёт партнёру строится
+  // по leads.source_channel, а не по разбору свободного source_data на лету).
+  const sourceChannel = normalizeLeadChannel({ source_url, source_data, telegram_chat_id });
+
+  // Оператор назначается ТОЛЬКО детерминированно: лид пришёл с маршрута, и
+  // активные туры по этому маршруту есть ровно у одного оператора. Матчер
+  // lead-processor для атрибуции не годится — он подбирает туры ORDER BY
+  // RANDOM() с fallback на любые, приписывать по нему спрос партнёру нечестно.
+  let resolvedOperatorId = operator_id ?? null;
+  if (!resolvedOperatorId && route_id) {
+    try {
+      const owners = await pool.query<{ operator_id: string }>(
+        `SELECT DISTINCT operator_id FROM operator_tours
+          WHERE route_id = $1 AND is_active = true AND deleted_at IS NULL
+          LIMIT 2`,
+        [route_id],
+      );
+      if (owners.rows.length === 1) resolvedOperatorId = owners.rows[0].operator_id;
+    } catch { /* атрибуция опциональна — лид важнее */ }
+  }
+
+  // ── 4. INSERT ───────────────────────────────────────────────────────────
   let leadId: string | null = null;
   try {
     const res = await pool.query<{ id: string }>(
-      `INSERT INTO leads (name, phone, comment, route_id, route_title, source_url, source_data, ai_score, processed_at, operator_id, telegram_chat_id, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO leads (name, phone, comment, route_id, route_title, source_url, source_data, source_channel, ai_score, processed_at, operator_id, telegram_chat_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id`,
       [
         name,
@@ -117,9 +140,10 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
         route_title ?? null,
         source_url ?? null,
         source_data ? JSON.stringify(source_data) : null,
+        sourceChannel,
         quickScore,
         isLowQuality ? new Date() : null,   // низкое качество — сразу закрываем для cron
-        operator_id ?? null,
+        resolvedOperatorId,
         telegram_chat_id ?? null,
         status,
       ],
@@ -129,7 +153,7 @@ export async function createLead(params: CreateLeadParams): Promise<string | nul
     return null;
   }
 
-  // ── 4. Уведомление админу (fire-and-forget) ─────────────────────────────
+  // ── 5. Уведомление админу (fire-and-forget) ─────────────────────────────
   // Пропускаем для низкого качества — не спамим
   if (leadId && !isLowQuality) {
     const quality = classifyLead(quickScore);
