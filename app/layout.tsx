@@ -156,6 +156,7 @@ import { ServiceWorkerRegistrar } from '@/components/PWA/ServiceWorkerRegistrar'
 import { OfflineBanner } from '@/components/PWA/OfflineBanner'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
+import { ReferralCapture } from '@/components/shared/ReferralCapture'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -188,6 +189,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <GlobalSearchModal />
           <LastPositionTracker />
+          {/* Приглашение приземляется на любую страницу, не только на главную. */}
+          <ReferralCapture />
         </Providers>
         <script
           type="application/ld+json"

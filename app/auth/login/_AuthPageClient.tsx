@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 import TelegramLoginButton, { type TelegramUser } from './_TelegramLoginButton';
 import MaxLoginButton from './_MaxLoginButton';
+import { loadReferral, forgetReferral } from '@/lib/referral/link';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -110,6 +111,12 @@ export default function AuthPageClient() {
     }
 
     try {
+      // Код приглашения, пойманный при входе на сайт (ReferralCapture). До этой
+      // правки форма его не отправляла вовсе: `POST /api/auth/register` умеет
+      // заводить строку в `referrals`, но получать код было неоткуда — и
+      // реферальные ссылки не приводили ни одного реферала.
+      const referralCode = loadReferral(Date.now());
+
       // Регистрация напрямую через API (с ролями)
       const response = await fetch('/api/auth/register', {
         method: 'POST',
@@ -121,6 +128,7 @@ export default function AuthPageClient() {
           phone: phone || undefined,
           role: userType === 'tourist' ? 'tourist' : partnerRoles[0],
           roles: userType === 'tourist' ? ['tourist'] : partnerRoles,
+          referralCode: referralCode ?? undefined,
           pd_consent: true,
         }),
       });
@@ -129,6 +137,10 @@ export default function AuthPageClient() {
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Ошибка регистрации');
       }
+      // Код израсходован. Не стираем при неудачной регистрации: человек
+      // поправит пароль и попробует снова, приглашение при этом не должно
+      // пропадать.
+      if (referralCode) forgetReferral();
 
       // Сохраняем в localStorage для AuthContext
       const userData = {

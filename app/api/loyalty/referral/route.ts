@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/auth/jwt';
 import { loyaltySystem } from '@/lib/loyalty/loyalty-system';
+import { getPublicBaseUrl } from '@/lib/config';
+import { withReferral } from '@/lib/referral/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +22,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         code: stats.referral.code,
-        shareUrl: stats.referral.code ? `https://vedarai.ru/?ref=${stats.referral.code}` : null,
+        shareUrl: stats.referral.code ? withReferral(getPublicBaseUrl(), stats.referral.code) : null,
         stats: {
           invited: stats.referral.invited,
           completed: stats.referral.completed,
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         code,
-        shareUrl: `https://vedarai.ru/?ref=${code}`,
+        shareUrl: withReferral(getPublicBaseUrl(), code),
       },
     });
   } catch {

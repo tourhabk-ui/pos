@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { AlertTriangle, ShieldCheck, Info, ArrowRight, Search, Sunrise } from 'lucide-react';
+import { AlertTriangle, Info, ArrowRight, Search, Sunrise } from 'lucide-react';
+import { ShareButton } from '@/components/shared/ShareButton';
 
 export interface SafetyStatusData {
   hasAlert: boolean;
@@ -130,14 +131,25 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
             <BadgeIcon size={11} style={{ color: badgeColor, flexShrink: 0 }} />
             <span>{badgeLabel}</span>
           </div>
-          {sourceLabel && (
-            <span
-              className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
-              style={{ background: 'rgba(0,0,0,0.40)' }}
-            >
-              {sourceLabel}
-            </span>
-          )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {sourceLabel && (
+              <span
+                className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap"
+                style={{ background: 'rgba(0,0,0,0.40)' }}
+              >
+                {sourceLabel}
+              </span>
+            )}
+            {/* Стекло поверх фото — разрешённый случай по §2. */}
+            <ShareButton
+              referral
+              size={15}
+              className="w-9 h-9 rounded-full grid place-items-center text-white/90 backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/60"
+              title="Ведар — Камчатка"
+              text="Маршруты, безопасность и проверенные туры по Камчатке"
+              referralText="Приглашаю в Ведар: маршруты и проверенные туры по Камчатке. По моей ссылке — бонус на первую поездку"
+            />
+          </div>
         </div>
 
         {/* Bottom: label + headline + search */}

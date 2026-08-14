@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { X, Navigation, Bookmark, Share2, ArrowRight, MapPin } from 'lucide-react';
+import { shareLink, shareOutcomeMessage } from '@/lib/share';
 
 interface InitialData {
   id: string;
@@ -41,6 +42,7 @@ const LOCATION_LABELS: Record<string, string> = {
 
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {
   const [detail, setDetail] = useState<DetailData | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   // Лист карты писал отметку только в localStorage — в личный кабинет она не
   // попадала (владелец 09.08). Тот же контракт, что у витрины и панели точки.
   const fav = useWishlist('place', initialData.id);
@@ -84,12 +86,15 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
   const typeLabel = LOCATION_LABELS[initialData.locationType ?? 'other'] ?? 'Место';
   const geoUrl = `geo:${initialData.lat},${initialData.lng}?q=${encodeURIComponent(initialData.title)}`;
 
-  function handleShare() {
+  // Фолбэк копировал ссылку МОЛЧА: нажал — экран не дрогнул, и от отказа это
+  // было неотличимо. Теперь исход называется вслух.
+  async function handleShare() {
     const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/places/${initialData.id}`;
-    if (navigator.share) {
-      navigator.share({ title: initialData.title, url }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(url);
+    const outcome = await shareLink({ title: initialData.title, url });
+    const message = shareOutcomeMessage(outcome);
+    if (message) {
+      setShareStatus(message);
+      setTimeout(() => setShareStatus(null), 2500);
     }
   }
 
@@ -177,6 +182,9 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
               <Share2 className="w-4 h-4" />
             </button>
           </div>
+          {shareStatus && (
+            <p className="mb-3 text-xs text-[var(--text-secondary)]" aria-live="polite">{shareStatus}</p>
+          )}
 
           {/* Routes through this place */}
           {(detail?.routes?.length ?? 0) > 0 && (
