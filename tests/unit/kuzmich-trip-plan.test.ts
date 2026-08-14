@@ -50,7 +50,13 @@ describe('matchPreset: ссылка на публичную страницу с 
   });
 
   it('интересы без пересечения с пресетами → без ссылки, а не наугад', () => {
-    expect(matchPreset(7, ['snowmobile'])).toBeNull();
+    // geyser — ключ движка, которого нет ни в одном пресете. Раньше здесь был
+    // snowmobile, но зимний кластер (kamchatka-zimoy) его законно покрыл.
+    expect(matchPreset(7, ['geyser'])).toBeNull();
+  });
+
+  it('снегоходы → зимний кластер (появился с посадочными)', () => {
+    expect(matchPreset(7, ['snowmobile'])?.slug).toBe('kamchatka-zimoy');
   });
 });
 

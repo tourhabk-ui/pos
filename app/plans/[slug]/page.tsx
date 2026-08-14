@@ -142,7 +142,32 @@ export default async function PlanPresetPage({ params }: PageProps) {
               <span>{preset.days} {preset.days < 5 ? 'дня' : 'дней'}</span>
               {priceFrom > 0 && <span>· активности от {priceFrom.toLocaleString('ru-RU')} ₽ на человека</span>}
             </div>
+            {/* Посадочный кластер называет дату ревизии и источник условий
+                (стратегия 14.08): в safety-first продукте страница без даты
+                неотличима от устаревшей, а устаревшая вредит сильнее
+                отсутствующей. */}
+            {preset.cluster && (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Обновлено {preset.cluster.updated} · {preset.cluster.sourceNote}
+              </p>
+            )}
           </header>
+
+          {preset.cluster && preset.cluster.limitations.length > 0 && (
+            <section className="ds-card p-4 space-y-2" style={{ borderLeft: '4px solid var(--warning)' }}>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Что учесть честно
+              </h2>
+              <ul className="space-y-1.5">
+                {preset.cluster.limitations.map((l) => (
+                  <li key={l} className="text-sm flex gap-2" style={{ color: 'var(--text-secondary)' }}>
+                    <span aria-hidden style={{ color: 'var(--warning)' }}>—</span>
+                    <span>{l}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {days.length > 0 ? (
             <section className="space-y-3">
