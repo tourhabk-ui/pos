@@ -60,11 +60,13 @@ interface PairRow {
   ark1: string | null;
   has_photo1: boolean;
   has_safety1: boolean;
+  visible1: boolean;
   id2: string;
   name2: string;
   ark2: string | null;
   has_photo2: boolean;
   has_safety2: boolean;
+  visible2: boolean;
   dist_m: number;
   name_sim: number;
 }
@@ -80,8 +82,23 @@ interface PlanItem {
   sim: number | null;
 }
 
-const score = (photo: boolean, safety: boolean) =>
-  (photo ? 2 : 0) + (safety ? 1 : 0);
+/**
+ * Кого оставляем при слиянии.
+ *
+ * ВИДИМОСТЬ ВЕСИТ БОЛЬШЕ ВСЕГО, и это оплачено. 14.08 правило смотрело только
+ * на фото и профиль безопасности — и на паре Авачинского оставило СКРЫТУЮ
+ * запись, убрав видимую. В итоге самый известный вулкан Камчатки перестал
+ * существовать на платформе: среди 145 записей типа «вулкан» не осталось ни
+ * одной видимой записи Авачинского.
+ *
+ * Логика веса простая: карточка, которой не видно, не показывает НИЧЕГО — ни
+ * фото, ни профиля безопасности. Поэтому видимая запись беднее данными всё
+ * равно лучше богатой, но скрытой. Фото при слиянии переносится, профиль
+ * безопасности — тоже (ниже), так что разница в данных схлопывается, а
+ * разница «видно/не видно» — нет.
+ */
+export const keepScore = (visible: boolean, photo: boolean, safety: boolean) =>
+  (visible ? 4 : 0) + (photo ? 2 : 0) + (safety ? 1 : 0);
 
 /** Расстояние между двумя строками places, метры. Одно выражение на оба режима. */
 const DIST_M_SQL = (
@@ -268,8 +285,8 @@ async function thresholdPlan(
   const { rows } = await pool.query<PairRow>(
     `WITH pairs AS (
          SELECT
-           p1.id AS id1, p1.name AS name1, p1.ark_id AS ark1,
-           p2.id AS id2, p2.name AS name2, p2.ark_id AS ark2,
+           p1.id AS id1, p1.name AS name1, p1.ark_id AS ark1, p1.is_visible AS visible1,
+           p2.id AS id2, p2.name AS name2, p2.ark_id AS ark2, p2.is_visible AS visible2,
            similarity(p1.name, p2.name) AS name_sim,
            ${DIST_M_SQL('p1', 'p2')} AS dist_m
          FROM places p1
@@ -308,8 +325,8 @@ async function thresholdPlan(
   const plan: PlanItem[] = [];
   for (const r of rows) {
     if (touched.has(r.id1) || touched.has(r.id2)) continue;
-    const s1 = score(r.has_photo1, r.has_safety1);
-    const s2 = score(r.has_photo2, r.has_safety2);
+    const s1 = keepScore(r.visible1, r.has_photo1, r.has_safety1);
+    const s2 = keepScore(r.visible2, r.has_photo2, r.has_safety2);
     const keepFirst = s1 !== s2 ? s1 > s2 : r.id1 < r.id2;
     const keepId = keepFirst ? r.id1 : r.id2;
     const keepName = keepFirst ? r.name1 : r.name2;
@@ -374,14 +391,40 @@ async function applyPlan(
       // A ← B ← C теряет звено ровно тогда, когда оно нужнее всего.
       await moveAliases(client, p.mergeId, p.keepId);
 
+      // Профиль безопасности ПЕРЕЕЗЖАЕТ, если у оставшегося своего нет.
+      //
+      // Раньше он только предупреждал «не перенесён — проверить вручную», и
+      // 14.08 такое предупреждение пришло на все пять слияний сразу: пять
+      // осиротевших профилей за один прогон. Пока правило выбора смотрело на
+      // наличие профиля, это было полбеды — оставалась запись с профилем.
+      // Теперь главный вес у видимости, и без переноса слияние могло бы
+      // оставить видимую карточку БЕЗ данных о безопасности. На платформе,
+      // чья цель — безопасность туриста, это неприемлемая цена за видимость.
+      if (p.keepArk && p.mergeArk) {
+        await client.query(
+          `UPDATE location_safety_profile
+              SET agent_route_id = $1
+            WHERE agent_route_id = $2
+              AND NOT EXISTS (
+                SELECT 1 FROM location_safety_profile WHERE agent_route_id = $1
+              )`,
+          [p.keepArk, p.mergeArk]
+        );
+      }
+
       let warning: string | undefined;
       if (p.mergeArk) {
         const safety = await client.query<{ exists: boolean }>(
           `SELECT EXISTS(SELECT 1 FROM location_safety_profile WHERE agent_route_id = $1) AS exists`,
           [p.mergeArk]
         );
+        // Профиль остался у слитой записи только в одном случае: у
+        // оставшегося БЫЛ свой, и перенос не тронул ничего. Значит данные не
+        // потеряны, но их две версии — это стоит сверить глазами. Прежняя
+        // формулировка «не перенесён» звучала одинаково и тогда, когда
+        // переноса не было вовсе.
         if (safety.rows[0]?.exists)
-          warning = `${p.mergeName}: свой safety-профиль не перенесён — проверить вручную`;
+          warning = `${p.mergeName}: у обоих мест свой safety-профиль, оставлен профиль «${p.keepName}» — сверить`;
       }
       await client.query(
         `UPDATE places SET merged_into_id = $1, merged_at = NOW() WHERE id = $2 AND merged_into_id IS NULL`,
