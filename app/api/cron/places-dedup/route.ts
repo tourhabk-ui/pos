@@ -138,15 +138,28 @@ async function planFromPairs(
 ): Promise<{ plan: PlanItem[]; problems: string[] }> {
   const problems = pairListProblems(pairs);
 
+  // ТИП id. `places.id` в боевой базе — TEXT, а не UUID (UUID у места лежит в
+  // отдельной колонке `ark_id`). Первый вариант этого запроса брал
+  // `unnest($1::uuid[])` и получал с прода «operator does not exist: text =
+  // uuid» — сухим прогоном, до всякой записи.
+  //
+  // Это тот же урок, что и в alert-prune, где `::uuid[]` встретился с
+  // BIGSERIAL и три месяца ронял очистку. Утверждение о типе чужой колонки —
+  // предположение, которое код выдаёт за знание. Поэтому сравниваем как текст:
+  // так запрос верен и в схеме с TEXT, и в схеме с UUID.
+  //
+  // Заодно это ответ на вопрос, оставшийся открытым в миграции 675: там были
+  // названы две гипотезы, почему падал inline-FK на places(id), и честно
+  // сказано, что настоящая неизвестна. Настоящая — первая, несовпадение типов.
   const { rows } = await pool.query<NamedRow>(
     `SELECT t.keep AS given_keep, t.merge AS given_merge,
             k.id AS keep_id, k.name AS keep_name, k.ark_id AS keep_ark, k.merged_into_id AS keep_merged,
             m.id AS merge_id, m.name AS merge_name, m.ark_id AS merge_ark, m.merged_into_id AS merge_merged,
             similarity(k.name, m.name) AS name_sim,
             ${DIST_M_SQL('k', 'm')} AS dist_m
-       FROM unnest($1::uuid[], $2::uuid[]) AS t(keep, merge)
-       LEFT JOIN places k ON k.id = t.keep
-       LEFT JOIN places m ON m.id = t.merge`,
+       FROM unnest($1::text[], $2::text[]) AS t(keep, merge)
+       LEFT JOIN places k ON k.id::text = t.keep
+       LEFT JOIN places m ON m.id::text = t.merge`,
     [pairs.map(p => p.keep), pairs.map(p => p.merge)]
   );
 
