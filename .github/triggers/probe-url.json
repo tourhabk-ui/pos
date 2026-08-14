@@ -1,15 +1,15 @@
 {
-  "bytes": 60000,
-  "timeout": 120,
-  "retries": 20,
-  "retryDelay": 60,
-  "until": "\"name\":\"Долина гейзеров\",\"lat\":\"54.43700000\",\"lng\":\"160.14000000\",\"visible\":true",
-  "note": "Проба 98: финальная перепись после мержа всей серии (миграции 852-859, слияния 35 шт). Первый URL — датчик свежести: «Долина гейзеров» видима только после наката 856, до того ответ стухший и проба ждёт выката. Дальше: перепись видов (без type), скалы (Три Брата — имя с большой буквы и координаты эталона 52.8937/158.6879 после 858), прочее (восемь не-мест скрыты, закопанные достопримечательности разъехались по своим типам после 859).",
-  "run": 98,
-  "urls": [
-    "https://vedarai.ru/api/cron/places-by-type?type=geyser&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=rock&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=other&limit=200"
-  ]
+ "bytes": 60000,
+ "timeout": 120,
+ "retries": 20,
+ "retryDelay": 60,
+ "until": "\"name\":\"Кутхины баты\"",
+ "note": "Проба 99: перепись после наката 859 (последний деплой серии). Датчик свежести — «Кутхины баты» в типе rock: до 859 они лежали в «прочем». Дальше перепись видов и срез «прочего» (проверка восьми скрытий).",
+ "run": 99,
+ "urls": [
+  "https://vedarai.ru/api/cron/places-by-type?type=rock&limit=200",
+  "https://vedarai.ru/api/cron/places-by-type?limit=200",
+  "https://vedarai.ru/api/cron/places-by-type?type=other&limit=200",
+  "https://vedarai.ru/api/cron/places-by-type?type=valley&limit=200"
+ ]
 }
