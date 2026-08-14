@@ -7,6 +7,8 @@ import Link from 'next/link';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { useMyReferralCode } from '@/hooks/useMyReferralCode';
+import { withReferral } from '@/lib/referral/link';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -128,7 +130,13 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
       title: `День ${d.day}: ${d.title}`,
       color: d.zone === 'avachinsky' ? 'orange' : d.zone === 'eastern' ? 'blue' : d.zone === 'northern' ? 'green' : 'purple',
     }));
-  const shareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
+  const rawShareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
+  // Главный реферальный сценарий — «отправь группе свой план» (стратегия
+  // 14.08): если смотрящий вошёл и у него есть код, ссылка несёт его метку —
+  // каждый в группе открывает тот же план, а рекомендация засчитывается.
+  // Гость шлёт обычную ссылку; ничего из безопасности меткой не гейтится.
+  const myCode = useMyReferralCode();
+  const shareUrl = withReferral(rawShareUrl, myCode);
   const shareText = `${trip.title} — маршрут по Камчатке на ${trip.days.length} дней`;
 
   const handleCopy = async () => {
@@ -259,7 +267,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             </button>
             <a href={tgUrl} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
-              style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
+              style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
+              /* Отправка плана группе — действие исполнения (словарь steps). */
+              onClick={() => funnelBeacon('plan_sent_to_telegram', token)}>
               <ExternalLink className="w-4 h-4" />Telegram
             </a>
             <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
