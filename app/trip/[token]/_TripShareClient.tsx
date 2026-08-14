@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation, LifeBuoy } from 'lucide-react';
 import Link from 'next/link';
 import type { MapMarker } from '@/components/shared/leaflet-types';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -218,13 +219,18 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               Уведомите спасателей о выходе на маршрут: бесплатно, 5 минут.
               Маршрут и даты из плана подставятся сами — останется вписать состав группы.
             </p>
+            {/* План — то место, где до выхода ещё есть время. Именно здесь срок
+                меняет поведение, а не на карточке маршрута накануне выезда. */}
+            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+              {MCHS_DEADLINE_SHORT}
+            </p>
             <div className="flex flex-wrap gap-2">
               <Link href={`/register?${mchsQuery}`}
                 className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
                 style={{ background: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}>
                 <ShieldCheck className="w-4 h-4" />Зарегистрировать маршрут
               </Link>
-              <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form" target="_blank" rel="noopener noreferrer"
+              <a href={MCHS_ONLINE_FORM_URL} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
                 style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 <ExternalLink className="w-4 h-4" />Форма МЧС напрямую
