@@ -65,6 +65,8 @@ interface PlaceRow {
   is_visible: boolean;
   has_photo: boolean;
   has_safety: boolean;
+  altitude_m: number | null;
+  source_name: string | null;
   near_id: string | null;
   near_name: string | null;
   dist_m: number | null;
@@ -106,14 +108,15 @@ export async function GET(request: NextRequest) {
 
     const { rows } = await pool.query<PlaceRow>(
       `WITH p AS (
-         SELECT id::text AS id, name, lat, lng, ark_id, is_visible
+         SELECT id::text AS id, name, lat, lng, ark_id, is_visible, source_name
            FROM places
           WHERE merged_into_id IS NULL
             AND LOWER(TRIM(COALESCE(location_type, ''))) = LOWER($1)
        )
-       SELECT p.id, p.name, p.lat, p.lng, p.is_visible,
+       SELECT p.id, p.name, p.lat, p.lng, p.is_visible, p.source_name,
               (ari.route_id IS NOT NULL)     AS has_photo,
               (lsp.agent_route_id IS NOT NULL) AS has_safety,
+              lsp.altitude_m,
               n.id AS near_id, n.name AS near_name, n.dist_m, n.sim
          FROM p
          LEFT JOIN ai_route_images ari        ON ari.route_id = p.ark_id
@@ -146,6 +149,13 @@ export async function GET(request: NextRequest) {
         visible: r.is_visible,
         photo: r.has_photo,
         safety: r.has_safety,
+        // Высота и источник — различители, без которых по одному расстоянию
+        // не отличить дубль с испорченной геопозицией от разных объектов с
+        // похожими именами. Для вулкана высота — самый надёжный признак
+        // тождества: у Камня 4585 м, у Хангара около двух тысяч, и перепутать
+        // их нельзя. Источник говорит, какой импорт принёс запись.
+        altM: r.altitude_m,
+        src: r.source_name,
         // Ближайший сосед того же вида. null — соседей с настоящими
         // координатами нет; это тоже ответ, а не пустое место.
         near: r.near_id
