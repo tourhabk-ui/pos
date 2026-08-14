@@ -1,16 +1,15 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/places-audit",
-    "https://vedarai.ru/api/cron/data-repair"
+    "https://vedarai.ru/api/cron/data-inventory"
   ],
-  "bytes": 2000,
+  "bytes": 2600,
   "timeout": 300,
   "retries": 3,
   "retryDelay": 30,
-  "grep": ["non_place_names", "out_of_bounds", "placeholder_coords", "no_coords", "mistyped_type", "name_pairs", "same_name", "subset"],
-  "around": ["non_place_names", "name_pairs"],
-  "aroundLines": 8,
+  "grep": ["places_total", "places_by_source", "with_coords"],
+  "around": ["places_total", "places_by_source"],
+  "aroundLines": 10,
   "aroundHits": 2,
-  "note": "Проба 69: перепись мест перед разбором. 779 записей руками не проверить, а править вслепую тем более — поэтому сначала цифры, потом решения. Первый URL: существующий read-only аудит качества (имена-НЕместа, координаты вне Камчатки, плейсхолдеры 0,0 и центр ПКО, без координат, пустой тип). Второй: data-repair БЕЗ apply=1 — это dry-run, проверено по коду перед пуском, писать не будет; из него нужен разрез name_pairs (двойники по именам: same_name / same_wordset / subset / generic_only). Ничего не правлю этой пробой; цель — узнать размер каждой кучи, чтобы разбирать по убыванию цены, а не по порядку в таблице.",
-  "run": 69
+  "note": "Проба 70: объяснить 779 против 465. Аудит качества считает WHERE merged_into_id IS NULL — то есть ЖИВЫЕ точки; data-inventory считает FROM places без фильтра, то есть все строки вместе со слитыми. Разница этих двух чисел и есть ответ: если 465 живых при ~779 всего, значит порядок наводили слияниями и документация просто описывает состояние ДО них. Если общее тоже 465 — значит записи физически удалялись, и это другой разговор. Заодно беру разложение по источникам: оно покажет, откуда набор брался, и не выкосило ли слияние целый источник. Гипотезу не подтверждаю рассуждением — беру цифру.",
+  "run": 70
 }
