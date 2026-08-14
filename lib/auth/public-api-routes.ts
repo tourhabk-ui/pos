@@ -57,6 +57,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/faq': ['GET'],              // FAQ (публичная)
   '/api/photos': ['GET'],            // загруженные фото из /tmp (Timeweb production)
   '/api/analytics/hit': ['POST'],    // трекинг просмотров страниц (без авторизации)
+  '/api/funnel': ['POST'],           // маяк воронки — публичный by design (rate-limit + bot-detect внутри); Edge молча резал его 401, и funnel_events был пуст для всех гостей (сквозной прогон 14.08)
   '/api/payments/webhook': ['POST'],                    // CloudPayments webhook — HMAC validated inside
   '/api/payments/tochka/webhook': ['POST'],             // СБП-вебхук Точки — факт оплаты подтверждается обратным запросом в банк
   '/api/hub/operator/payments/webhook': ['POST'],       // CloudPayments webhook for operator tours — HMAC validated inside
