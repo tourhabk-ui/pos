@@ -186,7 +186,12 @@ jobs:
               done <<< "$AROUND"
             fi
             echo "── первые ${BYTES} байт ──"
-            head -c "${BYTES}" /tmp/body | tr -d '\r'
+            # fold: канал чтения логов (get_job_logs) режет строки длиннее
+            # ~10 КБ, и 40-килобайтный JSON среза приходил на четверть —
+            # проба 94 отдала 17 мест из 60, хотя раннер напечатал все.
+            # Перенос по 3000 байт ничего не теряет: читатель склеивает
+            # строки между разделителями обратно.
+            head -c "${BYTES}" /tmp/body | tr -d '\r' | fold -b -w 3000
             echo ""
             idx=$((idx+1))
           done
@@ -213,6 +218,6 @@ jobs:
             esac
             echo "HTTP: $CODE | bytes: $(wc -c < /tmp/body)"
             echo "── первые ${BYTES} байт ──"
-            head -c "${BYTES}" /tmp/body | tr -d '\r'
+            head -c "${BYTES}" /tmp/body | tr -d '\r' | fold -b -w 3000
             echo ""
           done

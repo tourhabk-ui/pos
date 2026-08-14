@@ -1,24 +1,11 @@
 {
   "bytes": 60000,
   "timeout": 120,
-  "note": "Проба 94: свод Трёх Братьев — скрытый тёзка из типа «бухта» (fd3feffa, координаты в 100 м от эталона ruwiki) сливается в видимую запись (e265d0f0; её координаты правит миграция 858 по тому же эталону). Имя тёзки уйдёт в псевдонимы. GET — последние срезы разбора по видам: музеи, историческое, лес, пляжи и большой тип «прочее» (54 записи — там могут лежать закопанные достопримечательности, как Долина гейзеров лежала скрытой).",
-  "run": 94,
+  "note": "Проба 95: дочитать срезы пробы 94, обрезанные каналом чтения логов (раннер печатал всё, но get_job_logs режет строки ~10 КБ; теперь вывод переносится fold-ом по 3000 байт). Повтор: historical (пришло 10 из 12), beach (2 из 3), other (17 из 60 — главный тёмный угол каталога). Слияний нет.",
+  "run": 95,
   "urls": [
-    "https://vedarai.ru/api/cron/places-by-type?type=museum&limit=200",
     "https://vedarai.ru/api/cron/places-by-type?type=historical&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=forest&limit=200",
     "https://vedarai.ru/api/cron/places-by-type?type=beach&limit=200",
     "https://vedarai.ru/api/cron/places-by-type?type=other&limit=200"
-  ],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/places-dedup",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          { "keep": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0", "merge": "fd3feffa-0e07-4a29-b4c8-216666dfe1e8" }
-        ]
-      }
-    }
   ]
 }
