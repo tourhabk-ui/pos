@@ -1042,7 +1042,10 @@ const CSS = `
    serif-заголовок поверх фото, пунктирная линейка, факты, оранжевый CTA.
    Текст читается за счёт собственной нижней тени (.fp-shade), а не удачи. */
 .v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-hover)}
-.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center/cover no-repeat}
+/* Верхняя привязка — та же причина, что у .plate .img: фото туров
+   вертикальные, и центрирование срезает голову. Здесь рамка почти
+   квадратная (10/11), запас меньше, но тот же снимок попадает и сюда. */
+.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center top/cover no-repeat}
 .v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.10) 32%,rgba(10,14,12,.80) 84%)}
 .v7 .firstpick .fp-badge{position:absolute;top:14px;left:14px;padding:8px 11px;border-radius:9px;background:var(--success);color:#fff;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
@@ -1065,7 +1068,14 @@ const CSS = `
 .v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
 .v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,transform .2s}
 .v7 .pl-dots button.on::after{background:var(--accent);transform:scale(1.25)}
-.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center/cover no-repeat}
+/* Кроп прижат к ВЕРХУ, а не по центру. Рамка здесь горизонтальная (4:3), а
+   фотографии туров сплошь вертикальные: рыбак во весь рост с лососем. При
+   центрировании кадр отрезал голову сверху и ноги снизу — на витрине оставалось
+   безголовое туловище с рыбой (замечено владельцем 14.08 на «Летней рыбалке
+   на чавычу»). Верхняя привязка режет только низ, а голова — то, по чему
+   человека узнают. На горизонтальных фото вертикального запаса почти нет,
+   поэтому им эта привязка ничего не меняет. */
+.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center top/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 2px 0}
