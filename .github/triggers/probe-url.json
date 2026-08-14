@@ -6,32 +6,17 @@
     {
       "url": "https://vedarai.ru/api/cron/places-dedup",
       "body": {
-        "dry_run": true,
+        "dry_run": false,
         "pairs": [
-          {
-            "keep": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
-            "merge": "8ef745b1-7de3-4899-9431-809f9c8521de"
-          },
-          {
-            "keep": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
-            "merge": "b0dbd6c3-1f4e-432a-afa7-a711a39c82d9"
-          },
-          {
-            "keep": "663e37f3-5deb-4907-ac25-321dd247d85e",
-            "merge": "f3354ca2-aa27-40e0-8a31-cf21d0ed8f31"
-          },
-          {
-            "keep": "37d371ad-0915-48b0-9749-f306467a4b16",
-            "merge": "b18c7f07-57de-4f2e-95db-8e2f71ba8be2"
-          },
-          {
-            "keep": "77e5d9e1-4746-45fc-bb1a-8527003edf5f",
-            "merge": "9ed17d44-e5f4-4535-8cfb-b44334572e71"
-          }
+          { "keep": "630819da-48d1-4bb8-99c9-3b190d6ae26c", "merge": "8ef745b1-7de3-4899-9431-809f9c8521de" },
+          { "keep": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8", "merge": "b0dbd6c3-1f4e-432a-afa7-a711a39c82d9" },
+          { "keep": "663e37f3-5deb-4907-ac25-321dd247d85e", "merge": "f3354ca2-aa27-40e0-8a31-cf21d0ed8f31" },
+          { "keep": "37d371ad-0915-48b0-9749-f306467a4b16", "merge": "b18c7f07-57de-4f2e-95db-8e2f71ba8be2" },
+          { "keep": "77e5d9e1-4746-45fc-bb1a-8527003edf5f", "merge": "9ed17d44-e5f4-4535-8cfb-b44334572e71" }
         ]
       }
     }
   ],
-  "note": "Проба 72 (повтор): поимённый сухой прогон после фикса типа id (#1174). Прошлый заход вернул «operator does not exist: text = uuid» — places.id в проде TEXT, а запрос утверждал UUID. Записи не было. Проверяю ровно две вещи: mode: named и что все пять id разрешились в живые места (candidate_total: 5, problems нет). Применение — отдельной пробой.",
-  "run": 72
+  "note": "Проба 73: слияние пяти дублей мест по слову владельца. Те же пять пар, что прошли сухим прогоном в пробе 72 — Курильское озеро, Авачинский, Кутхины баты, Шишель, Шивелуч. dry_run=false: пишем. Слияние МЯГКОЕ и обратимое — merged_into_id + merged_at, откат через /api/cron/places-unmerge; физического DELETE в роуте нет (сторож tests/unit/places-dedup-named.test.ts). Ожидаю merged_count: 5 и mode: named. Если хоть одна пара окажется уже слитой или неизвестной — 400 и ноль слияний, частичной работы тут не бывает. После этого перепись: живых мест должно стать 460 из 465.",
+  "run": 73
 }
