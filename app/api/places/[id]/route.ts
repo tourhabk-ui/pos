@@ -100,7 +100,11 @@ export async function GET(
        LEFT JOIN volcano_status vs ON vs.place_ark_id = p.ark_id
        LEFT JOIN ai_route_images ai ON ai.route_id = p.ark_id
        WHERE (p.ark_id::text = $1 OR p.id = $1)
-         AND p.is_visible = true`,
+         AND p.is_visible = true
+         -- Слитое место — не самостоятельное место. Человека уводит 301 на
+         -- странице (app/places/[id]/page.tsx), а API отвечает «не найдено»:
+         -- отдавать карточку дубля значило бы держать двойника живым.
+         AND p.merged_into_id IS NULL`,
       [id]
     );
 
@@ -133,6 +137,8 @@ export async function GET(
        FROM places p
        WHERE p.ark_id != $3
          AND p.is_visible = true
+         -- «Рядом» со ссылкой на слитое место — заведомо мёртвая ссылка.
+         AND p.merged_into_id IS NULL
          AND p.lat BETWEEN ($1::float - 0.5) AND ($1::float + 0.5)
          AND p.lng BETWEEN ($2::float - 0.8) AND ($2::float + 0.8)
        ORDER BY (p.lat::float - $1::float)^2 + (p.lng::float - $2::float)^2

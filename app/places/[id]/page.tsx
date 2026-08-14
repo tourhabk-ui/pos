@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
 import PlaceSOS from '@/components/places/PlaceSOS';
 import { isUuid } from '@/lib/text/slugify';
+import { resolveMergedTarget } from '@/lib/places/aliases';
 import { JsonLd } from '@/components/seo/JsonLd';
 
 interface Props {
@@ -81,6 +82,16 @@ export default async function PlaceDetailPage({ params }: Props) {
       slug = (ref.rows[0].slug as string | null) ?? null;
     }
   } catch { /* резолв не критичен — работаем по исходному id */ }
+  // Место слито в другое → 301 туда. Раньше публичная сторона про
+  // merged_into_id не знала вовсе (его уважали только админка и кроны дедупа),
+  // и слитая запись открывалась отдельной карточкой: турист видел две страницы
+  // одного вулкана с разными данными, а админка при этом уверяла, что дубль
+  // «скрыт из публички». Редирект постоянный: ссылки и выдача поисковиков на
+  // старый адрес существуют и должны вести к живому месту.
+  const mergedTo = await resolveMergedTarget(id);
+  if (mergedTo) {
+    permanentRedirect(`/places/${mergedTo.canonical}`);
+  }
   if (isUuid(id) && slug && slug !== id) {
     permanentRedirect(`/places/${slug}`);
   }

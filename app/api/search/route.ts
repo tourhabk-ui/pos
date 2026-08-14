@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
+import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,12 +95,18 @@ export async function GET(request: NextRequest) {
   try {
     const [placesResult, routeRows, parksResult] = await Promise.all([
       query(
-        `SELECT id, name AS title, location_type, LEFT(description, 80) AS subtitle
-         FROM places
-         WHERE name ILIKE $1
+        // Ищем по имени И по псевдонимам: «Авачинский вулкан» обязан находить
+        // «Вулкан Авачинский» — это один вулкан, просто разные источники
+        // назвали его по-разному. Слитые записи из выдачи убраны: раньше
+        // публичный поиск про merged_into_id не знал вовсе и показывал дубль
+        // отдельной строкой.
+        `SELECT p.id, p.name AS title, p.location_type, LEFT(p.description, 80) AS subtitle
+         FROM places p
+         WHERE ${MATCHES_NAME_OR_ALIAS('p', '$1')}
+           AND ${NOT_MERGED('p')}
          ORDER BY
-           CASE WHEN name ILIKE $2 THEN 0 ELSE 1 END,
-           LENGTH(name) ASC
+           CASE WHEN p.name ILIKE $2 THEN 0 ELSE 1 END,
+           LENGTH(p.name) ASC
          LIMIT $3`,
         [pattern, q, perType]
       ),
