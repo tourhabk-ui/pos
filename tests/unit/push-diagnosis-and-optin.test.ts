@@ -20,7 +20,11 @@ const subscribe = readFileSync(join(process.cwd(), 'app/api/push/subscribe/route
 describe('Watchdog: точный диагноз недоставки push', () => {
   it('различает три причины, а не общее «проверь VAPID»', () => {
     expect(watchdog).toMatch(/VAPID-ключи не заданы/);
-    expect(watchdog).toMatch(/подписчиков 0 — доставлять некому/);
+    // Проверяем, что случай «получателей нет» назван, а не как он
+    // пунктуирован: прежняя привязка была к тире внутри фразы и упала бы от
+    // любой переформулировки. Сторожим свойство, а не строку.
+    expect(watchdog).toMatch(/подписчиков 0/);
+    expect(watchdog).toMatch(/доставлять некому/);
     expect(watchdog).toMatch(/доставка не проходит/);
   });
   it('причина строится по факту: VAPID env + число подписок', () => {
