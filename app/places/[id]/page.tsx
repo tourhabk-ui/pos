@@ -60,6 +60,7 @@ const PLACE_TYPE_LABEL: Record<string, string> = {
   waterfall: 'Водопад', beach: 'Пляж', forest: 'Лес',
   historical: 'Историческое место', museum: 'Музей',
   viewpoint: 'Смотровая площадка', cape: 'Мыс', island: 'Остров',
+  valley: 'Долина', cave: 'Пещера', other: 'Место',
 };
 
 export default async function PlaceDetailPage({ params }: Props) {
