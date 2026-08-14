@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FUNNEL_STEPS, EXECUTION_STEPS } from '@/lib/funnel/steps';
+import { PUBLIC_API_ROUTES } from '@/lib/auth/public-api-routes';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -37,6 +38,17 @@ describe('словарь один на всех', () => {
     for (const s of EXECUTION_STEPS) expect(FUNNEL_STEPS).toContain(s);
     expect(EXECUTION_STEPS).not.toContain('planner_result_viewed');
     expect(EXECUTION_STEPS).not.toContain('planner_started');
+  });
+});
+
+describe('маяк реально долетает до приёмника', () => {
+  it('/api/funnel открыт для гостей в Edge-реестре (POST)', () => {
+    // Роут публичный by design (rate-limit + bot-detect внутри), но без записи
+    // в PUBLIC_API_ROUTES middleware резал анонимов с 401 — маяк глотал ошибку,
+    // и funnel_events был пуст для всех гостей. Нашёл сквозной прогон 14.08.
+    const methods = PUBLIC_API_ROUTES['/api/funnel'];
+    expect(methods).toBeDefined();
+    expect(methods === 'ALL' || methods.includes('POST')).toBe(true);
   });
 });
 
