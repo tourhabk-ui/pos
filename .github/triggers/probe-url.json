@@ -1,10 +1,13 @@
 {
- "bytes": 6000,
- "timeout": 120,
- "note": "Проба 101: подтверждение выката dependabot-серии. В пробе 100 (18:31) чанк главной был main-app-8721ca6ecfabcadd.js — если hash сменился и всё 200, живой билд уже с framer-motion 13.",
- "run": 101,
+ "bytes": 3000,
+ "timeout": 60,
+ "note": "Проба 102: выкат 9b57d733 — фиксы сквозных прогонов. Главное: анонимный POST /api/funnel должен отвечать 204 (до фикса Edge резал 401 и воронка была пуста), POST /api/mcp ping — 200 (журнал вызовов врезан в tools/call).",
+ "run": 102,
  "urls": [
-  "https://vedarai.ru/",
   "https://vedarai.ru/api/health"
+ ],
+ "post": [
+  {"url": "https://vedarai.ru/api/funnel", "body": {"step": "planner_started"}},
+  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "method": "ping", "id": 1}}
  ]
 }
