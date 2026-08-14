@@ -101,6 +101,59 @@ function isAlreadyExistsError(msg) {
     || l.includes('already have');
 }
 
+/**
+ * Выражение, управляющее транзакцией само по себе. В транзакционном раннере
+ * такие фильтруются: транзакцию держит раннер, а `BEGIN;`/`COMMIT;` внутри
+ * файла (019, 040) внутри уже открытой транзакции ломали бы SAVEPOINT-логику.
+ * PL/pgSQL-`BEGIN` внутри $$...$$ сюда не попадает — сплиттер держит
+ * dollar-quoted блок одним выражением.
+ */
+function isTxControlStatement(stmt) {
+  return /^(BEGIN|BEGIN\s+TRANSACTION|START\s+TRANSACTION|COMMIT|END)\s*$/i.test(stmt.trim());
+}
+
+/**
+ * Транзакционная миграция: НЕ одним куском, а повыражённо под SAVEPOINT.
+ *
+ * Находка сквозного прогона 14.08 (воспроизведена на 040): раньше файл
+ * уходил в базу целиком, и «already exists» на ОДНОМ выражении откатывал
+ * ВЕСЬ файл — а раннер помечал миграцию применённой. operator_tours и
+ * operator_bookings не создались, миграция «прошла». Тот же механизм на
+ * проде способен молча съесть любую новую миграцию, где хоть один CREATE
+ * совпадёт с существующим объектом.
+ *
+ * Теперь: конфликт идемпотентности пропускает только своё выражение
+ * (ROLLBACK TO SAVEPOINT), остальные применяются; настоящая ошибка
+ * откатывает файл и ПРОБРАСЫВАЕТСЯ — файл не помечается применённым.
+ */
+async function applyTransactionalFile(client, sql, log) {
+  const statements = splitSqlStatements(sql).filter(s => !isTxControlStatement(s));
+  let skippedStatements = 0;
+  await client.query('BEGIN');
+  try {
+    for (const stmt of statements) {
+      await client.query('SAVEPOINT mig_stmt');
+      try {
+        await client.query(stmt);
+      } catch (e) {
+        if (isAlreadyExistsError(e.message)) {
+          await client.query('ROLLBACK TO SAVEPOINT mig_stmt');
+          skippedStatements++;
+          if (log) log(`  [skip-exists] ${scrubError(e.message).slice(0, 100)}`);
+        } else {
+          throw e;
+        }
+      }
+      await client.query('RELEASE SAVEPOINT mig_stmt');
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+  return { statements: statements.length, skippedStatements };
+}
+
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -174,7 +227,9 @@ async function main() {
               }
             }
           } else {
-            await client.query(sql);
+            // Повыражённо под SAVEPOINT: «already exists» пропускает СВОЁ
+            // выражение, а не откатывает молча весь файл (находка 14.08).
+            await applyTransactionalFile(client, sql, console.log);
           }
           await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]);
           // Прошла — прошлая запись о провале больше не факт, а мусор.
@@ -183,23 +238,20 @@ async function main() {
           ok++;
         } catch (e) {
           // Снять возможную прерванную транзакцию, чтобы не отравить следующие.
+          // Пометки «применена» здесь больше НЕТ ни по какой причине: файл,
+          // не дошедший до COMMIT, не применён — он останется в списке и в
+          // _migration_failures, пока не пройдёт.
           await client.query('ROLLBACK').catch(() => {});
-          if (isAlreadyExistsError(e.message)) {
-            await client.query('INSERT INTO _migrations(name) VALUES($1) ON CONFLICT DO NOTHING', [file]).catch(() => {});
-            await client.query('DELETE FROM _migration_failures WHERE name = $1', [file]).catch(() => {});
-            skipped++;
-          } else {
-            console.error(`[migrate] ✗ ${file}: ${e.message}`);
-            await client.query(
-              `INSERT INTO _migration_failures(name, error) VALUES($1, $2)
-               ON CONFLICT (name) DO UPDATE
-                 SET error = EXCLUDED.error,
-                     attempts = _migration_failures.attempts + 1,
-                     last_failed_at = NOW()`,
-              [file, scrubError(e.message)],
-            ).catch(() => {});
-            errors++;
-          }
+          console.error(`[migrate] ✗ ${file}: ${scrubError(e.message)}`);
+          await client.query(
+            `INSERT INTO _migration_failures(name, error) VALUES($1, $2)
+             ON CONFLICT (name) DO UPDATE
+               SET error = EXCLUDED.error,
+                   attempts = _migration_failures.attempts + 1,
+                   last_failed_at = NOW()`,
+            [file, scrubError(e.message)],
+          ).catch(() => {});
+          errors++;
         }
       }
     } finally {
@@ -223,4 +275,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, splitSqlStatements };
+module.exports = { scrubError, isNonTransactional, isAlreadyExistsError, splitSqlStatements, isTxControlStatement, applyTransactionalFile };
