@@ -34,7 +34,8 @@ jobs:
           # маскируется в логах Actions и не попадает в коммитимый probe-url.json.
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json'))['urls']))")
+          # .get: проба может быть только-POST (проба 96 упала на KeyError без 'urls')
+          URLS=$(python3 -c "import json; print(' '.join(json.load(open('.github/triggers/probe-url.json')).get('urls', [])))")
           BYTES=$(python3 -c "import json; print(json.load(open('.github/triggers/probe-url.json')).get('bytes', 6000))")
           # Необязательный список строк-маркеров: для каждой печатаем НАЙДЕНО/НЕТ
           # (удобно проверять деплой большого HTML, где нужный текст не в первых
