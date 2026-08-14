@@ -1,15 +1,11 @@
 {
- "bytes": 60000,
+ "bytes": 20000,
  "timeout": 120,
- "retries": 20,
- "retryDelay": 60,
- "until": "\"name\":\"Кутхины баты\"",
- "note": "Проба 99: перепись после наката 859 (последний деплой серии). Датчик свежести — «Кутхины баты» в типе rock: до 859 они лежали в «прочем». Дальше перепись видов и срез «прочего» (проверка восьми скрытий).",
- "run": 99,
+ "note": "Проба 100: смоук прода после мержа dependabot-серии (#1096-#1098, включая мажор framer-motion 13). Главная (в HTML виден buildId — по нему различаем старый/новый билд), health и публичный статус безопасности. Повтор через ~12 минут сверит buildId и живость нового билда.",
+ "run": 100,
  "urls": [
-  "https://vedarai.ru/api/cron/places-by-type?type=rock&limit=200",
-  "https://vedarai.ru/api/cron/places-by-type?limit=200",
-  "https://vedarai.ru/api/cron/places-by-type?type=other&limit=200",
-  "https://vedarai.ru/api/cron/places-by-type?type=valley&limit=200"
+  "https://vedarai.ru/",
+  "https://vedarai.ru/api/health",
+  "https://vedarai.ru/api/public/safety-status"
  ]
 }
