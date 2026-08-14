@@ -1,13 +1,11 @@
 {
   "bytes": 60000,
   "timeout": 120,
-  "note": "Проба 92: продолжение разбора по видам — срезы скал, бухт и рек. Плюс вторая попытка добыть эталонные координаты для двух испорченных записей: Паланское озеро (стоит в Охотском море) — через Nominatim/OSM, Долина Смерти (стоит у Вилючинского вместо Кихпиныча) — сперва поиском точного заголовка статьи ruwiki (прямое обращение «Долина смерти (Камчатка)» вернуло missing). Слияний в этой пробе нет.",
-  "run": 92,
+  "note": "Проба 93: эталонные координаты для трёх записей с испорченной геопозицией — Overpass/OSM по имени «Паланское» (озеро стоит в Охотском море; Nominatim и Wikidata пусты) и «Долина смерти» (запись у Вилючинского вместо Кихпиныча), плюс ruwiki-координаты статьи «Три Брата (Камчатка)» — у видимой записи скал точка уехала к городу, у скрытой ближе к входу в бухту; свод двух записей в одну — после эталона. Слияний в пробе нет.",
+  "run": 93,
   "urls": [
-    "https://vedarai.ru/api/cron/places-by-type?type=rock&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=bay&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=river&limit=200",
-    "https://nominatim.openstreetmap.org/search?q=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5+%D0%BE%D0%B7%D0%B5%D1%80%D0%BE&format=json&limit=3",
-    "https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D1%81%D0%BC%D0%B5%D1%80%D1%82%D0%B8%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0&format=json&formatversion=2&srlimit=5"
+    "https://ru.wikipedia.org/w/api.php?action=query&titles=%D0%A2%D1%80%D0%B8%20%D0%91%D1%80%D0%B0%D1%82%D0%B0%20%28%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0%29&prop=coordinates&format=json&formatversion=2",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3Bnwr%5B%22name%22~%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5%22%5D%2855%2C155%2C62%2C164%29%3Bout%20center%205%3B",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3Bnwr%5B%22name%22~%22%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D1%81%D0%BC%D0%B5%D1%80%D1%82%D0%B8%22%5D%2851%2C155%2C58%2C163%29%3Bout%20center%205%3B"
   ]
 }
