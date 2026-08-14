@@ -18,7 +18,7 @@
  * находка с реальным кодом.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   citedCallSymbols,
@@ -48,7 +48,19 @@ const REAL_1158: CandidateFinding = {
   suggestion: 'Создать `lib/telegram/verifyWebhookSecret.ts` и звать её первой в POST.',
 };
 
-/** #1160 — настоящая: открытый прокси к Bot API. */
+/**
+ * #1160 — настоящая: открытый прокси к Bot API.
+ *
+ * Проверялась против `app/api/telegram/probe/[token]/route.ts`, но роут удалён
+ * в #1168 — как исправление ровно этой находки. То есть кейс нельзя больше
+ * прогнать по реальному файлу: файла нет, потому что находка была верна.
+ *
+ * Риск был назван в описании #1167 («тесты читают настоящие файлы с диска; если
+ * файлы изменятся, тесты перестанут отражать кейс») и сбылся в тот же час. Ниже
+ * — исходник-образец вместо чтения с диска. Он слабее: подтверждает ветку «все
+ * символы на месте → находка проходит», но уже не доказывает совпадение с
+ * боевым кодом. Разницу называю, а не прячу за зелёным тестом.
+ */
 const REAL_1160: CandidateFinding = {
   title: 'Публичный endpoint раскрывает токен бота',
   description:
@@ -56,6 +68,13 @@ const REAL_1160: CandidateFinding = {
     'произвольный токен бота и вызвать getMe, getWebhookInfo, setWebhook.',
   suggestion: 'Удалить каталог [token], перенести под admin-guard.',
 };
+
+/** Слепок удалённого роута — ровно те вызовы, что цитировала находка. */
+const PROBE_SOURCE_SNAPSHOT = `
+  const me = await tg('getMe');
+  const before = await tg('getWebhookInfo');
+  setResult = await tg('setWebhook', { url: webhookUrl });
+`;
 
 describe('извлечение процитированных вызовов', () => {
   it('берёт вызовы и обращения к членам', () => {
@@ -102,9 +121,15 @@ describe('на настоящих находках и настоящих фай�
     expect(verifyAgainstSource(REAL_1158, source)).toBeNull();
   });
 
-  it('#1160 проходит', () => {
-    const source = src('app/api/telegram/probe/[token]/route.ts');
-    expect(verifyAgainstSource(REAL_1160, source)).toBeNull();
+  it('#1160 проходит (по слепку: роут удалён как исправление этой находки)', () => {
+    expect(verifyAgainstSource(REAL_1160, PROBE_SOURCE_SNAPSHOT)).toBeNull();
+  });
+
+  it('роут из #1160 действительно удалён', () => {
+    // Держит связь теста с реальностью: слепок выше — не замена файлу, а
+    // признание, что файла нет. Если роут когда-нибудь вернётся, этот тест
+    // напомнит вернуть и чтение с диска.
+    expect(existsSync(join(process.cwd(), 'app/api/telegram/probe'))).toBe(false);
   });
 
   it('без исходника проверка молчит, а не отклоняет', () => {
