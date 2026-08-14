@@ -1,24 +1,13 @@
 {
   "bytes": 60000,
   "timeout": 120,
-  "note": "Проба 91: два слияния по срезам пробы 90 — «Гейзеры Камчатки» (скрытое эссе в 2.3 км) в «Долину гейзеров» (верные координаты; видимость вернёт миграция 856) и «Горный массив Вачкажец» в «Вачкажец» (один массив, две записи в 3.9 км, обе видимые — имя уйдёт в псевдонимы). GET — Wikidata-координаты для двух записей с испорченной геопозицией (Паланское озеро стоит в Охотском море, Долина Смерти — в районе Вилючинского вместо Кихпиныча; статья ruwiki Паланского координат не отдала — пробуем сущность Wikidata, P625) + срезы водопадов и мысов, продолжение разбора по видам.",
-  "run": 91,
+  "note": "Проба 92: продолжение разбора по видам — срезы скал, бухт и рек. Плюс вторая попытка добыть эталонные координаты для двух испорченных записей: Паланское озеро (стоит в Охотском море) — через Nominatim/OSM, Долина Смерти (стоит у Вилючинского вместо Кихпиныча) — сперва поиском точного заголовка статьи ruwiki (прямое обращение «Долина смерти (Камчатка)» вернуло missing). Слияний в этой пробе нет.",
+  "run": 92,
   "urls": [
-    "https://vedarai.ru/api/cron/places-by-type?type=waterfall&limit=200",
-    "https://vedarai.ru/api/cron/places-by-type?type=cape&limit=200",
-    "https://www.wikidata.org/w/api.php?action=wbgetentities&sites=ruwiki&titles=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5%20%D0%BE%D0%B7%D0%B5%D1%80%D0%BE&props=claims&format=json&formatversion=2",
-    "https://ru.wikipedia.org/w/api.php?action=query&titles=%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D1%81%D0%BC%D0%B5%D1%80%D1%82%D0%B8%20(%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0)&prop=coordinates&format=json&formatversion=2"
-  ],
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/places-dedup",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          { "keep": "796c18b3-e199-4ac6-bbd6-de50d560ff40", "merge": "114580f7-3347-46e7-aff9-31424d7b6e6d" },
-          { "keep": "c4310d06-2b6c-4b6e-af3a-b0c7cd678ebe", "merge": "e7304edc-840b-403a-9d42-f5b130183a84" }
-        ]
-      }
-    }
+    "https://vedarai.ru/api/cron/places-by-type?type=rock&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=bay&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=river&limit=200",
+    "https://nominatim.openstreetmap.org/search?q=%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5+%D0%BE%D0%B7%D0%B5%D1%80%D0%BE&format=json&limit=3",
+    "https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D1%81%D0%BC%D0%B5%D1%80%D1%82%D0%B8%20%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0&format=json&formatversion=2&srlimit=5"
   ]
 }
