@@ -1,11 +1,10 @@
 {
- "bytes": 20000,
+ "bytes": 6000,
  "timeout": 120,
- "note": "Проба 100: смоук прода после мержа dependabot-серии (#1096-#1098, включая мажор framer-motion 13). Главная (в HTML виден buildId — по нему различаем старый/новый билд), health и публичный статус безопасности. Повтор через ~12 минут сверит buildId и живость нового билда.",
- "run": 100,
+ "note": "Проба 101: подтверждение выката dependabot-серии. В пробе 100 (18:31) чанк главной был main-app-8721ca6ecfabcadd.js — если hash сменился и всё 200, живой билд уже с framer-motion 13.",
+ "run": 101,
  "urls": [
   "https://vedarai.ru/",
-  "https://vedarai.ru/api/health",
-  "https://vedarai.ru/api/public/safety-status"
+  "https://vedarai.ru/api/health"
  ]
 }
