@@ -10,6 +10,7 @@
 
 import { query } from '@/lib/database';
 import { textFromEscapedHtml } from '@/lib/services/safety/kvert-vona';
+import { zonesForEpicenter } from '@/lib/services/safety/seismic-zones';
 
 // ── Типы ─────────────────────────────────────────────────────────────────
 
@@ -497,11 +498,11 @@ export async function ingestUsgs(): Promise<ParseResult> {
       const publishedAt = new Date(f.properties.time);
       const severity: 0 | 1 | 2 | 3 = mag >= 7 ? 3 : mag >= 6 ? 2 : mag >= 5 ? 1 : 0;
 
-      const zones: string[] = lat >= 55.5
-        ? ['northern']
-        : lng >= 161
-          ? ['eastern']
-          : ['avachinsky'];
+      // Зона по РАССТОЯНИЮ, а не по делению координат пополам. Прежний код
+      // привязывал событие в 450 км от ближайшего маршрута так же уверенно,
+      // как в двадцати, и пустого исхода не имел вовсе. Разбор — в
+      // lib/services/safety/seismic-zones.
+      const zones: string[] = zonesForEpicenter(lat, lng);
 
       const event: SeismicEvent = {
         source_id: `usgs/${f.id}`,
