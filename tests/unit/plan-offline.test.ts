@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildPlanGpx, planGpxFilename, planGpxPoints } from '@/lib/trips/plan-gpx';
+import { buildPlanGpx, planGpxContentDisposition, planGpxFilename, planGpxPoints } from '@/lib/trips/plan-gpx';
 
 const ROOT = process.cwd();
 const SW = readFileSync(join(ROOT, 'public/sw.js'), 'utf-8');
@@ -44,10 +44,25 @@ describe('C-6: GPX дней плана', () => {
     expect(gpx).not.toMatch(/<"чёрный/);
   });
 
-  it('дата дня — в desc, имя файла — слаг названия', () => {
+  it('дата дня — в desc, имя файла — ASCII-слаг названия', () => {
     const gpx = buildPlanGpx('Мой план', days);
     expect(gpx).toContain('<desc>2026-08-12</desc>');
-    expect(planGpxFilename('Мой план на Камчатку')).toBe('мой_план_на_камчатку.gpx');
+    // Раньше слаг оставлял кириллицу — Content-Disposition это ByteString,
+    // символ с кодом >255 бросал исключение, и КАЖДОЕ скачивание GPX было 500
+    // (дефолт «Маршрут ГГГГ-ММ-ДД» кириллический всегда). Сквозной прогон 14.08.
+    expect(planGpxFilename('Мой план на Камчатку')).toBe('moy_plan_na_kamchatku.gpx');
+    expect(planGpxFilename('Маршрут 2026-08-21')).toBe('marshrut_2026_08_21.gpx');
+    expect(planGpxFilename('!!!')).toBe('plan.gpx');
+  });
+
+  it('Content-Disposition целиком ASCII, оригинал названия — в filename*', () => {
+    const header = planGpxContentDisposition('Маршрут 2026-08-21');
+    for (const ch of header) expect(ch.charCodeAt(0)).toBeLessThan(256);
+    expect(header).toMatch(/^attachment; filename="marshrut_2026_08_21\.gpx"/);
+    expect(header).toContain("filename*=UTF-8''");
+    // Роут не собирает заголовок сам — одна мера в одном месте.
+    expect(GPX_API).toMatch(/planGpxContentDisposition/);
+    expect(GPX_API).not.toMatch(/attachment; filename=/);
   });
 
   it('без точек с координатами GPX не имеет смысла — planGpxPoints это видит', () => {

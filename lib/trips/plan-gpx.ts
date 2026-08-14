@@ -27,13 +27,42 @@ function escapeXml(unsafe: string): string {
     .replace(/'/g, '&apos;');
 }
 
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
+  и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
+  с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh',
+  щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Имя файла — строго ASCII. Кириллица в HTTP-заголовке роняет ответ целиком:
+ * Content-Disposition — ByteString, символ с кодом >255 бросает исключение,
+ * и катч роута превращал КАЖДОЕ скачивание GPX в 500 (дефолтное название
+ * плана — «Маршрут ГГГГ-ММ-ДД», то есть кириллица всегда).
+ */
 export function planGpxFilename(title: string): string {
   const slug = title
     .toLowerCase()
-    .replace(/[^a-zа-яё0-9\s-]/gi, '')
-    .replace(/\s+/g, '_')
-    .slice(0, 50) || 'plan';
+    .replace(/[а-яё]/g, (ch) => TRANSLIT[ch] ?? '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/[\s-]+/g, '_')
+    .slice(0, 50)
+    .replace(/^_+|_+$/g, '') || 'plan';
   return `${slug}.gpx`;
+}
+
+/**
+ * Готовый Content-Disposition: ASCII-имя в filename (совместимость и
+ * гарантия валидного заголовка) + оригинал в filename* (RFC 5987,
+ * percent-encoded — тоже чистый ASCII), чтобы навигатор показал
+ * человеческое название. Роут не собирает заголовок сам.
+ */
+export function planGpxContentDisposition(title: string): string {
+  const ascii = planGpxFilename(title);
+  const utf8 = encodeURIComponent(title.slice(0, 80)).replace(/['()*]/g, (c) =>
+    `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}.gpx`;
 }
 
 /** Дни с валидными координатами — только они попадают в GPX. */

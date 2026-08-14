@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { buildPlanGpx, planGpxFilename, planGpxPoints, type PlanGpxDay } from '@/lib/trips/plan-gpx';
+import { buildPlanGpx, planGpxContentDisposition, planGpxPoints, type PlanGpxDay } from '@/lib/trips/plan-gpx';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +54,9 @@ export async function GET(
     return new NextResponse(buildPlanGpx(rows[0]!.title, days), {
       headers: {
         'Content-Type': 'application/gpx+xml',
-        'Content-Disposition': `attachment; filename="${planGpxFilename(rows[0]!.title)}"`,
+        // Заголовок собирает plan-gpx: ASCII-имя обязательно — кириллица в
+        // ByteString роняла ответ, и каждое скачивание GPX было 500.
+        'Content-Disposition': planGpxContentDisposition(rows[0]!.title),
         'Cache-Control': 'public, max-age=3600',
       },
     });
