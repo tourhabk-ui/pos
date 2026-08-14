@@ -84,6 +84,17 @@ describe('различители тождества', () => {
   it('высота берётся из профиля безопасности, а не выдумывается', () => {
     expect(CODE).toMatch(/lsp\.altitude_m/);
   });
+
+  it('район, зона и начало описания приходят в срез', () => {
+    // Проба 77: altitude_m и source_name пусты у ВСЕХ 145 вулканов —
+    // различитель на невиданных данных оказался пустым полем. Описания по
+    // переписи есть у всех и длиннее 300 символов: место в них названо
+    // словами, и по словам видно, дубль это или разные объекты.
+    expect(CODE).toMatch(/LEFT\(description, 160\) AS desc_start/);
+    expect(CODE).toMatch(/district: r\.district/);
+    expect(CODE).toMatch(/zone: r\.zone/);
+    expect(CODE).toMatch(/desc: r\.desc_start/);
+  });
 });
 
 describe('без типа — перепись видов', () => {
