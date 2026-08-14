@@ -28,7 +28,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { callAnthropic } from '@/lib/ai/providers';
+import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -49,6 +49,8 @@ export interface Judged {
   finding: Finding;
   verdict: Verdict;
   reason: string;
+  /** Какая модель вынесла вердикт — атрибуция, как у находок Growth Scan. */
+  model?: string;
 }
 
 const VERDICT_RU: Record<Verdict, string> = {
@@ -91,7 +93,14 @@ export async function judgeOne(f: Finding): Promise<Judged> {
     { role: 'user', content: body },
   ];
 
-  const answer = await callAnthropic(messages);
+  // Водопад решателя, а не голый callAnthropic. Три дня подряд (12-14.08)
+  // отчёты выходили с «не разобрано: 30+ — модель не ответила»: Anthropic
+  // отдавал пустой ответ, и на этом разбор заканчивался, хотя DeepSeek и
+  // Qwen — штатный запасной путь решателя (CLAUDE.md §8: «для сильного
+  // решателя достаточно DeepSeek/Qwen без релея»). Водопад пробует флагмана,
+  // Anthropic напрямую, затем DeepSeek и Qwen — и штампует, кто ответил.
+  const res = await callAIDecisionDetailed(messages);
+  const answer = res.text;
   if (!answer) return { finding: f, verdict: 'unjudged', reason: 'модель не ответила' };
 
   const v = /ВЕРДИКТ:\s*(real|noise|needs_info)/i.exec(answer);
@@ -99,12 +108,13 @@ export async function judgeOne(f: Finding): Promise<Judged> {
   if (!v) {
     // Ответ есть, но формы нет — это тоже «не разобрана». Догадываться о
     // вердикте по свободному тексту значит снова выдать неуверенность за вывод.
-    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме' };
+    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model };
   }
   return {
     finding: f,
     verdict: v[1].toLowerCase() as Verdict,
     reason: (r?.[1] ?? '').trim().slice(0, 200) || 'причина не названа',
+    model: res.model,
   };
 }
 
@@ -115,6 +125,10 @@ export function renderReport(judged: Judged[]): string {
 
   const lines: string[] = [];
   lines.push(`Разобрано находок: **${judged.length}**`);
+  // Атрибуция: по прошлым отчётам нельзя было отличить «Anthropic молчит»
+  // от «ключа нет» — модель судьи теперь названа в отчёте фактом.
+  const models = [...new Set(judged.map((j) => j.model).filter(Boolean))] as string[];
+  if (models.length > 0) lines.push(`Судья: ${models.join(', ')}`);
   lines.push('');
   lines.push('| Вердикт | Сколько |');
   lines.push('|---|---|');
@@ -153,9 +167,10 @@ async function main(): Promise<void> {
   if (!inPath || !outPath) {
     throw new Error('Использование: evo-judge.ts <находки.json> <отчёт.md>');
   }
-  // Отсутствие ключа — это отказ, а не пустой разбор.
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error('Нет ANTHROPIC_API_KEY: разбирать нечем. Пустой отчёт был бы враньём.');
+  // Отсутствие ВСЕХ ключей — это отказ, а не пустой разбор. Водопаду решателя
+  // хватает любого из путей: Anthropic, DeepSeek или Qwen.
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.DEEPSEEK_API_KEY && !process.env.DASHSCOPE_API_KEY) {
+    throw new Error('Нет ни одного ключа модели (ANTHROPIC/DEEPSEEK/DASHSCOPE): разбирать нечем. Пустой отчёт был бы враньём.');
   }
 
   const raw = JSON.parse(readFileSync(inPath, 'utf-8')) as { issues?: Finding[] };

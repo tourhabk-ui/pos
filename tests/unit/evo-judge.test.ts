@@ -36,8 +36,21 @@ describe('провал разбора не выдаётся за вердикт'
     expect(SRC).toMatch(/if \(!v\)/);
   });
 
-  it('нет ключа — падаем, а не отдаём пустой разбор', () => {
+  it('нет ни одного ключа — падаем, а не отдаём пустой разбор', () => {
     expect(SRC).toMatch(/ANTHROPIC_API_KEY[\s\S]{0,120}throw new Error/);
+  });
+
+  it('судья зовёт водопад решателя, а не голый callAnthropic', () => {
+    // 12-14.08 Anthropic три дня отдавал пустой ответ, и каждый отчёт выходил
+    // с «не разобрано: 30+» — при живых DeepSeek/Qwen, которые водопад
+    // решателя пробует сам. Голый вызов одного провайдера здесь запрещён.
+    expect(SRC).toMatch(/callAIDecisionDetailed/);
+    expect(SRC).not.toMatch(/callAnthropic\(/);
+  });
+
+  it('модель судьи едет в отчёт — атрибуция, как у находок', () => {
+    expect(SRC).toMatch(/model\?: string/);
+    expect(SRC).toMatch(/Судья: /);
   });
 
   it('потолок прогона назван вслух', () => {
@@ -98,9 +111,18 @@ describe('workflow не разбрасывается секретами', () => 
     expect(cronUses.length).toBe(1);
   });
 
-  it('ключ Anthropic не появляется в шаге, который ходит на прод', () => {
-    const fetchStep = WF.slice(WF.indexOf('Fetch findings'), WF.indexOf('Judge with Claude'));
+  it('ключи моделей не появляются в шаге, который ходит на прод', () => {
+    const fetchStep = WF.slice(WF.indexOf('Fetch findings'), WF.indexOf('Judge with strong model'));
     expect(fetchStep).not.toContain('ANTHROPIC_API_KEY');
+    expect(fetchStep).not.toContain('DEEPSEEK_API_KEY');
+    expect(fetchStep).not.toContain('DASHSCOPE_API_KEY');
+  });
+
+  it('у судьи есть запасные пути: DeepSeek и Qwen рядом с Anthropic', () => {
+    const judgeStep = WF.slice(WF.indexOf('Judge with strong model'));
+    expect(judgeStep).toContain('ANTHROPIC_API_KEY');
+    expect(judgeStep).toContain('DEEPSEEK_API_KEY');
+    expect(judgeStep).toContain('DASHSCOPE_API_KEY');
   });
 
   it('прод не отдал находки — падаем, а не считаем это пустотой', () => {

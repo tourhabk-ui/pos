@@ -58,12 +58,17 @@ jobs:
           fi
           python3 -c "import json;d=json.load(open('/tmp/findings.json'));print('находок:',len(d.get('issues',[])))"
 
-      - name: Judge with Claude
+      - name: Judge with strong model
         env:
-          # Ключ уходит только в api.anthropic.com — вызов идёт через
-          # sanctioned-путь lib/ai/providers (callAnthropic), а не сырым fetch:
-          # так провайдер остаётся в замороженном реестре compliance.
+          # Ключи уходят только своим провайдерам — вызов идёт через
+          # sanctioned-путь lib/ai/providers (водопад callAIDecisionDetailed),
+          # а не сырым fetch: провайдеры остаются в замороженном реестре
+          # compliance. Три дня подряд (12-14.08) Anthropic отдавал пустой
+          # ответ, и разбор кончался «не разобрано: 30+» — теперь водопад
+          # падает на DeepSeek/Qwen, как решатель на проде.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
         run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md
 
       - name: Publish report
