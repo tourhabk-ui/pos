@@ -21,6 +21,8 @@ import {
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { useMyReferralCode } from '@/hooks/useMyReferralCode';
+import { withReferral } from '@/lib/referral/link';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
@@ -898,6 +900,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [shareUrl, setShareUrl]     = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [shareCopied, setShareCopied] = useState(false);
+  // «Отправь группе свой план» (стратегия 14.08): ссылка залогиненного несёт
+  // его реферальную метку. Код спрашивается заранее — к нажатию ссылка готова.
+  const myReferralCode = useMyReferralCode(!!initialUserId);
 
   // Plan
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -2019,10 +2024,12 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   {shareCopied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
                   {shareCopied ? 'Скопировано' : 'Копировать ссылку'}
                 </button>
-                <a href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
+                <a href={`https://t.me/share/url?url=${encodeURIComponent(withReferral(shareUrl, myReferralCode))}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
-                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
+                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
+                  /* Отправка плана группе — действие исполнения (словарь steps). */
+                  onClick={() => funnelBeacon('plan_sent_to_telegram', tripId ?? undefined)}>
                   <ExternalLink className="w-3.5 h-3.5" />Telegram
                 </a>
                 <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"
