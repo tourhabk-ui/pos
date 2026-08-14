@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import { useState, useCallback } from 'react';
+import { shareLink } from '@/lib/share';
+import { withReferral } from '@/lib/referral/link';
+import { getPublicBaseUrl } from '@/lib/config';
 
 /**
  * Кошелёк эко — единственный источник. До этого экран тянул ещё и
@@ -130,24 +133,36 @@ export default function LoyaltyClient() {
     }
   }, []);
 
+  // Ссылка собирается там же, где её собирает всё остальное: домен из
+  // getPublicBaseUrl (руками писать домен запрещено), параметр — из
+  // lib/referral/link.
+  const refUrl = displayRefCode ? withReferral(getPublicBaseUrl(), displayRefCode) : null;
+
   const copyCode = useCallback(() => {
-    if (!displayRefCode) return;
-    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
-    navigator.clipboard.writeText(url).then(() => {
+    if (!refUrl) return;
+    navigator.clipboard.writeText(refUrl).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => { /* буфер недоступен — кнопка «поделиться» рядом остаётся рабочей */ },
+    );
+  }, [refUrl]);
+
+  // Промис `navigator.share` был без `.catch`: закрытие системного листа
+  // роняло необработанный AbortError. Отмена — законный исход, а не сбой.
+  const shareCode = useCallback(async () => {
+    if (!refUrl) return;
+    const outcome = await shareLink({
+      title: 'Ведар',
+      text: 'Присоединяйся к путешествиям по Камчатке и получи бонус',
+      url: refUrl,
+    });
+    if (outcome === 'copied') {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
-  }, [displayRefCode]);
-
-  const shareCode = useCallback(() => {
-    if (!displayRefCode) return;
-    const url = `https://vedarai.ru/?ref=${displayRefCode}`;
-    if (navigator.share) {
-      navigator.share({ title: 'Ведар', text: 'Присоединяйся к путешествиям по Камчатке и получи бонус', url });
-    } else {
-      copyCode();
     }
-  }, [displayRefCode, copyCode]);
+  }, [refUrl]);
 
   const currentLevelName = stats?.currentLevel?.name ?? 'Новичок';
   const currentColor = stats?.currentLevel?.color ?? 'var(--text-muted)';
