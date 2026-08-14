@@ -592,6 +592,99 @@ async function checkSeismicCronDead(): Promise<WatchdogAlert | null> {
 }
 
 /**
+ * ── Задержка сейсмо-канала из Telegram ─────────────────────────────────────
+ *
+ * `checkSeismicCronDead` выше меряет ЛЮБОЙ прогон safety-ingest. А его каждые
+ * пять минут удовлетворяет heartbeat из start.js — то есть сторож смотрит на
+ * путь, который работает, и потому слеп к пути, который опаздывает.
+ *
+ * Пути два, и они очень разные. USGS и МЧС сервер тянет сам, вовремя. КБГС и
+ * EQKam живут в Telegram, а `t.me` для хостинга гео-закрыт — их приносит
+ * GitHub Actions, у которого пятиминутное расписание на практике даёт
+ * разрывы в 40–60 минут. Про эту задержку мы узнали 14.08 СЛУЧАЙНО, разбирая другой сбой:
+ * измерения не было вовсе.
+ *
+ * Уровни выбраны по цене ошибки, а не по громкости. Задержку расписания
+ * GitHub владелец починить не может — КРИТ на неё был бы красным, которое не
+ * гаснет работой (этот урок уже стоил нам вечного push_undelivered). А вот
+ * остановка воркфлоу чинится: секрет, отключённый workflow, сломанный шаг.
+ */
+export const SEISMIC_WORKFLOW_WARN_MIN = 90;
+export const SEISMIC_WORKFLOW_CRIT_MIN = 360;
+
+/**
+ * @param ageMin     минут с последней доставки от воркфлоу; null — доставок нет
+ * @param observedMin сколько минут мы вообще наблюдаем приём (по журналу)
+ */
+export function seismicWorkflowDelayIssue(
+  ageMin: number | null,
+  observedMin: number,
+): WatchdogAlert | null {
+  if (ageMin === null) {
+    // Ни одной доставки. Судить можно только если наблюдаем дольше, чем
+    // разумно ждать первую: сразу после выката строк ещё нет, и алерт здесь
+    // был бы ложной тревогой на пустом месте. Та же осторожность, что в
+    // evaluateDeadSources (observedHours).
+    if (observedMin <= SEISMIC_WORKFLOW_CRIT_MIN) return null;
+    return {
+      type: 'safety_cron_dead',
+      count: Math.round(observedMin),
+      critical: true,
+      details:
+        `Сейсмо-канал Telegram (КБГС, EQKam) не доставлялся НИ РАЗУ за ` +
+        `${Math.round(observedMin)} мин наблюдения. Воркфлоу cron-safety-ingest ` +
+        `не доходит до сервера — проверь его прогоны и CRON_SECRET. ` +
+        `USGS и МЧС идут напрямую и не затронуты.`,
+    };
+  }
+  if (ageMin > SEISMIC_WORKFLOW_CRIT_MIN) {
+    return {
+      type: 'safety_cron_dead',
+      count: Math.round(ageMin),
+      critical: true,
+      details:
+        `Сейсмо-канал Telegram молчит ${Math.round(ageMin)} мин ` +
+        `(порог ${SEISMIC_WORKFLOW_CRIT_MIN}). Это уже не задержка расписания — ` +
+        `проверь воркфлоу cron-safety-ingest. USGS и МЧС идут напрямую.`,
+    };
+  }
+  if (ageMin > SEISMIC_WORKFLOW_WARN_MIN) {
+    return {
+      type: 'safety_cron_dead',
+      count: Math.round(ageMin),
+      critical: false,
+      details:
+        `Сейсмо-канал Telegram отстаёт: ${Math.round(ageMin)} мин с последней ` +
+        `доставки при норме 5. Причина обычно в расписании GitHub Actions и ` +
+        `нашими силами не чинится. Землетрясения M5+ идут напрямую через USGS; ` +
+        `запаздывают локальные сообщения КБГС и EQKam.`,
+    };
+  }
+  return null;
+}
+
+async function checkSeismicWorkflowDelay(): Promise<WatchdogAlert | null> {
+  try {
+    const { rows } = await pool.query<{ last_post: string | null; first_any: string | null }>(`
+      SELECT MAX(ended_at) FILTER (WHERE metadata->>'trigger' = 'workflow_post')::text AS last_post,
+             MIN(ended_at)::text                                                        AS first_any
+        FROM agent_run_history
+       WHERE agent_id = 'safety-ingest'
+         AND ended_at > NOW() - INTERVAL '7 days'
+    `);
+    const now = Date.now();
+    const lastPost = rows[0]?.last_post ?? null;
+    const firstAny = rows[0]?.first_any ?? null;
+    if (!firstAny) return null; // приёма нет вовсе — это забота checkSeismicCronDead
+    const observedMin = (now - new Date(firstAny).getTime()) / 60_000;
+    const ageMin = lastPost === null ? null : (now - new Date(lastPost).getTime()) / 60_000;
+    return seismicWorkflowDelayIssue(ageMin, observedMin);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Любой safety-крон из реестра, который тихо встал. Обобщение checkSeismicCronDead
  * на весь safety-tier: liveness по cron-registry × agent_run_history. Алерт только
  * на 'dead' (был жив, перестал) — не на 'never' (ещё ни разу не отметился после
@@ -847,6 +940,10 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkUnprocessedLeads(),
     checkIgnoredSOS(),
     checkSeismicCronDead(),
+    // Отдельно от предыдущей: та меряет ЛЮБОЙ прогон и удовлетворяется
+    // heartbeat'ом, который Telegram получить не может. Задержка канала,
+    // приносящего КБГС и EQKam, до этой правки не измерялась вовсе.
+    checkSeismicWorkflowDelay(),
     checkDeadSafetyCrons(),
     checkUndeliveredSafetyPush(),
     checkIdleCrons(),
