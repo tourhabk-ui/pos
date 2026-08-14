@@ -27,6 +27,7 @@ import { executeKuzmichTool } from '@/lib/kuzmich/core';
 import { createLead, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
 import { createRateLimiter } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
+import { logMcpToolCall } from '@/lib/mcp/call-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -244,23 +245,39 @@ export async function POST(request: NextRequest) {
         const toolName = typeof params?.name === 'string' ? params.name : '';
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>;
 
+        // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
+        // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
+        const ip = clientIp(request);
+        const userAgent = request.headers.get('user-agent') ?? '';
+
         // Rate-limit до исполнения: превышение — обычный tool-ответ с isError,
         // агент его прочитает и подождёт (429 на JSON-RPC клиенты реагируют хуже).
         const limiter = WRITE_TOOLS.has(toolName) ? writeLimiter : readLimiter;
-        if (!limiter.check(`${WRITE_TOOLS.has(toolName) ? 'w' : 'r'}:${clientIp(request)}`)) {
+        if (!limiter.check(`${WRITE_TOOLS.has(toolName) ? 'w' : 'r'}:${ip}`)) {
+          logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', ip, userAgent });
           return NextResponse.json(jsonrpcSuccess(id, {
             content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }],
             isError: true,
           }));
         }
 
+        const startedAt = Date.now();
         try {
           const text = await executeTool(toolName, toolArgs);
+          logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, ip, userAgent });
           return NextResponse.json(jsonrpcSuccess(id, {
             content: [{ type: 'text', text }],
           }));
         } catch (toolErr) {
           const msg = toolErr instanceof Error ? toolErr.message : 'Tool execution failed';
+          logMcpToolCall({
+            tool: toolName,
+            ok: false,
+            errorKind: PUBLIC_MCP_TOOL_NAMES.has(toolName) ? 'execution' : 'unknown_tool',
+            durationMs: Date.now() - startedAt,
+            ip,
+            userAgent,
+          });
           return NextResponse.json(jsonrpcSuccess(id, {
             content: [{ type: 'text', text: msg }],
             isError: true,
