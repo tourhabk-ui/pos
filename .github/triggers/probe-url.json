@@ -1,11 +1,24 @@
 {
   "bytes": 60000,
   "timeout": 120,
-  "note": "Проба 93: эталонные координаты для трёх записей с испорченной геопозицией — Overpass/OSM по имени «Паланское» (озеро стоит в Охотском море; Nominatim и Wikidata пусты) и «Долина смерти» (запись у Вилючинского вместо Кихпиныча), плюс ruwiki-координаты статьи «Три Брата (Камчатка)» — у видимой записи скал точка уехала к городу, у скрытой ближе к входу в бухту; свод двух записей в одну — после эталона. Слияний в пробе нет.",
-  "run": 93,
+  "note": "Проба 94: свод Трёх Братьев — скрытый тёзка из типа «бухта» (fd3feffa, координаты в 100 м от эталона ruwiki) сливается в видимую запись (e265d0f0; её координаты правит миграция 858 по тому же эталону). Имя тёзки уйдёт в псевдонимы. GET — последние срезы разбора по видам: музеи, историческое, лес, пляжи и большой тип «прочее» (54 записи — там могут лежать закопанные достопримечательности, как Долина гейзеров лежала скрытой).",
+  "run": 94,
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&titles=%D0%A2%D1%80%D0%B8%20%D0%91%D1%80%D0%B0%D1%82%D0%B0%20%28%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D0%BA%D0%B0%29&prop=coordinates&format=json&formatversion=2",
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3Bnwr%5B%22name%22~%22%D0%9F%D0%B0%D0%BB%D0%B0%D0%BD%D1%81%D0%BA%D0%BE%D0%B5%22%5D%2855%2C155%2C62%2C164%29%3Bout%20center%205%3B",
-    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A25%5D%3Bnwr%5B%22name%22~%22%D0%94%D0%BE%D0%BB%D0%B8%D0%BD%D0%B0%20%D1%81%D0%BC%D0%B5%D1%80%D1%82%D0%B8%22%5D%2851%2C155%2C58%2C163%29%3Bout%20center%205%3B"
+    "https://vedarai.ru/api/cron/places-by-type?type=museum&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=historical&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=forest&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=beach&limit=200",
+    "https://vedarai.ru/api/cron/places-by-type?type=other&limit=200"
+  ],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/places-dedup",
+      "body": {
+        "dry_run": false,
+        "pairs": [
+          { "keep": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0", "merge": "fd3feffa-0e07-4a29-b4c8-216666dfe1e8" }
+        ]
+      }
+    }
   ]
 }
