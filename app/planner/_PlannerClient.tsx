@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
+import { funnelBeacon } from '@/lib/funnel/beacon';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
@@ -661,7 +662,13 @@ function PartnersModal({ activityType, onClose }: {
                   </span>
                 )}
                 {phone && (
-                  <a href={`tel:${phone}`} className="flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline">
+                  <a
+                    href={`tel:${phone}`}
+                    className="flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline"
+                    /* Открытый контакт исполнителя — действие исполнения
+                       (стратегия 14.08, шаг словаря lib/funnel/steps). */
+                    onClick={() => funnelBeacon('partner_contact', p.id)}
+                  >
                     <Phone className="w-3 h-3" />{phone}
                   </a>
                 )}
@@ -946,6 +953,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const allInterests = [...new Set([...places, ...activities])];
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
 
+  // planner_started — первое осмысленное действие в анкете, один раз за сессию
+  // компонента (стратегия 14.08). Приход с плиткой намерения (?mood=...) — тоже
+  // старт: плитки на главной и есть быстрый старт формы. Просто открыть пустую
+  // страницу — ещё не старт: это уже пишет page_views.
+  const plannerStartedRef = useRef(false);
+  useEffect(() => {
+    if (plannerStartedRef.current) return;
+    if (places.length === 0 && activities.length === 0 && !arrival && !departure) return;
+    plannerStartedRef.current = true;
+    funnelBeacon('planner_started');
+  }, [places, activities, arrival, departure]);
+
   // Editing day info for banner
   const editingDayInfo = useMemo(() => {
     if (editingDayId === null) return null;
@@ -1034,6 +1053,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
       if (!tripId && data.data?.id) setTripId(data.data.id);
       setSaveStatus('saved');
+      // Сохранённый план — первое действие исполнения «активированной поездки».
+      funnelBeacon('plan_saved', data.data?.id ?? tripId ?? undefined);
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch {
       setSaveStatus('error');
@@ -1361,6 +1382,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         setSelectedRoute(null);
         setEditingDayId(null);
         setShowItinerary(false);
+        // Результат получен и показан — вторая ступень воронки. Дедуп на
+        // приёмнике (60 минут), повторные пересборки план не задваивают.
+        funnelBeacon('planner_result_viewed');
       } else {
         setError(data.error || 'Ошибка при получении рекомендации');
       }
