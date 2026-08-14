@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +29,14 @@ export async function GET(request: NextRequest) {
   const params: unknown[] = [];
   let idx = 1;
 
+  // Слитые записи — не самостоятельные места: до этого автокомплит предлагал
+  // выбрать дубль, и выбранное «место» вело на карточку, которой больше нет.
+  conditions.push(NOT_MERGED('p'));
+
   if (q) {
-    conditions.push(`(p.name ILIKE $${idx} OR p.description ILIKE $${idx + 1})`);
+    conditions.push(
+      `(${MATCHES_NAME_OR_ALIAS('p', `$${idx}`)} OR p.description ILIKE $${idx + 1})`,
+    );
     params.push(`%${q}%`, `%${q}%`);
     idx += 2;
   }

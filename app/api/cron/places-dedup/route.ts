@@ -36,6 +36,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
+import { recordAlias, moveAliases } from '@/lib/places/aliases';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -359,6 +360,19 @@ async function applyPlan(
       await client.query(`DELETE FROM route_waypoints WHERE place_id = $1`, [
         p.mergeId,
       ]);
+
+      // Имя слитого места не пропадает, а становится псевдонимом оставшегося:
+      // «Авачинский вулкан» ищут не реже, чем «Вулкан Авачинский». До этого
+      // слияние записывало ТОЛЬКО факт дубля, и живое название исчезало —
+      // 14.08 так ушли пять имён за один прогон.
+      const src = await client.query<{ source_name: string | null }>(
+        `SELECT source_name FROM places WHERE id::text = $1 LIMIT 1`,
+        [p.mergeId]
+      );
+      await recordAlias(client, p.keepId, p.mergeName, src.rows[0]?.source_name ?? null);
+      // Свои псевдонимы слитого места переезжают туда же: иначе цепочка
+      // A ← B ← C теряет звено ровно тогда, когда оно нужнее всего.
+      await moveAliases(client, p.mergeId, p.keepId);
 
       let warning: string | undefined;
       if (p.mergeArk) {
