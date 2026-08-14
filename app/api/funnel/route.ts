@@ -8,8 +8,10 @@
  * scanFunnel читает их оттуда. Первая версия этого роута дублировала просмотры
  * своим маяком — владелец 08.08: «у нас была настроена своя метрика».
  *
- * Единственный шаг — booking_start: первое касание формы брони. Это
- * взаимодействие, а не переход, в page_views его по построению нет.
+ * Шаги — из единого словаря lib/funnel/steps.ts (стратегия 14.08): касание
+ * формы брони, анкета и результат планировщика, сохранение/отправка плана,
+ * контакт партнёра, регистрация МЧС, офлайн-пакет. Всё это взаимодействия,
+ * а не переходы — в page_views их по построению нет.
  *
  * Без PII: тот же суточный visitorHash с секретной солью, что у page_views
  * (152-ФЗ), боты отсекаются тем же bot-detect, флуд — тем же rate-limiter.
@@ -23,11 +25,13 @@ import { pool } from '@/lib/db-pool';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { visitorHash, currentDay } from '@/lib/analytics/visitor-hash';
 import { isBotUserAgent } from '@/lib/analytics/bot-detect';
+import { FUNNEL_STEPS } from '@/lib/funnel/steps';
 
 export const dynamic = 'force-dynamic';
 
 const BodySchema = z.object({
-  step: z.enum(['booking_start']),
+  // Шаги — из единого словаря: приёмник не может разойтись с маяком.
+  step: z.enum(FUNNEL_STEPS),
   entity_id: z.string().max(64).nullish(),
 });
 
