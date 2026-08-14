@@ -4,6 +4,7 @@ import {
   Satellite, MessagesSquare, RadioTower, Smartphone,
   ShieldAlert, ClipboardCheck, MapPinned,
 } from 'lucide-react';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 export const metadata: Metadata = {
   title: 'Связь и навигация на маршрутах Камчатки',
@@ -192,8 +193,13 @@ export default function CommunicationPage() {
                   сигнала с вашей стороны. На многих маршрутах платформы регистрация
                   обязательна (отмечено на карточке маршрута).
                 </p>
+                {/* Без срока совет «зарегистрируйтесь» невыполним: человек
+                    приходит сюда за пару дней до выезда, когда подача закрыта. */}
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">
+                  {MCHS_DEADLINE_SHORT}.
+                </p>
                 <a
-                  href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
+                  href={MCHS_ONLINE_FORM_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-block mt-3 text-sm font-semibold text-[var(--ocean)] hover:underline"

@@ -35,6 +35,7 @@ import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
+import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -1953,7 +1954,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
     }
     // mchs opens a form URL
     if (id === 'mchs') {
-      window.open('https://forms.mchs.gov.ru/registration_tourist_groups/form', '_blank', 'noopener,noreferrer');
+      window.open(MCHS_ONLINE_FORM_URL, '_blank', 'noopener,noreferrer');
       return;
     }
     // emergency scrolls to the section

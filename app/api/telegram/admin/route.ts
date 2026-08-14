@@ -35,6 +35,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { PlatformAgent } from '@/lib/agents';
 import { scanAllOperatorGroups } from '@/lib/telegram/operator-availability';
 import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
+import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 const adminGetLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -369,7 +370,7 @@ async function sendChannelTests(ownerChatId: number): Promise<void> {
       '<b>Параметры маршрута:</b>',
       '↗ Набор: 1 700 м  |  📍 8 км  |  ⏱ 6–8 часов',
       '',
-      '<blockquote>Регистрация в МЧС обязательна.\nОнлайн: forms.mchs.gov.ru\nПри ЧП звоните 112.\nБез регистрации на маршрут не выпустим.</blockquote>',
+      `<blockquote>Регистрация в МЧС обязательна.\n${MCHS_DEADLINE_SHORT}.\nОнлайн: forms.mchs.gov.ru\nПри ЧП звоните 112.\nБез регистрации на маршрут не выпустим.</blockquote>`,
       '',
       '<i>Есть вопросы — пишите Кузьмичу.</i>',
     ].join('\n');

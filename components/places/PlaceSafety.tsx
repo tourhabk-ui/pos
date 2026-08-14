@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AlertTriangle, Backpack, Radio, Phone, Users, ShieldAlert, Flame, Wind, Mountain, Waves, Eye, Thermometer, CloudLightning, Signal, Leaf, Heart, Book } from 'lucide-react';
 import { HAZARD_LABELS } from './types';
 import type { PlaceSafety as SafetyData } from './types';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 interface Props {
   safety: SafetyData;
@@ -150,7 +151,8 @@ export default function PlaceSafety({ safety, placeId: _ }: Props) {
               )}
               {safety.registrationRequired && (
                 <a
-                  href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
+                  href={MCHS_ONLINE_FORM_URL}
+                  title={MCHS_DEADLINE_SHORT}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-xs text-[var(--warning)] hover:underline"

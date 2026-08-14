@@ -31,6 +31,7 @@ import RouteVerdict, { useRouteVerdict } from '@/components/routes/RouteVerdict'
 import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentation';
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
+import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -1421,8 +1422,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 <ShieldAlert className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--danger)' }} />
                 <div>
                   <p className="font-semibold text-[var(--text-primary)]">Обязательная регистрация в МЧС</p>
+                  {/* Срок, а не «до выхода». Прежняя формулировка читалась как
+                      «накануне», и человек опаздывал на неделю: заявка подаётся
+                      за 10 РАБОЧИХ дней до начала. Факт — из lib/safety/
+                      mchs-registration, чтобы копия не разошлась с остальными. */}
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Этот маршрут требует регистрации группы до выхода
+                    {MCHS_DEADLINE_SHORT}
                   </p>
                 </div>
               </div>
@@ -1462,6 +1467,33 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       Согласование с парком
                     </a>
                   )}
+                </div>
+
+                {/* Три канала подачи и состав данных. Раньше знали только
+                    онлайн-форму: если она недоступна, «зарегистрируйтесь»
+                    оставалось советом без способа его исполнить. */}
+                <div className="pt-3 mt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] mb-2">Как подать заявку</p>
+                  <ul className="space-y-1.5">
+                    {MCHS_CHANNELS.map((ch) => (
+                      <li key={ch.key} className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                        <span className="font-medium text-[var(--text-primary)]">{ch.title}:</span>{' '}
+                        {ch.href ? (
+                          <a href={ch.href} target="_blank" rel="noopener noreferrer"
+                            className="text-[var(--ocean)] hover:underline">{ch.detail}</a>
+                        ) : ch.detail}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-1.5">Что указать</p>
+                  <ul className="space-y-1">
+                    {MCHS_REQUIRED_DATA.map((item) => (
+                      <li key={item} className="text-xs text-[var(--text-secondary)] leading-relaxed">— {item}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-[var(--text-muted)] mt-3">
+                    Источник: {MCHS_SOURCE.authority}, {MCHS_SOURCE.asOf}
+                  </p>
                 </div>
               </div>
             </div>
