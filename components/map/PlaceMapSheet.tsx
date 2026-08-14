@@ -38,7 +38,7 @@ const LOCATION_LABELS: Record<string, string> = {
   volcano: 'Вулкан', lake: 'Озеро', hot_spring: 'Источник', mountain: 'Гора',
   geyser: 'Гейзер', waterfall: 'Водопад', beach: 'Пляж', valley: 'Долина',
   river: 'Река', cave: 'Пещера', bay: 'Бухта', forest: 'Лес',
-  historical: 'Историческое место', museum: 'Музей',
+  historical: 'Историческое место', museum: 'Музей', rock: 'Скала',
   viewpoint: 'Смотровая', cape: 'Мыс', island: 'Остров', other: 'Место',
 };
 
