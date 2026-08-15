@@ -32,9 +32,18 @@ import {
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+/**
+ * Боевой прогон идёт партиями не больше десяти (решение владельца
+ * 15.08: «лучше по 10, чтоб меньше ошибок допустить»). Ограничение
+ * живёт в коде, а не в договорённости: разбор партии — ручная работа
+ * глазами, и на тридцати записях внимание кончается раньше списка.
+ * Сухому прогону простор оставлен — он ничего не меняет.
+ */
+const LIVE_BATCH_MAX = 10;
+
 const BodySchema = z.object({
   dry_run: z.boolean().default(true),
-  limit: z.number().int().min(1).max(60).default(30),
+  limit: z.number().int().min(1).max(60).default(LIVE_BATCH_MAX),
   ids: z.array(z.string().min(8).max(64)).max(60).optional(),
 });
 
@@ -58,6 +67,17 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof z.ZodError ? err.issues[0]?.message : 'Некорректное тело';
     return NextResponse.json({ success: false, error: msg }, { status: 400 });
+  }
+
+  const liveSize = data.ids ? data.ids.length : data.limit;
+  if (!data.dry_run && liveSize > LIVE_BATCH_MAX) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Боевой прогон — партиями не больше ${LIVE_BATCH_MAX}: запрошено ${liveSize}`,
+      },
+      { status: 400 },
+    );
   }
 
   try {
