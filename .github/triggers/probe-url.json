@@ -1,13 +1,12 @@
 {
- "bytes": 9000,
- "timeout": 90,
- "note": "Проба 105: выкат 55c00242 — handoff и страница /mcp. Ждём в ответе make_trip_plan ссылку «Продолжить в Ведаре: .../mcp/h/<токен>» (докажет врезку и миграцию 862), и 200 на /mcp с фактом сервера в первых строках.",
- "run": 105,
- "urls": [
-  "https://vedarai.ru/mcp"
- ],
- "markers": ["публичный MCP-сервер", "vedarai.ru/api/mcp", "Streamable HTTP"],
- "post": [
-  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "make_trip_plan", "arguments": {"days": "5", "interests": "вулканы"}}}}
- ]
+  "urls": [
+    "https://vedarai.ru/api/routes?kind=place&hasCoords=true&limit=2000&sort=title"
+  ],
+  "bytes": 3000000,
+  "timeout": 120,
+  "retries": 6,
+  "retryDelay": 60,
+  "count": ["Гора Шишель", "Природный парк", "\"title\":\"Шишель\""],
+  "note": "Проба 42: приёмка миграции 863 (мерж 324336e). После фильтра merged_into_id в VIEW слитые записи должны уйти из каталога: «Гора Шишель» — 0 вхождений, «Природный парк» — 1 (выживший), «Шишель» как точный title — 1. Итог каталога должен упасть с 419 на число слитых-но-видимых записей (дубли вчерашних проб 82-96 тоже наконец скроются). Счётчики печатаются по всему телу.",
+  "run": 42
 }
