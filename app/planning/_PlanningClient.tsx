@@ -37,6 +37,9 @@ import {
 } from '@/lib/offline/saved-map';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { useSwRegistration } from '@/lib/offline/sw-status';
+import {
+  passportGradeLabel, passportGradeNote, passportCtaLabel, type PassportGrade,
+} from '@/lib/routes/passport';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -77,6 +80,32 @@ interface RoutePreview {
   imageUrl: string | null;
   /** Через какие места проходит (для выбора по названию места) */
   via?: string | null;
+  /**
+   * Род навигационных данных (Трек / Набросок / Точки…) — виден ДО выбора:
+   * различение снятого трека и ломаной — главная защита платформы, и она
+   * не должна открываться человеку только в поле (план FCN, этап 1).
+   */
+  lineGrade?: PassportGrade | null;
+}
+
+/** Бейдж рода данных маршрута в выборе. Цвет — семантика, не украшение. */
+function GradeChip({ grade }: { grade: PassportGrade | null | undefined }) {
+  if (!grade) return null;
+  const color =
+    grade === 'surveyed' ? 'var(--success)'
+    : grade === 'points_only' ? 'var(--ocean)'
+    : grade === 'none' ? 'var(--text-muted)'
+    : 'var(--warning)';
+  return (
+    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+      style={{
+        color,
+        border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+        background: `color-mix(in srgb, ${color} 10%, transparent)`,
+      }}>
+      {passportGradeLabel(grade)}
+    </span>
+  );
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
@@ -348,10 +377,12 @@ function OnTrailTab() {
   const [modalQuery, setModalQuery] = useState('');
   const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
   const [searching, setSearching] = useState(false);
-  const [preview, setPreview] = useState<{ id: string; title: string; wps: SavedWaypoint[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
+  } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
-  const previewCacheRef = useRef<Map<string, SavedWaypoint[]>>(new Map());
+  const previewCacheRef = useRef<Map<string, { wps: SavedWaypoint[]; grade: PassportGrade | null }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
@@ -1155,6 +1186,7 @@ function OnTrailTab() {
               distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
               imageUrl: null,
               via,
+              lineGrade: (row.line_grade as PassportGrade | null) ?? null,
             } satisfies RoutePreview;
           }));
         })
@@ -1167,7 +1199,7 @@ function OnTrailTab() {
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
     const cached = previewCacheRef.current.get(r.id);
-    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached }); return; }
+    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade }); return; }
     setPreviewLoadingId(r.id);
     fetch(`/api/routes/${r.id}`)
       .then(res => res.json())
@@ -1184,8 +1216,14 @@ function OnTrailTab() {
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
         if (converted.length === 0) return;
-        previewCacheRef.current.set(r.id, converted);
-        setPreview({ id: r.id, title: r.title, wps: converted });
+        // Род данных — из паспорта детального ответа (точнее спискового:
+        // он видит сам трек, а не только факт наличия линии); фолбэк — бейдж
+        // из списка, если паспорта в ответе нет (старый кэш/билд).
+        const pp = data.passport as { grade?: unknown } | null | undefined;
+        const grade = (typeof pp?.grade === 'string' ? pp.grade as PassportGrade : null)
+          ?? r.lineGrade ?? null;
+        previewCacheRef.current.set(r.id, { wps: converted, grade });
+        setPreview({ id: r.id, title: r.title, wps: converted, grade });
       })
       .catch(() => { /* остаёмся на списке */ })
       .finally(() => setPreviewLoadingId(null));
@@ -1214,6 +1252,7 @@ function OnTrailTab() {
             durationDays: row.durationDays != null ? Number(row.durationDays) : null,
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             imageUrl: null,
+            lineGrade: (row.lineGrade as PassportGrade | null) ?? null,
           } satisfies RoutePreview;
         }).filter(Boolean) as RoutePreview[];
         if (items.length === 0) setModalError('Маршруты не найдены');
@@ -1781,10 +1820,21 @@ function OnTrailTab() {
                       пустым (скрин владельца «Авачинский перевал»). */}
                   <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" />
                 </div>
-                <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                  <GradeChip grade={preview.grade} />
+                </div>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
                   {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
                 </p>
+                {/* Оговорка паспорта: что этот род данных значит для ног.
+                    Бейдж прочитает не каждый — слова прочитают все. */}
+                {preview.grade && passportGradeNote(preview.grade) && (
+                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                    {passportGradeNote(preview.grade)}
+                  </p>
+                )}
                 {previewMap.scattered && (
                   <p className="text-xs mb-3 px-3 py-2 rounded-lg"
                     style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
@@ -1802,7 +1852,10 @@ function OnTrailTab() {
                     <button onClick={() => selectRoute(preview)}
                       className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
                       style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                      Начать по маршруту
+                      {/* «Навигатор» обещает ведение по линии — это обещание
+                          есть только у снятого трека. Остальным — честное
+                          «ориентирование»: направление и точки, не тропа. */}
+                      {passportCtaLabel(preview.grade ?? 'unknown')}
                     </button>
                   )}
                 </div>
@@ -1853,7 +1906,10 @@ function OnTrailTab() {
                               opacity: previewLoadingId === r.id ? 0.6 : 1,
                             }}>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                                <GradeChip grade={r.lineGrade} />
+                              </div>
                               <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
                                 {r.distanceKm ? `${r.distanceKm} км · ` : ''}
                                 {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}

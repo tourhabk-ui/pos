@@ -52,7 +52,10 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
   it('has_waypoints=true добавляет EXISTS по route_waypoints (рекомендуемые планировщика)', async () => {
     await queryCatalog(CatalogQuerySchema.parse({ kind: 'route', has_waypoints: 'true' }));
     const [sql] = queryMock.mock.calls[0] as [string];
-    expect(sql).toContain('EXISTS (SELECT 1 FROM route_waypoints');
+    // Точки ищутся через строку kamchatka_routes по обоим id: id VIEW —
+    // COALESCE(ark_id, id), а route_waypoints.route_id живёт на kr.id.
+    expect(sql).toContain('JOIN route_waypoints rwx ON rwx.route_id = kw.id');
+    expect(sql).toContain('kw.id = ark.id OR kw.ark_id = ark.id');
   });
 
   it('has_waypoints=true требует компактность вейпоинтов (мега-сборники — не треки)', async () => {

@@ -9,6 +9,7 @@ import { pool } from '@/lib/db-pool';
 import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
+import { buildRoutePassport } from '@/lib/routes/passport';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,11 +49,18 @@ export async function GET(
          kr.official_passport_url,
          kr.passport_agency,
          kr.ark_id AS kr_ark_id,
+         kr.id AS kr_id,
+         kr.route_version,
+         kr.passport_verified_at,
+         kr.updated_at AS kr_updated_at,
          pk.slug AS park_slug,
          COALESCE(kr.geometry, krs.geometry) AS geometry
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
-       LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       -- id VIEW для маршрутов — COALESCE(ark_id, id): строка kamchatka_routes
+       -- ищется по обоим, иначе маршрут с заполненным ark_id терял трек,
+       -- МЧС-поля и waypoints (id-пространства расходились молча).
+       LEFT JOIN kamchatka_routes kr ON kr.id = ark.id OR kr.ark_id = ark.id
        LEFT JOIN LATERAL (
          -- Трек места может жить отдельной строкой kamchatka_routes
          -- (точка «Гора Замок» ↔ её маршрут): связь через metadata.place_ark_id
@@ -60,6 +68,7 @@ export async function GET(
          SELECT geometry FROM kamchatka_routes k2
          WHERE k2.geometry IS NOT NULL
            AND k2.id <> ark.id
+           AND k2.id IS DISTINCT FROM kr.id
            AND (
              k2.metadata->>'place_ark_id' = ark.id::text
              OR (ark.source_url IS NOT NULL AND k2.source_url = ark.source_url)
@@ -81,11 +90,15 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
     }
 
-    // Increment view count (fire-and-forget)
-    pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [id]).catch(() => {});
-
     const r = result.rows[0];
     const payload = (r.payload as Record<string, unknown>) ?? {};
+
+    // Канонический id строки kamchatka_routes: id VIEW может быть ark_id,
+    // а route_waypoints / operator_tours / view_count живут на kr.id.
+    const routeDbId = (r.kr_id as string | null) ?? id;
+
+    // Increment view count (fire-and-forget)
+    pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [routeDbId]).catch(() => {});
 
     // Загружаем предложения операторов из operator_tours (через v_route_marketplace)
     let offers: unknown[] = [];
@@ -125,7 +138,7 @@ export async function GET(
          FROM v_route_marketplace
          WHERE route_id = $1
          ORDER BY marketplace_score DESC`,
-        [id]
+        [routeDbId]
       );
 
       offers = offersResult.rows.map(o => ({
@@ -174,7 +187,7 @@ export async function GET(
        WHERE rw.route_id = $1
          AND p.is_visible = TRUE
        ORDER BY rw.position`,
-      [id]
+      [routeDbId]
     ).catch(() => ({ rows: [] }));
 
     // Оперативные ограничения точек маршрута: точечные сообщения
@@ -196,7 +209,7 @@ export async function GET(
            OR COALESCE(array_length(rs.active_alerts, 1), 0) > 0
          )
        ORDER BY rw.position`,
-      [id]
+      [routeDbId]
     ).catch(() => ({ rows: [] }));
 
     // Отзывы о маршруте — запрос перенесён из /api/routes/detail/[id]
@@ -255,6 +268,32 @@ export async function GET(
         pdfUrl:          (r.pdf_url as string | null) ?? null,
         officialPassportUrl: (r.official_passport_url as string | null) ?? null,
         passportAgency:      (r.passport_agency as string | null) ?? null,
+        /**
+         * Полевой паспорт — граница доверия к данным маршрута, собранная
+         * одним правилом (lib/routes/passport): род линии, версия редакции,
+         * число точек, требования доступа. Показывается ДО фиксации маршрута:
+         * различение трека и наброска — главная защита, и она не должна
+         * открываться человеку только в поле.
+         */
+        passport: (() => {
+          const { points } = decimateTrackWithScale(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return buildRoutePassport({
+            track: points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null,
+            geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
+            waypointsCount: waypointsResult.rows.length,
+            routeVersion: r.route_version != null ? Number(r.route_version) : null,
+            verifiedAt: (r.passport_verified_at as string | null) ?? null,
+            updatedAt: (r.kr_updated_at as string | null) ?? null,
+            mchsRequired: (r.mchs_registration_required as boolean | null) ?? false,
+            mchsPhone: (r.mchs_phone as string | null) ?? null,
+            parkName: (r.park_name as string | null) ?? null,
+            parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
+            officialPassportUrl: (r.official_passport_url as string | null) ?? null,
+          });
+        })(),
         /**
          * Происхождение линии — как ЗАПИСАНО в геометрии, без догадок.
          *

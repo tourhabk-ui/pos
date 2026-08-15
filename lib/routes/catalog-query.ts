@@ -15,6 +15,7 @@
 import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
 
 function isImageUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
@@ -159,6 +160,12 @@ export interface CatalogItem {
   hazards: string[];
   /** Живой статус точки из location_real_time_status; null — данных нет */
   isOpen: boolean | null;
+  /**
+   * Род навигационных данных маршрута для бейджа в списке выбора
+   * (Трек / Набросок / Линия не проверена / Точки). Считается по реальной
+   * geometry из kamchatka_routes, не по payload. null — не маршрут.
+   */
+  lineGrade: PassportGrade | null;
 }
 
 export interface CatalogResult {
@@ -222,12 +229,20 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     // «35 мест по всему краю» имеют waypoints, но их синтетическая геометрия —
     // паутина прямых через весь Петропавловск (полевой скрин 20.07), это не
     // проходимый трек и в навигацию попадать не должно.
+    //
+    // route_waypoints.route_id живёт на kamchatka_routes.id, а id VIEW для
+    // маршрутов — COALESCE(ark_id, id): точки ищутся через строку маршрута
+    // по обоим id, иначе маршрут с заполненным ark_id невидим для навигации.
     conditions.push(
-      `EXISTS (SELECT 1 FROM route_waypoints rwx WHERE rwx.route_id = ark.id)
+      `EXISTS (SELECT 1 FROM kamchatka_routes kw
+               JOIN route_waypoints rwx ON rwx.route_id = kw.id
+               WHERE kw.id = ark.id OR kw.ark_id = ark.id)
        AND (SELECT (MAX(p.lat) - MIN(p.lat)) <= 0.5 AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
-            FROM route_waypoints rwx2
+            FROM kamchatka_routes kw2
+            JOIN route_waypoints rwx2 ON rwx2.route_id = kw2.id
             JOIN places p ON p.id = rwx2.place_id
-            WHERE rwx2.route_id = ark.id AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
+            WHERE (kw2.id = ark.id OR kw2.ark_id = ark.id)
+              AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
     );
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
@@ -298,10 +313,20 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          -- не идут — вместо них честный градиент (решение владельца 2026-07-17)
          (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
          -- Живой статус места (открыто/закрыто) — свойство точки, не тура
-         lrs.is_open
+         lrs.is_open,
+         -- Род навигационных данных маршрута: РЕАЛЬНАЯ geometry из
+         -- kamchatka_routes (payload->'geometry' — метаданные, не линия).
+         -- Строка маршрута ищется по обоим id: id VIEW = COALESCE(ark_id, id).
+         (krl.geometry IS NOT NULL)  AS has_line,
+         krl.geometry->>'source'     AS geometry_source,
+         (krl.id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM route_waypoints rww WHERE rww.route_id = krl.id
+         )) AS has_route_waypoints
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
+       LEFT JOIN kamchatka_routes krl
+         ON ark.kind = 'route' AND (krl.id = ark.id OR krl.ark_id = ark.id)
        ${where}
        ORDER BY ${orderBy}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -346,6 +371,13 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       hasRealImage,
       hazards:      resolveHazards(r),
       isOpen:       (r.is_open as boolean | null) ?? null,
+      lineGrade:    ((r.kind as string | null) ?? 'place') === 'route'
+        ? lineGradeForList(
+            Boolean(r.has_line),
+            (r.geometry_source as string | null) ?? null,
+            Boolean(r.has_route_waypoints),
+          )
+        : null,
     };
   });
 
