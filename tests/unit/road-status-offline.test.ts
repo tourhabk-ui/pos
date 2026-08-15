@@ -43,7 +43,8 @@ describe('офлайн-пакет несёт ограничения', () => {
     expect(DB).toContain('activeAlerts: string[]');
     expect(DB).toContain('alertSeverity: number');
     expect(DB).toContain('alertsAt: number | null');
-    expect(DB).toContain('const DB_VERSION = 2');
+    // v3: добавлен store fieldPacks (FCN этап 2); поля ограничений — с v2.
+    expect(DB).toContain('const DB_VERSION = 3');
   });
 
   it('скачивание кладёт ограничения с дефолтами (старый билд API не ломает пакет)', () => {

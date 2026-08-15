@@ -40,6 +40,10 @@ import { useSwRegistration } from '@/lib/offline/sw-status';
 import {
   passportGradeLabel, passportGradeNote, passportCtaLabel, type PassportGrade,
 } from '@/lib/routes/passport';
+import {
+  saveFieldPack, loadFieldPack, verifyFieldPack, fieldPackReadiness,
+  type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
+} from '@/lib/offline/field-pack';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -391,6 +395,14 @@ function OnTrailTab() {
   } | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  /**
+   * Состояние полевого пакета по ассетам (карта/линия/точки/условия) —
+   * проверкой, не памятью: verifyFieldPack пробует Cache Storage и меряет
+   * возраст снимка условий. null — пакета нет.
+   */
+  const [packStates, setPackStates] = useState<PackAssetState[] | null>(null);
+  /** Редакция маршрута из паспорта — пакет привязывается к ней. */
+  const [routeVersion, setRouteVersion] = useState<number | null>(null);
   /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
@@ -433,7 +445,61 @@ function OnTrailTab() {
     } catch { /* тихо: план — удобство, а не условие выхода */ }
   }, []);
 
-  /** Скачать карту маршрута по явному нажатию. */
+  /**
+   * Собрать манифест полевого пакета: линия + точки + снимок условий +
+   * запись о карте — одной записью в IndexedDB. Снимок условий кладётся
+   * при сборке: в поле связи не будет, а его возраст обязан быть виден.
+   */
+  const assemblePack = useCallback(async (routeId: string, failedTiles: number, persisted: boolean) => {
+    let safety: PackSafetySnapshot | null = null;
+    try {
+      const res = await fetch('/api/public/safety-status');
+      const j = await res.json() as { success?: boolean; data?: Record<string, unknown> };
+      const d = j?.data;
+      if (j?.success && d) {
+        safety = {
+          hasAlert: d.hasAlert === true,
+          maxSeverity: Number(d.maxSeverity) || 0,
+          topTitle: typeof d.topTitle === 'string' ? d.topTitle : null,
+          source: typeof d.source === 'string' ? d.source : '',
+          at: Date.now(),
+          unavailable: d.unavailable === true,
+        };
+      }
+    } catch { safety = null; }
+    const now = Date.now();
+    const manifest: FieldPackManifest = {
+      routeId,
+      routeVersion: routeVersion ?? 1,
+      title: activeRouteTitle,
+      createdAt: now,
+      updatedAt: now,
+      route: { track, trackDm, geometrySource: geometrySource ?? null },
+      waypoints,
+      tiles: mapPlan ? {
+        total: mapPlan.tiles, failed: failedTiles, droppedZooms: mapPlan.dropped,
+        coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, mb: mapPlan.mb,
+        sampleUrls: [
+          mapPlan.urls[0],
+          mapPlan.urls[Math.floor(mapPlan.urls.length / 2)],
+          mapPlan.urls[mapPlan.urls.length - 1],
+        ].filter(Boolean),
+      } : null,
+      safety,
+      storage: { persistent: persisted },
+    };
+    try { await saveFieldPack(manifest); } catch { /* квота/приватный режим — покажет verify */ }
+    try { setPackStates(await verifyFieldPack(manifest)); } catch { /* ignore */ }
+  }, [mapPlan, track, trackDm, geometrySource, waypoints, activeRouteTitle, routeVersion]);
+
+  /** Поднять и перепроверить сохранённый пакет маршрута. */
+  const refreshPackStates = useCallback((routeId: string) => {
+    loadFieldPack(routeId)
+      .then(async pack => setPackStates(pack ? await verifyFieldPack(pack) : null))
+      .catch(() => setPackStates(null));
+  }, []);
+
+  /** Скачать полевой пакет маршрута по явному нажатию (карта — самый тяжёлый ассет). */
   const saveMap = useCallback(async (routeId: string) => {
     if (!mapPlan || !navigator.serviceWorker) return;
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
@@ -447,7 +513,7 @@ function OnTrailTab() {
       setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
         if ((e.data as { regionId?: string })?.regionId !== routeId) return;
-        const m = e.data as { type: string; done: number; total: number };
+        const m = e.data as { type: string; done: number; failed?: number; total: number };
         if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
         if (m.type === 'TILES_DONE') {
           setTileDl(null);
@@ -459,12 +525,15 @@ function OnTrailTab() {
           setSavedMap(rec);
           try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
           navigator.serviceWorker.removeEventListener('message', onMsg);
+          // Пакет собирается той же кнопкой: карта, линия, точки и снимок
+          // условий — один шаг, а не три разных «сохранить».
+          void assemblePack(routeId, m.failed ?? 0, persisted);
         }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
       sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
     } catch { /* ignore */ }
-  }, [mapPlan]);
+  }, [mapPlan, assemblePack]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
   // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
@@ -514,6 +583,9 @@ function OnTrailTab() {
         // Источник и трек ставятся из одного ответа — они описывают одну
         // и ту же линию. Строка → источник записан, иначе — честный null.
         setGeometrySource(typeof data.geometrySource === 'string' ? data.geometrySource : null);
+        // Редакция маршрута из паспорта: полевой пакет привязывается к ней.
+        const pp = data.passport as { version?: unknown } | null | undefined;
+        setRouteVersion(typeof pp?.version === 'number' ? pp.version : null);
         const dm = (data as Record<string, unknown>).track_dm;
         setTrackDm(Array.isArray(dm) && Array.isArray(tr) && dm.length === tr.length
           ? (dm as number[])
@@ -539,9 +611,23 @@ function OnTrailTab() {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
-      .catch(() => { /* офлайн — уже показали кэш */ })
+      .catch(() => {
+        // Офлайн — точки уже показаны из кэша. Линию поднимаем из полевого
+        // пакета: без него поле без сети оставалось вовсе без трека, и
+        // экран честно деградировал до наброска, теряя снятую линию,
+        // которую человек видел при сохранении пакета.
+        void loadFieldPack(routeId).then(pack => {
+          if (!pack || !pack.route.track || pack.route.track.length < 2) return;
+          setTrack(pack.route.track);
+          setTrackDm(pack.route.trackDm);
+          setGeometrySource(pack.route.geometrySource);
+          setRouteVersion(pack.routeVersion);
+        }).catch(() => { /* пакета нет — остаёмся на кэше точек */ });
+      })
       .finally(() => setIsLoadingRoute(false));
-  }, [loadMapPlan]);
+    // Состояние пакета — сразу из записи (и перепроверкой), не дожидаясь сети.
+    refreshPackStates(routeId);
+  }, [loadMapPlan, refreshPackStates]);
 
   // Network
   useEffect(() => {
@@ -1701,9 +1787,10 @@ function OnTrailTab() {
                 {/* Ноль на кнопке — не размер, а его отсутствие, и читается он
                     как «бесплатно». Если веса нет, честнее не называть числа:
                     сервер режет квадрат по 2000 тайлов, за кнопкой стоят
-                    десятки мегабайт мобильного трафика (скрин владельца 10.08,
-                    «Сохранить карту · 0 МБ»). */}
-                {mapPlan.mb > 0 ? `Сохранить карту · ${mapPlan.mb} МБ` : 'Сохранить карту'}
+                    десятки мегабайт мобильного трафика (скрин владельца 10.08).
+                    Пакет — один шаг: карта, линия, точки и снимок условий
+                    сохраняются этой же кнопкой (FCN этап 2). */}
+                {mapPlan.mb > 0 ? `Сохранить полевой пакет · ${mapPlan.mb} МБ` : 'Сохранить полевой пакет'}
               </button>
               <span>
                 {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
@@ -1714,6 +1801,49 @@ function OnTrailTab() {
           ) : null}
         </div>
       )}
+
+      {/* Полевой пакет: состояние по ассетам — проверкой, не памятью.
+          partial никогда не зелёный: неполный пакет, выданный за готовый,
+          обнаруживается уже без связи. Возраст условий всегда виден. */}
+      {hasRoute && packStates && (() => {
+        const readiness = fieldPackReadiness(packStates);
+        const KIND_LABELS: Record<PackAssetState['kind'], string> = {
+          tiles: 'Карта', route: 'Линия', waypoints: 'Точки', safety_snapshot: 'Условия',
+        };
+        return (
+          <div className="px-4 py-3 text-xs space-y-1.5" style={{ borderTop: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <span className="font-semibold" style={{ color: 'var(--text-secondary)' }}>Полевой пакет</span>
+              <span className="font-semibold" style={{
+                color: readiness === 'ready' ? 'var(--success)' : 'var(--warning)',
+              }}>
+                {readiness === 'ready' ? 'готов' : readiness === 'partial' ? 'не полон' : 'не готов'}
+              </span>
+            </div>
+            {packStates.map(s => (
+              <div key={s.kind} className="flex items-baseline gap-2">
+                <span className="w-14 shrink-0" style={{ color: 'var(--text-muted)' }}>{KIND_LABELS[s.kind]}</span>
+                <span style={{
+                  color: s.status === 'ready'
+                    ? 'var(--success)'
+                    : s.status === 'missing' && s.kind === 'route'
+                      // Отсутствие линии у points_only-маршрута — природа
+                      // данных, не дефект пакета.
+                      ? 'var(--text-muted)'
+                      : 'var(--warning)',
+                }}>
+                  {s.note}
+                </span>
+              </div>
+            ))}
+            {readiness !== 'not_ready' && (
+              <p style={{ color: 'var(--text-muted)' }}>
+                Репетиция до выхода: включите авиарежим и откройте этот экран — карта и точки должны остаться на месте
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Дорогу до точки строит настоящий навигатор.
           Слово владельца 11.08: «смысл людям пользоваться нашей кривой, если

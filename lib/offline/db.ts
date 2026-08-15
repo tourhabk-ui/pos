@@ -65,6 +65,16 @@ export interface SosContact {
   region?: RegionId;
 }
 
+/**
+ * Полевой пакет маршрута — запись манифеста (тип живёт в
+ * lib/offline/field-pack.ts, здесь только хранение). keyPath — routeId:
+ * у маршрута один актуальный пакет; старый перезаписывается новым.
+ */
+export interface FieldPackRecord {
+  routeId: string;
+  manifest: unknown;
+}
+
 interface KamchatourDB extends DBSchema {
   regions: {
     key: RegionId;
@@ -79,6 +89,10 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: SosContact;
   };
+  fieldPacks: {
+    key: string;
+    value: FieldPackRecord;
+  };
 }
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
@@ -88,7 +102,8 @@ const DB_NAME = 'kamchatour-offline';
 // Схема хранилищ не менялась (те же keyPath/индексы), поэтому апгрейд —
 // без миграции данных: старые записи просто не имеют полей, читатели дают
 // им дефолты (пустой список, severity 0, alertsAt null → «данных нет»).
-const DB_VERSION = 2;
+// v3 — store fieldPacks: манифест полевого пакета маршрута (план FCN, этап 2).
+const DB_VERSION = 3;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -107,10 +122,30 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
       if (!db.objectStoreNames.contains('sosContacts')) {
         db.createObjectStore('sosContacts', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('fieldPacks')) {
+        db.createObjectStore('fieldPacks', { keyPath: 'routeId' });
+      }
     },
   });
 
   return _db;
+}
+
+// ─── Field packs ─────────────────────────────────────────────────────────────
+
+export async function saveFieldPackRecord(rec: FieldPackRecord): Promise<void> {
+  const db = await getDB();
+  await db.put('fieldPacks', rec);
+}
+
+export async function getFieldPackRecord(routeId: string): Promise<FieldPackRecord | undefined> {
+  const db = await getDB();
+  return db.get('fieldPacks', routeId);
+}
+
+export async function deleteFieldPackRecord(routeId: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('fieldPacks', routeId);
 }
 
 // ─── Regions ─────────────────────────────────────────────────────────────────
