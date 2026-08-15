@@ -32,9 +32,18 @@ import {
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+/**
+ * Боевой прогон идёт партиями не больше десяти (решение владельца
+ * 15.08: «лучше по 10, чтоб меньше ошибок допустить»). Ограничение
+ * живёт в коде, а не в договорённости: разбор партии — ручная работа
+ * глазами, и на тридцати записях внимание кончается раньше списка.
+ * Сухому прогону простор оставлен — он ничего не меняет.
+ */
+const LIVE_BATCH_MAX = 10;
+
 const BodySchema = z.object({
   dry_run: z.boolean().default(true),
-  limit: z.number().int().min(1).max(60).default(30),
+  limit: z.number().int().min(1).max(60).default(LIVE_BATCH_MAX),
   ids: z.array(z.string().min(8).max(64)).max(60).optional(),
 });
 
@@ -60,6 +69,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: msg }, { status: 400 });
   }
 
+  const liveSize = data.ids ? data.ids.length : data.limit;
+  if (!data.dry_run && liveSize > LIVE_BATCH_MAX) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Боевой прогон — партиями не больше ${LIVE_BATCH_MAX}: запрошено ${liveSize}`,
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const { rows } = await pool.query<Row>(
       `SELECT r.id::text AS id, r.title,
@@ -74,8 +94,7 @@ export async function POST(request: NextRequest) {
         AND lower(translate(btrim(p.name), 'ё', 'е')) = lower(translate(btrim(r.title), 'ё', 'е'))
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
          AND r.geometry->>'type' = 'LineString'
-         AND (r.distance_km IS NULL
-              OR NOT EXISTS (SELECT 1 FROM route_waypoints rw WHERE rw.route_id = r.id))
+         AND r.distance_km IS NULL
        ORDER BY r.title
        LIMIT $1`,
       [data.ids ? 60 : data.limit],
@@ -108,6 +127,9 @@ export async function POST(request: NextRequest) {
       // паспорта маршрута, а она вернее посчитанной по треку.
       const willWriteDistance = verdict.writeDistance && !r.has_distance;
       const willLinkPlace = verdict.linkPlace && r.waypoint_count === 0;
+      if (verdict.linkPlace && r.waypoint_count > 0) {
+        verdict.notes.push(`место уже привязано (точек: ${r.waypoint_count})`);
+      }
 
       items.push({
         id: r.id, title: r.title, lengthKm, vertices: valid.length,
@@ -116,6 +138,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Трек, проходящий за десятки километров от места-тёзки, — не просто
+    // «связь не ставим»: сама запись описана неверно, и её линия на карте
+    // ведёт не туда, куда обещает название. Дистанцию пишем (она честно
+    // измеряет ПОКАЗАННУЮ линию), но список выносим наверх — это работа
+    // для человека, а не для актуатора.
+    const mismatched = items
+      .filter(i => i.notes.some(n => n.includes('не про него')))
+      .map(i => ({ title: i.title, offsetKm: i.placeOffsetKm, km: i.lengthKm }));
+
     if (data.dry_run) {
       return NextResponse.json({
         success: true, dry_run: true,
@@ -123,6 +154,7 @@ export async function POST(request: NextRequest) {
         would_write_distance: items.filter(i => i.willWriteDistance).length,
         would_link_place: items.filter(i => i.willLinkPlace).length,
         untouched: items.filter(i => !i.willWriteDistance && !i.willLinkPlace).length,
+        mismatched,
         items,
       });
     }
@@ -160,6 +192,7 @@ export async function POST(request: NextRequest) {
       distance_written: items.filter(i => i.wroteDistance).length,
       places_linked: items.filter(i => i.linkedPlace).length,
       untouched: items.filter(i => !i.wroteDistance && !i.linkedPlace).length,
+      mismatched,
       done: items.map(i => ({
         title: i.title, km: i.lengthKm, distance: !!i.wroteDistance,
         place: !!i.linkedPlace, notes: i.notes,

@@ -107,4 +107,10 @@ describe('обещания эндпоинта', () => {
   it('сухой прогон — поведение по умолчанию', () => {
     expect(src).toMatch(/dry_run: z\.boolean\(\)\.default\(true\)/);
   });
+
+  it('боевой прогон ограничен десятью записями за раз', () => {
+    expect(src).toContain('LIVE_BATCH_MAX = 10');
+    expect(src, 'ограничение обязано быть проверкой, а не только значением по умолчанию')
+      .toMatch(/!data\.dry_run && liveSize > LIVE_BATCH_MAX/);
+  });
 });
