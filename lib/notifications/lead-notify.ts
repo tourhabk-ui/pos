@@ -12,7 +12,10 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-async function tgSend(chatId: string, text: string): Promise<void> {
+/** Кнопка под уведомлением: действие (callback) или ссылка (url). */
+type TgButton = { text: string; callback_data: string } | { text: string; url: string };
+
+async function tgSend(chatId: string, text: string, buttons?: TgButton[][]): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
   try {
@@ -24,6 +27,7 @@ async function tgSend(chatId: string, text: string): Promise<void> {
         text,
         parse_mode: 'HTML',
         disable_web_page_preview: true,
+        ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
       }),
     });
   } catch {
@@ -54,12 +58,18 @@ export async function notifyOperatorProposal(proposal: LeadProposalData): Promis
       ? `<b>Бюджет:</b> от ${proposal.price_from.toLocaleString('ru-RU')} ₽`
       : '',
     `<b>Генерация:</b> ${(proposal.generation_ms / 1000).toFixed(1)} сек`,
-    '',
-    `<a href="${baseUrl}/hub/operator/leads/${proposal.lead_id}">Открыть лид и отправить предложение</a>`,
-    `<a href="${baseUrl}/api/leads/${proposal.lead_id}/proposal/pdf">Скачать PDF</a>`,
   ].filter(Boolean).join('\n');
 
-  await tgSend(chatId, text);
+  // Предложение готово — решение владельца одно: отправлять или нет. Кнопка
+  // держит это решение в мессенджере: раньше на самом горячем шаге воронки
+  // приходилось открывать хаб на телефоне, искать лид и жать «отправить» (#65).
+  await tgSend(chatId, text, [
+    [{ text: 'Отправить клиенту', callback_data: `lead_send:${proposal.lead_id}` }],
+    [
+      { text: 'Открыть и поправить', url: `${baseUrl}/hub/operator/leads/${proposal.lead_id}` },
+      { text: 'PDF', url: `${baseUrl}/api/leads/${proposal.lead_id}/proposal/pdf` },
+    ],
+  ]);
 }
 
 /**
@@ -82,9 +92,10 @@ export async function notifyOperatorNewLead(params: {
     `<b>Телефон:</b> ${esc(params.phone)}`,
     params.routeTitle ? `<b>Интерес:</b> ${esc(params.routeTitle)}` : '',
     params.comment ? `<b>Комментарий:</b> ${esc(params.comment.slice(0, 200))}` : '',
-    '',
-    `<a href="${baseUrl}/hub/operator/leads/${params.leadId}">Обработать лид AI →</a>`,
   ].filter(Boolean).join('\n');
 
-  await tgSend(chatId, text);
+  await tgSend(chatId, text, [
+    [{ text: 'Обработать AI', callback_data: `lead_ai:${params.leadId}` }],
+    [{ text: 'Открыть в кабинете', url: `${baseUrl}/hub/operator/leads/${params.leadId}` }],
+  ]);
 }
