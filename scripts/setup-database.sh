@@ -43,27 +43,29 @@ fi
 echo -e "${GREEN}✓${NC} Подключение успешно"
 echo ""
 
-# Применение базовой схемы
-echo -e "${BLUE}▶${NC} Применение базовой схемы..."
-psql "$DATABASE_URL" -f scripts/init-postgresql.sql
+# Применение baseline-схемы (снята с прода воркфлоу db-baseline;
+# init-postgresql.sql и apply-new-schemas.sql удалены давно — скрипт
+# ссылался на несуществующие файлы, находка сквозного прогона 14.08)
+echo -e "${BLUE}▶${NC} Восстановление схемы из baseline..."
+node scripts/bootstrap-from-baseline.js
 
 if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✓${NC} Базовая схема применена"
+  echo -e "${GREEN}✓${NC} Схема восстановлена из baseline"
 else
-  echo -e "${RED}❌ Ошибка применения базовой схемы${NC}"
+  echo -e "${RED}❌ Ошибка применения baseline${NC}"
   exit 1
 fi
 
 echo ""
 
-# Применение новых схем
-echo -e "${BLUE}▶${NC} Применение новых модулей..."
-psql "$DATABASE_URL" -f scripts/apply-new-schemas.sql
+# Новые миграции поверх baseline (в _migrations уже помечено применённое)
+echo -e "${BLUE}▶${NC} Миграции поверх baseline..."
+node scripts/migrate-standalone.js
 
 if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✓${NC} Все схемы применены успешно"
+  echo -e "${GREEN}✓${NC} Миграции применены"
 else
-  echo -e "${YELLOW}⚠${NC} Некоторые схемы могут быть уже применены"
+  echo -e "${YELLOW}⚠${NC} Проверьте _migration_failures"
 fi
 
 echo ""
