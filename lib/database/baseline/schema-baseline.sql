@@ -19,7 +19,7 @@ CREATE TYPE "Difficulty" AS ENUM ('EASY', 'MEDIUM', 'HARD');
 CREATE TYPE "Role" AS ENUM ('PARTNER', 'ADMIN');
 CREATE TYPE "TourCategory" AS ENUM ('FISHING', 'HIKING', 'VOLCANO', 'SKIING', 'OTHER');
 
--- ══ sequences (55) ══════════════════════════════
+-- ══ sequences (56) ══════════════════════════════
 CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
 CREATE SEQUENCE IF NOT EXISTS accommodation_availability_id_seq;
 CREATE SEQUENCE IF NOT EXISTS agent_knowledge_id_seq;
@@ -45,6 +45,7 @@ CREATE SEQUENCE IF NOT EXISTS lead_activity_log_id_seq;
 CREATE SEQUENCE IF NOT EXISTS location_real_time_status_id_seq;
 CREATE SEQUENCE IF NOT EXISTS location_safety_profile_id_seq;
 CREATE SEQUENCE IF NOT EXISTS loyalty_levels_id_seq;
+CREATE SEQUENCE IF NOT EXISTS mcp_handoff_events_id_seq;
 CREATE SEQUENCE IF NOT EXISTS mcp_tool_calls_id_seq;
 CREATE SEQUENCE IF NOT EXISTS octo_booking_log_id_seq;
 CREATE SEQUENCE IF NOT EXISTS octo_webhook_log_id_seq;
@@ -76,7 +77,7 @@ CREATE SEQUENCE IF NOT EXISTS tourist_incidents_id_seq;
 CREATE SEQUENCE IF NOT EXISTS user_ai_memory_id_seq;
 CREATE SEQUENCE IF NOT EXISTS weather_alerts_id_seq;
 
--- ══ tables (202) ══════════════════════════════
+-- ══ tables (204) ══════════════════════════════
 CREATE TABLE IF NOT EXISTS _agent_route_knowledge_legacy (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   route_dedupe_key text NOT NULL,
@@ -1525,6 +1526,27 @@ CREATE TABLE IF NOT EXISTS mchs_registrations (
   mchs_reference text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS mcp_handoff_events (
+  id bigint NOT NULL DEFAULT nextval('mcp_handoff_events_id_seq'::regclass),
+  handoff_id uuid NOT NULL,
+  event_type text NOT NULL,
+  action_type text,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS mcp_handoffs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  token_hash character(64) NOT NULL,
+  mcp_session_id text,
+  mcp_invocation_id uuid,
+  tool_name text NOT NULL,
+  target_path text NOT NULL,
+  target_type text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at timestamp with time zone NOT NULL,
+  first_opened_at timestamp with time zone,
+  last_opened_at timestamp with time zone,
+  open_count integer NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS mcp_tool_calls (
   id bigint NOT NULL DEFAULT nextval('mcp_tool_calls_id_seq'::regclass),
@@ -2994,7 +3016,7 @@ CREATE TABLE IF NOT EXISTS weather_alerts (
   created_at timestamp without time zone DEFAULT now()
 );
 
--- ══ constraints (646) ══════════════════════════════
+-- ══ constraints (653) ══════════════════════════════
 ALTER TABLE _migration_failures ADD CONSTRAINT _migration_failures_pkey PRIMARY KEY (name);
 ALTER TABLE _migrations ADD CONSTRAINT _migrations_pkey PRIMARY KEY (id);
 ALTER TABLE _route_description_cache_legacy ADD CONSTRAINT route_description_cache_pkey PRIMARY KEY (route_id);
@@ -3095,6 +3117,8 @@ ALTER TABLE loyalty_transactions ADD CONSTRAINT loyalty_transactions_pkey PRIMAR
 ALTER TABLE max_login_sessions ADD CONSTRAINT max_login_sessions_pkey PRIMARY KEY (nonce);
 ALTER TABLE mchs_group_registrations ADD CONSTRAINT mchs_group_registrations_pkey PRIMARY KEY (id);
 ALTER TABLE mchs_registrations ADD CONSTRAINT mchs_registrations_pkey PRIMARY KEY (id);
+ALTER TABLE mcp_handoff_events ADD CONSTRAINT mcp_handoff_events_pkey PRIMARY KEY (id);
+ALTER TABLE mcp_handoffs ADD CONSTRAINT mcp_handoffs_pkey PRIMARY KEY (id);
 ALTER TABLE mcp_tool_calls ADD CONSTRAINT mcp_tool_calls_pkey PRIMARY KEY (id);
 ALTER TABLE message_templates ADD CONSTRAINT message_templates_pkey PRIMARY KEY (id);
 ALTER TABLE notification_log ADD CONSTRAINT notification_log_pkey PRIMARY KEY (id);
@@ -3223,6 +3247,7 @@ ALTER TABLE kamchatka_routes ADD CONSTRAINT kamchatka_routes_dedupe_key_key UNIQ
 ALTER TABLE kamchatka_routes ADD CONSTRAINT kamchatka_routes_slug_unique UNIQUE (slug);
 ALTER TABLE location_real_time_status ADD CONSTRAINT location_real_time_status_agent_route_id_key UNIQUE (agent_route_id);
 ALTER TABLE location_safety_profile ADD CONSTRAINT location_safety_profile_agent_route_id_key UNIQUE (agent_route_id);
+ALTER TABLE mcp_handoffs ADD CONSTRAINT mcp_handoffs_token_hash_key UNIQUE (token_hash);
 ALTER TABLE octo_api_keys ADD CONSTRAINT octo_api_keys_api_key_key UNIQUE (api_key);
 ALTER TABLE operator_ai_config ADD CONSTRAINT operator_ai_config_partner_id_key UNIQUE (partner_id);
 ALTER TABLE operator_staff ADD CONSTRAINT operator_staff_email_key UNIQUE (email);
@@ -3338,6 +3363,9 @@ ALTER TABLE loyalty_transactions ADD CONSTRAINT loyalty_transactions_amount_chec
 ALTER TABLE loyalty_transactions ADD CONSTRAINT loyalty_transactions_type_check CHECK (((type)::text = ANY ((ARRAY['earn'::character varying, 'redeem'::character varying, 'expire'::character varying, 'refund'::character varying])::text[])));
 ALTER TABLE mchs_group_registrations ADD CONSTRAINT mchs_group_registrations_status_check CHECK (((status)::text = ANY ((ARRAY['submitted'::character varying, 'registered'::character varying, 'rejected'::character varying, 'failed'::character varying])::text[])));
 ALTER TABLE mchs_registrations ADD CONSTRAINT mchs_registrations_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'submitted'::character varying, 'confirmed'::character varying, 'rejected'::character varying])::text[])));
+ALTER TABLE mcp_handoff_events ADD CONSTRAINT mcp_handoff_events_event_type_check CHECK ((event_type = ANY (ARRAY['issued'::text, 'opened'::text, 'attributed_action'::text])));
+ALTER TABLE mcp_handoffs ADD CONSTRAINT mcp_handoffs_target_path_check CHECK ((target_path ~~ '/%'::text));
+ALTER TABLE mcp_handoffs ADD CONSTRAINT mcp_handoffs_target_type_check CHECK ((target_type = ANY (ARRAY['planner'::text, 'plan'::text, 'tour'::text, 'place'::text, 'safety'::text])));
 ALTER TABLE notification_log ADD CONSTRAINT notification_log_channel_check CHECK (((channel)::text = ANY ((ARRAY['email'::character varying, 'push'::character varying, 'sms'::character varying, 'in_app'::character varying])::text[])));
 ALTER TABLE notification_log ADD CONSTRAINT notification_log_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'sent'::character varying, 'failed'::character varying, 'delivered'::character varying, 'bounced'::character varying])::text[])));
 ALTER TABLE notifications ADD CONSTRAINT notifications_priority_check CHECK (((priority)::text = ANY ((ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying, 'urgent'::character varying])::text[])));
@@ -3521,6 +3549,7 @@ ALTER TABLE mchs_group_registrations ADD CONSTRAINT mchs_group_registrations_ope
 ALTER TABLE mchs_group_registrations ADD CONSTRAINT mchs_group_registrations_operator_user_id_fkey FOREIGN KEY (operator_user_id) REFERENCES users(id);
 ALTER TABLE mchs_registrations ADD CONSTRAINT mchs_registrations_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(id);
 ALTER TABLE mchs_registrations ADD CONSTRAINT mchs_registrations_operator_id_fkey FOREIGN KEY (operator_id) REFERENCES partners(id);
+ALTER TABLE mcp_handoff_events ADD CONSTRAINT mcp_handoff_events_handoff_id_fkey FOREIGN KEY (handoff_id) REFERENCES mcp_handoffs(id) ON DELETE CASCADE;
 ALTER TABLE message_templates ADD CONSTRAINT message_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 ALTER TABLE notification_log ADD CONSTRAINT notification_log_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE;
 ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
@@ -3642,7 +3671,7 @@ ALTER TABLE weather_alert_bookings ADD CONSTRAINT weather_alert_bookings_alert_i
 ALTER TABLE weather_alert_bookings ADD CONSTRAINT weather_alert_bookings_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES operator_bookings(id) ON DELETE CASCADE;
 ALTER TABLE weather_alerts ADD CONSTRAINT weather_alerts_operator_tour_id_fkey FOREIGN KEY (operator_tour_id) REFERENCES operator_tours(id);
 
--- ══ indexes (487) ══════════════════════════════
+-- ══ indexes (489) ══════════════════════════════
 CREATE UNIQUE INDEX IF NOT EXISTS "accounts_provider_providerAccountId_key" ON public.accounts USING btree (provider, "providerAccountId");
 CREATE INDEX IF NOT EXISTS agent_experiments_created_idx ON public.agent_experiments USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS agent_experiments_intent_idx ON public.agent_experiments USING btree (intent);
@@ -4117,6 +4146,8 @@ CREATE INDEX IF NOT EXISTS legislation_docs_fts_idx ON public.legislation_docs U
 CREATE UNIQUE INDEX IF NOT EXISTS legislation_docs_source_url_idx ON public.legislation_docs USING btree (source_url);
 CREATE INDEX IF NOT EXISTS llm_usage_log_created_idx ON public.llm_usage_log USING btree (created_at);
 CREATE INDEX IF NOT EXISTS llm_usage_log_route_idx ON public.llm_usage_log USING btree (route);
+CREATE INDEX IF NOT EXISTS mcp_handoff_events_handoff_idx ON public.mcp_handoff_events USING btree (handoff_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS mcp_handoffs_live_idx ON public.mcp_handoffs USING btree (expires_at) WHERE (first_opened_at IS NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS "sessions_sessionToken_key" ON public.sessions USING btree ("sessionToken");
 CREATE INDEX IF NOT EXISTS tourist_incidents_date_idx ON public.tourist_incidents USING btree (incident_date DESC);
 CREATE INDEX IF NOT EXISTS tours_ai_tags_idx ON public.tours USING gin (ai_tags);
