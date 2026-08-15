@@ -1,11 +1,10 @@
 {
- "bytes": 8000,
+ "bytes": 12000,
  "timeout": 60,
- "note": "Проба 109: добивка аудита пилота. Проба 108 показала настоящий slug рафтинга — kamchatka-rafting (COALESCE в 863 сохранил существующий). Ждём: lead.js отдаёт СКРИПТ виджета, публичная страница оператора отвечает 200.",
- "run": 109,
+ "note": "Проба 110: страница /operators/kamchatka-rafting отвечает 500 (проба 109). Смотрим сырой профиль через API — какие поля записи ломают рендер (gallery с внешними URL? null в faq?).",
+ "run": 110,
  "urls": [
-  "https://vedarai.ru/api/widget/lead.js?partner=kamchatka-rafting",
-  "https://vedarai.ru/operators/kamchatka-rafting"
+  "https://vedarai.ru/api/operators/kamchatka-rafting"
  ],
- "markers": ["kamchatka-rafting", "Рафтинг"]
+ "markers": ["success"]
 }
