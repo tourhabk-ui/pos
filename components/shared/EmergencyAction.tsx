@@ -26,10 +26,18 @@ import { Siren } from 'lucide-react';
  *     лежит в precache service worker'а.
  */
 
-type Variant = 'header' | 'tab';
+type Variant = 'header' | 'tab' | 'field';
 
 interface Props {
-  /** `header` — пилюля в шапке (по умолчанию), `tab` — пункт нижней навигации. */
+  /**
+   * `header` — пилюля в шапке (по умолчанию), `tab` — пункт нижней навигации,
+   * `field` — крупная плитка в сетке действий полевого режима.
+   *
+   * `field` заведён вместо того, чтобы полевой экран рисовал свою кнопку:
+   * там жил сырой `<a href="tel:112">` — копия без офлайн-ветки, ровно та
+   * болезнь, от которой этот компонент и лечит (#887). Вариант дешевле
+   * копии: поведение остаётся одно на всю платформу.
+   */
   variant?: Variant;
   /**
    * Что делать в офлайне вместо навигации. Если не задано — уходим на
@@ -77,6 +85,20 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback }: Props
           fontSize: '11px',
           border: '1px solid color-mix(in srgb, var(--danger) 45%, transparent)',
           background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+        }
+      : variant === 'field'
+      ? {
+          // Плитка полевой сетки: заметная, непрозрачная, палец в перчатке
+          // попадает не глядя. Критичное действие стеклом не делаем.
+          ...base,
+          gap: '8px',
+          minHeight: '60px',
+          width: '100%',
+          borderRadius: '12px',
+          fontSize: '14px',
+          color: '#fff',
+          background: 'var(--danger)',
+          border: '1px solid var(--danger)',
         }
       : {
           ...base,
