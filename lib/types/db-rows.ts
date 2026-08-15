@@ -1354,7 +1354,8 @@ export interface OperatorProfileRow {
   faq: unknown[] | null;
   season_info: unknown[] | null;
   reviews_data: unknown[] | null;
-  contacts: unknown[] | null;
+  /** JSONB без гарантии формы: массив людей ИЛИ объект каналов ({phone, admin_name, ...}) */
+  contacts: unknown;
   location: unknown | null;
   legal_info: string | null;
   contact: string | null;

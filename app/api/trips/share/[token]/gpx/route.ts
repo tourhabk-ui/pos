@@ -8,12 +8,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildPlanGpx, planGpxContentDisposition, planGpxPoints, type PlanGpxDay } from '@/lib/trips/plan-gpx';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
@@ -50,6 +51,13 @@ export async function GET(
     if (planGpxPoints(days).length === 0) {
       return NextResponse.json({ success: false, error: 'В плане нет точек с координатами' }, { status: 404 });
     }
+
+    // Атрибуция MCP-handoff (v2, #60): офлайн-пакет скачан после прихода по
+    // ссылке агента. Только UUID handoff-а из проверенной cookie.
+    await attachMcpAttribution(
+      request.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
+      'offline_bundle_downloaded',
+    );
 
     return new NextResponse(buildPlanGpx(rows[0]!.title, days), {
       headers: {

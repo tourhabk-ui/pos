@@ -33,30 +33,36 @@ export interface RoutesAuditCategory {
   key: string; label: string; count: number; visibleCount: number; samples: RoutesAuditSample[];
 }
 export interface RoutesAudit {
-  total: number; visible: number; hidden: number; categories: RoutesAuditCategory[];
+  total: number; visible: number; hidden: number; merged: number;
+  categories: RoutesAuditCategory[];
 }
 
 export async function computeRoutesAudit(sampleLimit = 20): Promise<RoutesAudit> {
-  const totals = await pool.query<{ total: string; visible: string }>(
+  // «Живой» маршрут — is_visible И не слит (869): слитые дубли скрывает
+  // VIEW, их is_visible не трогается, и без второго фильтра аудит
+  // завышал бы витрину на каждый merge.
+  const totals = await pool.query<{ total: string; visible: string; merged: string }>(
     `SELECT COUNT(*) AS total,
-            COUNT(*) FILTER (WHERE is_visible = true) AS visible
+            COUNT(*) FILTER (WHERE is_visible = true AND merged_into_id IS NULL) AS visible,
+            COUNT(*) FILTER (WHERE merged_into_id IS NOT NULL) AS merged
      FROM kamchatka_routes`,
   );
   const total = parseInt(totals.rows[0]?.total ?? '0', 10);
   const visible = parseInt(totals.rows[0]?.visible ?? '0', 10);
+  const merged = parseInt(totals.rows[0]?.merged ?? '0', 10);
 
   const categories: RoutesAuditCategory[] = [];
   for (const cat of CATEGORIES) {
     const counts = await pool.query<{ count: string; visible_count: string }>(
       `SELECT COUNT(*) AS count,
-              COUNT(*) FILTER (WHERE is_visible = true) AS visible_count
+              COUNT(*) FILTER (WHERE is_visible = true AND merged_into_id IS NULL) AS visible_count
        FROM kamchatka_routes
        WHERE (${cat.where})`,
     );
     const samples = await pool.query<RoutesAuditSample>(
       `SELECT id::text AS id, title, is_visible
        FROM kamchatka_routes
-       WHERE (${cat.where})
+       WHERE (${cat.where}) AND merged_into_id IS NULL
        ORDER BY is_visible DESC, title ASC
        LIMIT ${sampleLimit}`,
     );
@@ -69,5 +75,5 @@ export async function computeRoutesAudit(sampleLimit = 20): Promise<RoutesAudit>
     });
   }
 
-  return { total, visible, hidden: total - visible, categories };
+  return { total, visible, hidden: total - visible - merged, merged, categories };
 }

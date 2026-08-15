@@ -29,35 +29,11 @@ import { createRateLimiter } from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { logMcpToolCall } from '@/lib/mcp/call-log';
 import { randomUUID } from 'node:crypto';
-import { issueMcpHandoff, type HandoffTarget } from '@/lib/mcp/handoff';
-
-/**
- * Handoff-цель для инструмента (этап 2 плана метрик MCP): куда человеку
- * продолжить на Ведаре. Пути строит ТОЛЬКО этот серверный код по белому
- * списку lib/mcp/handoff.ts — URL из аргументов внешнего агента не берётся.
- * v1 — два инструмента с очевидным продолжением; аргументы попадают лишь
- * в query ссылки (обрезанные), в БД handoff-а их нет.
- */
-function handoffTargetForTool(
-  toolName: string,
-  args: Record<string, unknown>,
-): HandoffTarget | null {
-  switch (toolName) {
-    case 'make_trip_plan': {
-      const query = new URLSearchParams();
-      if (typeof args.days === 'string' && /^\d{1,2}$/.test(args.days)) query.set('days', args.days);
-      if (typeof args.interests === 'string' && args.interests) {
-        query.set('interests', args.interests.slice(0, 120));
-      }
-      const qs = query.toString();
-      return { targetType: 'planner', targetPath: `/planner${qs ? `?${qs}` : ''}` };
-    }
-    case 'safety_status':
-      return { targetType: 'safety', targetPath: '/safety' };
-    default:
-      return null;
-  }
-}
+import { issueMcpHandoff } from '@/lib/mcp/handoff';
+// Handoff-цели инструментов (v2, задача #60) — lib/mcp/handoff-targets.ts:
+// пути строит только серверный код по белому списку, сущности резолвятся
+// теми же функциями, какими их находят сами инструменты.
+import { handoffTargetForTool } from '@/lib/mcp/handoff-targets';
 
 export const dynamic = 'force-dynamic';
 
@@ -299,7 +275,7 @@ export async function POST(request: NextRequest) {
 
           // Мост «ответ агента → действие человека»: отдельная проверяемая
           // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ.
-          const target = handoffTargetForTool(toolName, toolArgs);
+          const target = await handoffTargetForTool(toolName, toolArgs).catch(() => null);
           const handoff = target
             ? await issueMcpHandoff({ mcpInvocationId: invocationId, toolName, target })
             : null;

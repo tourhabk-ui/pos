@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import date
+from datetime import datetime, timezone
 
 BASE = "https://vedarai.ru/api/cron/schema-snapshot"
 SECRET = os.environ.get("CRON_SECRET", "")
@@ -56,10 +56,19 @@ def main() -> None:
     meta = fetch(BASE)
     print("meta:", meta.get("server", "")[:60], meta.get("counts"), flush=True)
 
+    # Метаданные свежести (ревизия 15.08, P2): будущий восстановитель должен
+    # видеть, КОГДА и С ЧЕГО снят слепок, не раскапывая историю git.
+    counts = meta.get("counts", {})
     parts: list[str] = [
         "-- Baseline-схема прод-БД Ведара (задача #57 — бэкап-фактор).",
-        f"-- Снята {date.today().isoformat()} c /api/cron/schema-snapshot (только pg_catalog, без данных).",
+        f"-- snapshot_at: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        f"-- workflow: run {os.environ.get('GITHUB_RUN_ID', 'local')} @ {os.environ.get('GITHUB_SHA', 'local')[:12]} (ветка {os.environ.get('GITHUB_REF_NAME', '?')})",
+        f"-- Объектов на проде: таблиц r={counts.get('r', '?')}, view v={counts.get('v', '?')}, индексов i={counts.get('i', '?')}, sequences S={counts.get('S', '?')}",
         f"-- Сервер: {meta.get('server', 'неизвестен')}",
+        "--",
+        "-- ДИСЦИПЛИНА АКТУАЛЬНОСТИ: baseline снимается ПОСЛЕ применения",
+        "-- очередных миграций на проде; snapshot-ветка проходит review и merge",
+        "-- в main; bootstrap запускается из SHA, соответствующего этому файлу.",
         "--",
         "-- Назначение: восстановление схемы на ПУСТОЙ базе, когда прод-БД",
         "-- утрачена. НЕ применяется автоматикой миграций (start.js) — только",
