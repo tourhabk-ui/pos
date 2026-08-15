@@ -27,14 +27,17 @@ describe('getTourDetails', () => {
     expect(poolQueryMock).not.toHaveBeenCalled();
   });
 
-  it('ищет активный тур по названию/ключевому слову, точное совпадение названия первым', async () => {
+  it('резолвит тур ОБЩИМ правилом (resolveTourByQuery): активные, точное совпадение первым', async () => {
+    // После v2 handoff (#60) резолв у get_tour_details, get_tour_availability
+    // и handoff-ссылок один — иначе «детали» и «даты» отвечали бы про разные
+    // туры. Первый запрос — резолвер, детали уходят вторым запросом по id.
     poolQueryMock.mockResolvedValue({ rows: [] });
     await getTourDetails('сплав');
     const [sql, params] = poolQueryMock.mock.calls[0];
     expect(sql).toContain('FROM operator_tours');
     expect(sql).toContain('is_active = true');
     expect(sql).toContain('deleted_at IS NULL');
-    expect(sql).toContain('meeting_point');
+    expect(sql).toMatch(/CASE WHEN title ILIKE \$1 THEN 0/);
     expect(params).toEqual(['%сплав%']);
   });
 
@@ -60,6 +63,10 @@ describe('getTourDetails', () => {
       activity_type: 'rafting',
     }] });
     const out = await getTourDetails('Быстрая');
+    // Второй запрос — детали (включая точку сбора) строго по id резолва.
+    const [sql2, params2] = poolQueryMock.mock.calls[1];
+    expect(sql2).toContain('meeting_point');
+    expect(params2).toEqual([42]);
     expect(out).toContain('СПЛАВ ПО РЕКЕ БЫСТРАЯ');
     expect(out).toContain('147-й км трассы А4');
     expect(out).toContain('139-й км трассы А4');

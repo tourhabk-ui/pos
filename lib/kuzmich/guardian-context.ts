@@ -142,6 +142,30 @@ export function gradeNameMatch(query: string, candidate: string): 'high' | 'low'
   return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
 }
 
+/**
+ * Место для ПУБЛИЧНОЙ ссылки (handoff MCP, задача #60): id первой записи по
+ * тому же правилу матчинга, что и основной запрос getGuardianContext ниже
+ * (merged_into_id IS NULL, ILIKE, кратчайшее имя первым) — чтобы ссылка вела
+ * на то место, о котором инструмент ответил. Сверх правила — is_visible:
+ * страж может знать скрытое место, но ссылку на невидимую страницу не даём.
+ */
+export async function resolvePlaceForLink(placeNameRaw: string): Promise<string | null> {
+  const q = placeNameRaw.trim();
+  if (!q) return null;
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM places
+        WHERE merged_into_id IS NULL AND is_visible = true AND name ILIKE $1
+        ORDER BY char_length(name) ASC
+        LIMIT 1`,
+      [`%${q}%`],
+    );
+    return rows[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getGuardianContext(placeNameRaw: string): Promise<string> {
   // Обезвреживаем ввод до подстановки в промпт (issue #328). Название места
   // и так уходит эхом в hedge-строки контекста для callAIFast/callAIWaterfall.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
+import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 
 export async function POST(
   request: NextRequest,
@@ -23,6 +24,13 @@ export async function POST(
     if (rows.length === 0) {
       return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
     }
+
+    // Атрибуция MCP-handoff (v2, #60): план, начатый по ссылке агента,
+    // дошёл до «поделиться». Только UUID handoff-а из проверенной cookie.
+    await attachMcpAttribution(
+      request.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
+      'plan_shared',
+    );
 
     const shareToken = rows[0].share_token;
     const baseUrl = (process.env.NEXT_PUBLIC_APP_URL?.includes('twc1.net') ? (process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru') : process.env.NEXT_PUBLIC_APP_URL) || 'https://vedarai.ru';

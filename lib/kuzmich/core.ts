@@ -25,6 +25,7 @@ import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
+import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 import { getPublicBaseUrl } from '@/lib/config';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -1045,7 +1046,12 @@ export async function getTourDetails(query: string): Promise<string> {
   const q = query.trim();
   if (!q) return '';
   try {
-    const pattern = `%${q}%`;
+    // Резолв — общим resolveTourByQuery (то же правило, что у
+    // get_tour_availability и handoff-ссылок): одна мера в одном месте,
+    // иначе «детали» и «даты» могут ответить про разные туры.
+    const resolved = await resolveTourByQuery(q);
+    if (!resolved) return `По запросу "${q}" тур на платформе не найден. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
+
     const { rows } = await pool.query<{
       id: number;
       title: string;
@@ -1062,11 +1068,8 @@ export async function getTourDetails(query: string): Promise<string> {
       `SELECT id, title, base_price, short_description, description, meeting_point,
               included, not_included, what_to_bring, location_name, activity_type
          FROM operator_tours
-        WHERE is_active = true AND deleted_at IS NULL
-          AND (title ILIKE $1 OR short_description ILIKE $1 OR activity_type ILIKE $1 OR location_name ILIKE $1)
-        ORDER BY (CASE WHEN title ILIKE $1 THEN 0 ELSE 1 END), base_price ASC NULLS LAST
-        LIMIT 1`,
-      [pattern],
+        WHERE id = $1`,
+      [resolved.id],
     );
     const t = rows[0];
     if (!t) return `По запросу "${q}" тур на платформе не найден. Не выдумывай детали — предложи посмотреть каталог туров или уточнить у оператора.`;
