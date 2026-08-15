@@ -1,10 +1,15 @@
-# Одноразовый (workflow_dispatch) снимок baseline-схемы прод-БД (задача #57).
+# Одноразовый снимок baseline-схемы прод-БД (задача #57).
 # Вычитывает /api/cron/schema-snapshot по секциям и коммитит SQL-файл в ту же
-# ветку, откуда запущен. Секрет уходит только на vedarai.ru/api/cron/*.
+# ветку. Секрет уходит только на vedarai.ru/api/cron/*.
+# Триггер — пуш trigger-файла в ЭТУ ветку (workflow_dispatch недоступен
+# MCP-интеграции — 403); паттерн тот же, что у probe-url на main.
 name: db-baseline
 
 on:
   workflow_dispatch:
+  push:
+    branches: [claude/db-baseline]
+    paths: ['.github/triggers/db-baseline.txt']
 
 permissions:
   contents: write
