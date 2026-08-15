@@ -48,4 +48,11 @@ describe('schema-snapshot: границы', () => {
   it('индексы на выходе идемпотентны', () => {
     expect(SRC).toMatch(/CREATE \$1INDEX IF NOT EXISTS/);
   });
+
+  it('генерируемые колонки — GENERATED ALWAYS AS, не DEFAULT', () => {
+    // attgenerated хранит выражение там же, где default, но DEFAULT со
+    // ссылками на колонки невалиден — baseline падал на agent_knowledge.
+    expect(SRC).toMatch(/attgenerated = 's'/);
+    expect(SRC).toMatch(/GENERATED ALWAYS AS \(/);
+  });
 });

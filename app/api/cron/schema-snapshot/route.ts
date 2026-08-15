@@ -60,10 +60,17 @@ function sectionQuery(section: string): { count: string; page: string } | null {
         count: `SELECT COUNT(*)::int AS n FROM pg_class c
                   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
                  WHERE c.relkind = 'r'`,
+        // Генерируемая колонка (attgenerated = 's') хранит выражение там же,
+        // где default (pg_attrdef), но синтаксис другой: DEFAULT со ссылками
+        // на колонки невалиден — baseline падал на agent_knowledge.search_vector.
         page: `SELECT 'CREATE TABLE IF NOT EXISTS ' || quote_ident(c.relname) || E' (\n' ||
                       string_agg('  ' || quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod)
                         || CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END
-                        || COALESCE(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), ''), E',\n' ORDER BY a.attnum)
+                        || CASE
+                             WHEN a.attgenerated = 's'
+                               THEN ' GENERATED ALWAYS AS (' || pg_get_expr(d.adbin, d.adrelid) || ') STORED'
+                             ELSE COALESCE(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '')
+                           END, E',\n' ORDER BY a.attnum)
                       || E'\n);' AS ddl
                  FROM pg_class c
                  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
