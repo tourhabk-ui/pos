@@ -1,12 +1,11 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/routes-audit"
-  ],
-  "bytes": 30000,
-  "timeout": 110,
-  "retries": 12,
-  "retryDelay": 60,
-  "until": "\"merged\"",
-  "note": "Проба 59: контрольный аудит маршрутов после дневной уборки (вопрос владельца — сколько живых). Аудит стал merge-aware: visible = is_visible И merged_into_id IS NULL, отдельный счётчик merged. Маркер выката — поле merged, его в старом ответе нет.",
-  "run": 59
+ "bytes": 6000,
+ "timeout": 60,
+ "note": "Проба 112: приёмка MCP handoff v2 (#1223, деплой abd5a7fe). Ждём в ответах get_tour_details и get_guardian_context ссылку «Продолжить в Ведаре: .../mcp/h/<token>» — v1 давал её только планеру и safety_status. Если ссылок нет — сборка старая, повторить.",
+ "run": 112,
+ "urls": [],
+ "post": [
+  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_tour_details", "arguments": {"name": "Сплав"}}}},
+  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_guardian_context", "arguments": {"place": "Авачинский"}}}}
+ ]
 }
