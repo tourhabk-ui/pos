@@ -401,14 +401,29 @@ export async function buildTourCatalog(): Promise<string> {
     const toursResult = await pool.query<TourContextRow>(`
         SELECT ot.id, ot.title, ot.base_price, ot.multi_day_count, ot.activity_type,
                ot.location_name,
-               ot.available_slots,
-               ot.next_available_date::text,
+               -- ЖИВАЯ занятость, не статические колонки тура: аудит пилота
+               -- 15.08 — сплав показывал «Ближайшая дата: 1 июня» в середине
+               -- августа. Агент, процитировавший прошедшую дату, хуже агента
+               -- без даты (свежесть — требование MCP-оценки 15.08).
+               COALESCE(live.free_slots, 0) AS available_slots,
+               live.next_date::text AS next_available_date,
                ot.short_description,
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name
         FROM operator_tours ot
         LEFT JOIN partners p ON p.id = ot.operator_id
+        LEFT JOIN LATERAL (
+          SELECT ta.date AS next_date,
+                 (ta.available_slots - COALESCE(ta.booked_slots, 0)) AS free_slots
+            FROM tour_availability ta
+           WHERE ta.operator_tour_id = ot.id
+             AND ta.date >= CURRENT_DATE
+             AND COALESCE(ta.is_cancelled, false) = false
+             AND (ta.available_slots - COALESCE(ta.booked_slots, 0)) > 0
+           ORDER BY ta.date
+           LIMIT 1
+        ) live ON true
         WHERE ot.is_active = true AND ot.deleted_at IS NULL
           AND COALESCE(ot.is_published, TRUE) = TRUE
         ORDER BY ot.base_price ASC
