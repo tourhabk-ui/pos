@@ -68,6 +68,11 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/places': ['GET'],                 // карточка точки/локации (публичная)
   '/api/places/*/safety-report': ['GET', 'POST'], // UGC safety report (анонимный POST)
   '/api/trips/share': ['GET'],            // публичный просмотр маршрута по share_token
+  // Брифинг похода: контакт вне маршрута читает план и время возврата по
+  // ссылке, не заводя аккаунт. POST создаёт ссылку анонимно (подготовка не
+  // требует регистрации) — внутри Zod и rate-limit. Координат и контактных
+  // ПД в снимке нет по устройству схемы (миграция 870).
+  '/api/preparation/share': ['GET', 'POST'],
   '/api/collections': ['GET'],            // публичные подборки мест и маршрутов
   '/api/trending': ['GET'],               // популярные места и маршруты
   '/api/channels/avito/feed':  ['GET'], // Avito Autoload XML feed — публичный

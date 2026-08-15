@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
   Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
@@ -410,6 +410,8 @@ function OnTrailTab() {
   /** Лист «Условия»: снимок из пакета + живой статус при связи. */
   const [showConditions, setShowConditions] = useState(false);
   const [liveSafety, setLiveSafety] = useState<PackSafetySnapshot | null>(null);
+  /** Лист «Группа»: состояние брифинга и экстренная связь. */
+  const [showGroup, setShowGroup] = useState(false);
   /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
@@ -1898,11 +1900,14 @@ function OnTrailTab() {
           style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 25%, transparent)', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> УСЛОВИЯ
         </button>
-        <Link href="/ai-assistant"
+        {/* «Группа» вместо AI-чата: в активном режиме нет длинного разговора,
+            есть план и контакт вне маршрута (макеты FCN, решение владельца).
+            Кузьмич остаётся в шапке и на других экранах. */}
+        <button onClick={() => setShowGroup(true)}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid #431a07', minHeight: 60 }}>
-          <MessageCircle className="w-5 h-5" /> КУЗЬМИЧ
-        </Link>
+          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', minHeight: 60 }}>
+          <Users className="w-5 h-5" /> ГРУППА
+        </button>
         <a href="tel:112"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-xl transition-colors"
           style={{ background: 'var(--danger)', color: 'var(--text-primary)', border: '1px solid var(--danger)', minHeight: 60 }}>
@@ -1957,6 +1962,49 @@ function OnTrailTab() {
           </div>
         );
       })()}
+
+      {/* Группа: состояние брифинга и экстренная связь. Работает офлайн —
+          сеть здесь не нужна: мы не показываем чужих положений и не
+          обещаем слежения, только то, что человек подготовил до выхода. */}
+      {showGroup && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowGroup(false)}>
+          <div className="rounded-t-2xl p-4 pb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Группа</h3>
+              <button onClick={() => setShowGroup(false)}
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }} aria-label="Закрыть">
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            </div>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Брифинг — ссылка контакту вне маршрута: план и время возврата.
+              Положение по ней не передаётся: платформа его не знает и слежения не обещает.
+            </p>
+            {crumbsRouteRef.current && (
+              <Link href={`/routes/${crumbsRouteRef.current}/prepare`}
+                className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl text-sm font-semibold mb-2"
+                style={{
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                  color: 'var(--success)',
+                }}>
+                Открыть план и отправить брифинг
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              </Link>
+            )}
+            <a href="tel:112"
+              className="flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-bold"
+              style={{ background: 'var(--danger)', color: '#fff' }}>
+              <Phone className="w-4 h-4" /> 112 — экстренный вызов
+            </a>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              Диспетчеру нужны: название маршрута, ваше положение и время выхода.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
           localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}

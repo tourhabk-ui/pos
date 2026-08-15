@@ -58,6 +58,7 @@ export type PrepActionKind =
   | 'open_registration'   // онлайн-форма МЧС
   | 'open_equipment'      // чек-лист снаряжения
   | 'open_conditions'     // пересмотреть условия
+  | 'share_briefing'      // создать ссылку-брифинг для контакта вне маршрута
   | 'manual_confirm';     // человек подтверждает сам
 
 export interface PrepItem {
