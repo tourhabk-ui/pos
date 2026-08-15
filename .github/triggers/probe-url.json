@@ -1,14 +1,10 @@
 {
-  "urls": [],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } }
+  "urls": [
+    "https://vedarai.ru/api/cron/routes-audit"
   ],
-  "bytes": 30000,
+  "bytes": 4000,
   "timeout": 110,
   "retries": 0,
-  "note": "Проба 71: остаток партиями по 10, уже с выкаченным отсевом четырёхвершинной синтетики — «Вулкан Ксудач» и «Карымшинские источники» больше не занимают слоты. Партии, вернувшие меньше десяти записей, означают, что кандидаты кончились.",
-  "run": 71
+  "note": "Проба 72: контрольный аудит после дооформления. До начала работ (проба 59): 404 живых маршрута, из них 319 без дистанции, 346 без точек, 109 без трека. Сравниваем — сколько закрыто. Ответ обрезаем до 4000 байт: нужны только счётчики, списки примеров тут не нужны.",
+  "run": 72
 }
