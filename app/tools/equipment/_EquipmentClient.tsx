@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Calendar, Backpack, ChevronLeft, AlertTriangle, CheckCircle, Circle } from 'lucide-react';
 
@@ -47,6 +47,30 @@ export function EquipmentClient() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Deep-link из «Подготовки к походу»: ?routeId= предзаполняет маршрут —
+  // человек пришёл с конкретным выходом, не заставляем искать заново.
+  // Query читается из window.location (приём формы брони, без Suspense).
+  useEffect(() => {
+    const rid = new URLSearchParams(window.location.search).get('routeId');
+    if (!rid || !/^[0-9a-f-]{36}$/.test(rid)) return;
+    fetch(`/api/routes/${rid}`)
+      .then(r => r.json())
+      .then((j: unknown) => {
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        const data = (j as Record<string, unknown>).data as Record<string, unknown>;
+        if (typeof data.title !== 'string') return;
+        setSelectedRoute({
+          id: rid,
+          title: data.title,
+          category: (data.category as string | null) ?? null,
+          locationType: (data.locationType as string | null) ?? null,
+          difficulty: (data.difficulty as string | null) ?? null,
+        });
+        setQuery(data.title);
+      })
+      .catch(() => { /* нет сети — обычный поиск руками */ });
+  }, []);
 
   const handleQueryChange = useCallback((value: string) => {
     setQuery(value);

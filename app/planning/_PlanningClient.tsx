@@ -2319,6 +2319,25 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
             </p>
           </div>
         </div>
+        {/* Полный план подготовки — вход в маршрутный экран семи доменов
+            (FCN этап 4). Этот чек-лист остаётся быстрой механикой (карты,
+            МЧС), доменная модель живёт в одном месте — lib/preparation. */}
+        {hasActiveRoute && (() => {
+          let rid: string | null = null;
+          try { rid = localStorage.getItem('active_trail_route_id'); } catch { /* ssr/приват */ }
+          return rid ? (
+            <Link href={`/routes/${rid}/prepare`}
+              className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl mb-3 text-sm font-semibold"
+              style={{
+                background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
+                color: 'var(--success)',
+              }}>
+              План подготовки к походу: 7 доменов
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            </Link>
+          ) : null;
+        })()}
         <div className="space-y-1">
           {effectiveChecklist.map(item => {
             const isExternal = item.id === 'mchs' || item.id === 'emergency';
