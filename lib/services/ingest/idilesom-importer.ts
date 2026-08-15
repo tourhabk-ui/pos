@@ -230,7 +230,7 @@ export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<
 
 // ── Scrape individual place page ──────────────────────────────────────────────
 
-interface ScrapedPlace {
+export interface ScrapedPlace {
   id: string;
   title: string;
   description: string;
@@ -241,7 +241,7 @@ interface ScrapedPlace {
   coordinates: number[][];    // GPS track waypoints [lng, lat, ele?]
 }
 
-async function scrapePage(id: string): Promise<ScrapedPlace | null> {
+export async function scrapePage(id: string): Promise<ScrapedPlace | null> {
   try {
     const fetched = await fetchTextWithFallback(`https://idilesom.com/kam/places/${id}`);
     if (fetched.text === null) return null;
