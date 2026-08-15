@@ -1,16 +1,14 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/route-twins-enrich"
-  ],
+  "urls": [],
   "post": [
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
     { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
     { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
     { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } }
   ],
   "bytes": 30000,
   "timeout": 110,
-  "retries": 10,
-  "retryDelay": 60,
-  "note": "Проба 68: боевое дооформление тремя партиями по 10 (решение владельца о десятках). Каждый вызов — отдельная транзакция и отдельный отчёт: ошибка не размажется на тридцать записей. Выборка теперь идёт по distance_km IS NULL, поэтому партии продвигаются вперёд, а не перебирают одни и те же. GET на тот же роут — датчик выката (404 до, 405 после).",
-  "run": 68
+  "retries": 0,
+  "note": "Проба 69: ещё четыре партии по 10. Урок пробы 68: датчик 404/405 доказывает наличие роута, но НЕ его версию — POST ушли на прежнюю сборку, где выборка возвращала уже обработанные записи, и по два слота в партии сгорели впустую. Здесь проба отправлена после выката правки выборки (distance_km IS NULL), поэтому партии продвигаются вперёд без холостых слотов.",
+  "run": 69
 }
