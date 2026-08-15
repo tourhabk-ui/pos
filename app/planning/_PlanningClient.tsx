@@ -27,7 +27,7 @@ import {
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
 import { connectivityState } from '@/lib/on-route/connectivity';
 import {
-  trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
+  trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, trackLine } from '@/lib/map/line-standard';
@@ -36,6 +36,7 @@ import {
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
+import { useSwRegistration } from '@/lib/offline/sw-status';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -321,6 +322,10 @@ function OnTrailTab() {
   // Без неё положение мерилось по прореженной ломаной, а профиль —
   // по полному треку, и срез рельефа уезжал к началу.
   const [trackDm, setTrackDm] = useState<number[] | null>(null);
+  // Происхождение линии из данных маршрута. undefined — ответ API ещё не
+  // приходил (офлайн-кэш источника не знает), null — API ответил «источник
+  // не записан». Разница важна: у trackLine это два разных честных состояния.
+  const [geometrySource, setGeometrySource] = useState<string | null | undefined>(undefined);
   /**
    * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
    * «снимок от такого-то часа» — это утверждение о свежести, и брать его
@@ -359,6 +364,10 @@ function OnTrailTab() {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
   const crumbsRouteRef = useRef<string | null>(null);
+  // Судьба Service Worker: без него офлайн-контура нет, и полевой экран
+  // обязан сказать это до выхода, а не оставить человека гадать в поле,
+  // почему «сохранённая» карта не открылась.
+  const swReg = useSwRegistration();
 
   /**
    * План скачивания карты — сколько это будет весить.
@@ -471,6 +480,9 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        // Источник и трек ставятся из одного ответа — они описывают одну
+        // и ту же линию. Строка → источник записан, иначе — честный null.
+        setGeometrySource(typeof data.geometrySource === 'string' ? data.geometrySource : null);
         const dm = (data as Record<string, unknown>).track_dm;
         setTrackDm(Array.isArray(dm) && Array.isArray(tr) && dm.length === tr.length
           ? (dm as number[])
@@ -773,8 +785,11 @@ function OnTrailTab() {
   // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
   /**
    * Происхождение линии на карте: снятый трек или ломаная между точками.
-   * Считается по плотности точек — флага в данных нет, миграция 168 ничего
-   * не проставила (см. lib/routes/track-fidelity).
+   * Род линии спрашивается у ЗАПИСИ (`geometry->>'source'` через trackLine),
+   * плотность точек — только когда источник не записан. Перепись 11.08
+   * (проба 55): у 295 линий из 301 источник есть, а плотностная эвристика
+   * на «Вулкане Жупановском» выдавала синтетику за снятый трек — сплошная
+   * зелёная означает «здесь идут», и по ней идут.
    */
   const lineFidelity: TrackFidelity = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
@@ -783,8 +798,8 @@ function OnTrailTab() {
     // Ломаная, собранная нами из путевых точек, — заведомо набросок:
     // считать её плотность незачем, происхождение известно точно.
     if (!track || track.length < 2) return line ? 'sketch' : 'unknown';
-    return trackFidelity(track);
-  }, [track, waypoints]);
+    return trackLine(track, geometrySource)?.fidelity ?? 'unknown';
+  }, [track, waypoints, geometrySource]);
 
   /**
    * Путь от МЕСТА ЧЕЛОВЕКА вдоль тропы, а не по прямой через залив.
@@ -978,11 +993,23 @@ function OnTrailTab() {
   // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
   // ли ещё пять часов или это автопереезд (владелец 09.08).
 
-  // Плечи маршрута по линии между точками — основа прогресса.
-  const legKms = useMemo(
-    () => waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng)),
-    [waypoints],
-  );
+  // Плечи маршрута — основа прогресса. Меряются ВДОЛЬ ТРЕКА, когда трек есть
+  // и точки ложатся на него по порядку: «до точки» уже считается по треку
+  // (approach), и мерить «пройдено» прямыми значило бы держать на одном
+  // экране две разные метрики одного пути — на извилистом горном маршруте
+  // они расходятся в полтора раза. Прямые между точками остаются только
+  // фолбэком наброска, где пути в данных и нет.
+  const legKms = useMemo(() => {
+    const straight = waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng));
+    if (!track || track.length < 2 || !trackDm) return straight;
+    const posM = waypoints.map(w => distanceAlongTrack(track, w.lat, w.lng, trackDm));
+    if (posM.some(p => p === null)) return straight;
+    const legs = posM.slice(1).map((p, i) => ((p as number) - (posM[i] as number)) / 1000);
+    // Точка спроецировалась ПОЗАДИ предыдущей — порядок точек не совпадает
+    // с направлением трека, и мерка вдоль него лжёт. Честнее прямые.
+    if (legs.some(l => l <= 0)) return straight;
+    return legs;
+  }, [waypoints, track, trackDm]);
   const progress = useMemo(
     () => routeProgress(legKms, currentWpIdx, distToNext),
     [legKms, currentWpIdx, distToNext],
@@ -1571,6 +1598,17 @@ function OnTrailTab() {
 
       </div>
 
+      {/* Офлайн-контур не поднялся — сказать до выхода, а не оставить
+          выяснять в поле. Раньше отказ регистрации SW глотался молча, и
+          «Сохранить карту» выглядело работающим, ничего не сохраняя. */}
+      {hasRoute && (swReg.state === 'failed' || swReg.state === 'unsupported') && (
+        <div className="px-4 py-3 text-xs" style={{ color: 'var(--warning)', borderTop: '1px solid var(--border)' }}>
+          {swReg.state === 'unsupported'
+            ? 'Браузер не поддерживает офлайн-режим: карта не сохранится, очередь SOS без связи не сработает'
+            : 'Офлайн-режим не запустился в этом сеансе: карта не сохранится. Перезагрузите страницу, пока есть связь'}
+        </div>
+      )}
+
       {/* Карта офлайн: три состояния — качается, сохранена, не сохранена.
           Раньше строка появлялась только на время фоновой докачки, а
           проверить готовность было нечем: единственный момент, когда это
@@ -1947,9 +1985,9 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   function toggleItem(id: string) {
     // 'offline' can't be manually toggled — it's auto-computed
     if (id === 'offline') return;
-    // maps — trigger download if not started yet
+    // maps — trigger download if not started yet (partial — добрать недостающее)
     if (id === 'maps') {
-      if (mapsStatus === 'idle' || mapsStatus === 'error') downloadMaps();
+      if (mapsStatus === 'idle' || mapsStatus === 'error' || mapsStatus === 'partial') downloadMaps();
       return;
     }
     // mchs opens a form URL
@@ -2080,6 +2118,12 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
                 {item.id === 'maps' && mapsStatus === 'error' && mapsError && (
                   <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--danger)' }}>
                     Ошибка: {mapsError} — нажми ещё раз
+                  </p>
+                )}
+                {/* Частичный пакет — не готовность: галочки нет, причина словами */}
+                {item.id === 'maps' && mapsStatus === 'partial' && (
+                  <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--warning)' }}>
+                    Карта скачана не полностью — нажми ещё раз, пока есть связь
                   </p>
                 )}
               </div>

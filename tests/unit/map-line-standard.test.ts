@@ -195,6 +195,17 @@ describe('каждый потребитель передаёт источник'
     expect(src).toMatch(/trackLine\(line, 'waypoints_synthetic'\)/);
   });
 
+  it('полевой режим: род линии спрашивается у записи, не у плотности', () => {
+    // На «Вулкане Жупановском» плотностная эвристика выдавала синтетику за
+    // снятый трек: fidelity полевого экрана обязана идти через trackLine
+    // с источником из API, эвристика — только когда источник не записан.
+    const src = read('app/planning/_PlanningClient.tsx');
+    expect(src).toMatch(/trackLine\(track, geometrySource\)/);
+    expect(src).toMatch(/setGeometrySource\(/);
+    // Голого плотностного вызова в полевом экране не осталось.
+    expect(src).not.toMatch(/trackFidelity\(track\)/);
+  });
+
   it('карточка маршрута различает серверный трек и ломаную по точкам', () => {
     const src = read('app/routes/[id]/_RouteDetailClient.tsx');
     expect(src).toMatch(/geometrySource \?\? null/);
