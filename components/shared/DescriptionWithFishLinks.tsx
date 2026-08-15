@@ -3,45 +3,26 @@
 import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { FISH_SPECIES, type FishSpecies } from '@/lib/fish-species';
+import { linkifyText } from '@/lib/text-links';
 
 interface TextChunk {
   text: string;
   species?: FishSpecies;
 }
 
+/**
+ * Нарезка живёт в lib/text-links.ts и общая со справочником статей: два
+ * матчера разошлись бы на первом же падеже, и рыба в описании подсвечивалась
+ * бы иначе, чем статья в том же абзаце. Здесь остаётся только имя поля
+ * `species` — оно часть API этого компонента.
+ *
+ * excludeId — вид текущей страницы: описание чавычи упоминает чавычу, и
+ * ссылка на самого себя была бы шумом (страницы /fish/[id], владелец 07.08).
+ */
 export function parseTextChunks(text: string, excludeId?: string): TextChunk[] {
-  const matches: { start: number; end: number; matched: string; species: FishSpecies }[] = [];
-
-  // excludeId — вид текущей страницы: описание чавычи упоминает чавычу, и
-  // ссылка на самого себя была бы шумом (страницы /fish/[id], владелец 07.08).
-  for (const species of FISH_SPECIES.filter(s => s.id !== excludeId)) {
-    for (const pattern of species.patterns) {
-      const re = new RegExp(pattern.source, pattern.flags);
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text)) !== null) {
-        const start = m.index;
-        const end = m.index + m[0].length;
-        if (!matches.some(e => e.start < end && e.end > start)) {
-          matches.push({ start, end, matched: m[0], species });
-        }
-      }
-    }
-  }
-
-  if (matches.length === 0) return [{ text }];
-
-  matches.sort((a, b) => a.start - b.start);
-
-  const chunks: TextChunk[] = [];
-  let cursor = 0;
-  for (const m of matches) {
-    if (m.start > cursor) chunks.push({ text: text.slice(cursor, m.start) });
-    chunks.push({ text: m.matched, species: m.species });
-    cursor = m.end;
-  }
-  if (cursor < text.length) chunks.push({ text: text.slice(cursor) });
-
-  return chunks;
+  return linkifyText(text, FISH_SPECIES, excludeId).map(c =>
+    c.entry ? { text: c.text, species: c.entry } : { text: c.text },
+  );
 }
 
 function ParagraphWithLinks({ text, excludeId }: { text: string; excludeId?: string }) {
