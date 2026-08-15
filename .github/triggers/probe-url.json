@@ -1,11 +1,12 @@
 {
   "urls": [
-    "https://vedarai.ru/api/routing/path?from_lat=53.024&from_lng=158.643&to_lat=53.183&to_lng=158.388&mode=car",
-    "https://vedarai.ru/api/routing/path?from_lat=53.024&from_lng=158.643&to_lat=53.183&to_lng=158.388&mode=foot"
+    "https://vedarai.ru/api/cron/route-lay-census"
   ],
-  "bytes": 3000,
+  "bytes": 30000,
   "timeout": 60,
-  "retries": 0,
-  "note": "Проба 55: жив ли дорожный граф на проде — партия прокладки линий (го владельца) стоит на A* по road_graph_nodes/edges (миграция 760, наполнение раннером). Тестовый маршрут ПК→Елизово, car и foot. ok:false reason=empty_graph — граф пуст, сначала запускать импорт; ok:true — можно строить прокладку.",
-  "run": 55
+  "retries": 12,
+  "retryDelay": 60,
+  "until": "compact",
+  "note": "Проба 56: перепись кандидатов прокладки (партия 4). Роут новый — до выката отдаёт 404, retries ждут деплой merge a29ae26; маркер 'compact' есть только в новом ответе. Ожидаем видимые маршруты без geometry с >=2 waypoints: id/wpCount/spanKm.",
+  "run": 56
 }
