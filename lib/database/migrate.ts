@@ -115,7 +115,14 @@ async function main() {
       const nonTx = isNonTransactional(sql);
 
       if (nonTx) {
-        // Non-transactional: statement by statement, no BEGIN/COMMIT
+        // Non-transactional: statement by statement, no BEGIN/COMMIT.
+        // Ревизия 15.08 (P0): раньше настоящая ошибка здесь логировалась,
+        // цикл продолжался, а файл ПОСЛЕ цикла всё равно помечался
+        // применённым — та же ложная фиксация, что была в транзакционной
+        // ветке. Теперь: реальная ошибка останавливает файл и раннер,
+        // файл НЕ помечается применённым. Откатить уже выполненные
+        // CONCURRENTLY-выражения нельзя — но они идемпотентны (IF NOT
+        // EXISTS) и на повторе будут пропущены.
         console.log(`[APPLY-NOTX] ${file} (non-transactional)`);
         const statements = splitSqlStatements(sql);
 
@@ -127,9 +134,8 @@ async function main() {
             if (isAlreadyExistsError(msg)) {
               console.log(`  [SKIP-EXISTS] ${msg.slice(0, 80)}`);
             } else {
-              console.error(`  [ERROR] ${msg}`);
-              errorCount++;
-              // For non-transactional, we can't rollback — log and continue
+              console.error(`  [ERROR] ${file}: ${msg}`);
+              process.exit(1);
             }
           }
         }
