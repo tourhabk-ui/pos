@@ -1,26 +1,14 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/health",
-    "https://vedarai.ru/api/routes?kind=place&hasCoords=true&limit=2000&sort=title"
+    "https://vedarai.ru/api/routes?kind=place&limit=5&q=%D0%9C%D0%B0%D0%BB%D1%8B%D1%88",
+    "https://vedarai.ru/api/routes?kind=place&limit=5&q=%D0%A6%D0%B0%D1%80%D1%8C-%D0%B1%D0%BE%D0%BC%D0%B1%D0%B0",
+    "https://vedarai.ru/api/routes?kind=place&limit=5&q=%D0%90%D0%BC%D0%B1%D0%BE%D0%BD",
+    "https://vedarai.ru/api/routes?kind=place&limit=5&q=%D0%9A%D0%B0%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B9%20%D0%B3%D0%BE%D1%80%D0%BE%D0%B4%D0%BE%D0%BA",
+    "https://vedarai.ru/api/routes?kind=place&limit=5&q=%D0%A7%D0%B5%D1%80%D0%BD%D1%8B%D0%B9%20%D0%B7%D0%B0%D0%BC%D0%BE%D0%BA"
   ],
-  "bytes": 600,
-  "around": [
-    "Перевал Малыш",
-    "Царь-бомба",
-    "Камень Амбон",
-    "Каменный городок",
-    "Скала Черный замок"
-  ],
-  "aroundLines": 6,
-  "aroundHits": 1,
-  "count": [
-    "Ключевск",
-    "от Петропавловска",
-    "Паратунк",
-    "55.92"
-  ],
-  "timeout": 180,
+  "bytes": 4000,
+  "timeout": 120,
   "retries": 0,
-  "note": "Проба 79: повтор приёмки Editor'а. В пробе 78 каталог ответил «Ошибка базы данных» — запрос застал контейнер сразу после выката, и нулевые счётчики были следствием пустого тела, а не чистых описаний. Первым URL идёт health: он покажет, жива ли база вообще, и только после этого счётчики по каталогу что-то значат.",
-  "run": 79
+  "note": "Проба 80: приёмка Editor'а точечными запросами. Каталог целиком (limit=2000) отдаёт 503 — падает тяжёлый запрос, а не база: health в пробе 79 ответил ok:true. Поэтому берём по одному месту через поиск q=. Смотрим у каждого поле description: непустое ли и нет ли прежних сигнатур вранья (Ключевской у Перевала Малыш, гейзеры у Царь-бомбы, «от Петропавловска» у Камня Амбон, Паратунка у Каменного городка, координата 55.92 у Чёрного замка).",
+  "run": 80
 }
