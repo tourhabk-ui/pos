@@ -8,6 +8,10 @@ import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow } from '@/lib/types/db-rows';
+import {
+  extractServices, extractFeatures, extractContacts, extractFaq,
+  extractGallery, extractLegalInfo,
+} from '@/lib/operators/profile-parse';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,109 +29,6 @@ function parseCount(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-// ── Typed service / feature / contact / legal structures ──────────────────
-
-interface ServiceItem {
-  title: string;
-  desc?: string;
-  prices?: Record<string, string>;
-  includes?: string[];
-}
-
-interface FeatureItem {
-  title: string;
-  desc?: string;
-  icon?: string;
-}
-
-interface ContactItem {
-  name?: string;
-  role?: string;
-  phone?: string;
-  address?: string;
-}
-
-interface LegalInfo {
-  companyName?: string;
-  inn?: string;
-  ogrn?: string;
-  address?: string;
-  license?: string;
-  fishingArea?: string;
-}
-
-function extractServices(items: unknown[] | null): ServiceItem[] {
-  if (!items) return [];
-  return items.flatMap(item => {
-    if (typeof item === 'string' && item.trim()) return [{ title: item.trim() }];
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      const r = item as Record<string, unknown>;
-      const title = typeof r.title === 'string' ? r.title : typeof r.name === 'string' ? r.name : '';
-      if (!title) return [];
-      return [{
-        title,
-        desc: typeof r.desc === 'string' ? r.desc : undefined,
-        prices: (r.prices && typeof r.prices === 'object' && !Array.isArray(r.prices))
-          ? r.prices as Record<string, string> : undefined,
-        includes: Array.isArray(r.includes) ? r.includes.filter(x => typeof x === 'string') : undefined,
-      }];
-    }
-    return [];
-  });
-}
-
-function extractFeatures(items: unknown[] | null): FeatureItem[] {
-  if (!items) return [];
-  return items.flatMap(item => {
-    if (typeof item === 'string' && item.trim()) return [{ title: item.trim() }];
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      const r = item as Record<string, unknown>;
-      const title = typeof r.title === 'string' ? r.title : '';
-      if (!title) return [];
-      return [{
-        title,
-        desc: typeof r.desc === 'string' ? r.desc : undefined,
-        icon: typeof r.icon === 'string' ? r.icon : undefined,
-      }];
-    }
-    return [];
-  });
-}
-
-function extractContacts(items: unknown[] | null): ContactItem[] {
-  if (!items) return [];
-  return items.flatMap((item): ContactItem[] => {
-    if (typeof item === 'string' && item.trim()) return [{ phone: item.trim() }];
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      const r = item as Record<string, unknown>;
-      return [{
-        name: typeof r.name === 'string' ? r.name : undefined,
-        role: typeof r.role === 'string' ? r.role : undefined,
-        phone: typeof r.phone === 'string' ? r.phone : undefined,
-        address: typeof r.address === 'string' ? r.address : undefined,
-      }];
-    }
-    return [];
-  });
-}
-
-function extractLegalInfo(raw: unknown): LegalInfo | string | null {
-  if (!raw) return null;
-  if (typeof raw === 'string' && raw.trim()) return raw;
-  if (typeof raw === 'object' && !Array.isArray(raw)) {
-    const r = raw as Record<string, unknown>;
-    return {
-      companyName: typeof r.companyName === 'string' ? r.companyName : undefined,
-      inn: typeof r.inn === 'string' ? r.inn : undefined,
-      ogrn: typeof r.ogrn === 'string' ? r.ogrn : undefined,
-      address: typeof r.address === 'string' ? r.address : undefined,
-      license: typeof r.license === 'string' ? r.license : undefined,
-      fishingArea: typeof r.fishingArea === 'string' ? r.fishingArea : undefined,
-    };
-  }
-  return null;
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -214,12 +115,8 @@ export default async function OperatorProfilePage(
   const legalInfo = extractLegalInfo(profile.legal_info);
   const rating     = parseScore(profile.rating);
   const reviewCount = parseCount(profile.review_count);
-  const gallery   = Array.isArray(profile.gallery)
-    ? profile.gallery.filter((x): x is string => typeof x === 'string').slice(0, 6)
-    : [];
-  const faq = Array.isArray(profile.faq)
-    ? (profile.faq as { q: string; a: string }[]).filter(x => x.q && x.a)
-    : [];
+  const gallery   = extractGallery(profile.gallery).slice(0, 6);
+  const faq       = extractFaq(profile.faq);
 
   const heroImage = profile.hero_image ?? gallery[0] ?? null;
 
@@ -399,6 +296,16 @@ export default async function OperatorProfilePage(
                         {c.phone && (
                           <a href={`tel:${c.phone}`} className="text-sm text-[var(--ocean)] hover:underline">
                             {c.phone}
+                          </a>
+                        )}
+                        {c.href && (
+                          <a
+                            href={c.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-[var(--ocean)] hover:underline"
+                          >
+                            {c.label ?? c.href}
                           </a>
                         )}
                         {c.address && <p className="text-xs text-[var(--text-muted)] mt-0.5">{c.address}</p>}
