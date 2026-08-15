@@ -13,6 +13,7 @@ const PLATFORM = [
   { label: 'Планирование поездки', href: '/partners' },
   { label: 'Партнёры', href: '/operators' },
   { label: 'Стать партнёром', href: '/for-operators' },
+  { label: 'MCP для ИИ-агентов', href: '/mcp' },
   { label: 'Оставить заявку', href: '/contact' },
   { label: 'Помощь туристам', href: '/help/tourists' },
   { label: 'Помощь операторам', href: '/help/operators' },
