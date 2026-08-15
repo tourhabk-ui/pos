@@ -1,0 +1,34 @@
+# Одноразовый (workflow_dispatch) снимок baseline-схемы прод-БД (задача #57).
+# Вычитывает /api/cron/schema-snapshot по секциям и коммитит SQL-файл в ту же
+# ветку, откуда запущен. Секрет уходит только на vedarai.ru/api/cron/*.
+name: db-baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Снять слепок схемы и собрать baseline
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: python3 scripts/assemble-db-baseline.py
+
+      - name: Закоммитить baseline в текущую ветку
+        run: |
+          git config user.name "vedar-baseline"
+          git config user.email "noreply@vedarai.ru"
+          git add lib/database/baseline/schema-baseline.sql
+          if git diff --cached --quiet; then
+            echo "Схема не изменилась — коммитить нечего"
+          else
+            git commit -m "Baseline-схема прод-БД: автосъём через schema-snapshot"
+            git push
+          fi
