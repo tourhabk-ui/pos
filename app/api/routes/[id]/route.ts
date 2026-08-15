@@ -186,6 +186,7 @@ export async function GET(
        LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
        WHERE rw.route_id = $1
          AND p.is_visible = TRUE
+         AND p.merged_into_id IS NULL
        ORDER BY rw.position`,
       [routeDbId]
     ).catch(() => ({ rows: [] }));
@@ -203,6 +204,7 @@ export async function GET(
        JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
        WHERE rw.route_id = $1
          AND p.is_visible = TRUE
+         AND p.merged_into_id IS NULL
          AND (
            (rs.alert_message IS NOT NULL AND (rs.alert_expires_at IS NULL OR rs.alert_expires_at > NOW()))
            OR rs.is_open = FALSE
