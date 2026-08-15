@@ -88,6 +88,26 @@ describe('applyTransactionalFile: конфликт пропускает выра
   });
 });
 
+describe('non-transactional путь тоже не глотает (ревизия 15.08, P0)', () => {
+  it('migrate.ts: реальная ошибка nonTx-файла валит раннер до пометки', () => {
+    // Было: ошибка логировалась, цикл продолжался, файл ПОСЛЕ цикла всё
+    // равно помечался применённым. Теперь настоящая ошибка -> exit(1),
+    // до INSERT INTO _migrations дело не доходит.
+    // Границы блока: от if (nonTx) до транзакционной ветки (комментарий
+    // «Транзакционно» из #1206) — внутренние else срез не обрезают.
+    const nonTxBlock = MIGRATE_TS.slice(
+      MIGRATE_TS.indexOf('if (nonTx) {'),
+      MIGRATE_TS.indexOf('// Транзакционно'),
+    );
+    expect(nonTxBlock).toMatch(/process\.exit\(1\)/);
+    expect(nonTxBlock).not.toMatch(/errorCount\+\+/);
+  });
+
+  it('standalone: nonTx-ошибка пробрасывается в файловый catch (без пометки)', () => {
+    expect(STANDALONE).toMatch(/if \(!isAlreadyExistsError\(e\.message\)\) throw e;/);
+  });
+});
+
 describe('глоток удалён из обоих раннеров', () => {
   it('standalone: в catch цикла нет пометки «применена»', () => {
     // Ловим сам баг: INSERT INTO _migrations в ветке обработки ошибки файла.
