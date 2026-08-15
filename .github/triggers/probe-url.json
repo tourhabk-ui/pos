@@ -2,11 +2,27 @@
   "urls": [
     "https://vedarai.ru/api/cron/route-lay-census"
   ],
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/route-lay",
+      "body": {
+        "dry_run": true,
+        "max_snap_m": 1000,
+        "ids": [
+          "0a0c055d-dbf6-461b-a3d2-30803469b62e",
+          "f447bbe2-37ef-4858-b5eb-d8014fbf50d2",
+          "9d9372aa-d866-463a-a97e-0897e163b5fd",
+          "5e91b4f6-eeb7-443a-8624-37fd8da93f0f",
+          "81b73def-2dd3-4f58-9f1d-9574cc06710e"
+        ]
+      }
+    }
+  ],
   "bytes": 30000,
-  "timeout": 60,
+  "timeout": 110,
   "retries": 12,
   "retryDelay": 60,
-  "until": "compact",
-  "note": "Проба 56: перепись кандидатов прокладки (партия 4). Роут новый — до выката отдаёт 404, retries ждут деплой merge a29ae26; маркер 'compact' есть только в новом ответе. Ожидаем видимые маршруты без geometry с >=2 waypoints: id/wpCount/spanKm.",
-  "run": 56
+  "until": "\"v\":2",
+  "note": "Проба 57: кандидатов всего 5 (перепись 56) — сухой прогон прокладки на всех пяти разом. GET census с маркером v:2 — сенсор выката фикса spanKm (numeric-строки pg склеивались в NaN); POST route-lay dry_run после сенсора читает уже новую сборку. Ждём честные отказы в заповедной глуши (Долина гейзеров/Узон — граф дорог там пуст) и возможные успехи у Маяка и Спокойного.",
+  "run": 57
 }
