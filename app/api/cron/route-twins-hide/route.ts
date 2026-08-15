@@ -32,6 +32,8 @@ const BodySchema = z.object({
   dry_run: z.boolean().default(true),
   limit: z.number().int().min(1).max(300).default(300),
   ids: z.array(z.string().min(8).max(64)).max(300).optional(),
+  /** Только цифры и сводка форм: полный отчёт на сотню записей не читается. */
+  summary_only: z.boolean().default(false),
 });
 
 interface TwinRow {
@@ -133,14 +135,33 @@ export async function POST(request: NextRequest) {
     const dropped = toHide.length - batch.length;
 
     if (data.dry_run) {
-      return NextResponse.json({
+      const shapes = [...geometryShapes.entries()]
+        .map(([shape, count]) => ({ shape, count }))
+        .sort((a, b) => b.count - a.count);
+      const heldReasons = new Map<string, number>();
+      for (const h of held) {
+        for (const r of h.reasons) {
+          const key = r.split('(')[0].trim();
+          heldReasons.set(key, (heldReasons.get(key) ?? 0) + 1);
+        }
+      }
+      const base = {
         success: true, dry_run: true,
         twins_total: chosen.length,
         would_hide: batch.length,
         over_limit_left: dropped,
-        geometry_shapes: [...geometryShapes.entries()]
-          .map(([shape, count]) => ({ shape, count }))
-          .sort((a, b) => b.count - a.count),
+        held_back_count: held.length,
+        held_reasons: [...heldReasons.entries()].map(([reason, count]) => ({ reason, count })),
+        real_routes_kept_count: notJunk.length,
+      };
+      if (data.summary_only) {
+        // Форма геометрии — «тип:источник:вершин». Распределение вершин
+        // и решает, трек это или огрызок; списки имён тут только мешают.
+        return NextResponse.json({ ...base, geometry_shapes: shapes });
+      }
+      return NextResponse.json({
+        ...base,
+        geometry_shapes: shapes,
         held_back: held,
         real_routes_kept: notJunk,
         plan: batch,
