@@ -1,23 +1,11 @@
 {
- "bytes": 8000,
- "timeout": 60,
- "note": "Проба 113: добивка приёмки v2 — ответ get_guardian_context в пробе 112 был 6576 байт при окне 6000, хвост со ссылкой обрезан. Окно 8000, ждём «Продолжить в Ведаре» в конце.",
- "run": 113,
- "urls": [],
- "post": [
-  {
-   "url": "https://vedarai.ru/api/mcp",
-   "body": {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-     "name": "get_guardian_context",
-     "arguments": {
-      "place": "Авачинский"
-     }
-    }
-   }
-  }
- ]
+  "urls": [
+    "https://vedarai.ru/api/cron/place-link-suggest?scope=lost"
+  ],
+  "bytes": 60000,
+  "timeout": 110,
+  "retries": 12,
+  "retryDelay": 60,
+  "note": "Проба 61: кандидаты в маршруты для 45 осиротевших мест (партия 5). Роут новый — 404-ретраи ждут выкат. Смотрю глазами: у кого совпало имя (nameScore 1 — почти всегда верно), у кого только близость (решать вручную).",
+  "run": 61
 }

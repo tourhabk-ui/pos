@@ -178,3 +178,78 @@ describe('getGuardianContext — авиационный цветовой код 
     expect(ctx).not.toContain('KVERT');
   });
 });
+
+describe('getGuardianContext — чистка контекста (#63, проба 113)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const placeBase = {
+    description: 'Описание', location_type: 'volcano',
+    lat: 53.25, lng: 158.83, hazard_types: ['thermal'], difficulty_level: 3, altitude_m: 2741,
+    nearest_medical_km: 30, sat_communicator_required: false, capacity_per_day: 30,
+    open_from_date: null, open_to_date: null, is_open: true, current_crowds: 1,
+    recommender_status: 'red', alert_message: null, alert_severity: 2, tourists_today: 0,
+    volcano_acc: null, volcano_ash_height_m: null, volcano_observed_at: null,
+  };
+
+  function mockDb(opts: {
+    places?: Record<string, unknown>[];
+    alerts?: Record<string, unknown>[];
+    knowledge?: Record<string, unknown>[];
+  }) {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes('FROM places')) return Promise.resolve({ rows: opts.places ?? [] });
+      if (sql.includes('FROM external_alerts')) return Promise.resolve({ rows: opts.alerts ?? [] });
+      if (sql.includes('FROM agent_knowledge')) return Promise.resolve({ rows: opts.knowledge ?? [] });
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('зонный алерт, продублированный в трёх местах, печатается один раз', async () => {
+    const shared = ['Вилючинский перевал: проезд по пропускам', 'Риск оползней с Мутновского'];
+    mockDb({
+      places: [
+        { ...placeBase, name: 'Вулкан Авачинский', active_alerts: shared },
+        { ...placeBase, name: 'Авачинский перевал', active_alerts: shared },
+        { ...placeBase, name: 'Авачинский вулкан: путь на вершину', active_alerts: [...shared, 'Камнепад на верхнем участке'] },
+      ],
+    });
+    const ctx = await getGuardianContext('Авачинский');
+    expect(ctx.split('Вилючинский перевал: проезд по пропускам').length - 1).toBe(1);
+    expect(ctx.split('Риск оползней с Мутновского').length - 1).toBe(1);
+    // Уникальный алерт третьего места не потерян.
+    expect(ctx).toContain('Камнепад на верхнем участке');
+  });
+
+  it('блок [Алерт КБГС/МЧС] не повторяет алерт, уже показанный в строке места', async () => {
+    mockDb({
+      places: [{ ...placeBase, name: 'Вулкан Авачинский', active_alerts: ['Пепловый выброс на Авачинском'] }],
+      alerts: [
+        { title: 'Пепловый выброс на Авачинском', severity: 2, description: 'дубль', source_url: null },
+        { title: 'Закрыта тропа на Авачинский', severity: 1, description: null, source_url: null },
+      ],
+    });
+    const ctx = await getGuardianContext('Авачинский');
+    expect(ctx.split('Пепловый выброс на Авачинском').length - 1).toBe(1);
+    expect(ctx).toContain('[Алерт КБГС/МЧС] Закрыта тропа на Авачинский');
+  });
+
+  it('дедуп действует и в hedge-ветке слабого совпадения', async () => {
+    const shared = ['Общерегиональный алерт'];
+    mockDb({
+      places: [
+        { ...placeBase, name: 'Вулкан Авачинский', active_alerts: shared },
+        { ...placeBase, name: 'Совсем другое место у трассы', active_alerts: shared },
+      ],
+    });
+    const ctx = await getGuardianContext('Авачинский');
+    expect(ctx.split('Общерегиональный алерт').length - 1).toBe(1);
+  });
+
+  it('запрос знаний исключает служебные оценки ответов (type outcome)', async () => {
+    mockDb({ places: [{ ...placeBase, name: 'Вулкан Авачинский', active_alerts: null }] });
+    await getGuardianContext('Авачинский');
+    const kbCall = mockQuery.mock.calls.find(([sql]) => (sql as string).includes('FROM agent_knowledge'));
+    expect(kbCall).toBeDefined();
+    expect(kbCall![0]).toMatch(/type <> 'outcome'/);
+  });
+});
