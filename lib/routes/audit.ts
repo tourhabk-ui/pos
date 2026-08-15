@@ -62,7 +62,7 @@ export async function computeRoutesAudit(sampleLimit = 20): Promise<RoutesAudit>
     const samples = await pool.query<RoutesAuditSample>(
       `SELECT id::text AS id, title, is_visible
        FROM kamchatka_routes
-       WHERE (${cat.where})
+       WHERE (${cat.where}) AND merged_into_id IS NULL
        ORDER BY is_visible DESC, title ASC
        LIMIT ${sampleLimit}`,
     );
