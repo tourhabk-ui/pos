@@ -47,7 +47,9 @@ function buildText(weather: WeatherData | null, safety: SafetyStatus | null): st
     } else {
       parts.push(`Активны ${safety.activeCount} предупреждений.`);
     }
-  } else {
+  } else if (safety) {
+    // «Благоприятные» говорим только когда данные ЕСТЬ и в них тихо.
+    // Без данных (источник недоступен) молчим: «мы не знаем» — не «спокойно».
     parts.push('Условия благоприятные.');
   }
   if (parts.length > 0) {
@@ -69,7 +71,10 @@ export function KuzmichBriefing() {
       fetch('/api/safety/routes?mode=safe_only&limit=3').then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([safetyRes, weatherRes, routesRes]) => {
       if (cancelled) return;
-      const safety: SafetyStatus | null = safetyRes?.success ? safetyRes.data : null;
+      // unavailable — источник недоступен: данных нет, safety = null,
+      // и текст не притворяется, что условия известны.
+      const safety: SafetyStatus | null =
+        safetyRes?.success && safetyRes.data?.unavailable !== true ? safetyRes.data : null;
       const weather: WeatherData | null = weatherRes?.success ? weatherRes.data : null;
       const routes: RouteRec[] = Array.isArray(routesRes?.data) ? routesRes.data.slice(0, 3) : [];
       setData({ safety, weather, routes });

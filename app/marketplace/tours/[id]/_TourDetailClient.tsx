@@ -244,6 +244,8 @@ function useDayStatus(): DayStatus | null {
         const data = (d as Record<string, unknown>).data;
         if (!data || typeof data !== 'object') return;
         const o = data as Record<string, unknown>;
+        // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
+        if (o.unavailable === true) return;
         setStatus({
           title: typeof o.topTitle === 'string' ? o.topTitle : null,
           source: typeof o.source === 'string' ? o.source : 'КБГС РАН',

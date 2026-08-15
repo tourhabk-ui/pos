@@ -15,6 +15,12 @@ export interface RegionMeta {
   tilesCount: number;
   routesCount: number;
   sizeBytes: number;
+  /**
+   * Сколько тайлов НЕ скачалось при закачке. Отсутствие поля (старые записи)
+   * читать как 0 — «о неудачах не знаем», а не «их не было». Ненулевое
+   * значение обязано доехать до статуса: частичный пакет не бывает «cached».
+   */
+  tilesFailed?: number;
 }
 
 export interface OfflineRoute {

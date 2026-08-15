@@ -63,8 +63,10 @@ function useDayStatus(): { title: string | null; hasAlert: boolean } | null {
     fetch('/api/public/safety-status', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((d: unknown) => {
-        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown } } | null)?.data;
+        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown; unavailable?: unknown } } | null)?.data;
         if (!data) return;
+        // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
+        if (data.unavailable === true) return;
         setStatus({
           title: typeof data.topTitle === 'string' ? data.topTitle : null,
           hasAlert: data.hasAlert === true,
