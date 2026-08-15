@@ -1,15 +1,11 @@
 {
-  "urls": [],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
-    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } }
+  "urls": [
+    "https://vedarai.ru/api/cron/places-no-track-census"
   ],
-  "bytes": 30000,
+  "bytes": 60000,
   "timeout": 110,
-  "retries": 0,
-  "note": "Проба 70: пять партий по 10, уже с отсевом четырёхвершинной синтетики на уровне запроса — в пробе 69 «Вулкан Ксудач» и «Карымшинские источники» возвращались в каждую партию и съедали по слоту. Отправляется ПОСЛЕ выката правки: датчик по коду ответа версию сборки не различает (урок пробы 68).",
-  "run": 70
+  "retries": 10,
+  "retryDelay": 60,
+  "note": "Проба 74: у каких живых мест нет линии на карте (вопрос владельца). Четыре судьбы: есть маршрут с треком; маршруты есть, но все без geometry; связи только в скрытое/слитое; связей не было. Новый роут — ретраи ждут выкат.",
+  "run": 74
 }
