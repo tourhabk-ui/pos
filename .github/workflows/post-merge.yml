@@ -38,3 +38,55 @@ jobs:
           fi
           gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$BRANCH"
           echo "Удалена смерженная ветка $BRANCH"
+
+  # Счётчики README обновляются здесь, а не проверяются в CI.
+  #
+  # Раньше `update-readme-stats --check` стоял первым шагом CI и ронял job,
+  # а деплой висит на зелёном CI. Числа меняются от каждого мержа, поэтому
+  # любая ветка приносила на main устаревшие — 15.08 это остановило выкладку
+  # прода на пять часов. Витринная статистика не должна держать продукт.
+  #
+  # Петли нет: .md отсутствует в путях-триггерах ci.yml, а этот workflow
+  # запускается на закрытие PR, не на push. Конфликтов в ветках тоже нет —
+  # им больше незачем трогать README.
+  readme-stats:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Обновить счётчики
+        run: node scripts/update-readme-stats.mjs
+
+      - name: Закоммитить, если цифры изменились
+        run: |
+          if git diff --quiet README.md; then
+            echo "README актуален — коммитить нечего"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "README-stats: автообновление после мержа [skip ci]"
+          # Гонка с параллельными мержами: если main ушёл вперёд, подтянуть
+          # и пересчитать заново, а не падать. Цифры — не повод для алярма.
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git fetch origin main
+            git reset --hard origin/main
+            node scripts/update-readme-stats.mjs
+            git diff --quiet README.md && exit 0
+            git add README.md
+            git commit -m "README-stats: автообновление после мержа [skip ci]"
+          done
+          echo "Не удалось запушить обновление счётчиков — не критично"
