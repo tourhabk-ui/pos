@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS agent_knowledge (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   agent_id text,
   edit_count integer NOT NULL DEFAULT 0,
-  search_vector tsvector DEFAULT ((setweight(to_tsvector('russian'::regconfig, COALESCE(title, ''::text)), 'A'::"char") || setweight(to_tsvector('russian'::regconfig, COALESCE(compiled_truth, ''::text)), 'B'::"char")) || setweight(to_tsvector('russian'::regconfig, COALESCE(timeline, ''::text)), 'C'::"char")),
+  search_vector tsvector GENERATED ALWAYS AS (((setweight(to_tsvector('russian'::regconfig, COALESCE(title, ''::text)), 'A'::"char") || setweight(to_tsvector('russian'::regconfig, COALESCE(compiled_truth, ''::text)), 'B'::"char")) || setweight(to_tsvector('russian'::regconfig, COALESCE(timeline, ''::text)), 'C'::"char"))) STORED,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now()
 );
