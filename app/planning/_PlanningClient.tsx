@@ -49,6 +49,10 @@ import { TrustCard } from '@/components/field/TrustCard';
 import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
+import { FieldCompass } from '@/components/field/FieldCompass';
+import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
+import { FieldDistance } from '@/components/field/FieldDistance';
+import { bearingDeg } from '@/lib/on-route/bearing';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -237,59 +241,6 @@ function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (r
  * любом повороте телефона. Уверенный прибор при мёртвом датчике опаснее
  * пустого экрана: пустой заставляет достать карту.
  */
-function CompassDisplay({ heading, state }: { heading: number; state: CompassState }) {
-  const cardinals = [
-    { label: 'N', angle: 0 }, { label: 'E', angle: 90 },
-    { label: 'S', angle: 180 }, { label: 'W', angle: 270 },
-  ];
-  const trusted = state === 'ok';
-  const needleColor = trusted ? 'var(--success)' : 'var(--text-muted)';
-  return (
-    <div className="relative mx-auto" style={{ width: 160, height: 160 }}>
-      <div className="absolute inset-0 rounded-full"
-        style={{ background: 'var(--bg-primary)', border: '2px solid color-mix(in srgb, var(--success) 25%, transparent)' }} />
-      <div className="absolute inset-2 rounded-full"
-        style={{ border: '1px solid rgba(74,222,128,0.12)' }} />
-      {/* Кольцо сторон света крутится ТОЛЬКО с подтверждённым азимутом.
-          Раньше guard стоял лишь на стрелке, и на скрине владельца 09.08
-          вышло худшее из возможного: стрелка погашена и смотрит вверх, а
-          кольцо развёрнуто на 270° — «север справа». Прибор из одного
-          мёртвого датчика делал два противоречащих утверждения. */}
-      {cardinals.map(({ label, angle }) => {
-        const rad = ((angle - (trusted ? heading : 0)) * Math.PI) / 180;
-        const x = 80 + 62 * Math.sin(rad);
-        const y = 80 - 62 * Math.cos(rad);
-        return (
-          <span key={label} className="absolute text-xs font-bold"
-            style={{
-              left: x, top: y,
-              transform: 'translate(-50%, -50%)',
-              color: label === 'N' && trusted ? 'var(--success)' : 'var(--text-muted)',
-              opacity: trusted ? 1 : 0.45,
-            }}>
-            {label}
-          </span>
-        );
-      })}
-      {/* Стрелка на север. Не подтверждён азимут — гасим и не крутим:
-          движущаяся стрелка читается как рабочая. */}
-      <div className="absolute inset-0 flex items-center justify-center"
-        style={{
-          transform: `rotate(${trusted ? -heading : 0}deg)`,
-          transition: 'transform 0.3s ease',
-          opacity: trusted ? 1 : 0.35,
-        }}>
-        <svg width="28" height="56" viewBox="0 0 28 56">
-          <polygon points="14,0 8,28 14,24 20,28" fill={needleColor} />
-          <polygon points="14,56 8,28 14,32 20,28" fill="#4b5563" />
-        </svg>
-      </div>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full" style={{ background: needleColor }} />
-      </div>
-    </div>
-  );
-}
 
 // ─── Haversine distance (km) ──────────────────────────────────────────────────
 
@@ -936,6 +887,16 @@ function OnTrailTab() {
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
 
+  /**
+   * Азимут на следующую точку — то, что показывает стрелка прибора.
+   * Без своего положения азимута нет: считать его от чего-то другого
+   * значило бы показать направление, которого мы не знаем.
+   */
+  const targetBearing = useMemo(() => {
+    if (!coords || !nextWp || !fixUsableForNavigation(coords.accuracy ?? null)) return null;
+    return bearingDeg({ lat: coords.lat, lng: coords.lng }, { lat: nextWp.lat, lng: nextWp.lng });
+  }, [coords, nextWp]);
+
   // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
   // markers — пересборка на каждом рендере (GPS-тики) убивала карту.
@@ -1411,6 +1372,26 @@ function OnTrailTab() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      {/* Приборная строка: качество фикса · маршрут · счёт точек, а под ней
+          состояние данных (карта в телефоне, свежесть условий). Это первое,
+          что читают, подняв телефон (макеты FCN). */}
+      {hasRoute && (
+        <FieldStatusStrip
+          fixLabel={fix.state === 'live' && fix.accuracyM != null ? `GPS ±${Math.round(fix.accuracyM)} м` : fixLabel(fix)}
+          fixLive={figuresLive}
+          routeTitle={activeRouteTitle}
+          checkpoint={waypoints.length > 1
+            ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
+            : null}
+          dataLine={savedMap
+            ? `Карта сохранена${packStates?.find(s => s.kind === 'safety_snapshot')?.note
+                ? ` · ${packStates.find(s => s.kind === 'safety_snapshot')!.note.toLowerCase()}`
+                : ''}`
+            : 'Карта не сохранена — в поле не откроется'}
+          dataOk={Boolean(savedMap)}
+        />
+      )}
+
       {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
           это тоже сообщение: всё в порядке, идите. */}
       {status && (
@@ -1469,10 +1450,12 @@ function OnTrailTab() {
         ) : (
         <>
 
-        {/* Compass + route info */}
-        <div className="flex flex-col md:flex-row items-center gap-6 w-full">
-          <CompassDisplay heading={heading} state={compassState} />
-          <div className="text-center md:text-left">
+        {/* Приборы (макеты FCN): компас с азимутом НА ТОЧКУ → главная цифра
+            → контекст. Вертикально и по центру: в поле экран держат одной
+            рукой перед собой, а не читают как страницу. */}
+        <div className="flex flex-col items-center gap-4 w-full">
+          <FieldCompass heading={heading} state={compassState} targetBearing={targetBearing} />
+          <div className="text-center w-full">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
                 <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
@@ -1481,18 +1464,12 @@ function OnTrailTab() {
               </div>
             ) : waypoints.length > 0 ? (
               <>
-                {activeRouteTitle && (
-                  <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
-                )}
-                {/* Счётчик — про порядок, а у маршрута из одной точки порядка
-                    нет. «Точка 1 из 1» рядом с «до следующей точки · 18.5 км»
-                    читается как «вы пришли, идти ещё 18 километров» (скрин
-                    владельца 10.08). Одна точка — цель, а не позиция. */}
-                {waypoints.length > 1 && (
-                  <p className="text-[var(--text-secondary)] text-sm mb-0.5">
-                    Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
-                  </p>
-                )}
+                {/* Название маршрута и счёт точек живут в приборной строке
+                    сверху (макет FCN). Дублировать их рядом с главной цифрой
+                    значит заставить их спорить с ней за внимание; счётчик
+                    порядка при одной точке не печатается вовсе — «1 из 1»
+                    рядом с «18.5 км» читалось как «вы пришли, идти ещё 18
+                    километров» (скрин владельца 10.08). */}
                 {approach?.dataConflict ? (
                   /* Данные маршрута не сходятся: точка из route_waypoints и
                      линия из geometry описывают разное. Мы не знаем даже, как
@@ -1518,23 +1495,19 @@ function OnTrailTab() {
                   </p>
                 ) : (
                   <>
-                    <p className="text-[var(--text-muted)] text-xs mb-2">
-                      {waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
-                    </p>
-                    {/* Мёртвый фикс не стирает цифру — это последнее, что человек
-                        знает о своём положении, — но и не выдаёт её за текущую. */}
-                    <p className="text-5xl font-bold leading-none"
-                      style={{
-                        color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
-                        letterSpacing: '-1px',
-                      }}>
-                      {distLabel}
-                    </p>
-                    {/* Имя точки печатаем, только если оно добавляет знание:
-                        у маршрута из одной точки оно повторяло заголовок. */}
-                    {nextWp?.name && nextWp.name !== activeRouteTitle && (
-                      <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp.name}</p>
-                    )}
+                    {/* Главная цифра поля. Мёртвый фикс её не стирает — это
+                        последнее, что человек знает о своём положении, — но и
+                        не выдаёт за текущую: цвет уходит в приглушённый.
+                        Имя точки, время и набор высоты идут чипами рядом,
+                        и только те, что есть в данных. */}
+                    <FieldDistance
+                      distanceLabel={distLabel}
+                      live={figuresLive}
+                      caption={waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                      pointName={nextWp?.name && nextWp.name !== activeRouteTitle ? nextWp.name : null}
+                      etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
+                      ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
+                    />
                     {/* Из чего сложилось число. Подход и выход — прямые, и
                         выдавать их за путь по тропе нельзя: на камчатском
                         рельефе прямая проходит через каньон и реку. */}
@@ -1574,14 +1547,11 @@ function OnTrailTab() {
                     нечего — тогда и строк нет: «придём через —» это не
                     сдержанность, а вид поломки. Прогресс «пройдено/осталось»
                     вынесен в полноширинный модуль ниже (макет FCN). */}
-                {distLabel !== null && (
-                <div className="mt-3 flex flex-col gap-1.5">
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    <span className="text-[var(--text-muted)]">придём через</span>{' '}
-                    <span className="font-semibold text-[var(--text-primary)]">{formatEta(eta.hours)}</span>
-                  </p>
-                  {etaNote && <p className="text-[11px] text-[var(--text-muted)] leading-tight">{etaNote}</p>}
-                </div>
+                {/* Время в пути показано чипом у главной цифры; здесь
+                    остаётся только оговорка о том, ОТКУДА оно взялось —
+                    без неё «~32 мин» выглядит измерением, а не оценкой. */}
+                {distLabel !== null && etaNote && (
+                  <p className="text-[11px] mt-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{etaNote}</p>
                 )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
