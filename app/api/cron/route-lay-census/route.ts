@@ -49,16 +49,21 @@ export async function GET(request: NextRequest) {
     );
 
     const candidates = rows.map((r) => {
-      const midLat = (r.min_lat + r.max_lat) / 2;
+      // pg отдаёт numeric строками: '53.0' + '53.2' — конкатенация, не сумма.
+      // Проба 56 вернула spanKm:null у всех — это NaN после склейки строк.
+      const minLat = Number(r.min_lat), maxLat = Number(r.max_lat);
+      const minLng = Number(r.min_lng), maxLng = Number(r.max_lng);
+      const midLat = (minLat + maxLat) / 2;
       const spanKm = Math.round(Math.hypot(
-        (r.max_lat - r.min_lat) * KM_PER_DEG_LAT,
-        (r.max_lng - r.min_lng) * KM_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180),
+        (maxLat - minLat) * KM_PER_DEG_LAT,
+        (maxLng - minLng) * KM_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180),
       ) * 10) / 10;
       return { id: r.id, title: r.title, wpCount: r.wp_count, spanKm };
     });
 
     return NextResponse.json({
       success: true,
+      v: 2,
       total: candidates.length,
       compact: candidates.filter(c => c.spanKm <= 60).length,
       candidates,
