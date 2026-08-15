@@ -67,7 +67,10 @@ async function sampleTilesPresent(tileUrls: string[]): Promise<boolean | null> {
   const idxs = [0, Math.floor(tileUrls.length / 2), tileUrls.length - 1];
   const sample = [...new Set(idxs)].map(i => tileUrls[i]);
   try {
-    const hits = await Promise.all(sample.map(u => caches.match(u)));
+    // Request объектом, не строкой: `x.match(строка)` неотличимо от
+    // String.prototype.match, и анализатор читает URL как регулярное
+    // выражение (CodeQL js/incomplete-hostname-regexp). Поведение то же.
+    const hits = await Promise.all(sample.map(u => caches.match(new Request(u))));
     return hits.some(h => h !== undefined);
   } catch {
     return null;

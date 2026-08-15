@@ -107,7 +107,11 @@ export async function removeFieldPack(routeId: string): Promise<void> {
 async function sampleTilesPresent(urls: string[]): Promise<boolean | null> {
   if (typeof caches === 'undefined' || urls.length === 0) return null;
   try {
-    const hits = await Promise.all(urls.map(u => caches.match(u)));
+    // Запрос строим объектом, а не передаём голую строку: Cache Storage
+    // принимает и то и другое, но `x.match(строка)` неотличимо от
+    // String.prototype.match — статический анализ читает URL как регулярное
+    // выражение с неэкранированными точками (CodeQL js/incomplete-hostname-regexp).
+    const hits = await Promise.all(urls.map(u => caches.match(new Request(u))));
     return hits.some(h => h !== undefined);
   } catch {
     return null;
