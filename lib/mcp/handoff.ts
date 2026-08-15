@@ -164,7 +164,9 @@ export function readVerifiedMcpAttribution(raw: string | undefined): string | nu
  */
 export async function attachMcpAttribution(
   cookieValue: string | undefined,
-  actionType: 'plan_saved' | 'telegram_sent' | 'offline_bundle_downloaded' | 'lead_created',
+  // plan_shared вместо задуманного telegram_sent: отправка в Telegram уходит
+  // с клиента (t.me-ссылка), сервер честно видит только создание share-ссылки.
+  actionType: 'plan_saved' | 'plan_shared' | 'offline_bundle_downloaded' | 'lead_created',
 ): Promise<string | null> {
   const handoffId = readVerifiedMcpAttribution(cookieValue);
   if (!handoffId) return null;

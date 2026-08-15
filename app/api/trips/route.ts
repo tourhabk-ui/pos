@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
+import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import type { UserTripListRow, UserTripRow } from '@/lib/types/db-rows';
 
 export const dynamic = 'force-dynamic';
@@ -108,6 +109,14 @@ export async function POST(request: NextRequest) {
       flightDepartureTime ?? null,
       needsAirportTransfer ?? false,
     ]);
+
+    // Атрибуция MCP-handoff (v2, #60): человек пришёл по ссылке агента и
+    // сохранил план. В событие идёт только UUID handoff-а из проверенной
+    // cookie — содержимого плана там нет.
+    await attachMcpAttribution(
+      request.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
+      'plan_saved',
+    );
 
     return NextResponse.json({ success: true, data: rows[0] }, { status: 201 });
   } catch (err) {
