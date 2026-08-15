@@ -1,44 +1,15 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/route-place-twins"
-  ],
+  "urls": [],
   "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/place-link",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          { "place": "3dd2ceaf-1351-4625-9171-711eb8b1a455", "route": "55cb0779-4e54-4a2b-9f8d-d84828274a0f" },
-          { "place": "3dd2ceaf-1351-4625-9171-711eb8b1a455", "route": "7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff" },
-          { "place": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8", "route": "1edaefb4-d294-441f-84ee-48fe995c0779" },
-          { "place": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8", "route": "817e7f5f-8b33-47c5-ac91-9d19c940eef8" },
-          { "place": "54b106de-d81a-42af-9a41-32ee49604309", "route": "413a7499-22c9-4058-8c60-880d64e9b875" },
-          { "place": "2886ce3b-0753-41fb-bacc-f80e3f75d1aa", "route": "3d0e808c-2d35-4e13-964f-3c8c98961bb2" },
-          { "place": "f0ecf463-c804-44de-9b51-7a1642eaccc3", "route": "3d0e808c-2d35-4e13-964f-3c8c98961bb2" },
-          { "place": "8bad8fe6-c7ec-4403-b956-948706649ca8", "route": "03b2a69c-2799-418b-9ed5-de17018ba066" },
-          { "place": "796c18b3-e199-4ac6-bbd6-de50d560ff40", "route": "385d1c98-14d2-4173-bdb6-03eb5d596db0" },
-          { "place": "796c18b3-e199-4ac6-bbd6-de50d560ff40", "route": "5e91b4f6-eeb7-443a-8624-37fd8da93f0f" },
-          { "place": "796c18b3-e199-4ac6-bbd6-de50d560ff40", "route": "a6b50058-4913-44fe-9d59-d5916789e8ec" },
-          { "place": "c7c9f572-5e78-4d4f-a9ee-d0182eb313d6", "route": "6664311a-4f41-412c-9955-1f4a4946c7d5" },
-          { "place": "c7c9f572-5e78-4d4f-a9ee-d0182eb313d6", "route": "9476120b-2e26-4f9a-b783-384534a18bfb" },
-          { "place": "c7c9f572-5e78-4d4f-a9ee-d0182eb313d6", "route": "cd1c64de-9667-4cc0-b074-a6c2cb640214" },
-          { "place": "48d3f788-b994-4b32-9d45-5d5fa48c755c", "route": "16202bef-49ed-4157-bdc2-3b25790ae9a9" },
-          { "place": "2512ca75-547c-4348-a219-86c7e6937940", "route": "a937455c-ec61-407c-89a8-f8303402a6be" },
-          { "place": "2512ca75-547c-4348-a219-86c7e6937940", "route": "5fc9965d-5b44-466f-8f35-dec2ddd308b1" },
-          { "place": "af903540-86b1-4e73-b36f-31ca926fc6e0", "route": "81b73def-2dd3-4f58-9f1d-9574cc06710e" },
-          { "place": "5fe02f54-d018-4125-a0ec-e5fc458ad493", "route": "f483dedc-cb94-4e71-bbcb-e043f48e47f3" },
-          { "place": "5fe02f54-d018-4125-a0ec-e5fc458ad493", "route": "ea3b5538-1d2c-4f44-bfe4-3d0c751a99bd" },
-          { "place": "05112df7-54f9-4280-bcd2-1bfe4929dfc0", "route": "642c0d90-237a-4103-8598-34aef8329b37" },
-          { "place": "073a9803-9a0f-4dee-b448-713cc759b637", "route": "b01ca19c-1c1d-497d-a147-cff8ca2234df" },
-          { "place": "84f12e37-fd15-44e7-b60e-063f176d059e", "route": "206a94d3-3cc2-4c89-b5b0-25ad844fe1d6" }
-        ]
-      }
-    }
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } },
+    { "url": "https://vedarai.ru/api/cron/route-twins-enrich", "body": { "dry_run": false, "limit": 10 } }
   ],
-  "bytes": 40000,
+  "bytes": 30000,
   "timeout": 110,
-  "retries": 12,
-  "retryDelay": 60,
-  "note": "Проба 63: GET перепись двойников (новый роут — ретраи ждут выкат) + боевая привязка 23 пар, сверенных глазами по сухому прогону 62. GET идёт первым и служит датчиком выката, POST выполняется после него на той же сборке.",
-  "run": 63
+  "retries": 0,
+  "note": "Проба 70: пять партий по 10, уже с отсевом четырёхвершинной синтетики на уровне запроса — в пробе 69 «Вулкан Ксудач» и «Карымшинские источники» возвращались в каждую партию и съедали по слоту. Отправляется ПОСЛЕ выката правки: датчик по коду ответа версию сборки не различает (урок пробы 68).",
+  "run": 70
 }

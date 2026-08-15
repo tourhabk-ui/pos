@@ -107,6 +107,50 @@ async function tgAnswerCallback(callbackQueryId: string, text?: string): Promise
   }).catch(() => {});
 }
 
+// ── Действия по лиду из уведомления (#65) ─────────────────────────────────────
+//
+// Владелец одобряет предложение прямо в мессенджере. Право нажатия проверено
+// вызывающим (сообщение принадлежит админ-чату). Идемпотентность — на стороне
+// доставки: статус proposal_sent не даст отправить клиенту дважды, сколько бы
+// раз ни нажали и сколько бы раз Telegram ни повторил апдейт.
+async function handleLeadAction(
+  action: string,
+  leadId: string,
+  callbackId: string,
+  chatId: number,
+): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(leadId)) {
+    await tgAnswerCallback(callbackId, 'Неверный идентификатор лида');
+    return;
+  }
+
+  try {
+    if (action === 'lead_send') {
+      const { sendProposalToClient } = await import('@/lib/leads/proposal-delivery');
+      const outcome = await sendProposalToClient(leadId);
+      await tgAnswerCallback(callbackId, outcome.message.slice(0, 200));
+      if (outcome.ok) await tgReply(chatId, `Предложение ушло клиенту. ${outcome.message}`);
+      return;
+    }
+
+    if (action === 'lead_ai') {
+      await tgAnswerCallback(callbackId, 'Запустил AI-обработку');
+      const { leadProcessor } = await import('@/lib/services/operators/lead-processor.service');
+      const { notifyOperatorProposal } = await import('@/lib/notifications/lead-notify');
+      // Предложение придёт отдельным уведомлением — уже с кнопкой отправки.
+      const proposal = await leadProcessor.process(leadId);
+      await notifyOperatorProposal(proposal);
+      return;
+    }
+
+    await tgAnswerCallback(callbackId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Ошибка';
+    await tgAnswerCallback(callbackId, 'Не получилось');
+    await tgReply(chatId, `Действие по лиду не выполнено: ${msg.slice(0, 300)}`);
+  }
+}
+
 // ── /start с клавиатурой быстрых тем ──────────────────────────────────────────
 
 async function sendStartMessage(chatId: number, name: string | null): Promise<void> {
@@ -449,6 +493,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           mode: 'tourist', createdVia: 'telegram_inline',
           pending, reply: tgReply, platform: 'tg',
         });
+      } else if (cq.data.startsWith('lead_send:') || cq.data.startsWith('lead_ai:')) {
+        // Действия по лиду (#65). Право нажатия — принадлежность сообщения
+        // админ-чату, которому это уведомление и адресовано: from.id прислал
+        // бы кто угодно, а chat сообщения с кнопкой подделать нельзя.
+        const adminChat = process.env.TELEGRAM_CHAT_ID ?? '';
+        if (!adminChat || String(chatId) !== adminChat) {
+          await tgAnswerCallback(cq.id, 'Действие доступно только в рабочем чате');
+        } else {
+          const [action, leadId] = cq.data.split(':');
+          await handleLeadAction(action, leadId ?? '', cq.id, chatId);
+        }
       } else {
         await tgAnswerCallback(cq.id);
       }

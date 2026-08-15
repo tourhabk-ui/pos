@@ -158,13 +158,27 @@ export async function GET(
       [r.ark_id]
     );
 
-    // Routes through this place (via route_waypoints — may be empty for now)
+    // Маршруты через это место. К одному месту их может быть несколько —
+    // вершина стоит на нескольких тропах (Авачинский: восхождение дневное,
+    // ночное, через перевал), поэтому список, а не одна ссылка.
+    //
+    // Фильтр живости обязателен: скрытые паутины (867, 868) и слитые дубли
+    // (869) уходят с витрины маршрутов, но сюда попадали по-прежнему —
+    // турист видел на карточке места ссылку на «маршрут» в 397 км,
+    // которого в каталоге уже нет.
+    //
+    // Порядок — по содержательности, а не по rw.position: position это
+    // номер ТОЧКИ ВНУТРИ маршрута, и сортировать им список разных
+    // маршрутов бессмысленно (одно и то же место бывает первым в одном
+    // и седьмым в другом).
     const routesResult = await query(
       `SELECT kr.id, kr.title, kr.activity_type, kr.difficulty, kr.distance_km, kr.duration_hours
        FROM route_waypoints rw
        JOIN kamchatka_routes kr ON kr.id = rw.route_id
        WHERE rw.place_id = $1
-       ORDER BY rw.position
+         AND kr.is_visible = TRUE
+         AND kr.merged_into_id IS NULL
+       ORDER BY (kr.geometry IS NOT NULL) DESC, (kr.distance_km IS NOT NULL) DESC, kr.title
        LIMIT 10`,
       [r.place_pk]
     );
@@ -179,6 +193,7 @@ export async function GET(
        JOIN operator_tours ot ON ot.route_id = kr.id
        JOIN partners p ON p.id = ot.operator_id
        WHERE rw.place_id = $1
+         AND kr.merged_into_id IS NULL
          AND ot.is_active = true AND ot.is_published = true
        ORDER BY ot.id, ot.base_price ASC
        LIMIT 5`,
