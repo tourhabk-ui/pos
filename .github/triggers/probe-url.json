@@ -1,13 +1,36 @@
 {
   "urls": [
-    "https://ru.wikipedia.org/w/api.php?action=query&prop=coordinates&colimit=max&format=json&titles=%D0%91%D0%B0%D1%80%D1%85%D0%B0%D1%82%D0%BD%D0%B0%D1%8F_%D1%81%D0%BE%D0%BF%D0%BA%D0%B0%7C%D0%A3%D0%B7%D0%BE%D0%BD%7C%D0%9A%D1%80%D0%B5%D1%81%D1%82%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9_(%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD)%7C%D0%90%D0%B0%D0%B3_(%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD)",
-    "https://ru.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=6&srsearch=%D0%90%D0%B0%D0%B3%D1%81%D0%BA%D0%B8%D0%B5%20%D0%BD%D0%B0%D1%80%D0%B7%D0%B0%D0%BD%D1%8B",
-    "https://ru.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=6&srsearch=%D0%92%D0%B5%D1%80%D1%85%D0%BD%D0%B5-%D0%9E%D0%BF%D0%B0%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8",
-    "https://ru.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=6&srsearch=%D0%9A%D0%BE%D1%88%D0%B5%D0%BB%D0%B5%D0%B2%D1%81%D0%BA%D0%B8%D0%B5%20%D0%B8%D1%81%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8"
+    "https://ru.wikipedia.org/w/api.php?action=query&prop=coordinates&colimit=max&format=json&titles=%D0%92%D0%B5%D1%80%D1%85%D0%BD%D0%B5-%D0%9A%D0%BE%D1%88%D0%B5%D0%BB%D0%B5%D0%B2%D1%81%D0%BA%D0%B8%D0%B5_%D0%BF%D0%B0%D1%80%D0%BE%D0%B3%D0%B8%D0%B4%D1%80%D0%BE%D1%82%D0%B5%D1%80%D0%BC%D1%8B%7C%D0%9A%D1%80%D0%B5%D1%81%D1%82%D0%BE%D0%B2%D1%81%D0%BA%D0%B8%D0%B9"
   ],
-  "bytes": 12000,
-  "timeout": 60,
+  "bytes": 8000,
+  "timeout": 120,
   "retries": 0,
-  "note": "Проба 45: верификация координат для партии 5 (кластеры и синонимы по всему каталогу). Прямые координаты: Бархатная сопка (на её точке сидит Озеро Тополовое), Узон (дубль «Узон»/«Кальдера вулкана Узон» с разлётом 7.8 км), Крестовский (дубль с разлётом 14.6 км), Ааг (для Аагских=Чистинских нарзанов с разлётом 24 км). Поиском — точные заголовки для нарзанов, Верхне-Опальских (сидят на точке пещер Горелого — чужой район) и Кошелевских (Гремучие ключи).",
-  "run": 45
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/places-dedup",
+      "body": {
+        "dry_run": true,
+        "pairs": [
+          {
+            "keep": "5694d055-9713-44af-8bcb-670ff63bb3e9",
+            "merge": "a6330106-13d5-40f0-9c77-d252daf5b95f"
+          },
+          {
+            "keep": "95f08ebc-d645-4bd1-99d6-ba88b4198046",
+            "merge": "ba53696b-7331-43b6-9359-96f610344381"
+          },
+          {
+            "keep": "7f5284b0-8862-4b11-8a68-2241d359832c",
+            "merge": "d8d88430-31c7-4949-a65d-a522fe791120"
+          },
+          {
+            "keep": "e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
+            "merge": "e698db3e-2c8f-41d0-872f-5566e1a3319f"
+          }
+        ]
+      }
+    }
+  ],
+  "note": "Проба 46: вики-добор (Верхне-Кошелевские парогидротермы, Крестовский без скобок) + СУХОЙ прогон четырёх слияний партии 5: Узон ← Кальдера вулкана Узон (вики-точка у keep, обе внутри кальдеры); Крестовский ← Вулкан Крестовский (Плоский Ближний) (keep совпадает с GVP 56.11/160.51, merge в 14.6 км); Горячереченские ← Третья лужа (одна точка, «лужи» — народное имя купелей); Гремучие ключи ← Нижне-Кошелевские (Гремучие ключи) (координаты keep согласуются с соседними Верхне-Кошелевскими, у merge разлёт 17 км). Аагские нарзаны и Верхне-Опальские — НЕ здесь: чисел в открытых источниках нет, партия «не трогаем» по правилу 752.",
+  "run": 46
 }
