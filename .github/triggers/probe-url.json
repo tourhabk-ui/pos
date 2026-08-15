@@ -1,13 +1,11 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/route-data-audit",
-    "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/cron/track-attachment-audit",
-    "https://vedarai.ru/api/cron/duplicate-routes-audit"
-  ],
-  "bytes": 60000,
-  "timeout": 180,
-  "retries": 0,
-  "note": "Проба 51: карта боли МАРШРУТОВ — снять все четыре готовых аудита разом (владелец: «переходим к нашей боли — маршруты»). route-data-audit — у скольких линия/набросок/точки в стороне; routes-audit — общая диагностика; track-attachment-audit — сколько привязок треков не подтверждается сегодняшним правилом; duplicate-routes-audit — сколько маршрутов-двойников. По цифрам — план партий, как было с местами.",
-  "run": 51
+ "bytes": 4000,
+ "timeout": 60,
+ "note": "Проба 111: контроль фикса #1218 (деплой d78505f3). Страница /operators/kamchatka-rafting падала 500 на объектной форме contacts; ждём 200 с именами админов (Катерина/Ярослав) и Telegram-каналом. Контроль: страница рыбалки не сломана.",
+ "run": 111,
+ "urls": [
+  "https://vedarai.ru/operators/kamchatka-rafting",
+  "https://vedarai.ru/operators/fishingkam"
+ ],
+ "markers": ["Рафтинг", "Катерина"]
 }
