@@ -56,6 +56,9 @@ export async function collectSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     { url: `${BASE}/eco`,                  lastModified: new Date('2026-08-01'), changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/planner`,              lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.8 },
+    // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
+    // HTML, а не JSON-манифест (диагноз 15.08 — Алиса галлюцинировала «MCP нет»).
+    { url: `${BASE}/mcp`,                  lastModified: new Date('2026-08-15'), changeFrequency: 'monthly', priority: 0.7 },
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
     { url: `${BASE}/plans`,                lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.85 },
