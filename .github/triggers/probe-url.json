@@ -1,19 +1,15 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/routes?kind=place&location_type=museum&limit=100",
-    "https://vedarai.ru/api/routes?kind=place&location_type=geyser&limit=50",
-    "https://vedarai.ru/api/routes?kind=place&location_type=beach&limit=50"
-  ],
-  "bytes": 60000,
-  "timeout": 120,
-  "retries": 10,
-  "retryDelay": 60,
-  "until": "партунского",
-  "count": [
-    "Царь-бомба",
-    "Халактырские",
-    "\"title\""
-  ],
-  "note": "Проба 49: приёмка миграции 865 (мерж 1160847). Маркер until — музей с опечаткой в фильтре «Музеи»: до миграции его там не было (тип был other), появление = миграция накатилась. Дальше счётчики: «Царь-бомба» в гейзерах — 0, «Халактырские» в пляжах — 0, число title в каждом фильтре печатается для сверки.",
-  "run": 49
+ "bytes": 8000,
+ "timeout": 60,
+ "note": "Проба 108: контроль пилота после миграции 863 и фикса свежести. Ждём: рафтинг в /api/operators, lead.js отдаёт СКРИПТ (не 404) по обоим slug, get_tours без прошедших дат.",
+ "run": 108,
+ "urls": [
+  "https://vedarai.ru/api/operators",
+  "https://vedarai.ru/api/widget/lead.js?partner=fishingkam",
+  "https://vedarai.ru/api/widget/lead.js?partner=kamchatka-semeyny-rafting"
+ ],
+ "markers": ["Рафтинг", "fishingkam"],
+ "post": [
+  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_tours", "arguments": {}}}}
+ ]
 }
