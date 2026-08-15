@@ -134,9 +134,9 @@ export function nameMatchStrength(a: string, b: string): 'strong' | 'weak' | nul
 // lib/scraping/brightdata.ts). Без токена фоллбэк недоступен — это честно
 // попадает в listingErrors.
 
-type FetchedText = { text: string } | { text: null; error: string };
+export type FetchedText = { text: string } | { text: null; error: string };
 
-async function fetchTextWithFallback(url: string, ajax = false): Promise<FetchedText> {
+export async function fetchTextWithFallback(url: string, ajax = false): Promise<FetchedText> {
   let directError: string;
   try {
     const res = await fetch(url, {
