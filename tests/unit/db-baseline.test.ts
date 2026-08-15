@@ -38,6 +38,18 @@ describe('baseline в репозитории', () => {
   });
 });
 
+describe('метаданные свежести (ревизия 15.08, P2)', () => {
+  const ASSEMBLER = readFileSync(join(ROOT, 'scripts/assemble-db-baseline.py'), 'utf-8');
+
+  it('сборщик пишет snapshot_at, SHA воркфлоу и счётчики объектов', () => {
+    expect(ASSEMBLER).toMatch(/snapshot_at:/);
+    expect(ASSEMBLER).toMatch(/GITHUB_RUN_ID/);
+    expect(ASSEMBLER).toMatch(/GITHUB_SHA/);
+    expect(ASSEMBLER).toMatch(/Объектов на проде/);
+    expect(ASSEMBLER).toMatch(/ДИСЦИПЛИНА АКТУАЛЬНОСТИ/);
+  });
+});
+
 describe('bootstrap-from-baseline', () => {
   it('отказывается работать на непустой базе без --force', () => {
     expect(BOOTSTRAP).toMatch(/relkind = 'r'/);
