@@ -1,11 +1,23 @@
 {
- "bytes": 6000,
+ "bytes": 8000,
  "timeout": 60,
- "note": "Проба 112: приёмка MCP handoff v2 (#1223, деплой abd5a7fe). Ждём в ответах get_tour_details и get_guardian_context ссылку «Продолжить в Ведаре: .../mcp/h/<token>» — v1 давал её только планеру и safety_status. Если ссылок нет — сборка старая, повторить.",
- "run": 112,
+ "note": "Проба 113: добивка приёмки v2 — ответ get_guardian_context в пробе 112 был 6576 байт при окне 6000, хвост со ссылкой обрезан. Окно 8000, ждём «Продолжить в Ведаре» в конце.",
+ "run": 113,
  "urls": [],
  "post": [
-  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_tour_details", "arguments": {"name": "Сплав"}}}},
-  {"url": "https://vedarai.ru/api/mcp", "body": {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_guardian_context", "arguments": {"place": "Авачинский"}}}}
+  {
+   "url": "https://vedarai.ru/api/mcp",
+   "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+     "name": "get_guardian_context",
+     "arguments": {
+      "place": "Авачинский"
+     }
+    }
+   }
+  }
  ]
 }
