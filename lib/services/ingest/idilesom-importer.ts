@@ -134,9 +134,9 @@ export function nameMatchStrength(a: string, b: string): 'strong' | 'weak' | nul
 // lib/scraping/brightdata.ts). Без токена фоллбэк недоступен — это честно
 // попадает в listingErrors.
 
-type FetchedText = { text: string } | { text: null; error: string };
+export type FetchedText = { text: string } | { text: null; error: string };
 
-async function fetchTextWithFallback(url: string, ajax = false): Promise<FetchedText> {
+export async function fetchTextWithFallback(url: string, ajax = false): Promise<FetchedText> {
   let directError: string;
   try {
     const res = await fetch(url, {
@@ -230,7 +230,7 @@ export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<
 
 // ── Scrape individual place page ──────────────────────────────────────────────
 
-interface ScrapedPlace {
+export interface ScrapedPlace {
   id: string;
   title: string;
   description: string;
@@ -241,7 +241,7 @@ interface ScrapedPlace {
   coordinates: number[][];    // GPS track waypoints [lng, lat, ele?]
 }
 
-async function scrapePage(id: string): Promise<ScrapedPlace | null> {
+export async function scrapePage(id: string): Promise<ScrapedPlace | null> {
   try {
     const fetched = await fetchTextWithFallback(`https://idilesom.com/kam/places/${id}`);
     if (fetched.text === null) return null;
