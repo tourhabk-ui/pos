@@ -60,6 +60,16 @@ export function OnSiteBanner() {
               Офлайн
             </span>
           )}
+          {/* Неполный пакет — не зелёная галочка: предлагаем добрать */}
+          {status === 'partial' && (
+            <button
+              onClick={() => void download()}
+              className="flex items-center gap-1 px-2.5 min-h-[44px] rounded-lg border border-[var(--warning)]/40 text-[var(--warning)] text-xs transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Офлайн: не всё
+            </button>
+          )}
           <button
             onClick={disableOnSite}
             className="flex items-center gap-1 px-2.5 min-h-[44px] rounded-lg border border-[var(--border)] text-[var(--text-muted)] text-xs hover:text-[var(--text-primary)] transition-colors"

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { semanticSearch } from '@/lib/ai/embeddings';
 import { getRouteSearchCache, setRouteSearchCache } from '@/lib/ai/route-knowledge';
+import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,25 +18,42 @@ interface RouteRow {
   difficulty_level: string | null;
   zone: string | null;
   waypoint_names: string[] | null;
+  has_line: boolean;
+  geometry_source: string | null;
   similarity?: number;
+}
+
+/** Род данных для бейджа в списке выбора — до фиксации маршрута. */
+function withLineGrade(rows: RouteRow[]): Array<RouteRow & { line_grade: PassportGrade }> {
+  return rows.map(r => ({
+    ...r,
+    line_grade: lineGradeForList(r.has_line, r.geometry_source, (r.waypoint_names?.length ?? 0) > 0),
+  }));
 }
 
 // Колонка сложности в kamchatka_routes называется difficulty (миграция 056);
 // difficulty_level здесь — имя поля ответа. Обращение r.difficulty_level
 // роняло endpoint 500-кой на КАЖДЫЙ запрос (вскрылось навигаторным выбором
 // маршрута по месту, 2026-07-19).
+// id отдаётся в пространстве VIEW agent_route_knowledge — COALESCE(ark_id, id):
+// этим id потребители (планер) идут в /api/routes/{id}, который ищет по VIEW.
+// Голый r.id у маршрута с заполненным ark_id там не находился (404), а
+// semantic-ветка (ids из VIEW) не проходила фильтр по r.id и молча теряла
+// такие маршруты. Одно пространство id на весь путь выбора.
 const ENRICH_SQL = `
   SELECT
-    r.id,
+    COALESCE(r.ark_id, r.id) AS id,
     r.title,
     r.distance_km,
     r.difficulty AS difficulty_level,
     r.zone,
+    (r.geometry IS NOT NULL) AS has_line,
+    r.geometry->>'source' AS geometry_source,
     ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
   FROM kamchatka_routes r
   LEFT JOIN route_waypoints rw ON rw.route_id = r.id
   LEFT JOIN places p ON p.id = rw.place_id
-  WHERE r.id = ANY($1::uuid[]) AND r.is_visible = TRUE
+  WHERE (r.id = ANY($1::uuid[]) OR r.ark_id = ANY($1::uuid[])) AND r.is_visible = TRUE
   GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
 `;
 
@@ -65,9 +83,9 @@ export async function GET(req: NextRequest) {
 
         // Обогащаем SQL-данными, сохраняем порядок по схожести
         const byId = Object.fromEntries(rows.map(r => [r.id, r]));
-        const ordered: RouteRow[] = semanticResults
+        const ordered = withLineGrade(semanticResults
           .filter(r => byId[r.id])
-          .map(r => ({ ...byId[r.id], similarity: r.similarity }));
+          .map(r => ({ ...byId[r.id], similarity: r.similarity })));
 
         setRouteSearchCache(rawQ, { routes: ordered, semantic: true });
         return NextResponse.json({ routes: ordered, semantic: true });
@@ -84,11 +102,13 @@ export async function GET(req: NextRequest) {
   try {
     const result = await query<RouteRow>(
       `SELECT
-         r.id,
+         COALESCE(r.ark_id, r.id) AS id,
          r.title,
          r.distance_km,
          r.difficulty AS difficulty_level,
          r.zone,
+         (r.geometry IS NOT NULL) AS has_line,
+         r.geometry->>'source' AS geometry_source,
          ARRAY_AGG(p.name ORDER BY rw.position) FILTER (WHERE p.name IS NOT NULL AND p.is_visible = TRUE) AS waypoint_names
        FROM kamchatka_routes r
        LEFT JOIN route_waypoints rw ON rw.route_id = r.id
@@ -117,7 +137,7 @@ export async function GET(req: NextRequest) {
        LIMIT 15`,
       [like],
     );
-    return NextResponse.json({ routes: result.rows, semantic: false });
+    return NextResponse.json({ routes: withLineGrade(result.rows), semantic: false });
   } catch (err) {
     // В поле лучше пустой список, чем 500 — UI покажет «ничего не нашлось»
     console.error('[search] fallback error', { error: err instanceof Error ? err.message : String(err) });

@@ -27,7 +27,7 @@ import {
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
 import { connectivityState } from '@/lib/on-route/connectivity';
 import {
-  trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
+  trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
 import { connectorLine, CONNECTOR_TITLES, trackLine } from '@/lib/map/line-standard';
@@ -36,6 +36,16 @@ import {
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
+import { useSwRegistration } from '@/lib/offline/sw-status';
+import {
+  passportGradeLabel, passportGradeNote, passportCtaLabel, type PassportGrade,
+} from '@/lib/routes/passport';
+import {
+  saveFieldPack, loadFieldPack, verifyFieldPack, fieldPackReadiness, formatSnapshotAge,
+  type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
+} from '@/lib/offline/field-pack';
+import { RouteProgressBar } from '@/components/field/RouteProgressBar';
+import { TrustCard } from '@/components/field/TrustCard';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -76,6 +86,32 @@ interface RoutePreview {
   imageUrl: string | null;
   /** Через какие места проходит (для выбора по названию места) */
   via?: string | null;
+  /**
+   * Род навигационных данных (Трек / Набросок / Точки…) — виден ДО выбора:
+   * различение снятого трека и ломаной — главная защита платформы, и она
+   * не должна открываться человеку только в поле (план FCN, этап 1).
+   */
+  lineGrade?: PassportGrade | null;
+}
+
+/** Бейдж рода данных маршрута в выборе. Цвет — семантика, не украшение. */
+function GradeChip({ grade }: { grade: PassportGrade | null | undefined }) {
+  if (!grade) return null;
+  const color =
+    grade === 'surveyed' ? 'var(--success)'
+    : grade === 'points_only' ? 'var(--ocean)'
+    : grade === 'none' ? 'var(--text-muted)'
+    : 'var(--warning)';
+  return (
+    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+      style={{
+        color,
+        border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+        background: `color-mix(in srgb, ${color} 10%, transparent)`,
+      }}>
+      {passportGradeLabel(grade)}
+    </span>
+  );
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
@@ -321,6 +357,10 @@ function OnTrailTab() {
   // Без неё положение мерилось по прореженной ломаной, а профиль —
   // по полному треку, и срез рельефа уезжал к началу.
   const [trackDm, setTrackDm] = useState<number[] | null>(null);
+  // Происхождение линии из данных маршрута. undefined — ответ API ещё не
+  // приходил (офлайн-кэш источника не знает), null — API ответил «источник
+  // не записан». Разница важна: у trackLine это два разных честных состояния.
+  const [geometrySource, setGeometrySource] = useState<string | null | undefined>(undefined);
   /**
    * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
    * «снимок от такого-то часа» — это утверждение о свежести, и брать его
@@ -343,10 +383,12 @@ function OnTrailTab() {
   const [modalQuery, setModalQuery] = useState('');
   const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
   const [searching, setSearching] = useState(false);
-  const [preview, setPreview] = useState<{ id: string; title: string; wps: SavedWaypoint[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
+  } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
-  const previewCacheRef = useRef<Map<string, SavedWaypoint[]>>(new Map());
+  const previewCacheRef = useRef<Map<string, { wps: SavedWaypoint[]; grade: PassportGrade | null }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
@@ -355,10 +397,27 @@ function OnTrailTab() {
   } | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  /**
+   * Состояние полевого пакета по ассетам (карта/линия/точки/условия) —
+   * проверкой, не памятью: verifyFieldPack пробует Cache Storage и меряет
+   * возраст снимка условий. null — пакета нет.
+   */
+  const [packStates, setPackStates] = useState<PackAssetState[] | null>(null);
+  /** Сам манифест пакета — для листа «Условия» (снимок работает без сети). */
+  const [pack, setPack] = useState<FieldPackManifest | null>(null);
+  /** Редакция маршрута из паспорта — пакет привязывается к ней. */
+  const [routeVersion, setRouteVersion] = useState<number | null>(null);
+  /** Лист «Условия»: снимок из пакета + живой статус при связи. */
+  const [showConditions, setShowConditions] = useState(false);
+  const [liveSafety, setLiveSafety] = useState<PackSafetySnapshot | null>(null);
   /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
   const crumbsRouteRef = useRef<string | null>(null);
+  // Судьба Service Worker: без него офлайн-контура нет, и полевой экран
+  // обязан сказать это до выхода, а не оставить человека гадать в поле,
+  // почему «сохранённая» карта не открылась.
+  const swReg = useSwRegistration();
 
   /**
    * План скачивания карты — сколько это будет весить.
@@ -393,7 +452,87 @@ function OnTrailTab() {
     } catch { /* тихо: план — удобство, а не условие выхода */ }
   }, []);
 
-  /** Скачать карту маршрута по явному нажатию. */
+  /**
+   * Собрать манифест полевого пакета: линия + точки + снимок условий +
+   * запись о карте — одной записью в IndexedDB. Снимок условий кладётся
+   * при сборке: в поле связи не будет, а его возраст обязан быть виден.
+   */
+  const assemblePack = useCallback(async (routeId: string, failedTiles: number, persisted: boolean) => {
+    let safety: PackSafetySnapshot | null = null;
+    try {
+      const res = await fetch('/api/public/safety-status');
+      const j = await res.json() as { success?: boolean; data?: Record<string, unknown> };
+      const d = j?.data;
+      if (j?.success && d) {
+        safety = {
+          hasAlert: d.hasAlert === true,
+          maxSeverity: Number(d.maxSeverity) || 0,
+          topTitle: typeof d.topTitle === 'string' ? d.topTitle : null,
+          source: typeof d.source === 'string' ? d.source : '',
+          at: Date.now(),
+          unavailable: d.unavailable === true,
+        };
+      }
+    } catch { safety = null; }
+    const now = Date.now();
+    const manifest: FieldPackManifest = {
+      routeId,
+      routeVersion: routeVersion ?? 1,
+      title: activeRouteTitle,
+      createdAt: now,
+      updatedAt: now,
+      route: { track, trackDm, geometrySource: geometrySource ?? null },
+      waypoints,
+      tiles: mapPlan ? {
+        total: mapPlan.tiles, failed: failedTiles, droppedZooms: mapPlan.dropped,
+        coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, mb: mapPlan.mb,
+        sampleUrls: [
+          mapPlan.urls[0],
+          mapPlan.urls[Math.floor(mapPlan.urls.length / 2)],
+          mapPlan.urls[mapPlan.urls.length - 1],
+        ].filter(Boolean),
+      } : null,
+      safety,
+      storage: { persistent: persisted },
+    };
+    try { await saveFieldPack(manifest); } catch { /* квота/приватный режим — покажет verify */ }
+    setPack(manifest);
+    try { setPackStates(await verifyFieldPack(manifest)); } catch { /* ignore */ }
+  }, [mapPlan, track, trackDm, geometrySource, waypoints, activeRouteTitle, routeVersion]);
+
+  /** Поднять и перепроверить сохранённый пакет маршрута. */
+  const refreshPackStates = useCallback((routeId: string) => {
+    loadFieldPack(routeId)
+      .then(async p => {
+        setPack(p);
+        setPackStates(p ? await verifyFieldPack(p) : null);
+      })
+      .catch(() => { setPack(null); setPackStates(null); });
+  }, []);
+
+  /** Открыть «Условия»: снимок из пакета сразу, живой статус — если есть связь. */
+  const openConditions = useCallback(() => {
+    setShowConditions(true);
+    fetch('/api/public/safety-status')
+      .then(r => r.json())
+      .then((j: unknown) => {
+        const d = (j as { success?: boolean; data?: Record<string, unknown> } | null)?.data;
+        if (!(j as { success?: boolean } | null)?.success || !d) return;
+        // Недоступность источника — не «спокойно»: живым снимком не считается.
+        if (d.unavailable === true) return;
+        setLiveSafety({
+          hasAlert: d.hasAlert === true,
+          maxSeverity: Number(d.maxSeverity) || 0,
+          topTitle: typeof d.topTitle === 'string' ? d.topTitle : null,
+          source: typeof d.source === 'string' ? d.source : '',
+          at: Date.now(),
+          unavailable: false,
+        });
+      })
+      .catch(() => { /* офлайн — остаёмся на снимке пакета */ });
+  }, []);
+
+  /** Скачать полевой пакет маршрута по явному нажатию (карта — самый тяжёлый ассет). */
   const saveMap = useCallback(async (routeId: string) => {
     if (!mapPlan || !navigator.serviceWorker) return;
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
@@ -407,7 +546,7 @@ function OnTrailTab() {
       setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
         if ((e.data as { regionId?: string })?.regionId !== routeId) return;
-        const m = e.data as { type: string; done: number; total: number };
+        const m = e.data as { type: string; done: number; failed?: number; total: number };
         if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
         if (m.type === 'TILES_DONE') {
           setTileDl(null);
@@ -419,12 +558,15 @@ function OnTrailTab() {
           setSavedMap(rec);
           try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
           navigator.serviceWorker.removeEventListener('message', onMsg);
+          // Пакет собирается той же кнопкой: карта, линия, точки и снимок
+          // условий — один шаг, а не три разных «сохранить».
+          void assemblePack(routeId, m.failed ?? 0, persisted);
         }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
       sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
     } catch { /* ignore */ }
-  }, [mapPlan]);
+  }, [mapPlan, assemblePack]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
   // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
@@ -471,6 +613,12 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        // Источник и трек ставятся из одного ответа — они описывают одну
+        // и ту же линию. Строка → источник записан, иначе — честный null.
+        setGeometrySource(typeof data.geometrySource === 'string' ? data.geometrySource : null);
+        // Редакция маршрута из паспорта: полевой пакет привязывается к ней.
+        const pp = data.passport as { version?: unknown } | null | undefined;
+        setRouteVersion(typeof pp?.version === 'number' ? pp.version : null);
         const dm = (data as Record<string, unknown>).track_dm;
         setTrackDm(Array.isArray(dm) && Array.isArray(tr) && dm.length === tr.length
           ? (dm as number[])
@@ -496,9 +644,23 @@ function OnTrailTab() {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
-      .catch(() => { /* офлайн — уже показали кэш */ })
+      .catch(() => {
+        // Офлайн — точки уже показаны из кэша. Линию поднимаем из полевого
+        // пакета: без него поле без сети оставалось вовсе без трека, и
+        // экран честно деградировал до наброска, теряя снятую линию,
+        // которую человек видел при сохранении пакета.
+        void loadFieldPack(routeId).then(pack => {
+          if (!pack || !pack.route.track || pack.route.track.length < 2) return;
+          setTrack(pack.route.track);
+          setTrackDm(pack.route.trackDm);
+          setGeometrySource(pack.route.geometrySource);
+          setRouteVersion(pack.routeVersion);
+        }).catch(() => { /* пакета нет — остаёмся на кэше точек */ });
+      })
       .finally(() => setIsLoadingRoute(false));
-  }, [loadMapPlan]);
+    // Состояние пакета — сразу из записи (и перепроверкой), не дожидаясь сети.
+    refreshPackStates(routeId);
+  }, [loadMapPlan, refreshPackStates]);
 
   // Network
   useEffect(() => {
@@ -773,8 +935,11 @@ function OnTrailTab() {
   // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
   /**
    * Происхождение линии на карте: снятый трек или ломаная между точками.
-   * Считается по плотности точек — флага в данных нет, миграция 168 ничего
-   * не проставила (см. lib/routes/track-fidelity).
+   * Род линии спрашивается у ЗАПИСИ (`geometry->>'source'` через trackLine),
+   * плотность точек — только когда источник не записан. Перепись 11.08
+   * (проба 55): у 295 линий из 301 источник есть, а плотностная эвристика
+   * на «Вулкане Жупановском» выдавала синтетику за снятый трек — сплошная
+   * зелёная означает «здесь идут», и по ней идут.
    */
   const lineFidelity: TrackFidelity = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
@@ -783,8 +948,8 @@ function OnTrailTab() {
     // Ломаная, собранная нами из путевых точек, — заведомо набросок:
     // считать её плотность незачем, происхождение известно точно.
     if (!track || track.length < 2) return line ? 'sketch' : 'unknown';
-    return trackFidelity(track);
-  }, [track, waypoints]);
+    return trackLine(track, geometrySource)?.fidelity ?? 'unknown';
+  }, [track, waypoints, geometrySource]);
 
   /**
    * Путь от МЕСТА ЧЕЛОВЕКА вдоль тропы, а не по прямой через залив.
@@ -978,11 +1143,23 @@ function OnTrailTab() {
   // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
   // ли ещё пять часов или это автопереезд (владелец 09.08).
 
-  // Плечи маршрута по линии между точками — основа прогресса.
-  const legKms = useMemo(
-    () => waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng)),
-    [waypoints],
-  );
+  // Плечи маршрута — основа прогресса. Меряются ВДОЛЬ ТРЕКА, когда трек есть
+  // и точки ложатся на него по порядку: «до точки» уже считается по треку
+  // (approach), и мерить «пройдено» прямыми значило бы держать на одном
+  // экране две разные метрики одного пути — на извилистом горном маршруте
+  // они расходятся в полтора раза. Прямые между точками остаются только
+  // фолбэком наброска, где пути в данных и нет.
+  const legKms = useMemo(() => {
+    const straight = waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng));
+    if (!track || track.length < 2 || !trackDm) return straight;
+    const posM = waypoints.map(w => distanceAlongTrack(track, w.lat, w.lng, trackDm));
+    if (posM.some(p => p === null)) return straight;
+    const legs = posM.slice(1).map((p, i) => ((p as number) - (posM[i] as number)) / 1000);
+    // Точка спроецировалась ПОЗАДИ предыдущей — порядок точек не совпадает
+    // с направлением трека, и мерка вдоль него лжёт. Честнее прямые.
+    if (legs.some(l => l <= 0)) return straight;
+    return legs;
+  }, [waypoints, track, trackDm]);
   const progress = useMemo(
     () => routeProgress(legKms, currentWpIdx, distToNext),
     [legKms, currentWpIdx, distToNext],
@@ -1128,6 +1305,7 @@ function OnTrailTab() {
               distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
               imageUrl: null,
               via,
+              lineGrade: (row.line_grade as PassportGrade | null) ?? null,
             } satisfies RoutePreview;
           }));
         })
@@ -1140,7 +1318,7 @@ function OnTrailTab() {
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
     const cached = previewCacheRef.current.get(r.id);
-    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached }); return; }
+    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade }); return; }
     setPreviewLoadingId(r.id);
     fetch(`/api/routes/${r.id}`)
       .then(res => res.json())
@@ -1157,8 +1335,14 @@ function OnTrailTab() {
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
         if (converted.length === 0) return;
-        previewCacheRef.current.set(r.id, converted);
-        setPreview({ id: r.id, title: r.title, wps: converted });
+        // Род данных — из паспорта детального ответа (точнее спискового:
+        // он видит сам трек, а не только факт наличия линии); фолбэк — бейдж
+        // из списка, если паспорта в ответе нет (старый кэш/билд).
+        const pp = data.passport as { grade?: unknown } | null | undefined;
+        const grade = (typeof pp?.grade === 'string' ? pp.grade as PassportGrade : null)
+          ?? r.lineGrade ?? null;
+        previewCacheRef.current.set(r.id, { wps: converted, grade });
+        setPreview({ id: r.id, title: r.title, wps: converted, grade });
       })
       .catch(() => { /* остаёмся на списке */ })
       .finally(() => setPreviewLoadingId(null));
@@ -1187,6 +1371,7 @@ function OnTrailTab() {
             durationDays: row.durationDays != null ? Number(row.durationDays) : null,
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             imageUrl: null,
+            lineGrade: (row.lineGrade as PassportGrade | null) ?? null,
           } satisfies RoutePreview;
         }).filter(Boolean) as RoutePreview[];
         if (items.length === 0) setModalError('Маршруты не найдены');
@@ -1357,10 +1542,11 @@ function OnTrailTab() {
                   </>
                 )}
 
-                {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
-                    «осталось» не отвечает на вопрос поля (владелец 09.08).
-                    Без расстояния считать нечего — тогда и строк нет: «придём
-                    через —» это не сдержанность, а вид поломки. */}
+                {/* Слой хода: когда придём. Одна цифра «осталось» не отвечает
+                    на вопрос поля (владелец 09.08). Без расстояния считать
+                    нечего — тогда и строк нет: «придём через —» это не
+                    сдержанность, а вид поломки. Прогресс «пройдено/осталось»
+                    вынесен в полноширинный модуль ниже (макет FCN). */}
                 {distLabel !== null && (
                 <div className="mt-3 flex flex-col gap-1.5">
                   <p className="text-sm text-[var(--text-secondary)]">
@@ -1368,23 +1554,7 @@ function OnTrailTab() {
                     <span className="font-semibold text-[var(--text-primary)]">{formatEta(eta.hours)}</span>
                   </p>
                   {etaNote && <p className="text-[11px] text-[var(--text-muted)] leading-tight">{etaNote}</p>}
-                  {progress.totalKm > 0 && (
-                    <>
-                      <p className="text-sm text-[var(--text-secondary)]">
-                        <span className="text-[var(--text-muted)]">пройдено</span>{' '}
-                        <span className="font-semibold text-[var(--text-primary)]">
-                          {progress.doneKm.toFixed(1)} / {progress.totalKm.toFixed(1)} км
-                        </span>{' '}
-                        <span className="text-[var(--text-muted)]">· {progress.percent}%</span>
-                      </p>
-                      <div className="h-1.5 rounded-full overflow-hidden w-full max-w-[200px]" style={{ background: 'var(--bg-hover)' }}>
-                        <div className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${progress.percent}%`, background: 'var(--success)' }} />
-                      </div>
-                    </>
-                  )}
                 </div>
-
                 )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
@@ -1429,6 +1599,24 @@ function OnTrailTab() {
             )}
           </div>
         </div>
+
+        {/* Прогресс по маршруту — постоянный второй слой под главной задачей
+            (макет FCN): компас отвечает «куда сейчас», этот блок — «сколько
+            сделано». При конфликте данных прогресса нет вовсе: считать общий
+            путь из противоречивых линии и точек нельзя. */}
+        {waypoints.length > 0 && !approach?.dataConflict && (
+          <RouteProgressBar
+            doneKm={progress.doneKm}
+            totalKm={progress.totalKm}
+            percent={progress.percent}
+            fidelity={lineFidelity}
+            live={figuresLive}
+            staleLabel={!figuresLive ? fixLabel(fix) : null}
+            checkpoint={waypoints.length > 1
+              ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
+              : null}
+          />
+        )}
 
         {/* Приборы показываем, только когда им есть что показать: «— м» и
             «0ч 00м» читаются не как «данных нет», а как «сломалось». */}
@@ -1571,6 +1759,17 @@ function OnTrailTab() {
 
       </div>
 
+      {/* Офлайн-контур не поднялся — сказать до выхода, а не оставить
+          выяснять в поле. Раньше отказ регистрации SW глотался молча, и
+          «Сохранить карту» выглядело работающим, ничего не сохраняя. */}
+      {hasRoute && (swReg.state === 'failed' || swReg.state === 'unsupported') && (
+        <div className="px-4 py-3 text-xs" style={{ color: 'var(--warning)', borderTop: '1px solid var(--border)' }}>
+          {swReg.state === 'unsupported'
+            ? 'Браузер не поддерживает офлайн-режим: карта не сохранится, очередь SOS без связи не сработает'
+            : 'Офлайн-режим не запустился в этом сеансе: карта не сохранится. Перезагрузите страницу, пока есть связь'}
+        </div>
+      )}
+
       {/* Карта офлайн: три состояния — качается, сохранена, не сохранена.
           Раньше строка появлялась только на время фоновой докачки, а
           проверить готовность было нечем: единственный момент, когда это
@@ -1624,9 +1823,10 @@ function OnTrailTab() {
                 {/* Ноль на кнопке — не размер, а его отсутствие, и читается он
                     как «бесплатно». Если веса нет, честнее не называть числа:
                     сервер режет квадрат по 2000 тайлов, за кнопкой стоят
-                    десятки мегабайт мобильного трафика (скрин владельца 10.08,
-                    «Сохранить карту · 0 МБ»). */}
-                {mapPlan.mb > 0 ? `Сохранить карту · ${mapPlan.mb} МБ` : 'Сохранить карту'}
+                    десятки мегабайт мобильного трафика (скрин владельца 10.08).
+                    Пакет — один шаг: карта, линия, точки и снимок условий
+                    сохраняются этой же кнопкой (FCN этап 2). */}
+                {mapPlan.mb > 0 ? `Сохранить полевой пакет · ${mapPlan.mb} МБ` : 'Сохранить полевой пакет'}
               </button>
               <span>
                 {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
@@ -1635,6 +1835,23 @@ function OnTrailTab() {
               </span>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Карточка доверия: род линии + состояние пакета + качество фикса
+          одной строкой с раскрытием. partial никогда не зелёный; отсутствие
+          линии у points_only — природа маршрута, не дефект пакета. */}
+      {hasRoute && (
+        <div className="px-4 pb-2">
+          <TrustCard
+            fidelity={lineFidelity}
+            geometrySource={geometrySource}
+            hasTrack={!!track && track.length >= 2}
+            conflict={approach?.dataConflict === true}
+            packStates={packStates}
+            packReadiness={packStates ? fieldPackReadiness(packStates) : null}
+            fixLabel={fixLabel(fix)}
+          />
         </div>
       )}
 
@@ -1672,14 +1889,15 @@ function OnTrailTab() {
           }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </button>
-        <a href={coords
-            ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10`
-            : 'https://openweathermap.org/city/2124044'}
-          target="_blank" rel="noopener noreferrer"
+        {/* Условия — внутренний снимок из пакета, не внешняя ссылка:
+            OpenWeatherMap в поле без сети — мёртвая кнопка, а решение
+            «идти или нет» принимается по нашему safety-слою (план FCN:
+            в active mode нет внешних переходов). */}
+        <button onClick={openConditions}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid #1e3a5f', minHeight: 60 }}>
-          <CloudSun className="w-5 h-5" /> ПОГОДА
-        </a>
+          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 25%, transparent)', minHeight: 60 }}>
+          <CloudSun className="w-5 h-5" /> УСЛОВИЯ
+        </button>
         <Link href="/ai-assistant"
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
           style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid #431a07', minHeight: 60 }}>
@@ -1691,6 +1909,54 @@ function OnTrailTab() {
           <Phone className="w-5 h-5" /> SOS
         </a>
       </div>
+
+      {/* Условия: снимок из полевого пакета (работает без сети) + живой
+          статус при связи. «Мы не знаем» никогда не выглядит как «спокойно». */}
+      {showConditions && (() => {
+        const snap = liveSafety ?? (pack?.safety && !pack.safety.unavailable ? pack.safety : null);
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+            onClick={() => setShowConditions(false)}>
+            <div className="rounded-t-2xl p-4 pb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-[var(--text-primary)] text-base">Условия</h3>
+                <button onClick={() => setShowConditions(false)}
+                  className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }} aria-label="Закрыть">
+                  <X className="w-4 h-4 text-[var(--text-muted)]" />
+                </button>
+              </div>
+              {snap ? (
+                <div className="space-y-2 text-sm">
+                  <p style={{ color: snap.hasAlert ? 'var(--warning)' : 'var(--text-primary)' }} className="font-semibold">
+                    {snap.hasAlert
+                      ? (snap.topTitle ?? `Активные предупреждения (тяжесть ${snap.maxSeverity} из 5)`)
+                      : 'Активных предупреждений по краю нет'}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {liveSafety ? 'Живой статус' : 'Снимок из полевого пакета'} · {formatSnapshotAge(snap.at)}
+                    {snap.source ? ` · ${snap.source}` : ''}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Это обстановка по краю целиком, а не оценка вашего маршрута.
+                    Экстренный телефон — 112.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold" style={{ color: 'var(--warning)' }}>
+                    Данных об обстановке сейчас нет
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Это не означает, что опасности нет: снимок условий не был сохранён
+                    в полевой пакет, а связи для живого статуса нет. Экстренный телефон — 112.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
           localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}
@@ -1743,10 +2009,21 @@ function OnTrailTab() {
                       пустым (скрин владельца «Авачинский перевал»). */}
                   <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" />
                 </div>
-                <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                  <GradeChip grade={preview.grade} />
+                </div>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
                   {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
                 </p>
+                {/* Оговорка паспорта: что этот род данных значит для ног.
+                    Бейдж прочитает не каждый — слова прочитают все. */}
+                {preview.grade && passportGradeNote(preview.grade) && (
+                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                    {passportGradeNote(preview.grade)}
+                  </p>
+                )}
                 {previewMap.scattered && (
                   <p className="text-xs mb-3 px-3 py-2 rounded-lg"
                     style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
@@ -1764,7 +2041,10 @@ function OnTrailTab() {
                     <button onClick={() => selectRoute(preview)}
                       className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
                       style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                      Начать по маршруту
+                      {/* «Навигатор» обещает ведение по линии — это обещание
+                          есть только у снятого трека. Остальным — честное
+                          «ориентирование»: направление и точки, не тропа. */}
+                      {passportCtaLabel(preview.grade ?? 'unknown')}
                     </button>
                   )}
                 </div>
@@ -1815,7 +2095,10 @@ function OnTrailTab() {
                               opacity: previewLoadingId === r.id ? 0.6 : 1,
                             }}>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                                <GradeChip grade={r.lineGrade} />
+                              </div>
                               <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
                                 {r.distanceKm ? `${r.distanceKm} км · ` : ''}
                                 {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
@@ -1947,9 +2230,9 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   function toggleItem(id: string) {
     // 'offline' can't be manually toggled — it's auto-computed
     if (id === 'offline') return;
-    // maps — trigger download if not started yet
+    // maps — trigger download if not started yet (partial — добрать недостающее)
     if (id === 'maps') {
-      if (mapsStatus === 'idle' || mapsStatus === 'error') downloadMaps();
+      if (mapsStatus === 'idle' || mapsStatus === 'error' || mapsStatus === 'partial') downloadMaps();
       return;
     }
     // mchs opens a form URL
@@ -2036,6 +2319,25 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
             </p>
           </div>
         </div>
+        {/* Полный план подготовки — вход в маршрутный экран семи доменов
+            (FCN этап 4). Этот чек-лист остаётся быстрой механикой (карты,
+            МЧС), доменная модель живёт в одном месте — lib/preparation. */}
+        {hasActiveRoute && (() => {
+          let rid: string | null = null;
+          try { rid = localStorage.getItem('active_trail_route_id'); } catch { /* ssr/приват */ }
+          return rid ? (
+            <Link href={`/routes/${rid}/prepare`}
+              className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl mb-3 text-sm font-semibold"
+              style={{
+                background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
+                color: 'var(--success)',
+              }}>
+              План подготовки к походу: 7 доменов
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            </Link>
+          ) : null;
+        })()}
         <div className="space-y-1">
           {effectiveChecklist.map(item => {
             const isExternal = item.id === 'mchs' || item.id === 'emergency';
@@ -2080,6 +2382,12 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
                 {item.id === 'maps' && mapsStatus === 'error' && mapsError && (
                   <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--danger)' }}>
                     Ошибка: {mapsError} — нажми ещё раз
+                  </p>
+                )}
+                {/* Частичный пакет — не готовность: галочки нет, причина словами */}
+                {item.id === 'maps' && mapsStatus === 'partial' && (
+                  <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--warning)' }}>
+                    Карта скачана не полностью — нажми ещё раз, пока есть связь
                   </p>
                 )}
               </div>
@@ -2180,9 +2488,25 @@ export function PlanningClient() {
     }
   }, []);
 
+  /**
+   * Смена таба обновляет URL. Раньше deep-link был односторонним:
+   * ?mode=trail открывал полевой режим, но переключение руками URL не
+   * трогало — «поделиться режимом» и перезагрузка возвращали не туда.
+   * replaceState, не push: таб — не страница, спамить историю нечем.
+   */
+  function switchTab(next: 'planning' | 'trail') {
+    setTab(next);
+    try {
+      const url = new URL(window.location.href);
+      if (next === 'trail') url.searchParams.set('mode', 'trail');
+      else url.searchParams.delete('mode');
+      window.history.replaceState(null, '', url.toString());
+    } catch { /* URL не обновился — не повод ломать переключение */ }
+  }
+
   function handleStartTrail(routeId: string) {
     try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
-    setTab('trail');
+    switchTab('trail');
   }
 
   return (
@@ -2194,7 +2518,7 @@ export function PlanningClient() {
         style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
-            onClick={() => setTab('planning')}
+            onClick={() => switchTab('planning')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'planning'
                 ? 'border-[var(--accent)] text-[var(--accent)]'
@@ -2204,7 +2528,7 @@ export function PlanningClient() {
             <Navigation className="w-4 h-4" /> Планирование
           </button>
           <button
-            onClick={() => setTab('trail')}
+            onClick={() => switchTab('trail')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'trail'
                 ? 'border-[var(--success)] text-[var(--success)]'

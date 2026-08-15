@@ -1160,6 +1160,19 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Navigation className="w-4 h-4" /> Начать навигацию
                     </button>
                   )}
+                  {/* Подготовка — отдельная фаза до поля: семь потребностей
+                      выхода, а не только скачанная карта (план FCN, этап 4). */}
+                  <Link
+                    href={`/routes/${id}/prepare`}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
+                    style={{
+                      background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                      color: 'var(--success)',
+                      border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                    }}
+                  >
+                    Собрать план подготовки
+                  </Link>
                   {/* Запрет НЕ запирает вход в поле. Кнопка ведёт на полевой
                       экран — след, офлайн-карта, ступень связи, — а он нужен
                       именно тому, кто уже вышел и как раз узнал про запрет.
