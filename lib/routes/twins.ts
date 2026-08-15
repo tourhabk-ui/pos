@@ -27,14 +27,36 @@ export interface TwinFacts {
   tourCount: number;
   geometrySource: string | null;
   hasGeometry: boolean;
+  /** 'LineString' | 'Point' | ... — что именно лежит в geometry. */
+  geometryType?: string | null;
+  /** Число вершин линии (для Point и пустоты — 0). */
+  geometryPoints?: number;
 }
 
-/** Синтетика — не трек, а прямая, нарисованная миграцией 168. */
+/** Синтетика — не трек, а прямая, нарисованная миграцией 168 или A*. */
 const SYNTHETIC_SOURCES = new Set(['waypoints_synthetic', 'road_graph_astar']);
 
-/** Настоящий снятый трек: он ценен сам по себе, даже у записи-двойника. */
+/**
+ * Ниже этого числа вершин «линия» ничего не описывает: две-три точки —
+ * это отрезок, поставленный импортом вместо координаты, а не пройденный
+ * путь. Порог намеренно щадящий: настоящие снятые треки имеют сотни
+ * вершин (проложенные нами сегодня — 396 и 1104).
+ */
+const MIN_TRACK_POINTS = 5;
+
+/**
+ * Настоящий снятый трек: он ценен сам по себе, даже у записи-двойника,
+ * и его судьбу решает человек. Всё остальное — синтетика, точка или
+ * огрызок из двух вершин — уборке не мешает.
+ */
 export function hasRealTrack(f: TwinFacts): boolean {
-  return f.hasGeometry && !SYNTHETIC_SOURCES.has(f.geometrySource ?? '');
+  if (!f.hasGeometry) return false;
+  if (SYNTHETIC_SOURCES.has(f.geometrySource ?? '')) return false;
+  if (f.geometryType != null && f.geometryType !== 'LineString') return false;
+  // Размер известен — судим по нему; неизвестен (старый формат) — считаем
+  // треком, потому что терять снятый путь дороже, чем оставить запись.
+  if (f.geometryPoints != null && f.geometryPoints < MIN_TRACK_POINTS) return false;
+  return true;
 }
 
 /** Маскируется под маршрут: три признака разом. */

@@ -38,6 +38,7 @@ interface TwinRow {
   id: string; title: string; place_id: string;
   waypoint_count: number; has_distance: boolean;
   has_geometry: boolean; geometry_source: string | null;
+  geometry_type: string | null; geometry_points: number;
   tour_count: number;
 }
 
@@ -86,6 +87,10 @@ export async function POST(request: NextRequest) {
               (r.distance_km IS NOT NULL) AS has_distance,
               (r.geometry IS NOT NULL) AS has_geometry,
               r.geometry->>'source' AS geometry_source,
+              r.geometry->>'type' AS geometry_type,
+              CASE WHEN r.geometry->>'type' = 'LineString'
+                   THEN jsonb_array_length(COALESCE(r.geometry->'coordinates', '[]'::jsonb))
+                   ELSE 0 END AS geometry_points,
               (SELECT COUNT(*)::int FROM operator_tours ot WHERE ot.route_id::text = r.id::text) AS tour_count
        FROM kamchatka_routes r
        JOIN places p
@@ -97,16 +102,23 @@ export async function POST(request: NextRequest) {
 
     const chosen = data.ids ? rows.filter(r => data.ids!.includes(r.id)) : rows;
 
+    const geometryShapes = new Map<string, number>();
     const toHide: Array<{ id: string; title: string }> = [];
     const held: Array<{ id: string; title: string; reasons: string[] }> = [];
     const notJunk: Array<{ id: string; title: string; waypoints: number; hasDistance: boolean }> = [];
 
     for (const r of chosen) {
+      // Сводка форм геометрии: без неё непонятно, чем «трек» у карточки
+      // места отличается от настоящего пути.
+      const shape = `${r.geometry_type ?? 'нет'}:${r.geometry_source ?? 'без метки'}:${r.geometry_points}`;
+      geometryShapes.set(shape, (geometryShapes.get(shape) ?? 0) + 1);
+
       const facts: TwinFacts = {
         title: r.title, hasPlaceTwin: true,
         waypointCount: r.waypoint_count, hasDistance: r.has_distance,
         tourCount: r.tour_count, geometrySource: r.geometry_source,
         hasGeometry: r.has_geometry,
+        geometryType: r.geometry_type, geometryPoints: r.geometry_points,
       };
       if (!isTwinJunk(facts)) {
         notJunk.push({ id: r.id, title: r.title, waypoints: r.waypoint_count, hasDistance: r.has_distance });
@@ -126,6 +138,9 @@ export async function POST(request: NextRequest) {
         twins_total: chosen.length,
         would_hide: batch.length,
         over_limit_left: dropped,
+        geometry_shapes: [...geometryShapes.entries()]
+          .map(([shape, count]) => ({ shape, count }))
+          .sort((a, b) => b.count - a.count),
         held_back: held,
         real_routes_kept: notJunk,
         plan: batch,

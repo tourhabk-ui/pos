@@ -47,6 +47,27 @@ describe('стоп-условия', () => {
     expect(stop.some(s => s.includes('трек'))).toBe(true);
   });
 
+  it('точка вместо линии — не трек', () => {
+    expect(hasRealTrack({
+      ...base, hasGeometry: true, geometrySource: null,
+      geometryType: 'Point', geometryPoints: 0,
+    })).toBe(false);
+  });
+
+  it('огрызок из двух вершин — не трек, а отрезок импорта', () => {
+    expect(hasRealTrack({
+      ...base, hasGeometry: true, geometrySource: null,
+      geometryType: 'LineString', geometryPoints: 2,
+    })).toBe(false);
+  });
+
+  it('снятый путь в сотни вершин — трек, даже без метки source', () => {
+    expect(hasRealTrack({
+      ...base, hasGeometry: true, geometrySource: null,
+      geometryType: 'LineString', geometryPoints: 396,
+    })).toBe(true);
+  });
+
   it('синтетическая линия — не трек, она не держит', () => {
     expect(hasRealTrack({ ...base, hasGeometry: true, geometrySource: 'waypoints_synthetic' })).toBe(false);
     expect(blockers({ ...base, hasGeometry: true, geometrySource: 'waypoints_synthetic' })).toHaveLength(0);
