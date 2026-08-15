@@ -6,8 +6,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
-  Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
+  Map as MapIcon, CloudSun, Phone,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
@@ -46,6 +46,9 @@ import {
 } from '@/lib/offline/field-pack';
 import { RouteProgressBar } from '@/components/field/RouteProgressBar';
 import { TrustCard } from '@/components/field/TrustCard';
+import { RecoveryCard } from '@/components/field/RecoveryCard';
+import { recoveryState } from '@/lib/on-route/recovery';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -410,6 +413,14 @@ function OnTrailTab() {
   /** Лист «Условия»: снимок из пакета + живой статус при связи. */
   const [showConditions, setShowConditions] = useState(false);
   const [liveSafety, setLiveSafety] = useState<PackSafetySnapshot | null>(null);
+  /** Лист «Группа»: состояние брифинга и экстренная связь. */
+  const [showGroup, setShowGroup] = useState(false);
+  /**
+   * «Продолжить намеренно»: карточка восстановления сворачивается до строки.
+   * Ключ — род состояния, а не флаг: новое состояние (ушли с линии после
+   * того, как приглушили «карта не сохранена») обязано показаться заново.
+   */
+  const [mutedRecovery, setMutedRecovery] = useState<string | null>(null);
   /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
@@ -1182,6 +1193,22 @@ function OnTrailTab() {
     return r.points.length >= 2 ? r : null;
   }, [relief, track, trackDm, coords, nextWp]);
 
+  /**
+   * Состояние восстановления. Считается движком (lib/on-route/recovery) из
+   * уже имеющихся фактов: род линии, отход от неё, качество фикса, конфликт
+   * данных, наличие карты в телефоне. Экран сам ничего про это не решает.
+   */
+  const recovery = useMemo(() => recoveryState({
+    fidelity: lineFidelity,
+    hasTrack: !!track && track.length >= 2,
+    userOffTrack: approach?.userOffTrack === true,
+    offTrackKm: approach?.approachKm ?? null,
+    dataConflict: approach?.dataConflict === true,
+    fix,
+    mapSaved: savedMap !== null,
+    offline: isOffline,
+  }), [lineFidelity, track, approach, fix, savedMap, isOffline]);
+
   const eta = useMemo(
     () => etaHours({
       distanceKm: distToNext ?? 0,
@@ -1600,6 +1627,29 @@ function OnTrailTab() {
           </div>
         </div>
 
+        {/* Восстановление: когда реальность разошлась с планом, главной
+            задачей становится она — но приборы остаются на месте, карточка
+            стоит НИЖЕ компаса и дистанции и ничего не закрывает. */}
+        {hasRoute && recovery.kind !== 'none' && (
+          <RecoveryCard
+            state={recovery}
+            muted={mutedRecovery === recovery.kind}
+            onMute={() => setMutedRecovery(recovery.kind)}
+            onUnmute={() => setMutedRecovery(null)}
+            onPrimary={kind => {
+              if (kind === 'open_map') {
+                setMapCenter(coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined));
+                setShowMap(true);
+              } else if (kind === 'open_pack') {
+                const id = crumbsRouteRef.current;
+                if (id) void saveMap(id);
+              } else if (kind === 'open_conditions') {
+                openConditions();
+              }
+            }}
+          />
+        )}
+
         {/* Прогресс по маршруту — постоянный второй слой под главной задачей
             (макет FCN): компас отвечает «куда сейчас», этот блок — «сколько
             сделано». При конфликте данных прогресса нет вовсе: считать общий
@@ -1898,16 +1948,18 @@ function OnTrailTab() {
           style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 25%, transparent)', minHeight: 60 }}>
           <CloudSun className="w-5 h-5" /> УСЛОВИЯ
         </button>
-        <Link href="/ai-assistant"
+        {/* «Группа» вместо AI-чата: в активном режиме нет длинного разговора,
+            есть план и контакт вне маршрута (макеты FCN, решение владельца).
+            Кузьмич остаётся в шапке и на других экранах. */}
+        <button onClick={() => setShowGroup(true)}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid #431a07', minHeight: 60 }}>
-          <MessageCircle className="w-5 h-5" /> КУЗЬМИЧ
-        </Link>
-        <a href="tel:112"
-          className="flex items-center justify-center gap-2 rounded-xl font-bold text-xl transition-colors"
-          style={{ background: 'var(--danger)', color: 'var(--text-primary)', border: '1px solid var(--danger)', minHeight: 60 }}>
-          <Phone className="w-5 h-5" /> SOS
-        </a>
+          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', minHeight: 60 }}>
+          <Users className="w-5 h-5" /> ГРУППА
+        </button>
+        {/* SOS — общий компонент, не своя кнопка: здесь жил сырой tel:112
+            без офлайн-ветки. Копии SOS уже расходились поведением (#887),
+            и полевой экран — последнее место, где это допустимо. */}
+        <EmergencyAction variant="field" />
       </div>
 
       {/* Условия: снимок из полевого пакета (работает без сети) + живой
@@ -1957,6 +2009,49 @@ function OnTrailTab() {
           </div>
         );
       })()}
+
+      {/* Группа: состояние брифинга и экстренная связь. Работает офлайн —
+          сеть здесь не нужна: мы не показываем чужих положений и не
+          обещаем слежения, только то, что человек подготовил до выхода. */}
+      {showGroup && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowGroup(false)}>
+          <div className="rounded-t-2xl p-4 pb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Группа</h3>
+              <button onClick={() => setShowGroup(false)}
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }} aria-label="Закрыть">
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            </div>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Брифинг — ссылка контакту вне маршрута: план и время возврата.
+              Положение по ней не передаётся: платформа его не знает и слежения не обещает.
+            </p>
+            {crumbsRouteRef.current && (
+              <Link href={`/routes/${crumbsRouteRef.current}/prepare`}
+                className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl text-sm font-semibold mb-2"
+                style={{
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                  color: 'var(--success)',
+                }}>
+                Открыть план и отправить брифинг
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              </Link>
+            )}
+            <a href="tel:112"
+              className="flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-bold"
+              style={{ background: 'var(--danger)', color: '#fff' }}>
+              <Phone className="w-4 h-4" /> 112 — экстренный вызов
+            </a>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              Диспетчеру нужны: название маршрута, ваше положение и время выхода.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
           localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}

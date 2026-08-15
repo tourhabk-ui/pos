@@ -192,11 +192,13 @@ export function buildPreparationItems(input: PrepEngineInput): PrepItem[] {
     domain: 'safety_group',
     importance: 'required',
     state: 'needs_action',
-    title: 'Контакт знает план и время возврата',
+    title: 'Отправить брифинг контакту',
     meta: '2 минуты · группа',
     reason: 'Кто-то вне маршрута должен знать, куда вы идёте и когда ждать обратно — это первое, что спросят спасатели',
     source: { type: 'official_rule', reference: 'NPS: сообщите план похода' },
-    action: { kind: 'manual_confirm', label: 'Сообщил' },
+    // Ссылка, а не отправка за человека: контактных данных получателя мы
+    // не собираем — турист отправляет её своим мессенджером (миграция 870).
+    action: { kind: 'share_briefing', label: 'Создать ссылку' },
   }));
   if (answers.party === 'group' || answers.party === 'guided') {
     items.push(makeItem({

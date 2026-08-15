@@ -32,7 +32,8 @@ import {
 } from '@/lib/preparation/types';
 import { loadPreparationPlan, savePreparationPlan } from '@/lib/preparation/storage';
 import { loadFieldPack, verifyFieldPack, type PackAssetState } from '@/lib/offline/field-pack';
-import type { RoutePassport } from '@/lib/routes/passport';
+import { buildBriefingSnapshot } from '@/lib/preparation/briefing';
+import { passportGradeLabel, type RoutePassport } from '@/lib/routes/passport';
 
 /** Тонкие изолинии подложки — рельеф кодом, без внешних картинок. */
 function TopoBackground() {
@@ -103,6 +104,12 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
   const [userStates, setUserStates] = useState<Record<string, PrepState>>({});
   const [showQuestions, setShowQuestions] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  /** Плановое время возврата — главное число брифинга для контакта. */
+  const [returnBy, setReturnBy] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // План — из локального хранилища: подготовка переживает перезагрузку.
   useEffect(() => {
@@ -167,6 +174,7 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
     });
   }, [persist, answers]);
 
+
   const items = useMemo(() => buildPreparationItems({
     passport, packStates, answers, conditionsAgeMs, userStates,
   }), [passport, packStates, answers, conditionsAgeMs, userStates]);
@@ -178,6 +186,60 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
     () => items.filter(i => i.state === 'ready' || i.state === 'not_applicable'),
     [items],
   );
+
+  /**
+   * Создать ссылку-брифинг. Отправляет её человек сам — мы не собираем
+   * контактных данных получателя и не обещаем слежения: в снимке нет и не
+   * может быть координат (схема API их не принимает).
+   */
+  const shareBriefing = useCallback(async () => {
+    if (sharing) return;
+    setSharing(true);
+    setShareError(null);
+    try {
+      const snapshot = buildBriefingSnapshot({
+        routeTitle: title ?? 'Маршрут',
+        routeVersion: passport?.version ?? 1,
+        routeGrade: passportGradeLabel(passport?.grade ?? 'unknown'),
+        waypointsCount: passport?.waypointsCount ?? 0,
+        departureAt: null,
+        returnBy: returnBy || null,
+        answers,
+        packStates,
+        domains,
+        openActionTitles: actions.map(a => a.title),
+      });
+      const res = await fetch('/api/preparation/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          routeId,
+          routeVersion: passport?.version ?? 1,
+          returnBy: returnBy ? new Date(returnBy).toISOString() : null,
+          answers,
+          snapshot,
+        }),
+      });
+      const json = await res.json() as { success?: boolean; data?: { path: string; expiresAt: string }; error?: string };
+      if (!res.ok || !json.success || !json.data) {
+        setShareError(json.error ?? 'Не удалось создать ссылку');
+        return;
+      }
+      const url = `${window.location.origin}${json.data.path}`;
+      setShareUrl(url);
+      // Отметка «сделано» ставится по факту созданной ссылки, а не по клику.
+      setUserStates(prev => {
+        const next: Record<string, PrepState> = { ...prev, return_plan: 'ready' };
+        persist(answers, next);
+        return next;
+      });
+      try { await navigator.clipboard.writeText(url); setCopied(true); } catch { /* без буфера — ссылка на экране */ }
+    } catch {
+      setShareError('Нет связи — ссылку можно создать позже, пока есть интернет');
+    } finally {
+      setSharing(false);
+    }
+  }, [sharing, title, passport, returnBy, answers, packStates, domains, actions, routeId, persist]);
 
   const metaLine = [
     answers.duration ? DURATION_LABEL[answers.duration] : null,
@@ -311,7 +373,45 @@ export default function PrepareClient({ routeId }: { routeId: string }) {
                         {item.action.label}
                       </button>
                     )}
+                    {item.action?.kind === 'share_briefing' && (
+                      <button onClick={() => void shareBriefing()} disabled={sharing}
+                        className="text-xs font-bold px-3.5 py-2 rounded-lg shrink-0 disabled:opacity-60"
+                        style={{ color: 'var(--warning)', border: '1px solid var(--warning)' }}>
+                        {sharing ? 'Создаём…' : item.action.label}
+                      </button>
+                    )}
                   </div>
+
+                  {/* Время возврата — то, по чему контакт поймёт, что пора
+                      звонить. Спрашиваем здесь же: без него брифинг теряет
+                      главное число. */}
+                  {item.action?.kind === 'share_briefing' && (
+                    <div className="mt-3">
+                      <label className="text-xs block mb-1" style={{ color: 'rgba(240,246,252,0.7)' }}>
+                        Когда ждать обратно
+                      </label>
+                      <input type="datetime-local" value={returnBy}
+                        onChange={e => setReturnBy(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg text-sm"
+                        style={{
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          color: '#F0F6FC',
+                        }} />
+                      {shareUrl && (
+                        <div className="mt-2 p-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                          <p className="text-[11px] mb-1" style={{ color: 'var(--success)' }}>
+                            {copied ? 'Ссылка скопирована — отправьте её контакту' : 'Ссылка готова — отправьте её контакту'}
+                          </p>
+                          <p className="text-[11px] break-all" style={{ color: 'rgba(240,246,252,0.75)' }}>{shareUrl}</p>
+                        </div>
+                      )}
+                      {shareError && (
+                        <p className="text-[11px] mt-1.5" style={{ color: 'var(--danger)' }}>{shareError}</p>
+                      )}
+                    </div>
+                  )}
+
                   <p className="text-xs mt-2.5 pt-2.5 flex items-start gap-1.5"
                     style={{ color: 'rgba(240,246,252,0.6)', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
