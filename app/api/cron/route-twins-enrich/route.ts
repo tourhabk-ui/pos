@@ -95,6 +95,10 @@ export async function POST(request: NextRequest) {
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
          AND r.geometry->>'type' = 'LineString'
          AND r.distance_km IS NULL
+         -- Линии из четырёх вершин (синтетика 168) дооформить нельзя, а
+         -- дистанцию им никто не запишет — без этого условия они висят в
+         -- выборке вечно и съедают слоты в каждой партии.
+         AND jsonb_array_length(COALESCE(r.geometry->'coordinates', '[]'::jsonb)) >= 5
        ORDER BY r.title
        LIMIT $1`,
       [data.ids ? 60 : data.limit],
