@@ -136,7 +136,8 @@ describe('пакет доехал до полевого экрана', () => {
   it('состояние пакета на экране — из verifyFieldPack, с репетицией авиарежима', () => {
     expect(client).toMatch(/verifyFieldPack/);
     expect(client).toMatch(/fieldPackReadiness/);
-    expect(client).toMatch(/авиарежим/);
+    // Строки готовности и подсказка авиарежима живут в карточке доверия.
+    expect(read('components/field/TrustCard.tsx')).toMatch(/авиарежим/);
   });
 
   it('пакет привязан к редакции маршрута', () => {

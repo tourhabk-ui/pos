@@ -128,7 +128,7 @@ export default function DashboardClient() {
             {ROUTE.checkpointsDone}/{ROUTE.checkpointsTotal} чекпоинта · {ROUTE.remainingKm} км осталось
           </p>
 
-          <Link href="/on-route"
+          <Link href="/planning?mode=trail"
             className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all hover:opacity-90"
             style={{ background: 'color-mix(in srgb, var(--success) 12%, var(--bg-card))', border: '1px solid var(--success)', color: 'var(--success)' }}>
             Открыть навигацию <ArrowRight size={16} />

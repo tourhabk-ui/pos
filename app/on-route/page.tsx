@@ -1,12 +1,15 @@
-import type { Metadata } from 'next';
-import OnRouteClient from './_OnRouteClient';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'На маршруте — Vedar',
-  description: 'Режим навигации на маршруте: компас, GPS, высота, расстояние до точки.',
-  robots: 'noindex',
-};
-
+/**
+ * /on-route упразднён (план FCN, этап 3): это был второй полевой экран —
+ * копия OnTrailTab без off-track, ETA, прогресса, крошек, качества фикса и
+ * офлайн-пакета, зато с подставными координатами при отсутствии GPS и без
+ * единого теста. Копии полевых экранов расходятся так же, как расходились
+ * копии карточки тура и SOS-кнопки (#887).
+ *
+ * Данные общие (active_trail_route_id, trail_route_wps_*), поэтому redirect
+ * ничего не теряет: активный маршрут откроется в едином полевом режиме.
+ */
 export default function OnRoutePage() {
-  return <OnRouteClient />;
+  redirect('/planning?mode=trail');
 }
