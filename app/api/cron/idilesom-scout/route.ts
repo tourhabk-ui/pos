@@ -26,7 +26,7 @@ import { z } from 'zod';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
-import { scrapePage } from '@/lib/services/ingest/idilesom-importer';
+import { scrapePage, fetchTextWithFallback } from '@/lib/services/ingest/idilesom-importer';
 import { trackLengthKm, type Coord } from '@/lib/routes/track-length';
 
 export const dynamic = 'force-dynamic';
@@ -57,7 +57,28 @@ export async function POST(request: NextRequest) {
       // eslint-disable-next-line no-await-in-loop
       const page = await scrapePage(id);
       if (!page) {
-        items.push({ id, status: 'страница не разобрана (статья, реклама или отказ источника)' });
+        // Разбор молчит об одном «нет», за которым стоят три разные
+        // причины: сайт не отдал страницу, страница есть но не про
+        // географию, страницы нет вовсе. Не различив их, вывода не
+        // сделать — поэтому диагностируем сырым запросом.
+        // eslint-disable-next-line no-await-in-loop
+        const raw = await fetchTextWithFallback(`https://idilesom.com/kam/places/${id}`);
+        if (raw.text === null) {
+          items.push({ id, status: 'источник не отдал страницу', reason: raw.error.slice(0, 160) });
+          continue;
+        }
+        const html = raw.text;
+        const ogTitle = html.match(/property="og:title"\s+content="([^"]+)"/)?.[1]?.trim() ?? null;
+        const hasCoords = /"latitude"\s*:\s*[\d.]+/.test(html);
+        const trackBlocks = (html.match(/\[\s*\[\s*[\d.]+\s*,\s*[\d.]+[\s\S]*?\]\s*\]/g) ?? []).length;
+        items.push({
+          id,
+          status: 'страница есть, но разбор её отверг',
+          htmlBytes: html.length,
+          ogTitle,
+          hasCoords,
+          trackBlocks,
+        });
         continue;
       }
 
