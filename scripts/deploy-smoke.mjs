@@ -85,11 +85,33 @@ async function checkCatalog() {
 
 /* ─── 2. Деталь пригодного маршрута ──────────────────────────────────────── */
 
+/**
+ * Кандидат на проверку детали: сначала каталог, при его смерти — поиск.
+ *
+ * 16.08 каталог упал, и проверка детали стала «не выполнена»: одна поломка
+ * погасила две проверки, а отчёт лишился половины смысла. Поиск — независимый
+ * контур (в тот же вечер он работал, когда каталог не отвечал), поэтому
+ * деталь проверяется через него, а не пропускается.
+ *
+ * Пропуск проверки — это НЕ её успех, и в отчёте он никогда не выглядит
+ * зелёным; но лучше проверить обходным путём, чем не проверить вовсе.
+ */
+async function detailCandidate(items) {
+  const fromCatalog = (items ?? []).find((r) => r && typeof r.id === 'string');
+  if (fromCatalog) return fromCatalog;
+
+  notes.push('Каталог не отдал кандидата — деталь проверяется через поиск.');
+  const { status, body } = await getJson(
+    `${BASE}/api/routes/search?q=${encodeURIComponent('Авачинский')}`,
+  );
+  if (status !== 200 || !Array.isArray(body?.routes)) return null;
+  return body.routes.find((r) => r && typeof r.id === 'string') ?? null;
+}
+
 async function checkRouteDetail(items) {
-  if (!items) return;
-  const first = items.find((r) => r && typeof r.id === 'string');
+  const first = await detailCandidate(items);
   if (!first) {
-    fail('деталь маршрута', 'в выдаче каталога нет элемента с id');
+    fail('деталь маршрута', 'кандидата нет ни в каталоге, ни в поиске');
     return;
   }
 

@@ -53,13 +53,39 @@ const STEPS: Array<{ name: string; sql: string }> = [
   },
 ];
 
+/**
+ * Поля ошибки Postgres как они есть.
+ *
+ * Одного `message` мало: «column reference is_visible is ambiguous» ещё
+ * читается, а вот отличить ошибку синтаксиса (42601) от несуществующей
+ * колонки (42703) и от нарушения типов (42883) по тексту — гадание.
+ * SQLSTATE называет род поломки однозначно, `position` указывает место
+ * в запросе. Всё это доступно только внутри закрытого контура.
+ */
+function pgErrorFields(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { error: String(err) };
+  const e = err as Error & {
+    code?: string; detail?: string; hint?: string; position?: string; where?: string;
+  };
+  return {
+    error: e.message.slice(0, 400),
+    sqlstate: e.code,
+    detail: e.detail?.slice(0, 300),
+    hint: e.hint?.slice(0, 300),
+    position: e.position,
+    where: e.where?.slice(0, 300),
+    stack: (e.stack ?? '').split('\n').slice(1, 4).join(' | '),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const results: Array<{ step: string; ok: boolean; rows?: number; error?: string }> = [];
+  interface DiagStep { step: string; ok: boolean; rows?: number; [k: string]: unknown }
+  const results: DiagStep[] = [];
 
   for (const step of STEPS) {
     try {
@@ -67,33 +93,59 @@ export async function GET(request: NextRequest) {
       const res = await pool.query(step.sql);
       results.push({ step: step.name, ok: true, rows: res.rowCount ?? 0 });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      results.push({ step: step.name, ok: false, error: message.slice(0, 400) });
+      results.push({ step: step.name, ok: false, ...pgErrorFields(err) });
       break; // дальше идти незачем: следующий шаг сложнее упавшего
     }
   }
 
-  // Главный шаг: тот же вызов, что делает публичный каталог. Его обработчик
-  // ловит ЛЮБУЮ ошибку и подменяет текстом «Проверьте DATABASE_URL», из-за
-  // чего настоящая причина не видна снаружи. Здесь она возвращается как есть.
-  let catalogStep: Record<string, unknown>;
-  try {
-    const res = await queryCatalog({ kind: 'place', limit: 5, page: 1 } as never);
-    catalogStep = { step: 'queryCatalog как в /api/routes', ok: true, items: res.items.length };
-  } catch (err) {
-    catalogStep = {
-      step: 'queryCatalog как в /api/routes',
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? (err.stack ?? '').split('\n').slice(0, 4).join(' | ') : undefined,
-    };
-  }
-  results.push(catalogStep as never);
+  /**
+   * Вызовы queryCatalog теми же аргументами, что приходят с прода —
+   * от простого к сложному, чтобы ветка с ошибкой называла себя сама.
+   *
+   * Смоук 16.08 упал на `kind=route&has_waypoints=true`, а прежняя
+   * диагностика проверяла только `kind=place`: то есть подтверждала
+   * здоровье НЕ той ветки, которая падает. Отсюда правило — форма запроса
+   * в диагностике обязана совпадать с той, что сломалась, иначе зелёный
+   * ответ означает лишь, что мы спросили не о том.
+   *
+   * Разделение на три шага отвечает на конкретный вопрос: сломан ли
+   * каталог вообще, ветка has_waypoints или именно двухточечный предикат
+   * (ca70f8a3). Это заменяет сверку по времени мержа, которая ничего не
+   * доказывает.
+   */
+  const CATALOG_CALLS: Array<{ name: string; filters: Record<string, unknown> }> = [
+    { name: 'queryCatalog kind=place (как проба 84)', filters: { kind: 'place', limit: 5, page: 1 } },
+    { name: 'queryCatalog kind=route без has_waypoints', filters: { kind: 'route', limit: 10, page: 1, sort: 'recommended' } },
+    { name: 'queryCatalog kind=route + has_waypoints (форма смоука)', filters: { kind: 'route', limit: 10, page: 1, sort: 'recommended', has_waypoints: 'true' } },
+  ];
 
-  const failed = results.find(r => !r.ok);
+  for (const call of CATALOG_CALLS) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await queryCatalog(call.filters as never);
+      results.push({ step: call.name, ok: true, rows: res.items.length });
+    } catch (err) {
+      results.push({ step: call.name, ok: false, ...pgErrorFields(err) });
+      // Не прерываемся: важно знать, падают ли ВСЕ ветки или только одна —
+      // это и есть ответ про регрессию.
+    }
+  }
+
+  const failed = results.filter(r => !r.ok);
+
+  // Вердикт называет ветку, а не только первый упавший шаг: «падает всё» и
+  // «падает одна ветка» чинятся по-разному, и именно это различие отвечает
+  // на вопрос о регрессии.
+  const verdict = failed.length === 0
+    ? 'все шаги прошли — поломка не в этих запросах'
+    : failed.length === results.length
+      ? 'падают все шаги — общая поломка доступа к БД'
+      : `падает ${failed.length} из ${results.length}: ${failed.map(f => `«${f.step}»`).join(', ')}`;
+
   return NextResponse.json({
     success: true,
-    verdict: failed ? `падает на шаге «${failed.step}»` : 'все шаги прошли — поломка не в этих запросах',
+    release: process.env.RELEASE_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    verdict,
     steps: results,
   });
 }
