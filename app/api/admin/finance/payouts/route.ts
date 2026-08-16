@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -137,74 +137,130 @@ export async function POST(request: NextRequest) {
 
   const { operatorId, paymentIds, periodStart, periodEnd, reference } = parsed.data;
 
-  // Получаем выбранные HELD платежи
-  const paymentsResult = await query(
-    `SELECT id, net_amount FROM tour_payments
-     WHERE id = ANY($1::uuid[])
-       AND operator_id = $2
-       AND status = 'HELD'`,
-    [paymentIds, operatorId]
-  );
+  /**
+   * Выплата целиком в ОДНОЙ транзакции с блокировкой платежей (#1217).
+   *
+   * Было: SELECT без блокировки → INSERT выплаты → UPDATE платежей →
+   * пересчёт комиссии, четырьмя отдельными запросами. Два способа отдать
+   * деньги дважды:
+   *
+   *   1. Сбой между INSERT и UPDATE — выплата создана, платежи остались
+   *      HELD. Админ видит «выплаты по ним нет» и запускает снова.
+   *   2. Два одновременных запроса — оба читают одни и те же HELD-платежи
+   *      (SELECT без FOR UPDATE ничего не блокирует) и оба создают выплату.
+   *      Уникальный индекс тут не спасает: payment_ids — массив.
+   *
+   * Теперь строки блокируются FOR UPDATE до любых изменений. Второй
+   * одновременный запрос ждёт коммита первого, после чего условие
+   * status = 'HELD' ему уже не подходит — он честно получает отказ.
+   */
+  let rejection: { status: number; error: string } | null = null;
 
-  if (paymentsResult.rows.length === 0) {
-    return NextResponse.json({ error: 'Нет платежей готовых к выплате' }, { status: 400 });
-  }
+  const result = await transaction(async client => {
+    const paymentsResult = await client.query(
+      `SELECT id, net_amount FROM tour_payments
+       WHERE id = ANY($1::uuid[])
+         AND operator_id = $2
+         AND status = 'HELD'
+       FOR UPDATE`,
+      [paymentIds, operatorId]
+    );
 
-  const totalNet = paymentsResult.rows.reduce(
-    (sum, r) => sum + parseFloat(r.net_amount as string), 0
-  );
-  const confirmedIds = paymentsResult.rows.map(r => r.id as string);
+    if (paymentsResult.rows.length === 0) {
+      rejection = { status: 400, error: 'Нет платежей готовых к выплате' };
+      return null;
+    }
 
-  // Получаем реквизиты оператора
-  const partnerResult = await query(
-    `SELECT payout_method, payout_details, payout_verified FROM partners WHERE id = $1`,
-    [operatorId]
-  );
-  const partner = partnerResult.rows[0];
+    /**
+     * Нашлись не все запрошенные платежи — это не повод молча заплатить
+     * за часть. Админ выбрал десять, получил бы выплату по трём и не узнал
+     * бы об этом: остальные семь уже кем-то выплачены, отменены или
+     * принадлежат другому оператору. Разница между «выплатил» и «выплатил
+     * частично» в деньгах слишком велика, чтобы решать её за человека.
+     */
+    if (paymentsResult.rows.length !== paymentIds.length) {
+      const found = new Set(paymentsResult.rows.map(r => r.id as string));
+      const missing = paymentIds.filter(id => !found.has(id));
+      rejection = {
+        status: 409,
+        error: `Часть платежей недоступна к выплате (${missing.length} из ${paymentIds.length}): `
+          + 'они уже выплачены, отменены или принадлежат другому оператору. '
+          + 'Обновите список и повторите.',
+      };
+      return null;
+    }
 
-  // Создаём запись выплаты
-  const payoutResult = await query(
-    `INSERT INTO operator_payouts (
-       operator_id, total_net, booking_count, payment_ids,
-       payout_method, payout_details,
-       status, period_start, period_end, payment_reference, created_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9,$10)
-     RETURNING id`,
-    [
-      operatorId,
+    const totalNet = paymentsResult.rows.reduce(
+      (sum, r) => sum + parseFloat(r.net_amount as string), 0
+    );
+    const confirmedIds = paymentsResult.rows.map(r => r.id as string);
+
+    // Реквизиты оператора — в той же транзакции: они попадают в запись
+    // выплаты, и читать их отдельным соединением незачем.
+    const partnerResult = await client.query(
+      `SELECT payout_method, payout_details, payout_verified FROM partners WHERE id = $1`,
+      [operatorId]
+    );
+    const partner = partnerResult.rows[0];
+
+    const payoutResult = await client.query(
+      `INSERT INTO operator_payouts (
+         operator_id, total_net, booking_count, payment_ids,
+         payout_method, payout_details,
+         status, period_start, period_end, payment_reference, created_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9,$10)
+       RETURNING id`,
+      [
+        operatorId,
+        totalNet,
+        confirmedIds.length,
+        confirmedIds,
+        partner?.payout_method ?? null,
+        partner?.payout_details ?? null,
+        periodStart,
+        periodEnd,
+        reference ?? null,
+        adminId,
+      ]
+    );
+
+    await client.query(
+      `UPDATE tour_payments
+       SET status = 'RELEASED', released_at = NOW(), updated_at = NOW()
+       WHERE id = ANY($1::uuid[])`,
+      [confirmedIds]
+    );
+
+    // Пересчёт комиссии тоже внутри: иначе при откате выплаты он остался бы
+    // посчитанным по платежам, которые так и не выплачены.
+    await client.query(`SELECT recalculate_commission($1)`, [operatorId]);
+
+    return {
+      payoutId: payoutResult.rows[0].id as string,
       totalNet,
-      confirmedIds.length,
-      confirmedIds,
-      partner?.payout_method ?? null,
-      partner?.payout_details ?? null,
-      periodStart,
-      periodEnd,
-      reference ?? null,
-      adminId,
-    ]
-  );
+      paymentCount: confirmedIds.length,
+      payoutVerified: Boolean(partner?.payout_verified),
+    };
+  });
 
-  const payoutId = payoutResult.rows[0].id as string;
-
-  // Переводим tour_payments в RELEASED
-  await query(
-    `UPDATE tour_payments
-     SET status = 'RELEASED', released_at = NOW(), updated_at = NOW()
-     WHERE id = ANY($1::uuid[])`,
-    [confirmedIds]
-  );
-
-  // Пересчитываем комиссию оператора
-  await query(`SELECT recalculate_commission($1)`, [operatorId]);
+  // Отказ по существу — не ошибка сервера: транзакция откатилась, ничего
+  // не записано, человеку нужен понятный текст, а не 500.
+  if (rejection !== null) {
+    const r = rejection as { status: number; error: string };
+    return NextResponse.json({ error: r.error }, { status: r.status });
+  }
+  if (result === null) {
+    return NextResponse.json({ error: 'Не удалось создать выплату' }, { status: 500 });
+  }
 
   return NextResponse.json({
     success: true,
     data: {
-      payoutId,
-      totalNet: Math.round(totalNet * 100) / 100,
-      paymentCount: confirmedIds.length,
+      payoutId: result.payoutId,
+      totalNet: Math.round(result.totalNet * 100) / 100,
+      paymentCount: result.paymentCount,
       status: 'PENDING',
-      note: partner?.payout_verified
+      note: result.payoutVerified
         ? 'Реквизиты подтверждены — готово к отправке через CP Payouts'
         : 'Реквизиты оператора не верифицированы — выплата ручная',
     },
