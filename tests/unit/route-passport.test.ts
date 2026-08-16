@@ -117,7 +117,9 @@ describe('пространство id выбора маршрута едино (
 
   it('каталог: has_waypoints и род линии идут через строку маршрута по обоим id', () => {
     const src = read('lib/routes/catalog-query.ts');
-    expect(src).toMatch(/kw\.id = ark\.id OR kw\.ark_id = ark\.id/);
+    // По обоим id, независимо от имени алиаса: условие has_waypoints
+    // переписывалось (16.08 — требование двух точек), смысл не менялся.
+    expect(src).toMatch(/\bkw\d*\.id = ark\.id OR kw\d*\.ark_id = ark\.id/);
     expect(src).toMatch(/krl\.id = ark\.id OR krl\.ark_id = ark\.id/);
   });
 });

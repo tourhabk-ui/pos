@@ -51,6 +51,7 @@ import { recoveryState } from '@/lib/on-route/recovery';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { FieldCompass } from '@/components/field/FieldCompass';
 import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
+import { plural } from '@/lib/home/data-freshness';
 import { FieldDistance } from '@/components/field/FieldDistance';
 import { bearingDeg } from '@/lib/on-route/bearing';
 
@@ -341,6 +342,8 @@ function OnTrailTab() {
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
   } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  /** Отказ по конкретному варианту: показывается у его строки, а не вместо списка. */
+  const [previewError, setPreviewError] = useState<{ id: string; text: string } | null>(null);
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
   const previewCacheRef = useRef<Map<string, { wps: SavedWaypoint[]; grade: PassportGrade | null }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
@@ -1066,12 +1069,18 @@ function OnTrailTab() {
     // Сборник мест по всему краю (сегменты >25 км) — не трек: линию не
     // рисуем и «Начать по маршруту» не предлагаем
     const scattered = isScatteredCollection(line);
+    // Одна точка — это место, а не путь: идти «из точки в неё же» нельзя,
+    // и предлагать старт по такой записи — обещание маршрута, которого нет
+    // (проверка 16.08: «Восхождение на Авачинский вулкан», одна точка,
+    // подписано «14 км»). Причина отказа отдельная от scattered: там путь
+    // есть, но он не единый; здесь пути нет вовсе.
+    const singlePoint = preview.wps.length < 2;
     // Источник известен без API: линия только что построена прямыми между
     // путевыми точками. Синтетика по построению — набросок при любой
     // плотности, сколько бы точек в маршруте ни было.
     const previewLine = trackLine(line, 'waypoints_synthetic');
     const markers: MapMarker[] = [
-      ...(scattered ? [] : [{
+      ...(scattered || singlePoint ? [] : [{
         coords: center,
         title: preview.title,
         color: 'teal',
@@ -1088,7 +1097,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-    return { center, markers, scattered };
+    return { center, markers, scattered, singlePoint };
   }, [preview]);
 
   // Без трека считать вдоль нечего — тогда прямая и остаётся, но подписана
@@ -1308,13 +1317,24 @@ function OnTrailTab() {
     const cached = previewCacheRef.current.get(r.id);
     if (cached) { setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade }); return; }
     setPreviewLoadingId(r.id);
+    setPreviewError(null);
+    // Провал загрузки карточки маршрута — это состояние, а не пустота.
+    // Раньше все ветки отказа делали молчаливый return: человек нажимал
+    // «На карте», ничего не происходило, и он оставался гадать, что сломано —
+    // связь, маршрут или приложение (проверка 16.08).
     fetch(`/api/routes/${r.id}`)
       .then(res => res.json())
       .then((j: unknown) => {
-        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) {
+          setPreviewError({ id: r.id, text: 'Маршрут не открылся — сервер не отдал данные.' });
+          return;
+        }
         const data = (j as Record<string, unknown>).data as Record<string, unknown>;
         const wps = data.waypoints;
-        if (!Array.isArray(wps)) return;
+        if (!Array.isArray(wps)) {
+          setPreviewError({ id: r.id, text: 'У маршрута нет точек — вести по нему нельзя.' });
+          return;
+        }
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
           .filter(w => w.lat != null && w.lng != null)
           .map(w => ({
@@ -1322,7 +1342,10 @@ function OnTrailTab() {
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
-        if (converted.length === 0) return;
+        if (converted.length === 0) {
+          setPreviewError({ id: r.id, text: 'У точек маршрута нет координат — на карте его не показать.' });
+          return;
+        }
         // Род данных — из паспорта детального ответа (точнее спискового:
         // он видит сам трек, а не только факт наличия линии); фолбэк — бейдж
         // из списка, если паспорта в ответе нет (старый кэш/билд).
@@ -1332,7 +1355,9 @@ function OnTrailTab() {
         previewCacheRef.current.set(r.id, { wps: converted, grade });
         setPreview({ id: r.id, title: r.title, wps: converted, grade });
       })
-      .catch(() => { /* остаёмся на списке */ })
+      .catch(() => {
+        setPreviewError({ id: r.id, text: 'Не удалось загрузить маршрут — похоже, связь. Повторите.' });
+      })
       .finally(() => setPreviewLoadingId(null));
   }
 
@@ -2079,7 +2104,8 @@ function OnTrailTab() {
                   <GradeChip grade={preview.grade} />
                 </div>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
-                  {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
+                  {preview.wps.length} {plural(preview.wps.length, 'точка', 'точки', 'точек')}
+                  {preview.wps.length > 1 && ` · ${preview.wps[0].name} → ${preview.wps[preview.wps.length - 1].name}`}
                 </p>
                 {/* Оговорка паспорта: что этот род данных значит для ног.
                     Бейдж прочитает не каждый — слова прочитают все. */}
@@ -2087,6 +2113,14 @@ function OnTrailTab() {
                   <p className="text-xs mb-3 px-3 py-2 rounded-lg"
                     style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
                     {passportGradeNote(preview.grade)}
+                  </p>
+                )}
+                {previewMap.singlePoint && (
+                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                    У этой записи в базе одна точка — начало и конец совпадают,
+                    пути между ними нет. Вести по ней нельзя, сколько бы километров
+                    ни стояло в описании. Выберите маршрут с двумя точками и более.
                   </p>
                 )}
                 {previewMap.scattered && (
@@ -2102,7 +2136,7 @@ function OnTrailTab() {
                     style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
                     К вариантам
                   </button>
-                  {!previewMap.scattered && (
+                  {!previewMap.scattered && !previewMap.singlePoint && (
                     <button onClick={() => selectRoute(preview)}
                       className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
                       style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
@@ -2152,28 +2186,38 @@ function OnTrailTab() {
                     ) : (
                       <div className="space-y-2">
                         {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).map(r => (
-                          <button key={r.id} onClick={() => openPreview(r)}
-                            className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
-                            style={{
-                              background: 'var(--bg-primary)',
-                              border: '1px solid var(--border)',
-                              opacity: previewLoadingId === r.id ? 0.6 : 1,
-                            }}>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
-                                <GradeChip grade={r.lineGrade} />
+                          <div key={r.id}>
+                            <button onClick={() => openPreview(r)}
+                              className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+                              style={{
+                                background: 'var(--bg-primary)',
+                                border: '1px solid var(--border)',
+                                opacity: previewLoadingId === r.id ? 0.6 : 1,
+                              }}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                                  <GradeChip grade={r.lineGrade} />
+                                </div>
+                                <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                  {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+                                  {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
+                                  {r.via ? ` · через: ${r.via}` : ''}
+                                </p>
                               </div>
-                              <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                                {r.distanceKm ? `${r.distanceKm} км · ` : ''}
-                                {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
-                                {r.via ? ` · через: ${r.via}` : ''}
+                              <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
+                                {previewLoadingId === r.id ? '…' : 'На карте'}
+                              </span>
+                            </button>
+                            {/* Отказ живёт у своей строки: список остаётся на месте,
+                                и видно, ЧТО именно не открылось. */}
+                            {previewError?.id === r.id && (
+                              <p className="text-xs mt-1 px-3 py-2 rounded-lg"
+                                style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                                {previewError.text}
                               </p>
-                            </div>
-                            <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
-                              {previewLoadingId === r.id ? '…' : 'На карте'}
-                            </span>
-                          </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}
