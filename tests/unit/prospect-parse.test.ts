@@ -40,11 +40,18 @@ describe('htmlToText', () => {
     expect(htmlToText('<p>Пишут так: &amp;lt;b&amp;gt;</p>')).toContain('&lt;b&gt;');
   });
 
-  it('закрывающий тег скрипта с пробелом или переводом строки тоже режется', () => {
+  it('закрывающий тег скрипта с пробелом, переводом строки или мусором режется', () => {
+    // Браузер принимает все три формы: атрибуты закрывающего тега он
+    // игнорирует. Пока регулярка требовала ровно `</script>`, тело скрипта
+    // считалось текстом страницы.
     expect(htmlToText('<div>Сплав<script>var secret="утечка"</script >конец</div>'))
       .not.toContain('утечка');
     expect(htmlToText('<div>Сплав<script>var s="утечка2"</script\n>конец</div>'))
       .not.toContain('утечка2');
+    expect(htmlToText('<div>Сплав<script>var s="утечка3"</script\t\n bar>конец</div>'))
+      .not.toContain('утечка3');
+    expect(htmlToText('<div>Сплав<style>.a{content:"утечка4"}</style foo>конец</div>'))
+      .not.toContain('утечка4');
   });
 
   it('обрезанный HTML с незакрытым скриптом не отдаёт его тело как текст', () => {
