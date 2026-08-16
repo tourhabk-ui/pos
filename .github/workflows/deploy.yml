@@ -130,3 +130,23 @@ jobs:
           fi
 
           echo "Деплой подтверждён фактом: vedarai.ru отдаёт ${SERVED:0:7}."
+
+      # Смоук идёт ПОСЛЕ публикации, а не до неё: проверять новую версию до
+      # того, как она опубликована, нечем. Схема — деплой → смоук → отметка
+      # здоровья; не прошёл смоук, workflow краснеет, и разрыв виден сразу.
+      #
+      # 15–16.08 прод простоял с мёртвым выбором маршрута при зелёной сборке и
+      # верном /version.json: «задеплоено» доказывалось, «работает» — нет.
+      - name: Checkout (smoke script)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Production smoke (каталог, деталь маршрута, MCP read)
+        env:
+          BASE_URL: https://vedarai.ru
+        run: node scripts/deploy-smoke.mjs
