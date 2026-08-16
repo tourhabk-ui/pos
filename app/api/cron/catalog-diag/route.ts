@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { queryCatalog } from '@/lib/routes/catalog-query';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -71,6 +72,23 @@ export async function GET(request: NextRequest) {
       break; // дальше идти незачем: следующий шаг сложнее упавшего
     }
   }
+
+  // Главный шаг: тот же вызов, что делает публичный каталог. Его обработчик
+  // ловит ЛЮБУЮ ошибку и подменяет текстом «Проверьте DATABASE_URL», из-за
+  // чего настоящая причина не видна снаружи. Здесь она возвращается как есть.
+  let catalogStep: Record<string, unknown>;
+  try {
+    const res = await queryCatalog({ kind: 'place', limit: 5, page: 1 } as never);
+    catalogStep = { step: 'queryCatalog как в /api/routes', ok: true, items: res.items.length };
+  } catch (err) {
+    catalogStep = {
+      step: 'queryCatalog как в /api/routes',
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? (err.stack ?? '').split('\n').slice(0, 4).join(' | ') : undefined,
+    };
+  }
+  results.push(catalogStep as never);
 
   const failed = results.find(r => !r.ok);
   return NextResponse.json({
