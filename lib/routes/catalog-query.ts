@@ -225,24 +225,34 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     idx++;
   }
   if (has_waypoints === 'true') {
-    // Точки должны быть И компактными: bbox вейпоинтов ≤ ~55 км. Мега-сборники
-    // «35 мест по всему краю» имеют waypoints, но их синтетическая геометрия —
-    // паутина прямых через весь Петропавловск (полевой скрин 20.07), это не
-    // проходимый трек и в навигацию попадать не должно.
+    // Точек должно быть НЕ МЕНЬШЕ ДВУХ и они должны быть компактными.
+    //
+    // Две — потому что путь начинается и заканчивается: одна точка задаёт
+    // место, а не маршрут. Проверка 16.08 нашла в выдаче «Восхождение на
+    // Авачинский вулкан» с единственной точкой, подписанное «14 км · Средний»:
+    // экран честно печатал «Вулкан Авачинский → Вулкан Авачинский», то есть
+    // предлагал идти из точки в неё же. Прежнее EXISTS пропускало такую
+    // запись — «есть хоть одна точка» и «есть маршрут» это разные факты.
+    //
+    // Компактность (bbox ≤ ~55 км) отсекает мега-сборники: «35 мест по всему
+    // краю» имеют waypoints, но их синтетическая геометрия — паутина прямых
+    // через весь Петропавловск (полевой скрин 20.07), это не проходимый трек.
+    //
+    // Считаем ТОЛЬКО точки с координатами: точка без lat/lng на карте не
+    // существует, и пара, где одна половина безкоординатная, — та же одна.
     //
     // route_waypoints.route_id живёт на kamchatka_routes.id, а id VIEW для
     // маршрутов — COALESCE(ark_id, id): точки ищутся через строку маршрута
     // по обоим id, иначе маршрут с заполненным ark_id невидим для навигации.
     conditions.push(
-      `EXISTS (SELECT 1 FROM kamchatka_routes kw
-               JOIN route_waypoints rwx ON rwx.route_id = kw.id
-               WHERE kw.id = ark.id OR kw.ark_id = ark.id)
-       AND (SELECT (MAX(p.lat) - MIN(p.lat)) <= 0.5 AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
-            FROM kamchatka_routes kw2
-            JOIN route_waypoints rwx2 ON rwx2.route_id = kw2.id
-            JOIN places p ON p.id = rwx2.place_id
-            WHERE (kw2.id = ark.id OR kw2.ark_id = ark.id)
-              AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
+      `(SELECT COUNT(*) >= 2
+              AND (MAX(p.lat) - MIN(p.lat)) <= 0.5
+              AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
+          FROM kamchatka_routes kw2
+          JOIN route_waypoints rwx2 ON rwx2.route_id = kw2.id
+          JOIN places p ON p.id = rwx2.place_id
+          WHERE (kw2.id = ark.id OR kw2.ark_id = ark.id)
+            AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
     );
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
