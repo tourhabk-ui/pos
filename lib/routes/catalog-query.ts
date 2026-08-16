@@ -170,7 +170,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
   const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints } = filters;
   const offset = (page - 1) * limit;
 
-  const conditions: string[] = ['is_visible = TRUE'];
+  const conditions: string[] = ['ark.is_visible = TRUE'];
   const params: unknown[] = [];
   let idx = 1;
 
@@ -180,40 +180,40 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     idx += 2;
   }
   if (kind) {
-    conditions.push(`kind = $${idx}`);
+    conditions.push(`ark.kind = $${idx}`);
     params.push(kind);
     idx++;
   }
   if (category) {
-    conditions.push(`category = $${idx}`);
+    conditions.push(`ark.category = $${idx}`);
     params.push(category);
     idx++;
   }
   if (location_type) {
-    conditions.push(`location_type = $${idx}`);
+    conditions.push(`ark.location_type = $${idx}`);
     params.push(location_type);
     idx++;
   }
   if (activity_type) {
-    conditions.push(`activity_type = $${idx}`);
+    conditions.push(`ark.activity_type = $${idx}`);
     params.push(activity_type);
     idx++;
   }
   if (hasCoords === 'true') {
-    conditions.push(`lat IS NOT NULL AND lng IS NOT NULL`);
+    conditions.push(`ark.lat IS NOT NULL AND ark.lng IS NOT NULL`);
   }
   if (difficulty) {
-    conditions.push(`payload->>'difficulty' = $${idx}`);
+    conditions.push(`ark.payload->>'difficulty' = $${idx}`);
     params.push(difficulty);
     idx++;
   }
   if (price_min != null) {
-    conditions.push(`(payload->>'price_from')::numeric >= $${idx}`);
+    conditions.push(`(ark.payload->>'price_from')::numeric >= $${idx}`);
     params.push(price_min);
     idx++;
   }
   if (price_max != null) {
-    conditions.push(`(payload->>'price_from')::numeric <= $${idx}`);
+    conditions.push(`(ark.payload->>'price_from')::numeric <= $${idx}`);
     params.push(price_max);
     idx++;
   }
@@ -233,9 +233,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
   if (near_lat != null && near_lng != null && radius_km != null) {
     // Гаверсинус в SQL; least(1.0, ...) страхует acos от погрешности округления
     conditions.push(
-      `lat IS NOT NULL AND lng IS NOT NULL AND 6371 * acos(least(1.0,
-         cos(radians($${idx})) * cos(radians(lat)) * cos(radians(lng) - radians($${idx + 1}))
-         + sin(radians($${idx})) * sin(radians(lat)))) <= $${idx + 2}`,
+      `ark.lat IS NOT NULL AND ark.lng IS NOT NULL AND 6371 * acos(least(1.0,
+         cos(radians($${idx})) * cos(radians(ark.lat)) * cos(radians(ark.lng) - radians($${idx + 1}))
+         + sin(radians($${idx})) * sin(radians(ark.lat)))) <= $${idx + 2}`,
     );
     params.push(near_lat, near_lng, radius_km);
     idx += 3;
