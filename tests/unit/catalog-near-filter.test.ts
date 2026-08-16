@@ -39,7 +39,9 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     await queryCatalog(filters);
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('6371 * acos(least(1.0,');
-    expect(sql).toContain('lat IS NOT NULL AND lng IS NOT NULL');
+    // Колонки квалифицированы префиксом ark: в запросе есть JOIN, и голое
+    // `lat` в нём неоднозначно — каталог из-за этого падал (проба 84).
+    expect(sql).toContain('ark.lat IS NOT NULL AND ark.lng IS NOT NULL');
     expect(params).toEqual(expect.arrayContaining([53.0195, 158.6505, 50]));
   });
 
