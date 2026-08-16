@@ -1,20 +1,17 @@
 {
   "urls": [
-    "https://vedarai.ru/api/routes?kind=place&limit=5",
-    "https://vedarai.ru/api/routes?kind=place&hasCoords=true&limit=2000&sort=title"
+    "https://vedarai.ru/api/routes?kind=place&limit=3",
+    "https://vedarai.ru/api/routes?kind=place&hasCoords=true&limit=2000&sort=title",
+    "https://vedarai.ru/api/routes?kind=route&limit=3"
   ],
-  "bytes": 900,
+  "bytes": 700,
   "count": [
     "\"success\":true",
-    "Ключевск",
-    "от Петропавловска",
-    "Паратунк",
-    "55.92"
+    "\"success\":false"
   ],
   "timeout": 180,
-  "retries": 10,
-  "retryDelay": 60,
-  "until": "\"success\":true",
-  "note": "Проба 84: каталог после починки. Причина 503 найдена: условие писалось как «is_visible = TRUE» без имени таблицы и стало неоднозначным, когда такая колонка завелась у соседа по JOIN — Postgres отвечал «column reference is_visible is ambiguous», а обработчик подменял это на «Проверьте DATABASE_URL». Теперь все условия квалифицированы через ark. Ждём success:true и заодно считаем сигнатуры вранья для приёмки Editor'а.",
-  "run": 84
+  "retries": 6,
+  "retryDelay": 45,
+  "note": "Проба 85: жив ли каталог сейчас. Владелец видит пустые места и маршруты. Три замера: лёгкие места, тяжёлая выборка на 2000 (её грузит карта) и маршруты. Ретраи здесь ждут не выкат, а восстановление после перезапуска: каждый мерж в main поднимает новый контейнер, и в эти минуты витрина отвечает 503.",
+  "run": 85
 }
