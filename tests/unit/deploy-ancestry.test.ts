@@ -46,7 +46,11 @@ let descendant: string; // потомок: обгон более новым ко
 let foreign: string;   // коммит из другой линии — наш в предках не значится
 
 function git(args: string[], cwd = repo): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
+  // `-c color.ui=false` — общее правило для вызовов git из тестов: вывод не
+  // должен зависеть от настроек машины. Здесь читается только rev-parse,
+  // который не красит, но исключения из такого правила надо каждый раз
+  // обосновывать заново — дешевле держать его без оговорок.
+  return execFileSync('git', ['-c', 'color.ui=false', ...args], { cwd, encoding: 'utf-8' }).trim();
 }
 
 function commit(msg: string): string {
