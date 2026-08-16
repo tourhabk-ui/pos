@@ -201,7 +201,13 @@ async function checkNavigableShare() {
     const valid = wps.filter(
       (w) => w && Number.isFinite(Number(w.lat)) && Number.isFinite(Number(w.lng)),
     );
-    if (valid.length >= 2) navigable.push(r.id);
+    if (valid.length < 2) continue;
+    // Кандидат печатается с доказательствами: число точек и род линии.
+    // Фикстуру нельзя выбирать по одному удачному прогону — тот, кто её
+    // ставит, должен видеть, ПОЧЕМУ маршрут годится, а не только что он
+    // сегодня открылся.
+    const grade = b.data?.passport?.grade ?? 'неизвестно';
+    navigable.push(`${r.id} (точек ${valid.length}, ${grade})`);
   }
 
   if (navigable.length === 0) {
@@ -211,7 +217,7 @@ async function checkNavigableShare() {
     );
     return;
   }
-  ok('пригодные маршруты', `${navigable.length} из ${sample.length}; годятся в фикстуру: ${navigable.join(', ')}`);
+  ok('пригодные маршруты', `${navigable.length} из ${sample.length}; кандидаты в фикстуру: ${navigable.join('; ')}`);
 }
 
 /* ─── 3. MCP: рукопожатие и один читающий вызов ──────────────────────────── */
