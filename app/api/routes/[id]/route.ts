@@ -13,6 +13,33 @@ import { buildRoutePassport } from '@/lib/routes/passport';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Сбой запроса — в лог, с тем, чем его чинят.
+ *
+ * До 16.08 три запроса карточки маршрута заканчивались
+ * `.catch(() => ({ rows: [] }))`. Это превращало ЛЮБУЮ ошибку — упавший
+ * JOIN, разъехавшуюся колонку, недоступную таблицу — в правдоподобную
+ * пустоту: снаружи «у маршрута нет точек» и «запрос к точкам упал»
+ * выглядели одинаково. Смоук 16.08 увидел «0 точек с координатами» у
+ * настоящего маршрута и не мог сказать, дефект это данных или поломка.
+ *
+ * SQLSTATE называет род поломки однозначно (текст — нет), форма запроса
+ * говорит, какая ветка сломалась, релиз привязывает к версии.
+ */
+function logQueryFailure(part: string, err: unknown, routeId: string): void {
+  const e = err as Error & { code?: string; detail?: string; hint?: string; position?: string };
+  console.error('[/api/routes/[id]] запрос упал', {
+    part,
+    routeId,
+    sqlstate: e?.code,
+    message: e?.message,
+    detail: e?.detail,
+    hint: e?.hint,
+    position: e?.position,
+    release: process.env.RELEASE_SHA ?? null,
+  });
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -176,6 +203,18 @@ export async function GET(
     }
 
     // Waypoints
+    /** Живой статус точек мог не прочитаться — тишина тогда не значит «спокойно». */
+    let operationalUnavailable = false;
+
+    /**
+     * Точки маршрута — его хребет, и их отказ НЕ переживается.
+     *
+     * Прежде здесь стоял `.catch(() => ({ rows: [] }))`, и упавший запрос
+     * отдавался как маршрут с нулём точек: карточка открывалась, линии не
+     * было, кнопка вела дальше. Отдать 200 с пустым хребтом — это соврать
+     * о маршруте, а на этой платформе по такому ответу человек идёт в поле.
+     * Пусть лучше карточка честно не откроется.
+     */
     const waypointsResult = await query(
       `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
@@ -189,7 +228,7 @@ export async function GET(
          AND p.merged_into_id IS NULL
        ORDER BY rw.position`,
       [routeDbId]
-    ).catch(() => ({ rows: [] }));
+    );
 
     // Оперативные ограничения точек маршрута: точечные сообщения
     // (alert_message из PATCH /api/admin/places/[id]/status и миграций),
@@ -212,7 +251,21 @@ export async function GET(
          )
        ORDER BY rw.position`,
       [routeDbId]
-    ).catch(() => ({ rows: [] }));
+    ).catch((err: unknown) => {
+      /**
+       * Оперативные ограничения падать вместе со страницей не должны —
+       * маршрут без живого статуса всё ещё полезен. Но и подменять отказ
+       * тишиной нельзя: пустой список читается как «ограничений нет», то
+       * есть как разрешение идти. Это запрещено платформой отдельно
+       * (§0.3: «нет данных» ≠ «спокойно»).
+       *
+       * Поэтому отказ помечается флагом, и карточка обязана сказать
+       * «статус недоступен» вместо молчаливого спокойствия.
+       */
+      logQueryFailure('operational_alerts', err, id);
+      operationalUnavailable = true;
+      return { rows: [] };
+    });
 
     // Отзывы о маршруте — запрос перенесён из /api/routes/detail/[id]
     // (карточка B, объединена с этой). Привязка через legacy ark_id.
@@ -225,7 +278,13 @@ export async function GET(
        ORDER BY rv.created_at DESC
        LIMIT 5`,
       [(r.kr_ark_id as string | null) ?? id]
-    ).catch(() => ({ rows: [] }));
+    ).catch((err: unknown) => {
+      // Отзывы — единственный из трёх запросов, чей отказ можно пережить:
+      // пустой список отзывов не лжёт о маршруте и не влияет на решение идти.
+      // Но и он больше не молчит: без записи в лог поломка живёт незамеченной.
+      logQueryFailure('reviews', err, id);
+      return { rows: [] };
+    });
 
     return NextResponse.json({
       success: true,
@@ -403,9 +462,17 @@ export async function GET(
             alert_severity: a.alert_severity as number | null,
           })),
         ),
+        // Живой статус не прочитался: пустой список ограничений выше не
+        // означает «ограничений нет». Карточка обязана сказать это словами,
+        // а не показать спокойствие, которого никто не подтверждал.
+        operationalStatusUnavailable: operationalUnavailable,
       },
     });
   } catch (error) {
+    // Раньше причина уходила только в ответ и только в dev — то есть в
+    // проде не сохранялась нигде. Теперь она в логе всегда, с SQLSTATE и
+    // формой запроса; наружу по-прежнему нейтральный текст.
+    logQueryFailure('route_detail', error, id);
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { success: false, error: 'Ошибка загрузки маршрута', details: process.env.NODE_ENV === 'development' ? msg : undefined },

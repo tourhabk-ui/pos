@@ -95,11 +95,36 @@ describe('смоук проверяет три вещи, а не факт отв
     expect(SMOKE).toMatch(/Number\.isFinite\(Number\(w\.lat\)\)/);
   });
 
-  it('деталь не гаснет вместе с каталогом — есть независимый кандидат', () => {
+  it('деталь не гаснет вместе с каталогом — проверки независимы', () => {
     // 16.08 каталог упал и деталь стала «не выполнена»: одна поломка погасила
-    // две проверки. Поиск — независимый контур, в тот вечер он работал.
+    // две проверки.
     expect(SMOKE).toMatch(/api\/routes\/search\?q=/);
-    expect(SMOKE).toMatch(/кандидата нет ни в каталоге, ни в поиске/);
+    const calls = SMOKE.match(/await run\('/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('карточка проверяется на фикстуре, а не на первом попавшемся', () => {
+    // Перебор выдачи до первого исправного маршрута позеленел бы, даже если
+    // сломаны девять из десяти. Проверка, которая ищет, чем бы себя
+    // удовлетворить, — не проверка.
+    expect(SMOKE).toMatch(/process\.env\.SMOKE_ROUTE_ID/);
+    expect(SMOKE).toMatch(/SMOKE_ROUTE_ID не задан/);
+  });
+
+  it('незаданная фикстура — падение, а не пропуск', () => {
+    // Невыполненная проверка не имеет права выглядеть зелёной.
+    const fn = SMOKE.slice(
+      SMOKE.indexOf('async function checkRouteDetailFixture'),
+      SMOKE.indexOf('async function checkRouteDetail('),
+    );
+    expect(fn).toMatch(/fail\(/);
+    expect(fn).not.toMatch(/\bok\(/);
+  });
+
+  it('качество выдачи измеряется отдельно и падает на нуле пригодных', () => {
+    expect(SMOKE).toMatch(/checkNavigableShare/);
+    expect(SMOKE).toMatch(/ни один не имеет двух точек с координатами/);
+    expect(SMOKE).toMatch(/годятся в фикстуру/);
   });
 
   it('MCP: рукопожатие, список и один читающий вызов', () => {
