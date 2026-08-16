@@ -48,6 +48,39 @@ describe('смоук встроен в деплой, а не живёт рядо
   });
 });
 
+describe('подтверждение деплоя: прод СОДЕРЖИТ коммит, а не равен ему', () => {
+  it('успех считается по предкам, а не сравнением строк', () => {
+    // 16.08: мерж и авто-коммит счётчиков README легли в main с разницей в
+    // минуты. Timeweb собирает голову ветки, а не конкретный коммит: он собрал
+    // потомка, прод получил фикс, а проверка ждала ровно наш SHA, не дождалась
+    // за 20 минут и покраснела. Ложная тревога неотличима от настоящего
+    // «автодеплой не сработал» — и следующая такая будет прочитана как шум.
+    expect(DEPLOY).toMatch(/merge-base --is-ancestor/);
+    expect(DEPLOY).toMatch(/contains_expected/);
+  });
+
+  it('обе фазы — и сборка, и отдача сайтом — идут через одну проверку', () => {
+    const calls = DEPLOY.match(/contains_expected "\$(COMMIT|SERVED)"/g) ?? [];
+    expect(calls).toHaveLength(2);
+    // Прежних сравнений строк не осталось: иначе одна из фаз краснела бы.
+    expect(DEPLOY).not.toMatch(/\$\{SERVED:0:7\}" != "\$\{EXPECTED_SHA:0:7\}/);
+    expect(DEPLOY).not.toMatch(/if \[ "\$\{COMMIT:0:7\}" = "\$\{EXPECTED_SHA:0:7\}" \]; then PICKED/);
+  });
+
+  it('отставший прод по-прежнему провал — ослаблена точность, а не строгость', () => {
+    // Предок нашего коммита это старый контейнер: откат или застрявшая сборка.
+    expect(DEPLOY).toMatch(/::error::Сайт отдаёт .*не содержит/);
+    expect(DEPLOY).toMatch(/::error::Timeweb за 20 минут не взял в работу/);
+  });
+
+  it('история доступна проверке: checkout с полной глубиной до неё', () => {
+    const checkout = DEPLOY.indexOf('fetch-depth: 0');
+    const verify = DEPLOY.indexOf('Verify deploy reached production');
+    expect(checkout).toBeGreaterThan(-1);
+    expect(checkout).toBeLessThan(verify);
+  });
+});
+
 describe('смоук проверяет три вещи, а не факт ответа сервера', () => {
   it('каталог: не только HTTP 200, но success и непустой список', () => {
     // 15.08 каталог отдавал ровно HTTP 200 с success:false — проверка «сервер
