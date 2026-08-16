@@ -1,12 +1,20 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/catalog-diag"
+    "https://vedarai.ru/api/routes?kind=place&limit=5",
+    "https://vedarai.ru/api/routes?kind=place&hasCoords=true&limit=2000&sort=title"
   ],
-  "bytes": 6000,
-  "timeout": 110,
+  "bytes": 900,
+  "count": [
+    "\"success\":true",
+    "Ключевск",
+    "от Петропавловска",
+    "Паратунк",
+    "55.92"
+  ],
+  "timeout": 180,
   "retries": 10,
   "retryDelay": 60,
-  "until": "queryCatalog",
-  "note": "Проба 83: подлинная причина 503. Обработчик /api/routes ловит любую ошибку и подменяет её текстом «Проверьте DATABASE_URL» — настоящая причина не видна снаружи. Диагностика теперь сама вызывает queryCatalog (тот же путь, что у каталога) и печатает подлинное сообщение и начало стека. Маркер until=queryCatalog ждёт именно новую сборку: прошлая версия роута существует, и код ответа её не отличает.",
-  "run": 83
+  "until": "\"success\":true",
+  "note": "Проба 84: каталог после починки. Причина 503 найдена: условие писалось как «is_visible = TRUE» без имени таблицы и стало неоднозначным, когда такая колонка завелась у соседа по JOIN — Postgres отвечал «column reference is_visible is ambiguous», а обработчик подменял это на «Проверьте DATABASE_URL». Теперь все условия квалифицированы через ark. Ждём success:true и заодно считаем сигнатуры вранья для приёмки Editor'а.",
+  "run": 84
 }
