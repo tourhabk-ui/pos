@@ -39,7 +39,11 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     await queryCatalog(filters);
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('6371 * acos(least(1.0,');
-    expect(sql).toContain('lat IS NOT NULL AND lng IS NOT NULL');
+    // Колонки квалифицированы алиасом таблицы: запрос джойнит places, где
+    // есть свои lat/lng, и неквалифицированное имя роняло каталог
+    // неоднозначной колонкой. Проверяем гард по смыслу, а не по точной
+    // строке — иначе тест краснеет на каждом законном уточнении алиаса.
+    expect(sql).toMatch(/\b\w+\.lat IS NOT NULL AND \w+\.lng IS NOT NULL/);
     expect(params).toEqual(expect.arrayContaining([53.0195, 158.6505, 50]));
   });
 
