@@ -268,22 +268,46 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  /**
+   * ВСЕ колонки в ORDER BY квалифицированы через ark — включая те, что
+   * годами работали без префикса.
+   *
+   * 16.08, SQLSTATE 42702: `column reference "description" is ambiguous`.
+   * Каталог отдавал 503, планировщик открывался пустым. Рядом стояло голое
+   * `title ASC` и не падало — разница в правиле разрешения имён: голое имя
+   * в ORDER BY Postgres ищет сначала среди ВЫХОДНЫХ колонок SELECT, а имя
+   * ВНУТРИ выражения (`length(COALESCE(description, ''))`) резолвит по
+   * таблицам FROM. Там `description` есть и у `ark`, и у присоединённой
+   * `kamchatka_routes krl` — отсюда неоднозначность.
+   *
+   * Тонкость в том, что падает не «ветка маршрутов», а сортировка
+   * `recommended`: только она содержит выражения с голыми именами. Место с
+   * сортировкой по умолчанию (`title ASC`) работало, и это маскировало
+   * поломку — диагностика, спрашивавшая только `kind=place`, отвечала
+   * «здоров».
+   *
+   * Это третий случай подряд (`is_visible` — проба 84, теперь `description`),
+   * и каждый раз ломалось при добавлении JOIN, а не при правке сортировки.
+   * Поэтому префикс ставится везде, а не только там, где сейчас больно:
+   * следующий JOIN не должен ронять каталог.
+   */
   const orderBy =
-    sort === 'recent'      ? 'created_at DESC' :
-    sort === 'price_asc'   ? 'COALESCE((payload->>\'price_from\')::numeric, 999999999) ASC, title ASC' :
-    sort === 'price_desc'  ? 'COALESCE((payload->>\'price_from\')::numeric, 0) DESC, title ASC' :
+    sort === 'recent'      ? 'ark.created_at DESC' :
+    sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
+    sort === 'price_desc'  ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 0) DESC, ark.title ASC' :
     sort === 'recommended' ? `(
-      CASE WHEN payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
+      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
     ) DESC,
     -- Качество карточки: у туров/маршрутов порядок задаёт сумма выше (у них есть
     -- цена/сложность), а у мест она всегда 0 — поэтому места ранжируются дальше
     -- по «презентабельности»: есть фото -> значимый тип -> богатое описание.
     -- Так первый экран /places перестаёт быть алфавитным («300-летняя берёза»).
+    -- has_real_image — вычисленная колонка SELECT, своей таблицы у неё нет.
     has_real_image DESC,
-    CASE location_type
+    CASE ark.location_type
       WHEN 'volcano'    THEN 6 WHEN 'geyser'  THEN 6
       WHEN 'hot_spring' THEN 5 WHEN 'lake'    THEN 5
       WHEN 'waterfall'  THEN 4 WHEN 'bay'     THEN 4
@@ -291,9 +315,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       WHEN 'viewpoint'  THEN 2
       ELSE 1
     END DESC,
-    length(COALESCE(description, '')) DESC,
-    title ASC` :
-    'title ASC';
+    length(COALESCE(ark.description, '')) DESC,
+    ark.title ASC` :
+    'ark.title ASC';
 
   const [dataResult, countResult] = await Promise.all([
     query(
