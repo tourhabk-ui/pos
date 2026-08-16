@@ -1001,7 +1001,21 @@ function OnTrailTab() {
     // ломаную не рисуем, только точки (полевой скрин 20.07). К настоящему
     // треку это не относится: он путь, а не список мест.
     const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
-    const line = track && track.length >= 2 ? track : fallback;
+    /**
+     * Линия, которой платформа уже не верит, не рисуется.
+     *
+     * Полевой скрин 17.08: карточка честно писала «Линия и точки маршрута
+     * расходятся» и не показывала расстояние — и одновременно рисовала эту
+     * линию через весь экран, от Магаданской области за восточный край.
+     * Экран говорил и «не верь этому», и «вот путь» сразу; из двух сообщений
+     * в поле читают то, которое нарисовано.
+     *
+     * Расхождение уже посчитано в approach (dataConflict): точки маршрута и
+     * линия описывают разные места. Тогда линии нет — остаются точки, компас
+     * и SOS, о чём карточка и говорит словами.
+     */
+    const trackTrusted = track && track.length >= 2 && approach?.dataConflict !== true;
+    const line = trackTrusted ? track : fallback;
     if (!line && waypoints.length === 0) return [];
     return [
       // Линия рисуется по своему происхождению. Часть маршрутов имеет
@@ -1059,7 +1073,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine, approach?.dataConflict]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {

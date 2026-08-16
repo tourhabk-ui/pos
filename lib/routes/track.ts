@@ -24,11 +24,39 @@ interface GeoJsonLineString {
   coordinates?: number[][];
 }
 
+/**
+ * Границы Камчатского края с запасом.
+ *
+ * Полевой скрин 17.08: на карте навигации через весь экран шла зелёная
+ * линия — горизонталь от Магаданской области за восточный край карты, при
+ * том что человек и путевые точки стояли под Петропавловском. Трек «есть»,
+ * рисуется уверенным зелёным, и означает он «здесь идут».
+ *
+ * Причина в том, что проверялась только КОНЕЧНОСТЬ числа: точка с долготой
+ * нуля или с переставленными местами lat/lng проходила как валидная. Между
+ * тем широта больше 90 — не широта вовсе, а точка в тысяче километров от
+ * края — не точка этого трека, чем бы она ни была в базе.
+ *
+ * Запас намеренно широкий (весь край плюс шельф): задача — отсечь мусор
+ * и перепутанные оси, а не подрезать настоящие треки по краям.
+ */
+const KAMCHATKA_BOUNDS = { latMin: 50, latMax: 66, lngMin: 154, lngMax: 175 };
+
+/** Точка на Камчатке, а не «конечное число». */
+export function isPlausibleTrackPoint(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  // Сначала физика: за этими пределами координат не существует, и такое
+  // значение почти всегда означает переставленные оси.
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+  return lat >= KAMCHATKA_BOUNDS.latMin && lat <= KAMCHATKA_BOUNDS.latMax
+    && lng >= KAMCHATKA_BOUNDS.lngMin && lng <= KAMCHATKA_BOUNDS.lngMax;
+}
+
 function fromLineString(geom: GeoJsonLineString | null | undefined): TrackPoint[] {
   if (geom?.type !== 'LineString' || !Array.isArray(geom.coordinates)) return [];
   return geom.coordinates
     .filter((c): c is number[] => Array.isArray(c) && c.length >= 2
-      && Number.isFinite(c[0]) && Number.isFinite(c[1]))
+      && isPlausibleTrackPoint(c[1], c[0]))
     .map(c => ({ lng: c[0], lat: c[1], elevation: c[2] as number | undefined }));
 }
 
@@ -48,8 +76,7 @@ export function extractTrackpoints(
     return track.filter(
       (pt): pt is TrackPoint =>
         !!pt && typeof pt === 'object'
-        && Number.isFinite((pt as TrackPoint).lat)
-        && Number.isFinite((pt as TrackPoint).lng),
+        && isPlausibleTrackPoint((pt as TrackPoint).lat, (pt as TrackPoint).lng),
     );
   }
   return [];
