@@ -12,6 +12,7 @@
  */
 
 import { pool } from '../lib/db-pool';
+import { isPlausibleTrackPoint } from '../lib/routes/track';
 
 const DELAY_MS = 600;
 const MAX_MATCH_DIST_KM = 5;
@@ -114,6 +115,31 @@ async function scrapePlaceTrack(placeId: string): Promise<PlaceTrack | null> {
         ? parsed.map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
         : parsed.map(p => [p[1], p[0]]); // swap lat/lng to GeoJSON [lng, lat]
 
+      /**
+       * Блок принимается, только если КАЖДАЯ его точка лежит на Камчатке.
+       *
+       * Полевые скрины 16–17.08 («Авачинский», «Козельский»): на карте
+       * навигации сплошная зелёная линия шла горизонталью через весь край.
+       * Причина здесь, в разборе страницы.
+       *
+       * Регулярка выше ищет любые вложенные числовые массивы, поэтому под
+       * неё попадает не только трек, но и профиль высот — `[[0, 795],
+       * [1.2, 810], ...]`. Формат при этом определяется по ОДНОЙ точке
+       * (`|first[0]| > 90`), а у профиля первое число — расстояние, то есть
+       * «не больше 90»: массив разворачивается как [lat, lng] и даёт
+       * `lng = 795, lat = 0`. Такая «геометрия» писалась в базу без единой
+       * проверки и потом рисовалась на карте тем же уверенным зелёным, что
+       * и снятый трек.
+       *
+       * Проверять именно КАЖДУЮ точку, а не первую: эвристика уже один раз
+       * ошиблась на первой, и повторять эту ошибку с другим порогом незачем.
+       * Настоящий трек Камчатки не выходит за край ни одной точкой, а блок
+       * с посторонними числами отсекается целиком — чинить его догадками
+       * хуже, чем пропустить.
+       */
+      const allOnKamchatka = coords.every(p => isPlausibleTrackPoint(p[1], p[0]));
+      if (!allOnKamchatka) continue;
+
       if (coords.length > bestCoords.length) bestCoords = coords;
     } catch { /* skip malformed */ }
   }
@@ -192,7 +218,7 @@ async function main() {
   console.log(`  ${ids.length} places to process`);
   if (isDryRun) console.log('  [DRY RUN]');
 
-  let imported = 0, skipped = 0, noMatch = 0, errors = 0;
+  let imported = 0, skipped = 0, noMatch = 0, errors = 0, rejected = 0;
 
   console.log('\nPhase 2: Scraping tracks and matching...');
   for (let i = 0; i < ids.length; i++) {
@@ -212,6 +238,23 @@ async function main() {
       if (!match) {
         process.stdout.write(`no match — "${track.title.slice(0, 40)}"\n`);
         noMatch++;
+        await sleep(DELAY_MS);
+        continue;
+      }
+
+      /**
+       * Последняя проверка перед записью — намеренно дублирует проверку
+       * разбора. Разбор ещё будет меняться (сайт-источник не наш), а запрет
+       * «в geometry не попадает точка вне края» должен пережить любую его
+       * правку: цена ошибки здесь — линия на карте навигации, по которой
+       * идут в поле.
+       */
+      const badPoint = track.coordinates.find(p => !isPlausibleTrackPoint(p[1], p[0]));
+      if (badPoint) {
+        process.stdout.write(
+          `отброшен — "${track.title.slice(0, 40)}": точка вне края [${badPoint[0]}, ${badPoint[1]}]\n`,
+        );
+        rejected++;
         await sleep(DELAY_MS);
         continue;
       }
@@ -245,7 +288,7 @@ async function main() {
     await sleep(DELAY_MS);
   }
 
-  console.log(`\nDone: ${imported} imported, ${skipped} no track, ${noMatch} no match, ${errors} errors`);
+  console.log(`\nDone: ${imported} imported, ${skipped} no track, ${noMatch} no match, ${rejected} отброшено вне края, ${errors} errors`);
   await pool.end();
 }
 
