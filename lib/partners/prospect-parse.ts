@@ -65,20 +65,34 @@ const ACTIVITY_HINTS: Record<string, string[]> = {
   mountain:   ['горнолыж', 'ски-тур', 'фрирайд'],
 };
 
+/**
+ * Сущности разворачиваем ОДНИМ проходом по таблице, а не цепочкой replace.
+ * Цепочка даёт двойное раскрытие: `&amp;lt;` после `&amp;`→`&` превращается
+ * в `&lt;`, а следующий replace делает из него `<` — то, что автор написал
+ * литеральным текстом, становится разметкой. Один проход разворачивает
+ * каждую сущность ровно один раз (находка CodeQL на PR #1232).
+ */
+const ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'",
+};
+
 /** Вырезает скрипты, стили и теги; схлопывает пробелы. */
 export function htmlToText(html: string): string {
   return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    // `\s*` перед закрывающей скобкой: `</script >` и `</script\n>` — валидная
+    // разметка, и без этого тело скрипта утекало в «текст страницы», а оттуда
+    // могло уехать в промпт (находка CodeQL на PR #1232).
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+    // Незакрытый script/style в обрезанном по потолку HTML: хвост до конца
+    // документа — тоже не текст страницы.
+    .replace(/<script\b[^>]*>[\s\S]*$/i, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*$/i, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
+    .replace(/<\/(p|div|li|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&(nbsp|amp|quot|apos|lt|gt|#39);/gi, (_m, name: string) =>
+      ENTITIES[name.toLowerCase()] ?? ' ')
     .replace(/[ \t ]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

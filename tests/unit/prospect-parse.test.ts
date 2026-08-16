@@ -32,6 +32,26 @@ describe('htmlToText', () => {
     expect(htmlToText('<p>Уха</p><p>Баня</p>')).toMatch(/Уха\s+Баня/);
     expect(htmlToText('<p>Цена &lt; 5000 &amp; место</p>')).toContain('< 5000 & место');
   });
+
+  // Две находки CodeQL на PR #1232 — обе настоящие.
+  it('не раскрывает сущности дважды: &amp;lt; остаётся текстом, не тегом', () => {
+    // Цепочка replace превращала это в «<b>», то есть литеральный текст
+    // автора становился разметкой.
+    expect(htmlToText('<p>Пишут так: &amp;lt;b&amp;gt;</p>')).toContain('&lt;b&gt;');
+  });
+
+  it('закрывающий тег скрипта с пробелом или переводом строки тоже режется', () => {
+    expect(htmlToText('<div>Сплав<script>var secret="утечка"</script >конец</div>'))
+      .not.toContain('утечка');
+    expect(htmlToText('<div>Сплав<script>var s="утечка2"</script\n>конец</div>'))
+      .not.toContain('утечка2');
+  });
+
+  it('обрезанный HTML с незакрытым скриптом не отдаёт его тело как текст', () => {
+    // Потолок MAX_HTML режет страницу где придётся — хвост скрипта не текст.
+    expect(htmlToText('<div>Сплав</div><script>var payload="мусор"'))
+      .not.toContain('мусор');
+  });
 });
 
 describe('контакты', () => {
