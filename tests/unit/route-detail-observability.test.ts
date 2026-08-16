@@ -42,12 +42,17 @@ describe('молчаливых глушителей в карточке марш
     expect(DETAIL_CODE).not.toMatch(/catch\(\(\) => \(\{ rows: \[\] \}\)\)/);
   });
 
-  it('точки маршрута идут без глушителя вовсе', () => {
+  it('отказ точек не глушится, а называется и бросается дальше', () => {
     const q = DETAIL.slice(
       DETAIL.indexOf('const waypointsResult = await query('),
       DETAIL.indexOf('const operationalResult'),
     );
-    expect(q).not.toMatch(/\.catch\(/);
+    // Своё имя нужно для счётчика: строгость обязана быть наблюдаемой,
+    // иначе тихо превратится в мор страниц, не связанный с этим решением.
+    expect(q).toMatch(/logQueryFailure\('waypoints_failure'/);
+    expect(q).toMatch(/throw err/);
+    // Возврата пустых строк по-прежнему нет — карточка не открывается.
+    expect(q).not.toMatch(/return \{ rows: \[\] \}/);
   });
 
   it('у отзывов и статуса отказ уходит в лог', () => {
@@ -104,6 +109,21 @@ describe('диагностика видит ветку карточки, а не
     // значит совсем не то, что упавший запрос.
     expect(DIAG).toMatch(/сколько точек маршрутов имеют координаты/);
     expect(DIAG).toMatch(/p\.lat IS NOT NULL AND p\.lng IS NOT NULL/);
+  });
+
+  it('диагностика сама предлагает кандидатов в фикстуру', () => {
+    // Замкнутый круг «фикстуру не задать, пока не увидишь прогон» решается
+    // здесь: id берутся из БД до мержа, и красного в истории не возникает.
+    expect(DIAG).toMatch(/кандидаты в фикстуру смоука/);
+    // Критерии, которых смоук по HTTP не видит.
+    expect(DIAG).toMatch(/p\.merged_into_id IS NULL/);
+    expect(DIAG).toMatch(/kr\.is_visible = TRUE/);
+    expect(DIAG).toMatch(/HAVING COUNT\(\*\) >= 2/);
+    // id в пространстве, которое понимает /api/routes/[id].
+    expect(DIAG).toMatch(/COALESCE\(kr\.ark_id, kr\.id\)::text AS id/);
+    // Синтетика уходит вниз: такая фикстура может смениться пересборкой.
+    expect(DIAG).toMatch(/waypoints_synthetic'\) ASC/);
+    expect(DIAG).toMatch(/candidates: res\.rows/);
   });
 
   it('ветка карточки выполняется даже если каталог упал', () => {
