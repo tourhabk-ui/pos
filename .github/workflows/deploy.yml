@@ -181,4 +181,11 @@ jobs:
       - name: Production smoke (каталог, деталь маршрута, MCP read)
         env:
           BASE_URL: https://vedarai.ru
+          # Фикстура контракта карточки маршрута. Живёт в переменных
+          # РЕПОЗИТОРИЯ (Settings → Secrets and variables → Actions →
+          # Variables), а не в окружении Timeweb: смоук выполняется на
+          # раннере и читает env раннера, до контейнера ему дела нет.
+          # Пустое значение — сознательный красный: непроверенный контракт
+          # не должен выглядеть зелёным.
+          SMOKE_ROUTE_ID: ${{ vars.SMOKE_ROUTE_ID }}
         run: node scripts/deploy-smoke.mjs

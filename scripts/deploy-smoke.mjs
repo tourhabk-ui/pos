@@ -86,32 +86,66 @@ async function checkCatalog() {
 /* ─── 2. Деталь пригодного маршрута ──────────────────────────────────────── */
 
 /**
- * Кандидат на проверку детали: сначала каталог, при его смерти — поиск.
+ * Поиск отвечает по существу — отдельная проверка, а не источник удачного
+ * примера.
  *
- * 16.08 каталог упал, и проверка детали стала «не выполнена»: одна поломка
- * погасила две проверки, а отчёт лишился половины смысла. Поиск — независимый
- * контур (в тот же вечер он работал, когда каталог не отвечал), поэтому
- * деталь проверяется через него, а не пропускается.
+ * Соблазн был такой: перебирать выдачу поиска, пока не найдётся маршрут с
+ * двумя координатами, и на нём позеленеть. Так делать нельзя — смоук стал бы
+ * охотиться за исправным экземпляром и показывал бы зелёный, даже если
+ * сломаны девять маршрутов из десяти. Проверка, которая ищет, чем бы себя
+ * удовлетворить, не проверка.
  *
- * Пропуск проверки — это НЕ её успех, и в отчёте он никогда не выглядит
- * зелёным; но лучше проверить обходным путём, чем не проверить вовсе.
+ * Поэтому поиск отвечает только за себя: отвечает ли он и находит ли
+ * что-нибудь по заведомо существующему названию.
  */
-async function detailCandidate(items) {
-  const fromCatalog = (items ?? []).find((r) => r && typeof r.id === 'string');
-  if (fromCatalog) return fromCatalog;
-
-  notes.push('Каталог не отдал кандидата — деталь проверяется через поиск.');
-  const { status, body } = await getJson(
+async function checkSearch() {
+  const { status, body, text } = await getJson(
     `${BASE}/api/routes/search?q=${encodeURIComponent('Авачинский')}`,
   );
-  if (status !== 200 || !Array.isArray(body?.routes)) return null;
-  return body.routes.find((r) => r && typeof r.id === 'string') ?? null;
+  if (status !== 200) {
+    fail('поиск', `HTTP ${status}: ${text.slice(0, 160)}`);
+    return;
+  }
+  const rows = Array.isArray(body?.routes) ? body.routes : null;
+  if (!rows) {
+    fail('поиск', `ответ без списка маршрутов: ${text.slice(0, 160)}`);
+    return;
+  }
+  if (rows.length === 0) {
+    fail('поиск', '«Авачинский» не нашёл ничего — поиск отвечает, но не работает');
+    return;
+  }
+  ok('поиск', `${rows.length} маршрутов по «Авачинский»`);
 }
 
-async function checkRouteDetail(items) {
-  const first = await detailCandidate(items);
+/**
+ * Контракт карточки маршрута — на ОДНОМ заранее выбранном маршруте.
+ *
+ * Фикстура, а не первый попавшийся из выдачи: тогда проверка отвечает на
+ * вопрос «работает ли карточка», а не «нашёлся ли сегодня исправный
+ * маршрут». Качество выдачи меряет отдельная проверка ниже — смешивать их
+ * значит позволить одной прикрыть другую.
+ *
+ * Пока фикстура не задана, проверка ЧЕСТНО ПАДАЕТ: невыполненная проверка
+ * не имеет права выглядеть зелёной. Первый же прогон подскажет, что вписать
+ * (см. «пригодные маршруты» — он печатает id).
+ */
+async function checkRouteDetailFixture() {
+  const fixture = process.env.SMOKE_ROUTE_ID;
+  if (!fixture) {
+    fail(
+      'карточка маршрута (фикстура)',
+      'SMOKE_ROUTE_ID не задан — контракт карточки не проверен. '
+        + 'Возьмите id из строки «пригодные маршруты» ниже и добавьте в переменные окружения.',
+    );
+    return;
+  }
+  await checkRouteDetail({ id: fixture, title: `фикстура ${fixture.slice(0, 8)}` });
+}
+
+async function checkRouteDetail(first) {
   if (!first) {
-    fail('деталь маршрута', 'кандидата нет ни в каталоге, ни в поиске');
+    fail('деталь маршрута', 'кандидата нет');
     return;
   }
 
@@ -135,6 +169,55 @@ async function checkRouteDetail(items) {
     return;
   }
   ok('деталь маршрута', `${first.title || first.id}: ${valid.length} точек с координатами`);
+}
+
+/**
+ * Сколько маршрутов в выдаче вообще пригодны для поля.
+ *
+ * Это ИЗМЕРЕНИЕ, а не подбор: проверка не выбирает удачный экземпляр, она
+ * называет долю. Ноль пригодных — падение: выбор маршрута существует, но
+ * идти не по чему, и молчать об этом нельзя.
+ *
+ * Здесь же печатаются id пригодных — из них берётся фикстура SMOKE_ROUTE_ID,
+ * чтобы контракт карточки проверялся на заведомо целом маршруте.
+ */
+async function checkNavigableShare() {
+  const { status, body } = await getJson(
+    `${BASE}/api/routes/search?q=${encodeURIComponent('Авачинский')}`,
+  );
+  if (status !== 200 || !Array.isArray(body?.routes) || body.routes.length === 0) {
+    fail('пригодные маршруты', 'нечего измерять — поиск не отдал выдачу');
+    return;
+  }
+
+  const sample = body.routes.filter((r) => r && typeof r.id === 'string').slice(0, 5);
+  const navigable = [];
+
+  for (const r of sample) {
+    // eslint-disable-next-line no-await-in-loop
+    const { status: s, body: b } = await getJson(`${BASE}/api/routes/${r.id}`);
+    if (s !== 200 || b?.success !== true) continue;
+    const wps = Array.isArray(b.data?.waypoints) ? b.data.waypoints : [];
+    const valid = wps.filter(
+      (w) => w && Number.isFinite(Number(w.lat)) && Number.isFinite(Number(w.lng)),
+    );
+    if (valid.length < 2) continue;
+    // Кандидат печатается с доказательствами: число точек и род линии.
+    // Фикстуру нельзя выбирать по одному удачному прогону — тот, кто её
+    // ставит, должен видеть, ПОЧЕМУ маршрут годится, а не только что он
+    // сегодня открылся.
+    const grade = b.data?.passport?.grade ?? 'неизвестно';
+    navigable.push(`${r.id} (точек ${valid.length}, ${grade})`);
+  }
+
+  if (navigable.length === 0) {
+    fail(
+      'пригодные маршруты',
+      `из ${sample.length} проверенных ни один не имеет двух точек с координатами`,
+    );
+    return;
+  }
+  ok('пригодные маршруты', `${navigable.length} из ${sample.length}; кандидаты в фикстуру: ${navigable.join('; ')}`);
 }
 
 /* ─── 3. MCP: рукопожатие и один читающий вызов ──────────────────────────── */
@@ -207,8 +290,10 @@ async function run(name, fn) {
   }
 }
 
-const items = await run('каталог', checkCatalog);
-await run('деталь маршрута', () => checkRouteDetail(items));
+await run('каталог', checkCatalog);
+await run('поиск', checkSearch);
+await run('карточка маршрута (фикстура)', checkRouteDetailFixture);
+await run('пригодные маршруты', checkNavigableShare);
 await run('MCP', checkMcp);
 
 for (const n of notes) console.log(`  ---  ${n}`);

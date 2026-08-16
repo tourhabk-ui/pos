@@ -54,6 +54,91 @@ const STEPS: Array<{ name: string; sql: string }> = [
 ];
 
 /**
+ * Ветка карточки маршрута — отдельным списком, и он выполняется ВСЕГДА.
+ *
+ * Список выше идёт по нарастанию сложности и обрывается на первом падении:
+ * там это верно, следующий шаг сложнее упавшего. Но карточка маршрута —
+ * не «шаг сложнее», а другая ветка, и обрывать её по чужому падению значит
+ * повторить ошибку 16.08: тогда диагностика проверила `kind=place`, а падал
+ * `kind=route`, и слепое пятно осталось незамеченным.
+ */
+const DETAIL_STEPS: Array<{ name: string; sql: string; showRows?: boolean }> = [
+  /**
+   * Смоук 16.08 увидел у настоящего маршрута «0 точек с координатами», но
+   * сказать, дефект это данных или упавший запрос, было нельзя: в роуте
+   * стоял `.catch(() => ({ rows: [] }))`. Здесь тот же JOIN без глушителя.
+   */
+  {
+    name: 'точки маршрута (тот же JOIN, что в карточке)',
+    sql: `SELECT rw.position, p.name AS place_name, p.lat AS place_lat, p.lng AS place_lng,
+                 sp.altitude_m
+          FROM route_waypoints rw
+          JOIN places p ON p.id = rw.place_id
+          LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
+          WHERE p.is_visible = TRUE AND p.merged_into_id IS NULL
+          ORDER BY rw.position
+          LIMIT 5`,
+  },
+  {
+    // Если запрос жив, а координат нет — это дефект ДАННЫХ, и цифра
+    // отвечает на вопрос сразу: сколько связей маршрут-точка вообще имеют
+    // координаты. Ноль здесь значит совсем не то, что упавший запрос выше.
+    name: 'сколько точек маршрутов имеют координаты',
+    sql: `SELECT COUNT(*)::int AS n
+          FROM route_waypoints rw
+          JOIN places p ON p.id = rw.place_id
+          WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL`,
+  },
+  {
+    /**
+     * Кандидаты в фикстуру смоука — по всем критериям сразу, из БД.
+     *
+     * Смоук по HTTP видит только точки и род линии; `merged_into`,
+     * видимость и происхождение геометрии ему не видны. Выбирать фикстуру
+     * по одному удачному прогону нельзя — маршрут, годный сегодня, может
+     * исчезнуть от ближайшей чистки, и контракт начнёт краснеть без всякой
+     * регрессии.
+     *
+     * Отсюда список берётся ДО мержа: тогда переменная задаётся заранее и
+     * искусственного красного в истории релизов не возникает.
+     *
+     * id отдаётся в том же пространстве, что понимает /api/routes/[id]:
+     * COALESCE(ark_id, id) — иначе фикстура не откроется.
+     */
+    name: 'кандидаты в фикстуру смоука (id для SMOKE_ROUTE_ID)',
+    // Единственный шаг, чьи СТРОКИ и есть ответ: остальным довольно факта
+    // «запрос жив». Здесь нужны сами id, иначе шаг бесполезен.
+    showRows: true,
+    sql: `SELECT COALESCE(kr.ark_id, kr.id)::text AS id,
+                 kr.title,
+                 COUNT(*)::int AS points,
+                 COALESCE(kr.geometry->>'source', 'нет геометрии') AS geometry_source
+          FROM kamchatka_routes kr
+          JOIN route_waypoints rw ON rw.route_id = kr.id
+          JOIN places p ON p.id = rw.place_id
+          WHERE kr.is_visible = TRUE
+            AND p.is_visible = TRUE
+            AND p.merged_into_id IS NULL
+            AND p.lat IS NOT NULL AND p.lng IS NOT NULL
+          GROUP BY kr.id, kr.ark_id, kr.title, kr.geometry
+          HAVING COUNT(*) >= 2
+          -- Снятый трек предпочтительнее синтетики: такая фикстура переживёт
+          -- пересборку геометрии, а синтетическая может смениться.
+          ORDER BY (kr.geometry->>'source' = 'waypoints_synthetic') ASC,
+                   COUNT(*) DESC
+          LIMIT 5`,
+  },
+  {
+    name: 'живой статус точек (ветка оперативных ограничений)',
+    sql: `SELECT rs.is_open, rs.alert_message, rs.active_alerts, rs.alert_severity
+          FROM route_waypoints rw
+          JOIN places p ON p.id = rw.place_id
+          JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
+          LIMIT 5`,
+  },
+];
+
+/**
  * Поля ошибки Postgres как они есть.
  *
  * Одного `message` мало: «column reference is_visible is ambiguous» ещё
@@ -95,6 +180,24 @@ export async function GET(request: NextRequest) {
     } catch (err) {
       results.push({ step: step.name, ok: false, ...pgErrorFields(err) });
       break; // дальше идти незачем: следующий шаг сложнее упавшего
+    }
+  }
+
+  // Ветка карточки маршрута — независимо от того, что стало с каталогом.
+  for (const step of DETAIL_STEPS) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await pool.query(step.sql);
+      results.push({
+        step: step.name,
+        ok: true,
+        rows: res.rowCount ?? 0,
+        // У счётного шага важна сама цифра, а не число строк ответа.
+        ...(res.rows[0]?.n != null ? { count: res.rows[0].n } : {}),
+        ...(step.showRows ? { candidates: res.rows } : {}),
+      });
+    } catch (err) {
+      results.push({ step: step.name, ok: false, ...pgErrorFields(err) });
     }
   }
 

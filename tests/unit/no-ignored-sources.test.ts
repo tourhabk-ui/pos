@@ -17,6 +17,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** Каталоги, где лежит код платформы. Черновикам здесь не место. */
 const SOURCE_DIRS = ['app', 'lib', 'components', 'hooks', 'tests', 'scripts'];
@@ -31,7 +33,10 @@ const SOURCE_EXT = /\.(ts|tsx|mjs)$/;
 function ignoredUnderSourceDirs(): string[] {
   const out = execFileSync(
     'git',
-    ['ls-files', '--others', '--ignored', '--exclude-standard', '--', ...SOURCE_DIRS],
+    // color.ui=false — по той же причине, что в share-and-referral: вывод git
+    // не должен зависеть от настроек машины, на которой гоняют тесты.
+    ['-c', 'color.ui=false',
+      'ls-files', '--others', '--ignored', '--exclude-standard', '--', ...SOURCE_DIRS],
     { encoding: 'utf-8', cwd: process.cwd(), maxBuffer: 16 * 1024 * 1024 },
   );
   return out.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -49,5 +54,34 @@ describe('шаблоны игнорирования не съедают исхо
     // Если бы execFileSync падал, предыдущий тест был бы зелёным по причине
     // «пустой список» и стерёг бы пустоту.
     expect(() => ignoredUnderSourceDirs()).not.toThrow();
+  });
+});
+
+/**
+ * Сторож судит о КОДЕ, а не о настройках машины.
+ *
+ * 16.08: у проверяющего стоял `color.ui=always`, и `git grep -l` вернул имя
+ * файла с ANSI-последовательностями — `^[[35mlib/share.ts^[[m`. Путь перестал
+ * совпадать со строкой 'lib/share.ts', сторож упал на чистом коде, и упал
+ * ТОЛЬКО у него: на CI цвета нет, там всё зелёное. Отказ, невоспроизводимый
+ * там, где его разбирают, хуже отсутствия проверки — он учит не верить гарду.
+ *
+ * Любой вызов git из тестов обязан глушить цвет явно.
+ */
+describe('вызовы git в тестах не зависят от конфигурации разработчика', () => {
+  it('каждый git-вызов в тестах отключает цвет', () => {
+    const withGit = readdirSync(join(process.cwd(), 'tests/unit'))
+      .filter((f) => f.endsWith('.test.ts'))
+      .map((f) => ({ file: f, src: readFileSync(join(process.cwd(), 'tests/unit', f), 'utf-8') }))
+      // Без исключений: «эта команда не красит» — рассуждение, которое надо
+      // проводить заново при каждой правке, а правило без оговорок держится
+      // само.
+      .filter(({ src }) => /execFileSync\(\s*'git'/.test(src));
+
+    const unguarded = withGit
+      .filter(({ src }) => !src.includes("'color.ui=false'"))
+      .map(({ file }) => file);
+
+    expect(unguarded, `git без глушения цвета:\n${unguarded.join('\n')}`).toEqual([]);
   });
 });
