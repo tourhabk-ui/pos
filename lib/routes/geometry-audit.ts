@@ -409,11 +409,29 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   // Точки берутся одним запросом на всех: 421 отдельный запрос ради того же
   // ответа — трата, а не тщательность.
+  //
+  // Набор и порядок — ТЕ ЖЕ, что отдаёт карточка маршрута. Иначе перепись
+  // меряет не то, чем платформа пользуется, и её цифры не про продукт.
+  //
+  // Скрытые и слитые точки исключены (`is_visible`, `merged_into_id`), потому
+  // что их исключает карточка. Оставленные здесь, они судят маршрут по тому,
+  // чего человек не увидит: слитый дубль в стороне от линии даёт расхождение
+  // выше порога — и маршрут теряет обещание ведения из-за точки, которой на
+  // экране нет. Смоук 17.08 нашёл это спором двух измерений: по API пригоден
+  // один маршрут из пяти, по переписи — ноль из трёхсот.
+  //
+  // ORDER BY здесь не украшение. Порядок точек — измеряемая величина
+  // (`waypointFit` считает инверсии), и без сортировки Postgres вправе вернуть
+  // строки как угодно: счёт инверсий стал бы шумом. Раньше комментарий ниже
+  // утверждал, что точки приходят упорядоченными, а запрос этого не просил.
   const wpRes = await pool.query<WpRow>(
     `SELECT rw.route_id::text, p.lat::text, p.lng::text
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
-      WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL`,
+      WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
+        AND p.is_visible = TRUE
+        AND p.merged_into_id IS NULL
+      ORDER BY rw.route_id, rw.position`,
   );
   const byRoute = new Map<string, Array<{ lat: number; lng: number }>>();
   for (const w of wpRes.rows) {
@@ -541,7 +559,9 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
     // Как точки сидят на линии: отход И порядок. Точки приходят упорядоченные
     // по route_waypoints.position — на случайной перестановке порядок был бы
-    // не измерением, а шумом.
+    // не измерением, а шумом. Утверждение держится ORDER BY в запросе выше;
+    // до 17.08 оно держалось только этим комментарием, а запрос сортировки не
+    // просил — то есть счёт инверсий всё это время был шумом.
     const fit = waypointFit(track, wps);
     by_shape[fit.verdict] += 1;
     if (fit.inversions !== null && fit.inversions > 0) {
