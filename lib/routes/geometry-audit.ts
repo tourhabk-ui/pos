@@ -195,6 +195,13 @@ export interface GeometryAudit {
    */
   navigability: Record<NavigabilityVerdict, number>;
   /**
+   * Почему маршруты не проходят черту — поимённо, со счётчиком.
+   *
+   * Без этого «пригодны: 0» не отвечает на главный вопрос: чинить данные,
+   * порог или само правило.
+   */
+  navigability_reasons: Record<string, number>;
+  /**
    * Сколько коммерции держится на проверенном. Нужно перед решением о снятии
    * маршрутов с витрины: если туры висят на непроверенных маршрутах, снятие
    * бьёт по продаже.
@@ -227,6 +234,21 @@ export interface GeometryAudit {
 
 interface RouteRow { id: string; title: string | null; geometry: unknown }
 interface WpRow { route_id: string; lat: string | null; lng: string | null }
+
+/**
+ * Причина отказа → ключ счётчика.
+ *
+ * Причины пишутся ЧЕЛОВЕКУ и про КОНКРЕТНЫЙ маршрут: «Точка стоит в 14.2 км от
+ * линии». Считать их как есть — получить по строке на маршрут вместо счётчика:
+ * двадцать пять расхождений выглядели бы двадцатью пятью разными бедами.
+ *
+ * Числа поэтому заменяются на N. Это единственное, чем перепись трогает текст
+ * причины: формулировки живут в navigability, здесь их не переписывают — иначе
+ * перепись начнёт объяснять отказ своими словами, а слова разойдутся.
+ */
+export function reasonKey(reason: string): string {
+  return reason.replace(/\d+([.,]\d+)?/g, 'N');
+}
 
 /** GeoJSON LineString → точки. Формат тот же, что читает offline-bundle. */
 export function geometryToTrack(geometry: unknown): Array<{ lat: number; lng: number }> {
@@ -416,6 +438,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   };
   /** id пригодных — по ним считается, сколько туров держится на проверенном. */
   const navigableIds: string[] = [];
+  /** Причины отказа поимённо: «ноль пригодных» без них ничего не объясняет. */
+  const navReasons: Record<string, number> = {};
   const by_shape: Record<WaypointFitVerdict, number> = {
     fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
   };
@@ -465,6 +489,16 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     const nav = routeNavigability({ grade, track: pairs.length >= 2 ? pairs : null, waypoints: wps });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
+    // Причина отказа считается поимённо.
+    //
+    // Прогон 17.08 вернул «пригодны: 0» и не сказал, почему. Ноль без причины
+    // — то же молчание, с которым мы боремся весь день: непонятно, чинить ли
+    // данные, порог или само правило. Счётчик отвечает на это одним взглядом.
+    //
+    for (const why of nav.reasons) {
+      const key = reasonKey(why);
+      navReasons[key] = (navReasons[key] ?? 0) + 1;
+    }
 
     // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
     // Иначе объект без пути по смыслу попадёт в «конфликтующие маршруты» и
@@ -582,6 +616,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     worst_order: orderCases.slice(0, 10),
     worst: flaws.slice(0, 15),
     navigability: verdicts,
+    navigability_reasons: navReasons,
     tours,
     duration_ms: Date.now() - startedAt,
   };
