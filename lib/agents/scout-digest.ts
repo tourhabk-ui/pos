@@ -47,6 +47,18 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   unsupported_claims: 'утверждения не подтверждены источниками',
   near_repeat: 'выпуск почти повторял предыдущий',
   telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
+  // ── Отдельный канал — отдельные причины ──────────────────────────────────
+  // AI-пост живёт ВНУТРИ этого же прогона и после всех фактчек-гейтов. Любой
+  // ранний выход обрывал функцию до него, а причина записывалась про основной
+  // канал. Со стороны это выглядело как «дайджест ушёл» при молчащем AI-канале
+  // (владелец 17.08: «нет публикаций в канале, хотя расписание делали»).
+  ai_channel_not_configured: 'TELEGRAM_AI_CHANNEL_ID не задан — публиковать некуда',
+  ai_no_items: 'ни один AI-источник не дал материалов',
+  ai_synthesis_null: 'модель не вернула AI-пост',
+  ai_unsourced_percents: 'в AI-посте проценты без ссылки на источник',
+  ai_factcheck_failed: 'утверждения AI-поста не подтверждены статьями',
+  ai_send_failed: 'AI-пост готов, но Telegram не принял отправку',
+  ai_digest_aborted: 'прогон оборвался до AI-поста',
 };
 
 export interface DigestResult {
@@ -60,6 +72,20 @@ export interface DigestResult {
    * telegram_send_failed. Отсутствует — выпуск ушёл.
    */
   digest_skip_reason?: string;
+  /**
+   * Ушёл ли пост во ВТОРОЙ канал — AI-канал.
+   *
+   * До 17.08 этих двух полей не было, и результат отправки на строке 833
+   * просто выбрасывался: `await tgSendRich(...)` без присваивания. Канал мог
+   * молчать неделями при зелёном кроне и при `digest_sent: true` — потому что
+   * дайджест и правда уходил, только в другое место.
+   *
+   * `undefined` — про канал ничего не известно (прогон не дошёл): это тоже
+   * состояние, и оно отличается от «не отправили по такой-то причине».
+   */
+  ai_channel_sent?: boolean;
+  /** Почему AI-пост НЕ ушёл. Коды с префиксом `ai_` в SKIP_REASON_LABELS. */
+  ai_channel_skip_reason?: string;
   duration_ms: number;
   /** Здоровье источников за прогон: сколько живых из всех и какие молчат. */
   sources_ok?: number;
@@ -726,10 +752,22 @@ export async function runScoutDigest(): Promise<DigestResult> {
   const sent = await tgSend(digest);
 
   // Post AI & Tech section only to the AI channel (@ai_hub_money — vibe-coding, 40K subs)
+  //
+  // Исход публикации во второй канал считается ЯВНО и уезжает в результат
+  // прогона. Раньше он выбрасывался: `await tgSendRich(...)` без присваивания,
+  // ни одного поля про этот канал в DigestResult, ни одной причины в
+  // SKIP_REASON_LABELS. Канал мог молчать неделями при зелёном кроне — и это
+  // ровно то, что произошло.
+  let aiSent = false;
+  let aiSkip: string | undefined = 'ai_digest_aborted';
   const aiChannelId = process.env.TELEGRAM_AI_CHANNEL_ID;
-  if (aiChannelId) {
+  if (!aiChannelId) {
+    aiSkip = 'ai_channel_not_configured';
+  } else {
     const aiItems = dedupedItems.filter(i => AI_LABELS.has(i.source));
-    if (aiItems.length > 0) {
+    if (aiItems.length === 0) {
+      aiSkip = 'ai_no_items';
+    } else {
       const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
       // Тянем текст статей (фон, cron) — чтобы модель опиралась на содержание, а не на заголовок
       const aiTop = aiItems.slice(0, 3);
@@ -785,6 +823,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         },
       ];
       let aiDigest = await callAIQuality(aiMessages, { maxTokens: 1600 }).catch(() => null);
+      if (!aiDigest) aiSkip = 'ai_synthesis_null';
 
       // ── Фактчек-гейт: проценты в посте должны быть в исходных заголовках ──
       // У модели только заголовки, поэтому любой процент, которого нет в источнике, — выдумка.
@@ -803,6 +842,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         if (bad.length > 0) {
           // Числовой фактчек не пройден — НЕ публикуем (лучше не запостить, чем соврать).
           aiDigest = null;
+          aiSkip = 'ai_unsourced_percents';
         }
       }
 
@@ -812,6 +852,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
         // null — судья не ответил: не публикуем (сбой гейта = отмена).
         if (claims === null) {
           aiDigest = null;
+          aiSkip = 'ai_factcheck_failed';
         } else if (claims.length > 0) {
           const fix: ChatMessage[] = [
             ...aiMessages,
@@ -821,7 +862,7 @@ export async function runScoutDigest(): Promise<DigestResult> {
           const retry = await callAIQuality(fix, { maxTokens: 1600 }).catch(() => null);
           if (retry) { aiDigest = retry; claims = await unsupportedClaims(aiDigest, aiSignals); }
           // После переписи: остаток выдумок ИЛИ повторный сбой судьи — не публикуем.
-          if (claims === null || claims.length > 0) aiDigest = null;
+          if (claims === null || claims.length > 0) { aiDigest = null; aiSkip = 'ai_factcheck_failed'; }
         }
       }
 
@@ -830,7 +871,8 @@ export async function runScoutDigest(): Promise<DigestResult> {
           .filter(i => i.url)
           .slice(0, 3)
           .map(i => [{ text: i.title.slice(0, 45) + (i.title.length > 45 ? '…' : ''), url: i.url }]);
-        await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined);
+        aiSent = await tgSendRich(aiChannelId, aiDigest, buttons.length > 0 ? buttons : undefined);
+        aiSkip = aiSent ? undefined : 'ai_send_failed';
       }
     }
   }
@@ -853,6 +895,11 @@ export async function runScoutDigest(): Promise<DigestResult> {
         source_health: health.sources,
         dead_sources: health.dead_sources,
         sent_to_tg: sent,
+        // Второй канал — в том же артефакте. Health читает именно артефакт, и
+        // без этих полей он видел бы «дайджест свежий» при канале, молчащем
+        // неделю: свежесть основного выпуска ничего не говорит о втором.
+        ai_channel_sent: aiSent,
+        ai_channel_skip_reason: aiSkip ?? null,
       },
       agent_id: 'scout',
     });
@@ -870,5 +917,16 @@ export async function runScoutDigest(): Promise<DigestResult> {
     // Non-critical
   }
 
-  return { signals_found: dedupedItems.length, digest_sent: sent, ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }), duration_ms: Date.now() - start, ...health, repeats_suppressed };
+  return {
+    signals_found: dedupedItems.length,
+    digest_sent: sent,
+    ...(sent ? {} : { digest_skip_reason: 'telegram_send_failed' }),
+    // Второй канал отчитывается отдельно: дайджест мог уйти, а AI-пост — нет,
+    // и наоборот. Одно поле на два канала скрывало ровно этот случай.
+    ai_channel_sent: aiSent,
+    ...(aiSkip ? { ai_channel_skip_reason: aiSkip } : {}),
+    duration_ms: Date.now() - start,
+    ...health,
+    repeats_suppressed,
+  };
 }

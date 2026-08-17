@@ -109,8 +109,8 @@ async function checkDB(): Promise<HealthIssue[]> {
   // ЖУРНАЛЕ (agent_run_history.metadata) и называется прямо в алерте — до
   // этого она жила только в HTTP-ответе крона, то есть до конца запроса.
   try {
-    const lastDigest = await pool.query<{ slug: string }>(
-      `SELECT slug FROM agent_knowledge
+    const lastDigest = await pool.query<{ slug: string; metadata: Record<string, unknown> | null }>(
+      `SELECT slug, metadata FROM agent_knowledge
         WHERE agent_id = 'scout' AND type = 'intel' AND slug LIKE 'intel/scout/%'
         ORDER BY slug DESC LIMIT 1`,
     );
@@ -123,6 +123,32 @@ async function checkDB(): Promise<HealthIssue[]> {
         issues.push({
           level: 'warn',
           text: `Разведчик молчит: последний дайджест ${slugDate} (${Math.round(ageH / 24)} дн назад). ${await lastDigestSkipReason()}`,
+        });
+      }
+
+      /**
+       * Второй канал проверяется ОТДЕЛЬНО от первого.
+       *
+       * AI-пост уходит внутри того же прогона, но после всех фактчек-гейтов:
+       * дайджест может быть свежим, а канал молчать неделями — и до 17.08
+       * именно так и было (владелец: «нет публикаций в канале, хотя расписание
+       * делали»). Свежесть основного выпуска про второй канал не говорит
+       * ничего, поэтому «дайджест свежий» больше не считается ответом.
+       *
+       * Молчание меряется тем же порогом в 48 часов и по тому же артефакту:
+       * поля кладёт сам дайджест. `undefined` — прогон о канале не отчитался,
+       * и это тоже повод сказать вслух, а не промолчать.
+       */
+      const meta = lastDigest.rows[0]?.metadata ?? {};
+      const aiSent = (meta as { ai_channel_sent?: unknown }).ai_channel_sent;
+      const aiSkip = (meta as { ai_channel_skip_reason?: unknown }).ai_channel_skip_reason;
+      if (aiSent !== true && ageH <= 48) {
+        const why = typeof aiSkip === 'string' && aiSkip
+          ? (SKIP_REASON_LABELS[aiSkip] ?? aiSkip)
+          : 'причина не записана';
+        issues.push({
+          level: 'warn',
+          text: `AI-канал молчит: пост не ушёл в выпуске ${slugDate} — ${why}`,
         });
       }
     }
