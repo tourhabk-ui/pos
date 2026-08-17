@@ -10,6 +10,7 @@ import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
+import { routeNavigability } from '@/lib/routes/navigability';
 
 export const dynamic = 'force-dynamic';
 
@@ -368,6 +369,41 @@ export async function GET(
             parkName: (r.park_name as string | null) ?? null,
             parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
             officialPassportUrl: (r.official_passport_url as string | null) ?? null,
+          });
+        })(),
+        /**
+         * Черта: можно ли обещать ведение по этой записи.
+         *
+         * Считается ЗДЕСЬ, а не на экране, потому что здесь есть и линия, и
+         * точки. Экран выбора линию не грузит — он видел бы только род данных
+         * и не заметил бы расхождения точек с линией; ровно такой маршрут
+         * («Вулкан Козельский», точка в 14 км от трека) и выглядел пригодным
+         * до самого поля.
+         *
+         * Правило одно на всю платформу — lib/routes/navigability.
+         */
+        navigability: (() => {
+          const { points } = decimateTrackWithScale(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          const track = points.length >= 2
+            ? points.map(p => [p.lat, p.lng] as [number, number])
+            : null;
+          const wps = waypointsResult.rows
+            .filter(w => w.lat != null && w.lng != null)
+            .map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
+          return routeNavigability({
+            grade: buildRoutePassport({
+              track,
+              geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
+              waypointsCount: waypointsResult.rows.length,
+              routeVersion: null, verifiedAt: null, updatedAt: null,
+              mchsRequired: false, mchsPhone: null, parkName: null,
+              parkApprovalUrl: null, officialPassportUrl: null,
+            }).grade,
+            track,
+            waypoints: wps,
           });
         })(),
         /**

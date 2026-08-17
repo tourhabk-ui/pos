@@ -57,14 +57,20 @@ describe('превью не предлагает старт по одной то
     expect(PLANNING).toMatch(/const singlePoint = preview\.wps\.length < 2/);
   });
 
-  it('кнопка старта скрыта и при разбросе, и при одной точке', () => {
-    expect(PLANNING).toMatch(/!previewMap\.scattered && !previewMap\.singlePoint/);
+  it('кнопка старта скрыта, когда записью нельзя пользоваться как маршрутом', () => {
+    // 17.08 правило переехало в lib/routes/navigability: экран больше не судит
+    // сам. Прежние проверки (разброс, одна точка) остались ФОЛБЭКОМ на случай
+    // старого кэша ответа, а решение приходит вердиктом с сервера — только там
+    // видно и линию, и точки, то есть и расхождение между ними.
+    expect(PLANNING).toMatch(/navigabilityCtaLabel\(/);
+    expect(PLANNING).toMatch(/'not_a_route' : 'orientation_only'/);
+    expect(PLANNING).toMatch(/if \(!label\) return null;/);
   });
 
   it('причина отказа сказана словами, а не только отсутствием кнопки', () => {
     // Пропавшая кнопка без объяснения читается как поломка приложения.
-    expect(PLANNING).toMatch(/previewMap\.singlePoint && \(/);
-    expect(PLANNING).toMatch(/одна точка/);
+    expect(PLANNING).toMatch(/navigability\.reasons\.map/);
+    expect(PLANNING).toMatch(/Вести по этой записи нельзя/);
   });
 
   it('линия по одной вершине не рисуется', () => {
