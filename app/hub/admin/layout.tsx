@@ -66,6 +66,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/email', label: 'Email', icon: Mail, section: 'Каналы' },
   { href: '/hub/admin/notifications', label: 'Уведомления', icon: Bell, section: 'Каналы' },
   { href: '/hub/admin/integrations', label: 'Интеграции / OCTO', icon: Plug, section: 'Каналы' },
+  // MCP — четвёртый канал. Журнал вызовов копился с миграции 861, а входа в
+  // него не было: владелец 17.08 искал запросы в админке и не нашёл.
+  { href: '/hub/admin/mcp', label: 'Запросы через MCP', icon: Plug, section: 'Каналы' },
 
   // Безопасность
   { href: '/hub/admin/safety', label: 'Безопасность', icon: AlertTriangle, section: 'Безопасность' },
