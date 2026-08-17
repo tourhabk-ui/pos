@@ -26,6 +26,8 @@ import { pool } from '@/lib/db-pool';
 import { isPlausibleTrackPoint } from '@/lib/routes/track';
 import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
+import { routeNavigability, type NavigabilityVerdict } from '@/lib/routes/navigability';
+import { buildRoutePassport } from '@/lib/routes/passport';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
@@ -187,6 +189,22 @@ export interface GeometryAudit {
   collections_by_geometry: number;
   /** Худшие подборки: по ним видно, что это тематические наборы, а не пути. */
   worst_collections: CollectionFlaw[];
+  /**
+   * Черта: сколько маршрутов платформа имеет право предлагать как путь.
+   * Считается тем же правилом, что решает это на экране (lib/routes/navigability).
+   */
+  navigability: Record<NavigabilityVerdict, number>;
+  /**
+   * Сколько коммерции держится на проверенном. Нужно перед решением о снятии
+   * маршрутов с витрины: если туры висят на непроверенных маршрутах, снятие
+   * бьёт по продаже.
+   */
+  tours: {
+    total: number;
+    on_navigable_route: number;
+    on_failing_route: number;
+    without_route: number;
+  };
   /**
    * Как путевые точки сидят на линии — отход И ПОРЯДОК.
    *
@@ -387,6 +405,17 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   let no_geometry = 0, no_waypoints = 0, sketch_geometry = 0, surveyed_geometry = 0;
   let conflicting = 0, consistent = 0;
   let collections = 0, collections_by_waypoints = 0, collections_by_geometry = 0;
+  /**
+   * Черта (lib/routes/navigability): сколько маршрутов платформа имеет право
+   * предлагать как путь. Считается ТЕМ ЖЕ правилом, что решает это на экране —
+   * своего счёта здесь не заводим, иначе перепись и продукт разошлись бы в
+   * ответе на один вопрос.
+   */
+  const verdicts: Record<NavigabilityVerdict, number> = {
+    navigable: 0, orientation_only: 0, not_a_route: 0,
+  };
+  /** id пригодных — по ним считается, сколько туров держится на проверенном. */
+  const navigableIds: string[] = [];
   const by_shape: Record<WaypointFitVerdict, number> = {
     fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
   };
@@ -421,6 +450,21 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
     const wps = byRoute.get(r.id) ?? [];
     const wpPairs = wps.map((w) => [w.lat, w.lng] as [number, number]);
+
+    // Вердикт черты считается ДО всех ранних выходов ниже: подборка и маршрут
+    // без точек тоже получают ответ, иначе сумма вердиктов не сошлась бы с
+    // числом маршрутов и молчание читалось бы как «пригоден».
+    const grade = buildRoutePassport({
+      track: pairs.length >= 2 ? pairs : null,
+      geometrySource: src ?? null,
+      waypointsCount: wps.length,
+      routeVersion: null, verifiedAt: null, updatedAt: null,
+      mchsRequired: false, mchsPhone: null, parkName: null,
+      parkApprovalUrl: null, officialPassportUrl: null,
+    }).grade;
+    const nav = routeNavigability({ grade, track: pairs.length >= 2 ? pairs : null, waypoints: wps });
+    verdicts[nav.verdict] += 1;
+    if (nav.verdict === 'navigable') navigableIds.push(r.id);
 
     // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
     // Иначе объект без пути по смыслу попадёт в «конфликтующие маршруты» и
@@ -491,6 +535,30 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     }
   });
 
+  /**
+   * Сколько коммерции держится на проверенном.
+   *
+   * Вопрос владельца 17.08 перед решением о снятии маршрутов с витрины: если
+   * туры ссылаются на маршруты, не прошедшие черту, то снятие бьёт по продаже,
+   * и начинать надо с них. Считается по факту, а не на глаз.
+   */
+  const toursRes = await pool.query<{ total: string; on_navigable: string; without_route: string }>(
+    `SELECT COUNT(*)::text AS total,
+            COUNT(*) FILTER (WHERE route_id = ANY($1::uuid[]))::text AS on_navigable,
+            COUNT(*) FILTER (WHERE route_id IS NULL)::text AS without_route
+       FROM operator_tours`,
+    [navigableIds],
+  );
+  const tTotal = parseInt(toursRes.rows[0]?.total ?? '0', 10);
+  const tNav = parseInt(toursRes.rows[0]?.on_navigable ?? '0', 10);
+  const tNone = parseInt(toursRes.rows[0]?.without_route ?? '0', 10);
+  const tours = {
+    total: tTotal,
+    on_navigable_route: tNav,
+    on_failing_route: tTotal - tNav - tNone,
+    without_route: tNone,
+  };
+
   flaws.sort((a, b) => b.worstOffTrackKm - a.worstOffTrackKm);
   collectionFlaws.sort((a, b) => b.spanKm - a.spanKm);
   orderCases.sort((a, b) => b.inversions - a.inversions);
@@ -513,6 +581,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     by_shape,
     worst_order: orderCases.slice(0, 10),
     worst: flaws.slice(0, 15),
+    navigability: verdicts,
+    tours,
     duration_ms: Date.now() - startedAt,
   };
 }
