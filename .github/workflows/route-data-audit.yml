@@ -127,12 +127,19 @@ jobs:
               for s in samples[:12]:
                   print(f"  {s.get('title')}: {s.get('note')}")
 
+          # Поля подборки — свои (см. CollectionFlaw): габарит, число точек и по
+          # чему опознана. Первый прогон печатал `note`, которого у неё нет, и
+          # выдавал ряд названий с пустотой после двоеточия — то есть сообщал
+          # «вот они», не сообщая, чем они плохи.
           worst = a.get('worst_collections') or []
           if worst:
               print('')
-              print('Худшие подборки:')
+              print('Худшие подборки (габарит — сколько края накрывает набор):')
               for w in worst[:8]:
-                  print(f"  {w.get('title')}: {w.get('note') or w.get('reason') or ''}")
+                  span = w.get('spanKm')
+                  span_s = f'{span:.0f} км' if isinstance(span, (int, float)) else '—'
+                  by = 'по точкам' if w.get('by') == 'waypoints' else 'по линии'
+                  print(f"  {w.get('title')}: габарит {span_s}, точек {w.get('waypoints')} ({by})")
           PY
 
           {
