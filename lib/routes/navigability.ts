@@ -41,10 +41,14 @@
  */
 
 import { projectOnTrack, DATA_CONFLICT_KM, type GeoPoint } from '@/lib/on-route/approach';
-import { isScatteredCollection } from '@/lib/routes/geometry-compact';
-import { pointsAreCollection } from '@/lib/routes/shape-match';
+import { pointsAreCollection, routeIntegrity } from '@/lib/routes/shape-match';
 import type { PassportGrade } from '@/lib/routes/passport';
 import type { LatLng } from '@/lib/routes/track-fidelity';
+
+/** Линия приходит парами, а меры считают по объектам — приводим в одном месте. */
+function trackPoints(track: LatLng[]): GeoPoint[] {
+  return track.map(([lat, lng]) => ({ lat, lng }));
+}
 
 export type NavigabilityVerdict = 'navigable' | 'orientation_only' | 'not_a_route';
 
@@ -84,14 +88,37 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // Подборка мест по краю проверяется ПЕРВОЙ. Иначе объект, у которого пути
   // нет по смыслу, попадёт в «ориентирование» и будет числиться пригодным для
   // похода — а чинить там нечего, там другая сущность.
-  if (i.waypoints.length > 0 && pointsAreCollection(i.waypoints)) {
+  // Разброс ТОЧЕК судит только там, где линии нет.
+  //
+  // Когда сплошная линия есть, разброс точек ею и объяснён: у стокилометрового
+  // пути две точки на концах законно стоят в сотне километров друг от друга.
+  // Судьёй в этом случае выступает сама линия — её непрерывность и то, лежат ли
+  // точки на ней. Проверять вдобавок габарит набора значило бы наказывать
+  // маршрут за длину.
+  if (!hasLine && i.waypoints.length > 0 && pointsAreCollection(i.waypoints)) {
     return {
       verdict: 'not_a_route',
       canLead: false,
       reasons: ['Это подборка мест по краю, а не единый путь'],
     };
   }
-  if (hasLine && isScatteredCollection(track)) {
+  // У СПЛОШНОЙ ЛИНИИ ГАБАРИТ НЕ ЗНАЧИТ НИЧЕГО: он равен длине маршрута.
+  //
+  // Первая редакция этого правила звала здесь `isScatteredCollection`, который
+  // объявляет подборкой всё шире 25 км по габариту. Прогон 17.08 показал цену:
+  // пригодных вышло 0 из 301, а «маршрутом не являются» — 92. Среди них
+  // настоящие длинные пути; накрывать сотню километров — их работа.
+  //
+  // Урок был записан в трёх строках от того места, куда я смотрел: перепись
+  // геометрии судит линию через `routeIntegrity`, а не по габариту, и там же
+  // названы «Сплав по реке Камчатка» (габарит 282 км) и «Зимник Анавгай —
+  // Тигиль» (192), объявленные подборками по этой самой причине.
+  //
+  // Подборку от длинного пути отличает НЕПРЕРЫВНОСТЬ: у сплава шаг между
+  // точками метры, у подборки — прыжок в десятки километров. Правило одно и
+  // живёт в shape-match; заводить здесь второе значило бы повторить ту самую
+  // ошибку, ради которой писался §12.
+  if (hasLine && routeIntegrity(trackPoints(track), i.waypoints).verdict === 'not_a_path') {
     return {
       verdict: 'not_a_route',
       canLead: false,
@@ -133,12 +160,10 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // перестаёт показывать расстояние. Два порога об одном и том же разошлись
   // бы, а тут расходиться нельзя: это одно и то же утверждение о данных.
   if (hasLine && i.waypoints.length > 0) {
-    // Проекция считает по объектам {lat,lng}, линия приходит парами — форму
-    // приводим здесь, правило не дублируем.
-    const trackPoints: GeoPoint[] = track.map(([lat, lng]) => ({ lat, lng }));
+    const line = trackPoints(track);
     let worstKm = 0;
     for (const w of i.waypoints) {
-      const proj = projectOnTrack(w, trackPoints);
+      const proj = projectOnTrack(w, line);
       if (proj && proj.offTrackKm > worstKm) worstKm = proj.offTrackKm;
     }
     if (worstKm > DATA_CONFLICT_KM) {
