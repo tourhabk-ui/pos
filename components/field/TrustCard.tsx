@@ -16,6 +16,7 @@
 import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { TrackFidelity } from '@/lib/routes/track-fidelity';
+import { geometrySourceLabel } from '@/lib/map/line-standard';
 import type { PackAssetState } from '@/lib/offline/field-pack';
 
 export interface TrustCardProps {
@@ -85,11 +86,10 @@ export function TrustCard(p: TrustCardProps) {
           <div className="flex items-baseline gap-2 pt-2.5">
             <span className="w-14 shrink-0" style={{ color: 'var(--text-muted)' }}>Линия</span>
             <span style={{ color: 'var(--text-secondary)' }}>
-              {p.hasTrack
-                ? p.geometrySource
-                  ? `источник: ${p.geometrySource}`
-                  : 'источник не записан — вид выбран по плотности точек'
-                : 'в данных маршрута нет'}
+              {/* Наружу — РОД линии, а не слог поставщика: человек спрашивает,
+                  можно ли по ней идти. Слог остаётся ключом внутри
+                  (см. geometrySourceLabel). */}
+              {p.hasTrack ? geometrySourceLabel(p.geometrySource) : 'в данных маршрута нет'}
             </span>
           </div>
           {p.fixLabel && (
