@@ -23,6 +23,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { isPlausibleTrackPoint } from '@/lib/routes/track';
 import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
@@ -110,6 +111,24 @@ export interface GeometryShapes {
   empty_or_single: number;
   /** Координаты вне диапазонов широты/долготы. */
   out_of_range: number;
+  /**
+   * Координаты существуют на Земле, но не на Камчатке.
+   *
+   * Считается ОТДЕЛЬНО от `out_of_range`, потому что это разные поломки.
+   * Точка `lat 53, lng 0` вполне валидна — она в Гвинейском заливе; проверка
+   * диапазонов её пропускает, а на карте навигации она даёт сплошную зелёную
+   * горизонталь через весь экран (полевые скрины 16–17.08: «Авачинский»,
+   * «Козельский»). Причина — импортёр принимал за трек профиль высот
+   * (`[[0, 795], ...]`) и разворачивал его как координаты.
+   *
+   * Аудит обязан такое ВИДЕТЬ, а не молча считать нормальной геометрией:
+   * инструмент, которым меряют здоровье маршрутов, не может быть слеп к
+   * дефекту, найденному в поле.
+   *
+   * Границы — из `isPlausibleTrackPoint` (lib/routes/track), те же, что у
+   * карты и импортёра. Свой порог здесь разошёлся бы с ними.
+   */
+  outside_kamchatka: number;
   /**
    * ОДНОЗНАЧНО перепутанный порядок осей.
    *
@@ -200,7 +219,18 @@ export function geometryToTrack(geometry: unknown): Array<{ lat: number; lng: nu
     if (!Array.isArray(c) || c.length < 2) continue;
     const lng = Number(c[0]);
     const lat = Number(c[1]);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) out.push({ lat, lng });
+    /**
+     * Точка вне края в трек не попадает — иначе она искажает ВСЁ, что
+     * считается ниже: длину линии, расстояние точек до неё, вердикт
+     * «набросок или снятый трек», габарит подборки. Одна координата в
+     * Гвинейском заливе превращает нормальный маршрут в «подборку мест по
+     * всему краю» и портит статистику, ради которой аудит и запускают.
+     *
+     * Сам факт такой точки при этом НЕ теряется: он считается выше, в
+     * `shapes.outside_kamchatka`, с образцом. Фильтровать молча было бы той
+     * же ошибкой, что и глухой catch — дефект превратился бы в тишину.
+     */
+    if (isPlausibleTrackPoint(lat, lng)) out.push({ lat, lng });
   }
   return out;
 }
@@ -244,7 +274,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   const shapes: GeometryShapes = {
     by_type: {}, by_source: {}, synthetic_called_surveyed: 0,
     unsupported: 0, empty_or_single: 0,
-    out_of_range: 0, suspect_swapped: 0, samples: [],
+    out_of_range: 0, outside_kamchatka: 0, suspect_swapped: 0, samples: [],
   };
   /** Источники, которые по своей природе НЕ являются снятым путём. */
   const SYNTHETIC = new Set(['waypoints_synthetic', 'synthetic']);
@@ -291,15 +321,32 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       continue;
     }
 
-    let bad = 0, swapped = 0;
+    let bad = 0, swapped = 0, offRegion = 0;
     for (const c of coords) {
       if (!Array.isArray(c) || c.length < 2) continue;
       const [lng, lat] = c as number[];
       // GeoJSON: [lng, lat]. Если так не сходится, а наоборот сходится —
       // порядок осей перепутан. Считаем и называем, но не переставляем.
-      if (inLng(lng) && inLat(lat)) continue;
+      if (inLng(lng) && inLat(lat)) {
+        // Координата существует, но не на Камчатке — отдельная поломка,
+        // невидимая для проверки диапазонов. Именно она рисует горизонталь
+        // через весь экран.
+        if (!isPlausibleTrackPoint(lat, lng)) offRegion += 1;
+        continue;
+      }
       bad += 1;
       if (inLng(lat) && inLat(lng)) swapped += 1;
+    }
+
+    if (offRegion > 0) {
+      shapes.outside_kamchatka += 1;
+      if (shapes.samples.length < 12) {
+        shapes.samples.push({
+          id: row.id, title: row.title ?? '(без названия)', type,
+          note: `${offRegion} точек вне Камчатки при валидных широте/долготе `
+            + '— линия уйдёт через весь экран',
+        });
+      }
     }
     if (bad > 0) {
       shapes.out_of_range += 1;
