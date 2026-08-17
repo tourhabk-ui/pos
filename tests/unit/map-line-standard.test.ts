@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { trackLine, connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
+import { trackLine, connectorLine, CONNECTOR_TITLES, gradeFromSource } from '@/lib/map/line-standard';
 import type { LatLng } from '@/lib/routes/track-fidelity';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -212,5 +212,30 @@ describe('каждый потребитель передаёт источник'
     expect(src).toMatch(/'waypoints_synthetic'/);
     // Вызова без источника не осталось.
     expect(src).not.toMatch(/trackLine\(trackCoords\)/);
+  });
+});
+
+/**
+ * Реестр синтетических источников — один на всю систему.
+ *
+ * Перепись геометрии 17.08 нашла в базе слог `road_graph_astar` (линия
+ * проложена A* по графу дорог, `/api/cron/route-lay`) и заодно нашла
+ * расхождение: `lib/routes/twins.ts` уже считал его синтетикой, а стандарт
+ * линии о нём не знал — и такая линия попадала под плотностную эвристику.
+ *
+ * У проложенной по дорогам линии вершины частые. Эвристика на ней даёт
+ * «снятый трек», то есть сплошную зелёную в четыре пикселя — приглашение идти
+ * по дороге, которую никто не проверял. Один слог, два модуля, два ответа:
+ * ровно тот класс, ради которого §12 и писался.
+ */
+describe('реестр синтетики не разъезжается по модулям', () => {
+  it('A* по графу дорог — построение, а не снятый путь', () => {
+    expect(gradeFromSource('road_graph_astar')).toBe('sketch');
+  });
+
+  it('twins берёт реестр из стандарта, а не заводит свой', () => {
+    const twins = readFileSync(join(process.cwd(), 'lib/routes/twins.ts'), 'utf-8');
+    expect(twins).toMatch(/import \{ SYNTHETIC_SOURCES \} from '@\/lib\/map\/line-standard'/);
+    expect(twins).not.toMatch(/const SYNTHETIC_SOURCES = new Set/);
   });
 });
