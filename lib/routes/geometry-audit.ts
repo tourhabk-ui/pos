@@ -29,6 +29,7 @@ import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
 import { routeNavigability, type NavigabilityVerdict } from '@/lib/routes/navigability';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { trackEvidence, type TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
+import { cleanTrack } from '@/lib/routes/track-clean';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
@@ -214,6 +215,28 @@ export interface GeometryAudit {
   track_evidence: Record<TrackEvidenceVerdict, number>;
   /** Из них у скольких улики есть, но не полные — что именно мешает. */
   track_evidence_reasons: Record<string, number>;
+  /**
+   * Что даст отделение мусора.
+   *
+   * Владелец 17.08: «если треки реальные, но они замусорены». Мусор попал из
+   * НАШЕГО разбора (регулярка ловила профиль высот), и правка 86316be закрыла
+   * только границу новых записей. Здесь считается, скольким линиям отделение
+   * постороннего вернёт улики записи — то есть цена работы и её приз.
+   *
+   * READ-ONLY: перепись ничего не чистит, только меряет.
+   */
+  cleanable: {
+    /** Линий, где нашлось постороннее и остаток остаётся связным путём. */
+    cleaned: number;
+    /** Постороннего столько, что это не мусор, а другая запись. */
+    not_cleanable: number;
+    /** Из очищенных — сколько получают улики записи ПОСЛЕ отделения. */
+    recorded_after_clean: number;
+    /** Сколько точек отделяется всего. */
+    points_removed: number;
+    /** По какой причине отделено. */
+    by_reason: Record<string, number>;
+  };
   /**
    * Сколько коммерции держится на проверенном. Нужно перед решением о снятии
    * маршрутов с витрины: если туры висят на непроверенных маршрутах, снятие
@@ -474,6 +497,10 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   /** Улики записи — считаются по СЫРОЙ геометрии: высота живёт третьим числом. */
   const evidence: Record<TrackEvidenceVerdict, number> = { recorded: 0, drawn: 0, unclear: 0 };
   const evidenceReasons: Record<string, number> = {};
+  const cleanable = {
+    cleaned: 0, not_cleanable: 0, recorded_after_clean: 0,
+    points_removed: 0, by_reason: {} as Record<string, number>,
+  };
   const by_shape: Record<WaypointFitVerdict, number> = {
     fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
   };
@@ -541,6 +568,28 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     for (const why of ev.reasons) {
       const key = reasonKey(why);
       evidenceReasons[key] = (evidenceReasons[key] ?? 0) + 1;
+    }
+
+    // Что даст отделение мусора. Считается ТОЛЬКО там, где улик не хватило:
+    // у линии с полными уликами чистить нечего, и гонять её через чистку
+    // значило бы измерять работу, которой нет.
+    if (ev.verdict !== 'recorded') {
+      const raw = (r.geometry as { coordinates?: unknown } | null)?.coordinates;
+      const cleaned = cleanTrack(Array.isArray(raw) ? (raw as number[][]) : []);
+      if (cleaned.verdict === 'cleaned') {
+        cleanable.cleaned += 1;
+        cleanable.points_removed += cleaned.removed.length;
+        for (const rm of cleaned.removed) {
+          cleanable.by_reason[rm.reason] = (cleanable.by_reason[rm.reason] ?? 0) + 1;
+        }
+        // Главная цифра: вернула ли чистка линии улики записи. Без неё счёт
+        // «очищено 40» не говорит, стало ли от этого хоть одним настоящим
+        // треком больше.
+        const after = trackEvidence({ type: 'LineString', coordinates: cleaned.points });
+        if (after.verdict === 'recorded') cleanable.recorded_after_clean += 1;
+      } else if (cleaned.verdict === 'not_cleanable' && cleaned.removed.length > 0) {
+        cleanable.not_cleanable += 1;
+      }
     }
 
     // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
@@ -664,6 +713,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     navigability_reasons: navReasons,
     track_evidence: evidence,
     track_evidence_reasons: evidenceReasons,
+    cleanable,
     tours,
     duration_ms: Date.now() - startedAt,
   };
