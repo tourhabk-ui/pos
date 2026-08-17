@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ON_LINE_KM, NEAR_LINE_KM, MIN_WAYPOINTS } from '@/lib/routes/waypoint-proposals';
+import { ON_LINE_KM, NEAR_LINE_KM, MIN_WAYPOINTS, SWEEP_LIMIT } from '@/lib/routes/waypoint-proposals';
 import { MAX_MATCH_DIST_KM } from '@/lib/import/kml-inbox';
 
 const SRC = readFileSync(join(process.cwd(), 'lib/routes/waypoint-proposals.ts'), 'utf-8');
@@ -108,5 +108,45 @@ describe('прогон показывает, что именно предлаг�
     const guard = WF.slice(WF.indexOf('if [ -z "$CRON_SECRET" ]'));
     expect(guard.slice(0, 300)).toMatch(/exit 1/);
     expect(guard.slice(0, 300)).not.toMatch(/exit 0/);
+  });
+});
+
+/**
+ * Что показал первый прогон 17.08 и что из этого следует.
+ *
+ * Правило сработало: расстояния 0–0.2 км, цепочки читаются в порядке пути.
+ * Но всплыли две вещи, которых на бумаге видно не было.
+ *
+ * Первая — мой недосмотр: разбор насчитал 188 маршрутов там, где перепись
+ * геометрии видит 154. Разница — скрытые записи: у переписи есть отбор по
+ * `is_visible`, у разбора не было. Два инструмента об одном и том же обязаны
+ * считать одно и то же, иначе их числа нельзя сопоставить.
+ *
+ * Вторая — свойство данных: «Пеший тур по Камчатке» с линией в 4531 вершину
+ * собрал 49 мест, включая краевой художественный музей и Музей Лосося. Каждое
+ * честно лежит на линии; линия просто идёт через полкрая. И среди мест
+ * оказались записи, местами не являющиеся вовсе — «Камчатка. Такие места»,
+ * «Забег на Аагские источники». Отсеять их расстоянием нельзя: их координату
+ * кто-то поставил ровно по маршруту.
+ */
+describe('уроки первого прогона', () => {
+  it('отбор маршрутов тот же, что у переписи геометрии', () => {
+    expect(CODE).toMatch(/is_visible = TRUE OR kr\.is_visible IS NULL/);
+  });
+
+  it('линия, собирающая всё подряд, помечается, а не обрезается', () => {
+    // Молча обрезать список до дюжины значило бы выдать половину сбора за
+    // весь сбор.
+    expect(SWEEP_LIMIT).toBeGreaterThanOrEqual(10);
+    expect(CODE).toMatch(/report\.sweeping \+= 1/);
+    expect(CODE).not.toMatch(/onLine\.slice\(0, SWEEP_LIMIT\)/);
+  });
+
+  it('род места показывается — фильтром он станет, только если различает', () => {
+    expect(CODE).toMatch(/location_type AS "locationType"/);
+    expect(CODE).toMatch(/locationType: pl\.locationType/);
+    // Фильтра по роду ПОКА нет намеренно: сначала надо увидеть, есть ли
+    // признак у мусорных записей вообще.
+    expect(CODE).not.toMatch(/location_type IS NOT NULL/);
   });
 });

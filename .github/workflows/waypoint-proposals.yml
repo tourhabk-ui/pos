@@ -75,6 +75,7 @@ jobs:
               ('single_place', 'нашлось одно место — путь так не опишешь'),
               ('empty', 'на линии нет ни одного места'),
               ('proposed_waypoints', 'точек предложится всего'),
+              ('sweeping', 'линия собирает всё подряд (больше дюжины мест)'),
           ):
               if key in a:
                   print(f'  {title}: {a[key]}')
@@ -84,7 +85,14 @@ jobs:
               print('')
               print('Образцы разметки (что именно предлагается записать):')
               for s in samples:
-                  pts = ' → '.join(f"{w['name']} ({w['offLineKm']} км)" for w in s.get('onLine', [])[:6])
+                  # Род места печатается рядом с названием: первый прогон нашёл
+                  # среди предложений статьи и события («Камчатка. Такие места»,
+                  # «Забег на Аагские источники»), и различить их можно только
+                  # по признаку в данных, а не по расстоянию.
+                  pts = ' → '.join(
+                      f"{w['name']} [{w.get('locationType') or 'рода нет'}] ({w['offLineKm']} км)"
+                      for w in s.get('onLine', [])[:6]
+                  )
                   more = '' if len(s.get('onLine', [])) <= 6 else f" … ещё {len(s['onLine']) - 6}"
                   print(f"  {s.get('title')} [{s.get('trackPoints')} вершин]: {pts}{more}")
 
