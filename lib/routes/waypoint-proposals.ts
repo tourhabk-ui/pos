@@ -66,6 +66,21 @@ export const NEAR_LINE_KM = 1;
 /** Меньше этого числа точек — привязывать нечего: путь не описан. */
 export const MIN_WAYPOINTS = 2;
 
+/**
+ * Больше этого числа предложений — линия собирает всё подряд.
+ *
+ * Первый прогон 17.08: «Пеший тур по Камчатке», линия в 4531 вершину, 49
+ * предложенных мест — среди них краевой художественный музей и Музей Лосося.
+ * Каждое из них честно лежит в полусотне метров от линии; линия просто идёт
+ * через полкрая и цепляет всё по пути.
+ *
+ * Порог не режет и ничего не отбрасывает: он ПОМЕЧАЕТ такие маршруты, чтобы
+ * их считали отдельно. Молча обрезать список до дюжины значило бы выдать
+ * половину сбора за весь сбор — а это ровно тот класс тишины, с которым мы
+ * боремся весь день.
+ */
+export const SWEEP_LIMIT = 12;
+
 export interface ProposedWaypoint {
   placeId: string;
   name: string;
@@ -73,6 +88,20 @@ export interface ProposedWaypoint {
   offLineKm: number;
   /** Порядковый номер вдоль линии, 0 — ближе к началу. */
   position: number;
+  /**
+   * Род места — вулкан, озеро, источник.
+   *
+   * Печатается не для красоты. Первый прогон 17.08 показал среди предложений
+   * записи, которые местами не являются: «Камчатка. Такие места», «Забег на
+   * Аагские источники», «Пеший тур по Камчатке» — статьи и события, лежащие в
+   * таблице мест. Отсеивать их порогом расстояния нельзя: они лежат ровно на
+   * линии, потому что их координату кто-то поставил по маршруту.
+   *
+   * Отличить их можно только по признаку в самих данных, и прежде чем заводить
+   * фильтр, надо увидеть, есть ли такой признак вообще. Поэтому род сначала
+   * ПОКАЗЫВАЕТСЯ, а фильтром станет только после того, как окажется различающим.
+   */
+  locationType: string | null;
 }
 
 export interface RouteProposal {
@@ -96,6 +125,13 @@ export interface WaypointProposalReport {
   empty: number;
   /** Сколько точек предложится всего, если записать. */
   proposed_waypoints: number;
+  /**
+   * Маршруты, чья линия собирает больше SWEEP_LIMIT мест.
+   *
+   * Считаются отдельно и в `anchorable` тоже входят: это не поломка правила, а
+   * свойство линии, идущей через полкрая. Решать по ним отдельно.
+   */
+  sweeping: number;
   on_line_km: number;
   near_line_km: number;
   /** Образцы — по ним разбирают руками. */
@@ -104,7 +140,7 @@ export interface WaypointProposalReport {
   near_only_samples: RouteProposal[];
 }
 
-interface PlaceRow { id: string; name: string; lat: number; lng: number }
+interface PlaceRow { id: string; name: string; lat: number; lng: number; locationType: string | null }
 interface RouteRow { id: string; title: string | null; geometry: unknown }
 
 /** Грубый габарит трека с запасом — чтобы не мерить все места до всех линий. */
@@ -132,7 +168,8 @@ function bbox(track: GeoPoint[], padKm: number) {
  */
 export async function proposeWaypoints(limit?: number): Promise<WaypointProposalReport> {
   const placesRes = await pool.query<PlaceRow>(
-    `SELECT id, name, lat::float8 AS lat, lng::float8 AS lng
+    `SELECT id, name, lat::float8 AS lat, lng::float8 AS lng,
+            location_type AS "locationType"
        FROM places
       WHERE lat IS NOT NULL AND lng IS NOT NULL
         AND merged_into_id IS NULL`,
@@ -143,6 +180,12 @@ export async function proposeWaypoints(limit?: number): Promise<WaypointProposal
     `SELECT kr.id, kr.title, kr.geometry
        FROM kamchatka_routes kr
       WHERE kr.geometry IS NOT NULL
+        -- Тот же отбор, что у переписи геометрии. Без него разбор насчитал 188
+        -- маршрутов там, где перепись видит 154: разница — скрытые записи.
+        -- Предлагать точки скрытому маршруту значит готовить работу для того,
+        -- что кто-то намеренно убрал с витрины, и мерить не то, что меряет
+        -- соседний инструмент.
+        AND (kr.is_visible = TRUE OR kr.is_visible IS NULL)
         AND NOT EXISTS (SELECT 1 FROM route_waypoints rw WHERE rw.route_id = kr.id)
       ORDER BY kr.id
       ${limit && limit > 0 ? 'LIMIT $1' : ''}`,
@@ -150,7 +193,7 @@ export async function proposeWaypoints(limit?: number): Promise<WaypointProposal
   );
 
   const report: WaypointProposalReport = {
-    candidates: 0, anchorable: 0, single_place: 0, empty: 0, proposed_waypoints: 0,
+    candidates: 0, anchorable: 0, single_place: 0, empty: 0, proposed_waypoints: 0, sweeping: 0,
     on_line_km: ON_LINE_KM, near_line_km: NEAR_LINE_KM,
     samples: [], near_only_samples: [],
   };
@@ -171,7 +214,7 @@ export async function proposeWaypoints(limit?: number): Promise<WaypointProposal
       const proj = projectOnTrack({ lat: pl.lat, lng: pl.lng }, track);
       if (!proj) continue;
       const entry = {
-        placeId: pl.id, name: pl.name,
+        placeId: pl.id, name: pl.name, locationType: pl.locationType,
         offLineKm: Math.round(proj.offTrackKm * 1000) / 1000,
         // Порядок вдоль линии: номер звена плюс доля внутри него. Сортировать
         // по расстоянию от начала было бы неверно на маршруте, который
@@ -198,6 +241,7 @@ export async function proposeWaypoints(limit?: number): Promise<WaypointProposal
     if (onLine.length >= MIN_WAYPOINTS) {
       report.anchorable += 1;
       report.proposed_waypoints += onLine.length;
+      if (onLine.length > SWEEP_LIMIT) report.sweeping += 1;
       if (report.samples.length < 12) report.samples.push(proposal);
     } else if (onLine.length === 1) {
       report.single_place += 1;
