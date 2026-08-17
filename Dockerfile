@@ -61,7 +61,16 @@ FROM base AS runner
 WORKDIR /app
 
 # libc6-compat needed for sharp / native modules at runtime
-RUN apk add --no-cache libc6-compat
+#
+# Тот же обход, что в стадии deps выше, и по той же причине. 19.07 фолбэк на
+# зеркало Яндекса завели ТОЛЬКО там — пока dl-cdn отвечал, разницы не было.
+# 17.08 он снова отдал TLS-ошибку, и сборка легла здесь, на строке без
+# страховки: «unable to select packages: libc6-compat (no such package)».
+#
+# Страховка, поставленная в одном из двух мест, — это не страховка, а отсрочка.
+RUN apk add --no-cache libc6-compat || \
+    (sed -i 's#https://dl-cdn.alpinelinux.org#https://mirror.yandex.ru/mirrors#g' /etc/apk/repositories \
+     && apk add --no-cache libc6-compat)
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
