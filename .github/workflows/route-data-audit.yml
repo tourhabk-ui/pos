@@ -118,6 +118,33 @@ jobs:
               if key in a:
                   print(f'  {title}: {a[key]}')
 
+          # Черта и коммерция — то, ради чего перепись зовут перед решением о
+          # снятии маршрутов с витрины.
+          nav = a.get('navigability') or {}
+          if nav:
+              print('')
+              print('Черта — что можно предлагать как путь:')
+              for key, title in (
+                  ('navigable', 'пригодны: можно вести по линии'),
+                  ('orientation_only', 'только ориентирование'),
+                  ('not_a_route', 'маршрутом не являются'),
+              ):
+                  if key in nav:
+                      print(f'  {title}: {nav[key]}')
+
+          tours = a.get('tours') or {}
+          if tours:
+              print('')
+              print('Коммерция:')
+              for key, title in (
+                  ('total', 'туров всего'),
+                  ('on_navigable_route', 'на пригодном маршруте'),
+                  ('on_failing_route', 'на непроверенном маршруте'),
+                  ('without_route', 'без маршрута вовсе'),
+              ):
+                  if key in tours:
+                      print(f'  {title}: {tours[key]}')
+
           # Образцы — то, по чему разбирают руками. Без них счётчик «12
           # конфликтов» не говорит, какие именно маршруты открывать.
           samples = shapes.get('samples') or []

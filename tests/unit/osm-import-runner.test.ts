@@ -8,7 +8,13 @@ vi.mock('@/lib/db-pool', () => ({
 
 // Маршрут в точке (53.0, 158.0); way стартует в ~70 м от неё — проходит
 // фильтр близости MAX_START_DIST_KM=4 из lib/import/osm-geometry.
-const ROUTE = { id: 'r1', title: 'Тестовый маршрут', lat: '53.0', lng: '158.0' };
+// Точки маршрута лежат НА тропе-кандидате: с 17.08 привязку решают они, а не
+// длина тропы (см. chooseWay в lib/import/osm-geometry).
+const ROUTE = {
+  id: 'r1', title: 'Тестовый маршрут', lat: '53.0', lng: '158.0',
+  current_source: null,
+  waypoints: [{ lat: 53.01, lng: 158.01 }, { lat: 53.02, lng: 158.02 }],
+};
 const NEARBY_WAY = {
   id: 1,
   tags: { highway: 'path' },
@@ -32,7 +38,7 @@ const FAR_WAY = {
 function mockDb(routes: Array<typeof ROUTE>, remaining = routes.length) {
   mockQuery.mockImplementation((sql: string) => {
     if (sql.includes('COUNT(*)')) return Promise.resolve({ rows: [{ count: String(remaining) }] });
-    if (sql.includes('SELECT id, title')) return Promise.resolve({ rows: routes });
+    if (sql.includes('SELECT kr.id, kr.title')) return Promise.resolve({ rows: routes });
     return Promise.resolve({ rows: [] }); // UPDATE
   });
 }
@@ -81,7 +87,7 @@ describe('runOsmGeometryImport (общий раннер admin-роута и /api
 
     await runOsmGeometryImport({ limit: 5, dryRun: true, offset: 12, delayMs: 0 });
 
-    const select = mockQuery.mock.calls.find(([sql]) => String(sql).includes('SELECT id, title'));
+    const select = mockQuery.mock.calls.find(([sql]) => String(sql).includes('SELECT kr.id, kr.title'));
     expect(select?.[1]).toEqual([5, 12]);
   });
 

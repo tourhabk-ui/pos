@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  distKm, buildOverpassQuery, parseOverpassWays, pickBestWay, wayToGeoJSON,
+  distKm, buildOverpassQuery, parseOverpassWays, chooseWay, distToWayKm, wayToGeoJSON,
   MAX_START_DIST_KM, type OsmWay,
 } from '@/lib/import/osm-geometry';
 
@@ -54,24 +54,114 @@ describe('parseOverpassWays', () => {
   });
 });
 
-describe('pickBestWay', () => {
-  it('среди близких (≤4 км) выбирает самый длинный по узлам', () => {
-    const near5 = way(1, [[R_LAT, R_LNG], [R_LAT + 0.001, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.003, R_LNG], [R_LAT + 0.004, R_LNG]]);
-    const near3 = way(2, [[R_LAT, R_LNG], [R_LAT + 0.001, R_LNG], [R_LAT + 0.002, R_LNG]]);
-    expect(pickBestWay([near3, near5], R_LAT, R_LNG)!.id).toBe(1);
+/**
+ * Выбор тропы: решают путевые точки маршрута, а не длина тропы.
+ *
+ * Прежнее правило звучало так: любая тропа, чей конец в четырёх километрах от
+ * якоря, годится; среди годных побеждает САМАЯ ДЛИННАЯ. Ни проверки второго
+ * кандидата, ни сверки с точками маршрута.
+ *
+ * Это то самое правило, от которого репозиторий уже отказался: в
+ * `lib/import/kml-inbox.ts` привязка по близости удалена — из 290 попыток
+ * годными оказались 31, и там же записано, что чем длиннее трек, тем меньше
+ * близость его начала о нём говорит. Здесь длина была призом.
+ *
+ * Цена ошибки выше обычной: линия получает метку `osm`, а `osm` входит в
+ * список снятых источников — значит рисуется сплошной зелёной, «здесь идут».
+ * Неверная привязка выглядит проверенным маршрутом.
+ */
+describe('chooseWay', () => {
+  /** Две путевые точки вдоль тропы-кандидата. */
+  const WPS = [
+    { lat: R_LAT + 0.001, lng: R_LNG },
+    { lat: R_LAT + 0.003, lng: R_LNG },
+  ];
+
+  it('принимает тропу, на которую ложатся точки маршрута', () => {
+    const w = way(1, [[R_LAT, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.004, R_LNG]]);
+    const c = chooseWay([w], R_LAT, R_LNG, WPS);
+    expect(c.reason).toBe('ok');
+    expect(c.way?.id).toBe(1);
+    expect(c.worstWaypointKm).toBeLessThanOrEqual(2);
   });
 
-  it('null, если ни один конец не в пределах 4 км', () => {
+  it('длина больше не приз: побеждает та, что лучше ложится на точки', () => {
+    // Точки маршрута лежат в шести километрах к северу от якоря.
+    const northWps = [
+      { lat: R_LAT + 0.05, lng: R_LNG },
+      { lat: R_LAT + 0.06, lng: R_LNG },
+    ];
+    // Короткая тропа идёт через них.
+    const short = way(1, [[R_LAT, R_LNG], [R_LAT + 0.05, R_LNG], [R_LAT + 0.06, R_LNG]]);
+    // Длинная начинается у того же якоря, но уходит на восток: узлов вчетверо
+    // больше, а точки маршрута на ней не лежат. По прежнему правилу победила
+    // бы именно она — «самая длинная среди близких».
+    const longAside = way(2, Array.from({ length: 40 }, (_, i) => [R_LAT, R_LNG + 0.01 * i] as [number, number]));
+    const c = chooseWay([short, longAside], R_LAT, R_LNG, northWps);
+    expect(c.reason).toBe('ok');
+    expect(c.way?.id).toBe(1);
+  });
+
+  it('отказ, если ни один конец не в пределах 4 км', () => {
     const far = way(9, [[R_LAT + 1, R_LNG + 1], [R_LAT + 1.001, R_LNG + 1], [R_LAT + 1.002, R_LNG + 1]]);
-    // конец далеко (>>4 км)
     expect(distKm(R_LAT, R_LNG, R_LAT + 1, R_LNG + 1)).toBeGreaterThan(MAX_START_DIST_KM);
-    expect(pickBestWay([far], R_LAT, R_LNG)).toBeNull();
+    const c = chooseWay([far], R_LAT, R_LNG, WPS);
+    expect(c.way).toBeNull();
+    expect(c.reason).toBe('no_candidates');
   });
 
-  it('близость считается по ближайшему из двух концов', () => {
-    // начало далеко, конец рядом → берём
+  it('отказ, если у маршрута нет двух точек — проверить привязку нечем', () => {
+    // Линия, которую нечем проверить, получила бы вид снятого трека. Ровно то,
+    // что запрещает черта (lib/routes/navigability).
+    const w = way(1, [[R_LAT, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.004, R_LNG]]);
+    expect(chooseWay([w], R_LAT, R_LNG, []).reason).toBe('no_waypoints');
+    expect(chooseWay([w], R_LAT, R_LNG, [WPS[0]]).reason).toBe('no_waypoints');
+  });
+
+  it('отказ, если точки маршрута с тропой не сходятся', () => {
+    const w = way(1, [[R_LAT, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.004, R_LNG]]);
+    const farWps = [
+      { lat: R_LAT + 0.2, lng: R_LNG + 0.2 },
+      { lat: R_LAT + 0.25, lng: R_LNG + 0.25 },
+    ];
+    const c = chooseWay([w], R_LAT, R_LNG, farWps);
+    expect(c.way).toBeNull();
+    expect(c.reason).toBe('waypoints_conflict');
+    expect(c.worstWaypointKm).toBeGreaterThan(2);
+  });
+
+  it('отказ при неоднозначности: две тропы ложатся одинаково хорошо', () => {
+    // Два трека, одинаково подходящие под точки, — это не выбор, а гадание.
+    const a = way(1, [[R_LAT, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.004, R_LNG]]);
+    const b = way(2, [[R_LAT, R_LNG], [R_LAT + 0.002, R_LNG], [R_LAT + 0.0045, R_LNG]]);
+    const c = chooseWay([a, b], R_LAT, R_LNG, WPS);
+    expect(c.way).toBeNull();
+    expect(c.reason).toBe('ambiguous');
+    expect(c.runnerUpId).toBeTypeOf('number');
+  });
+
+  it('близость по-прежнему считается по ближайшему из двух концов', () => {
     const w = way(3, [[R_LAT + 1, R_LNG], [R_LAT + 0.5, R_LNG], [R_LAT + 0.001, R_LNG]]);
-    expect(pickBestWay([w], R_LAT, R_LNG)!.id).toBe(3);
+    const wps = [
+      { lat: R_LAT + 0.5, lng: R_LNG },
+      { lat: R_LAT + 0.6, lng: R_LNG },
+    ];
+    expect(chooseWay([w], R_LAT, R_LNG, wps).way?.id).toBe(3);
+  });
+});
+
+describe('distToWayKm — расстояние до ЛОМАНОЙ, а не до вершины', () => {
+  it('точка напротив середины звена ближе, чем до его концов', () => {
+    // Вершины могут стоять через километры: «ближайшая вершина» увела бы
+    // вбок от места, где точка реально лежит на тропе.
+    const w = way(1, [[R_LAT, R_LNG], [R_LAT + 0.02, R_LNG]]);
+    const mid = { lat: R_LAT + 0.01, lng: R_LNG };
+    const toVertex = Math.min(
+      distKm(mid.lat, mid.lng, R_LAT, R_LNG),
+      distKm(mid.lat, mid.lng, R_LAT + 0.02, R_LNG),
+    );
+    expect(distToWayKm(mid, w)).toBeLessThan(toVertex);
+    expect(distToWayKm(mid, w)).toBeLessThan(0.05);
   });
 });
 
