@@ -28,6 +28,7 @@ import { trackFidelity } from '@/lib/routes/track-fidelity';
 import { projectOnTrack, DATA_CONFLICT_KM } from '@/lib/on-route/approach';
 import { routeNavigability, type NavigabilityVerdict } from '@/lib/routes/navigability';
 import { buildRoutePassport } from '@/lib/routes/passport';
+import { trackEvidence, type TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
@@ -201,6 +202,18 @@ export interface GeometryAudit {
    * порог или само правило.
    */
   navigability_reasons: Record<string, number>;
+  /**
+   * Улики записи: сколько импортированных линий можно ДОКАЗАТЬ как снятые.
+   *
+   * 17.08 скрейп понижен из «снятого трека» — доказательств не было. Владелец
+   * в тот же вечер сообщил, что сайт-источник заявляет треки как полученные
+   * от людей, которые их прошли. Заявление о чужой странице не говорит о
+   * нашей копии (наш разбор уже писал в базу профиль высот вместо трека), но
+   * делает 259 линий кандидатами. Это счёт кандидатов.
+   */
+  track_evidence: Record<TrackEvidenceVerdict, number>;
+  /** Из них у скольких улики есть, но не полные — что именно мешает. */
+  track_evidence_reasons: Record<string, number>;
   /**
    * Сколько коммерции держится на проверенном. Нужно перед решением о снятии
    * маршрутов с витрины: если туры висят на непроверенных маршрутах, снятие
@@ -458,6 +471,9 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   const navigableIds: string[] = [];
   /** Причины отказа поимённо: «ноль пригодных» без них ничего не объясняет. */
   const navReasons: Record<string, number> = {};
+  /** Улики записи — считаются по СЫРОЙ геометрии: высота живёт третьим числом. */
+  const evidence: Record<TrackEvidenceVerdict, number> = { recorded: 0, drawn: 0, unclear: 0 };
+  const evidenceReasons: Record<string, number> = {};
   const by_shape: Record<WaypointFitVerdict, number> = {
     fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
   };
@@ -516,6 +532,15 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     for (const why of nav.reasons) {
       const key = reasonKey(why);
       navReasons[key] = (navReasons[key] ?? 0) + 1;
+    }
+
+    // Улики записи считаются по СЫРОЙ геометрии, а не по разобранным парам:
+    // высота лежит третьим числом, и geometryToTrack его отбрасывает.
+    const ev = trackEvidence(r.geometry);
+    evidence[ev.verdict] += 1;
+    for (const why of ev.reasons) {
+      const key = reasonKey(why);
+      evidenceReasons[key] = (evidenceReasons[key] ?? 0) + 1;
     }
 
     // Подборка, а не маршрут: проверяется ДО расхождения линии и точек.
@@ -637,6 +662,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     worst: flaws.slice(0, 15),
     navigability: verdicts,
     navigability_reasons: navReasons,
+    track_evidence: evidence,
+    track_evidence_reasons: evidenceReasons,
     tours,
     duration_ms: Date.now() - startedAt,
   };
