@@ -11,20 +11,27 @@
 --
 -- Здесь переименовываются ЗНАЧЕНИЯ, а не структура:
 --
---   1) in-band маркер геометрии `geometry->>'source'` — 'idilesom' → 'partners'.
+--   1) in-band маркер геометрии `geometry->>'source'` — 'idilesom' → 'external'.
 --      Канон маркера описан в 776: ключ живёт ВНУТРИ GeoJSON и едет вместе с
 --      геометрией при слияниях. Слог остаётся латиницей: это ключ
 --      классификации (см. SURVEYED_SOURCES в lib/map/line-standard.ts), а не
 --      текст для экрана.
 --
 --   2) `source_name` в kamchatka_routes и places — все написания имени
---      источника → 'наши партнёры'. Эта колонка И ЕСТЬ текст для экрана:
+--      источника → 'сторонний источник'. Эта колонка И ЕСТЬ текст для экрана:
 --      её печатает components/places/PlaceFooter.tsx.
+--
+-- Почему «сторонний источник», а не «наши партнёры». Первым решением владельца
+-- было второе, и оно бы задачу решило: чужого бренда на экране не осталось бы.
+-- Но 767 называет этот источник конкурентом — значит «партнёры» утверждали бы
+-- отношения, которых нет, в колонке, которую печатает публичная страница. Имя
+-- источника здесь вообще не нужно: человеку важен род данных, а не поставщик.
+-- Поэтому имя убирается, а не подменяется другим именем (решение 17.08).
 --
 -- `source_url` НЕ трогаем. Это происхождение записи — оно нужно для проверки
 -- фактов и для авторских прав, и стирать его значило бы потерять то, чем
 -- данные подтверждаются. Наружу ссылка больше не выводится: решение принято в
--- UI, где известно, что источник партнёрский (PlaceFooter).
+-- UI, где известно, что источник сторонний (PlaceFooter).
 --
 -- Идемпотентно: каждый UPDATE ищет старое написание, повторный прогон не
 -- найдёт строк.
@@ -32,7 +39,7 @@
 -- ── 1. Маркер геометрии ──────────────────────────────────────────────────────
 
 UPDATE kamchatka_routes
-SET geometry = geometry || jsonb_build_object('source', 'partners')
+SET geometry = geometry || jsonb_build_object('source', 'external')
 WHERE geometry IS NOT NULL
   AND geometry->>'source' = 'idilesom';
 
@@ -41,15 +48,15 @@ WHERE geometry IS NOT NULL
 -- нормализовал 'idilesom' → 'idilesom.com'), русское имя из скрейпа.
 
 UPDATE kamchatka_routes
-SET source_name = 'наши партнёры'
+SET source_name = 'сторонний источник'
 WHERE source_name IS NOT NULL
   AND source_name ~* '(иди\s*лесом|идилесом|idilesom)';
 
 UPDATE places
-SET source_name = 'наши партнёры'
+SET source_name = 'сторонний источник'
 WHERE source_name IS NOT NULL
   AND source_name ~* '(иди\s*лесом|идилесом|idilesom)';
 
 INSERT INTO _migrations (name)
-VALUES ('871_rename_source_to_partners.sql')
+VALUES ('871_source_name_neutral.sql')
 ON CONFLICT (name) DO NOTHING;

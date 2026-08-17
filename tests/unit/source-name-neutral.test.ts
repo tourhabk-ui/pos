@@ -20,16 +20,18 @@ import { join } from 'node:path';
 import { gradeFromSource } from '@/lib/map/line-standard';
 
 const MIGRATION = readFileSync(
-  join(process.cwd(), 'migrations/871_rename_source_to_partners.sql'),
+  join(process.cwd(), 'migrations/871_source_name_neutral.sql'),
   'utf-8',
 );
 const FOOTER = readFileSync(join(process.cwd(), 'components/places/PlaceFooter.tsx'), 'utf-8');
+/** Код без комментариев: прежнее решение в них разобрано намеренно. */
+const FOOTER_CODE = FOOTER.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('новый слог знают как снятый трек', () => {
-  it('partners — снятый путь, не набросок', () => {
-    // Переименование не имеет права понизить род линии: те же треки,
+  it('external — снятый путь, не набросок', () => {
+    // Обезличивание не имеет права понизить род линии: те же треки,
     // нарисованные пунктиром, звали бы обходить проверенную тропу.
-    expect(gradeFromSource('partners')).toBe('surveyed');
+    expect(gradeFromSource('external')).toBe('surveyed');
   });
 
   it('прежний слог всё ещё узнаётся — ради полевых пакетов на телефонах', () => {
@@ -45,14 +47,14 @@ describe('новый слог знают как снятый трек', () => {
 });
 
 describe('миграция переименовывает значения, а не режет происхождение', () => {
-  it('маркер геометрии становится partners', () => {
-    expect(MIGRATION).toMatch(/jsonb_build_object\('source', 'partners'\)/);
+  it('маркер геометрии становится обезличенным', () => {
+    expect(MIGRATION).toMatch(/jsonb_build_object\('source', 'external'\)/);
   });
 
-  it('видимое имя источника — «наши партнёры» во всех написаниях', () => {
+  it('видимое имя источника обезличено во всех написаниях', () => {
     // Написаний накопилось несколько: слог импортёра, домен (его подставил
     // data-repair), русское имя из скрейпа.
-    expect(MIGRATION).toMatch(/source_name = 'наши партнёры'/);
+    expect(MIGRATION).toMatch(/source_name = 'сторонний источник'/);
     expect(MIGRATION).toMatch(/иди\\s\*лесом\|идилесом\|idilesom/);
     expect(MIGRATION).toMatch(/UPDATE kamchatka_routes/);
     expect(MIGRATION).toMatch(/UPDATE places/);
@@ -63,15 +65,23 @@ describe('миграция переименовывает значения, а �
   });
 
   it('идемпотентна и регистрируется', () => {
-    expect(MIGRATION).toMatch(/871_rename_source_to_partners\.sql/);
+    expect(MIGRATION).toMatch(/871_source_name_neutral\.sql/);
     expect(MIGRATION).toMatch(/ON CONFLICT \(name\) DO NOTHING/);
   });
 });
 
 describe('подвал карточки места не ведёт к чужому сайту под нашей подписью', () => {
-  it('партнёрский источник печатается текстом, без ссылки', () => {
-    expect(FOOTER).toMatch(/const PARTNER_SOURCE_NAME = 'наши партнёры'/);
-    expect(FOOTER).toMatch(/partnerSource \? \(/);
+  it('сторонний источник печатается текстом, без ссылки', () => {
+    expect(FOOTER).toMatch(/const EXTERNAL_SOURCE_NAME = 'сторонний источник'/);
+    expect(FOOTER).toMatch(/externalSource \? \(/);
+  });
+
+  it('чужое имя не подменяется другим именем', () => {
+    // «Наши партнёры» решило бы задачу бренда и создало бы новую: утверждение
+    // об отношениях, которых нет. Миграция 767 называет этот источник
+    // конкурентом.
+    expect(FOOTER_CODE).not.toMatch(/партнёр/i);
+    expect(MIGRATION).not.toMatch(/source_name = 'наши партнёры'/);
   });
 
   it('ссылка остаётся для прочих источников', () => {

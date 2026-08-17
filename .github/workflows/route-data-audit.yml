@@ -1,0 +1,107 @@
+name: Перепись геометрии маршрутов (вручную)
+
+# Зачем этот workflow существует.
+#
+# 17.08 встал вопрос, откуда у платформы треки. По переписи 11.08, записанной
+# в комментарии lib/map/line-standard.ts, из 301 линии 257 пришли с чужого
+# сайта, из OpenStreetMap — 13, из visitkamchatka — 6, синтетики — 19. То есть
+# восемь из десяти маршрутов платформы, которая называет своей целью
+# безопасность туристов, нарисованы данными, снятыми скрейпом.
+#
+# Цифрам месяц. Решать по ним, что делать с зависимостью от чужого сайта и
+# сколько даст импорт OSM, — это решать по памяти. Спросить надо у базы.
+#
+# Endpoint /api/cron/route-data-audit READ-ONLY и закрыт CRON_SECRET, а прод
+# доступен не отовсюду. Держать ключ у себя ради разового запроса — плохой
+# размен: секрет начинает жить в истории терминалов и в переписке. В Actions
+# он уже есть, там же есть и сеть.
+#
+# Запускается ТОЛЬКО вручную: это инструмент разбора, а не наблюдение.
+# Перепись ходит по всем маршрутам и считает геометрию — гонять её по
+# расписанию значит нагружать прод ради вопроса, который задают редко.
+#
+# Ответ не содержит ни секретов, ни персональных данных: счётчики, имена
+# источников, названия и id маршрутов.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Сколько маршрутов взять (пусто — все)'
+        required: false
+        default: ''
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Спросить перепись и показать ответ
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          # Cron-workflow при отсутствии секрета выходят с нулём: пропущенная
+          # задача лучше красного прогона. Здесь наоборот — молчаливый успех
+          # переписи означал бы «посмотрели, всё хорошо», хотя не смотрели.
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — спросить перепись нечем."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/route-data-audit"
+          if [ -n "$LIMIT" ]; then URL="$URL?limit=$LIMIT"; fi
+
+          HTTP=$(curl -sS -o /tmp/audit.json -w "%{http_code}" --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL") || HTTP="000"
+
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Перепись ответила $HTTP."
+            head -c 2000 /tmp/audit.json || true
+            exit 1
+          fi
+
+          # Сначала — короткий ответ на вопрос, ради которого перепись зовут:
+          # чем нарисованы линии и сколько из них снято с чужого сайта.
+          # Простыня целиком идёт следом, в сводку прогона.
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/audit.json') as f:
+              a = json.load(f)
+
+          shapes = a.get('shapes') or {}
+          by_source = shapes.get('by_source') or {}
+          total = sum(by_source.values())
+
+          print('Происхождение линий:')
+          if not by_source:
+              # Пустая разбивка — это не «всё хорошо», а «мерить нечего».
+              print('  источник не записан ни у одной линии')
+          for src, n in sorted(by_source.items(), key=lambda kv: -kv[1]):
+              share = f'{100 * n / total:.0f}%' if total else '—'
+              print(f'  {src}: {n} ({share})')
+
+          osm = by_source.get('osm', 0)
+          print('')
+          print(f'Из OpenStreetMap: {osm} из {total}')
+
+          for key, title in (
+              ('outside_kamchatka', 'точек вне Камчатки'),
+              ('out_of_range', 'координат вне диапазона'),
+              ('synthetic_called_surveyed', 'набросков, выглядящих треком'),
+          ):
+              if key in shapes:
+                  print(f'{title}: {shapes[key]}')
+          PY
+
+          {
+            echo '## Перепись геометрии маршрутов'
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/audit.json || cat /tmp/audit.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
