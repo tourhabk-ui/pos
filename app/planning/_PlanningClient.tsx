@@ -12,7 +12,7 @@ import {
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
-import { approachPlan } from '@/lib/on-route/approach';
+import { approachPlan, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
 import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
 import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
@@ -811,8 +811,21 @@ function OnTrailTab() {
     };
   }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
-  // Старт с БЛИЖАЙШЕЙ точки при первом GPS-фиксе (а не всегда с №1 — иначе
-  // «до точки 1» может быть за десятки км, если старт маршрута далеко).
+  /**
+   * Старт с ближайшей точки — но только если человек УЖЕ на маршруте.
+   *
+   * Замысел был верный: тот, кто стоит посреди тропы, не должен получать «до
+   * точки 1 — сорок километров назад». Условия у правила не было, и оно
+   * срабатывало всегда.
+   *
+   * Полевой скрин 17.08, «Вулкан Козельский»: человек в городе, ближайшей из
+   * трёх точек случайно оказалась последняя — экран написал «3 из 3». Прибор
+   * объявил маршрут почти пройденным, когда к нему ещё не подошли: прогресс
+   * полный, точек впереди нет, а идти — всё.
+   *
+   * Дальше ON_ROUTE_ENTRY_KM маршрут начинается с начала, а дорога от человека
+   * до первой точки показывается подходом — тем, чем она и является.
+   */
   const snappedRef = useRef(false);
   useEffect(() => {
     if (snappedRef.current || !coords || waypoints.length === 0) return;
@@ -821,7 +834,7 @@ function OnTrailTab() {
       const d = haversine(coords.lat, coords.lng, w.lat, w.lng);
       if (d < bestD) { bestD = d; best = i; }
     });
-    setCurrentWpIdx(best);
+    setCurrentWpIdx(bestD <= ON_ROUTE_ENTRY_KM ? best : 0);
     snappedRef.current = true;
   }, [coords, waypoints]);
 
@@ -2111,7 +2124,15 @@ function OnTrailTab() {
                       220px overflow-hidden контейнере — fitBounds центрирует
                       маркеры в обрезанную нижнюю половину, и превью выглядит
                       пустым (скрин владельца «Авачинский перевал»). */}
-                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" />
+                  {/* «Где точка моего местонахождения?» — вопрос владельца на
+                      превью «Куда идём?» 17.08. Решение «идти или нет»
+                      принимают именно здесь, и принять его, не видя себя,
+                      нельзя: три зелёных кружка на карте края ничего не
+                      говорят о том, рядом это или за перевалом.
+                      Синяя точка рождается только по настоящему фиксу
+                      (см. LeafletMap) и в fitBounds не участвует — превью
+                      маршрута от неё не разъедется. */}
+                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" showUserLocation />
                 </div>
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
