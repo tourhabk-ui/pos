@@ -22,13 +22,22 @@ const config = require(join(process.cwd(), 'next.config.js')) as {
     source: string;
     destination: string;
     permanent?: boolean;
-    has?: Array<{ type: string; value: string }>;
+    has?: Array<{ type: string; key?: string; value: string }>;
   }>>;
 };
 
+/** Правила канона по любому из двух заголовков, несущих исходное имя хоста. */
 async function hostRules() {
   const all = await config.redirects();
-  return all.filter(r => r.has?.some(h => h.type === 'host' && h.value.includes('tourhab')));
+  return all.filter(r => r.has?.some(h =>
+    (h.type === 'host' || (h.type === 'header' && h.key === 'x-forwarded-host'))
+    && h.value.includes('tourhab')));
+}
+
+async function rulesByHeader(type: string, key?: string) {
+  const all = await config.redirects();
+  return all.filter(r => r.has?.some(h =>
+    h.type === type && (key === undefined || h.key === key) && h.value.includes('tourhab')));
 }
 
 describe('канон домена', () => {
@@ -56,6 +65,33 @@ describe('канон домена', () => {
     const rules = await hostRules();
     const wildcard = rules.find(r => r.source !== '/');
     expect(wildcard?.source).toContain('(?!api/)');
+  });
+});
+
+describe('канон ловит имя хоста в обоих заголовках', () => {
+  /**
+   * Правило по `host` лежало в конфиге с 14.08 и было выложено — а 17.08
+   * владелец открыл tourhab.ru с телефона и увидел сайт, не перенаправление;
+   * ночная сверка каналов повторяла то же пятые сутки (#1155).
+   *
+   * Объяснение одно: до Next доезжает не то имя. Прокси провайдера подменяет
+   * Host собственным, а исходное кладёт в X-Forwarded-Host — обычное поведение
+   * ingress'а. Поэтому правило обязано существовать в обоих видах: лишнее не
+   * сработает ни разу и ничего не стоит, а пропущенное держит раздвоение сайта.
+   */
+  it('есть правила по host', async () => {
+    expect((await rulesByHeader('host')).length).toBeGreaterThan(0);
+  });
+
+  it('есть правила по x-forwarded-host', async () => {
+    expect((await rulesByHeader('header', 'x-forwarded-host')).length).toBeGreaterThan(0);
+  });
+
+  it('оба вида покрывают и корень, и остальные пути', async () => {
+    for (const rules of [await rulesByHeader('host'), await rulesByHeader('header', 'x-forwarded-host')]) {
+      expect(rules.some(r => r.source === '/')).toBe(true);
+      expect(rules.some(r => r.source !== '/')).toBe(true);
+    }
   });
 });
 
