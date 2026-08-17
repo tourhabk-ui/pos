@@ -168,6 +168,25 @@ jobs:
                   for reason, n in sorted(evw.items(), key=lambda kv: -kv[1]):
                       print(f'    {n}: {reason}')
 
+          # Что даст отделение мусора. Мусор попал из НАШЕГО разбора: регулярка
+          # ловила профиль высот и писала его как координаты. Правка на границе
+          # записи закрыла только новые записи — старое лежит как лежало.
+          cl = a.get('cleanable') or {}
+          if cl:
+              print('')
+              print('Отделение мусора (перепись не чистит, только меряет):')
+              print(f"  линий с посторонними точками: {cl.get('cleaned', 0)}")
+              print(f"  из них станут записью после отделения: {cl.get('recorded_after_clean', 0)}")
+              print(f"  постороннего слишком много — это другая запись: {cl.get('not_cleanable', 0)}")
+              print(f"  точек к отделению всего: {cl.get('points_removed', 0)}")
+              for reason, n in sorted((cl.get('by_reason') or {}).items(), key=lambda kv: -kv[1]):
+                  title = {
+                      'out_of_bounds': 'вне края (профиль высот, прочитанный как координаты)',
+                      'spike': 'скачок GPS: ушла и вернулась',
+                      'duplicate': 'повтор координаты',
+                  }.get(reason, reason)
+                  print(f'    {n}: {title}')
+
           tours = a.get('tours') or {}
           if tours:
               print('')
