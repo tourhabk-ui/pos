@@ -48,8 +48,15 @@ describe('род данных — одно правило, источник ва
   });
 
   it('снятый источник — трек', () => {
-    const p = buildRoutePassport({ ...BASE, track: SURVEYED, geometrySource: 'idilesom' });
+    const p = buildRoutePassport({ ...BASE, track: SURVEYED, geometrySource: 'osm' });
     expect(p.grade).toBe('surveyed');
+  });
+
+  it('импортированный источник треком не становится', () => {
+    // Решение владельца 17.08: скрейп с чужого сайта не доказывает, что по
+    // линии кто-то прошёл. Паспорт обязан слышать это так же, как карта.
+    const p = buildRoutePassport({ ...BASE, track: SURVEYED, geometrySource: 'external' });
+    expect(p.grade).toBe('unknown');
   });
 
   it('линии нет, точки есть — points_only; нет ничего — none', () => {
@@ -63,7 +70,9 @@ describe('род данных — одно правило, источник ва
   });
 
   it('списковый грейд: линия без источника — unknown, не sketch и не surveyed', () => {
-    expect(lineGradeForList(true, 'idilesom')).toBe('surveyed');
+    expect(lineGradeForList(true, 'osm')).toBe('surveyed');
+    // Источник записан и знаком, но доказательством не служит.
+    expect(lineGradeForList(true, 'external')).toBe('unknown');
     expect(lineGradeForList(true, 'waypoints_synthetic')).toBe('sketch');
     expect(lineGradeForList(true, null)).toBe('unknown');
     expect(lineGradeForList(false, null)).toBe('points_only');
@@ -73,6 +82,7 @@ describe('род данных — одно правило, источник ва
   it('gradeFromSource — те же замкнутые множества, что у trackLine', () => {
     expect(gradeFromSource('waypoints_synthetic')).toBe('sketch');
     expect(gradeFromSource('gpx')).toBe('surveyed');
+    expect(gradeFromSource('external')).toBe('unknown');
     expect(gradeFromSource('чей-то-новый-источник')).toBeNull();
     expect(gradeFromSource(null)).toBeNull();
   });

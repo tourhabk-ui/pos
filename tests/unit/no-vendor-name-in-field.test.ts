@@ -33,8 +33,20 @@ describe('подпись линии говорит про род, а не про
   });
 
   it('снятый путь назван снятым', () => {
-    expect(geometrySourceLabel('idilesom')).toMatch(/снятый трек/);
     expect(geometrySourceLabel('osm')).toMatch(/снятый трек/);
+    expect(geometrySourceLabel('gpx')).toMatch(/снятый трек/);
+  });
+
+  it('скрейп назван импортом, а не «источник не записан»', () => {
+    // Два разных состояния, и человеку они говорят разное. У импорта есть
+    // что предъявить — линия откуда-то взялась, её можно сверить и повысить;
+    // у отсутствующего источника нет ничего. Одна фраза на оба соврала бы
+    // в обе стороны сразу.
+    for (const s of ['external', 'idilesom']) {
+      expect(geometrySourceLabel(s), s).toMatch(/импортом/);
+      expect(geometrySourceLabel(s), s).not.toMatch(/не записан/);
+    }
+    expect(geometrySourceLabel(null)).toMatch(/не записан/);
   });
 
   it('набросок назван наброском', () => {

@@ -16,7 +16,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { trackLine, connectorLine, CONNECTOR_TITLES, gradeFromSource } from '@/lib/map/line-standard';
+import {
+  trackLine, connectorLine, CONNECTOR_TITLES, gradeFromSource,
+  UNVERIFIED_SOURCES, SYNTHETIC_SOURCES,
+} from '@/lib/map/line-standard';
 import type { LatLng } from '@/lib/routes/track-fidelity';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -139,17 +142,55 @@ describe('род линии спрашивается у записи, а не у
   it('снятый источник даёт трек, даже если точек мало', () => {
     // Шесть настоящих треков рисовались пунктиром из-за редких точек:
     // ошибка в сторону осторожности, но всё равно ошибка.
-    const line = trackLine(SPARSE, 'idilesom');
+    const line = trackLine(SPARSE, 'gpx');
     expect(line!.fidelity).toBe('surveyed');
     expect(line!.style.dashArray).toBeFalsy();
     // Снятому треку оговорка не нужна.
     expect(line!.caption).toBe('');
   });
 
+  it('скрейп треком НЕ считается, сколько бы точек в нём ни было', () => {
+    // Решение владельца 17.08: `external` (и прежний слог `idilesom`) —
+    // импорт с чужого сайта. Что по этой линии кто-то прошёл, доказательств
+    // нет, а сплошная зелёная в четыре пикселя означает «здесь идут».
+    //
+    // Проверяется ПЛОТНАЯ линия, и это главное в тесте: убрать слог из
+    // «снятых» было бы мало — незнакомое имя проваливается в плотностную
+    // эвристику, а у скрейпа вершины частые, и она вернула бы «снятый трек».
+    // Понижение отменил бы угадыватель.
+    for (const s of ['external', 'idilesom']) {
+      const line = trackLine(DENSE, s);
+      expect(line!.fidelity, s).toBe('unknown');
+      expect(line!.style.dashArray, s).toBeTruthy();
+      expect(line!.caption, s).toMatch(/никто не подтверждал/);
+    }
+  });
+
+  it('GPS-запись туриста с osm.org/traces — снятый путь', () => {
+    // `cron-osm-traces` пишет их со слогом `osm-trace`, а стандарт знал
+    // только `osm`: род самой честной линии платформы определялся догадкой
+    // при наличии записи.
+    const line = trackLine(SPARSE, 'osm-trace');
+    expect(line!.fidelity).toBe('surveyed');
+    expect(line!.style.dashArray).toBeFalsy();
+  });
+
   it('незнакомый источник треком НЕ считается', () => {
     // Список замкнутый: ошибиться в эту сторону дороже — сплошная зовёт идти.
     const line = trackLine(SPARSE, 'какой-то-новый-импорт');
     expect(line!.fidelity).toBe('sketch');
+  });
+
+  it('импортированный слог не числится снятым ни в одном из множеств', () => {
+    // Понижение 17.08 — решение владельца о том, что платформа обещает в
+    // поле, а не деталь реализации. Вернуть слог в «снятые» правкой одной
+    // строки можно за секунду, и внешне ничего не изменится: линия просто
+    // снова станет сплошной зелёной. Пусть это стоит красного прогона.
+    for (const s of ['external', 'idilesom']) {
+      expect(UNVERIFIED_SOURCES.has(s), s).toBe(true);
+      expect(SYNTHETIC_SOURCES.has(s), `${s}: импорт — не набросок, форму линии он не выдумывал`).toBe(false);
+      expect(gradeFromSource(s), s).toBe('unknown');
+    }
   });
 
   it('источника нет — эвристика остаётся, но называет себя догадкой', () => {
