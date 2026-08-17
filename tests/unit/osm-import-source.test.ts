@@ -24,14 +24,20 @@ const OVERPASS_WAY = {
   ],
 };
 
-const ROUTE_ROW = { id: 'r1', title: 'Тестовый маршрут', lat: '53.0', lng: '158.6' };
+// Точки маршрута лежат на тропе-кандидате: с 17.08 привязку решают они, а не
+// длина тропы (chooseWay в lib/import/osm-geometry).
+const ROUTE_ROW = {
+  id: 'r1', title: 'Тестовый маршрут', lat: '53.0', lng: '158.6',
+  current_source: null,
+  waypoints: [{ lat: 53.01, lng: 158.61 }, { lat: 53.02, lng: 158.62 }],
+};
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
-    if (/SELECT id, title/.test(sql)) return { rows: [ROUTE_ROW] };
+    if (/SELECT kr\.id, kr\.title/.test(sql)) return { rows: [ROUTE_ROW] };
     if (/FILTER \(WHERE geometry IS NULL\)/.test(sql)) {
       return { rows: [{ without_geometry: '1', synthetic: '4' }] };
     }
@@ -51,10 +57,10 @@ afterEach(() => {
 describe('runOsmGeometryImport — маркер источника', () => {
   it('пул выборки включает синтетику, реальные треки — нет', async () => {
     await runOsmGeometryImport({ limit: 8, dryRun: true, delayMs: 0 });
-    const selectSql = queryMock.mock.calls.find(c => /SELECT id, title/.test(c[0] as string))?.[0] as string;
-    expect(selectSql).toMatch(/geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic'/);
+    const selectSql = queryMock.mock.calls.find(c => /SELECT kr\.id, kr\.title/.test(c[0] as string))?.[0] as string;
+    expect(selectSql).toMatch(/kr\.geometry IS NULL OR kr\.geometry->>'source' = 'waypoints_synthetic'/);
     // Совсем без геометрии — первыми
-    expect(selectSql).toMatch(/ORDER BY \(geometry IS NULL\) DESC/);
+    expect(selectSql).toMatch(/ORDER BY \(kr\.geometry IS NULL\) DESC/);
   });
 
   it('импортированный трек несёт source=osm внутри GeoJSON', async () => {
