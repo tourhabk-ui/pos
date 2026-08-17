@@ -13,11 +13,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { geometryToTrack } from '@/lib/routes/geometry-audit';
+import { geometryToTrack, reasonKey } from '@/lib/routes/geometry-audit';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const AUDIT = read('lib/routes/geometry-audit.ts');
 const API = read('app/api/cron/route-data-audit/route.ts');
+const WORKFLOW = read('.github/workflows/route-data-audit.yml');
 
 describe('геометрия читается так же, как её читает офлайн-пакет', () => {
   it('GeoJSON приходит парами [lng, lat] — порядок не путается', () => {
@@ -75,6 +76,41 @@ describe('аудит ничего не портит и не приукрашив
   it('урезанный счёт виден рядом с полным', () => {
     expect(AUDIT).toContain('routes_total');
     expect(AUDIT).toContain('routes_counted');
+  });
+});
+
+describe('ноль пригодных обязан назвать причину', () => {
+  /**
+   * Прогон 17.08 вернул «пригодны: 0» и на этом замолчал. Ноль без причины не
+   * отвечает на вопрос, который за ним стоит: чинить данные, порог или само
+   * правило. За этим молчанием уже пряталась ошибка правила (габарит вместо
+   * непрерывности), и нашлась она догадкой, а не инструментом.
+   */
+  it('причины считаются, а не только вердикты', () => {
+    expect(AUDIT).toContain('navigability_reasons');
+  });
+
+  it('одинаковая беда сводится в одну строку, разная — не сливается', () => {
+    // Иначе двадцать пять расхождений выглядели бы двадцатью пятью разными
+    // бедами, и счётчик перестал бы быть счётчиком.
+    expect(reasonKey('Точка стоит в 14.2 км от линии — данные маршрута не сходятся'))
+      .toBe(reasonKey('Точка стоит в 3,1 км от линии — данные маршрута не сходятся'));
+    expect(reasonKey('Линию не с чем сверить: путевых точек меньше двух'))
+      .not.toBe(reasonKey('Точка стоит в 14.2 км от линии — данные маршрута не сходятся'));
+  });
+
+  it('слова причины принадлежат черте, перепись их не переписывает', () => {
+    // Свой текст отказа здесь означал бы две формулировки одного решения:
+    // человек в поле читал бы одно, разбор — другое.
+    const key = reasonKey('Линию не с чем сверить: путевых точек меньше двух');
+    expect(key).toBe('Линию не с чем сверить: путевых точек меньше двух');
+  });
+
+  it('разбивка доходит до глаз — печатается в прогоне', () => {
+    // Поле в JSON, которое никто не печатает, отвечает на вопрос в сводке из
+    // сотен строк. Смотрят в лог.
+    expect(WORKFLOW).toContain('navigability_reasons');
+    expect(WORKFLOW).toMatch(/Почему не проходят черту/);
   });
 });
 
