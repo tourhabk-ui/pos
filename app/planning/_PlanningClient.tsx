@@ -38,8 +38,16 @@ import {
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { useSwRegistration } from '@/lib/offline/sw-status';
 import {
-  passportGradeLabel, passportGradeNote, passportCtaLabel, type PassportGrade,
+  passportGradeLabel, passportGradeNote, type PassportGrade,
 } from '@/lib/routes/passport';
+import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
+
+/** Вердикт черты в том виде, в каком он приходит с сервера. */
+interface PreviewNavigability {
+  verdict: NavigabilityVerdict;
+  canLead: boolean;
+  reasons: string[];
+}
 import {
   saveFieldPack, loadFieldPack, verifyFieldPack, fieldPackReadiness, formatSnapshotAge,
   type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
@@ -340,12 +348,16 @@ function OnTrailTab() {
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{
     id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
+    /** Черта: можно ли обещать ведение. Считается на сервере — см. openPreview. */
+    navigability: PreviewNavigability | null;
   } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   /** Отказ по конкретному варианту: показывается у его строки, а не вместо списка. */
   const [previewError, setPreviewError] = useState<{ id: string; text: string } | null>(null);
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
-  const previewCacheRef = useRef<Map<string, { wps: SavedWaypoint[]; grade: PassportGrade | null }>>(new Map());
+  const previewCacheRef = useRef<Map<string, {
+    wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
+  }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
@@ -1342,7 +1354,10 @@ function OnTrailTab() {
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
     const cached = previewCacheRef.current.get(r.id);
-    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade }); return; }
+    if (cached) {
+      setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade, navigability: cached.navigability });
+      return;
+    }
     setPreviewLoadingId(r.id);
     setPreviewError(null);
     // Провал загрузки карточки маршрута — это состояние, а не пустота.
@@ -1379,8 +1394,19 @@ function OnTrailTab() {
         const pp = data.passport as { grade?: unknown } | null | undefined;
         const grade = (typeof pp?.grade === 'string' ? pp.grade as PassportGrade : null)
           ?? r.lineGrade ?? null;
-        previewCacheRef.current.set(r.id, { wps: converted, grade });
-        setPreview({ id: r.id, title: r.title, wps: converted, grade });
+        // Вердикт приходит С СЕРВЕРА: там есть и линия, и точки. Экран линию
+        // не грузит и сам расхождения не увидел бы — «Вулкан Козельский» с
+        // точкой в 14 км от трека выглядел бы пригодным до самого поля.
+        const nav = (data.navigability as { verdict?: unknown; canLead?: unknown; reasons?: unknown } | null) ?? null;
+        const navigability = nav && typeof nav.verdict === 'string'
+          ? {
+              verdict: nav.verdict as NavigabilityVerdict,
+              canLead: nav.canLead === true,
+              reasons: Array.isArray(nav.reasons) ? nav.reasons.filter((x): x is string => typeof x === 'string') : [],
+            }
+          : null;
+        previewCacheRef.current.set(r.id, { wps: converted, grade, navigability });
+        setPreview({ id: r.id, title: r.title, wps: converted, grade, navigability });
       })
       .catch(() => {
         setPreviewError({ id: r.id, text: 'Не удалось загрузить маршрут — похоже, связь. Повторите.' });
@@ -2150,20 +2176,24 @@ function OnTrailTab() {
                     {passportGradeNote(preview.grade)}
                   </p>
                 )}
-                {previewMap.singlePoint && (
-                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
-                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
-                    У этой записи в базе одна точка — начало и конец совпадают,
-                    пути между ними нет. Вести по ней нельзя, сколько бы километров
-                    ни стояло в описании. Выберите маршрут с двумя точками и более.
-                  </p>
-                )}
-                {previewMap.scattered && (
-                  <p className="text-xs mb-3 px-3 py-2 rounded-lg"
-                    style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
-                    Это подборка мест по всему краю, а не единый трек — идти по ней
-                    как по маршруту нельзя. Выберите компактный маршрут из вариантов.
-                  </p>
+                {/* ── Черта: одна причина отказа, названная словами ──────────
+                    Раньше экран судил сам — отдельно про разброс, отдельно
+                    про одиночную точку, — и не видел третьего случая:
+                    расхождения точек с линией. «Вулкан Козельский» проходил
+                    оба здешних теста и оказывался непригодным только в поле.
+                    Теперь вердикт приходит с сервера, где есть и линия, и
+                    точки, а экран его показывает. */}
+                {preview.navigability && preview.navigability.reasons.length > 0 && (
+                  <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+                      {preview.navigability.verdict === 'not_a_route'
+                        ? 'Вести по этой записи нельзя'
+                        : 'Ведение по линии не обещаем'}
+                    </p>
+                    {preview.navigability.reasons.map((why, i) => (
+                      <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
+                    ))}
+                  </div>
                 )}
                 <div className="flex gap-2">
                   <button onClick={() => setPreview(null)}
@@ -2171,16 +2201,27 @@ function OnTrailTab() {
                     style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
                     К вариантам
                   </button>
-                  {!previewMap.scattered && !previewMap.singlePoint && (
-                    <button onClick={() => selectRoute(preview)}
-                      className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
-                      style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                      {/* «Навигатор» обещает ведение по линии — это обещание
-                          есть только у снятого трека. Остальным — честное
-                          «ориентирование»: направление и точки, не тропа. */}
-                      {passportCtaLabel(preview.grade ?? 'unknown')}
-                    </button>
-                  )}
+                  {/* Кнопки нет вовсе, когда записью нельзя пользоваться как
+                      маршрутом: предлагать старт по подборке мест значило бы
+                      обещать путь, которого нет. */}
+                  {(() => {
+                    const verdict = preview.navigability?.verdict
+                      // Вердикт не пришёл (старый кэш ответа) — судим по тому,
+                      // что видно здесь: одна точка или разброс. Отсутствие
+                      // ответа не превращается в «пригодно».
+                      ?? (previewMap.scattered || previewMap.singlePoint ? 'not_a_route' : 'orientation_only');
+                    const label = navigabilityCtaLabel(verdict);
+                    if (!label) return null;
+                    return (
+                      <button onClick={() => selectRoute(preview)}
+                        className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
+                        style={verdict === 'navigable'
+                          ? { background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }
+                          : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                        {label}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (
