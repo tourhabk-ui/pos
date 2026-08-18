@@ -33,6 +33,58 @@
  */
 
 import { projectOnTrack, DATA_CONFLICT_KM, type GeoPoint } from '@/lib/on-route/approach';
+import { normalizeTitle } from '@/lib/routes/title-dupes';
+
+/**
+ * Точка-ТЁЗКА: её имя есть в имени маршрута.
+ *
+ * Сухой прогон 18.08 показал две такие строки:
+ *
+ *   Восхождение на Вилючинский вулкан → Вулкан Вилючинский: 7.9 км
+ *   Озеро Толмачева → Толмачёва: 6 км
+ *
+ * Здесь расхождение читается наоборот. Если трек «Восхождения на Вилючинский»
+ * не подходит к Вилючинскому ближе восьми километров, врёт скорее ЛИНИЯ: к
+ * записи прицепили чужой трек. Снять точку значило бы стереть единственное
+ * верное сведение и оставить неверное — а маршрут после этого выглядел бы
+ * согласованным, что хуже явного противоречия.
+ *
+ * Улика записи тут не спасает: она доказывает, что линию сняли прибором, но
+ * НЕ доказывает, что сняли именно этот маршрут. Имя — независимый источник, и
+ * при споре с геометрией оно старше: имя дал человек, привязку — импорт.
+ */
+/**
+ * Родовые слова: они есть у половины записей и тёзкой никого не делают.
+ *
+ * «Долина гейзеров» и «Долина смерти» — разные места, общее слово «долина»
+ * их не роднит. Совпадать должно ИМЯ СОБСТВЕННОЕ.
+ */
+const GENERIC_WORDS = new Set([
+  'вулкан', 'сопка', 'гора', 'озеро', 'река', 'ручей', 'бухта', 'мыс',
+  'перевал', 'долина', 'парк', 'природный', 'источник', 'источники',
+  'горячие', 'восхождение', 'поход', 'тропа', 'маршрут', 'смотровая',
+]);
+
+/** Значащие слова имени: без родовых и без коротких. */
+function significantWords(title: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of normalizeTitle(title).split(/[^а-яa-z0-9]+/)) {
+    if (w.length < 5) continue;
+    if (GENERIC_WORDS.has(w)) continue;
+    out.add(w);
+  }
+  return out;
+}
+
+export function isNamesakeOfRoute(routeTitle: string, placeTitle: string): boolean {
+  const route = significantWords(routeTitle);
+  const place = significantWords(placeTitle);
+  if (route.size === 0 || place.size === 0) return false;
+  for (const w of place) {
+    if (route.has(w)) return true;
+  }
+  return false;
+}
 
 export interface LinkCandidate {
   routeId: string;
@@ -40,6 +92,14 @@ export interface LinkCandidate {
   placeId: string;
   placeTitle: string;
   /** Насколько точка отстоит от собственной линии маршрута, км. */
+  offTrackKm: number;
+}
+
+/** Маршрут, чья линия расходится с его же тёзкой: случай для человека. */
+export interface NamesakeConflict {
+  routeId: string;
+  routeTitle: string;
+  placeTitle: string;
   offTrackKm: number;
 }
 
@@ -60,24 +120,43 @@ export interface LinkInput {
  * здесь означал бы, что «расхождение» при уборке и «расхождение» при отказе
  * вести — разные величины, а это одно утверждение о данных.
  */
-export function brokenLinks(i: LinkInput): LinkCandidate[] {
-  if (!i.lineProven || i.track.length < 2) return [];
-  const out: LinkCandidate[] = [];
+export interface BrokenLinksResult {
+  /** Привязки, которые можно снимать: линия доказана, точка ей чужая. */
+  candidates: LinkCandidate[];
+  /**
+   * Расхождения с ТЁЗКОЙ маршрута — снимать нельзя, показать человеку.
+   *
+   * Здесь под подозрением линия, а не привязка, и автоматика выбрала бы
+   * неверную сторону.
+   */
+  namesakeConflicts: NamesakeConflict[];
+}
+
+export function brokenLinks(i: LinkInput): BrokenLinksResult {
+  if (!i.lineProven || i.track.length < 2) return { candidates: [], namesakeConflicts: [] };
+  const candidates: LinkCandidate[] = [];
+  const namesakeConflicts: NamesakeConflict[] = [];
   for (const w of i.waypoints) {
     const proj = projectOnTrack({ lat: w.lat, lng: w.lng }, i.track);
     // `null` — спроецировать не удалось: это незнание, а не расхождение.
     if (!proj) continue;
-    if (proj.offTrackKm > DATA_CONFLICT_KM) {
-      out.push({
-        routeId: i.routeId,
-        routeTitle: i.routeTitle,
-        placeId: w.placeId,
-        placeTitle: w.placeTitle,
-        offTrackKm: Math.round(proj.offTrackKm * 10) / 10,
+    if (proj.offTrackKm <= DATA_CONFLICT_KM) continue;
+    const offTrackKm = Math.round(proj.offTrackKm * 10) / 10;
+    if (isNamesakeOfRoute(i.routeTitle, w.placeTitle)) {
+      namesakeConflicts.push({
+        routeId: i.routeId, routeTitle: i.routeTitle, placeTitle: w.placeTitle, offTrackKm,
       });
+      continue;
     }
+    candidates.push({
+      routeId: i.routeId,
+      routeTitle: i.routeTitle,
+      placeId: w.placeId,
+      placeTitle: w.placeTitle,
+      offTrackKm,
+    });
   }
-  return out;
+  return { candidates, namesakeConflicts };
 }
 
 /**
