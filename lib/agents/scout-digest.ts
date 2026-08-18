@@ -44,6 +44,13 @@ export const SKIP_REASON_LABELS: Record<string, string> = {
   all_sections_empty: 'после разбора все разделы оказались пусты',
   unsourced_percents: 'в тексте проценты без ссылки на источник',
   factcheck_judge_mute: 'проверяющая модель не ответила — выпуск придержан',
+  // Четыре РАЗНЫЕ беды, которые до 18.08 сливались в одну строку выше.
+  // Владелец видел «модель не ответила» семнадцать дней и искал причину в
+  // блокировке провайдера — а из четырёх случаев это верно ровно в одном.
+  judge_silent: 'проверяющая модель вернула пустоту — молчит провайдер',
+  judge_unparseable: 'проверяющая модель ответила прозой вместо JSON — сбой в промпте, не в провайдере',
+  judge_bad_shape: 'в ответе судьи нет поля unsupported — сбой в промпте, не в провайдере',
+  judge_threw: 'запрос к проверяющей модели упал — сеть, ключ или таймаут',
   unsupported_claims: 'утверждения не подтверждены источниками',
   near_repeat: 'выпуск почти повторял предыдущий',
   telegram_send_failed: 'синтез готов, но Telegram не принял отправку',
@@ -464,7 +471,7 @@ export function isNearRepeatOfPrevious(
 // перенесёнными числами ушёл в AI-канал мимо гейтов, живших только здесь).
 // Re-export — обратная совместимость импортов и сторожей.
 export { unsourcedPercents } from '@/lib/agents/fact-check';
-import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
+import { unsourcedPercents, unsupportedClaims, judgeClaims, type JudgeFailure } from '@/lib/agents/fact-check';
 
 /**
  * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
@@ -497,6 +504,11 @@ async function fetchArticleText(url: string): Promise<string> {
 }
 
 // unsupportedClaims — тоже из общего модуля (см. комментарий у re-export выше).
+
+/** Причина отказа судьи → код пропуска. Слова живут в SKIP_REASON_LABELS. */
+function judgeSkipReason(why: JudgeFailure): string {
+  return `judge_${why === 'silent' ? 'silent' : why === 'unparseable' ? 'unparseable' : why === 'bad_shape' ? 'bad_shape' : 'threw'}`;
+}
 
 /**
  * Учитывает здоровье источников за прогон, персистит в agent_memory и алертит
@@ -704,11 +716,14 @@ export async function runScoutDigest(): Promise<DigestResult> {
       return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'unsourced_percents', duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
 
-    let claims = await unsupportedClaims(digest, signalsList);
-    // null — судья не ответил: не выпускаем (сбой гейта = отмена, не пропуск).
-    if (claims === null) {
-      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: 'factcheck_judge_mute', duration_ms: Date.now() - start, ...health, repeats_suppressed };
+    // Судья отвечает ПРИЧИНОЙ отказа, а не просто отказом: «молчит провайдер»
+    // и «ответила прозой вместо JSON» чинятся в разных местах, и одно слово на
+    // оба отправляет чинить не туда.
+    const verdict = await judgeClaims(digest, signalsList);
+    if (!verdict.ok) {
+      return { signals_found: freshItems.length, digest_sent: false, digest_skip_reason: judgeSkipReason(verdict.why), duration_ms: Date.now() - start, ...health, repeats_suppressed };
     }
+    let claims: string[] | null = verdict.unsupported;
     if (claims.length > 0) {
       const fix: ChatMessage[] = [
         ...messages,
