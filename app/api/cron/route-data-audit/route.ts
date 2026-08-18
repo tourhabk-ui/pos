@@ -40,8 +40,9 @@ export const maxDuration = 120;
  *   2 — причины отказа поимённо, улики записи, отделение мусора
  *   3 — ровность шага в уликах, записи-близнецы по именам
  *   4 — черта спрашивает улику: доказанная запись возвращает право вести
+ *   5 — коммерция под видом маршрута: имя продаёт, пути нет
  */
-export const AUDIT_SHAPE_VERSION = 4;
+export const AUDIT_SHAPE_VERSION = 5;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
