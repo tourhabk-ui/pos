@@ -42,8 +42,10 @@ export const maxDuration = 120;
  *   4 — черта спрашивает улику: доказанная запись возвращает право вести
  *   5 — коммерция под видом маршрута: имя продаёт, пути нет
  *   6 — центроид протяжённого объекта не считается противоречием
+ *   7 — расхождения точки с линией названы поимённо: маршрут, место,
+ *       происхождение координаты и даст ли починка пригодность
  */
-export const AUDIT_SHAPE_VERSION = 6;
+export const AUDIT_SHAPE_VERSION = 7;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);

@@ -198,6 +198,34 @@ jobs:
               for reason, n in sorted(why.items(), key=lambda kv: -kv[1]):
                   print(f'  {n}: {reason}')
 
+          # Расхождения поимённо. Счётчик выше говорит «20 маршрутов не
+          # сходятся с собственными точками» и умолкает; открыть по нему
+          # случай нельзя. Двадцать — число, которое разбирают руками, если
+          # знать, кто с кем спорит.
+          cases = a.get('conflict_cases') or []
+          if cases:
+              only = a.get('conflicts_only_reason', 0)
+              print('')
+              print('Расхождения точки с линией — поимённо:')
+              print(f'  случаев: {len(cases)}, из них починка даёт пригодность: {only}')
+              src_ru = {
+                  'surveyed': 'снята на месте',
+                  'geocoded': 'угадана по названию',
+                  'placeholder': 'заглушка',
+                  'unknown': 'происхождение не записано',
+              }
+              for c in sorted(cases, key=lambda c: -(c.get('offTrackKm') or 0)):
+                  mark = []
+                  if c.get('namesake'):
+                      mark.append('ТЁЗКА: под подозрением линия, а не привязка')
+                  if c.get('onlyReason'):
+                      mark.append('единственная причина отказа')
+                  tail = f" — {'; '.join(mark)}" if mark else ''
+                  print(f"    {c.get('offTrackKm')} км  {c.get('routeTitle')}")
+                  print(f"        точка: {c.get('placeTitle')} ({c.get('placeType') or 'род не записан'},"
+                        f" координата {src_ru.get(c.get('coordSource'), c.get('coordSource'))})")
+                  print(f"        точек {c.get('waypoints')}, линия {c.get('trackPoints')}{tail}")
+
           # Улики записи. Владелец 17.08: сайт-источник заявляет треки как
           # полученные от людей, которые их прошли. Заявление о чужой странице
           # не говорит о нашей копии — между ними наш разбор, уже уличённый в
