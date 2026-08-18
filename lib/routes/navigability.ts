@@ -46,6 +46,7 @@ import type { PassportGrade } from '@/lib/routes/passport';
 import type { TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import type { LatLng } from '@/lib/routes/track-fidelity';
 import { isExtendedObject } from '@/lib/places/coord-source';
+import { isPathPoint, type LinkKind } from '@/lib/routes/link-kind';
 
 /** Линия приходит парами, а меры считают по объектам — приводим в одном месте. */
 function trackPoints(track: LatLng[]): GeoPoint[] {
@@ -98,6 +99,19 @@ export interface NavigabilityInput {
    */
   waypointTypes?: Array<string | null>;
   /**
+   * Род каждой связи, в том же порядке (`route_waypoints.link_kind`).
+   *
+   * `nearby` — не точка пути, а контекст «это рядом, загляните» (миграция
+   * 874). Такая связь из суждения исключается ЦЕЛИКОМ: ею нельзя ни сверить
+   * линию, ни опровергнуть её. Пусто — родов не спрашивали, и все связи
+   * судятся как путевые (прежнее поведение).
+   *
+   * Раньше эти связи давали отказ «точка стоит в N км от линии» — отказ
+   * верный по существу, но по неверной причине: Музей лосося не расходится с
+   * тропой на Авачинский, он просто не на ней.
+   */
+  waypointKinds?: LinkKind[];
+  /**
    * Улика записи по САМОЙ линии (lib/routes/track-evidence).
    *
    * Считается по сырой геометрии: высота на каждой точке, неровность шага,
@@ -115,6 +129,12 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   const reasons: string[] = [];
   let conflict: { index: number; offTrackKm: number } | undefined;
   const track = i.track ?? [];
+  // Индексы точек, описывающих ПУТЬ. Всё остальное — контекст, и в суждении
+  // о пути не участвует (см. lib/routes/link-kind).
+  const pathIdx = i.waypoints.map((_, idx) => idx).filter(
+    (idx) => !i.waypointKinds || isPathPoint(i.waypointKinds[idx] ?? 'unknown'),
+  );
+  const pathPoints = pathIdx.map((idx) => i.waypoints[idx]);
   const hasLine = track.length >= 2;
 
   // ── Не маршрут вовсе ──────────────────────────────────────────────────────
@@ -129,7 +149,7 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // Судьёй в этом случае выступает сама линия — её непрерывность и то, лежат ли
   // точки на ней. Проверять вдобавок габарит набора значило бы наказывать
   // маршрут за длину.
-  if (!hasLine && i.waypoints.length > 0 && pointsAreCollection(i.waypoints)) {
+  if (!hasLine && pathPoints.length > 0 && pointsAreCollection(pathPoints)) {
     return {
       verdict: 'not_a_route',
       canLead: false,
@@ -152,18 +172,18 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // точками метры, у подборки — прыжок в десятки километров. Правило одно и
   // живёт в shape-match; заводить здесь второе значило бы повторить ту самую
   // ошибку, ради которой писался §12.
-  if (hasLine && routeIntegrity(trackPoints(track), i.waypoints).verdict === 'not_a_path') {
+  if (hasLine && routeIntegrity(trackPoints(track), pathPoints).verdict === 'not_a_path') {
     return {
       verdict: 'not_a_route',
       canLead: false,
       reasons: ['Линия рвётся на десятки километров — это не путь, а набор мест'],
     };
   }
-  if (!hasLine && i.waypoints.length < MIN_ROUTE_WAYPOINTS) {
+  if (!hasLine && pathPoints.length < MIN_ROUTE_WAYPOINTS) {
     return {
       verdict: 'not_a_route',
       canLead: false,
-      reasons: i.waypoints.length === 0
+      reasons: pathPoints.length === 0
         ? ['Нет ни линии, ни точек — вести не по чему']
         : ['У записи одна точка: начало и конец совпадают, пути между ними нет'],
     };
@@ -205,7 +225,7 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
     );
   }
 
-  if (i.waypoints.length < MIN_ROUTE_WAYPOINTS) {
+  if (pathPoints.length < MIN_ROUTE_WAYPOINTS) {
     // Линия без точек не поверяется ничем: сверить её не с чем, этапы
     // показать нечем. Такая линия может быть верной — но проверить это
     // платформа не может, а обещание даётся на проверенном.
@@ -234,11 +254,11 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // километрах от любой тропы, и это не противоречие данных, а определение
   // центроида. Наказывать за это значило бы навсегда закрыть черту всем
   // маршрутам, проходящим через крупные объекты.
-  if (hasLine && i.waypoints.length > 0) {
+  if (hasLine && pathPoints.length > 0) {
     const line = trackPoints(track);
     let worstKm = 0;
     let worstIdx = -1;
-    for (let idx = 0; idx < i.waypoints.length; idx++) {
+    for (const idx of pathIdx) {
       const type = i.waypointTypes?.[idx];
       // Род спрошен и оказался протяжённым — расстояние ни о чём не говорит.
       if (i.waypointTypes && isExtendedObject(type)) continue;

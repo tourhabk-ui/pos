@@ -36,6 +36,7 @@ import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
 import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
+import { asLinkKind, type LinkKind } from '@/lib/routes/link-kind';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -104,6 +105,8 @@ export interface ConflictCase {
     offTrackKm: number | null;
     /** Протяжённый объект: у него координата это центроид, и расстояние слабый признак. */
     extended: boolean;
+    /** Чем связь является: путь, «рядом» или не размечено. */
+    kind: LinkKind;
   }>;
 }
 
@@ -363,6 +366,13 @@ export interface GeometryAudit {
   conflict_cases: ConflictCase[];
   /** Из них тех, у кого расхождение — единственная причина отказа. */
   conflicts_only_reason: number;
+  /**
+   * Сколько связей какого рода (миграция 874).
+   *
+   * Главная цифра разметки: пока `nearby` ноль, ничего не размечено, и
+   * улучшение показателей означало бы смену линейки, а не починку данных.
+   */
+  link_kinds: Record<LinkKind, number>;
   duration_ms: number;
 }
 
@@ -376,6 +386,8 @@ interface AuditWaypoint {
   id: string;
   title: string;
   coordSource: CoordSource;
+  /** Чем связь является: точка пути, «рядом» или не размечено (миграция 874). */
+  kind: LinkKind;
 }
 
 /**
@@ -395,6 +407,7 @@ function asCoordSource(raw: string | null): CoordSource {
 }
 interface WpRow {
   route_id: string;
+  link_kind: string | null;
   place_id: string;
   title: string | null;
   lat: string | null;
@@ -593,7 +606,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // строки как угодно: счёт инверсий стал бы шумом. Раньше комментарий ниже
   // утверждал, что точки приходят упорядоченными, а запрос этого не просил.
   const wpRes = await pool.query<WpRow>(
-    `SELECT rw.route_id::text, p.id::text AS place_id, p.name AS title,
+    `SELECT rw.route_id::text, rw.link_kind, p.id::text AS place_id, p.name AS title,
             p.lat::text, p.lng::text, p.location_type, p.coord_source
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
@@ -602,6 +615,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         AND p.merged_into_id IS NULL
       ORDER BY rw.route_id, rw.position`,
   );
+  const linkKinds: Record<LinkKind, number> = { waypoint: 0, nearby: 0, unknown: 0 };
   const byRoute = new Map<string, AuditWaypoint[]>();
   for (const w of wpRes.rows) {
     const lat = Number(w.lat), lng = Number(w.lng);
@@ -613,8 +627,10 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       id: w.place_id,
       title: w.title ?? '(без названия)',
       coordSource: asCoordSource(w.coord_source),
+      kind: asLinkKind(w.link_kind),
     });
     byRoute.set(w.route_id, arr);
+    linkKinds[asLinkKind(w.link_kind)] += 1;
   }
 
   let no_geometry = 0, no_waypoints = 0, sketch_geometry = 0, surveyed_geometry = 0;
@@ -720,6 +736,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       // Рода точек: у протяжённого объекта центроид далеко от тропы по
       // определению, и противоречием это не является.
       waypointTypes: wps.map((w) => w.type),
+      // Род связи: «рядом» — контекст, а не путь, и в суждении не участвует.
+      waypointKinds: wps.map((w) => w.kind),
       evidence: evidenceVerdict,
     });
     verdicts[nav.verdict] += 1;
@@ -750,6 +768,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
               type: w.type,
               offTrackKm: pr ? Math.round(pr.offTrackKm * 10) / 10 : null,
               extended: isExtendedObject(w.type),
+              kind: w.kind,
             };
           }),
         });
@@ -917,6 +936,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // Не режется: этих случаев два десятка, и режут списки там, где их не
     // разбирают. Этот разбирают.
     conflict_cases: conflictCases,
+    link_kinds: linkKinds,
     conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
     navigability_reasons: navReasons,
