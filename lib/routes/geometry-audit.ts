@@ -31,6 +31,7 @@ import { buildRoutePassport } from '@/lib/routes/passport';
 import { trackEvidence, type TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import { cleanTrack } from '@/lib/routes/track-clean';
 import { findTitleDupes } from '@/lib/routes/title-dupes';
+import { isCommercialRecord } from '@/lib/routes/commercial-titles';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
@@ -246,6 +247,18 @@ export interface GeometryAudit {
    * записями. Twins сравнивал маршрут с МЕСТОМ; друг с другом маршруты не
    * сравнивал никто, и число «411 маршрутов» врёт на величину дублей.
    */
+  /**
+   * Записи, чьё имя продаёт, а не ведёт: «Джип-тур», «Вертолётная экскурсия».
+   *
+   * Владелец 18.08: «есть по названиям коммерция, а не маршрут». Признак
+   * составной — коммерческое слово И отсутствие пути; запись с настоящим
+   * треком остаётся маршрутом, как бы её ни назвали.
+   */
+  commercial_records: {
+    total: number;
+    by_marker: Record<string, number>;
+    samples: Array<{ id: string; title: string; marker: string }>;
+  };
   title_dupes: {
     groups: number;
     /** Сколько записей лишние: сумма (размер группы − 1). */
@@ -513,6 +526,11 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   /** Улики записи — считаются по СЫРОЙ геометрии: высота живёт третьим числом. */
   const evidence: Record<TrackEvidenceVerdict, number> = { recorded: 0, drawn: 0, unclear: 0 };
   const evidenceReasons: Record<string, number> = {};
+  const commercial = {
+    total: 0,
+    by_marker: {} as Record<string, number>,
+    samples: [] as Array<{ id: string; title: string; marker: string }>,
+  };
   const cleanable = {
     cleaned: 0, not_cleanable: 0, recorded_after_clean: 0,
     points_removed: 0, by_reason: {} as Record<string, number>,
@@ -567,7 +585,28 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       mchsRequired: false, mchsPhone: null, parkName: null,
       parkApprovalUrl: null, officialPassportUrl: null,
     }).grade;
-    const nav = routeNavigability({ grade, track: pairs.length >= 2 ? pairs : null, waypoints: wps });
+    // Коммерческое имя при пустом пути. Считается ЗДЕСЬ, где уже известны и
+    // линия, и точки: по одному имени решать нельзя.
+    const commercialHit = isCommercialRecord(r.title, {
+      trackPoints: pairs.length,
+      waypoints: wps.length,
+    });
+    if (commercialHit) {
+      commercial.total += 1;
+      commercial.by_marker[commercialHit.marker] = (commercial.by_marker[commercialHit.marker] ?? 0) + 1;
+      if (commercial.samples.length < 15) {
+        commercial.samples.push({ id: r.id, title: r.title ?? '(без названия)', marker: commercialHit.marker });
+      }
+    }
+
+    // Улика считается ДО вердикта: черта спрашивает её, а не наоборот.
+    const evidenceVerdict = trackEvidence(r.geometry).verdict;
+    const nav = routeNavigability({
+      grade,
+      track: pairs.length >= 2 ? pairs : null,
+      waypoints: wps,
+      evidence: evidenceVerdict,
+    });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
     // Причина отказа считается поимённо.
@@ -734,6 +773,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     track_evidence: evidence,
     track_evidence_reasons: evidenceReasons,
     cleanable,
+    commercial_records: commercial,
     title_dupes: {
       groups: dupeGroups.length,
       extra_records: dupeGroups.reduce((n, g) => n + g.members.length - 1, 0),

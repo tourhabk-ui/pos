@@ -11,6 +11,7 @@ import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { routeNavigability } from '@/lib/routes/navigability';
+import { trackEvidence } from '@/lib/routes/track-evidence';
 
 export const dynamic = 'force-dynamic';
 
@@ -394,6 +395,11 @@ export async function GET(
             .filter(w => w.lat != null && w.lng != null)
             .map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
           return routeNavigability({
+            // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
+            // а разбор в пары его отбрасывает. Прореженная линия для улики не
+            // годится и по другой причине — прореживание выравнивает шаг,
+            // то есть стирает главный признак живой записи.
+            evidence: trackEvidence(r.geometry).verdict,
             grade: buildRoutePassport({
               track,
               geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
