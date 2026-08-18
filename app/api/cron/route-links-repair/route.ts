@@ -23,7 +23,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { geometryToTrack } from '@/lib/routes/geometry-audit';
 import { trackEvidence } from '@/lib/routes/track-evidence';
-import { brokenLinks, safeToRepair, type LinkCandidate } from '@/lib/routes/broken-links';
+import { brokenLinks, safeToRepair, type LinkCandidate, type NamesakeConflict } from '@/lib/routes/broken-links';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -78,6 +78,12 @@ export async function GET(request: NextRequest) {
     const candidates: LinkCandidate[] = [];
     /** Маршруты, где опровергнуто слишком много: случай для человека. */
     const needsHuman: Array<{ id: string; title: string; broken: number; total: number }> = [];
+    /**
+     * Расхождения маршрута с его же ТЁЗКОЙ. Не снимаются никогда: там под
+     * подозрением линия, а не привязка, и автоматика выбрала бы неверную
+     * сторону — стёрла бы единственное верное сведение.
+     */
+    const namesake: NamesakeConflict[] = [];
     let provenRoutes = 0;
 
     for (const r of routes.rows) {
@@ -97,12 +103,13 @@ export async function GET(request: NextRequest) {
           lng: Number(w.lng),
         })),
       });
-      if (found.length === 0) continue;
-      if (!safeToRepair(found.length, mine.length)) {
-        needsHuman.push({ id: r.id, title: r.title ?? '(без названия)', broken: found.length, total: mine.length });
+      namesake.push(...found.namesakeConflicts);
+      if (found.candidates.length === 0) continue;
+      if (!safeToRepair(found.candidates.length, mine.length)) {
+        needsHuman.push({ id: r.id, title: r.title ?? '(без названия)', broken: found.candidates.length, total: mine.length });
         continue;
       }
-      candidates.push(...found);
+      candidates.push(...found.candidates);
     }
 
     let removed = 0;
@@ -137,6 +144,10 @@ export async function GET(request: NextRequest) {
       // бы как «таких нет».
       needs_human: needsHuman.slice(0, 30),
       needs_human_total: needsHuman.length,
+      // Тёзки печатаются ОТДЕЛЬНО и никогда не снимаются: это подозрение на
+      // чужой трек у записи, а не на лишнюю привязку.
+      namesake_conflicts: namesake.slice(0, 30),
+      namesake_conflicts_total: namesake.length,
       samples: candidates.slice(0, 40),
     });
   } catch (err) {

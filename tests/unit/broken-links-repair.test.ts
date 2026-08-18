@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { brokenLinks, safeToRepair, MAX_LINKS_PER_ROUTE } from '@/lib/routes/broken-links';
+import { brokenLinks, safeToRepair, isNamesakeOfRoute, MAX_LINKS_PER_ROUTE } from '@/lib/routes/broken-links';
 import { DATA_CONFLICT_KM } from '@/lib/on-route/approach';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
@@ -34,16 +34,16 @@ describe('опровергнутая привязка находится', () =>
       routeId: 'r1', routeTitle: 'Вулкан Козельский',
       track: TRACK, lineProven: true, waypoints: [onTrack, farAway],
     });
-    expect(found).toHaveLength(1);
-    expect(found[0].placeTitle).toBe('Мыс Маячный');
-    expect(found[0].offTrackKm).toBeGreaterThan(DATA_CONFLICT_KM);
+    expect(found.candidates).toHaveLength(1);
+    expect(found.candidates[0].placeTitle).toBe('Мыс Маячный');
+    expect(found.candidates[0].offTrackKm).toBeGreaterThan(DATA_CONFLICT_KM);
   });
 
   it('точка на линии не трогается', () => {
     const found = brokenLinks({
       routeId: 'r1', routeTitle: 'Тропа', track: TRACK, lineProven: true, waypoints: [onTrack],
     });
-    expect(found).toEqual([]);
+    expect(found.candidates).toEqual([]);
   });
 });
 
@@ -54,14 +54,14 @@ describe('недоказанная линия никого не обвиняет
     const found = brokenLinks({
       routeId: 'r1', routeTitle: 'Тропа', track: TRACK, lineProven: false, waypoints: [farAway],
     });
-    expect(found).toEqual([]);
+    expect(found.candidates).toEqual([]);
   });
 
   it('линии нет — сверять нечем', () => {
     const found = brokenLinks({
       routeId: 'r1', routeTitle: 'Тропа', track: [], lineProven: true, waypoints: [farAway],
     });
-    expect(found).toEqual([]);
+    expect(found.candidates).toEqual([]);
   });
 
   it('порог общий с полевым экраном и чертой', () => {
@@ -69,6 +69,45 @@ describe('недоказанная линия никого не обвиняет
     // отказе вести — разные величины.
     expect(SRC).toMatch(/DATA_CONFLICT_KM/);
     expect(SRC).not.toMatch(/offTrackKm > \d/);
+  });
+});
+
+describe('точка-тёзка не снимается никогда', () => {
+  /**
+   * Сухой прогон 18.08 показал две такие строки:
+   *
+   *   Восхождение на Вилючинский вулкан → Вулкан Вилючинский: 7.9 км
+   *   Озеро Толмачева → Толмачёва: 6 км
+   *
+   * Расхождение здесь читается наоборот: если трек «Восхождения на
+   * Вилючинский» не подходит к Вилючинскому ближе восьми километров, врёт
+   * скорее ЛИНИЯ — к записи прицепили чужой трек. Сняв точку, автоматика
+   * стёрла бы единственное верное сведение и оставила неверное, а маршрут
+   * после этого выглядел бы согласованным. Это хуже явного противоречия.
+   */
+  it('тёзка уходит в отдельный список, а не в снятие', () => {
+    const found = brokenLinks({
+      routeId: 'r1', routeTitle: 'Восхождение на Вилючинский вулкан',
+      track: TRACK, lineProven: true,
+      waypoints: [{ placeId: 'p9', placeTitle: 'Вулкан Вилючинский', lat: 53.15, lng: 158.65 }],
+    });
+    expect(found.candidates).toEqual([]);
+    expect(found.namesakeConflicts).toHaveLength(1);
+    expect(found.namesakeConflicts[0].placeTitle).toBe('Вулкан Вилючинский');
+  });
+
+  it('ё и регистр тёзку не прячут', () => {
+    expect(isNamesakeOfRoute('Озеро Толмачева', 'Толмачёва')).toBe(true);
+    expect(isNamesakeOfRoute('ВУЛКАН КОЗЕЛЬСКИЙ', 'вулкан козельский')).toBe(true);
+  });
+
+  it('чужая точка тёзкой не становится', () => {
+    expect(isNamesakeOfRoute('Вулкан Авачинский', 'Корякская сопка')).toBe(false);
+    expect(isNamesakeOfRoute('Долина гейзеров', 'Узон')).toBe(false);
+  });
+
+  it('короткое слово совпадает со всем подряд и тёзкой не делает', () => {
+    expect(isNamesakeOfRoute('Озеро Начикинское', 'гора')).toBe(false);
   });
 });
 
@@ -117,6 +156,11 @@ describe('уборка не может случиться заодно', () => {
   it('случаи для человека печатаются, а не пропускаются молча', () => {
     expect(API).toMatch(/needs_human/);
     expect(WORKFLOW).toMatch(/случаев для человека/);
+  });
+
+  it('тёзки печатаются отдельно и в снятие не идут', () => {
+    expect(API).toMatch(/namesake_conflicts/);
+    expect(WORKFLOW).toMatch(/подозрение на чужой трек, НЕ снимаем/);
   });
 
   it('прогон ждёт СВОЙ код на проде', () => {

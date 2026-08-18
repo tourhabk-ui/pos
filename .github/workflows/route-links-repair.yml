@@ -98,6 +98,15 @@ jobs:
               print(f'  случаев для человека (опровергнуто слишком много): {nh}')
               for h in (a.get('needs_human') or [])[:15]:
                   print(f"    {h.get('title')}: {h.get('broken')} из {h.get('total')}")
+          ns = a.get('namesake_conflicts_total') or 0
+          if ns:
+              # Точка-тёзка дальше порога от линии означает, что к записи,
+              # скорее всего, прицеплен ЧУЖОЙ трек. Такие не снимаются никогда.
+              print('')
+              print(f'  расходится с собственной тёзкой (подозрение на чужой трек, НЕ снимаем): {ns}')
+              for n in (a.get('namesake_conflicts') or [])[:20]:
+                  print(f"    {n.get('routeTitle')} → {n.get('placeTitle')}: {n.get('offTrackKm')} км")
+
           sm = a.get('samples') or []
           if sm:
               print('')
