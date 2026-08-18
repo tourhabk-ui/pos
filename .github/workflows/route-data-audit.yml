@@ -51,6 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Репозиторий нужен ради одного файла — маркера ожидаемой версии
+      # переписи. Прогон 18.08 03:23 упал именно на этом: шаг читал
+      # `.github/triggers/route-data-audit.json`, а выкачки в workflow не было
+      # никогда — раньше он состоял из одного curl и файлов не касался.
+      - uses: actions/checkout@v4
+
       - name: Спросить перепись и показать ответ
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
