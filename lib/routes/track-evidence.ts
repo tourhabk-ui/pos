@@ -46,6 +46,7 @@
 
 import { isPlausibleTrackPoint } from '@/lib/routes/track';
 import { routeIntegrity } from '@/lib/routes/shape-match';
+import { straightKm } from '@/lib/on-route/approach';
 import { trackFidelity, type LatLng } from '@/lib/routes/track-fidelity';
 
 /**
@@ -55,11 +56,23 @@ import { trackFidelity, type LatLng } from '@/lib/routes/track-fidelity';
  */
 export type TrackEvidenceVerdict = 'recorded' | 'drawn' | 'unclear';
 
+/**
+ * Как стоят точки по длине линии.
+ *
+ * `irregular` — шаг пляшет: человек то шёл, то стоял. След живой записи.
+ * `even`      — шаг ровный до скуки: так выглядит линия, пересчитанная
+ *               машиной через равные промежутки.
+ * `unknown`   — судить нечем (слишком коротко или все сегменты нулевые).
+ */
+export type TrackPacing = 'irregular' | 'even' | 'unknown';
+
 export interface TrackEvidence {
   verdict: TrackEvidenceVerdict;
   points: number;
   /** Доля точек, несущих третье число (высоту), от 0 до 1. */
   elevationShare: number;
+  /** Ровность шага — см. TrackPacing. */
+  pacing: TrackPacing;
   /** Все ли точки лежат в границах края. */
   inBounds: boolean;
   /** Линия не рвётся на десятки километров. */
@@ -83,6 +96,31 @@ export interface TrackEvidence {
  */
 export const ELEVATION_SHARE_FOR_RECORDED = 0.9;
 
+/**
+ * Ниже этого разброса длин сегментов шаг считается машинно-ровным.
+ *
+ * ── Зачем нужна вторая улика ───────────────────────────────────────────────
+ *
+ * Высота на каждой точке доказывает, что линию писал ПРИБОР, — но её же даёт
+ * нарисованная от руки линия, если сайт посчитал профиль высот по рельефу.
+ * Так делают почти все. Одной высоты мало.
+ *
+ * Живую запись выдаёт неровность: человек то идёт, то стоит, то лезет, и
+ * расстояния между соседними точками пляшут в разы. Машина, пересчитывающая
+ * линию через равные промежутки, даёт разброс около нуля.
+ *
+ * ── Почему проверка ОДНОСТОРОННЯЯ ─────────────────────────────────────────
+ *
+ * Неровность записи не доказывает: нарисованная кликами по поворотам ломаная
+ * тоже неровная. Но она РЕДКАЯ, и её отсеивает плотность. А вот ровность —
+ * доказывает обратное: живой прибор такого не пишет.
+ *
+ * Поэтому улика говорит «нет», а не «да»: она снимает ложные записи, но не
+ * выдаёт разрешение сама. Порог мал намеренно — 15% разброса: сомнение
+ * трактуем в пользу линии, отказ здесь должен быть уверенным.
+ */
+export const EVEN_PACING_CV = 0.15;
+
 /** Точка геометрии как она лежит в базе: [lng, lat] или [lng, lat, ele]. */
 type RawPoint = number[];
 
@@ -95,6 +133,28 @@ function rawPoints(geometry: unknown): RawPoint[] {
   );
 }
 
+/**
+ * Ровность шага по длинам сегментов.
+ *
+ * Мера — коэффициент вариации: разброс, делённый на средний шаг. Так она не
+ * зависит от того, километровый маршрут или стокилометровый, и порог остаётся
+ * одним числом для всех.
+ */
+export function trackPacing(pairs: LatLng[]): TrackPacing {
+  if (pairs.length < 4) return 'unknown';
+  const seg: number[] = [];
+  for (let i = 1; i < pairs.length; i++) {
+    seg.push(straightKm(
+      { lat: pairs[i - 1][0], lng: pairs[i - 1][1] },
+      { lat: pairs[i][0], lng: pairs[i][1] },
+    ));
+  }
+  const mean = seg.reduce((s, x) => s + x, 0) / seg.length;
+  if (mean <= 0) return 'unknown';
+  const variance = seg.reduce((s, x) => s + (x - mean) ** 2, 0) / seg.length;
+  return Math.sqrt(variance) / mean < EVEN_PACING_CV ? 'even' : 'irregular';
+}
+
 export function trackEvidence(geometry: unknown): TrackEvidence {
   const pts = rawPoints(geometry);
   const reasons: string[] = [];
@@ -102,7 +162,7 @@ export function trackEvidence(geometry: unknown): TrackEvidence {
   if (pts.length < 2) {
     return {
       verdict: 'unclear', points: pts.length, elevationShare: 0,
-      inBounds: false, continuous: false, dense: false,
+      pacing: 'unknown', inBounds: false, continuous: false, dense: false,
       reasons: ['В линии меньше двух точек — улик нет'],
     };
   }
@@ -125,6 +185,7 @@ export function trackEvidence(geometry: unknown): TrackEvidence {
   // записана прибором ничуть не меньше длинной.
   const fidelity = trackFidelity(pairs);
   const dense = fidelity === 'surveyed';
+  const pacing = trackPacing(pairs);
 
   if (elevationShare < ELEVATION_SHARE_FOR_RECORDED) {
     reasons.push(
@@ -136,15 +197,24 @@ export function trackEvidence(geometry: unknown): TrackEvidence {
   if (!inBounds) reasons.push('Линия выходит за границы края — в разбор попали посторонние числа');
   if (!continuous) reasons.push('Линия рвётся на десятки километров');
   if (fidelity === 'sketch') reasons.push('Точки стоят редко — по плотности это не запись прибора');
+  // Ровный шаг — улика ПРОТИВ записи: живой прибор так не пишет. «unknown»
+  // обвинением не считается, см. TrackPacing.
+  if (pacing === 'even') {
+    reasons.push('Шаг между точками ровный — линию пересчитала машина, а не прошёл человек');
+  }
 
   if (reasons.length === 0) {
-    return { verdict: 'recorded', points: pts.length, elevationShare, inBounds, continuous, dense, reasons };
+    return { verdict: 'recorded', points: pts.length, elevationShare, pacing, inBounds, continuous, dense, reasons };
   }
   // «Нарисована» говорится только когда следа прибора нет ВОВСЕ. Линия с
   // высотой, но редкая или рваная, нарисованной не объявляется: это запись,
   // с которой что-то не так, и чинить её надо иначе.
+  // «Нарисована» — это утверждение о происхождении, и оно уместно ещё в
+  // одном случае помимо отсутствия высоты: машинно-ровный шаг у плотной
+  // линии. Высота там взята с рельефа, а не с прибора.
+  const drawn = elevationShare === 0 || (pacing === 'even' && dense);
   return {
-    verdict: elevationShare === 0 ? 'drawn' : 'unclear',
-    points: pts.length, elevationShare, inBounds, continuous, dense, reasons,
+    verdict: drawn ? 'drawn' : 'unclear',
+    points: pts.length, elevationShare, pacing, inBounds, continuous, dense, reasons,
   };
 }

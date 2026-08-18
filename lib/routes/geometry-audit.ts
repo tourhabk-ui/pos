@@ -30,6 +30,7 @@ import { routeNavigability, type NavigabilityVerdict } from '@/lib/routes/naviga
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { trackEvidence, type TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import { cleanTrack } from '@/lib/routes/track-clean';
+import { findTitleDupes } from '@/lib/routes/title-dupes';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 
@@ -236,6 +237,21 @@ export interface GeometryAudit {
     points_removed: number;
     /** По какой причине отделено. */
     by_reason: Record<string, number>;
+  };
+  /**
+   * Записи-близнецы: имена различаются только незначащим (тире, регистр, ё).
+   *
+   * Сухой прогон импорта OSM 18.08 нашёл в одной партии из восьми «Вулкан
+   * Дыгерен-Оленгендэ» и «Вулкан Дыгерен–Оленгендэ» — одну сопку двумя
+   * записями. Twins сравнивал маршрут с МЕСТОМ; друг с другом маршруты не
+   * сравнивал никто, и число «411 маршрутов» врёт на величину дублей.
+   */
+  title_dupes: {
+    groups: number;
+    /** Сколько записей лишние: сумма (размер группы − 1). */
+    extra_records: number;
+    /** Крупнейшие группы — с них начинать разбор. */
+    samples: Array<{ key: string; titles: string[] }>;
   };
   /**
    * Сколько коммерции держится на проверенном. Нужно перед решением о снятии
@@ -508,6 +524,10 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   const collectionFlaws: CollectionFlaw[] = [];
   const orderCases: Array<{ id: string; title: string; inversions: number; waypoints: number; coverage: number | null }> = [];
 
+  // Близнецы считаются по ВСЕМУ списку разом, а не в цикле: это свойство
+  // набора, а не отдельной записи.
+  const dupeGroups = findTitleDupes(listRes.rows.map((r) => ({ id: r.id, title: r.title })));
+
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
     const track = geometryToTrack(r.geometry);
     if (track.length < 2) { no_geometry += 1; return; }
@@ -714,6 +734,11 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     track_evidence: evidence,
     track_evidence_reasons: evidenceReasons,
     cleanable,
+    title_dupes: {
+      groups: dupeGroups.length,
+      extra_records: dupeGroups.reduce((n, g) => n + g.members.length - 1, 0),
+      samples: dupeGroups.slice(0, 12).map((g) => ({ key: g.key, titles: g.members.map((m) => m.title) })),
+    },
     tours,
     duration_ms: Date.now() - startedAt,
   };
