@@ -119,6 +119,17 @@ describe('уборка не может случиться заодно', () => {
     expect(WORKFLOW).toMatch(/случаев для человека/);
   });
 
+  it('прогон ждёт СВОЙ код на проде', () => {
+    // Первый прогон 18.08 07:02 упал с 404: мерж прошёл минутой раньше, а
+    // сборка Timeweb идёт десять минут. Тот же дефект уже чинили в переписи
+    // двумя часами ранее — и не перенесли сюда.
+    expect(API).toMatch(/REPAIR_VERSION/);
+    const unauth = API.slice(API.indexOf('Unauthorized') - 120, API.indexOf('Unauthorized') + 80);
+    expect(unauth).toMatch(/v: REPAIR_VERSION/);
+    expect(WORKFLOW).toMatch(/прод отдаёт уборку версии/);
+    expect(WORKFLOW).toMatch(/Прогон без своего кода — не ответ/);
+  });
+
   it('видно поимённо, что именно снимается', () => {
     // «Снято 33» без имён не даёт проверить решение.
     expect(WORKFLOW).toMatch(/что именно снимается/);

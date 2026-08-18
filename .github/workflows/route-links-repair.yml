@@ -54,9 +54,26 @@ jobs:
           fi
           echo "dry_run=$DRY"
 
+          # Ждём СВОЙ код. Первый прогон упал с 404: мерж прошёл минутой
+          # раньше, сборка Timeweb идёт десять минут. Тот же приём, что у
+          # переписи и импорта OSM — маркер в теле 401, поэтому ожидание не
+          # требует секрета и не запускает тяжёлый разбор.
+          BASE="https://vedarai.ru/api/cron/route-links-repair"
+          READY=""
+          for i in $(seq 1 30); do
+            V=$(curl -s --max-time 30 "$BASE" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+            if [ "$V" != "0" ]; then READY=1; echo "прод отдаёт уборку версии $V"; break; fi
+            echo "уборки на проде ещё нет, жду — попытка $i/30"
+            sleep 60
+          done
+          if [ -z "$READY" ]; then
+            echo "::error::Уборка так и не появилась на проде за 30 минут. Прогон без своего кода — не ответ."
+            exit 1
+          fi
+
           HTTP=$(curl -sS -o /tmp/repair.json -w "%{http_code}" --max-time 300 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/route-links-repair?dry_run=$DRY") || HTTP="000"
+            "$BASE?dry_run=$DRY") || HTTP="000"
           echo "HTTP $HTTP"
 
           if [ "$HTTP" != "200" ]; then

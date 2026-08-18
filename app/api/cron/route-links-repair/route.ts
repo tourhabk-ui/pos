@@ -28,13 +28,23 @@ import { brokenLinks, safeToRepair, type LinkCandidate } from '@/lib/routes/brok
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+/**
+ * Маркер «этот код на проде». Отдаётся в теле 401, чтобы прогон мог дождаться
+ * СВОЕЙ сборки, не имея секрета и не запуская тяжёлый разбор.
+ *
+ * Первый прогон 18.08 07:02 упал с 404: мерж прошёл минутой раньше, а сборка
+ * Timeweb идёт десять минут. Ровно это я двумя часами ранее чинил в переписи
+ * (AUDIT_SHAPE_VERSION) и не перенёс на новый прогон.
+ */
+export const REPAIR_VERSION = 1;
+
 interface RouteRow { id: string; title: string | null; geometry: unknown }
 interface WpRow { route_id: string; place_id: string; title: string | null; lat: string | null; lng: string | null }
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', v: REPAIR_VERSION }, { status: 401 });
   }
 
   // Умолчание — НЕ писать. Пропущенный параметр означает сухой прогон, а не
