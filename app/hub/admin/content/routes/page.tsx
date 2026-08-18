@@ -354,9 +354,69 @@ export default function AdminRoutesPage() {
         </div>
       )}
 
+      {/* Список: на телефоне карточками, на широком экране таблицей.
+
+          18.08 владелец сообщил, что в админке «ничего нельзя редактировать».
+          Причина оказалась не в правах и не в API: девять колонок стояли в
+          контейнере с `overflow-hidden`, и на телефоне «Видимость» с «Правкой»
+          — последние две колонки — просто обрезались за краем. Кнопки были на
+          месте и работали, до них нельзя было дотянуться.
+
+          Прокрутки мало: тыкать в переключатель шириной сорок пикселей,
+          отмотав таблицу вбок, — не работа. Поэтому на узком экране список
+          показывается карточками, где действия стоят первыми. Таблица со всеми
+          мерами остаётся там, где для неё есть ширина. */}
+      <div className="md:hidden space-y-2">
+        {loading && <p className="ds-card p-6 text-center text-[var(--text-muted)]">Загрузка...</p>}
+        {!loading && routes.length === 0 && (
+          <p className="ds-card p-6 text-center text-[var(--text-muted)]">Ничего не найдено</p>
+        )}
+        {!loading && routes.map(r => (
+          <div key={r.id} className="ds-card p-3 flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={selected.has(r.id)}
+              onChange={e => {
+                setSelected(prev => { const s = new Set(prev); if (e.target.checked) s.add(r.id); else s.delete(r.id); return s; });
+              }}
+              className="rounded mt-1"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[var(--text-primary)] font-medium line-clamp-2">{r.title}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                {CATEGORIES[r.category] ?? r.category}
+                {r.kind === 'route' && (r.trackPoints ?? 0) >= 2 && (
+                  <> · трек {r.trackPoints}{(r.elevationPoints ?? 0) > 0 ? ' с высотами' : ''}</>
+                )}
+                {r.kind === 'route' && (r.waypoints ?? 0) === 0 && <> · без точек</>}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void toggle(r.id, r.isVisible)}
+                disabled={toggling.has(r.id)}
+                aria-label={r.isVisible ? 'Скрыть' : 'Показать'}
+                className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 ${r.isVisible ? 'bg-[var(--success)]' : 'bg-[var(--bg-hover)]'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-[var(--bg-card)] shadow transition-transform ${r.isVisible ? 'translate-x-5' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void openEdit(r.id)}
+                aria-label="Редактировать"
+                className="p-2 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--ocean)] transition-colors"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Table */}
-      <div className="ds-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="ds-card overflow-x-auto hidden md:block">
+        <table className="w-full text-sm min-w-[900px]">
           <thead>
             <tr className="border-b border-[var(--border)]">
               <th className="p-3 w-8">
