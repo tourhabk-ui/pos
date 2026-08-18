@@ -26,6 +26,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const WAITERS = [
   '.github/workflows/route-data-audit.yml',
   '.github/workflows/route-links-repair.yml',
+  '.github/workflows/route-track-reconcile.yml',
 ];
 
 describe('прогон способен дождаться того, чего ждёт', () => {

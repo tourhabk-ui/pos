@@ -25,6 +25,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseTrackBlocks } from '@/lib/services/ingest/track-parse';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/import-idilesom-tracks.ts'), 'utf-8');
 
@@ -32,14 +33,19 @@ const SRC = readFileSync(join(process.cwd(), 'scripts/import-idilesom-tracks.ts'
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('блок координат принимается целиком или не принимается вовсе', () => {
-  it('проверяется каждая точка, а не первая', () => {
-    // Эвристика уже ошиблась на первой точке; повторять её с другим
-    // порогом незачем.
-    expect(CODE).toMatch(/coords\.every\(p => isPlausibleTrackPoint\(p\[1\], p\[0\]\)\)/);
+  it('скрипт разбирает страницу общим правилом, а не своей копией', () => {
+    // Проверка «каждая точка на Камчатке» жила ЗДЕСЬ строкой кода, и сторож
+    // стерёг её написание. 18.08 выяснилось, чем это кончилось: разборов
+    // было два, и второй — тот, которым работает прод, — границ не проверял
+    // вовсе. Стеречь надо свойство, а не буквы: правило переехало в
+    // lib/services/ingest/track-parse, сторож требует звать именно его.
+    expect(CODE).toMatch(/parseTrackBlocks\(html\)/);
   });
 
-  it('негодный блок пропускается, а не «чинится»', () => {
-    expect(CODE).toMatch(/if \(!allOnKamchatka\) continue;/);
+  it('профиль высот не проходит разбор', () => {
+    // То же свойство, но проверенное поведением, а не текстом файла.
+    const profile = JSON.stringify(Array.from({ length: 40 }, (_, i) => [i * 1.2, 795 + i * 3]));
+    expect(parseTrackBlocks(`var p = ${profile};`).coordinates).toHaveLength(0);
   });
 });
 
@@ -70,9 +76,9 @@ describe('запись в базу защищена отдельно от раз
     // Свой список границ в импортёре разъехался бы с картой — это ровно
     // тот класс, из-за которого линия и рисовалась.
     //
-    // Эвристика порядка осей (`|first[0]| > 90`) под запрет НЕ подпадает:
-    // она отвечает на другой вопрос — что здесь широта, а что долгота, —
-    // и остаётся на месте. Запрещён именно свой перечень границ.
+    // Эвристика порядка осей тоже уехала в общий разбор: там порядок не
+    // угадывается по первой точке, а проверяется по всем. Запрещён здесь
+    // именно свой перечень границ.
     expect(SRC).toMatch(/import \{ isPlausibleTrackPoint \} from '\.\.\/lib\/routes\/track'/);
     expect(CODE).not.toMatch(/latMin|latMax|lngMin|lngMax/);
   });

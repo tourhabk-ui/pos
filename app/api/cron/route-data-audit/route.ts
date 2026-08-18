@@ -44,8 +44,10 @@ export const maxDuration = 120;
  *   6 — центроид протяжённого объекта не считается противоречием
  *   7 — расхождения точки с линией названы поимённо: маршрут, место,
  *       происхождение координаты и даст ли починка пригодность
+ *   8 — у каждого расхождения показаны ВСЕ точки маршрута с их отходом:
+ *       видно, выбивается ли одна привязка или разъехался весь маршрут
  */
-export const AUDIT_SHAPE_VERSION = 7;
+export const AUDIT_SHAPE_VERSION = 8;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
