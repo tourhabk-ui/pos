@@ -21,6 +21,21 @@ import { unsourcedPercents } from '@/lib/agents/fact-check';
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const code = (src: string) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
+/**
+ * Промпт судьи — где бы он ни лежал.
+ *
+ * 18.08 он переехал из инлайна в константу `JUDGE_SYSTEM`: его читают два
+ * места (сам судья и обёртка), а копия промпта — это два разных фактчека.
+ * Сторож ищет ПРИНЦИПЫ в тексте промпта, и адрес текста его волновать не
+ * должен: прежняя редакция цеплялась за `{ role: 'system', content: '...' }`
+ * и покраснела на переносе, хотя ни один принцип не пострадал.
+ */
+function judgeSystemPrompt(src: string): string {
+  const asConst = /JUDGE_SYSTEM\s*=\s*'([^']+)'/.exec(src)?.[1];
+  if (asConst) return asConst;
+  return /system',\s*content:\s*'([^']+)'/.exec(src)?.[1] ?? '';
+}
+
 describe('unsourcedPercents ловит и кратности, не только проценты', () => {
   it('«в 3 раза» без тройки в источнике — выдумка (кейс инцидента)', () => {
     expect(unsourcedPercents('YDB ускоряет обработку запросов в 3 раза', 'статья про кэширование запросов'))
@@ -96,7 +111,7 @@ describe('склейка несвязанных источников — инц�
   it('судья проверяет СВЯЗКИ между источниками, а не только отдельные факты', () => {
     // Принцип в системном промпте судьи (не список кейсов): связь двух
     // фактов — тоже проверяемое утверждение.
-    const sys = /system',\s*content:\s*'([^']+)'/.exec(code(factCheck))?.[1] ?? '';
+    const sys = judgeSystemPrompt(code(factCheck));
     expect(sys, 'из промпта судьи пропал принцип проверки связок — склейка сюжетов вернётся')
       .toMatch(/СВЯЗ/);
     expect(sys).toMatch(/один сюжет|общий вывод/);
@@ -144,13 +159,20 @@ describe('сбой судьи = отмена публикации, не проп
     // Раньше сбой возвращал [] — неотличимо от «подтверждено», и гейт
     // становился сквозным ровно когда переставал работать.
     expect(factCheck).toMatch(/Promise<string\[\] \| null>/);
+    // Свойство, а не написание: пустой ответ провайдера обязан быть ОТКАЗОМ,
+    // а не «чисто». 18.08 отказ стал называть свою причину (silent /
+    // unparseable / bad_shape / threw), и прежняя редакция сторожа покраснела
+    // на этом, хотя свойство сохранилось.
     expect(factCheck, 'пустой ответ провайдера снова трактуется как «чисто»')
-      .toMatch(/if \(!raw \|\| !raw\.trim\(\)\) return null/);
-    expect(factCheck).toMatch(/catch \{ return null; \}/);
+      .toMatch(/if \(!raw \|\| !raw\.trim\(\)\) return \{ ok: false, why: 'silent' \}/);
+    expect(factCheck, 'исключение снова трактуется как «чисто»')
+      .toMatch(/return \{ ok: false, why: 'threw' \}/);
+    // Обёртка сохраняет прежний контракт для тех, кому причина не нужна.
+    expect(factCheck).toMatch(/return r\.ok \? r\.unsupported : null/);
   });
 
   it('судья проверяет экономическое/практическое следствие как факт', () => {
-    const sys = /system',\s*content:\s*'([^']+)'/.exec(factCheck)?.[1] ?? '';
+    const sys = judgeSystemPrompt(factCheck);
     expect(sys, 'принцип «следствие вне источника — факт» пропал').toMatch(/СЛЕДСТВИЕ/);
     expect(sys).toMatch(/без затрат на персонал|заменяет сотрудников/);
   });

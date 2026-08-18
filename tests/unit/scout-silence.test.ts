@@ -97,3 +97,50 @@ describe('ответ крона несёт счёт, а прогон на нег
     expect(WORKFLOW).not.toMatch(/\[ "\$HTTP" = "200" \] && echo "OK"/);
   });
 });
+
+describe('отказ судьи назван своей причиной', () => {
+  /**
+   * Скрин владельца 18.08: «Причина последнего пропуска (2026-08-16 07:36
+   * UTC): проверяющая модель не ответила — выпуск придержан». Семнадцать дней
+   * это сообщение показывало на провайдера.
+   *
+   * А `null` от судьи означал четыре РАЗНЫЕ беды: провайдер вернул пустоту,
+   * ответ пришёл прозой без JSON, в JSON нет поля `unsupported`, запрос упал с
+   * исключением. Первая и четвёртая чинятся у провайдера, вторая и третья — в
+   * промпте. Одно слово на всех отправляет чинить не туда.
+   *
+   * Тот же класс, что `Number(null) === 0`: четыре факта одним значением.
+   */
+  const FACT = read('lib/agents/fact-check.ts');
+  const DIGEST = read('lib/agents/scout-digest.ts');
+
+  it('судья отдаёт причину, а не только отказ', () => {
+    expect(FACT).toMatch(/export type JudgeFailure/);
+    for (const why of ['silent', 'unparseable', 'bad_shape', 'threw']) {
+      expect(FACT, why).toMatch(new RegExp(`'${why}'`));
+    }
+  });
+
+  it('прежняя форма ответа осталась — правило одно', () => {
+    // `unsupportedClaims` вызывают из двух модулей; заводить второго судью
+    // ради причины значило бы получить два разных фактчека.
+    expect(FACT).toMatch(/export async function unsupportedClaims/);
+    expect(FACT).toMatch(/return r\.ok \? r\.unsupported : null/);
+  });
+
+  it('дайджест пишет в журнал ИМЕННО ту причину', () => {
+    expect(DIGEST).toMatch(/judgeSkipReason\(verdict\.why\)/);
+  });
+
+  it('у каждой причины есть слова для человека', () => {
+    for (const code of ['judge_silent', 'judge_unparseable', 'judge_bad_shape', 'judge_threw']) {
+      expect(DIGEST, code).toMatch(new RegExp(`${code}:`));
+    }
+  });
+
+  it('прежний код пропуска не удалён — он лежит в старых записях журнала', () => {
+    // Записи до 18.08 несут factcheck_judge_mute; забыв его, монитор здоровья
+    // печатал бы сырой код вместо слов.
+    expect(DIGEST).toMatch(/factcheck_judge_mute:/);
+  });
+});
