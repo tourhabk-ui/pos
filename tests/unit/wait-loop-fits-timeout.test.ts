@@ -27,6 +27,7 @@ const WAITERS = [
   '.github/workflows/route-data-audit.yml',
   '.github/workflows/route-links-repair.yml',
   '.github/workflows/route-track-reconcile.yml',
+  '.github/workflows/route-popularity.yml',
 ];
 
 describe('прогон способен дождаться того, чего ждёт', () => {

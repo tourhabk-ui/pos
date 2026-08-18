@@ -1,0 +1,124 @@
+name: Список ядра — что размечать первым (вручную)
+
+# Зачем этот workflow существует.
+#
+# Владелец 18.08, после ночи разбора данных: «я уже не знаю, как навести
+# порядок». Порядок в четырёхстах записях разом не наводится, и попытка
+# чистить всё подряд — ровно то, из-за чего работа кажется бесконечной.
+#
+# Решение владельца 17.08 остаётся в силе: сорок проверенных маршрутов честнее
+# четырёхсот. Значит нужен не список всего, а список ЯДРА — что размечать
+# первым. Очередь задаёт спрос: время, потраченное на маршрут, который никто
+# не открывает, потеряно, пока самый ходовой продолжает отказываться вести.
+#
+# READ-ONLY, под CRON_SECRET. Персональных данных в ответе нет: page_views
+# хранит суточный хэш посетителя, сырых IP и User-Agent там нет по построению.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Окно наблюдения в днях (по умолчанию 90)'
+        required: false
+        default: '90'
+      limit:
+        description: 'Сколько строк показать (по умолчанию 30)'
+        required: false
+        default: '30'
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-popularity.json'
+
+jobs:
+  popularity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Спросить список и показать ответ
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DAYS: ${{ inputs.days }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — спросить нечем."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/route-popularity"
+
+          WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/route-popularity.json')).get('expect_v',0))")
+          if [ "$WANT" != "0" ]; then
+            READY=""
+            for i in $(seq 1 30); do
+              V=$(curl -s --max-time 30 "$URL" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+              if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт список версии $V (ждали $WANT)"; break; fi
+              echo "прод ещё на версии $V, ждём $WANT — попытка $i/30"
+              sleep 60
+            done
+            if [ -z "$READY" ]; then
+              echo "::error::Прод так и не поднялся со списком версии $WANT за 30 минут."
+              exit 1
+            fi
+          fi
+
+          Q="?days=${DAYS:-90}&limit=${LIMIT:-30}"
+          HTTP=$(curl -sS -o /tmp/pop.json -w "%{http_code}" --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" "$URL$Q") || HTTP="000"
+          echo "HTTP $HTTP"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Список ответил $HTTP."
+            head -c 2000 /tmp/pop.json || true
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/pop.json') as f:
+              a = json.load(f)
+
+          days = a.get('window_days')
+          rv, pv = a.get('route_page_views', 0), a.get('place_page_views', 0)
+
+          print(f'Окно наблюдения: {days} дней')
+          print(f'  открытий карточек маршрутов: {rv}, мест: {pv}')
+
+          # Пустой счётчик — это НЕ «людям неинтересно». Это «счётчик молчит»,
+          # и путать их нельзя: во втором случае список ничего не значит.
+          if rv == 0 and pv == 0:
+              print('')
+              print('СЧЁТЧИК ПУСТ: за это окно посещений не записано.')
+              print('Список ядра по спросу построить не из чего — сначала нужен трафик.')
+              raise SystemExit(0)
+
+          core = a.get('core') or []
+          if core:
+              print('')
+              print(f"Маршруты по спросу (из просмотренных нуждаются в работе: {a.get('core_needs_work', 0)}):")
+              print(f"{'посет':>6} {'откр':>6} {'туры':>5} {'брони':>6}  маршрут")
+              for c in core:
+                  flag = '' if c.get('missing') is None else f"  ← {c.get('missing')}"
+                  print(f"{c.get('visitors',0):>6} {c.get('views',0):>6} {c.get('tours',0):>5} {c.get('bookings',0):>6}"
+                        f"  {c.get('title')} [точек {c.get('waypoints')}]{flag}")
+
+          places = a.get('places') or []
+          if places:
+              print('')
+              print('Места по спросу:')
+              print(f"{'посет':>6} {'откр':>6} {'маршр':>6}  место")
+              for p in places:
+                  print(f"{p.get('visitors',0):>6} {p.get('views',0):>6} {p.get('routes',0):>6}"
+                        f"  {p.get('title')} ({p.get('type') or 'род не записан'})")
+          PY
+
+          {
+            echo '## Список ядра'
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/pop.json || cat /tmp/pop.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
