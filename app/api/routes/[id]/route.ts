@@ -13,6 +13,7 @@ import { buildRoutePassport } from '@/lib/routes/passport';
 import { routeNavigability } from '@/lib/routes/navigability';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
+import { detectTravelMode } from '@/lib/routes/travel-mode';
 
 export const dynamic = 'force-dynamic';
 
@@ -421,6 +422,9 @@ export async function GET(
             waypoints: wps,
             waypointTypes: wpTypes,
             waypointKinds: wpKinds,
+            // Способ передвижения: у облёта линию не проходят, и обещание
+            // ведения к нему не относится (lib/routes/travel-mode).
+            mode: detectTravelMode(r.title as string | null, r.activity_type as string | null),
           });
         })(),
         /**

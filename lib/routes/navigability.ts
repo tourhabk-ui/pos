@@ -47,13 +47,26 @@ import type { TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import type { LatLng } from '@/lib/routes/track-fidelity';
 import { isExtendedObject } from '@/lib/places/coord-source';
 import { isPathPoint, type LinkKind } from '@/lib/routes/link-kind';
+import { lineIsTraversed, type TravelMode } from '@/lib/routes/travel-mode';
 
 /** Линия приходит парами, а меры считают по объектам — приводим в одном месте. */
 function trackPoints(track: LatLng[]): GeoPoint[] {
   return track.map(([lat, lng]) => ({ lat, lng }));
 }
 
-export type NavigabilityVerdict = 'navigable' | 'orientation_only' | 'not_a_route';
+export type NavigabilityVerdict =
+  | 'navigable'
+  | 'orientation_only'
+  | 'not_a_route'
+  /**
+   * Линию не проходят по поверхности: облёт, вертолётная программа.
+   *
+   * Отдельный исход, а не «не маршрут». Запись законная и полезная — просто
+   * вопрос черты к ней не относится: с курса вертолёта не сходят и на него не
+   * возвращаются. Сваливать её в «маршрутом не является» значило бы смешать
+   * исправную запись с битыми данными и потерять обе цифры.
+   */
+  | 'not_on_foot';
 
 export interface Navigability {
   verdict: NavigabilityVerdict;
@@ -112,6 +125,13 @@ export interface NavigabilityInput {
    */
   waypointKinds?: LinkKind[];
   /**
+   * Способ передвижения (lib/routes/travel-mode).
+   *
+   * Воздух выводит запись из-под черты: линию облёта не проходят, и «вести по
+   * ней» не значит ничего. Не задан — считается пешим, как было раньше.
+   */
+  mode?: TravelMode;
+  /**
    * Улика записи по САМОЙ линии (lib/routes/track-evidence).
    *
    * Считается по сырой геометрии: высота на каждой точке, неровность шага,
@@ -129,6 +149,28 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   const reasons: string[] = [];
   let conflict: { index: number; offTrackKm: number } | undefined;
   const track = i.track ?? [];
+
+  // ── Линию облёта не проходят ──────────────────────────────────────────────
+  //
+  // Проверяется ПЕРВОЙ и раньше всего остального. Иначе вертолётная программа
+  // получает мерки тропы и отказ с несуществующей причиной: «точка стоит в 4.9
+  // км от линии» — как будто с курса вертолёта можно свернуть к фумароле.
+  //
+  // Владелец 18.08: «облёт это не пеший маршрут».
+  if (i.mode && !lineIsTraversed(i.mode)) {
+    return {
+      verdict: 'not_on_foot',
+      canLead: false,
+      // Причина называет СВОЙ род. «Облёт» про катер — такая же неправда, как
+      // «точка в 4.9 км» про вертолёт: человек читает причину и по ней судит.
+      reasons: [
+        i.mode === 'air'
+          ? 'Это облёт: по линии не идут, ведёт пилот'
+          : 'Сюда добираются по воде: по линии не идут, ведёт капитан',
+      ],
+    };
+  }
+
   // Индексы точек, описывающих ПУТЬ. Всё остальное — контекст, и в суждении
   // о пути не участвует (см. lib/routes/link-kind).
   const pathIdx = i.waypoints.map((_, idx) => idx).filter(
@@ -288,5 +330,8 @@ export function navigabilityCtaLabel(v: NavigabilityVerdict): string | null {
     case 'navigable':        return 'Открыть навигатор';
     case 'orientation_only': return 'Открыть ориентирование';
     case 'not_a_route':      return null;
+    // Ни навигатора, ни ориентирования: человек в воздухе, и вести его
+    // некуда. Кнопка здесь была бы предложением сойти с вертолёта.
+    case 'not_on_foot':      return null;
   }
 }

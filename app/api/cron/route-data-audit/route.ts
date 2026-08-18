@@ -47,8 +47,10 @@ export const maxDuration = 120;
  *   8 — у каждого расхождения показаны ВСЕ точки маршрута с их отходом:
  *       видно, выбивается ли одна привязка или разъехался весь маршрут
  *   9 — род связи (миграция 874): сколько «точек пути», сколько «рядом»
+ *  10 — облёт выведен из-под черты: у него свой исход, а не отказ по
+ *       расстоянию до линии, которого с вертолёта не существует
  */
-export const AUDIT_SHAPE_VERSION = 9;
+export const AUDIT_SHAPE_VERSION = 10;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);

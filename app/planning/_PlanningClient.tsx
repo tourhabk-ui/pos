@@ -2186,9 +2186,13 @@ function OnTrailTab() {
                 {preview.navigability && preview.navigability.reasons.length > 0 && (
                   <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
                     <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
-                      {preview.navigability.verdict === 'not_a_route'
-                        ? 'Вести по этой записи нельзя'
-                        : 'Ведение по линии не обещаем'}
+                      {preview.navigability.verdict === 'not_on_foot'
+                        // Не отказ, а другой род записи: у облёта линию не
+                        // проходят по земле, и мерки тропы к ней не относятся.
+                        ? 'Это не пеший маршрут'
+                        : preview.navigability.verdict === 'not_a_route'
+                          ? 'Вести по этой записи нельзя'
+                          : 'Ведение по линии не обещаем'}
                     </p>
                     {preview.navigability.reasons.map((why, i) => (
                       <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>

@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'split — только база; compare — качать страницы источника'
+        description: 'split — только база; compare — сверить линии; stops — искать этапы на страницах'
         required: false
         default: 'split'
       limit:
@@ -120,6 +120,26 @@ jobs:
           print(f"  донор неизвестен — трек привинчен по близости: {split.get('anonymous', 0)}")
           for s in (split.get('anonymous_samples') or [])[:15]:
               print(f"    {s.get('title')} ({s.get('points')} точек)")
+
+          # Этапы на странице источника. Владелец: «264 маршрута без точек —
+          # мы их просто не забрали». Прогон читает разметку и показывает, что
+          # там лежит; импорта здесь нет.
+          if a.get('mode') == 'stops':
+              print('')
+              print(f"Просмотрено страниц: {a.get('checked', 0)}, осталось: {a.get('remaining', 0)}")
+              print(f"  похоже на список этапов: {a.get('pages_with_stop_list', 0)}")
+              print(f"  ссылок на места всего: {a.get('links_total', 0)},"
+                    f" из них в контексте маршрута: {a.get('links_in_route_context', 0)}")
+              print(f"  страница недоступна: {a.get('unreachable', 0)}")
+              print('')
+              print('Поимённо:')
+              for pg in (a.get('pages') or []):
+                  mark = 'СПИСОК ЭТАПОВ' if pg.get('looks_like_list') else 'этапов не видно'
+                  print(f"  [{mark}] {pg.get('title')}: ссылок {pg.get('links')},"
+                        f" в контексте маршрута {pg.get('stops')}")
+                  for sm in (pg.get('sample') or []):
+                      print(f"      · {sm.get('text') or '(без подписи)'} (id {sm.get('id')})")
+              raise SystemExit(0)
 
           if a.get('mode') != 'compare':
               print('')
