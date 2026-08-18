@@ -25,8 +25,8 @@ const TRIGGER = read('.github/triggers/route-links-repair.json');
 
 /** Короткая тропа под Петропавловском. */
 const TRACK = Array.from({ length: 30 }, (_, i) => ({ lat: 53.02 + i * 0.0005, lng: 158.65 + i * 0.0005 }));
-const onTrack = { placeId: 'p1', placeTitle: 'Перевал', lat: 53.0285, lng: 158.6585 };
-const farAway = { placeId: 'p2', placeTitle: 'Мыс Маячный', lat: 53.15, lng: 158.65 };
+const onTrack = { placeId: 'p1', placeTitle: 'Перевал', lat: 53.0285, lng: 158.6585, coordSource: 'surveyed' as const, locationType: 'hot_spring' };
+const farAway = { placeId: 'p2', placeTitle: 'Мыс Маячный', lat: 53.15, lng: 158.65, coordSource: 'surveyed' as const, locationType: 'hot_spring' };
 
 describe('опровергнутая привязка находится', () => {
   it('точка дальше порога от доказанной линии', () => {
@@ -89,7 +89,7 @@ describe('точка-тёзка не снимается никогда', () => {
     const found = brokenLinks({
       routeId: 'r1', routeTitle: 'Восхождение на Вилючинский вулкан',
       track: TRACK, lineProven: true,
-      waypoints: [{ placeId: 'p9', placeTitle: 'Вулкан Вилючинский', lat: 53.15, lng: 158.65 }],
+      waypoints: [{ placeId: 'p9', placeTitle: 'Вулкан Вилючинский', lat: 53.15, lng: 158.65, coordSource: 'surveyed' as const, locationType: 'hot_spring' }],
     });
     expect(found.candidates).toEqual([]);
     expect(found.namesakeConflicts).toHaveLength(1);
@@ -158,6 +158,26 @@ describe('уборка не может случиться заодно', () => {
     expect(WORKFLOW).toMatch(/случаев для человека/);
   });
 
+  it('угаданная координата и протяжённый объект в снятие не идут', () => {
+    /**
+     * Прогон 18.08 объявлял ложью верные привязки: парк Налычево (32 км),
+     * Халактырский пляж (4.5), озеро Паланское (3.4). У протяжённого объекта
+     * координата это центроид, и расстояние до неё ничего не говорит; у
+     * геокодированной — она угадана по названию.
+     */
+    const extended = brokenLinks({
+      routeId: 'r1', routeTitle: 'Тропа по парку', track: TRACK, lineProven: true,
+      waypoints: [{ ...farAway, placeTitle: 'Природный парк Налычево', locationType: 'park' }],
+    });
+    expect(extended.candidates).toEqual([]);
+
+    const guessed = brokenLinks({
+      routeId: 'r1', routeTitle: 'Тропа', track: TRACK, lineProven: true,
+      waypoints: [{ ...farAway, coordSource: 'geocoded' as const }],
+    });
+    expect(guessed.candidates).toEqual([]);
+  });
+
   it('тёзки печатаются отдельно и в снятие не идут', () => {
     expect(API).toMatch(/namesake_conflicts/);
     expect(WORKFLOW).toMatch(/подозрение на чужой трек, НЕ снимаем/);
@@ -192,8 +212,8 @@ describe('уборка не может случиться заодно', () => {
 
   it('номер версии растёт вместе с правилом', () => {
     // Защита тёзок — изменение ПОВЕДЕНИЯ уборки, значит и номера.
-    expect(API).toMatch(/REPAIR_VERSION = 2/);
-    expect(API).toMatch(/точки-тёзки маршрута выведены из снятия/);
+    expect(API).toMatch(/REPAIR_VERSION = 3/);
+    expect(API).toMatch(/расстояние судит только у снятой координаты точечного объекта/);
   });
 
   it('видно поимённо, что именно снимается', () => {

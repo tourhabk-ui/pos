@@ -34,6 +34,7 @@
 
 import { projectOnTrack, DATA_CONFLICT_KM, type GeoPoint } from '@/lib/on-route/approach';
 import { normalizeTitle } from '@/lib/routes/title-dupes';
+import { distanceIsMeaningful, type CoordSource } from '@/lib/places/coord-source';
 
 /**
  * Точка-ТЁЗКА: её имя есть в имени маршрута.
@@ -110,7 +111,16 @@ export interface LinkInput {
   track: GeoPoint[];
   /** Доказана ли линия как запись прибора (lib/routes/track-evidence). */
   lineProven: boolean;
-  waypoints: Array<{ placeId: string; placeTitle: string; lat: number; lng: number }>;
+  waypoints: Array<{
+    placeId: string;
+    placeTitle: string;
+    lat: number;
+    lng: number;
+    /** Откуда координата: снята, угадана по названию, заглушка. */
+    coordSource: CoordSource;
+    /** Род объекта: у протяжённого одна координата его не описывает. */
+    locationType: string | null;
+  }>;
 }
 
 /**
@@ -142,6 +152,11 @@ export function brokenLinks(i: LinkInput): BrokenLinksResult {
     if (!proj) continue;
     if (proj.offTrackKm <= DATA_CONFLICT_KM) continue;
     const offTrackKm = Math.round(proj.offTrackKm * 10) / 10;
+    // Расстояние — приговор только когда координата снята И объект точечный.
+    // Прогон 18.08: парк Налычево (32 км), Халактырский пляж (4.5), озеро
+    // Паланское (3.4) — все три верные привязки, у которых координата это
+    // центроид протяжённого объекта.
+    if (!distanceIsMeaningful(w.coordSource, w.locationType)) continue;
     if (isNamesakeOfRoute(i.routeTitle, w.placeTitle)) {
       namesakeConflicts.push({
         routeId: i.routeId, routeTitle: i.routeTitle, placeTitle: w.placeTitle, offTrackKm,

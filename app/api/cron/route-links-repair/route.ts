@@ -24,6 +24,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { geometryToTrack } from '@/lib/routes/geometry-audit';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { brokenLinks, safeToRepair, type LinkCandidate, type NamesakeConflict } from '@/lib/routes/broken-links';
+import type { CoordSource } from '@/lib/places/coord-source';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -45,11 +46,16 @@ export const maxDuration = 120;
  *
  *   1 — снятие привязок, опровергнутых доказанным треком
  *   2 — точки-тёзки маршрута выведены из снятия
+ *   3 — расстояние судит только у снятой координаты точечного объекта
  */
-export const REPAIR_VERSION = 2;
+export const REPAIR_VERSION = 3;
 
 interface RouteRow { id: string; title: string | null; geometry: unknown }
-interface WpRow { route_id: string; place_id: string; title: string | null; lat: string | null; lng: string | null }
+interface WpRow {
+  route_id: string; place_id: string; title: string | null;
+  lat: string | null; lng: string | null;
+  coord_source: string | null; location_type: string | null;
+}
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
@@ -70,7 +76,7 @@ export async function GET(request: NextRequest) {
     );
     const wps = await pool.query<WpRow>(
       `SELECT rw.route_id::text, p.id::text AS place_id, p.name AS title,
-              p.lat::text, p.lng::text
+              p.lat::text, p.lng::text, p.coord_source, p.location_type
          FROM route_waypoints rw
          JOIN places p ON p.id = rw.place_id
         WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
@@ -111,6 +117,8 @@ export async function GET(request: NextRequest) {
           placeTitle: w.title ?? '(без названия)',
           lat: Number(w.lat),
           lng: Number(w.lng),
+          coordSource: (w.coord_source ?? 'unknown') as CoordSource,
+          locationType: w.location_type,
         })),
       });
       namesake.push(...found.namesakeConflicts);
