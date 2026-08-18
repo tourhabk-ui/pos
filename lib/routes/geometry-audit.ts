@@ -34,6 +34,8 @@ import { findTitleDupes } from '@/lib/routes/title-dupes';
 import { isCommercialRecord } from '@/lib/routes/commercial-titles';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
+import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
+import type { CoordSource } from '@/lib/places/coord-source';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -45,6 +47,43 @@ export interface RouteFlaw {
   worstOffTrackKm: number;
   /** Худший отход точки от линии, метры — та же величина точнее. */
   maxOffsetM: number | null;
+  waypoints: number;
+  trackPoints: number;
+}
+
+/**
+ * Расхождение точки с линией — ПОИМЁННО.
+ *
+ * Счётчик отказов говорит «20 маршрутов не сходятся с собственными точками» и
+ * на этом умолкает. Двадцать — число, которое разбирают руками, но открыть
+ * случай по счётчику нельзя: неизвестно, какой маршрут и какая точка. Здесь
+ * названо всё, что нужно для решения одним взглядом: кто, с кем, на сколько,
+ * откуда координата и что даст починка.
+ */
+export interface ConflictCase {
+  routeId: string;
+  routeTitle: string;
+  placeId: string;
+  placeTitle: string;
+  /** Род места: у протяжённого расстояние слабый признак (сюда такие не попадают). */
+  placeType: string | null;
+  /** Откуда координата места: снята, угадана по названию, заглушка, не записано. */
+  coordSource: CoordSource;
+  offTrackKm: number;
+  /**
+   * Точка — тёзка маршрута. Тогда под подозрением ЛИНИЯ, а не привязка:
+   * если трек «Восхождения на Вилючинский» не подходит к Вилючинскому ближе
+   * восьми километров, к записи прицепили чужой трек.
+   */
+  namesake: boolean;
+  /**
+   * Расхождение — ЕДИНСТВЕННАЯ причина отказа.
+   *
+   * Главная цифра разбора: только у таких маршрутов починка даёт пригодность.
+   * У остальных расхождение чинить тоже стоит, но черту они не пройдут всё
+   * равно — и путать эти два результата нельзя.
+   */
+  onlyReason: boolean;
   waypoints: number;
   trackPoints: number;
 }
@@ -294,11 +333,56 @@ export interface GeometryAudit {
   worst_order: Array<{ id: string; title: string; inversions: number; waypoints: number; coverage: number | null }>;
   /** Худшие расхождения — с них и начинать разбор. */
   worst: RouteFlaw[];
+  /**
+   * Расхождения, из-за которых маршрут не проходит черту, — поимённо.
+   *
+   * Считается ТЕМ ЖЕ правилом, что выносит вердикт (`routeNavigability`
+   * возвращает номер спорной точки), а не своим проходом по точкам: второй
+   * проход дал бы второй ответ на один вопрос. Отличается от `worst` этим же:
+   * `worst` меряет все точки подряд, черта пропускает протяжённые объекты.
+   */
+  conflict_cases: ConflictCase[];
+  /** Из них тех, у кого расхождение — единственная причина отказа. */
+  conflicts_only_reason: number;
   duration_ms: number;
 }
 
 interface RouteRow { id: string; title: string | null; geometry: unknown }
-interface WpRow { route_id: string; lat: string | null; lng: string | null; location_type: string | null }
+
+/** Путевая точка так, как её видит перепись: координата и всё, чем её можно назвать. */
+interface AuditWaypoint {
+  lat: number;
+  lng: number;
+  type: string | null;
+  id: string;
+  title: string;
+  coordSource: CoordSource;
+}
+
+/**
+ * Значение колонки → тип. Незнакомое и пустое честно становится `unknown`:
+ * колонка заведена 18.08 (миграция 873), и у большинства строк она именно
+ * такая.
+ */
+function asCoordSource(raw: string | null): CoordSource {
+  switch (raw) {
+    case 'surveyed':
+    case 'geocoded':
+    case 'placeholder':
+      return raw;
+    default:
+      return 'unknown';
+  }
+}
+interface WpRow {
+  route_id: string;
+  place_id: string;
+  title: string | null;
+  lat: string | null;
+  lng: string | null;
+  location_type: string | null;
+  coord_source: string | null;
+}
 
 /**
  * Причина отказа → ключ счётчика.
@@ -490,7 +574,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // строки как угодно: счёт инверсий стал бы шумом. Раньше комментарий ниже
   // утверждал, что точки приходят упорядоченными, а запрос этого не просил.
   const wpRes = await pool.query<WpRow>(
-    `SELECT rw.route_id::text, p.lat::text, p.lng::text, p.location_type
+    `SELECT rw.route_id::text, p.id::text AS place_id, p.name AS title,
+            p.lat::text, p.lng::text, p.location_type, p.coord_source
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
       WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
@@ -498,12 +583,18 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         AND p.merged_into_id IS NULL
       ORDER BY rw.route_id, rw.position`,
   );
-  const byRoute = new Map<string, Array<{ lat: number; lng: number; type: string | null }>>();
+  const byRoute = new Map<string, AuditWaypoint[]>();
   for (const w of wpRes.rows) {
     const lat = Number(w.lat), lng = Number(w.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     const arr = byRoute.get(w.route_id) ?? [];
-    arr.push({ lat, lng, type: w.location_type });
+    arr.push({
+      lat, lng,
+      type: w.location_type,
+      id: w.place_id,
+      title: w.title ?? '(без названия)',
+      coordSource: asCoordSource(w.coord_source),
+    });
     byRoute.set(w.route_id, arr);
   }
 
@@ -539,6 +630,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     fits: 0, out_of_order: 0, off_track: 0, unknown: 0,
   };
   const flaws: RouteFlaw[] = [];
+  /** Расхождения черты поимённо: 20 случаев разбирают руками, не счётчиком. */
+  const conflictCases: ConflictCase[] = [];
   const collectionFlaws: CollectionFlaw[] = [];
   const orderCases: Array<{ id: string; title: string; inversions: number; waypoints: number; coverage: number | null }> = [];
 
@@ -612,6 +705,28 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
+    // Спорная точка называется поимённо. Номер приходит от самой черты —
+    // считать расстояние здесь заново значило бы завести второе правило и
+    // получить случаи, которых вердикт не видит (или не увидеть тех, что он
+    // засчитал).
+    if (nav.conflict) {
+      const w = wps[nav.conflict.index];
+      if (w) {
+        conflictCases.push({
+          routeId: r.id,
+          routeTitle: r.title ?? '(без названия)',
+          placeId: w.id,
+          placeTitle: w.title,
+          placeType: w.type,
+          coordSource: w.coordSource,
+          offTrackKm: Math.round(nav.conflict.offTrackKm * 10) / 10,
+          namesake: isNamesakeOfRoute(r.title ?? '', w.title),
+          onlyReason: nav.reasons.length === 1,
+          waypoints: wps.length,
+          trackPoints: pairs.length,
+        });
+      }
+    }
     // Причина отказа считается поимённо.
     //
     // Прогон 17.08 вернул «пригодны: 0» и не сказал, почему. Ноль без причины
@@ -771,6 +886,10 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     by_shape,
     worst_order: orderCases.slice(0, 10),
     worst: flaws.slice(0, 15),
+    // Не режется: этих случаев два десятка, и режут списки там, где их не
+    // разбирают. Этот разбирают.
+    conflict_cases: conflictCases,
+    conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
     navigability_reasons: navReasons,
     track_evidence: evidence,

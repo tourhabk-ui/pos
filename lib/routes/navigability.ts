@@ -66,6 +66,19 @@ export interface Navigability {
    * пойдёт искать, что он сделал не так.
    */
   reasons: string[];
+  /**
+   * КАКАЯ точка спорит с линией — порядковый номер в `waypoints` и отход.
+   *
+   * Причина словами называет только расстояние: «точка стоит в 7.9 км от
+   * линии». Для счётчика этого хватало, для разбора — нет: чтобы открыть
+   * случай, надо знать, ЧТО это за точка. Имена живут у того, кто передал
+   * точки сюда, поэтому правило возвращает номер, а называет поимённо
+   * вызывающий. Заводить второе вычисление расстояния ради имени значило бы
+   * получить два ответа на один вопрос — ровно то, ради чего §12 писался.
+   *
+   * Отсутствует, когда расхождения нет.
+   */
+  conflict?: { index: number; offTrackKm: number };
 }
 
 export interface NavigabilityInput {
@@ -100,6 +113,7 @@ export const MIN_ROUTE_WAYPOINTS = 2;
 
 export function routeNavigability(i: NavigabilityInput): Navigability {
   const reasons: string[] = [];
+  let conflict: { index: number; offTrackKm: number } | undefined;
   const track = i.track ?? [];
   const hasLine = track.length >= 2;
 
@@ -223,21 +237,23 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   if (hasLine && i.waypoints.length > 0) {
     const line = trackPoints(track);
     let worstKm = 0;
+    let worstIdx = -1;
     for (let idx = 0; idx < i.waypoints.length; idx++) {
       const type = i.waypointTypes?.[idx];
       // Род спрошен и оказался протяжённым — расстояние ни о чём не говорит.
       if (i.waypointTypes && isExtendedObject(type)) continue;
       const proj = projectOnTrack(i.waypoints[idx], line);
-      if (proj && proj.offTrackKm > worstKm) worstKm = proj.offTrackKm;
+      if (proj && proj.offTrackKm > worstKm) { worstKm = proj.offTrackKm; worstIdx = idx; }
     }
     if (worstKm > DATA_CONFLICT_KM) {
       reasons.push(`Точка стоит в ${worstKm.toFixed(1)} км от линии — данные маршрута не сходятся`);
+      conflict = { index: worstIdx, offTrackKm: worstKm };
     }
   }
 
   return reasons.length === 0
     ? { verdict: 'navigable', canLead: true, reasons: [] }
-    : { verdict: 'orientation_only', canLead: false, reasons };
+    : { verdict: 'orientation_only', canLead: false, reasons, ...(conflict ? { conflict } : {}) };
 }
 
 /**
