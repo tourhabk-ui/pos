@@ -368,6 +368,16 @@ export interface GeometryAudit {
   /** Из них тех, у кого расхождение — единственная причина отказа. */
   conflicts_only_reason: number;
   /**
+   * Доехала ли разметка связей (колонка `route_waypoints.link_kind`).
+   *
+   * `false` — миграция 874 не применилась, и все связи считаются `unknown`.
+   * Без этого признака счёт «unknown: всё» читался бы как «разметка есть, но
+   * пустая» — то есть как ответ вместо молчания.
+   */
+  link_kind_available: boolean;
+  /** Миграции, не применившиеся на проде, с причиной. Пусто — всё применилось. */
+  migration_failures: Array<{ name: string; error: string; attempts: number }>;
+  /**
    * Сколько связей какого рода (миграция 874).
    *
    * Главная цифра разметки: пока `nearby` ноль, ничего не размечено, и
@@ -607,7 +617,16 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // строки как угодно: счёт инверсий стал бы шумом. Раньше комментарий ниже
   // утверждал, что точки приходят упорядоченными, а запрос этого не просил.
   const wpRes = await pool.query<WpRow>(
-    `SELECT rw.route_id::text, rw.link_kind, p.id::text AS place_id, p.name AS title,
+    // link_kind читается через to_jsonb, а не напрямую.
+    //
+    // 18.08 миграция 874 дважды не доехала до прода, и перепись отвечала 500:
+    // «column rw.link_kind does not exist». Одна не доехавшая колонка убивала
+    // ВЕСЬ ответ — вместе с чертой, уликами и разбором расхождений, которые от
+    // неё не зависят. Мера, которая молчит целиком из-за одного отсутствующего
+    // поля, — плохая мера. Нет колонки → `unknown`, то есть прежнее поведение,
+    // и об этом честно пишется в ответе (`link_kind_available`).
+    `SELECT rw.route_id::text, to_jsonb(rw)->>'link_kind' AS link_kind,
+            p.id::text AS place_id, p.name AS title,
             p.lat::text, p.lng::text, p.location_type, p.coord_source
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
@@ -617,6 +636,29 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       ORDER BY rw.route_id, rw.position`,
   );
   const linkKinds: Record<LinkKind, number> = { waypoint: 0, nearby: 0, unknown: 0 };
+  /** Колонка есть, если хоть одна строка отдала непустое значение. */
+  let linkKindAvailable = false;
+  /**
+   * Почему миграция не доехала — из реестра отказов накатчика.
+   *
+   * Провал миграции до сих пор был виден только в логе деплоя, который никто
+   * не читает: 18.08 он стоил двух прогонов и часа. Реестр ведёт
+   * scripts/migrate-standalone; перепись просто показывает его рядом с
+   * цифрами, которые от него зависят.
+   */
+  let migrationFailures: Array<{ name: string; error: string; attempts: number }> = [];
+  try {
+    const fails = await pool.query<{ name: string; error: string; attempts: string }>(
+      `SELECT name, error, attempts::text FROM _migration_failures ORDER BY last_failed_at DESC LIMIT 10`,
+    );
+    migrationFailures = fails.rows.map((f) => ({
+      name: f.name,
+      error: (f.error ?? '').slice(0, 300),
+      attempts: Number(f.attempts ?? 1),
+    }));
+  } catch {
+    // Таблицы может не быть на старом инстансе — это не ошибка переписи.
+  }
   const byRoute = new Map<string, AuditWaypoint[]>();
   for (const w of wpRes.rows) {
     const lat = Number(w.lat), lng = Number(w.lng);
@@ -631,6 +673,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       kind: asLinkKind(w.link_kind),
     });
     byRoute.set(w.route_id, arr);
+    if (w.link_kind) linkKindAvailable = true;
     linkKinds[asLinkKind(w.link_kind)] += 1;
   }
 
@@ -940,6 +983,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // разбирают. Этот разбирают.
     conflict_cases: conflictCases,
     link_kinds: linkKinds,
+    link_kind_available: linkKindAvailable,
+    migration_failures: migrationFailures,
     conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
     navigability_reasons: navReasons,
