@@ -567,7 +567,14 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       mchsRequired: false, mchsPhone: null, parkName: null,
       parkApprovalUrl: null, officialPassportUrl: null,
     }).grade;
-    const nav = routeNavigability({ grade, track: pairs.length >= 2 ? pairs : null, waypoints: wps });
+    // Улика считается ДО вердикта: черта спрашивает её, а не наоборот.
+    const evidenceVerdict = trackEvidence(r.geometry).verdict;
+    const nav = routeNavigability({
+      grade,
+      track: pairs.length >= 2 ? pairs : null,
+      waypoints: wps,
+      evidence: evidenceVerdict,
+    });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
     // Причина отказа считается поимённо.
