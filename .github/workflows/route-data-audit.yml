@@ -225,6 +225,13 @@ jobs:
                   print(f"        точка: {c.get('placeTitle')} ({c.get('placeType') or 'род не записан'},"
                         f" координата {src_ru.get(c.get('coordSource'), c.get('coordSource'))})")
                   print(f"        точек {c.get('waypoints')}, линия {c.get('trackPoints')}{tail}")
+                  # Все точки маршрута с отходом: видно, выбивается ли одна
+                  # привязка или в стороне вообще все — тогда виновата линия.
+                  for pt in (c.get('points') or []):
+                      km = pt.get('offTrackKm')
+                      km_s = f"{km} км" if km is not None else 'не спроецирована'
+                      mark = ' (протяжённый — центроид)' if pt.get('extended') else ''
+                      print(f"          · {pt.get('title')} [{pt.get('type') or 'род не записан'}]: {km_s}{mark}")
 
           # Улики записи. Владелец 17.08: сайт-источник заявляет треки как
           # полученные от людей, которые их прошли. Заявление о чужой странице

@@ -35,7 +35,7 @@ import { isCommercialRecord } from '@/lib/routes/commercial-titles';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
-import type { CoordSource } from '@/lib/places/coord-source';
+import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -86,6 +86,25 @@ export interface ConflictCase {
   onlyReason: boolean;
   waypoints: number;
   trackPoints: number;
+  /**
+   * ВСЕ точки маршрута с расстоянием до его же линии — чтобы смотреть, а не верить.
+   *
+   * Одна названная точка отвечает на вопрос «что не сошлось», но не на вопрос
+   * «кто виноват». Список целиком отвечает сразу: если из восьми точек семь
+   * лежат на линии, а восьмая — смотровая площадка в десяти километрах, дело
+   * в привязке. Если же в стороне все, разъехались не точки, а линия — и
+   * снимать привязки нельзя.
+   *
+   * Владелец 18.08 на предложение снять 16 привязок: «сначала смотрим».
+   */
+  points: Array<{
+    title: string;
+    type: string | null;
+    /** Отход от линии, км. `null` — спроецировать не удалось. */
+    offTrackKm: number | null;
+    /** Протяжённый объект: у него координата это центроид, и расстояние слабый признак. */
+    extended: boolean;
+  }>;
 }
 
 export interface CollectionFlaw {
@@ -724,6 +743,15 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
           onlyReason: nav.reasons.length === 1,
           waypoints: wps.length,
           trackPoints: pairs.length,
+          points: wps.map((w) => {
+            const pr = pairs.length >= 2 ? projectOnTrack(w, track) : null;
+            return {
+              title: w.title,
+              type: w.type,
+              offTrackKm: pr ? Math.round(pr.offTrackKm * 10) / 10 : null,
+              extended: isExtendedObject(w.type),
+            };
+          }),
         });
       }
     }
