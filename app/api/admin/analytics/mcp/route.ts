@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const [byTool, daily, errors] = await Promise.all([
+    const [byTool, daily, errors, clients] = await Promise.all([
       pool.query<{
         tool: string; calls_7d: string; errors_7d: string; calls_30d: string;
         errors_30d: string; avg_ms: string | null; max_ms: string | null; callers_30d: string;
@@ -50,6 +50,35 @@ export async function GET(request: NextRequest) {
           WHERE NOT ok AND created_at >= NOW() - INTERVAL '30 days'
           GROUP BY error_kind ORDER BY COUNT(*) DESC`,
       ),
+      /**
+       * КТО звал. Соединение по суточному ключу (caller_hash, day) — тому же,
+       * которым живёт журнал вызовов, поэтому окно наблюдения не расширяется:
+       * профиля за пределами суток по-прежнему нет.
+       *
+       * Имя берётся из самопредставления клиента (`initialize.clientInfo`),
+       * род из заголовка — на подхвате, когда рукопожатия не было. Обе
+       * величины про ПРОГРАММУ, не про человека.
+       *
+       * LEFT JOIN намеренный: вызовы, сделанные до 18.08 (или клиентом, о
+       * котором мы ничего не знаем), обязаны остаться в счёте под честным
+       * «не представился», а не исчезнуть из отчёта.
+       */
+      pool.query<{ client: string; kind: string; calls: string; caller_days: string; last_seen: string | null }>(
+        `SELECT COALESCE(c.client_name, c.ua_family, 'не представился') AS client,
+                CASE WHEN c.client_name IS NOT NULL THEN 'представился'
+                     WHEN c.ua_family  IS NOT NULL THEN 'по заголовку'
+                     ELSE 'неизвестно' END                              AS kind,
+                COUNT(*)                                                AS calls,
+                COUNT(DISTINCT t.caller_hash)                           AS caller_days,
+                to_char(MAX(c.last_seen), 'YYYY-MM-DD HH24:MI')         AS last_seen
+           FROM mcp_tool_calls t
+           LEFT JOIN mcp_clients c
+                  ON c.caller_hash = t.caller_hash
+                 AND c.day = t.created_at::date
+          WHERE t.created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY 1, 2
+          ORDER BY COUNT(*) DESC`,
+      ),
     ]);
 
     return NextResponse.json({
@@ -73,9 +102,17 @@ export async function GET(request: NextRequest) {
         kind: r.error_kind,
         d30: Number(r.d30),
       })),
+      by_client_30d: clients.rows.map((r) => ({
+        client: r.client,
+        kind: r.kind,
+        calls: Number(r.calls),
+        caller_days: Number(r.caller_days),
+        last_seen: r.last_seen,
+      })),
       window_note:
         'caller_hash суточный (152-ФЗ): caller_days — человеко-дни, ' +
-        'а не уникальные вызывающие за период.',
+        'а не уникальные вызывающие за период. Имя клиента — из его ' +
+        'самопредставления при рукопожатии MCP: это имя программы, не человека.',
     });
   } catch {
     return NextResponse.json({ error: 'Не удалось построить срез MCP' }, { status: 500 });
