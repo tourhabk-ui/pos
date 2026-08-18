@@ -1,0 +1,90 @@
+name: Уборка битых привязок маршрут-точка
+
+# Решение владельца 18.08: «убираем эти битые данные».
+#
+# Битой считается СВЯЗЬ маршрута с точкой, опровергнутая собственным треком
+# маршрута: линия доказана как запись прибора, а точка стоит дальше порога
+# расхождения. Линии и места не трогаются — 277 линий из 301 доказаны, а
+# место есть географический факт.
+#
+# ПО УМОЛЧАНИЮ СУХОЙ ПРОГОН. Параметры берутся из файла-триггера, и боевой
+# прогон ставится там осознанно, отдельной правкой, после разбора сухого.
+# Удаление данных, от которых зависит безопасность, не должно случаться
+# «заодно».
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Сухой прогон (без записи)'
+        required: false
+        default: 'true'
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-links-repair.json'
+
+concurrency:
+  group: route-links-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Спросить уборку и показать, что она нашла
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INPUT_DRY: ${{ inputs.dry_run }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан — уборку не запросить."
+            exit 1
+          fi
+
+          # Параметр из файла-триггера при пуше, из кнопки — при ручном пуске.
+          # Умолчание в обе стороны — сухой прогон.
+          if [ -n "$INPUT_DRY" ]; then
+            DRY="$INPUT_DRY"
+          else
+            DRY=$(python3 -c "import json;print(str(json.load(open('.github/triggers/route-links-repair.json')).get('dry_run', True)).lower())")
+          fi
+          echo "dry_run=$DRY"
+
+          HTTP=$(curl -sS -o /tmp/repair.json -w "%{http_code}" --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/route-links-repair?dry_run=$DRY") || HTTP="000"
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Уборка ответила $HTTP."
+            head -c 2000 /tmp/repair.json || true
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          a = json.load(open('/tmp/repair.json'))
+          print(('СУХОЙ ПРОГОН — ничего не записано' if a.get('dry_run') else 'БОЕВОЙ ПРОГОН — записано'))
+          print(f"  маршрутов просмотрено: {a.get('routes_scanned')}")
+          print(f"  из них с доказанной линией: {a.get('routes_with_proven_line')}")
+          print(f"  привязок под снятие: {a.get('candidates')} у {a.get('routes_affected')} маршрутов")
+          print(f"  снято: {a.get('removed')}")
+          nh = a.get('needs_human_total') or 0
+          if nh:
+              # Маршруты, где опровергнуты почти все точки: дело не в отдельной
+              # привязке, и молчаливый пропуск читался бы как «таких нет».
+              print('')
+              print(f'  случаев для человека (опровергнуто слишком много): {nh}')
+              for h in (a.get('needs_human') or [])[:15]:
+                  print(f"    {h.get('title')}: {h.get('broken')} из {h.get('total')}")
+          sm = a.get('samples') or []
+          if sm:
+              print('')
+              print('  что именно снимается (маршрут → точка, расхождение):')
+              for s in sm[:40]:
+                  print(f"    {s.get('routeTitle')} → {s.get('placeTitle')}: {s.get('offTrackKm')} км")
+          PY
