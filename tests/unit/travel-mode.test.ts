@@ -30,6 +30,27 @@ describe('способ передвижения по имени записи', (
     expect(detectTravelMode('Вертолётная экскурсия в Долину гейзеров')).toBe('air');
   });
 
+  it('до острова плывут — это не пеший маршрут', () => {
+    // Владелец 18.08, вслед за облётом: «острова тоже не пеший маршрут».
+    expect(detectTravelMode('Остров Старичков')).toBe('sea');
+    expect(detectTravelMode('Морская прогулка к острову Старичков')).toBe('sea');
+    expect(detectTravelMode('Бухта Русская на катере')).toBe('sea');
+  });
+
+  it('пеший маршрут ПО острову обещание сохраняет', () => {
+    // Слепое правило по слову «остров» отобрало бы ведение у настоящей тропы.
+    // Признак составной: остров в имени И ни одного слова о ходьбе.
+    expect(detectTravelMode('Поход по острову Беринга')).toBe('foot');
+    expect(detectTravelMode('Восхождение на вулкан острова Атласова')).toBe('foot');
+  });
+
+  it('сплав остаётся проходимым: его линию идут', () => {
+    // Сплав идёт ПО реке — пороги, обносы, стоянки на ней настоящие, и
+    // «до следующей точки 3 км» значит ровно то, что говорит.
+    expect(detectTravelMode('Сплав по реке Быстрая')).toBe('water');
+    expect(lineIsTraversed('water')).toBe(true);
+  });
+
   it('наземные способы остаются наземными', () => {
     expect(detectTravelMode('Сплав по реке Быстрая')).toBe('water');
     expect(detectTravelMode('Горный массив Вачкажец (лыжный)')).toBe('snow');
@@ -49,6 +70,7 @@ describe('способ передвижения по имени записи', (
     expect(lineIsTraversed('snow')).toBe(true);
     expect(lineIsTraversed('vehicle')).toBe(true);
     expect(lineIsTraversed('air')).toBe(false);
+    expect(lineIsTraversed('sea')).toBe(false);
   });
 });
 
@@ -66,6 +88,7 @@ describe('черта и облёт', () => {
     expect(nav.canLead).toBe(false);
     // Причина названа своими словами, а не расстоянием до линии.
     expect(nav.reasons.join(' ')).toContain('облёт');
+    expect(nav.reasons.join(' ')).toContain('пилот');
     expect(nav.reasons.join(' ')).not.toContain('км от линии');
   });
 
@@ -78,6 +101,15 @@ describe('черта и облёт', () => {
 
   it('ни навигатора, ни ориентирования у облёта нет', () => {
     expect(navigabilityCtaLabel('not_on_foot')).toBeNull();
+  });
+
+  it('море выводится из-под черты так же, как воздух', () => {
+    const nav = routeNavigability({ ...args, mode: 'sea' });
+    expect(nav.verdict).toBe('not_on_foot');
+    expect(nav.reasons.join(' ')).not.toContain('км от линии');
+    // Причина называет СВОЙ род: «облёт» про катер — такая же неправда.
+    expect(nav.reasons.join(' ')).toContain('по воде');
+    expect(nav.reasons.join(' ')).not.toContain('облёт');
   });
 
   it('наземные способы судятся как раньше', () => {
