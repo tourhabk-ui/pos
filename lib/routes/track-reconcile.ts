@@ -145,3 +145,66 @@ export function reconcileTrack(ours: number[][], theirs: number[][]): ReconcileR
  * написано и стережётся — второе такое же разошлось бы с ним ровно так же.
  */
 export { isNamesakeOfRoute as titlesAgree } from '@/lib/routes/broken-links';
+
+
+/**
+ * ── Улика имеет срок годности ─────────────────────────────────────────────
+ *
+ * Сверка сравнивает нашу копию со страницей НА СЕГОДНЯ. Завтра источник её
+ * перепишет, и «совпадает» превратится в историческую фразу, продолжая
+ * выдавать право вести. Поэтому у сохранённой улики есть возраст, а у права —
+ * условие свежести.
+ *
+ * Девяносто дней — предварительное значение, и оно названо предварительным
+ * намеренно: настоящий интервал станет известен, когда перепись измерит, как
+ * часто источник переписывает страницы (план, Ф6). Выдумывать «правильный»
+ * срок до измерения — то же самое, что выдумывать курс обмена между
+ * просмотром и бронью.
+ */
+export const CHECK_FRESH_DAYS = 90;
+
+export type CheckFreshness = 'current' | 'review_due' | 'unknown';
+
+/**
+ * Насколько свежа сохранённая улика.
+ *
+ * `unknown` — проверки не было вовсе ЛИБО проверяли другую линию (наша
+ * геометрия с тех пор изменилась). Второе намеренно не называется
+ * «устаревшим»: устаревшая улика говорит о том же предмете, а эта — о другом,
+ * и путать их нельзя.
+ */
+export function checkFreshness(
+  check: { checkedAt: string | Date | null; geometryHash: string | null } | null,
+  currentGeometryHash: string | null,
+  now: Date,
+): CheckFreshness {
+  if (!check || !check.checkedAt) return 'unknown';
+  if (check.geometryHash && currentGeometryHash && check.geometryHash !== currentGeometryHash) {
+    return 'unknown';
+  }
+  const at = check.checkedAt instanceof Date ? check.checkedAt : new Date(check.checkedAt);
+  if (Number.isNaN(at.getTime())) return 'unknown';
+  const ageDays = (now.getTime() - at.getTime()) / 86_400_000;
+  return ageDays <= CHECK_FRESH_DAYS ? 'current' : 'review_due';
+}
+
+/**
+ * Отпечаток линии — чтобы вердикт относился к ТОЙ САМОЙ геометрии.
+ *
+ * Не криптография: задача отличить одну нашу линию от другой, а не защититься
+ * от подделки. Считается по числу точек и самим координатам, поэтому любая
+ * правка геометрии меняет отпечаток.
+ */
+export function geometryFingerprint(coordinates: number[][]): string {
+  let h = 2166136261;
+  const put = (n: number) => {
+    h ^= n | 0;
+    h = Math.imul(h, 16777619);
+  };
+  put(coordinates.length);
+  for (const p of coordinates) {
+    put(Math.round((p[0] ?? 0) * 1e5));
+    put(Math.round((p[1] ?? 0) * 1e5));
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}

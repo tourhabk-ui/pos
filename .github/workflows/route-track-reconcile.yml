@@ -35,6 +35,10 @@ on:
         description: 'С какой записи продолжать'
         required: false
         default: '0'
+      all:
+        description: 'true — пройти все страницы партиями за один прогон'
+        required: false
+        default: 'false'
   push:
     branches: [main]
     paths:
@@ -54,6 +58,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           LIMIT: ${{ inputs.limit }}
           OFFSET: ${{ inputs.offset }}
+          ALL: ${{ inputs.all }}
         run: |
           # Молчаливый успех означал бы «сверили, всё сходится», хотя не сверяли.
           if [ -z "$CRON_SECRET" ]; then
@@ -91,9 +96,64 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             FROM_FILE=$(python3 -c "import json;d=json.load(open('.github/triggers/route-track-reconcile.json'));print(d.get('mode',''))")
             if [ -n "$FROM_FILE" ]; then MODE_Q="$FROM_FILE"; fi
+            ALL=$(python3 -c "import json;print('true' if json.load(open('.github/triggers/route-track-reconcile.json')).get('all') else 'false')")
           fi
           echo "режим: $MODE_Q (событие $GITHUB_EVENT_NAME)"
-          Q="?mode=$MODE_Q&limit=${LIMIT:-20}&offset=${OFFSET:-0}"
+          SAVE_Q=$(python3 -c "import json;print('true' if json.load(open('.github/triggers/route-track-reconcile.json')).get('save') else 'false')")
+          Q="?mode=$MODE_Q&limit=${LIMIT:-20}&offset=${OFFSET:-0}&save=$SAVE_Q"
+
+          # Ф1 плана: пройти ВСЕ страницы, а не первую партию.
+          #
+          # Одним запросом это не делается — 277 страниц с паузой 600 мс не
+          # помещаются в лимит времени функции. Поэтому партии идут циклом
+          # здесь, пока эндпоинт не скажет remaining=0. Каждая партия
+          # самостоятельна: прогон, оборванный на середине, оставляет
+          # сохранённым всё, что успел, и продолжается со следующего offset.
+          if [ "${ALL:-}" = "true" ]; then
+            OFF=0; TOTAL=0
+            : > /tmp/verdicts.txt
+            for batch in $(seq 1 40); do
+              HTTP=$(curl -sS -o /tmp/reconcile.json -w "%{http_code}" --max-time 600 \
+                -H "Authorization: Bearer $CRON_SECRET" \
+                "$URL?mode=$MODE_Q&limit=${LIMIT:-20}&offset=$OFF&save=$SAVE_Q") || HTTP="000"
+              if [ "$HTTP" != "200" ]; then
+                echo "::error::Партия с offset=$OFF ответила $HTTP."
+                head -c 1000 /tmp/reconcile.json || true
+                exit 1
+              fi
+              python3 -c "import json,sys; a=json.load(open('/tmp/reconcile.json')); [print(k,v) for k,v in (a.get('verdicts') or {}).items()]; print('unreachable', a.get('unreachable',0))" >> /tmp/verdicts.txt
+              CHECKED=$(python3 -c "import json;print(json.load(open('/tmp/reconcile.json')).get('checked',0))")
+              REMAIN=$(python3 -c "import json;print(json.load(open('/tmp/reconcile.json')).get('remaining',0))")
+              TOTAL=$((TOTAL + CHECKED))
+              echo "партия $batch: проверено $CHECKED, осталось $REMAIN"
+              if [ "$REMAIN" = "0" ] || [ "$CHECKED" = "0" ]; then break; fi
+              OFF=$((OFF + CHECKED))
+            done
+            echo ""
+            echo "Всего сверено за прогон: $TOTAL"
+            echo "Итог по вердиктам:"
+            python3 - <<'SUM'
+          from collections import Counter
+          c = Counter()
+          for line in open('/tmp/verdicts.txt'):
+              k, v = line.rsplit(' ', 1)
+              c[k] += int(v)
+          titles = {
+              'same': 'сходится: линия та же, высоты на месте',
+              'ours_truncated': 'у нас ОБРЕЗАНО: точек заметно меньше',
+              'ours_extra': 'у нас ЛИШНЕЕ: точек заметно больше',
+              'elevation_lost': 'высоты потеряны при разборе',
+              'line_moved': 'линии РАЗНЫЕ: начала расходятся',
+              'source_has_no_track': 'источник трека больше не отдаёт',
+              'ours_empty': 'у нас линии нет',
+              'unreachable': 'страница недоступна (о наших данных не говорит ничего)',
+          }
+          for k, n in c.most_common():
+              if n:
+                  print(f'  {titles.get(k, k)}: {n}')
+          SUM
+            exit 0
+          fi
 
           HTTP=$(curl -sS -o /tmp/reconcile.json -w "%{http_code}" --max-time 600 \
             -H "Authorization: Bearer $CRON_SECRET" \
