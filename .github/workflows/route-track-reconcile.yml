@@ -81,9 +81,18 @@ jobs:
             fi
           fi
 
+          # Режим берётся из файла-триггера ТОЛЬКО когда прогон запущен пушем.
+          #
+          # Первая редакция читала файл всегда — и тем отбирала выбор у кнопки
+          # в Actions: запуск руками с mode=compare молча превращался в split,
+          # потому что в файле лежало «split». Кнопка, которая делает не то, о
+          # чём её просят, хуже отсутствующей кнопки.
           MODE_Q="${MODE:-split}"
-          FROM_FILE=$(python3 -c "import json;d=json.load(open('.github/triggers/route-track-reconcile.json'));print(d.get('mode',''))")
-          if [ -n "$FROM_FILE" ]; then MODE_Q="$FROM_FILE"; fi
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            FROM_FILE=$(python3 -c "import json;d=json.load(open('.github/triggers/route-track-reconcile.json'));print(d.get('mode',''))")
+            if [ -n "$FROM_FILE" ]; then MODE_Q="$FROM_FILE"; fi
+          fi
+          echo "режим: $MODE_Q (событие $GITHUB_EVENT_NAME)"
           Q="?mode=$MODE_Q&limit=${LIMIT:-20}&offset=${OFFSET:-0}"
 
           HTTP=$(curl -sS -o /tmp/reconcile.json -w "%{http_code}" --max-time 600 \
