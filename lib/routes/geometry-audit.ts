@@ -37,6 +37,7 @@ import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdi
 import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
 import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
 import { asLinkKind, type LinkKind } from '@/lib/routes/link-kind';
+import { detectTravelMode } from '@/lib/routes/travel-mode';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -643,7 +644,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
    * ответе на один вопрос.
    */
   const verdicts: Record<NavigabilityVerdict, number> = {
-    navigable: 0, orientation_only: 0, not_a_route: 0,
+    navigable: 0, orientation_only: 0, not_a_route: 0, not_on_foot: 0,
   };
   /** id пригодных — по ним считается, сколько туров держится на проверенном. */
   const navigableIds: string[] = [];
@@ -738,6 +739,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       waypointTypes: wps.map((w) => w.type),
       // Род связи: «рядом» — контекст, а не путь, и в суждении не участвует.
       waypointKinds: wps.map((w) => w.kind),
+      // Способ передвижения: облёт из-под черты выводится — линию не проходят.
+      mode: detectTravelMode(r.title),
       evidence: evidenceVerdict,
     });
     verdicts[nav.verdict] += 1;
