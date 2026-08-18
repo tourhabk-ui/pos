@@ -45,6 +45,7 @@ import { pointsAreCollection, routeIntegrity } from '@/lib/routes/shape-match';
 import type { PassportGrade } from '@/lib/routes/passport';
 import type { TrackEvidenceVerdict } from '@/lib/routes/track-evidence';
 import type { LatLng } from '@/lib/routes/track-fidelity';
+import { isExtendedObject } from '@/lib/places/coord-source';
 
 /** Линия приходит парами, а меры считают по объектам — приводим в одном месте. */
 function trackPoints(track: LatLng[]): GeoPoint[] {
@@ -74,6 +75,15 @@ export interface NavigabilityInput {
   track: LatLng[] | null;
   /** Путевые точки С КООРДИНАТАМИ. Точка без координат путём не является. */
   waypoints: GeoPoint[];
+  /**
+   * Род каждой путевой точки, в том же порядке (`places.location_type`).
+   *
+   * Нужен ровно для одного: у протяжённого объекта — парк, озеро, пляж —
+   * координата это центроид, и расстояние до неё не противоречит ничему.
+   * Пусто — родов не спрашивали, и все точки судятся как точечные (прежнее
+   * поведение).
+   */
+  waypointTypes?: Array<string | null>;
   /**
    * Улика записи по САМОЙ линии (lib/routes/track-evidence).
    *
@@ -194,11 +204,30 @@ export function routeNavigability(i: NavigabilityInput): Navigability {
   // него означает, что точка и линия описывают разные места, и экран
   // перестаёт показывать расстояние. Два порога об одном и том же разошлись
   // бы, а тут расходиться нельзя: это одно и то же утверждение о данных.
+  //
+  // ── Почему здесь НЕ так строго, как при удалении ──────────────────────────
+  //
+  // Уборка битых привязок (lib/routes/broken-links) требует, чтобы координата
+  // была СНЯТА и объект был точечным: она удаляет данные, и цена ошибки —
+  // потеря верной связи навсегда.
+  //
+  // Черта только придерживает ОБЕЩАНИЕ, и цена ошибки обратная: промолчать
+  // дёшево, а пообещать ведение по данным, которые не сходятся, — это полевой
+  // скрин 17.08 с «до следующей точки 14 км» на тропе. Поэтому неизвестное
+  // происхождение координаты строгость здесь НЕ снимает.
+  //
+  // Снимает её только род объекта: у парка Налычево центроид в тридцати
+  // километрах от любой тропы, и это не противоречие данных, а определение
+  // центроида. Наказывать за это значило бы навсегда закрыть черту всем
+  // маршрутам, проходящим через крупные объекты.
   if (hasLine && i.waypoints.length > 0) {
     const line = trackPoints(track);
     let worstKm = 0;
-    for (const w of i.waypoints) {
-      const proj = projectOnTrack(w, line);
+    for (let idx = 0; idx < i.waypoints.length; idx++) {
+      const type = i.waypointTypes?.[idx];
+      // Род спрошен и оказался протяжённым — расстояние ни о чём не говорит.
+      if (i.waypointTypes && isExtendedObject(type)) continue;
+      const proj = projectOnTrack(i.waypoints[idx], line);
       if (proj && proj.offTrackKm > worstKm) worstKm = proj.offTrackKm;
     }
     if (worstKm > DATA_CONFLICT_KM) {

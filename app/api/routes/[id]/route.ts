@@ -391,9 +391,10 @@ export async function GET(
           const track = points.length >= 2
             ? points.map(p => [p.lat, p.lng] as [number, number])
             : null;
-          const wps = waypointsResult.rows
-            .filter(w => w.lat != null && w.lng != null)
-            .map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
+          const wpRows = waypointsResult.rows.filter(w => w.lat != null && w.lng != null);
+          const wps = wpRows.map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
+          // Рода нужны черте, чтобы не считать противоречием центроид парка.
+          const wpTypes = wpRows.map(w => (w as { location_type?: string | null }).location_type ?? null);
           return routeNavigability({
             // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
             // а разбор в пары его отбрасывает. Прореженная линия для улики не
@@ -410,6 +411,7 @@ export async function GET(
             }).grade,
             track,
             waypoints: wps,
+            waypointTypes: wpTypes,
           });
         })(),
         /**
