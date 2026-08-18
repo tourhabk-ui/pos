@@ -35,6 +35,7 @@ import { pool } from '@/lib/db-pool';
 import { fetchTextWithFallback } from '@/lib/services/ingest/idilesom-importer';
 import { parseTrackBlocks } from '@/lib/services/ingest/track-parse';
 import { reconcileTrack, titlesAgree, type ReconcileVerdict } from '@/lib/routes/track-reconcile';
+import { extractStopLinks, looksLikeStopList } from '@/lib/routes/source-stops';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 
 export const dynamic = 'force-dynamic';
@@ -46,8 +47,10 @@ export const maxDuration = 300;
  * контейнера, и внешне это выглядело как ответ).
  *
  *   1 — раскладка сверяемых и сверка партии поимённо
+ *   2 — режим stops: есть ли на странице источника ЭТАПЫ маршрута, которых
+ *       мы никогда не забирали (264 маршрута без описанного пути)
  */
-export const RECONCILE_VERSION = 1;
+export const RECONCILE_VERSION = 2;
 
 /** Пауза между страницами: источник чужой, и молотить его нельзя. */
 const DELAY_MS = 600;
@@ -71,7 +74,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized', v: RECONCILE_VERSION }, { status: 401 });
   }
 
-  const mode = request.nextUrl.searchParams.get('mode') === 'compare' ? 'compare' : 'split';
+  const rawMode = request.nextUrl.searchParams.get('mode');
+  const mode: 'split' | 'compare' | 'stops' =
+    rawMode === 'compare' ? 'compare' : rawMode === 'stops' ? 'stops' : 'split';
   const rawLimit = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);
   const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 60);
   const rawOffset = parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10);
@@ -115,6 +120,58 @@ export async function GET(request: NextRequest) {
     if (mode === 'split') {
       return NextResponse.json({
         success: true, v: RECONCILE_VERSION, mode, split,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
+    // ── Этапы на странице источника ─────────────────────────────────────
+    //
+    // Владелец: «264 маршрута без точек — мы их просто не забрали, это ошибка
+    // разбора». Проверяется чтением: какие ссылки на другие места есть на
+    // странице и похоже ли, что это этапы пути.
+    //
+    // Ничего не импортирует. Взять всё подряд — это ровно миграция 167,
+    // последствия которой мы разгребали весь вечер.
+    if (mode === 'stops') {
+      const batch = identified.slice(offset, offset + limit);
+      let withList = 0, unreachable = 0;
+      let linksTotal = 0, inRouteContext = 0;
+      const pages: Array<Record<string, unknown>> = [];
+
+      for (const r of batch) {
+        const key = (r.dedupe_key ?? '').split(':')[1] ?? '';
+        const url = r.source_url ?? `https://idilesom.com/kam/places/${key}`;
+        const fetched = await fetchTextWithFallback(url);
+        if (fetched.text === null) { unreachable += 1; await sleep(DELAY_MS); continue; }
+
+        const links = extractStopLinks(fetched.text, key);
+        const stops = links.filter((l) => l.routeContext && !l.nearbyContext);
+        linksTotal += links.length;
+        inRouteContext += stops.length;
+        const isList = looksLikeStopList(links);
+        if (isList) withList += 1;
+
+        pages.push({
+          id: r.id,
+          title: r.title ?? '(без названия)',
+          links: links.length,
+          stops: stops.length,
+          looks_like_list: isList,
+          sample: stops.slice(0, 8).map((l) => ({ id: l.id, text: l.text })),
+        });
+        await sleep(DELAY_MS);
+      }
+
+      return NextResponse.json({
+        success: true, v: RECONCILE_VERSION, mode, split,
+        checked: batch.length,
+        offset,
+        remaining: Math.max(identified.length - offset - batch.length, 0),
+        pages_with_stop_list: withList,
+        links_total: linksTotal,
+        links_in_route_context: inRouteContext,
+        unreachable,
+        pages,
         duration_ms: Date.now() - startedAt,
       });
     }
