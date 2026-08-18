@@ -41,8 +41,9 @@ export const maxDuration = 120;
  *   3 — ровность шага в уликах, записи-близнецы по именам
  *   4 — черта спрашивает улику: доказанная запись возвращает право вести
  *   5 — коммерция под видом маршрута: имя продаёт, пути нет
+ *   6 — центроид протяжённого объекта не считается противоречием
  */
-export const AUDIT_SHAPE_VERSION = 5;
+export const AUDIT_SHAPE_VERSION = 6;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);

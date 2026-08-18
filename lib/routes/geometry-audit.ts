@@ -298,7 +298,7 @@ export interface GeometryAudit {
 }
 
 interface RouteRow { id: string; title: string | null; geometry: unknown }
-interface WpRow { route_id: string; lat: string | null; lng: string | null }
+interface WpRow { route_id: string; lat: string | null; lng: string | null; location_type: string | null }
 
 /**
  * Причина отказа → ключ счётчика.
@@ -490,7 +490,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // строки как угодно: счёт инверсий стал бы шумом. Раньше комментарий ниже
   // утверждал, что точки приходят упорядоченными, а запрос этого не просил.
   const wpRes = await pool.query<WpRow>(
-    `SELECT rw.route_id::text, p.lat::text, p.lng::text
+    `SELECT rw.route_id::text, p.lat::text, p.lng::text, p.location_type
        FROM route_waypoints rw
        JOIN places p ON p.id = rw.place_id
       WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
@@ -498,12 +498,12 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         AND p.merged_into_id IS NULL
       ORDER BY rw.route_id, rw.position`,
   );
-  const byRoute = new Map<string, Array<{ lat: number; lng: number }>>();
+  const byRoute = new Map<string, Array<{ lat: number; lng: number; type: string | null }>>();
   for (const w of wpRes.rows) {
     const lat = Number(w.lat), lng = Number(w.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     const arr = byRoute.get(w.route_id) ?? [];
-    arr.push({ lat, lng });
+    arr.push({ lat, lng, type: w.location_type });
     byRoute.set(w.route_id, arr);
   }
 
@@ -605,6 +605,9 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       grade,
       track: pairs.length >= 2 ? pairs : null,
       waypoints: wps,
+      // Рода точек: у протяжённого объекта центроид далеко от тропы по
+      // определению, и противоречием это не является.
+      waypointTypes: wps.map((w) => w.type),
       evidence: evidenceVerdict,
     });
     verdicts[nav.verdict] += 1;
