@@ -3,6 +3,8 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
 import { runWithUsageTracking } from '@/lib/ai/usage-context';
+import { pool } from '@/lib/db-pool';
+import { countLeadingSkips, silenceIsCritical, MAX_SILENT_RUNS } from '@/lib/agents/scout-silence';
 
 /**
  * GET /api/cron/scout-digest
@@ -48,7 +50,41 @@ export async function GET(req: Request) {
       // «не записали»: поле есть всегда.
       metadata: { digest_skip_reason: result.digest_skip_reason ?? null },
     });
-    return Response.json({ success: true, ...result });
+    /**
+     * Молчание подряд — повод покраснеть, а не только предупредить.
+     *
+     * Один пропуск это осторожность агента: лучше не выпустить, чем выпустить
+     * непроверенное. Три подряд означают, что ворота держат его
+     * систематически. 1–8.08 неделя тишины прошла при зелёных прогонах, 18.08
+     * то же повторилось на семнадцати днях: алерт в Telegram про молчание уже
+     * был, но предупреждение читают среди других, а красный прогон в Actions
+     * требует ответа.
+     *
+     * Журнал читается ДО учёта текущего прогона: свою строку он пишет фоново
+     * и к моменту ответа может там ещё не появиться.
+     */
+    let silentRuns = 0;
+    try {
+      const hist = await pool.query<{ status: string }>(
+        `SELECT status FROM agent_run_history
+          WHERE agent_id = 'scout-digest'
+          ORDER BY started_at DESC LIMIT 20`,
+      );
+      silentRuns = countLeadingSkips(hist.rows);
+    } catch {
+      // Журнал недоступен — не повод объявлять тишину: это неизвестность, а
+      // не молчание. Прогон остаётся зелёным, здоровье скажет отдельно.
+      silentRuns = 0;
+    }
+    const silent_runs = result.digest_sent ? 0 : silentRuns + 1;
+
+    return Response.json({
+      success: true,
+      ...result,
+      silent_runs,
+      silence_critical: silenceIsCritical(silentRuns, result.digest_sent),
+      max_silent_runs: MAX_SILENT_RUNS,
+    });
   } catch (err) {
     void logAgentRun({
       agent_id: 'scout-digest',
