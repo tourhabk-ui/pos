@@ -31,7 +31,9 @@ concurrency:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Больше, чем ожидание сборки (30 минут) плюс сама уборка. Та же мина,
+    # что убила перепись 18.08: цикл ожидания длиннее таймаута джоба.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
