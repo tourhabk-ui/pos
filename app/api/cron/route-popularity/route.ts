@@ -95,8 +95,11 @@ export async function GET(request: NextRequest) {
                 COUNT(rw.id)::text AS waypoints,
                 ARRAY_REMOVE(ARRAY_AGG(to_jsonb(rw)->>'link_kind'), NULL) AS kinds,
                 (SELECT COUNT(*) FROM operator_tours t WHERE t.route_id = r.id)::text AS tours,
+                -- Колонка называется operator_tour_id, а не tour_id: первая
+                -- редакция запроса угадала имя по смыслу и получила 500 с
+                -- прода. Схема живёт в миграции 040.
                 (SELECT COUNT(*) FROM operator_bookings b
-                  JOIN operator_tours t2 ON t2.id = b.tour_id
+                  JOIN operator_tours t2 ON t2.id = b.operator_tour_id
                  WHERE t2.route_id = r.id)::text AS bookings
            FROM kamchatka_routes r
            LEFT JOIN route_waypoints rw ON rw.route_id = r.id

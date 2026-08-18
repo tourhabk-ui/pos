@@ -220,7 +220,20 @@ export async function GET(
      * Пусть лучше карточка честно не откроется.
      */
     const waypointsResult = await query(
-      `SELECT rw.position, rw.is_start, rw.is_end, rw.notes, rw.link_kind,
+      // link_kind читается через to_jsonb, а не напрямую.
+      //
+      // 18.08 карточка маршрута перестала открываться НА ПРОДЕ: код с
+      // `rw.link_kind` уехал раньше миграции 874, а та не применилась, и
+      // запрос падал с «column rw.link_kind does not exist». Экран честно
+      // отказывался открываться без хребта — то есть строгая проверка
+      // сработала правильно, но сломал её я, отправив чтение колонки, которой
+      // ещё нет.
+      //
+      // Урок ровно тот, что записан в плане гейтом Ф0: код, читающий новую
+      // колонку, обязан переживать её отсутствие. `to_jsonb` вернёт NULL, и
+      // связь честно станет `unknown` — прежним поведением.
+      `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
+              to_jsonb(rw)->>'link_kind' AS link_kind,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
          p.lat AS place_lat, p.lng AS place_lng,
          sp.altitude_m, sp.hazard_types

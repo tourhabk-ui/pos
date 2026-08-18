@@ -34,7 +34,9 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
 import { fetchTextWithFallback } from '@/lib/services/ingest/idilesom-importer';
 import { parseTrackBlocks } from '@/lib/services/ingest/track-parse';
-import { reconcileTrack, titlesAgree, type ReconcileVerdict } from '@/lib/routes/track-reconcile';
+import {
+  reconcileTrack, titlesAgree, geometryFingerprint, type ReconcileVerdict,
+} from '@/lib/routes/track-reconcile';
 import { extractStopLinks, looksLikeStopList } from '@/lib/routes/source-stops';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 
@@ -49,8 +51,10 @@ export const maxDuration = 300;
  *   1 — раскладка сверяемых и сверка партии поимённо
  *   2 — режим stops: есть ли на странице источника ЭТАПЫ маршрута, которых
  *       мы никогда не забирали (264 маршрута без описанного пути)
+ *   3 — Ф1 плана: результат сверки сохраняется в route_source_checks вместе с
+ *       датой, донором и отпечатком проверенной линии (`save=true`)
  */
-export const RECONCILE_VERSION = 2;
+export const RECONCILE_VERSION = 3;
 
 /** Пауза между страницами: источник чужой, и молотить его нельзя. */
 const DELAY_MS = 600;
@@ -81,6 +85,14 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 60);
   const rawOffset = parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10);
   const offset = Math.max(Number.isFinite(rawOffset) ? rawOffset : 0, 0);
+  /**
+   * Запись результата — только по явной просьбе.
+   *
+   * Сверка была read-only с рождения, и умолчание остаётся прежним: прогон,
+   * который случайно записал бы в базу, — это не инструмент разбора, а
+   * побочный эффект. Ф1 плана зовёт её с `save=true` осознанно.
+   */
+  const save = request.nextUrl.searchParams.get('save') === 'true';
   const startedAt = Date.now();
 
   try {
@@ -183,6 +195,7 @@ export async function GET(request: NextRequest) {
     };
     let unreachable = 0;
     let titleMismatch = 0;
+    let saved = 0;
     const cases: Array<Record<string, unknown>> = [];
 
     for (const r of batch) {
@@ -210,6 +223,39 @@ export async function GET(request: NextRequest) {
 
       const sameName = theirTitle ? titlesAgree(r.title ?? '', theirTitle) : true;
       if (!sameName) titleMismatch += 1;
+
+      // Ф1: улика сохраняется вместе с тем, что делает её проверяемой —
+      // датой, донором и отпечатком ТОЙ линии, которую сравнивали. Без
+      // отпечатка вердикт после переимпорта относился бы к другой геометрии,
+      // молча продолжая давать право вести.
+      if (save) {
+        await pool.query(
+          `INSERT INTO route_source_checks (
+             route_id, verdict, donor_url, geometry_hash,
+             our_points, their_points, our_elevation, their_elevation,
+             start_shift_m, end_shift_m, titles_agree, method_version, checked_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, NOW())
+           ON CONFLICT (route_id) DO UPDATE SET
+             verdict = EXCLUDED.verdict,
+             donor_url = EXCLUDED.donor_url,
+             geometry_hash = EXCLUDED.geometry_hash,
+             our_points = EXCLUDED.our_points,
+             their_points = EXCLUDED.their_points,
+             our_elevation = EXCLUDED.our_elevation,
+             their_elevation = EXCLUDED.their_elevation,
+             start_shift_m = EXCLUDED.start_shift_m,
+             end_shift_m = EXCLUDED.end_shift_m,
+             titles_agree = EXCLUDED.titles_agree,
+             method_version = EXCLUDED.method_version,
+             checked_at = NOW()`,
+          [
+            r.id, res.verdict, url, geometryFingerprint(ours),
+            res.ourPoints, res.theirPoints, res.ourElevation, res.theirElevation,
+            res.startShiftM, res.endShiftM, sameName, RECONCILE_VERSION,
+          ],
+        );
+        saved += 1;
+      }
 
       if (res.verdict !== 'same' || !sameName) {
         cases.push({
@@ -242,6 +288,12 @@ export async function GET(request: NextRequest) {
       verdicts,
       unreachable,
       title_mismatch: titleMismatch,
+      saved,
+      // Сколько записей в реестре улик всего — чтобы видеть, растёт ли он от
+      // прогона к прогону, а не только сколько записал этот.
+      stored_total: save ? (await pool.query<{ n: string }>(
+        'SELECT COUNT(*)::text AS n FROM route_source_checks',
+      )).rows[0]?.n ?? '0' : undefined,
       cases,
       duration_ms: Date.now() - startedAt,
     });
