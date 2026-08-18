@@ -13,6 +13,7 @@
 
 import { pool } from '../lib/db-pool';
 import { isPlausibleTrackPoint } from '../lib/routes/track';
+import { parseTrackBlocks } from '../lib/services/ingest/track-parse';
 
 const DELAY_MS = 600;
 const MAX_MATCH_DIST_KM = 5;
@@ -93,56 +94,13 @@ async function scrapePlaceTrack(placeId: string): Promise<PlaceTrack | null> {
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
 
-  // Find coordinate arrays — idilesom embeds two formats:
-  // Format A: [[lat,lng],[lat,lng],...] — for Leaflet polyline
-  // Format B: [[lng,lat,ele],[lng,lat,ele],...] — for elevation profile
-  // We prefer format B (has elevation, in GeoJSON order)
-  const coordBlocks = html.match(/\[\s*\[\s*[\d.]+\s*,\s*[\d.]+[\s\S]*?\]\s*\]/g) ?? [];
-
-  let bestCoords: number[][] = [];
-
-  for (const block of coordBlocks) {
-    try {
-      const parsed = JSON.parse(block) as number[][];
-      if (!Array.isArray(parsed) || parsed.length < 3) continue;
-      if (!Array.isArray(parsed[0]) || parsed[0].length < 2) continue;
-
-      // Determine format: if first element [0] > 90 → it's lng-first (format B, GeoJSON)
-      const first = parsed[0];
-      const isGeoJSON = Math.abs(first[0]) > 90;
-
-      const coords: number[][] = isGeoJSON
-        ? parsed.map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
-        : parsed.map(p => [p[1], p[0]]); // swap lat/lng to GeoJSON [lng, lat]
-
-      /**
-       * Блок принимается, только если КАЖДАЯ его точка лежит на Камчатке.
-       *
-       * Полевые скрины 16–17.08 («Авачинский», «Козельский»): на карте
-       * навигации сплошная зелёная линия шла горизонталью через весь край.
-       * Причина здесь, в разборе страницы.
-       *
-       * Регулярка выше ищет любые вложенные числовые массивы, поэтому под
-       * неё попадает не только трек, но и профиль высот — `[[0, 795],
-       * [1.2, 810], ...]`. Формат при этом определяется по ОДНОЙ точке
-       * (`|first[0]| > 90`), а у профиля первое число — расстояние, то есть
-       * «не больше 90»: массив разворачивается как [lat, lng] и даёт
-       * `lng = 795, lat = 0`. Такая «геометрия» писалась в базу без единой
-       * проверки и потом рисовалась на карте тем же уверенным зелёным, что
-       * и снятый трек.
-       *
-       * Проверять именно КАЖДУЮ точку, а не первую: эвристика уже один раз
-       * ошиблась на первой, и повторять эту ошибку с другим порогом незачем.
-       * Настоящий трек Камчатки не выходит за край ни одной точкой, а блок
-       * с посторонними числами отсекается целиком — чинить его догадками
-       * хуже, чем пропустить.
-       */
-      const allOnKamchatka = coords.every(p => isPlausibleTrackPoint(p[1], p[0]));
-      if (!allOnKamchatka) continue;
-
-      if (coords.length > bestCoords.length) bestCoords = coords;
-    } catch { /* skip malformed */ }
-  }
+  // Координаты — общим разбором (lib/services/ingest/track-parse).
+  //
+  // Здесь стояла своя копия. Границы края она проверяла (правка 16.08 после
+  // полевых скринов), но высоту в порядке «широта первой» молча теряла — а
+  // источник отдаёт именно этот порядок, и ради высоты правили вторую копию
+  // 09.08. Каждая копия несла баг, вылеченный в другой.
+  const bestCoords = parseTrackBlocks(html).coordinates;
 
   if (bestCoords.length < 3) return null;
 

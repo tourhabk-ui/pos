@@ -1,0 +1,159 @@
+name: Сверка треков с источником (вручную)
+
+# Зачем этот workflow существует.
+#
+# Владелец 18.08: «если у источника треки живые, надо спарсить заново по новым
+# правилам и сравнить — может, не спарсило правильно».
+#
+# Всё, что мы мерили до сих пор, считается по тому, что В базе, и потому слепо
+# к ПОТЕРЯМ разбора: взятый не тот блок, обрезанный трек, выкинутые высоты —
+# оставшееся выглядит безупречно. Потерю видно только рядом с оригиналом.
+#
+# Основания подозревать её конкретные: разборов было ДВА, и у каждого своя
+# дыра (прод не проверял границ края, скрипт терял высоту в порядке «широта
+# первой» — том самом, которым отдаёт источник), а сам трек скрипт привинчивал
+# к маршруту по БЛИЗОСТИ старта, не сохраняя, с какой страницы он взят.
+#
+# Эндпоинт READ-ONLY и закрыт CRON_SECRET. Секрет живёт в Actions, там же есть
+# сеть; держать его у себя ради разового запроса — плохой размен.
+#
+# Ходит на ЧУЖОЙ сайт, поэтому партиями и с паузой 600 мс между страницами.
+# Расписания нет намеренно: это инструмент разбора, а не наблюдения.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'split — только база; compare — качать страницы источника'
+        required: false
+        default: 'split'
+      limit:
+        description: 'Сколько страниц сверить за прогон (1–60)'
+        required: false
+        default: '20'
+      offset:
+        description: 'С какой записи продолжать'
+        required: false
+        default: '0'
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-track-reconcile.json'
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    # Больше, чем ожидание сборки (30 минут) плюс сама сверка партии.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Спросить сверку и показать ответ
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MODE: ${{ inputs.mode }}
+          LIMIT: ${{ inputs.limit }}
+          OFFSET: ${{ inputs.offset }}
+        run: |
+          # Молчаливый успех означал бы «сверили, всё сходится», хотя не сверяли.
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — спросить сверку нечем."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/route-track-reconcile"
+
+          # Ждём СВОЙ код, а не просто живой эндпоинт: перепись 18.08 дважды
+          # ответила цифрами прежнего контейнера, и внешне это выглядело как
+          # ответ. Версия формы лежит в теле 401 — ожидание не требует секрета.
+          WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/route-track-reconcile.json')).get('expect_v',0))")
+          if [ "$WANT" != "0" ]; then
+            READY=""
+            for i in $(seq 1 30); do
+              V=$(curl -s --max-time 30 "$URL" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+              if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт сверку версии $V (ждали $WANT)"; break; fi
+              echo "прод ещё на версии $V, ждём $WANT — попытка $i/30"
+              sleep 60
+            done
+            if [ -z "$READY" ]; then
+              echo "::error::Прод так и не поднялся со сверкой версии $WANT за 30 минут. Ответ старого кода — не ответ."
+              exit 1
+            fi
+          fi
+
+          MODE_Q="${MODE:-split}"
+          FROM_FILE=$(python3 -c "import json;d=json.load(open('.github/triggers/route-track-reconcile.json'));print(d.get('mode',''))")
+          if [ -n "$FROM_FILE" ]; then MODE_Q="$FROM_FILE"; fi
+          Q="?mode=$MODE_Q&limit=${LIMIT:-20}&offset=${OFFSET:-0}"
+
+          HTTP=$(curl -sS -o /tmp/reconcile.json -w "%{http_code}" --max-time 600 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL$Q") || HTTP="000"
+
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Сверка ответила $HTTP."
+            head -c 2000 /tmp/reconcile.json || true
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/reconcile.json') as f:
+              a = json.load(f)
+
+          split = a.get('split') or {}
+          print('Что вообще можно сверить:')
+          print(f"  линий со скрейпа: {split.get('scraped_lines', 0)}")
+          print(f"  донор известен — сверяем поимённо: {split.get('identified', 0)}")
+          print(f"  донор неизвестен — трек привинчен по близости: {split.get('anonymous', 0)}")
+          for s in (split.get('anonymous_samples') or [])[:15]:
+              print(f"    {s.get('title')} ({s.get('points')} точек)")
+
+          if a.get('mode') != 'compare':
+              print('')
+              print('Режим split: страницы источника не запрашивались.')
+              raise SystemExit(0)
+
+          v = a.get('verdicts') or {}
+          print('')
+          print(f"Сверено страниц: {a.get('checked', 0)}, осталось: {a.get('remaining', 0)}")
+          for key, title in (
+              ('same', 'сходится: линия та же, высоты на месте'),
+              ('ours_truncated', 'у нас ОБРЕЗАНО: точек заметно меньше'),
+              ('ours_extra', 'у нас ЛИШНЕЕ: точек заметно больше'),
+              ('elevation_lost', 'высоты потеряны при разборе'),
+              ('line_moved', 'линии РАЗНЫЕ: начала расходятся'),
+              ('source_has_no_track', 'источник трека больше не отдаёт'),
+              ('ours_empty', 'у нас линии нет'),
+          ):
+              if key in v:
+                  print(f'  {title}: {v[key]}')
+          print(f"  страница недоступна (о наших данных не говорит ничего): {a.get('unreachable', 0)}")
+          print(f"  имя нашей записи не сходится с именем страницы: {a.get('title_mismatch', 0)}")
+
+          cases = a.get('cases') or []
+          if cases:
+              print('')
+              print('Расхождения поимённо:')
+              for c in cases:
+                  print(f"  [{c.get('verdict')}] {c.get('title')}")
+                  if c.get('source_title') and not c.get('titles_agree', True):
+                      print(f"      страница-донор называется иначе: {c.get('source_title')}")
+                  if c.get('our_points') is not None:
+                      print(f"      точек у нас {c.get('our_points')}, у источника {c.get('their_points')};"
+                            f" высота у нас {'есть' if c.get('our_elevation') else 'нет'},"
+                            f" у источника {'есть' if c.get('their_elevation') else 'нет'}")
+                  if c.get('start_shift_m') is not None:
+                      print(f"      начало разошлось на {c.get('start_shift_m')} м, конец на {c.get('end_shift_m')} м")
+          PY
+
+          {
+            echo '## Сверка треков с источником'
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/reconcile.json || cat /tmp/reconcile.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
