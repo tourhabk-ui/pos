@@ -46,8 +46,9 @@ export const maxDuration = 120;
  *       происхождение координаты и даст ли починка пригодность
  *   8 — у каждого расхождения показаны ВСЕ точки маршрута с их отходом:
  *       видно, выбивается ли одна привязка или разъехался весь маршрут
+ *   9 — род связи (миграция 874): сколько «точек пути», сколько «рядом»
  */
-export const AUDIT_SHAPE_VERSION = 8;
+export const AUDIT_SHAPE_VERSION = 9;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);

@@ -144,6 +144,11 @@ interface RouteWaypoint {
   lng: number | null;
   altitudeM: number | null;
   hazardTypes: string[];
+  /**
+   * Чем эта связь является (миграция 874): `waypoint` — точка пути,
+   * `nearby` — «это рядом, загляните», `unknown` — не размечено.
+   */
+  linkKind?: 'waypoint' | 'nearby' | 'unknown';
 }
 
 interface RouteDetail {
@@ -483,6 +488,25 @@ export default function RouteDetailClient({ id }: { id: string }) {
     router.push('/planning?mode=trail');
   }, [route, router]);
 
+  /**
+   * Точки ПУТИ и места РЯДОМ — разные вещи, и с 874 это записано в данных.
+   *
+   * Связь рода `nearby` завела миграция 167 как «место в 15 км от центра
+   * маршрута». Показывать её как этап пути значит врать человеку, который
+   * собирается по этим этапам идти; рисовать по ней линию на карте — врать
+   * ещё грубее. Неразмеченная связь (`unknown`) считается путевой: до
+   * разметки платформа вела себя именно так, и менять поведение задним
+   * числом — значит менять линейку, а не данные.
+   */
+  const pathWaypoints = useMemo(
+    () => (route?.waypoints ?? []).filter(w => w.linkKind !== 'nearby'),
+    [route],
+  );
+  const nearbyWaypoints = useMemo(
+    () => (route?.waypoints ?? []).filter(w => w.linkKind === 'nearby'),
+    [route],
+  );
+
   // Данные карты — useMemo обязателен: LeafletMap пересоздаёт карту при смене
   // identity center/markers, а карточка ре-рендерится на каждый чих (галерея,
   // фильтры туров) — без мемоизации карта мигала и сбрасывала зум.
@@ -499,7 +523,10 @@ export default function RouteDetailClient({ id }: { id: string }) {
     // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
     // waypoints (≥2 точек). Одна координата треком НЕ считается: обещать
     // навигацию, по которой нельзя идти, опаснее, чем не обещать.
-    const navWaypoints = (route.waypoints ?? []).filter(
+    // Только точки ПУТИ: ломаная по местам «рядом» нарисовала бы маршрут
+    // через Музей лосося и Халактырский пляж — линию, по которой никто не
+    // ходит, но которая на карте выглядит как тропа.
+    const navWaypoints = pathWaypoints.filter(
       (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
     );
     const usingServerTrack = (route.track?.length ?? 0) >= 2;
@@ -548,7 +575,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
       })),
     ];
     return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track };
-  }, [route]);
+  }, [route, pathWaypoints]);
 
   if (loading) {
     return (
@@ -888,14 +915,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
               </section>
             )}
 
-            {/* Точки маршрута (waypoints) */}
-            {(route.waypoints?.length ?? 0) > 0 && (
+            {/*
+              Точки маршрута.
+              
+              Показываются только те связи, что описывают ПУТЬ. Связи рода
+              «рядом» (миграция 874) уехали в отдельный блок ниже: до этого
+              карточка «Скал Три Брата» перечисляла краевой музей, Вулканариум
+              и батарею Максутова как этапы маршрута, а поход к Авачинскому —
+              Музей лосося и Халактырский пляж. Связи заводила миграция 167
+              как «места в 15 км от центра», и читать их как шаги пути значит
+              врать человеку, который собирается по ним идти.
+            */}
+            {pathWaypoints.length > 0 && (
               <section>
                 <h2 className="text-base font-bold text-[var(--text-primary)] mb-3 uppercase tracking-wide">
                   Точки маршрута
                 </h2>
                 <ol className="space-y-3">
-                  {route.waypoints!.map((wp, i) => (
+                  {pathWaypoints.map((wp, i) => (
                     <li key={wp.placeId ?? i} className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                         {i + 1}
@@ -924,6 +961,34 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     </li>
                   ))}
                 </ol>
+              </section>
+            )}
+
+            {/*
+              Рядом с маршрутом — не этапы пути, а контекст. Отдельный блок,
+              другая подпись, без нумерации: порядок здесь ничего не значит.
+            */}
+            {nearbyWaypoints.length > 0 && (
+              <section>
+                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                  Рядом с маршрутом
+                </h2>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Эти места находятся поблизости, но маршрут через них не проходит
+                </p>
+                <ul className="flex flex-wrap gap-2">
+                  {nearbyWaypoints.map((wp, i) => (
+                    <li key={wp.placeId ?? i}>
+                      <Link
+                        href={`/places/${wp.placeId}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--ocean)] transition-colors"
+                      >
+                        {wp.placeName}
+                        <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </section>
             )}
 

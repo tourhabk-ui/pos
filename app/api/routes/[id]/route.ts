@@ -12,6 +12,7 @@ import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { routeNavigability } from '@/lib/routes/navigability';
 import { trackEvidence } from '@/lib/routes/track-evidence';
+import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
 
 export const dynamic = 'force-dynamic';
 
@@ -218,7 +219,7 @@ export async function GET(
      * Пусть лучше карточка честно не откроется.
      */
     const waypointsResult = await query(
-      `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
+      `SELECT rw.position, rw.is_start, rw.is_end, rw.notes, rw.link_kind,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
          p.lat AS place_lat, p.lng AS place_lng,
          sp.altitude_m, sp.hazard_types
@@ -361,7 +362,11 @@ export async function GET(
           return buildRoutePassport({
             track: points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null,
             geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
-            waypointsCount: waypointsResult.rows.length,
+            // Точки ПУТИ, а не все связи: паспорт говорит о линии и о том,
+            // чем её поверяют, а «рядом» её не поверяет ничем (миграция 874).
+            waypointsCount: waypointsResult.rows.filter(
+              w => isPathPoint(asLinkKind(w.link_kind as string | null)),
+            ).length,
             routeVersion: r.route_version != null ? Number(r.route_version) : null,
             verifiedAt: (r.passport_verified_at as string | null) ?? null,
             updatedAt: (r.kr_updated_at as string | null) ?? null,
@@ -395,6 +400,8 @@ export async function GET(
           const wps = wpRows.map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
           // Рода нужны черте, чтобы не считать противоречием центроид парка.
           const wpTypes = wpRows.map(w => (w as { location_type?: string | null }).location_type ?? null);
+          // Род связи: «рядом» не описывает путь и в суждении не участвует.
+          const wpKinds = wpRows.map(w => asLinkKind((w as { link_kind?: string | null }).link_kind ?? null));
           return routeNavigability({
             // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
             // а разбор в пары его отбрасывает. Прореженная линия для улики не
@@ -404,7 +411,8 @@ export async function GET(
             grade: buildRoutePassport({
               track,
               geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
-              waypointsCount: waypointsResult.rows.length,
+              // Паспорт считает ТОЧКИ ПУТИ: «рядом» линию не поверяет.
+              waypointsCount: wpKinds.filter(isPathPoint).length,
               routeVersion: null, verifiedAt: null, updatedAt: null,
               mchsRequired: false, mchsPhone: null, parkName: null,
               parkApprovalUrl: null, officialPassportUrl: null,
@@ -412,6 +420,7 @@ export async function GET(
             track,
             waypoints: wps,
             waypointTypes: wpTypes,
+            waypointKinds: wpKinds,
           });
         })(),
         /**
@@ -507,6 +516,9 @@ export async function GET(
           lng:          w.place_lng != null ? parseFloat(w.place_lng as string) : null,
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
           hazardTypes:  (w.hazard_types as string[]) ?? [],
+          // Чем связь является: точка пути или «это рядом» (миграция 874).
+          // Без этого карточка показывала краевой музей как этап похода.
+          linkKind:     asLinkKind(w.link_kind as string | null),
         })),
         offers,
         // Зонные алерты (общие для >=2 точек) схлопываются в один блок на
