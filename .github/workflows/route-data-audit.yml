@@ -65,6 +65,33 @@ jobs:
           fi
 
           URL="https://vedarai.ru/api/cron/route-data-audit"
+
+          # Ждём СВОЙ код, а не просто живой эндпоинт.
+          #
+          # Прогон 18.08 01:14 вернул успех и старые цифры: мерж прошёл в
+          # 01:05, сборка Timeweb идёт минут десять, и перепись спросила
+          # прежний контейнер. Внешне — блоки, счётчики, зелёный прогон; на
+          # деле мы смотрели в прибор, которого ещё не существовало. Это тот
+          # самый класс, ради которого весь вечер и писались сторожа: ответ,
+          # неотличимый от молчания.
+          #
+          # Версия формы лежит в теле 401, поэтому ожидание не требует секрета
+          # и не запускает тяжёлую перепись на каждую попытку.
+          WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/route-data-audit.json')).get('expect_v',0))")
+          if [ "$WANT" != "0" ]; then
+            READY=""
+            for i in $(seq 1 30); do
+              V=$(curl -s --max-time 30 "$URL" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+              if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт перепись версии $V (ждали $WANT)"; break; fi
+              echo "прод ещё на версии $V, ждём $WANT — попытка $i/30"
+              sleep 60
+            done
+            if [ -z "$READY" ]; then
+              echo "::error::Прод так и не поднялся с переписью версии $WANT за 30 минут. Цифры старого кода — не ответ."
+              exit 1
+            fi
+          fi
+
           if [ -n "$LIMIT" ]; then URL="$URL?limit=$LIMIT"; fi
 
           HTTP=$(curl -sS -o /tmp/audit.json -w "%{http_code}" --max-time 300 \

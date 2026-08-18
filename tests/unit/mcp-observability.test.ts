@@ -35,7 +35,16 @@ describe('журнал вызовов без ПД', () => {
   });
 
   it('caller_hash — суточный visitorHash с солью, не сырой IP', () => {
-    expect(LOG).toMatch(/visitorHash\(entry\.ip, entry\.userAgent, currentDay\(\)/);
+    // Проверяется СМЫСЛ, а не написание вызова. 18.08 вычисление hash вынесено
+    // в общую mcpCallerHash: его должны считать одинаково журнал вызовов и
+    // запись рукопожатия, иначе таблицы не соединятся. Прежняя редакция
+    // сторожа требовала дословного `visitorHash(entry.ip, ...)` и покраснела
+    // на выделении общей функции — то есть держала форму, а не свойство.
+    expect(LOG).toMatch(/visitorHash\(ip, userAgent, currentDay\(\)/);
+    expect(LOG).toMatch(/process\.env\.CRON_SECRET/);
+    // В INSERT уходит hash, а не сырые ip/userAgent.
+    const insert = LOG.slice(LOG.indexOf('INSERT INTO mcp_tool_calls'));
+    expect(insert).not.toMatch(/entry\.ip|entry\.userAgent/);
     expect(MIGRATION).toMatch(/caller_hash/);
   });
 });

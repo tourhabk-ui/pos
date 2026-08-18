@@ -21,10 +21,31 @@ import { runGeometryAudit } from '@/lib/routes/geometry-audit';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+/**
+ * Версия ФОРМЫ ответа. Растёт, когда перепись начинает считать что-то новое.
+ *
+ * Прогон 18.08 01:14 вернул успех и старые цифры: мерж прошёл в 01:05, сборка
+ * Timeweb идёт минут десять, и перепись спросила прежний контейнер. Внешне это
+ * выглядело как ответ — блоки, счётчики, зелёный прогон, — а на деле мы
+ * смотрели в прибор, которого ещё не существовало.
+ *
+ * Это тот самый класс, который мы весь вечер и вычищали: молчание, читаемое
+ * как ответ. Номер версии позволяет прогону дождаться СВОЕГО кода, а не
+ * гадать по наличию блоков в выводе.
+ *
+ * Отдаётся и в теле 401 — чтобы ждать можно было без секрета и без запуска
+ * тяжёлой переписи на каждую попытку.
+ *
+ *   1 — счётчики геометрии, черта, туры
+ *   2 — причины отказа поимённо, улики записи, отделение мусора
+ *   3 — ровность шага в уликах, записи-близнецы по именам
+ */
+export const AUDIT_SHAPE_VERSION = 3;
+
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized', v: AUDIT_SHAPE_VERSION }, { status: 401 });
   }
 
   const raw = request.nextUrl.searchParams.get('limit');
@@ -33,7 +54,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const audit = await runGeometryAudit(limit);
-    return NextResponse.json({ success: true, ...audit });
+    return NextResponse.json({ success: true, v: AUDIT_SHAPE_VERSION, ...audit });
   } catch (err) {
     // Пустой аудит читался бы как «маршрутов нет» — то есть как «всё хорошо».
     return NextResponse.json(

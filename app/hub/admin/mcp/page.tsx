@@ -42,11 +42,20 @@ interface ToolRow {
 
 interface DayRow { day: string; calls: number; errors: number; caller_days: number }
 interface ErrorRow { kind: string; d30: number }
+interface ClientRow {
+  client: string;
+  /** Откуда известно имя: представился сам, опознан по заголовку или никак. */
+  kind: string;
+  calls: number;
+  caller_days: number;
+  last_seen: string | null;
+}
 
 interface McpData {
   by_tool_30d: ToolRow[];
   daily_14d: DayRow[];
   errors_by_kind_30d: ErrorRow[];
+  by_client_30d: ClientRow[];
   window_note: string;
 }
 
@@ -219,6 +228,32 @@ export default function AdminMcpPage() {
                   </div>
                 )}
               </div>
+
+              {(data.by_client_30d ?? []).length > 0 && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] mb-1">Кто звал, 30 дней</p>
+                  {/*
+                    Имя приходит из самопредставления клиента при рукопожатии
+                    MCP — это имя ПРОГРАММЫ, не человека. Откуда оно известно,
+                    сказано прямо: «представился» и «по заголовку» — разной
+                    надёжности ответы, и путать их нельзя.
+                  */}
+                  <p className="text-[10px] text-[var(--text-muted)] mb-2">
+                    Клиент называет себя сам при подключении. Заголовок — запасной ответ, когда рукопожатия не было.
+                  </p>
+                  <ul className="space-y-1">
+                    {data.by_client_30d.map(c => (
+                      <li key={`${c.client}:${c.kind}`} className="flex items-baseline justify-between gap-3 text-xs">
+                        <span className="text-[var(--text-secondary)] truncate">
+                          {c.client}
+                          <span className="text-[10px] text-[var(--text-muted)] ml-2">{c.kind}</span>
+                        </span>
+                        <span className="text-[var(--text-primary)] font-medium shrink-0">{c.calls}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {data.errors_by_kind_30d.length > 0 && (
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
