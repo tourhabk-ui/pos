@@ -395,6 +395,16 @@ export interface GeometryAudit {
   /** Миграции, не применившиеся на проде, с причиной. Пусто — всё применилось. */
   migration_failures: Array<{ name: string; error: string; attempts: number }>;
   /**
+   * Реальные типы колонок-идентификаторов на проде.
+   *
+   * 874 падала шесть раз на «operator does not exist: text = uuid», и ответ,
+   * какая сторона какого типа, приходилось выводить из объявлений в
+   * миграциях. Объявление и прод разошлись (167 создавала таблицу через
+   * `IF NOT EXISTS` поверх уже существующей), поэтому тип теперь МЕРЯЕТСЯ, а
+   * не предполагается: `таблица.колонка` → тип из information_schema.
+   */
+  id_column_types: Record<string, string>;
+  /**
    * Сколько связей какого рода (миграция 874).
    *
    * Главная цифра разметки: пока `nearby` ноль, ничего не размечено, и
@@ -710,6 +720,26 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     }));
   } catch {
     // Таблицы может не быть на старом инстансе — это не ошибка переписи.
+  }
+  /**
+   * Типы идентификаторов — измерением, а не по объявлениям в миграциях.
+   * Читается терпимо: недоступный information_schema не повод ронять перепись.
+   */
+  let idColumnTypes: Record<string, string> = {};
+  try {
+    const types = await pool.query<{ table_name: string; column_name: string; data_type: string }>(
+      `SELECT table_name, column_name, data_type
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND (table_name, column_name) IN (
+            ('route_waypoints','route_id'), ('route_waypoints','place_id'),
+            ('places','id'), ('kamchatka_routes','id'))`,
+    );
+    idColumnTypes = Object.fromEntries(
+      types.rows.map((r) => [`${r.table_name}.${r.column_name}`, r.data_type]),
+    );
+  } catch {
+    // Нет доступа к каталогу — цифры переписи от этого не зависят.
   }
   const byRoute = new Map<string, AuditWaypoint[]>();
   for (const w of wpRes.rows) {
@@ -1069,6 +1099,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     link_kinds: linkKinds,
     link_kind_available: linkKindAvailable,
     migration_failures: migrationFailures,
+    id_column_types: idColumnTypes,
     conflicts_only_reason: conflictCases.filter((c) => c.onlyReason).length,
     navigability: verdicts,
     navigability_reasons: navReasons,
