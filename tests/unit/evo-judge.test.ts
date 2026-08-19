@@ -289,6 +289,54 @@ describe('отчёт не прячет неразобранное', () => {
   });
 });
 
+/**
+ * Кто вынес вердикт — видно в строке вердикта.
+ *
+ * Разбор 19.08 шёл ТРЕМЯ моделями сразу: deepseek-v4-pro, deepseek-chat,
+ * deepseek-v4-flash. Внутри водопада подмена тихая — сильнейшая молчит,
+ * отвечает следующая, ответ приходит, отличить его нечем. Шапка «Судья: A,
+ * B, C» это скрывала: какие именно находки судила запасная модель, из отчёта
+ * узнать было нельзя.
+ */
+describe('сила суждения не прячется', () => {
+  const j = (title: string, model: string): Judged => ({
+    finding: finding(title), verdict: 'real', reason: 'причина', model,
+    provenance: model === 'deepseek-chat' ? ['deepseek(v4-pro): пустой ответ'] : undefined,
+  });
+
+  it('один судья — просто назван, без лишней таблицы', () => {
+    const md = renderReport([j('А', 'deepseek-v4-pro')]);
+    expect(md).toMatch(/Судья: deepseek-v4-pro/);
+    expect(md).not.toMatch(/Судьи разные/);
+    expect(md).not.toMatch(/· deepseek-v4-pro/);
+  });
+
+  it('судей несколько — счёт по каждому и предупреждение', () => {
+    const md = renderReport([j('А', 'deepseek-v4-pro'), j('Б', 'deepseek-chat')]);
+    expect(md).toMatch(/Судьи разные — сила суждения неодинакова/);
+    expect(md).toMatch(/\| deepseek-v4-pro \| 1 \|/);
+    expect(md).toMatch(/\| deepseek-chat \| 1 \|/);
+  });
+
+  it('модель стоит в строке вердикта, а не только в шапке', () => {
+    // Читающий решает по строке — знать, кто её вынес, надо в ней же.
+    const md = renderReport([j('А', 'deepseek-v4-pro'), j('Б', 'deepseek-chat')]);
+    expect(md).toMatch(/по делу · deepseek-chat: причина/);
+  });
+
+  it('причина отступления от первой ступени доходит до отчёта', () => {
+    // Раньше provenance печатался только при ПОЛНОЙ немоте — то есть ровно
+    // тогда, когда чинить уже поздно.
+    const md = renderReport([j('А', 'deepseek-v4-pro'), j('Б', 'deepseek-chat')]);
+    expect(md).toMatch(/Почему отвечала не первая ступень \(1 из 2\)/);
+    expect(md).toMatch(/deepseek\(v4-pro\): пустой ответ — 1/);
+  });
+
+  it('код кладёт provenance в вердикт, а не выбрасывает', () => {
+    expect(SRC).toMatch(/provenance: res\.provenance/);
+  });
+});
+
 describe('152-ФЗ и путь провайдера', () => {
   it('ПД чистятся до отправки во внешнюю модель', () => {
     expect(SRC).toMatch(/redactPII\(/);
