@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  mcpTourIds, mcpDiagnosis, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
+  mcpTourIds, mcpText, mcpDiagnosis, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
 } from '@/lib/quality/channel-consistency';
 
 /** Ответ MCP get_tours как он приходит с прода: текст для модели, не JSON. */
@@ -35,6 +35,40 @@ describe('ID вытаскиваются из каждого канала', () =>
   it('карта сайта считается по числу адресов', () => {
     expect(sitemapUrlCount('<url><loc>a</loc></url><url><loc>b</loc></url>')).toBe(2);
     expect(sitemapUrlCount('')).toBe(0);
+  });
+
+  it('ID берутся из ТЕЛА ОТВЕТА, как оно приходит с прода — сырым JSON', () => {
+    // Восемь суток (12-19.08) issue #1155 сообщала «канал mcp не отдал ни
+    // одного тура», и всё это время туры отдавались. Ломалась проверка:
+    // в сыром теле перенос строки записан как `\n` — ДВА символа, обратный
+    // слэш и буква `n`. Каталог печатает каждый тур с новой строки, поэтому
+    // перед `ID` стояла буква, границы слова не было, и `\bID(\d+)\b` не
+    // совпадал ни разу.
+    //
+    // Прежняя фикстура кормила разбор УЖЕ РАЗОБРАННЫМ текстом — формой,
+    // которой в жизни не бывает. Тест был зелёным ровно потому, что проверял
+    // не то, что приходит.
+    const fromProd = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: MCP_BODY }] },
+    });
+    expect(fromProd).toContain('\\nID27');   // именно так это и выглядит в теле
+    expect([...mcpTourIds(fromProd)].sort()).toEqual(['27', '6']);
+  });
+
+  it('разбор причины и поиск ID читают ОДНО И ТО ЖЕ', () => {
+    // Диагностика печатала разобранный текст, а поиск шёл по сырому — оттого
+    // отчёт и говорил «ID не найдены», показывая ID27 в той же строке.
+    const fromProd = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: MCP_BODY }] },
+    });
+    expect(mcpText(fromProd)).toBe(MCP_BODY);
+    expect(mcpDiagnosis(fromProd)).toBeNull();
+  });
+
+  it('не JSON — ищем по тому, что пришло, а не теряем содержимое', () => {
+    expect([...mcpTourIds('ID27: Сплав\nID6: Рыбалка')].sort()).toEqual(['27', '6']);
   });
 
   it('посторонние числа за ID не принимаются', () => {
