@@ -148,21 +148,37 @@ function judgeOffset(): number {
   return Number.isFinite(raw) ? raw : 0;
 }
 
-/** Доля мест, которая всегда достаётся началу списка (важное и свежее). */
-const HEAD_SHARE = 0.75;
+/** Доля мест, которая ВСЕГДА достаётся началу очереди — то есть хвосту списка. */
+const BACKLOG_SHARE = 0.75;
+
+/** Важность, которая не встаёт в общую очередь. */
+const SEVERE = new Set(['critical', 'high']);
+
+function isSevere(f: Finding): boolean {
+  return SEVERE.has((f.severity ?? '').trim().toLowerCase());
+}
 
 /**
- * Что разбирать, если находок больше потолка.
+ * Что разбирать, если находок больше потолка, и в каком порядке.
  *
  * Простой префикс `slice(0, N)` — не «разбор первых N», а НИКОГДА не разбор
  * остальных: порядок с прода один и тот же каждый прогон (важность, затем
- * дата), поэтому хвост списка — самое низкое по важности и самое старое —
- * не попадал в разбор ни 18, ни 19 августа. Восемь находок числились
- * «не разобранными» вторые сутки подряд, и никто не мог сказать, что в них.
+ * дата), поэтому конец списка — низкое по важности и старое — не попадал в
+ * разбор ни 18, ни 19 августа. Хвост при этом РОС: 18-го за потолком осталось
+ * три находки, 19-го — восемь. Когда потолок сняли, в нём нашлась настоящая
+ * утечка секрета, ждавшая с 16-го.
  *
- * Поэтому места делятся: три четверти всегда достаётся началу (critical не
- * должен уступать очередь ротации), остальное — окно, которое едет по хвосту
- * от прогона к прогону. За несколько дней хвост разбирается весь.
+ * Отсюда порядок очереди — решение владельца 19.08: **начинать с хвоста**.
+ * Кто ждёт дольше всех, разбирается первым.
+ *
+ * Одно исключение названо явно: critical и high не встают в эту очередь.
+ * Не по положению в списке, а по собственной важности — иначе правило
+ * «сначала старое» однажды отодвинет свежую инъекцию за сотню заметок про
+ * чужие анонсы моделей.
+ *
+ * Сдвиг окна остаётся: если однажды переполнится и хвост, без него
+ * голодала бы уже свежая часть списка, и мы получили бы ту же болезнь с
+ * другого конца.
  */
 export function selectForJudging(
   findings: Finding[],
@@ -171,21 +187,31 @@ export function selectForJudging(
 ): { picked: Finding[]; skipped: Finding[] } {
   if (findings.length <= limit) return { picked: findings, skipped: [] };
 
-  const headSlots = Math.max(1, Math.min(limit, Math.floor(limit * HEAD_SHARE)));
-  const head = findings.slice(0, headSlots);
-  const rest = findings.slice(headSlots);
-  const windowSlots = limit - headSlots;
+  const severe = findings.filter(isSevere).slice(0, limit);
+  // Хвостом вперёд: индекс 0 — самая старая и самая низкая по важности.
+  const queue = findings.filter((f) => !isSevere(f)).reverse();
+  const room = Math.max(0, limit - severe.length);
 
+  // Начало очереди берётся ВСЕГДА, а не «когда до него дойдёт ротация»:
+  // иначе «начинаем с хвоста» верно лишь в те прогоны, где сдвиг случайно
+  // оказался нулевым, — то есть на словах. Остаток мест едет по очереди
+  // дальше, чтобы не заголодала свежая часть списка.
+  const fixed = Math.min(queue.length, Math.max(1, Math.floor(room * BACKLOG_SHARE)));
   const takenIdx = new Set<number>();
-  if (windowSlots > 0 && rest.length > 0) {
-    const start = ((offset % rest.length) + rest.length) % rest.length;
-    for (let i = 0; i < Math.min(windowSlots, rest.length); i++) {
-      takenIdx.add((start + i) % rest.length);
+  for (let i = 0; i < fixed; i++) takenIdx.add(i);
+
+  const rotating = room - fixed;
+  const restLen = queue.length - fixed;
+  if (rotating > 0 && restLen > 0) {
+    const start = ((offset % restLen) + restLen) % restLen;
+    for (let i = 0; i < Math.min(rotating, restLen); i++) {
+      takenIdx.add(fixed + ((start + i) % restLen));
     }
   }
 
-  const picked = [...head, ...rest.filter((_, i) => takenIdx.has(i))];
-  const skipped = rest.filter((_, i) => !takenIdx.has(i));
+  const picked = [...severe, ...queue.filter((_, i) => takenIdx.has(i))];
+  const pickedIds = new Set(picked);
+  const skipped = findings.filter((f) => !pickedIds.has(f));
   return { picked, skipped };
 }
 

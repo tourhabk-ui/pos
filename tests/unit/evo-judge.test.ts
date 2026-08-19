@@ -74,10 +74,10 @@ describe('провал разбора не выдаётся за вердикт'
  * успели» — это множество, до которого очередь не дойдёт никогда, и его
  * содержимое неизвестно по построению.
  */
-describe('хвост находок не остаётся вечным', () => {
-  const many = (n: number) =>
+describe('очередь разбора начинается с хвоста', () => {
+  const many = (n: number, severity = 'low') =>
     Array.from({ length: n }, (_, i) => ({
-      id: `f${i}`, category: 'bug', severity: 'low', file_path: null,
+      id: `f${i}`, category: 'bug', severity, file_path: null,
       line_number: null, title: `находка ${i}`, description: null, suggestion: null,
     }));
 
@@ -87,20 +87,34 @@ describe('хвост находок не остаётся вечным', () => {
     expect(skipped).toHaveLength(0);
   });
 
-  it('при переполнении начало списка разбирается всегда', () => {
-    // Порядок с прода — critical впереди. Ротация не имеет права отодвигать
-    // важное ради равномерности.
+  it('при переполнении первым идёт конец списка — кто ждал дольше всех', () => {
+    // 18.08 за потолком осталось 3 находки, 19.08 — уже 8, и среди них ждала
+    // с 16-го настоящая утечка секрета. Решение владельца: начинать с хвоста.
+    // Проверяется при ЛЮБОМ сдвиге: правило, верное только при нулевом
+    // сдвиге, — правило на словах, а прод передаёт номер прогона.
     const all = many(200);
-    for (const offset of [0, 1, 7, 199]) {
+    for (const offset of [0, 1, 13, 97, 1234]) {
       const { picked } = selectForJudging(all, 100, offset);
-      expect(picked.slice(0, 75).map((f) => f.id)).toEqual(all.slice(0, 75).map((f) => f.id));
+      expect(picked[0].id).toBe(all[all.length - 1].id);
+      expect(picked[1].id).toBe(all[all.length - 2].id);
     }
   });
 
-  it('окно едет: за несколько прогонов хвост разбирается весь', () => {
+  it('critical и high не встают в общую очередь', () => {
+    // Иначе «сначала старое» однажды отодвинет свежую инъекцию за сотню
+    // заметок про чужие анонсы моделей.
+    const severe = many(5, 'critical').map((f) => ({ ...f, id: `sev${f.id}` }));
+    const all = [...severe, ...many(300)];
+    for (const offset of [0, 1, 17, 299]) {
+      const ids = selectForJudging(all, 100, offset).picked.map((f) => f.id);
+      for (const s2 of severe) expect(ids).toContain(s2.id);
+    }
+  });
+
+  it('окно едет: за несколько прогонов виден весь список', () => {
     const all = many(200);
     const seen = new Set<string>();
-    for (let run = 0; run < 6; run++) {
+    for (let run = 0; run < 8; run++) {
       for (const f of selectForJudging(all, 100, run * 25).picked) seen.add(f.id);
     }
     expect(seen.size).toBe(all.length);
