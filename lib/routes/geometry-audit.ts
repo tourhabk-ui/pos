@@ -38,6 +38,8 @@ import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
 import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
 import { asLinkKind, type LinkKind } from '@/lib/routes/link-kind';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
+import { routeTrustDecision } from '@/lib/routes/trust-decision';
+import { geometryFingerprint } from '@/lib/routes/track-reconcile';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -368,6 +370,21 @@ export interface GeometryAudit {
   /** Из них тех, у кого расхождение — единственная причина отказа. */
   conflicts_only_reason: number;
   /**
+   * Решение доверия (Ф2 плана): состояния и распределение доказательств.
+   *
+   * Перепись показывает не одно число «пригодных», а КАКИЕ факты за ним стоят
+   * — иначе регрессия видна только суммой, и неясно, какая улика исчезла.
+   */
+  trust: {
+    states: Record<string, number>;
+    /** Из пригодных — тех, кто получил право по трём уликам, без разметки. */
+    led_by_evidence: number;
+    line_kind: Record<string, number>;
+    source_match: Record<string, number>;
+    donor_binding: Record<string, number>;
+    freshness: Record<string, number>;
+  };
+  /**
    * Доехала ли разметка связей (колонка `route_waypoints.link_kind`).
    *
    * `false` — миграция 874 не применилась, и все связи считаются `unknown`.
@@ -387,7 +404,15 @@ export interface GeometryAudit {
   duration_ms: number;
 }
 
-interface RouteRow { id: string; title: string | null; geometry: unknown }
+interface RouteRow {
+  id: string;
+  title: string | null;
+  geometry: unknown;
+  /** Адрес страницы-донора: улика принадлежности линии этой карточке. */
+  source_url: string | null;
+  /** Ключ вида «источник:id» — та же улика, записанная при импорте. */
+  dedupe_key: string | null;
+}
 
 /** Путевая точка так, как её видит перепись: координата и всё, чем её можно назвать. */
 interface AuditWaypoint {
@@ -491,9 +516,9 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   const listRes = await pool.query<RouteRow>(
     limit
-      ? `SELECT id::text, title, geometry FROM kamchatka_routes
+      ? `SELECT id::text, title, geometry, source_url, dedupe_key FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL) ORDER BY id LIMIT $1`
-      : `SELECT id::text, title, geometry FROM kamchatka_routes
+      : `SELECT id::text, title, geometry, source_url, dedupe_key FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL) ORDER BY id`,
     limit ? [limit] : [],
   );
@@ -635,6 +660,33 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         AND p.merged_into_id IS NULL
       ORDER BY rw.route_id, rw.position`,
   );
+  /**
+   * Сохранённые сверки с источником (Ф1). Читается терпимо: таблицы может не
+   * быть, пока миграция 875 не доехала, и это не повод ронять всю перепись —
+   * тот же урок, что стоил ночью карточки маршрута.
+   */
+  const checks = new Map<string, { verdict: string | null; checkedAt: string | null; geometryHash: string | null }>();
+  try {
+    const res = await pool.query<{ route_id: string; verdict: string; checked_at: string; geometry_hash: string | null }>(
+      `SELECT route_id::text, verdict, checked_at::text, geometry_hash FROM route_source_checks`,
+    );
+    for (const r of res.rows) {
+      checks.set(r.route_id, { verdict: r.verdict, checkedAt: r.checked_at, geometryHash: r.geometry_hash });
+    }
+  } catch {
+    // Таблицы ещё нет — все записи окажутся «не сверялись», и это честно.
+  }
+  const trust = {
+    states: {} as Record<string, number>,
+    led_by_evidence: 0,
+    line_kind: {} as Record<string, number>,
+    source_match: {} as Record<string, number>,
+    donor_binding: {} as Record<string, number>,
+    freshness: {} as Record<string, number>,
+  };
+  const bump = (m: Record<string, number>, k: string) => { m[k] = (m[k] ?? 0) + 1; };
+  const auditNow = new Date();
+
   const linkKinds: Record<LinkKind, number> = { waypoint: 0, nearby: 0, unknown: 0 };
   /** Колонка есть, если хоть одна строка отдала непустое значение. */
   let linkKindAvailable = false;
@@ -788,6 +840,37 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     });
     verdicts[nav.verdict] += 1;
     if (nav.verdict === 'navigable') navigableIds.push(r.id);
+
+    // Решение доверия: то же состояние, но с фактами, из которых оно собрано.
+    // Донор считается подтверждённым, когда страница-источник записана у САМОЙ
+    // карточки: `dedupe_key` вида «источник:id» или адрес в `source_url`.
+    const donorBinding: 'confirmed' | 'proximity_only' | 'missing' =
+      (r.dedupe_key ?? '').includes(':') || (r.source_url ?? '').startsWith('http')
+        ? 'confirmed'
+        : pairs.length >= 2 ? 'proximity_only' : 'missing';
+    const rawCoords = (r.geometry as { coordinates?: unknown } | null)?.coordinates;
+    const decision = routeTrustDecision({
+      grade,
+      track: pairs.length >= 2 ? pairs : null,
+      waypoints: wps,
+      waypointTypes: wps.map((w) => w.type),
+      waypointKinds: wps.map((w) => w.kind),
+      evidence: evidenceVerdict,
+      mode: detectTravelMode(r.title),
+      sourceCheck: checks.get(r.id) ?? null,
+      geometryHash: geometryFingerprint(Array.isArray(rawCoords) ? (rawCoords as number[][]) : []),
+      donorBinding,
+      continuity: pairs.length >= 2
+        ? (routeIntegrity(track, wps).verdict === 'not_a_path' ? 'segmented' : 'continuous')
+        : 'unknown',
+      now: auditNow,
+    });
+    bump(trust.states, decision.state);
+    bump(trust.line_kind, decision.evidence.lineKind);
+    bump(trust.source_match, decision.evidence.sourceMatch);
+    bump(trust.donor_binding, decision.evidence.donorBinding);
+    bump(trust.freshness, decision.freshness);
+    if (decision.ledByEvidence) trust.led_by_evidence += 1;
     // Спорная точка называется поимённо. Номер приходит от самой черты —
     // считать расстояние здесь заново значило бы завести второе правило и
     // получить случаи, которых вердикт не видит (или не увидеть тех, что он
@@ -982,6 +1065,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // Не режется: этих случаев два десятка, и режут списки там, где их не
     // разбирают. Этот разбирают.
     conflict_cases: conflictCases,
+    trust,
     link_kinds: linkKinds,
     link_kind_available: linkKindAvailable,
     migration_failures: migrationFailures,

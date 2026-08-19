@@ -51,8 +51,10 @@ export const maxDuration = 120;
  *       расстоянию до линии, которого с вертолёта не существует
  *  11 — перепись переживает не доехавшую миграцию и называет её причину:
  *       одна отсутствующая колонка больше не убивает весь ответ
+ *  12 — Ф2 плана: решение доверия с фактами, из которых собрано состояние,
+ *       и счёт тех, кто получил право вести по трём уликам без разметки
  */
-export const AUDIT_SHAPE_VERSION = 11;
+export const AUDIT_SHAPE_VERSION = 12;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
