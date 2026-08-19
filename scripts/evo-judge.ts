@@ -52,6 +52,8 @@ export interface Judged {
   reason: string;
   /** Какая модель вынесла вердикт — атрибуция, как у находок Growth Scan. */
   model?: string;
+  /** Кто отказал ДО неё: ступени водопада, не давшие ответа. */
+  provenance?: string[];
 }
 
 const VERDICT_RU: Record<Verdict, string> = {
@@ -224,13 +226,14 @@ export async function judgeOne(f: Finding, retried = false): Promise<Judged> {
       const again = await judgeOne(f, true);
       if (again.verdict !== 'unjudged') return again;
     }
-    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model };
+    return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model, provenance: res.provenance };
   }
   return {
     finding: f,
     verdict: v[1].toLowerCase() as Verdict,
     reason: (r?.[1] ?? '').trim().slice(0, 200) || 'причина не названа',
     model: res.model,
+    provenance: res.provenance,
   };
 }
 
@@ -355,8 +358,39 @@ export function renderReport(judged: Judged[]): string {
   // Атрибуция: по прошлым отчётам нельзя было отличить «Anthropic молчит»
   // от «ключа нет» — модель судьи теперь названа в отчёте фактом.
   const models = [...new Set(judged.map((j) => j.model).filter(Boolean))] as string[];
-  if (models.length > 0) lines.push(`Судья: ${models.join(', ')}`);
+  if (models.length === 1) lines.push(`Судья: ${models[0]}`);
   lines.push('');
+
+  // Когда судей несколько, «Судья: A, B, C» скрывает главное: часть вердиктов
+  // вынесена НЕ сильнейшей моделью, а запасной, и какие именно — не видно.
+  // Внутри водопада подмена тихая: сильнейшая молчит — отвечает следующая,
+  // ответ приходит, отличить его нечем. Разбор 19.08 шёл тремя моделями сразу.
+  if (models.length > 1) {
+    lines.push('Судьи разные — сила суждения неодинакова:');
+    lines.push('');
+    lines.push('| Модель | Вердиктов |');
+    lines.push('|---|---|');
+    for (const m of models) {
+      lines.push(`| ${m} | ${judged.filter((j) => j.model === m).length} |`);
+    }
+    lines.push('');
+
+    // ПОЧЕМУ отвечала не первая ступень. Причины лежат в provenance каждого
+    // вердикта и раньше выбрасывались: их печатали только при полной немоте,
+    // то есть ровно тогда, когда чинить уже поздно.
+    const fell = judged.filter((j) => (j.provenance?.length ?? 0) > 0);
+    const reasons = new Map<string, number>();
+    for (const j of fell) {
+      for (const r of j.provenance ?? []) reasons.set(r, (reasons.get(r) ?? 0) + 1);
+    }
+    if (reasons.size > 0) {
+      lines.push(`Почему отвечала не первая ступень (${fell.length} из ${judged.length}):`);
+      for (const [r, n] of [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+        lines.push(`- ${r} — ${n}`);
+      }
+      lines.push('');
+    }
+  }
   lines.push('| Вердикт | Сколько |');
   lines.push('|---|---|');
   lines.push(`| по делу | ${real.length} |`);
@@ -382,6 +416,7 @@ export function renderReport(judged: Judged[]): string {
     }
   }
 
+  const manyModels = models.length > 1;
   for (const [title, group] of [
     ['По делу', real], ['Мало данных', info], ['Уже починено', fixed],
     ['Шум', noise], ['Не разобрано', un],
@@ -393,7 +428,10 @@ export function renderReport(judged: Judged[]): string {
         ? ` — \`${j.finding.file_path}${j.finding.line_number ? `:${j.finding.line_number}` : ''}\``
         : '';
       lines.push(`- **${j.finding.title}**${where}`);
-      lines.push(`  ${VERDICT_RU[j.verdict]}: ${j.reason}`);
+      // Модель — рядом с вердиктом, а не только в шапке: читающий решает по
+      // строке, и знать, кто её вынес, надо в ней же.
+      const by = manyModels && j.model ? ` · ${j.model}` : '';
+      lines.push(`  ${VERDICT_RU[j.verdict]}${by}: ${j.reason}`);
     }
     lines.push('');
   }
