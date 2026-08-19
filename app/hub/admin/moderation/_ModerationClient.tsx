@@ -5,7 +5,7 @@ import { Protected } from '@/components/auth/Protected';
 import { Shield, Check, X, Loader2, Star, Flag, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface PendingReview {
-  id: string; touristName: string; tourName: string;
+  id: string; touristName: string; subjectName: string;
   rating: number; text: string; date: string;
 }
 
@@ -28,12 +28,12 @@ export default function ModerationClient() {
       if (!json.success) throw new Error(json.error ?? 'Ошибка загрузки');
       const rows = json.data?.reviews ?? [];
       setReviews(rows.map((r: {
-        id: string; user_name: string | null; tour_name: string | null;
+        id: string; user_name: string | null; subject_name: string | null;
         rating: number; comment: string | null; created_at: string;
       }) => ({
         id: r.id,
         touristName: r.user_name ?? 'Гость',
-        tourName: r.tour_name ?? 'Тур удалён',
+        subjectName: r.subject_name ?? 'Объект удалён',
         rating: r.rating,
         text: r.comment ?? '',
         date: r.created_at,
@@ -113,7 +113,7 @@ export default function ModerationClient() {
                       </div>
                     </div>
                     <p className="text-xs text-[var(--text-muted)] mb-2">
-                      {review.tourName} | {new Date(review.date).toLocaleDateString('ru-RU')}
+                      {review.subjectName} | {new Date(review.date).toLocaleDateString('ru-RU')}
                     </p>
                     <p className="text-sm text-[var(--text-secondary)]">{review.text}</p>
                   </div>
