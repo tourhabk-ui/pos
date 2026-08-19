@@ -129,6 +129,90 @@ export async function judgeOne(f: Finding): Promise<Judged> {
   };
 }
 
+/**
+ * Сколько находок разбирать за прогон.
+ *
+ * Было сорок — при том, что прод отдаёт до ста. Разницу съедала не стоимость,
+ * а число, взятое с потолка: разбор шёл по одной находке за раз, и сорок
+ * последовательных вызовов казались пределом времени джоба. Вызовы теперь
+ * идут пачками, и потолок совпадает с тем, сколько находок вообще приходит.
+ */
+function judgeLimit(): number {
+  const raw = parseInt(process.env.EVO_JUDGE_LIMIT ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 100;
+}
+
+/** Номер прогона — им сдвигается окно добора. Нет номера — сдвига нет. */
+function judgeOffset(): number {
+  const raw = parseInt(process.env.EVO_JUDGE_OFFSET ?? '', 10);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+/** Доля мест, которая всегда достаётся началу списка (важное и свежее). */
+const HEAD_SHARE = 0.75;
+
+/**
+ * Что разбирать, если находок больше потолка.
+ *
+ * Простой префикс `slice(0, N)` — не «разбор первых N», а НИКОГДА не разбор
+ * остальных: порядок с прода один и тот же каждый прогон (важность, затем
+ * дата), поэтому хвост списка — самое низкое по важности и самое старое —
+ * не попадал в разбор ни 18, ни 19 августа. Восемь находок числились
+ * «не разобранными» вторые сутки подряд, и никто не мог сказать, что в них.
+ *
+ * Поэтому места делятся: три четверти всегда достаётся началу (critical не
+ * должен уступать очередь ротации), остальное — окно, которое едет по хвосту
+ * от прогона к прогону. За несколько дней хвост разбирается весь.
+ */
+export function selectForJudging(
+  findings: Finding[],
+  limit: number,
+  offset: number,
+): { picked: Finding[]; skipped: Finding[] } {
+  if (findings.length <= limit) return { picked: findings, skipped: [] };
+
+  const headSlots = Math.max(1, Math.min(limit, Math.floor(limit * HEAD_SHARE)));
+  const head = findings.slice(0, headSlots);
+  const rest = findings.slice(headSlots);
+  const windowSlots = limit - headSlots;
+
+  const takenIdx = new Set<number>();
+  if (windowSlots > 0 && rest.length > 0) {
+    const start = ((offset % rest.length) + rest.length) % rest.length;
+    for (let i = 0; i < Math.min(windowSlots, rest.length); i++) {
+      takenIdx.add((start + i) % rest.length);
+    }
+  }
+
+  const picked = [...head, ...rest.filter((_, i) => takenIdx.has(i))];
+  const skipped = rest.filter((_, i) => !takenIdx.has(i));
+  return { picked, skipped };
+}
+
+/**
+ * Разбор пачками. Последовательный цикл упирался во время джоба задолго до
+ * того, как упёрся бы в деньги, — и именно он держал потолок в сорок находок.
+ * Пачка небольшая намеренно: провайдеры водопада отвечают 429 на всплеск,
+ * а 429 в этом скрипте означает «не разобрана» — то самое, что чиним.
+ */
+const BATCH = 4;
+
+async function judgeAll(findings: Finding[]): Promise<Judged[]> {
+  const out: Judged[] = [];
+  for (let i = 0; i < findings.length; i += BATCH) {
+    const batch = findings.slice(i, i + BATCH);
+    // Исключение на одной находке не имеет права уносить пачку: соседи
+    // разобраны, и их вердикты — факт. Упавшая становится «не разобрана»
+    // с причиной, а не пропадает из отчёта молча.
+    out.push(...(await Promise.all(batch.map((f) => judgeOne(f).catch((err: unknown): Judged => ({
+      finding: f,
+      verdict: 'unjudged',
+      reason: `разбор упал: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+    }))))));
+  }
+  return out;
+}
+
 /** Отчёт для GitHub Issue. Числа сверху, подробности ниже. */
 export function renderReport(judged: Judged[]): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
@@ -204,17 +288,19 @@ async function main(): Promise<void> {
     return;
   }
 
-  const judged: Judged[] = [];
-  for (const f of findings.slice(0, 40)) {
-    judged.push(await judgeOne(f));
-  }
-  if (findings.length > 40) {
+  const limit = judgeLimit();
+  const { picked, skipped } = selectForJudging(findings, limit, judgeOffset());
+
+  const judged = await judgeAll(picked);
+
+  if (skipped.length > 0) {
     // Потолок назван вслух: молчаливая обрезка читается как «разобрали всё».
     judged.push({
       finding: { id: '', category: '', severity: '', file_path: null, line_number: null,
-        title: `Ещё ${findings.length - 40} находок не разбирались (потолок прогона)`,
+        title: `Ещё ${skipped.length} находок не разбирались (потолок прогона в ${limit})`,
         description: null, suggestion: null },
-      verdict: 'unjudged', reason: 'за потолком в 40 находок',
+      verdict: 'unjudged',
+      reason: `за потолком в ${limit}; окно сдвигается каждый прогон, эти попадут в следующий`,
     });
   }
 
