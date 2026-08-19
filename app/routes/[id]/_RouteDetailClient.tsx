@@ -151,6 +151,28 @@ interface RouteWaypoint {
   linkKind?: 'waypoint' | 'nearby' | 'unknown';
 }
 
+/** Один вычисленный ориентир — форма из lib/routes/derived-stages. */
+interface DerivedStage {
+  placeId: string;
+  name: string;
+  locationType: string | null;
+  position: number;
+  offLineKm: number;
+  proximity: 'on_line' | 'near_line';
+  origin: 'derived';
+  /** Объяснение приходит с сервера вместе с мерой — см. derived-stages. */
+  why: string;
+}
+
+interface DerivedStages {
+  onLine: DerivedStage[];
+  nearLine: DerivedStage[];
+  /** Линия идёт через полкрая и цепляет всё по пути. */
+  sweeping: boolean;
+  onLineKm: number;
+  nearLineKm: number;
+}
+
 interface RouteDetail {
   id: string; category: string; locationType: string | null; activityType: string | null;
   title: string; description: string;
@@ -185,6 +207,14 @@ interface RouteDetail {
   geometrySource?: string | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
+  /**
+   * Ориентиры, ВЫЧИСЛЕННЫЕ по линии (Ф3 плана).
+   *
+   * Приходят отдельным полем и никогда не подмешиваются к `waypoints`:
+   * установленная связь и найденное платформой место — утверждения разной
+   * силы, и список, где они вперемешку, выдаёт второе за первое.
+   */
+  derivedStages?: DerivedStages | null;
   operationalAlerts?: OperationalAlert[];
   /** Зонные алерты района (общие для ≥2 точек) — показываются один раз на маршрут */
   zoneAlerts?: string[];
@@ -504,6 +534,18 @@ export default function RouteDetailClient({ id }: { id: string }) {
   );
   const nearbyWaypoints = useMemo(
     () => (route?.waypoints ?? []).filter(w => w.linkKind === 'nearby'),
+    [route],
+  );
+
+  /**
+   * Вычисленные ориентиры на линии.
+   *
+   * Держатся отдельным списком от `pathWaypoints` намеренно: слить их значило
+   * бы получить нумерацию, в которой установленная связь и догадка идут
+   * подряд одним рядом.
+   */
+  const derivedOnLine = useMemo(
+    () => route?.derivedStages?.onLine ?? [],
     [route],
   );
 
@@ -985,6 +1027,61 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       >
                         {wp.placeName}
                         <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/*
+              Ориентиры вдоль линии (Ф3 плана).
+
+              Блок появляется только там, где путь НЕ описан связями: у
+              маршрута есть линия и меньше двух путевых точек. Раньше на таком
+              месте была пустота, и человек уходил ни с чем, хотя линия есть и
+              места вдоль неё есть тоже.
+
+              Три вещи блок обязан сказать вслух, иначе он опаснее пустоты:
+              откуда точка взялась, чем меряли, и что она НЕ подтверждает
+              маршрут. Список без этих слов через неделю прочитается как
+              «этапы», а по этапам идут.
+            */}
+            {derivedOnLine.length > 0 && (
+              <section>
+                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                  Ориентиры вдоль линии
+                </h2>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Путь этого маршрута не описан точками. Эти места платформа нашла сама —
+                  они лежат ближе {Math.round((route.derivedStages?.onLineKm ?? 0.2) * 1000)} м
+                  от линии. Это ориентиры, а не подтверждённые этапы: маршрут они не поверяют.
+                </p>
+                {route.derivedStages?.sweeping && (
+                  <p className="text-xs text-[var(--warning)] mb-3">
+                    Линия идёт через большую территорию и задевает много мест — список
+                    показывает всё найденное, а не отобранный путь.
+                  </p>
+                )}
+                <ul className="space-y-2">
+                  {derivedOnLine.map((st) => (
+                    <li key={st.placeId}>
+                      <Link href={`/places/${st.placeId}`} className="flex items-start gap-3 group">
+                        <span className="w-6 h-6 rounded-full border border-dashed border-[var(--text-muted)] text-[var(--text-muted)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                          {st.position + 1}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          {st.locationType && (
+                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
+                              {LOCATION_TYPE_LABELS[st.locationType] ?? st.locationType}
+                            </span>
+                          )}
+                          <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight block truncate">
+                            {st.name}
+                          </span>
+                          <span className="text-xs text-[var(--text-muted)] block">{st.why}</span>
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--ocean)] flex-shrink-0 mt-1 transition-colors" />
                       </Link>
                     </li>
                   ))}
