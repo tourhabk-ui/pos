@@ -32,11 +32,12 @@ import { trackEvidence, type TrackEvidenceVerdict } from '@/lib/routes/track-evi
 import { cleanTrack } from '@/lib/routes/track-clean';
 import { findTitleDupes } from '@/lib/routes/title-dupes';
 import { isCommercialRecord } from '@/lib/routes/commercial-titles';
+import { buildQueues, type RouteFacts, type CleanupQueues } from '@/lib/routes/cleanup-queue';
 import { boundingSpanKm } from '@/lib/routes/geometry-compact';
 import { waypointFit, routeIntegrity, pointsAreCollection, type WaypointFitVerdict } from '@/lib/routes/shape-match';
 import { isNamesakeOfRoute } from '@/lib/routes/broken-links';
 import { isExtendedObject, type CoordSource } from '@/lib/places/coord-source';
-import { asLinkKind, type LinkKind } from '@/lib/routes/link-kind';
+import { asLinkKind, isPathPoint, type LinkKind } from '@/lib/routes/link-kind';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { routeTrustDecision } from '@/lib/routes/trust-decision';
 import { geometryFingerprint } from '@/lib/routes/track-reconcile';
@@ -411,6 +412,15 @@ export interface GeometryAudit {
    * улучшение показателей означало бы смену линейки, а не починку данных.
    */
   link_kinds: Record<LinkKind, number>;
+  /**
+   * Именованные очереди уборки (Ф4 плана).
+   *
+   * Не счёт брака, а разбор по природе беды: у каждой записи ровно одна
+   * причина и вопрос «чем это закрывается». Свалить их в одно число
+   * «маршрутов с проблемами» значит либо удалить годное, либо оставить
+   * опасное — см. lib/routes/cleanup-queue.
+   */
+  cleanup_queues: CleanupQueues;
   duration_ms: number;
 }
 
@@ -799,6 +809,19 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
   // Близнецы считаются по ВСЕМУ списку разом, а не в цикле: это свойство
   // набора, а не отдельной записи.
   const dupeGroups = findTitleDupes(listRes.rows.map((r) => ({ id: r.id, title: r.title })));
+  /**
+   * Кто чей близнец — по id. Строится сразу: чинить обе записи об одном
+   * объекте значит делать работу дважды, и очередь обязана знать об этом
+   * раньше, чем назначит запись в очередь по линии.
+   */
+  const twinOf = new Map<string, string>();
+  for (const g of dupeGroups) {
+    for (const m of g.members) {
+      const other = g.members.find((x) => x.id !== m.id);
+      if (other) twinOf.set(m.id, other.title);
+    }
+  }
+  const queueFacts: RouteFacts[] = [];
 
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
     const track = geometryToTrack(r.geometry);
@@ -901,6 +924,28 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     bump(trust.donor_binding, decision.evidence.donorBinding);
     bump(trust.freshness, decision.freshness);
     if (decision.ledByEvidence) trust.led_by_evidence += 1;
+
+    /**
+     * Факты для очереди уборки. Собираются здесь, где уже известно всё сразу:
+     * линия, точки, донор, спор и способ передвижения. Считать их отдельным
+     * проходом значило бы завести второе правило, которое рано или поздно
+     * разойдётся с первым.
+     *
+     * Пригодные в очередь не попадают: у них чинить нечего.
+     */
+    if (decision.state !== 'navigable') {
+      queueFacts.push({
+        routeId: r.id,
+        title: r.title ?? '(без названия)',
+        hasLine: pairs.length >= 2,
+        donorConfirmed: donorBinding === 'confirmed',
+        pathPoints: wps.filter((w) => isPathPoint(w.kind)).length,
+        conflictKm: nav.conflict ? Math.round(nav.conflict.offTrackKm * 10) / 10 : null,
+        notOnFoot: decision.state === 'not_on_foot',
+        twinOf: twinOf.get(r.id) ?? null,
+        commercialTitle: Boolean(commercialHit),
+      });
+    }
     // Спорная точка называется поимённо. Номер приходит от самой черты —
     // считать расстояние здесь заново значило бы завести второе правило и
     // получить случаи, которых вердикт не видит (или не увидеть тех, что он
@@ -1113,6 +1158,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
       samples: dupeGroups.slice(0, 12).map((g) => ({ key: g.key, titles: g.members.map((m) => m.title) })),
     },
     tours,
+    cleanup_queues: buildQueues(queueFacts),
     duration_ms: Date.now() - startedAt,
   };
 }

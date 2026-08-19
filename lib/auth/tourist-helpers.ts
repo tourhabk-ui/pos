@@ -142,6 +142,10 @@ export async function getExpiringDocuments(userId: string, daysBeforeExpiry: num
   try {
     const profile = await getTouristProfile(userId);
     if (!profile) return [];
+    // Приведение к целому — не защита (защита в параметризации), а честность
+    // типа: дробный или нечисловой срок означал бы, что вызывающий имел в
+    // виду что-то другое, и тихо считать его нулём хуже, чем считать нулём явно.
+    const days = Number.isFinite(daysBeforeExpiry) ? Math.trunc(daysBeforeExpiry) : 30;
 
     const result = await query(
       `SELECT id, tourist_id, document_type, document_number, issuing_country, issuing_authority,
@@ -149,11 +153,18 @@ export async function getExpiringDocuments(userId: string, daysBeforeExpiry: num
        FROM tourist_documents
        WHERE tourist_id = $1
          AND expiry_date IS NOT NULL
-         AND expiry_date <= CURRENT_DATE + INTERVAL '${daysBeforeExpiry} days'
+         -- Срок приходит ПАРАМЕТРОМ, а не склейкой строки.
+         --
+         -- Интервал собирался конкатенацией из значения аргумента: сегодня
+         -- сюда приходит число из умолчания, но функция публичная, и первый
+         -- же вызов из API с query-параметром сделал бы это инъекцией. У
+         -- Postgres интервал умножается на число — параметризовать можно,
+         -- и обходить правило «только $1, $2» было незачем.
+         AND expiry_date <= CURRENT_DATE + (INTERVAL '1 day' * $2)
          AND expiry_date > CURRENT_DATE
          AND reminder_sent = FALSE
        ORDER BY expiry_date ASC`,
-      [profile.id]
+      [profile.id, days]
     );
 
     return result.rows;
@@ -349,6 +360,7 @@ export async function getUpcomingTripsWithReminders(userId: string, daysAhead: n
   try {
     const profile = await getTouristProfile(userId);
     if (!profile) return [];
+    const days = Number.isFinite(daysAhead) ? Math.trunc(daysAhead) : 7;
 
     const result = await query(
       `SELECT tt.*, 
@@ -362,10 +374,11 @@ export async function getUpcomingTripsWithReminders(userId: string, daysAhead: n
        FROM tourist_trips tt
        WHERE tt.tourist_id = $1
          AND tt.status IN ('planning', 'upcoming')
-         AND tt.start_date <= CURRENT_DATE + INTERVAL '${daysAhead} days'
+         -- Тот же случай, что в getExpiringDocuments: интервал параметром.
+         AND tt.start_date <= CURRENT_DATE + (INTERVAL '1 day' * $2)
          AND tt.start_date > CURRENT_DATE
        ORDER BY tt.start_date ASC`,
-      [profile.id]
+      [profile.id, days]
     );
 
     return result.rows;

@@ -423,6 +423,42 @@ jobs:
                     + ', '.join(f'{k} — {v}' for k, v in sorted(ct.items())))
           print('=' * 60)
 
+          # ── ОЧЕРЕДИ УБОРКИ (Ф4) ─────────────────────────────────────────
+          #
+          # Печатаются ПОСЛЕ итога и поимённо: очередь без имён — это счётчик,
+          # по которому нельзя открыть ни одного случая. Ровно на этом
+          # споткнулся прогон 8, когда двадцать расхождений были известны
+          # числом и неизвестны поимённо.
+          q = a.get('cleanup_queues') or {}
+          if q:
+              QNAMES = {
+                  'donor_missing':     'принадлежность линии не установлена',
+                  'waypoint_conflict': 'точка спорит с линией',
+                  'no_path_described': 'линия есть, путь не описан',
+                  'no_line':           'линии нет вовсе',
+                  'twin':              'запись-близнец',
+                  'commercial_title':  'коммерческое название без пути',
+                  'not_on_foot':       'не пеший (исправна)',
+              }
+              counts = q.get('counts') or {}
+              samples = q.get('samples') or {}
+              print()
+              print(f"ОЧЕРЕДИ УБОРКИ — всего записей: {q.get('total', 0)}")
+              for key, human in QNAMES.items():
+                  n = counts.get(key, 0)
+                  if not n:
+                      continue
+                  print(f"  {human}: {n}")
+                  rows = samples.get(key) or []
+                  for it in rows[:6]:
+                      d = it.get('detail')
+                      print(f"      {it.get('title')}{' — ' + d if d else ''}")
+                  if n > len(rows):
+                      print(f"      ... и ещё {n - len(rows)} (образцов печатается до {len(rows)})")
+                  # Что закрывает вопрос — один раз на очередь, а не на запись.
+                  if rows:
+                      print(f"      закрывается: {rows[0].get('settledBy')}")
+
           # Поля подборки — свои (см. CollectionFlaw): габарит, число точек и по
           # чему опознана. Первый прогон печатал `note`, которого у неё нет, и
           # выдавал ряд названий с пустотой после двоеточия — то есть сообщал

@@ -322,14 +322,17 @@ export async function holdSeats(
           seats_count,
           expires_at,
           created_at
-        ) VALUES ($1, $2, $3, NOW() + INTERVAL '${timeoutMinutes} minutes', NOW())
+        -- Срок блокировки параметром: интервал умножается на число, и
+        -- обходить правило «только $1, $2» ради минут было незачем.
+        ) VALUES ($1, $2, $3, NOW() + (INTERVAL '1 minute' * $4), NOW())
         RETURNING *
       `;
 
       const holdResult = await client.query(holdQuery, [
         scheduleId,
         userId,
-        passengersCount
+        passengersCount,
+        Number.isFinite(timeoutMinutes) ? Math.trunc(timeoutMinutes) : 15
       ]);
 
       return {
