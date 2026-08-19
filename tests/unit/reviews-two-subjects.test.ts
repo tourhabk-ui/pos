@@ -92,7 +92,27 @@ describe('третьего места для отзывов о турах нет
   it('колонка reviews.operator_tour_id не заводится', () => {
     const migrations = execSync("git ls-files 'migrations/*.sql'", { encoding: 'utf-8', cwd: process.cwd() })
       .split('\n').filter(Boolean);
-    const bad = migrations.filter((m) => /reviews[\s\S]{0,80}operator_tour_id/i.test(readFileSync(m, 'utf-8')));
+    const bad = migrations.filter((m) => {
+      // Комментарии отбрасываются: в 878 эта колонка НАЗВАНА словами — там
+      // объяснено, почему её не завели. Первая редакция сторожа поймала
+      // собственное объяснение и покраснела на нём. Сторож обязан судить
+      // DDL, а не рассуждение о DDL.
+      const sql = readFileSync(m, 'utf-8')
+        .split('\n')
+        .map((l) => (l.indexOf('--') === -1 ? l : l.slice(0, l.indexOf('--'))))
+        .join('\n');
+      return /ALTER\s+TABLE\s+reviews[\s\S]{0,120}?ADD\s+COLUMN[\s\S]{0,80}?operator_tour_id/i.test(sql);
+    });
     expect(bad, 'отзывы о турах уже имеют operator_tour_reviews — третье место разойдётся с обоими').toEqual([]);
+  });
+
+  it('сторож ловит именно DDL, а не упоминание в тексте', () => {
+    // Проверка самого сторожа: без неё «зелено» означало бы лишь то, что
+    // регулярка ничего не находит.
+    const ddl = 'ALTER TABLE reviews ADD COLUMN IF NOT EXISTS operator_tour_id BIGINT;';
+    expect(/ALTER\s+TABLE\s+reviews[\s\S]{0,120}?ADD\s+COLUMN[\s\S]{0,80}?operator_tour_id/i.test(ddl)).toBe(true);
+    const prose = '-- reviews.operator_tour_id заводить нельзя: есть operator_tour_reviews';
+    const stripped = prose.slice(0, prose.indexOf('--'));
+    expect(/operator_tour_id/i.test(stripped)).toBe(false);
   });
 });

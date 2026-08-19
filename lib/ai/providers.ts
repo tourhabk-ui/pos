@@ -1091,6 +1091,22 @@ async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
 }
 
 /**
+ * Список id моделей OpenRouter — все поставщики разом, с префиксами вида
+ * `openai/…`, `anthropic/…`, `google/…`.
+ *
+ * Нужен ровно потому, что до 19.08 «сильнейший флагман» подбирался ТОЛЬКО
+ * среди моделей Anthropic: `resolveFlagshipModel` спрашивал их список и
+ * приклеивал префикс `anthropic/`. Комментарий обещал «Claude/GPT», а по
+ * построению выбрать GPT было нельзя — сколько бы он ни стоил и как бы ни
+ * считался сильнее. Нет ключа или недоступен — пустой список, и решатель
+ * возвращается к прежнему поведению.
+ */
+export async function getOpenRouterModelIds(): Promise<string[]> {
+  const key = getOpenRouterKey();
+  return key ? fetchModelIds(`${OPENROUTER_BASE}/models`, key) : [];
+}
+
+/**
  * Список id моделей Anthropic из /v1/models. Заголовок авторизации у Anthropic
  * иной (x-api-key + anthropic-version), поэтому не через fetchModelIds. Работает
  * и через релей (ANTHROPIC_BASE_URL). Нет ключа/недостижим → пустой список.
@@ -1256,11 +1272,37 @@ export async function resolveChatModel(provider: 'deepseek' | 'qwen'): Promise<s
     : process.env.QWEN_MODEL);
 }
 
-// Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
-// галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
-// ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
-// override — EVO_DECISION_FLAGSHIP_MODEL. Пин — крайний фоллбэк, если авто-
-// резолв недоступен (нет ключа/релея).
+// Флагман-решатель эволюции: сильнейшая ОБЩАЯ модель, доступная по пути
+// вызова. У флагманов меньше галлюцинаций, но из РФ (Timeweb) openrouter.ai
+// гео-блокируется — достижимы ТОЛЬКО через релей (OPENROUTER_BASE_URL на
+// Cloudflare Worker/VPS вне РФ). С раннера GitHub релей не нужен: он вне РФ.
+//
+// До 19.08 «флагман» выбирался только среди моделей Anthropic, хотя строка
+// выше обещала «Claude/GPT»: список брался у Anthropic и получал префикс
+// `anthropic/`. Модель другого поставщика не могла быть выбрана по
+// построению. Теперь каталог берётся у OpenRouter — там все поставщики сразу.
+//
+// ── Где проходит граница догадки ──────────────────────────────────────────
+//
+// Соблазн: раз каталог полон, пусть оценщик выберет сильнейшую вообще. Так
+// нельзя, и измерение это показало. Лестница тиров калибрована под ИМЕНА
+// Anthropic: слово `opus` даёт тир 6, а простой `gpt-6` попадает в нейтральный
+// тир 3 — и проигрывает `claude-opus-4-5`, будучи старше версией. Не потому,
+// что слабее, а потому что у OpenAI флагман не носит слова-тира.
+//
+// Починить лестницу «поровну» невозможно: сила модели ПО ИМЕНИ не выводится.
+// `gpt-6` против `claude-5` — числа разных вендоров, они несравнимы, и всякая
+// формула поверх них будет догадкой в одежде измерения. Ровно этого мы весь
+// день избегаем.
+//
+// Поэтому: сильнейшая ВНУТРИ поставщика — это измеримо (одна линейка, одни
+// слова, одна нумерация), а выбор поставщика — решение владельца, и он задаётся
+// переменной EVO_DECISION_FLAGSHIP_VENDOR (по умолчанию anthropic).
+//
+// Привязки к конкретному id по-прежнему нет (CLAUDE.md §8): внутри поставщика
+// подбор идёт оценкой, а не перечнем, и новая линейка подхватится сама. Ручной
+// override целиком — EVO_DECISION_FLAGSHIP_MODEL. Пин ниже — крайний фоллбэк,
+// когда авто-резолв недоступен вовсе.
 const EVO_FLAGSHIP_FALLBACK = 'anthropic/claude-opus-5';
 
 /**
@@ -1276,6 +1318,18 @@ export async function resolveFlagshipModel(): Promise<string> {
 
   const cached = PURPOSE_MODEL_CACHE.get('decision:flagship');
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+
+  // Каталог OpenRouter — модели ВСЕХ поставщиков, уже с префиксами. Выбор
+  // идёт ВНУТРИ предпочтённого поставщика, а не между ними: см. пояснение о
+  // границе догадки над функцией. Поставщик задаётся одной переменной.
+  const vendor = (process.env.EVO_DECISION_FLAGSHIP_VENDOR || 'anthropic').trim().toLowerCase();
+  const routed = await getOpenRouterModelIds();
+  const pickedRouted = routed.length > 0 ? pickBestFlagship(routed, `${vendor}/`) : null;
+  if (pickedRouted) {
+    // Каталог OpenRouter уже несёт префикс поставщика — второй не клеим.
+    PURPOSE_MODEL_CACHE.set('decision:flagship', { id: pickedRouted, at: Date.now() });
+    return pickedRouted;
+  }
 
   const ids = await getAnthropicModelIds();
   const picked = pickBestFlagship(ids);
