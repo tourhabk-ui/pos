@@ -5,6 +5,10 @@ import dynamic from 'next/dynamic';
 import { Copy, Check, MapPin, Calendar, Share2, ExternalLink, ShieldCheck, ShieldAlert, Download, Navigation, LifeBuoy } from 'lucide-react';
 import Link from 'next/link';
 import type { MapMarker } from '@/components/shared/leaflet-types';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { funnelBeacon } from '@/lib/funnel/beacon';
+import { useMyReferralCode } from '@/hooks/useMyReferralCode';
+import { withReferral } from '@/lib/referral/link';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -59,8 +63,10 @@ function useDayStatus(): { title: string | null; hasAlert: boolean } | null {
     fetch('/api/public/safety-status', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((d: unknown) => {
-        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown } } | null)?.data;
+        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown; unavailable?: unknown } } | null)?.data;
         if (!data) return;
+        // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
+        if (data.unavailable === true) return;
         setStatus({
           title: typeof data.topTitle === 'string' ? data.topTitle : null,
           hasAlert: data.hasAlert === true,
@@ -126,7 +132,13 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
       title: `День ${d.day}: ${d.title}`,
       color: d.zone === 'avachinsky' ? 'orange' : d.zone === 'eastern' ? 'blue' : d.zone === 'northern' ? 'green' : 'purple',
     }));
-  const shareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
+  const rawShareUrl = typeof window !== 'undefined' ? window.location.href : `https://vedarai.ru/trip/${token}`;
+  // Главный реферальный сценарий — «отправь группе свой план» (стратегия
+  // 14.08): если смотрящий вошёл и у него есть код, ссылка несёт его метку —
+  // каждый в группе открывает тот же план, а рекомендация засчитывается.
+  // Гость шлёт обычную ссылку; ничего из безопасности меткой не гейтится.
+  const myCode = useMyReferralCode();
+  const shareUrl = withReferral(rawShareUrl, myCode);
   const shareText = `${trip.title} — маршрут по Камчатке на ${trip.days.length} дней`;
 
   const handleCopy = async () => {
@@ -194,7 +206,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             </div>
             <a href={`/api/trips/share/${token}/gpx`} download
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium w-fit"
-              style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
+              style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}
+              /* Офлайн-пакет — действие исполнения (словарь lib/funnel/steps). */
+              onClick={() => funnelBeacon('offline_bundle_download', token)}>
               <Download className="w-4 h-4" />Скачать GPX для навигатора
             </a>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
@@ -218,13 +232,21 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               Уведомите спасателей о выходе на маршрут: бесплатно, 5 минут.
               Маршрут и даты из плана подставятся сами — останется вписать состав группы.
             </p>
+            {/* План — то место, где до выхода ещё есть время. Именно здесь срок
+                меняет поведение, а не на карточке маршрута накануне выезда. */}
+            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+              {MCHS_DEADLINE_SHORT}
+            </p>
             <div className="flex flex-wrap gap-2">
               <Link href={`/register?${mchsQuery}`}
                 className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
-                style={{ background: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}>
+                style={{ background: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}
+                /* Переход к регистрации МЧС из плана — действие исполнения.
+                   Сама безопасность ничем не гейтится: это счёт, не барьер. */
+                onClick={() => funnelBeacon('mchs_registration_start', token)}>
                 <ShieldCheck className="w-4 h-4" />Зарегистрировать маршрут
               </Link>
-              <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form" target="_blank" rel="noopener noreferrer"
+              <a href={MCHS_ONLINE_FORM_URL} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
                 style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
                 <ExternalLink className="w-4 h-4" />Форма МЧС напрямую
@@ -247,7 +269,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             </button>
             <a href={tgUrl} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
-              style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
+              style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
+              /* Отправка плана группе — действие исполнения (словарь steps). */
+              onClick={() => funnelBeacon('plan_sent_to_telegram', token)}>
               <ExternalLink className="w-4 h-4" />Telegram
             </a>
             <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"

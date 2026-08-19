@@ -20,7 +20,14 @@ import {
   type OfflineRoute,
 } from '@/lib/offline/db';
 
-export type DownloadStatus = 'idle' | 'fetching-routes' | 'caching-tiles' | 'cached' | 'error';
+/**
+ * `partial` — регион скачан не целиком: часть тайлов не легла в кэш (или
+ * уже вычищена системой). Это отдельное честное состояние: раньше частичная
+ * закачка становилась либо `error` (неотличимо от «ничего нет»), либо
+ * `cached` (ложь о готовности) — а в поле разница между «карта есть местами»
+ * и «карты нет» решает, выходить ли вообще.
+ */
+export type DownloadStatus = 'idle' | 'fetching-routes' | 'caching-tiles' | 'cached' | 'partial' | 'error';
 
 export interface DownloadProgress {
   done: number;
@@ -41,6 +48,35 @@ export interface UseOfflineRegionReturn {
 
 const EMPTY_PROGRESS: DownloadProgress = { done: 0, failed: 0, total: 0, percent: 0 };
 
+/**
+ * Выборочная проверка: лежат ли тайлы региона в Cache Storage НА САМОМ ДЕЛЕ.
+ *
+ * Метаданные в IndexedDB — это память о том, что закачка когда-то прошла.
+ * Сами тайлы живут в другом хранилище, и система вправе вычистить его при
+ * нехватке места, не тронув метаданные. Верить записи без проверки — значит
+ * показать «скачано» человеку, у которого карты уже нет.
+ *
+ * Проверяем пробу из нескольких тайлов по краям и середине списка: полная
+ * проверка тысяч URL при каждом монтировании не нужна, а проба ловит главный
+ * сценарий — кэш вычищен целиком.
+ *
+ * `null` — проверить нечем (нет Cache Storage API): остаётся верить записи.
+ */
+async function sampleTilesPresent(tileUrls: string[]): Promise<boolean | null> {
+  if (typeof caches === 'undefined' || tileUrls.length === 0) return null;
+  const idxs = [0, Math.floor(tileUrls.length / 2), tileUrls.length - 1];
+  const sample = [...new Set(idxs)].map(i => tileUrls[i]);
+  try {
+    // Request объектом, не строкой: `x.match(строка)` неотличимо от
+    // String.prototype.match, и анализатор читает URL как регулярное
+    // выражение (CodeQL js/incomplete-hostname-regexp). Поведение то же.
+    const hits = await Promise.all(sample.map(u => caches.match(new Request(u))));
+    return hits.some(h => h !== undefined);
+  } catch {
+    return null;
+  }
+}
+
 export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
   const [status, setStatus] = useState<DownloadStatus>('idle');
   const [progress, setProgress] = useState<DownloadProgress>(EMPTY_PROGRESS);
@@ -48,14 +84,24 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
   const [error, setError] = useState<string | null>(null);
   const swMessageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
 
-  // Загружаем сохранённые метаданные при монтировании
+  // Загружаем сохранённые метаданные при монтировании — и проверяем их
+  // делом: запись «скачано» без тайлов в Cache Storage — это partial,
+  // а не cached. Система чистит кэш тайлов, не трогая IndexedDB.
   useEffect(() => {
     let cancelled = false;
-    getRegion(regionId).then((meta) => {
+    getRegion(regionId).then(async (meta) => {
+      if (cancelled || !meta) return;
+      setRegionMeta(meta);
+      const region = REGIONS[regionId];
+      const present = region ? await sampleTilesPresent(generateTileUrls(region.bbox)) : null;
       if (cancelled) return;
-      if (meta) {
-        setRegionMeta(meta);
-        setStatus('cached');
+      if (present === false) {
+        // Метаданные есть, тайлов нет: маршруты в IndexedDB живы, карта — нет.
+        setStatus('partial');
+      } else {
+        // Тайлы на месте (или проверить нечем — верим записи), но закачка
+        // могла пройти с потерями: это записано в самой записи.
+        setStatus((meta.tilesFailed ?? 0) > 0 ? 'partial' : 'cached');
       }
     });
     return () => { cancelled = true; };
@@ -132,7 +178,9 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
       setProgress({ done: 0, failed: 0, total: totalTiles, percent: 0 });
 
       // ── Шаг 5: Слушаем прогресс от SW ─────────────────────────────────
-      await new Promise<void>((resolve, reject) => {
+      // Промис отдаёт число НЕскачанных тайлов: ноль — пакет целый,
+      // больше нуля — частичный, и это различие обязано доехать до статуса.
+      const failedTiles = await new Promise<number>((resolve, reject) => {
         const handler = (event: MessageEvent) => {
           const data = event.data;
           if (!data || data.regionId !== regionId) return;
@@ -153,14 +201,11 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
               total: data.total,
               percent: 100,
             });
-            // Если тайлы не скачались — ошибка, а не "скачано"
+            // Если тайлы не скачались вовсе — ошибка, а не "скачано"
             if (data.failed > 0 && data.done === 0) {
               reject(new Error(`Тайлы не скачаны: ${data.failed} ошибок из ${data.total}`));
-            } else if (data.failed > 0) {
-              // Частичный успех — сохраняем но предупреждаем
-              resolve();
             } else {
-              resolve();
+              resolve(Number(data.failed) || 0);
             }
           }
         };
@@ -193,10 +238,13 @@ export function useOfflineRegion(regionId: RegionId): UseOfflineRegionReturn {
         tilesCount: totalTiles,
         routesCount: routesWithRegion.length,
         sizeBytes: 0, // точный размер — через StorageEstimate
+        tilesFailed: failedTiles,
       };
       await saveRegion(meta);
       setRegionMeta(meta);
-      setStatus('cached');
+      // Частичная закачка не становится «cached»: неполный пакет, выданный
+      // за готовый, обнаруживается уже в поле — без связи и без шанса дочитать.
+      setStatus(failedTiles > 0 ? 'partial' : 'cached');
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Неизвестная ошибка';

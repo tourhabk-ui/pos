@@ -26,6 +26,8 @@ export async function GET() {
       transport: 'streamable-http',
       endpoint: `${base}/api/mcp`,
       documentation: `${base}/llms.txt`,
+      // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
+      homepage: `${base}/mcp`,
       // Данные публичные, ключей не требуем — но и писать наружу нечего,
       // кроме заявки на подбор тура.
       authentication: 'none',

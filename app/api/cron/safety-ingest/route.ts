@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ingestAll, ingestFromHtml, ingestNewsFeeds, ingestTelegramNewsHtml, ingestMaxItems, ingestNewsFeedXmls, type ParseResult } from '@/lib/services/safety/seismic-parser';
 import { sourceReport, TRIGGER_LABEL, type IngestTrigger } from '@/lib/services/safety/ingest-outcome';
+import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
@@ -304,7 +305,11 @@ function buildResponse(
   durationMs: number,
   pushResult?: { dispatched: number; skipped: number; error?: string },
   trigger: IngestTrigger = 'workflow_post',
-  extras?: { delegated_to_heartbeat?: string[] },
+  extras?: { delegated_to_heartbeat?: string[]; telegramSeismicAgeMin?: number | null },
+  // Уборка могла не пройти — тогда приходит причина, а не результат. Приём
+  // от этого не страдает (см. safely), но молчать об ошибке нельзя: она
+  // должна быть видна в ответе, иначе чистка перестанет работать незаметно.
+  pruned?: PruneResult | { error: string },
 ) {
   const errors = [
     ...ingestResult.kbgsras.errors,
@@ -317,6 +322,7 @@ function buildResponse(
     ...(ingestResult.firms?.errors ?? []),
     ...(rtStatus.error ? [rtStatus.error] : []),
     ...(pushResult?.error ? [pushResult.error] : []),
+    ...(pruned && 'error' in pruned ? [pruned.error] : []),
   ];
   // Кто из двух планировщиков это и что случилось с каждым источником.
   // Разбор #883: `inserted: 0` у ВК читался как «канал МЧС молчит», а означал
@@ -405,21 +411,95 @@ function buildResponse(
     } : undefined,
     total_inserted: ingestResult.total_inserted,
     real_time_updated: rtStatus.updated,
+    // Сколько протухших по жанру записей снято этим прогоном. Ноль здесь —
+    // «проверено, чисто», а не «не проверяли»: поле есть всегда.
+    pruned_genres: pruned ?? null,
     push_alerts_dispatched: pushResult?.dispatched ?? 0,
     // #883 (A): источники, которых в этом ответе НЕТ числами, потому что их
     // обслуживает heartbeat-GET. Явный список вместо вводящих в заблуждение
     // «inserted: 0» после того, как heartbeat уже забрал те же посты.
     delegated_to_heartbeat: extras?.delegated_to_heartbeat,
+    // Возраст последней доставки от воркфлоу, минут. Цифра в ответе, а не
+    // только в алерте: чтобы задержку сейсмо-канала можно было ПОСМОТРЕТЬ,
+    // не дожидаясь, пока она перевалит порог. `null` — доставок в журнале
+    // нет; это разные вещи с «доставка была только что», и путать их нельзя.
+    telegram_seismic_age_min: extras?.telegramSeismicAgeMin,
     errors: errors.length > 0 ? errors : undefined,
   });
 }
 
-function logHeartbeat(startedAt: Date, durationMs: number, totalInserted: number, pushDispatched: number): void {
+/**
+ * Выполнить служебный шаг так, чтобы он не мог уронить приём.
+ *
+ * Возвращает результат либо `{ error }`. Ошибка попадает в ответ и в лог, но
+ * не наверх: тревога 14.08 показала, чем это кончается — падение уборки
+ * стирает heartbeat, и монитор объявляет молчание сейсмо-приёма, хотя данные
+ * приняты. Свидетельство работы дороже результата уборки.
+ */
+async function safely<T>(step: string, fn: () => Promise<T>): Promise<T | { error: string }> {
+  try {
+    return await fn();
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`[safety-ingest] шаг «${step}» не прошёл:`, error.slice(0, 200));
+    return { error: `${step}: ${error.slice(0, 200)}` };
+  }
+}
+
+/**
+ * Запись heartbeat. Провал записи НЕ глотается молча.
+ *
+ * Здесь стояло `.catch(() => {})`. Это ровно тот дефект, который весь день
+ * ловим, только в самом чувствительном месте: если INSERT не пройдёт, монитор
+ * доложит «сейсмо-ингест молчит» — и снова покажет не туда, а в логе не
+ * останется ни следа о том, что приём был и запись о нём не легла.
+ *
+ * Бросить наверх нельзя: тогда сбой журнала уронил бы приём, а это уже пройдено
+ * (тревога 3805 минут). Поэтому ошибка называется в логе и не идёт дальше.
+ */
+function logHeartbeat(
+  startedAt: Date,
+  durationMs: number,
+  totalInserted: number,
+  pushDispatched: number,
+  // Кто именно отработал. Без этого GET и POST в журнале НЕРАЗЛИЧИМЫ, и
+  // вопрос «когда воркфлоу последний раз доставил сейсмику» неотвечаем в
+  // принципе: строки одинаковые. А это и есть тот вопрос, задержку которого
+  // мы весь день не видели — узнали о ней случайно, разбирая другой сбой.
+  trigger: IngestTrigger,
+): void {
   pool.query(
     `INSERT INTO agent_run_history (agent_id, status, started_at, ended_at, duration_ms, items_created, metadata)
      VALUES ('safety-ingest', 'success', $1, NOW(), $2, $3, $4)`,
-    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched })],
-  ).catch(() => {});
+    [startedAt, durationMs, totalInserted, JSON.stringify({ push_dispatched: pushDispatched, trigger })],
+  ).catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[safety-ingest] heartbeat НЕ записан:', msg.slice(0, 200));
+  });
+}
+
+/**
+ * Минут с последней доставки сейсмики от воркфлоу. `null` — доставок в журнале
+ * нет вовсе; это НЕ то же самое, что «только что», и путать их нельзя.
+ *
+ * Считается до записи heartbeat текущего прогона не по замыслу, а по факту
+ * порядка вызовов — и это не важно: GET никогда не пишет workflow_post.
+ */
+async function telegramSeismicAgeMin(): Promise<number | null> {
+  try {
+    const { rows } = await pool.query<{ last_post: string | null }>(
+      `SELECT MAX(ended_at)::text AS last_post
+         FROM agent_run_history
+        WHERE agent_id = 'safety-ingest'
+          AND metadata->>'trigger' = 'workflow_post'
+          AND ended_at > NOW() - INTERVAL '7 days'`,
+    );
+    const last = rows[0]?.last_post ?? null;
+    if (!last) return null;
+    return Math.round((Date.now() - new Date(last).getTime()) / 60_000);
+  } catch {
+    return null;
+  }
 }
 
 // GET — сервер сам тянет t.me (fallback если хостинг разблокирован)
@@ -435,12 +515,36 @@ export async function GET(req: Request) {
     firms: firmsResult,
     total_inserted: ingestAllResult.total_inserted + firmsResult.inserted,
   };
+  // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
+  // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
+  // старой записи — репортаж «спасатели обеспечили безопасность тургруппы».
+  // Страж этот глагол знает, но запись попала в базу раньше него, а ручная
+  // чистка (миграция 846) шла своим списком глаголов на SQL и до «обеспечила
+  // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
+  // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
+  // он разложит отбракованное по точкам заново.
+  //
+  // ── Почему в try, а не голым await ─────────────────────────────────────
+  //
+  // Тревога 14.08: «сейсмо-ингест молчит 3805 минут» при SLA в пять. Приём
+  // при этом мог отработать: heartbeat пишется НИЖЕ по коду, и любое падение
+  // между приёмом и записью стирает не данные, а СВИДЕТЕЛЬСТВО того, что
+  // приём был. Монитор видит тишину и объявляет молчание.
+  //
+  // Уборка не имеет права убивать приём. Сейсмика — безопасность людей,
+  // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
+  // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
+  const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'heartbeat_get');
+  // kbgsras и eqkam здесь НЕ пишутся. t.me для хостинга гео-закрыт — heartbeat
+  // их получить не может по построению, и его запись «пусто» каждые пять минут
+  // делала канал вечно свежим на вид независимо от того, доставил воркфлоу или
+  // нет. Владение здоровьем этих двух отдано POST'у: тогда их last_run_at
+  // означает ровно «когда воркфлоу принёс», и задержка становится видимой.
+  // Обратная сторона той же меры уже есть — delegated_to_heartbeat в POST.
   await watchSourceHealth([
-    entryFor('kbgsras', 'КБГС РАН (сейсмо)', ingestResult.kbgsras),
-    entryFor('eqkam', 'EMSD/EQKam (сейсмо)', ingestResult.eqkam),
     entryFor('mchs_rss', 'МЧС RSS (41.mchs)', ingestResult.mchs),
     entryFor('vk_mchs', 'VK — МЧС Камчатки', ingestResult.vk, { requiresEnv: 'VK_SERVICE_TOKEN' }),
     entryFor('max_mchs', 'MAX — МЧС Камчатки', undefined, { notFetched: true }),
@@ -450,7 +554,8 @@ export async function GET(req: Request) {
     entryFor('firms', 'NASA FIRMS (пожары)', firmsResult, { requiresEnv: 'FIRMS_MAP_KEY' }),
   ]);
   // GET дёргает супервизор start.js каждые 5 минут — он и есть heartbeat.
-  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get');
+  return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'heartbeat_get',
+    { telegramSeismicAgeMin: await telegramSeismicAgeMin() }, pruned);
 }
 
 const HtmlBodySchema = z.object({
@@ -553,9 +658,29 @@ export async function POST(req: Request) {
     total_inserted: telegramResult.total_inserted
       + newsResult.inserted + (minecResult?.inserted ?? 0) + (maxResult?.inserted ?? 0),
   };
+  // Жанровые стражи применяются и к уже лежащему, а не только на приёме.
+  // Перепись 11.08: 137 маршрутов из 421 стояли «Не сегодня» из-за одной
+  // старой записи — репортаж «спасатели обеспечили безопасность тургруппы».
+  // Страж этот глагол знает, но запись попала в базу раньше него, а ручная
+  // чистка (миграция 846) шла своим списком глаголов на SQL и до «обеспечила
+  // безопасность» не доросла. Два списка об одном правиле разошлись; теперь
+  // список один, и хранилище догоняет само. ДО updateRealTimeStatus — иначе
+  // он разложит отбракованное по точкам заново.
+  //
+  // ── Почему в try, а не голым await ─────────────────────────────────────
+  //
+  // Тревога 14.08: «сейсмо-ингест молчит 3805 минут» при SLA в пять. Приём
+  // при этом мог отработать: heartbeat пишется НИЖЕ по коду, и любое падение
+  // между приёмом и записью стирает не данные, а СВИДЕТЕЛЬСТВО того, что
+  // приём был. Монитор видит тишину и объявляет молчание.
+  //
+  // Уборка не имеет права убивать приём. Сейсмика — безопасность людей,
+  // чистка жанров — гигиена витрины; когда второе роняет первое, порядок
+  // важности перевёрнут. Ошибка называется в ответе и не мешает работать.
+  const pruned = await safely('prune', () => pruneRejectedGenres(query));
   const [rtStatus, pushResult] = await Promise.all([updateRealTimeStatus(), dispatchPushAlerts()]);
   const durationMs = Date.now() - t0;
-  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched);
+  logHeartbeat(startedAt, durationMs, ingestResult.total_inserted, pushResult.dispatched, 'workflow_post');
   // ЛОВУШКА из #883, решённая ПО ПОСТРОЕНИЮ: делегированные источники
   // (vk_mchs, mchs_rss, firms) здесь НЕ упоминаются вовсе — ни ok, ни
   // not_fetched. Отсутствие записи не трогает их строку в
@@ -572,5 +697,5 @@ export async function POST(req: Request) {
   // POST приходит из GitHub Actions с данными, которые сервер не достаёт сам.
   return buildResponse(ingestResult, rtStatus, durationMs, pushResult, 'workflow_post', {
     delegated_to_heartbeat: ['mchs_rss', 'usgs', 'vk_mchs', 'firms'],
-  });
+  }, pruned);
 }

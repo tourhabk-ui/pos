@@ -57,6 +57,7 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/faq': ['GET'],              // FAQ (публичная)
   '/api/photos': ['GET'],            // загруженные фото из /tmp (Timeweb production)
   '/api/analytics/hit': ['POST'],    // трекинг просмотров страниц (без авторизации)
+  '/api/funnel': ['POST'],           // маяк воронки — публичный by design (rate-limit + bot-detect внутри); Edge молча резал его 401, и funnel_events был пуст для всех гостей (сквозной прогон 14.08)
   '/api/payments/webhook': ['POST'],                    // CloudPayments webhook — HMAC validated inside
   '/api/payments/tochka/webhook': ['POST'],             // СБП-вебхук Точки — факт оплаты подтверждается обратным запросом в банк
   '/api/hub/operator/payments/webhook': ['POST'],       // CloudPayments webhook for operator tours — HMAC validated inside
@@ -67,6 +68,11 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/places': ['GET'],                 // карточка точки/локации (публичная)
   '/api/places/*/safety-report': ['GET', 'POST'], // UGC safety report (анонимный POST)
   '/api/trips/share': ['GET'],            // публичный просмотр маршрута по share_token
+  // Брифинг похода: контакт вне маршрута читает план и время возврата по
+  // ссылке, не заводя аккаунт. POST создаёт ссылку анонимно (подготовка не
+  // требует регистрации) — внутри Zod и rate-limit. Координат и контактных
+  // ПД в снимке нет по устройству схемы (миграция 870).
+  '/api/preparation/share': ['GET', 'POST'],
   '/api/collections': ['GET'],            // публичные подборки мест и маршрутов
   '/api/trending': ['GET'],               // популярные места и маршруты
   '/api/channels/avito/feed':  ['GET'], // Avito Autoload XML feed — публичный

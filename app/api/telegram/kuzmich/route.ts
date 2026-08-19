@@ -19,6 +19,7 @@ import { findOperatorByChatId, processOperatorMessage, registerOperatorChatId } 
 import { PlatformAgent } from '@/lib/agents';
 import { pool } from '@/lib/db-pool';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
+import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { getSetting } from '@/lib/platform-settings';
 
 export const dynamic = 'force-dynamic';
@@ -104,6 +105,50 @@ async function tgAnswerCallback(callbackQueryId: string, text?: string): Promise
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
   }).catch(() => {});
+}
+
+// ── Действия по лиду из уведомления (#65) ─────────────────────────────────────
+//
+// Владелец одобряет предложение прямо в мессенджере. Право нажатия проверено
+// вызывающим (сообщение принадлежит админ-чату). Идемпотентность — на стороне
+// доставки: статус proposal_sent не даст отправить клиенту дважды, сколько бы
+// раз ни нажали и сколько бы раз Telegram ни повторил апдейт.
+async function handleLeadAction(
+  action: string,
+  leadId: string,
+  callbackId: string,
+  chatId: number,
+): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(leadId)) {
+    await tgAnswerCallback(callbackId, 'Неверный идентификатор лида');
+    return;
+  }
+
+  try {
+    if (action === 'lead_send') {
+      const { sendProposalToClient } = await import('@/lib/leads/proposal-delivery');
+      const outcome = await sendProposalToClient(leadId);
+      await tgAnswerCallback(callbackId, outcome.message.slice(0, 200));
+      if (outcome.ok) await tgReply(chatId, `Предложение ушло клиенту. ${outcome.message}`);
+      return;
+    }
+
+    if (action === 'lead_ai') {
+      await tgAnswerCallback(callbackId, 'Запустил AI-обработку');
+      const { leadProcessor } = await import('@/lib/services/operators/lead-processor.service');
+      const { notifyOperatorProposal } = await import('@/lib/notifications/lead-notify');
+      // Предложение придёт отдельным уведомлением — уже с кнопкой отправки.
+      const proposal = await leadProcessor.process(leadId);
+      await notifyOperatorProposal(proposal);
+      return;
+    }
+
+    await tgAnswerCallback(callbackId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Ошибка';
+    await tgAnswerCallback(callbackId, 'Не получилось');
+    await tgReply(chatId, `Действие по лиду не выполнено: ${msg.slice(0, 300)}`);
+  }
 }
 
 // ── /start с клавиатурой быстрых тем ──────────────────────────────────────────
@@ -399,6 +444,23 @@ interface TgUpdate {
 // ── POST: Webhook ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Подлинность webhook. Второй слой к проверке выше по коду: секрет — это
+  // единственное, что в запросе нельзя подделать, тогда как from.id и chat.id
+  // пишет тот, кто стучится. Свой секрет на бота, не общий: один секрет на два
+  // бота означает, что компрометация одного открывает второго.
+  //
+  // Не задан — работаем и говорим об этом. Fail-closed остановил бы Кузьмича
+  // для всех туристов до правки окружения, а он в том числе отвечает про
+  // безопасность на маршруте.
+  const verdict = verifyWebhookSecret(
+    request.headers.get('x-telegram-bot-api-secret-token'),
+    process.env.TELEGRAM_KUZMICH_WEBHOOK_SECRET,
+  );
+  if (verdict === 'forbidden') return new NextResponse(null, { status: 401 });
+  if (verdict === 'not_configured') {
+    console.error('[telegram/kuzmich] TELEGRAM_KUZMICH_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
+  }
+
   try {
     const update = await request.json() as TgUpdate;
 
@@ -431,6 +493,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           mode: 'tourist', createdVia: 'telegram_inline',
           pending, reply: tgReply, platform: 'tg',
         });
+      } else if (cq.data.startsWith('lead_send:') || cq.data.startsWith('lead_ai:')) {
+        // Действия по лиду (#65). Право нажатия — принадлежность сообщения
+        // админ-чату, которому это уведомление и адресовано: from.id прислал
+        // бы кто угодно, а chat сообщения с кнопкой подделать нельзя.
+        const adminChat = process.env.TELEGRAM_CHAT_ID ?? '';
+        if (!adminChat || String(chatId) !== adminChat) {
+          await tgAnswerCallback(cq.id, 'Действие доступно только в рабочем чате');
+        } else {
+          const [action, leadId] = cq.data.split(':');
+          await handleLeadAction(action, leadId ?? '', cq.id, chatId);
+        }
       } else {
         await tgAnswerCallback(cq.id);
       }
@@ -464,13 +537,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const isGroup   = chatType === 'group' || chatType === 'supergroup';
 
     // ── Владелец в личке → admin pipeline ─────────────────────────────────
+    //
+    // Ветка открывает PlatformAgent с role:'admin' и публикацию в канал, а
+    // условие входа — `fromId === ownerId`, где `from.id` приходит В ТЕЛЕ
+    // ЗАПРОСА. Ответ раньше уходил в `msg.chat.id`, тоже из тела: подделав оба
+    // поля, посторонний получал admin-ответы себе в чат. Это тот же дефект,
+    // что закрыт в /api/telegram/admin; чинить одну дверь из двух — не чинить
+    // (сама находка #1158 предупреждала: «иначе дыра просто переезжает»).
+    //
+    // Адресат — ownerId. Для владельца в личке это то же число, что chat.id,
+    // поэтому его работа не меняется; для подделки — данные уходят владельцу,
+    // а не тому, кто их запросил. Обычные (не-владельческие) ветки ниже
+    // по-прежнему отвечают в chat.id: Кузьмич — публичный бот, и там это
+    // единственный правильный адрес.
     if (isPrivate && fromId === ownerId && msg.text) {
       const text = msg.text.trim();
       const cmd  = text.split(' ')[0]?.toLowerCase() ?? '';
       if (cmd.startsWith('/approve_') || cmd.startsWith('/reject_')) {
-        await handleApproval(cmd, chatId);
+        await handleApproval(cmd, ownerId);
       } else {
-        await handleOwnerCommand(cmd, text, chatId);
+        await handleOwnerCommand(cmd, text, ownerId);
       }
       return NextResponse.json({ ok: true });
     }

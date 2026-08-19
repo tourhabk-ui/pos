@@ -15,6 +15,7 @@
 import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { query } from '@/lib/database';
+import { lineGradeForList, type PassportGrade } from '@/lib/routes/passport';
 
 function isImageUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
@@ -159,6 +160,12 @@ export interface CatalogItem {
   hazards: string[];
   /** Живой статус точки из location_real_time_status; null — данных нет */
   isOpen: boolean | null;
+  /**
+   * Род навигационных данных маршрута для бейджа в списке выбора
+   * (Трек / Набросок / Линия не проверена / Точки). Считается по реальной
+   * geometry из kamchatka_routes, не по payload. null — не маршрут.
+   */
+  lineGrade: PassportGrade | null;
 }
 
 export interface CatalogResult {
@@ -218,16 +225,34 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     idx++;
   }
   if (has_waypoints === 'true') {
-    // Точки должны быть И компактными: bbox вейпоинтов ≤ ~55 км. Мега-сборники
-    // «35 мест по всему краю» имеют waypoints, но их синтетическая геометрия —
-    // паутина прямых через весь Петропавловск (полевой скрин 20.07), это не
-    // проходимый трек и в навигацию попадать не должно.
+    // Точек должно быть НЕ МЕНЬШЕ ДВУХ и они должны быть компактными.
+    //
+    // Две — потому что путь начинается и заканчивается: одна точка задаёт
+    // место, а не маршрут. Проверка 16.08 нашла в выдаче «Восхождение на
+    // Авачинский вулкан» с единственной точкой, подписанное «14 км · Средний»:
+    // экран честно печатал «Вулкан Авачинский → Вулкан Авачинский», то есть
+    // предлагал идти из точки в неё же. Прежнее EXISTS пропускало такую
+    // запись — «есть хоть одна точка» и «есть маршрут» это разные факты.
+    //
+    // Компактность (bbox ≤ ~55 км) отсекает мега-сборники: «35 мест по всему
+    // краю» имеют waypoints, но их синтетическая геометрия — паутина прямых
+    // через весь Петропавловск (полевой скрин 20.07), это не проходимый трек.
+    //
+    // Считаем ТОЛЬКО точки с координатами: точка без lat/lng на карте не
+    // существует, и пара, где одна половина безкоординатная, — та же одна.
+    //
+    // route_waypoints.route_id живёт на kamchatka_routes.id, а id VIEW для
+    // маршрутов — COALESCE(ark_id, id): точки ищутся через строку маршрута
+    // по обоим id, иначе маршрут с заполненным ark_id невидим для навигации.
     conditions.push(
-      `EXISTS (SELECT 1 FROM route_waypoints rwx WHERE rwx.route_id = ark.id)
-       AND (SELECT (MAX(p.lat) - MIN(p.lat)) <= 0.5 AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
-            FROM route_waypoints rwx2
-            JOIN places p ON p.id = rwx2.place_id
-            WHERE rwx2.route_id = ark.id AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
+      `(SELECT COUNT(*) >= 2
+              AND (MAX(p.lat) - MIN(p.lat)) <= 0.5
+              AND (MAX(p.lng) - MIN(p.lng)) <= 0.8
+          FROM kamchatka_routes kw2
+          JOIN route_waypoints rwx2 ON rwx2.route_id = kw2.id
+          JOIN places p ON p.id = rwx2.place_id
+          WHERE (kw2.id = ark.id OR kw2.ark_id = ark.id)
+            AND p.lat IS NOT NULL AND p.lng IS NOT NULL)`,
     );
   }
   if (near_lat != null && near_lng != null && radius_km != null) {
@@ -243,22 +268,46 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  /**
+   * ВСЕ колонки в ORDER BY квалифицированы через ark — включая те, что
+   * годами работали без префикса.
+   *
+   * 16.08, SQLSTATE 42702: `column reference "description" is ambiguous`.
+   * Каталог отдавал 503, планировщик открывался пустым. Рядом стояло голое
+   * `title ASC` и не падало — разница в правиле разрешения имён: голое имя
+   * в ORDER BY Postgres ищет сначала среди ВЫХОДНЫХ колонок SELECT, а имя
+   * ВНУТРИ выражения (`length(COALESCE(description, ''))`) резолвит по
+   * таблицам FROM. Там `description` есть и у `ark`, и у присоединённой
+   * `kamchatka_routes krl` — отсюда неоднозначность.
+   *
+   * Тонкость в том, что падает не «ветка маршрутов», а сортировка
+   * `recommended`: только она содержит выражения с голыми именами. Место с
+   * сортировкой по умолчанию (`title ASC`) работало, и это маскировало
+   * поломку — диагностика, спрашивавшая только `kind=place`, отвечала
+   * «здоров».
+   *
+   * Это третий случай подряд (`is_visible` — проба 84, теперь `description`),
+   * и каждый раз ломалось при добавлении JOIN, а не при правке сортировки.
+   * Поэтому префикс ставится везде, а не только там, где сейчас больно:
+   * следующий JOIN не должен ронять каталог.
+   */
   const orderBy =
-    sort === 'recent'      ? 'created_at DESC' :
-    sort === 'price_asc'   ? 'COALESCE((payload->>\'price_from\')::numeric, 999999999) ASC, title ASC' :
-    sort === 'price_desc'  ? 'COALESCE((payload->>\'price_from\')::numeric, 0) DESC, title ASC' :
+    sort === 'recent'      ? 'ark.created_at DESC' :
+    sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
+    sort === 'price_desc'  ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 0) DESC, ark.title ASC' :
     sort === 'recommended' ? `(
-      CASE WHEN payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
-      CASE WHEN payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
+      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
+      CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
     ) DESC,
     -- Качество карточки: у туров/маршрутов порядок задаёт сумма выше (у них есть
     -- цена/сложность), а у мест она всегда 0 — поэтому места ранжируются дальше
     -- по «презентабельности»: есть фото -> значимый тип -> богатое описание.
     -- Так первый экран /places перестаёт быть алфавитным («300-летняя берёза»).
+    -- has_real_image — вычисленная колонка SELECT, своей таблицы у неё нет.
     has_real_image DESC,
-    CASE location_type
+    CASE ark.location_type
       WHEN 'volcano'    THEN 6 WHEN 'geyser'  THEN 6
       WHEN 'hot_spring' THEN 5 WHEN 'lake'    THEN 5
       WHEN 'waterfall'  THEN 4 WHEN 'bay'     THEN 4
@@ -266,9 +315,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       WHEN 'viewpoint'  THEN 2
       ELSE 1
     END DESC,
-    length(COALESCE(description, '')) DESC,
-    title ASC` :
-    'title ASC';
+    length(COALESCE(ark.description, '')) DESC,
+    ark.title ASC` :
+    'ark.title ASC';
 
   const [dataResult, countResult] = await Promise.all([
     query(
@@ -298,10 +347,20 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          -- не идут — вместо них честный градиент (решение владельца 2026-07-17)
          (ari.route_id IS NOT NULL AND ari.model IN ('wikimedia', 'manual-upload')) AS has_real_image,
          -- Живой статус места (открыто/закрыто) — свойство точки, не тура
-         lrs.is_open
+         lrs.is_open,
+         -- Род навигационных данных маршрута: РЕАЛЬНАЯ geometry из
+         -- kamchatka_routes (payload->'geometry' — метаданные, не линия).
+         -- Строка маршрута ищется по обоим id: id VIEW = COALESCE(ark_id, id).
+         (krl.geometry IS NOT NULL)  AS has_line,
+         krl.geometry->>'source'     AS geometry_source,
+         (krl.id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM route_waypoints rww WHERE rww.route_id = krl.id
+         )) AS has_route_waypoints
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
+       LEFT JOIN kamchatka_routes krl
+         ON ark.kind = 'route' AND (krl.id = ark.id OR krl.ark_id = ark.id)
        ${where}
        ORDER BY ${orderBy}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -346,6 +405,13 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       hasRealImage,
       hazards:      resolveHazards(r),
       isOpen:       (r.is_open as boolean | null) ?? null,
+      lineGrade:    ((r.kind as string | null) ?? 'place') === 'route'
+        ? lineGradeForList(
+            Boolean(r.has_line),
+            (r.geometry_source as string | null) ?? null,
+            Boolean(r.has_route_waypoints),
+          )
+        : null,
     };
   });
 

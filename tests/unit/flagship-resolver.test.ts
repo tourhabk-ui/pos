@@ -77,3 +77,120 @@ describe('структурно: флагман не прибит к id, идёт
     expect(route).toMatch(/pickBestFlagship\(flagshipIds\)/);
   });
 });
+
+/**
+ * Флагман выбирается среди ВСЕХ доступных, а не только Anthropic.
+ *
+ * До 19.08 `resolveFlagshipModel` спрашивал список моделей у Anthropic и
+ * приклеивал префикс `anthropic/`. Комментарий над функцией обещал
+ * «Claude/GPT», но модель другого поставщика не могла быть выбрана ПО
+ * ПОСТРОЕНИЮ — ни за какую цену и ни при какой силе. Оценщик
+ * `pickBestFlagship` при этом всегда был провайдеро-независим: он просто
+ * никогда не видел чужих моделей.
+ *
+ * Заметно это стало, когда пришло письмо о скидке на модель OpenAI: подключать
+ * её было бы некуда. Правильный ответ не в том, чтобы прибить нужный id
+ * (§8 это прямо запрещает), а в том, чтобы каталог для выбора был полным.
+ */
+describe('каталог для выбора флагмана полон', () => {
+  const SRC = readFileSync('lib/ai/providers.ts', 'utf-8');
+
+  it('резолвер спрашивает каталог OpenRouter — там все поставщики', () => {
+    const fn = SRC.slice(SRC.indexOf('export async function resolveFlagshipModel'));
+    expect(fn.slice(0, 1400)).toMatch(/getOpenRouterModelIds\(\)/);
+  });
+
+  it('Anthropic остаётся запасным путём, а не единственным', () => {
+    const fn = SRC.slice(SRC.indexOf('export async function resolveFlagshipModel'));
+    const body = fn.slice(0, 1600);
+    expect(body).toMatch(/getAnthropicModelIds\(\)/);
+    // Порядок важен: путь вызова флагмана — OpenRouter, и выбирать надо из
+    // того, что по этому пути достижимо.
+    expect(body.indexOf('getOpenRouterModelIds')).toBeLessThan(body.indexOf('getAnthropicModelIds'));
+  });
+
+  it('второй префикс поставщика не приклеивается', () => {
+    // Каталог OpenRouter уже несёт `openai/…`, `anthropic/…`. Ещё один
+    // префикс дал бы `anthropic/openai/gpt-…` — модель, которой нет.
+    const fn = SRC.slice(SRC.indexOf('export async function resolveFlagshipModel'));
+    const routedBlock = fn.slice(0, fn.indexOf('getAnthropicModelIds'));
+    expect(routedBlock).not.toMatch(/`anthropic\/\$\{pickedRouted\}`/);
+  });
+
+  it('внутри поставщика выбирается сильнейший — и это измеримо', () => {
+    const catalog = [
+      'anthropic/claude-opus-4-5', 'anthropic/claude-opus-5', 'anthropic/claude-haiku-4-5',
+      'openai/gpt-5', 'openai/gpt-6', 'openai/gpt-6-mini',
+    ];
+    expect(pickBestFlagship(catalog, 'anthropic/')).toBe('anthropic/claude-opus-5');
+    expect(pickBestFlagship(catalog, 'openai/')).toBe('openai/gpt-6');
+  });
+
+  it('МЕЖДУ поставщиками оценщик не судит — и это не недоделка', () => {
+    // Лестница тиров калибрована под имена Anthropic: слово opus даёт высокий
+    // тир, а простой gpt-N попадает в нейтральный и проигрывает даже более
+    // старой версии. Починить «поровну» невозможно: сила модели ПО ИМЕНИ не
+    // выводится, а `gpt-6` против `claude-5` — числа разных вендоров.
+    //
+    // Тест закрепляет ГРАНИЦУ: смешанный каталог без указания поставщика даёт
+    // результат, на который полагаться нельзя. Поэтому резолвер всегда задаёт
+    // семейство, а выбор поставщика — решение владельца.
+    const mixed = ['anthropic/claude-opus-4-5', 'openai/gpt-6'];
+    expect(pickBestFlagship(mixed)).toBe('anthropic/claude-opus-4-5');
+  });
+
+  it('поставщик задаётся переменной, а не правкой кода', () => {
+    expect(SRC).toMatch(/EVO_DECISION_FLAGSHIP_VENDOR/);
+    // По умолчанию — тот, на котором платформа работала до сих пор.
+    expect(SRC).toMatch(/EVO_DECISION_FLAGSHIP_VENDOR \|\| 'anthropic'/);
+  });
+
+  it('«ключа нет» и «ответа нет» — разные причины в логе', () => {
+    // Отчёт 19.08 сорок шесть раз повторил «пустой ответ или нет ключа/релея»,
+    // не сказав, что именно. Заводится ключ в секретах — одно лечение, кончились
+    // деньги или закрыто гео — совсем другое.
+    // Границы уникальные: `const antKey = getAnthropicKey()` встречается в
+    // файле дважды, и срез по первому вхождению выворачивался наизнанку.
+    const from = SRC.indexOf('// 0) Флагман');
+    const leg = SRC.slice(from, SRC.indexOf('const antKey = getAnthropicKey()', from));
+    expect(leg).toMatch(/OPENROUTER_API_KEY не задан/);
+    expect(leg).toMatch(/ключ есть, ответа нет/);
+    // Запрет проверяется по КОДУ, без комментариев: пояснение к правке цитирует
+    // старую строку, и сторож ловил сам себя. Ровно на этом уже попадался
+    // reviews-two-subjects — там объяснение в шапке миграции считалось DDL.
+    const codeOnly = leg.replace(/\/\/.*$/gm, '');
+    expect(codeOnly).not.toMatch(/пустой ответ или нет ключа/);
+  });
+
+  it('прямая ступень Anthropic берёт имя из каталога Anthropic', () => {
+    // Разные каталоги — разные имена; общего у них только поставщик.
+    // resolveFlagshipModel при живом ключе OpenRouter выбирает id из ЕГО
+    // каталога (слаги вида `anthropic/claude-opus-4.6`). Снятие префикса даёт
+    // `claude-opus-4.6`, а api.anthropic.com знает `claude-opus-4-8`: запрос
+    // отвечает 400 за доли секунды, и отчёт читается как «Anthropic молчит»
+    // при живом ключе с оплаченным Opus.
+    const end = SRC.indexOf('// 1) DeepSeek');
+    const leg = SRC.slice(SRC.lastIndexOf('const antKey = getAnthropicKey()', end), end);
+    expect(leg).toMatch(/getAnthropicModelIds\(\)/);
+    expect(leg).toMatch(/pickBestFlagship\(antIds\)/);
+    // Снятие префикса остаётся ТОЛЬКО как запасной путь на случай пустого
+    // каталога — и о том, что он пуст, сказано вслух.
+    expect(leg).toMatch(/каталог моделей пуст/);
+  });
+
+  it('имя модели названо в причине отказа', () => {
+    // Без него «anthropic: HTTP 400» неотличимо от отказа по ключу — именно
+    // на этом разбор находок простоял четверо суток (16-19.08).
+    const end = SRC.indexOf('// 1) DeepSeek');
+    const leg = SRC.slice(SRC.lastIndexOf('const antKey = getAnthropicKey()', end), end);
+    expect(leg).toMatch(/anthropic\(\$\{antModel\}\): HTTP/);
+    expect(leg).toMatch(/anthropic\(\$\{antModel\}\): пустой ответ/);
+  });
+
+  it('привязки к конкретному id нет', () => {
+    // §8: подбор идёт оценкой, а не перечнем. Скидка на конкретную модель —
+    // повод проверить каталог, а не прибить id в коде.
+    const fn = SRC.slice(SRC.indexOf('export async function resolveFlagshipModel'), SRC.indexOf('export async function resolveFlagshipModel') + 1600);
+    expect(fn).not.toMatch(/gpt-5\.6|gpt-5-6|provider.*only/i);
+  });
+});

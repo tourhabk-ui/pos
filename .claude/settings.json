@@ -1,4 +1,9 @@
 {
+  "statusLine": {
+    "type": "command",
+    "command": "bash .claude/statusline.sh",
+    "padding": 0
+  },
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
@@ -67,6 +72,18 @@
             "timeout": 30,
             "statusMessage": "TypeScript...",
             "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/open-issues.sh",
+            "timeout": 20,
+            "statusMessage": "Очередь issues..."
           }
         ]
       }

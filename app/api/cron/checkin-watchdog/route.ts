@@ -40,11 +40,22 @@ interface RegRow {
 async function sendTelegram(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
-  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-  }).catch(() => {});
+  // `.catch()` на промисе ловил только сетевой отказ. Сам вызов `fetch` может
+  // бросить СИНХРОННО — например, на кривом TELEGRAM_API_BASE, — и тогда
+  // ловить уже нечего: исключение уходит выше, и следующая строка вызывающего
+  // (`recordNotification`) не выполняется. Шаг эскалации не записывается, и
+  // просроченный турист остаётся на том же шаге до следующего прогона.
+  try {
+    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    });
+  } catch {
+    // Отправка — не единственный канал: шаг всё равно будет записан
+    // вызывающим, и эскалация продолжится. Молчать здесь безопасно ровно
+    // потому, что запись идёт отдельной строкой.
+  }
 }
 
 async function recordNotification(
@@ -134,8 +145,15 @@ export async function GET(req: Request) {
   let processed = 0;
   let escalated = 0;
 
+  /**
+   * Сколько туристов не удалось обработать. Не «ошибки» вообще, а именно
+   * пропущенные ЛЮДИ: цифра идёт в ответ и в журнал прогонов.
+   */
+  let failed = 0;
+
   for (const reg of rows) {
     processed++;
+   try {
 
     const tripKind = reg.trip_kind ?? tripKindFromDates(new Date(reg.start_date), new Date(reg.end_date));
     const controlTime = resolveControlTime(new Date(reg.end_date), reg.expected_return_at ? new Date(reg.expected_return_at) : null);
@@ -178,8 +196,37 @@ export async function GET(req: Request) {
     }
 
     escalated++;
+    } catch (err) {
+      /**
+       * Сбой на ОДНОМ туристе не отменяет остальных.
+       *
+       * До этого тело цикла не было защищено вовсе: любое исключение —
+       * отправка в Telegram, запись уведомления, недоступная база — роняло
+       * весь обработчик. А выборка идёт `ORDER BY expected_return_at ASC`,
+       * то есть первым обрабатывается САМЫЙ просроченный. Один сбойный
+       * человек хоронил очередь тех, кто за ним, и делал это молча: до
+       * recordCronRun выполнение не доходило, и крон выглядел не упавшим,
+       * а не запускавшимся.
+       *
+       * Для сторожа, который эскалирует невернувшихся туристов до МЧС, это
+       * худший из возможных отказов.
+       */
+      failed++;
+      console.error('[checkin-watchdog] турист не обработан', {
+        registrationId: reg.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
-  recordCronRun('checkin-watchdog', startedAt, 'success', { items: processed });
-  return NextResponse.json({ success: true, processed, escalated, ts: now.toISOString() });
+  // Пропущенные люди — это НЕ успех. Прогон, где кого-то не обработали,
+  // помечается failed: иначе сторож ляжет наполовину, а реестр кронов будет
+  // показывать здоровье.
+  recordCronRun(
+    'checkin-watchdog',
+    startedAt,
+    failed > 0 ? 'failed' : 'success',
+    { items: processed, ...(failed > 0 ? { error: `не обработано туристов: ${failed}` } : {}) },
+  );
+  return NextResponse.json({ success: failed === 0, processed, escalated, failed, ts: now.toISOString() });
 }

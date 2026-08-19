@@ -27,6 +27,9 @@ export default function RegionCard({ region }: RegionCardProps) {
 
   const isDownloading = status === 'fetching-routes' || status === 'caching-tiles';
   const isCached = status === 'cached';
+  // Частично скачанный регион — не «Скачан»: часть тайлов не легла в кэш
+  // или уже вычищена системой. Показываем это словами и предлагаем добрать.
+  const isPartial = status === 'partial';
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 flex flex-col gap-3">
@@ -46,6 +49,11 @@ export default function RegionCard({ region }: RegionCardProps) {
                 Скачан
               </span>
             )}
+            {isPartial && (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium shrink-0">
+                Скачан не полностью
+              </span>
+            )}
             {status === 'error' && (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 font-medium shrink-0">
                 Ошибка
@@ -60,7 +68,7 @@ export default function RegionCard({ region }: RegionCardProps) {
 
       {/* Info row */}
       <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] flex-wrap">
-        {isCached && regionMeta ? (
+        {(isCached || isPartial) && regionMeta ? (
           <>
             {/* ПОСЛЕ скачивания: реальные цифры */}
             <span className="flex items-center gap-1">
@@ -136,9 +144,16 @@ export default function RegionCard({ region }: RegionCardProps) {
         </p>
       )}
 
+      {/* Partial warning — на неполную карту нельзя полагаться в поле */}
+      {isPartial && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
+          Часть карты отсутствует в телефоне — обновите регион, пока есть связь
+        </p>
+      )}
+
       {/* Action button */}
       <div className="flex gap-2 mt-auto">
-        {!isCached && !isDownloading && (
+        {!isCached && !isPartial && !isDownloading && (
           <button
             onClick={download}
             disabled={isDownloading}
@@ -161,7 +176,7 @@ export default function RegionCard({ region }: RegionCardProps) {
           </div>
         )}
 
-        {isCached && (
+        {(isCached || isPartial) && (
           <>
             <button
               onClick={remove}

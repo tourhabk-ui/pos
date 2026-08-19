@@ -10,6 +10,7 @@ import {
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
   Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle,
 } from 'lucide-react';
+import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import TourReviewForm from '@/components/marketplace/TourReviewForm';
 import { photoSrc } from '@/lib/images/variant';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
@@ -243,6 +244,8 @@ function useDayStatus(): DayStatus | null {
         const data = (d as Record<string, unknown>).data;
         if (!data || typeof data !== 'object') return;
         const o = data as Record<string, unknown>;
+        // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
+        if (o.unavailable === true) return;
         setStatus({
           title: typeof o.topTitle === 'string' ? o.topTitle : null,
           source: typeof o.source === 'string' ? o.source : 'КБГС РАН',
@@ -353,6 +356,7 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
   const [wishlisted, setWishlisted] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [wishlistError, setWishlistError] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
@@ -396,9 +400,14 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
     } finally { setWishlistLoading(false); }
   }, [tour.id, wishlisted, wishlistLoading, router]);
 
-  const handleShare = useCallback(() => {
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      navigator.share({ title: tour.title, url: window.location.href }).catch(() => {});
+  // Была ветка «есть navigator.share — делимся, иначе НИЧЕГО»: на десктопном
+  // Firefox кнопка нажималась и не делала ровно ничего. Теперь исход всегда
+  // есть и всегда назван.
+  const handleShare = useCallback(async () => {
+    const outcome = await shareLink({ title: tour.title, url: window.location.href });
+    setShareStatus(shareOutcomeMessage(outcome));
+    if (outcome === 'copied' || outcome === 'unavailable') {
+      setTimeout(() => setShareStatus(null), 2500);
     }
   }, [tour.title]);
 
@@ -932,6 +941,9 @@ export default function TourDetailClient({ tour, reviews = [] }: { tour: TourFul
                   <Heart className={`w-4 h-4 ${wishlisted ? 'fill-current' : ''}`} />{wishlisted ? 'В избранном' : 'В избранное'}
                 </button>
               </div>
+              {shareStatus && (
+                <p className="mt-2 text-xs text-[var(--text-secondary)] text-center" aria-live="polite">{shareStatus}</p>
+              )}
               {wishlistError && (
                 <p className="mt-2 text-xs text-[var(--danger)] text-center">{wishlistError}</p>
               )}

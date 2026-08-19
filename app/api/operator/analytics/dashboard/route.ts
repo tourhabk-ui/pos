@@ -55,7 +55,11 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(CASE WHEN b.payment_status = 'pending' THEN COALESCE(b.final_price, b.base_total_price) ELSE 0 END), 0) as pending_revenue,
         COALESCE(AVG(CASE WHEN b.booking_status != 'cancelled' THEN COALESCE(b.final_price, b.base_total_price) END), 0) as avg_booking_value
       FROM operator_tours t
-      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.created_at >= $2 AND b.deleted_at IS NULL
+      -- operator_bookings адресует тур колонкой operator_tour_id (миграция
+      -- 040). Колонки tour_id у неё нет, и все шесть запросов этого файла
+      -- падали целиком: аналитика оператора не работала. Та же ошибка, что
+      -- нашлась сегодня в панели тревог и в сервисе туров.
+      LEFT JOIN operator_bookings b ON t.id = b.operator_tour_id AND b.created_at >= $2 AND b.deleted_at IS NULL
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL`,
       [operatorId, startDate]
     );
@@ -70,7 +74,7 @@ export async function GET(request: NextRequest) {
         SUM(COALESCE(b.final_price, b.base_total_price)) as revenue,
         COUNT(DISTINCT b.user_id) as unique_customers
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.deleted_at IS NULL
@@ -90,7 +94,7 @@ export async function GET(request: NextRequest) {
         AVG(CASE WHEN r.rating IS NOT NULL THEN r.rating END) as avg_rating,
         COUNT(DISTINCT r.id) as reviews_count
       FROM operator_tours t
-      LEFT JOIN operator_bookings b ON t.id = b.tour_id AND b.created_at >= $2 AND b.booking_status != 'cancelled' AND b.deleted_at IS NULL
+      LEFT JOIN operator_bookings b ON t.id = b.operator_tour_id AND b.created_at >= $2 AND b.booking_status != 'cancelled' AND b.deleted_at IS NULL
       LEFT JOIN reviews r ON t.id = r.tour_id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL
       GROUP BY t.id, t.title
@@ -113,7 +117,7 @@ export async function GET(request: NextRequest) {
         u.name as customer_name,
         u.email as customer_email
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       JOIN users u ON b.user_id = u.id
       WHERE t.operator_id = $1
         AND b.deleted_at IS NULL
@@ -131,7 +135,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE b.booking_status = 'completed') as completed,
         COUNT(*) FILTER (WHERE b.booking_status = 'cancelled') as cancelled
       FROM operator_bookings b
-      JOIN operator_tours t ON b.tour_id = t.id
+      JOIN operator_tours t ON b.operator_tour_id = t.id
       WHERE t.operator_id = $1
         AND b.created_at >= $2
         AND b.deleted_at IS NULL
@@ -153,7 +157,7 @@ export async function GET(request: NextRequest) {
           b.user_id,
           COUNT(*) as booking_count
         FROM operator_bookings b
-        JOIN operator_tours t ON b.tour_id = t.id
+        JOIN operator_tours t ON b.operator_tour_id = t.id
         WHERE t.operator_id = $1
           AND b.created_at >= $2
           AND b.booking_status != 'cancelled'
@@ -178,6 +182,16 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE rating = 1) as one_star,
         COUNT(*) FILTER (WHERE operator_reply IS NOT NULL) as replied_count
       FROM reviews r
+      -- ЭТОТ JOIN НЕ РАБОТАЕТ и не работал никогда: reviews.tour_id объявлен
+      -- uuid (измерено переписью 19.08), а operator_tours.id — bigint.
+      -- Оператора uuid = bigint в Postgres нет.
+      --
+      -- Не чинится здесь намеренно: отзывы о турах уже имеют свою таблицу
+      -- operator_tour_reviews (tour_id bigint, миграция 087), по ней работает
+      -- карточка тура. Правильная починка — перевести операторскую модерацию
+      -- на неё, добавив поля is_verified и operator_reply. Это отдельная
+      -- работа, а не правка одной строки; делать её надо целиком, иначе
+      -- получится третье место для одного смысла.
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1
         AND r.created_at >= $2

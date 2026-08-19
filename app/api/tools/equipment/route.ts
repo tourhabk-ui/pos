@@ -6,8 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { callAIWaterfall } from '@/lib/ai/providers';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+// Открытый AI-эндпоинт: каждый запрос — платный вызов LLM. Без лимита его
+// можно долбить анонимно, оплачивая наши токены. 5 генераций в минуту с IP
+// хватает живому человеку с запасом.
+const limiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
 const BodySchema = z.object({
   routeId: z.string().uuid(),
@@ -25,6 +31,13 @@ function getSeasonInfo(dateStr: string): { label: string; weather: string } {
 }
 
 export async function POST(request: NextRequest) {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json(
+      { success: false, error: 'Слишком много запросов — подождите минуту' },
+      { status: 429 },
+    );
+  }
+
   let body: unknown;
   try { body = await request.json(); } catch {
     return NextResponse.json({ success: false, error: 'Неверный JSON' }, { status: 400 });

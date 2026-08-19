@@ -90,7 +90,14 @@ export async function POST(request: NextRequest) {
 
       if (!data.dry_run) {
         await pool.query(
-          `UPDATE places SET lat = $1, lng = $2, is_visible = true, geocode_failed_at = NULL WHERE id = $3`,
+          // coord_source = 'geocoded' — координата УГАДАНА по названию, а не
+          // снята. До 18.08 геокодер писал её неотличимо от снятой, и уборка
+          // битых привязок объявляла ложью верные связи: у парка Налычево
+          // центроид Nominatim в 32 км от тропы.
+          `UPDATE places
+              SET lat = $1, lng = $2, is_visible = true, geocode_failed_at = NULL,
+                  coord_source = 'geocoded', coord_source_at = NOW()
+            WHERE id = $3`,
           [geo.lat, geo.lng, place.id],
         );
       }

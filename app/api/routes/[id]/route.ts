@@ -6,11 +6,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { pool } from '@/lib/db-pool';
-import { extractTrackpoints, decimateTrack } from '@/lib/routes/track';
+import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
+import { buildRoutePassport } from '@/lib/routes/passport';
+import { routeNavigability, MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
+import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
+import { trackEvidence } from '@/lib/routes/track-evidence';
+import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
+import { detectTravelMode } from '@/lib/routes/travel-mode';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Сбой запроса — в лог, с тем, чем его чинят.
+ *
+ * До 16.08 три запроса карточки маршрута заканчивались
+ * `.catch(() => ({ rows: [] }))`. Это превращало ЛЮБУЮ ошибку — упавший
+ * JOIN, разъехавшуюся колонку, недоступную таблицу — в правдоподобную
+ * пустоту: снаружи «у маршрута нет точек» и «запрос к точкам упал»
+ * выглядели одинаково. Смоук 16.08 увидел «0 точек с координатами» у
+ * настоящего маршрута и не мог сказать, дефект это данных или поломка.
+ *
+ * SQLSTATE называет род поломки однозначно (текст — нет), форма запроса
+ * говорит, какая ветка сломалась, релиз привязывает к версии.
+ */
+function logQueryFailure(part: string, err: unknown, routeId: string): void {
+  const e = err as Error & { code?: string; detail?: string; hint?: string; position?: string };
+  console.error('[/api/routes/[id]] запрос упал', {
+    part,
+    routeId,
+    sqlstate: e?.code,
+    message: e?.message,
+    detail: e?.detail,
+    hint: e?.hint,
+    position: e?.position,
+    release: process.env.RELEASE_SHA ?? null,
+  });
+}
 
 export async function GET(
   _req: NextRequest,
@@ -48,11 +81,18 @@ export async function GET(
          kr.official_passport_url,
          kr.passport_agency,
          kr.ark_id AS kr_ark_id,
+         kr.id AS kr_id,
+         kr.route_version,
+         kr.passport_verified_at,
+         kr.updated_at AS kr_updated_at,
          pk.slug AS park_slug,
          COALESCE(kr.geometry, krs.geometry) AS geometry
        FROM agent_route_knowledge ark
        LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
-       LEFT JOIN kamchatka_routes kr ON kr.id = ark.id
+       -- id VIEW для маршрутов — COALESCE(ark_id, id): строка kamchatka_routes
+       -- ищется по обоим, иначе маршрут с заполненным ark_id терял трек,
+       -- МЧС-поля и waypoints (id-пространства расходились молча).
+       LEFT JOIN kamchatka_routes kr ON kr.id = ark.id OR kr.ark_id = ark.id
        LEFT JOIN LATERAL (
          -- Трек места может жить отдельной строкой kamchatka_routes
          -- (точка «Гора Замок» ↔ её маршрут): связь через metadata.place_ark_id
@@ -60,6 +100,7 @@ export async function GET(
          SELECT geometry FROM kamchatka_routes k2
          WHERE k2.geometry IS NOT NULL
            AND k2.id <> ark.id
+           AND k2.id IS DISTINCT FROM kr.id
            AND (
              k2.metadata->>'place_ark_id' = ark.id::text
              OR (ark.source_url IS NOT NULL AND k2.source_url = ark.source_url)
@@ -81,11 +122,15 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
     }
 
-    // Increment view count (fire-and-forget)
-    pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [id]).catch(() => {});
-
     const r = result.rows[0];
     const payload = (r.payload as Record<string, unknown>) ?? {};
+
+    // Канонический id строки kamchatka_routes: id VIEW может быть ark_id,
+    // а route_waypoints / operator_tours / view_count живут на kr.id.
+    const routeDbId = (r.kr_id as string | null) ?? id;
+
+    // Increment view count (fire-and-forget)
+    pool.query('UPDATE kamchatka_routes SET view_count = view_count + 1 WHERE id = $1', [routeDbId]).catch(() => {});
 
     // Загружаем предложения операторов из operator_tours (через v_route_marketplace)
     let offers: unknown[] = [];
@@ -125,7 +170,7 @@ export async function GET(
          FROM v_route_marketplace
          WHERE route_id = $1
          ORDER BY marketplace_score DESC`,
-        [id]
+        [routeDbId]
       );
 
       offers = offersResult.rows.map(o => ({
@@ -163,8 +208,33 @@ export async function GET(
     }
 
     // Waypoints
+    /** Живой статус точек мог не прочитаться — тишина тогда не значит «спокойно». */
+    let operationalUnavailable = false;
+
+    /**
+     * Точки маршрута — его хребет, и их отказ НЕ переживается.
+     *
+     * Прежде здесь стоял `.catch(() => ({ rows: [] }))`, и упавший запрос
+     * отдавался как маршрут с нулём точек: карточка открывалась, линии не
+     * было, кнопка вела дальше. Отдать 200 с пустым хребтом — это соврать
+     * о маршруте, а на этой платформе по такому ответу человек идёт в поле.
+     * Пусть лучше карточка честно не откроется.
+     */
     const waypointsResult = await query(
+      // link_kind читается через to_jsonb, а не напрямую.
+      //
+      // 18.08 карточка маршрута перестала открываться НА ПРОДЕ: код с
+      // `rw.link_kind` уехал раньше миграции 874, а та не применилась, и
+      // запрос падал с «column rw.link_kind does not exist». Экран честно
+      // отказывался открываться без хребта — то есть строгая проверка
+      // сработала правильно, но сломал её я, отправив чтение колонки, которой
+      // ещё нет.
+      //
+      // Урок ровно тот, что записан в плане гейтом Ф0: код, читающий новую
+      // колонку, обязан переживать её отсутствие. `to_jsonb` вернёт NULL, и
+      // связь честно станет `unknown` — прежним поведением.
       `SELECT rw.position, rw.is_start, rw.is_end, rw.notes,
+              to_jsonb(rw)->>'link_kind' AS link_kind,
          p.ark_id AS place_id, p.name AS place_name, p.location_type,
          p.lat AS place_lat, p.lng AS place_lng,
          sp.altitude_m, sp.hazard_types
@@ -175,8 +245,23 @@ export async function GET(
          AND p.is_visible = TRUE
          AND p.merged_into_id IS NULL
        ORDER BY rw.position`,
-      [id]
-    ).catch(() => ({ rows: [] }));
+      [routeDbId]
+    ).catch((err: unknown) => {
+      /**
+       * Отказ помечается СВОИМ именем и бросается дальше.
+       *
+       * Без этого он попадал бы в общий `route_detail` внешнего catch, и
+       * массовая недоступность страниц маршрутов была бы неотличима от
+       * любой другой ошибки карточки. Строгость правильная (лучше не
+       * открыть, чем открыть без хребта), но она обязана быть НАБЛЮДАЕМОЙ:
+       * иначе тихо превратится в мор страниц, который никто не связал с
+       * этим решением.
+       *
+       * Имя `waypoints_failure` стабильно — по нему строится счётчик.
+       */
+      logQueryFailure('waypoints_failure', err, id);
+      throw err;
+    });
 
     // Оперативные ограничения точек маршрута: точечные сообщения
     // (alert_message из PATCH /api/admin/places/[id]/status и миграций),
@@ -198,8 +283,22 @@ export async function GET(
            OR COALESCE(array_length(rs.active_alerts, 1), 0) > 0
          )
        ORDER BY rw.position`,
-      [id]
-    ).catch(() => ({ rows: [] }));
+      [routeDbId]
+    ).catch((err: unknown) => {
+      /**
+       * Оперативные ограничения падать вместе со страницей не должны —
+       * маршрут без живого статуса всё ещё полезен. Но и подменять отказ
+       * тишиной нельзя: пустой список читается как «ограничений нет», то
+       * есть как разрешение идти. Это запрещено платформой отдельно
+       * (§0.3: «нет данных» ≠ «спокойно»).
+       *
+       * Поэтому отказ помечается флагом, и карточка обязана сказать
+       * «статус недоступен» вместо молчаливого спокойствия.
+       */
+      logQueryFailure('operational_alerts', err, id);
+      operationalUnavailable = true;
+      return { rows: [] };
+    });
 
     // Отзывы о маршруте — запрос перенесён из /api/routes/detail/[id]
     // (карточка B, объединена с этой). Привязка через legacy ark_id.
@@ -212,7 +311,80 @@ export async function GET(
        ORDER BY rv.created_at DESC
        LIMIT 5`,
       [(r.kr_ark_id as string | null) ?? id]
-    ).catch(() => ({ rows: [] }));
+    ).catch((err: unknown) => {
+      // Отзывы — единственный из трёх запросов, чей отказ можно пережить:
+      // пустой список отзывов не лжёт о маршруте и не влияет на решение идти.
+      // Но и он больше не молчит: без записи в лог поломка живёт незамеченной.
+      logQueryFailure('reviews', err, id);
+      return { rows: [] };
+    });
+
+    /**
+     * Линия маршрута — считается ОДИН раз: её просят и черта, и вычисленные
+     * этапы. Два разбора одной геометрии рядом — это две линии, которые рано
+     * или поздно разойдутся.
+     */
+    const routeTrack = (() => {
+      const { points } = decimateTrackWithScale(extractTrackpoints(
+        r.geometry as { type?: string; coordinates?: number[][] } | null,
+        payload,
+      ));
+      return points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null;
+    })();
+
+    /** Строки путевых точек с координатами — их просят и черта, и этапы. */
+    const wpRowsWithCoords = waypointsResult.rows.filter(w => w.lat != null && w.lng != null);
+    const wpLinkKinds = wpRowsWithCoords.map(
+      w => asLinkKind((w as { link_kind?: string | null }).link_kind ?? null),
+    );
+
+    /**
+     * Вычисленные этапы (Ф3 плана).
+     *
+     * Считаются ТОЛЬКО когда путь не описан: у маршрута есть линия и меньше
+     * двух установленных путевых точек. Там, где связи есть, вычислять нечего —
+     * платформа уже знает путь, и находка добавила бы к знанию догадку.
+     *
+     * Результат уходит СВОИМ полем и не смешивается с `waypoints`. Он не
+     * участвует в суждении черты и не пишется в базу: точки, полученные из
+     * линии, не могут поверять эту же линию — поверка доказала бы сама себя
+     * (см. lib/routes/derived-stages).
+     */
+    let derivedStages: DerivedStagesResult | null = null;
+    if (routeTrack && wpLinkKinds.filter(isPathPoint).length < MIN_ROUTE_WAYPOINTS) {
+      const track = routeTrack.map(([lat, lng]) => ({ lat, lng }));
+      let latMin = Infinity, latMax = -Infinity, lngMin = Infinity, lngMax = -Infinity;
+      for (const t of track) {
+        if (t.lat < latMin) latMin = t.lat;
+        if (t.lat > latMax) latMax = t.lat;
+        if (t.lng < lngMin) lngMin = t.lng;
+        if (t.lng > lngMax) lngMax = t.lng;
+      }
+      // Рамка с запасом на порог: сузить её значит потерять кандидата,
+      // расширить — только посчитать лишнее.
+      const padLat = (NEAR_LINE_KM + 0.5) / 111.32;
+      const padLng = padLat / Math.max(0.2, Math.cos((Math.max(Math.abs(latMin), Math.abs(latMax)) * Math.PI) / 180));
+      const nearby = await query(
+        `SELECT p.id, p.name, p.lat::float8 AS lat, p.lng::float8 AS lng,
+                p.location_type AS "locationType"
+           FROM places p
+          WHERE p.lat BETWEEN $1 AND $2
+            AND p.lng BETWEEN $3 AND $4
+            AND p.is_visible = TRUE
+            AND p.merged_into_id IS NULL`,
+        [latMin - padLat, latMax + padLat, lngMin - padLng, lngMax + padLng],
+      ).catch((err: unknown) => {
+        // Ориентиры — украшение поверх честного «путь не описан». Их отказ не
+        // повод не открыть карточку: без них она такая же, какой была вчера.
+        logQueryFailure('derived_stages', err, id);
+        return { rows: [] };
+      });
+      derivedStages = deriveStages({
+        track,
+        places: (nearby.rows as Array<{ id: string; name: string; lat: number; lng: number; locationType: string | null }>),
+        establishedPlaceIds: waypointsResult.rows.map(w => String(w.place_id)),
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -257,14 +429,123 @@ export async function GET(
         pdfUrl:          (r.pdf_url as string | null) ?? null,
         officialPassportUrl: (r.official_passport_url as string | null) ?? null,
         passportAgency:      (r.passport_agency as string | null) ?? null,
-        // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
-        // null = трека нет нигде (geometry, payload.geometry, payload.track)
-        track: (() => {
-          const pts = decimateTrack(extractTrackpoints(
+        /**
+         * Полевой паспорт — граница доверия к данным маршрута, собранная
+         * одним правилом (lib/routes/passport): род линии, версия редакции,
+         * число точек, требования доступа. Показывается ДО фиксации маршрута:
+         * различение трека и наброска — главная защита, и она не должна
+         * открываться человеку только в поле.
+         */
+        passport: (() => {
+          const { points } = decimateTrackWithScale(extractTrackpoints(
             r.geometry as { type?: string; coordinates?: number[][] } | null,
             payload,
           ));
-          return pts.length >= 2 ? pts.map(p => [p.lat, p.lng] as [number, number]) : null;
+          return buildRoutePassport({
+            track: points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null,
+            geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
+            // Точки ПУТИ, а не все связи: паспорт говорит о линии и о том,
+            // чем её поверяют, а «рядом» её не поверяет ничем (миграция 874).
+            waypointsCount: waypointsResult.rows.filter(
+              w => isPathPoint(asLinkKind(w.link_kind as string | null)),
+            ).length,
+            routeVersion: r.route_version != null ? Number(r.route_version) : null,
+            verifiedAt: (r.passport_verified_at as string | null) ?? null,
+            updatedAt: (r.kr_updated_at as string | null) ?? null,
+            mchsRequired: (r.mchs_registration_required as boolean | null) ?? false,
+            mchsPhone: (r.mchs_phone as string | null) ?? null,
+            parkName: (r.park_name as string | null) ?? null,
+            parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
+            officialPassportUrl: (r.official_passport_url as string | null) ?? null,
+          });
+        })(),
+        /**
+         * Черта: можно ли обещать ведение по этой записи.
+         *
+         * Считается ЗДЕСЬ, а не на экране, потому что здесь есть и линия, и
+         * точки. Экран выбора линию не грузит — он видел бы только род данных
+         * и не заметил бы расхождения точек с линией; ровно такой маршрут
+         * («Вулкан Козельский», точка в 14 км от трека) и выглядел пригодным
+         * до самого поля.
+         *
+         * Правило одно на всю платформу — lib/routes/navigability.
+         */
+        navigability: (() => {
+          const track = routeTrack;
+          const wpRows = wpRowsWithCoords;
+          const wps = wpRows.map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
+          // Рода нужны черте, чтобы не считать противоречием центроид парка.
+          const wpTypes = wpRows.map(w => (w as { location_type?: string | null }).location_type ?? null);
+          // Род связи: «рядом» не описывает путь и в суждении не участвует.
+          //
+          // Вычисленных этапов здесь НЕТ и быть не может: они получены из этой
+          // же линии, и поверка ими доказала бы сама себя.
+          const wpKinds = wpLinkKinds;
+          return routeNavigability({
+            // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
+            // а разбор в пары его отбрасывает. Прореженная линия для улики не
+            // годится и по другой причине — прореживание выравнивает шаг,
+            // то есть стирает главный признак живой записи.
+            evidence: trackEvidence(r.geometry).verdict,
+            grade: buildRoutePassport({
+              track,
+              geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
+              // Паспорт считает ТОЧКИ ПУТИ: «рядом» линию не поверяет.
+              waypointsCount: wpKinds.filter(isPathPoint).length,
+              routeVersion: null, verifiedAt: null, updatedAt: null,
+              mchsRequired: false, mchsPhone: null, parkName: null,
+              parkApprovalUrl: null, officialPassportUrl: null,
+            }).grade,
+            track,
+            waypoints: wps,
+            waypointTypes: wpTypes,
+            waypointKinds: wpKinds,
+            // Способ передвижения: у облёта линию не проходят, и обещание
+            // ведения к нему не относится (lib/routes/travel-mode).
+            mode: detectTravelMode(r.title as string | null, r.activity_type as string | null),
+          });
+        })(),
+        /**
+         * Происхождение линии — как ЗАПИСАНО в геометрии, без догадок.
+         *
+         * Перепись 11.08 (проба 55): источник записан у 295 линий из 301
+         * (idilesom 257, waypoints_synthetic 19, osm 13, visitkamchatka 6),
+         * а вид линии на экранах выбирала эвристика плотности точек — и на
+         * «Вулкане Жупановском» выдала синтетику за снятый трек. Сплошная
+         * зелёная означает «здесь идут»; по ней идут.
+         *
+         * null — источника в данных нет (шесть записей). Это ЧЕСТНЫЙ null:
+         * экран говорит про него словами, а не рисует одно из известных
+         * состояний. Не путать с отсутствием поля — отсутствие значило бы,
+         * что API не спрашивали.
+         */
+        geometrySource: ((r.geometry as { source?: string } | null)?.source ?? null),
+        // GPS-трек для карты: [lat, lng][], прорежен до ~600 точек.
+        // null = трека нет нигде (geometry, payload.geometry, payload.track)
+        track: (() => {
+          const { points } = decimateTrackWithScale(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null;
+        })(),
+        /**
+         * Шкала трека: сколько метров ПОЛНОГО трека приходится на каждую
+         * оставленную после прореживания точку.
+         *
+         * Прореживание берёт каждую N-ю точку, поэтому ломаная короче
+         * исходной — тем сильнее, чем извилистее путь. Профиль высот при этом
+         * считается по полному треку. Без этой шкалы клиент мерил положение
+         * одной меркой, а резал профиль другой, и срез уезжал к началу на
+         * сотни метров. Две мерки для одного расстояния — тот же дефект, что
+         * мы чиним на этом экране, только в контракте API.
+         */
+        track_dm: (() => {
+          const { points, dm } = decimateTrackWithScale(extractTrackpoints(
+            r.geometry as { type?: string; coordinates?: number[][] } | null,
+            payload,
+          ));
+          return points.length >= 2 ? dm : null;
         })(),
         /**
          * Профиль высот считается на сервере по ПОЛНОМУ треку (прореживание
@@ -317,7 +598,16 @@ export async function GET(
           lng:          w.place_lng != null ? parseFloat(w.place_lng as string) : null,
           altitudeM:    w.altitude_m != null ? Number(w.altitude_m) : null,
           hazardTypes:  (w.hazard_types as string[]) ?? [],
+          // Чем связь является: точка пути или «это рядом» (миграция 874).
+          // Без этого карточка показывала краевой музей как этап похода.
+          linkKind:     asLinkKind(w.link_kind as string | null),
         })),
+        /**
+         * Ориентиры, вычисленные по линии, — отдельным полем и с указанием
+         * происхождения у каждого. `null` — путь описан связями, вычислять
+         * было нечего.
+         */
+        derivedStages,
         offers,
         // Зонные алерты (общие для >=2 точек) схлопываются в один блок на
         // маршрут, у точек остаётся только своё — см. lib/routes/operational-alerts
@@ -331,9 +621,17 @@ export async function GET(
             alert_severity: a.alert_severity as number | null,
           })),
         ),
+        // Живой статус не прочитался: пустой список ограничений выше не
+        // означает «ограничений нет». Карточка обязана сказать это словами,
+        // а не показать спокойствие, которого никто не подтверждал.
+        operationalStatusUnavailable: operationalUnavailable,
       },
     });
   } catch (error) {
+    // Раньше причина уходила только в ответ и только в dev — то есть в
+    // проде не сохранялась нигде. Теперь она в логе всегда, с SQLSTATE и
+    // формой запроса; наружу по-прежнему нейтральный текст.
+    logQueryFailure('route_detail', error, id);
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { success: false, error: 'Ошибка загрузки маршрута', details: process.env.NODE_ENV === 'development' ? msg : undefined },

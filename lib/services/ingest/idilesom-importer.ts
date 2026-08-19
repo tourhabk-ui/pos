@@ -19,6 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { createHash } from 'crypto';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
+import { parseTrackBlocks, axisOrder } from '@/lib/services/ingest/track-parse';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0',
@@ -274,28 +275,14 @@ export async function scrapePage(id: string): Promise<ScrapedPlace | null> {
     let lat = latM ? parseFloat(latM[1]) : null;
     let lng = lngM ? parseFloat(lngM[1]) : null;
 
-    // GPS track — find largest valid coordinate array
-    const coordBlocks = html.match(/\[\s*\[\s*[\d.]+\s*,\s*[\d.]+[\s\S]*?\]\s*\]/g) ?? [];
-    let coordinates: number[][] = [];
-    for (const block of coordBlocks) {
-      try {
-        const parsed = JSON.parse(block) as unknown;
-        if (!Array.isArray(parsed) || parsed.length < 3) continue;
-        const first = parsed[0];
-        if (!Array.isArray(first) || first.length < 2) continue;
-        // GeoJSON = [lng, lat, ele?] — на Камчатке долгота 155-167, широта 50-64,
-        // поэтому первое число больше 90 только в порядке «долгота первой».
-        const isGeoJSON = Math.abs(first[0] as number) > 90;
-        // Высота — третий элемент, и она обязана переживать ОБА порядка.
-        // Раньше ветка «широта первой» её молча отбрасывала: idilesom отдаёт
-        // именно этот порядок, и на проде 289 маршрутов и 119 683 точки трека
-        // оказались без единой высоты, хотя источник её даёт (замер 09.08).
-        const coords: number[][] = isGeoJSON
-          ? (parsed as number[][]).map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
-          : (parsed as number[][]).map(p => p.length >= 3 ? [p[1], p[0], p[2]] : [p[1], p[0]]);
-        if (coords.length > coordinates.length) coordinates = coords;
-      } catch { /* skip */ }
-    }
+    // GPS-трек — общим разбором (lib/services/ingest/track-parse).
+    //
+    // Здесь стояла своя копия разбора. Она берегла высоту в обоих порядках
+    // осей (правка 09.08), но границ края не проверяла ВОВСЕ — то есть
+    // прод-путь мог записать в базу профиль высот как трек, а на карте он
+    // рисовался сплошной зелёной линией через весь край. Проверка границ всё
+    // это время жила во второй копии, в scripts/import-idilesom-tracks.ts.
+    const coordinates = parseTrackBlocks(html).coordinates;
 
     // Derive center from track midpoint if no explicit JSON-LD coords
     if ((!lat || !lng) && coordinates.length > 0) {
@@ -874,7 +861,10 @@ export async function inspectIdilesomShape(limit = 3): Promise<IdilesomShapeRepo
       id,
       blocks: blocks.length,
       tupleLength: first ? first.length : null,
-      order: first ? (Math.abs(first[0]) > 90 ? 'lng-first' : 'lat-first') : null,
+      // Порядок осей — по всему блоку (track-parse): у профиля высот первое
+      // число меньше 90, и прежний ответ «lat-first» был догадкой, а не
+      // наблюдением. `null` значит «это вообще не координаты».
+      order: axisOrder(best),
       points: best.length,
       pointsWithThird: thirds.length,
       thirdMin: thirds.length > 0 ? Math.min(...thirds) : null,

@@ -6,6 +6,8 @@
  * Использует TELEGRAM_KUZMICH_BOT_TOKEN, fallback → TELEGRAM_BOT_TOKEN.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCronSecret } from '@/lib/auth/cron';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getPublicBaseUrl } from '@/lib/config';
 export const dynamic = 'force-dynamic';
 
@@ -38,8 +40,7 @@ async function registerWebhook(token: string, appUrl: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!secret || secret !== process.env.CRON_SECRET) {
+  if (!verifyCronSecret(request)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -54,8 +55,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const cronSecret = request.headers.get('x-cron-secret');
-  if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+  // Заголовок свой (x-cron-secret), поэтому verifyCronSecret не подходит —
+  // но сравнение обязано быть постоянным по времени и здесь.
+  if (!timingSafeCompare(request.headers.get('x-cron-secret'), process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

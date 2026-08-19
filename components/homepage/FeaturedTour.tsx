@@ -105,10 +105,15 @@ export async function FeaturedTour() {
           href={`/marketplace/tours/${tour.id}`}
           className="group block relative rounded-lg overflow-hidden h-[300px] md:h-[380px]"
         >
-          {/* Фон: реальное фото тура; нет фото — тёплый земляной градиент, не фейк */}
+          {/* Фон: реальное фото тура; нет фото — тёплый земляной градиент, не фейк.
+              Кроп прижат к верху (bg-top): рамка широкая, а фото туров сплошь
+              вертикальные — рыбак во весь рост с лососем. Центрирование срезало
+              голову сверху и ноги снизу, оставляя безголовое туловище с рыбой.
+              На горизонтальных снимках вертикального запаса почти нет, им это
+              ничего не меняет. */}
           {image ? (
             <div
-              className="absolute inset-0 bg-cover bg-center transition-all duration-200 group-hover:scale-[1.03]"
+              className="absolute inset-0 bg-cover bg-top transition-all duration-200 group-hover:scale-[1.03]"
               style={{ backgroundImage: `url('${image}')`, filter: 'saturate(1.08)' }}
               aria-hidden
             />

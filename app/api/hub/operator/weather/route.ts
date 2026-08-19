@@ -122,6 +122,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'tour_id is required' }, { status: 400 });
     }
 
+    // id тура — bigint (migration 040). BigInt('abc') бросает SyntaxError, и
+    // без этой проверки кривой параметр уходил во внешний catch: клиент
+    // получал 500 «Failed to fetch weather data» вместо 400, а причина
+    // терялась. Неверный ввод — это ответ, а не поломка сервера.
+    if (!/^\d+$/.test(tourIdParam)) {
+      return NextResponse.json(
+        { error: 'Некорректный tour_id: ожидается целое число' },
+        { status: 400 },
+      );
+    }
     const tourId = BigInt(tourIdParam);
 
     // Fetch tour with weather thresholds
@@ -233,6 +243,9 @@ export async function GET(request: NextRequest) {
       cached: true,
     });
   } catch (error) {
+    // Пустой catch превращает поломку в «погоды нет». Наружу — общий отказ,
+    // внутрь — причина: иначе следующий такой же случай будет искать снова.
+    console.error('[hub/operator/weather] отказ:', error instanceof Error ? error.message : error);
     return NextResponse.json({ error: 'Failed to fetch weather data' }, { status: 500 });
   }
 }

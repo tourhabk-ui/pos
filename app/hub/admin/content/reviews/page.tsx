@@ -16,7 +16,7 @@ interface AdminReview {
   userId: string;
   userName: string;
   tourId: string;
-  tourName: string;
+  subjectName: string;
   rating: number;
   comment: string;
   isVerified: boolean;
@@ -100,9 +100,11 @@ export default function ReviewsManagement() {
       render: (review) => <span className="text-[var(--text-primary)]">{review.userName}</span>
     },
     {
-      key: 'tourName',
-      title: 'Тур',
-      render: (review) => <span className="text-[var(--text-secondary)]">{review.tourName}</span>
+      key: 'subjectName',
+      // «Маршрут или место», а не «Тур»: эта таблица держит отзывы о них, и
+      // подпись, называющая их турами, — та же ложь, что была в имени поля.
+      title: 'Маршрут или место',
+      render: (review) => <span className="text-[var(--text-secondary)]">{review.subjectName}</span>
     },
     {
       key: 'rating',

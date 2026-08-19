@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
+import { verifyWebhookSecret } from '@/lib/telegram/webhook-secret';
 import { confirmBooking, cancelBooking } from '@/lib/bookings/booking.service';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -578,10 +579,19 @@ async function createLeadFromTelegramFlow(
 // ── Основной обработчик ───────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expectedSecret && secret !== expectedSecret) {
+  // Сверка через общий lib/telegram/webhook-secret. Здесь стояла своя копия с
+  // обычным `!==`: то же правило в третьем месте и без защиты от тайминга.
+  // Копии правил в этом репозитории расходятся — за один сегодняшний день это
+  // случилось со списком глаголов, со стилем линии и с типом ключа.
+  const verdict = verifyWebhookSecret(
+    request.headers.get('X-Telegram-Bot-Api-Secret-Token'),
+    process.env.TELEGRAM_WEBHOOK_SECRET,
+  );
+  if (verdict === 'forbidden') {
     return NextResponse.json({ ok: false }, { status: 403 });
+  }
+  if (verdict === 'not_configured') {
+    console.error('[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан — подлинность webhook не проверяется');
   }
 
   let update: TelegramUpdate;

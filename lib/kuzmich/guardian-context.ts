@@ -142,6 +142,30 @@ export function gradeNameMatch(query: string, candidate: string): 'high' | 'low'
   return (covers(qWords, cWords) || covers(cWords, qWords)) ? 'high' : 'low';
 }
 
+/**
+ * Место для ПУБЛИЧНОЙ ссылки (handoff MCP, задача #60): id первой записи по
+ * тому же правилу матчинга, что и основной запрос getGuardianContext ниже
+ * (merged_into_id IS NULL, ILIKE, кратчайшее имя первым) — чтобы ссылка вела
+ * на то место, о котором инструмент ответил. Сверх правила — is_visible:
+ * страж может знать скрытое место, но ссылку на невидимую страницу не даём.
+ */
+export async function resolvePlaceForLink(placeNameRaw: string): Promise<string | null> {
+  const q = placeNameRaw.trim();
+  if (!q) return null;
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM places
+        WHERE merged_into_id IS NULL AND is_visible = true AND name ILIKE $1
+        ORDER BY char_length(name) ASC
+        LIMIT 1`,
+      [`%${q}%`],
+    );
+    return rows[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getGuardianContext(placeNameRaw: string): Promise<string> {
   // Обезвреживаем ввод до подстановки в промпт (issue #328). Название места
   // и так уходит эхом в hedge-строки контекста для callAIFast/callAIWaterfall.
@@ -182,9 +206,13 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
       [`%${placeName}%`],
     ),
     pool.query<KnowledgeRow>(
+      // type <> 'outcome': оценки ответов Кузьмича (kuzmich-outcomes) — служебная
+      // телеметрия качества, не знание о месте. Запись «Оценка ответа: 6/10...»
+      // совпадала по ILIKE с названием места и уходила туристу (проба 113, 15.08).
       `SELECT title, compiled_truth, type
        FROM agent_knowledge
        WHERE agent_id = 'kuzmich'
+         AND type <> 'outcome'
          AND (title ILIKE $1 OR compiled_truth ILIKE $1)
        ORDER BY
          CASE WHEN type = 'indigenous' THEN 1
@@ -201,6 +229,18 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   }
 
   const parts: string[] = [];
+
+  // Дедуп алертов между записями: зонные/общерегиональные алерты приходят в
+  // active_alerts КАЖДОГО совпавшего места (safety-ingest, зона без координат),
+  // и один и тот же список печатался трижды подряд, раздувая контекст втрое
+  // (проба 113: 6.5 КБ, из них ~3 КБ — повторы). Каждый алерт показывается
+  // один раз — при первом упоминании; ни один не теряется.
+  const shownAlerts = new Set<string>();
+  const freshAlerts = (list: string[]): string[] => {
+    const fresh = list.filter((a) => !shownAlerts.has(a));
+    fresh.forEach((a) => shownAlerts.add(a));
+    return fresh;
+  };
 
   for (const p of placesRes.rows) {
     const status = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
@@ -222,10 +262,11 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
         `(!) "${p.name}" — неточное совпадение по названию с запросом "${placeName}", ` +
         `данные этого места ниже не приложены. Уточни у пользователя точное ` +
         `название, прежде чем говорить про статус или опасности.`;
+      const hedgeAlerts = p.active_alerts?.length ? freshAlerts(p.active_alerts) : [];
       if (p.alert_message) {
         parts.push(`${hedge} Но по похожему названию есть активный алерт: ${p.alert_message} — уточни, относится ли он к месту, которое спросили.`);
-      } else if (p.active_alerts?.length) {
-        parts.push(`${hedge} Но по похожему названию есть активные алерты: ${p.active_alerts.join(', ')} — уточни, относятся ли они к месту, которое спросили.`);
+      } else if (hedgeAlerts.length) {
+        parts.push(`${hedge} Но по похожему названию есть активные алерты: ${hedgeAlerts.join(', ')} — уточни, относятся ли они к месту, которое спросили.`);
       } else {
         parts.push(hedge);
       }
@@ -242,7 +283,8 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
     if (p.alert_message) {
       parts.push(`Алерт: ${p.alert_message}`);
     } else if (p.active_alerts?.length) {
-      parts.push(`Активные алерты: ${p.active_alerts.join(', ')}.`);
+      const fresh = freshAlerts(p.active_alerts);
+      if (fresh.length) parts.push(`Активные алерты: ${fresh.join(', ')}.`);
     }
 
     // Авиационный цветовой код вулкана (KVERT, migration 728) — сразу после
@@ -277,6 +319,10 @@ export async function getGuardianContext(placeNameRaw: string): Promise<string> 
   }
 
   for (const a of alertsRes.rows) {
+    // active_alerts мест хранит те же ea.title (safety-ingest) — алерт, уже
+    // показанный в строке места, здесь не повторяем.
+    if (shownAlerts.has(a.title)) continue;
+    shownAlerts.add(a.title);
     parts.push(`[Алерт КБГС/МЧС] ${a.title}${a.description ? ': ' + a.description.slice(0, 150) : ''}`);
   }
 

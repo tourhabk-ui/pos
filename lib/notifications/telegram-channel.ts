@@ -9,7 +9,7 @@
 import { query } from '@/lib/database';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack } from '@/lib/notifications/post-validation';
+import { validateRoutePost, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -596,7 +596,9 @@ export function buildRoutePhotoUrl(r: KuzmichRouteRow): string | null {
  * tgPostPhoto тихо откатывался на текст — пост уходил без фото (кейс владельца
  * «Большой Калыгирь»). Теперь путь детерминированный, без внешней генерации.
  */
-async function resolvePostPhotoUrl(r: KuzmichRouteRow): Promise<string | null> {
+async function resolvePostPhotoUrl(
+  r: KuzmichRouteRow,
+): Promise<{ url: string | null; ofThisPlace: boolean }> {
   // Реальное фото места (только wikimedia/ручная загрузка — не AI-блобы)
   try {
     const { rows } = await query(
@@ -605,12 +607,29 @@ async function resolvePostPhotoUrl(r: KuzmichRouteRow): Promise<string | null> {
        LIMIT 1`,
       [r.id],
     );
-    if (rows.length > 0) return `${publicAppUrl()}/api/images/route/${r.id}`;
+    if (rows.length > 0) return { url: `${publicAppUrl()}/api/images/route/${r.id}`, ofThisPlace: true };
   } catch {
     // Нет доступа к БД — не блокируем пост, идём к куратор-фото
   }
-  return buildRoutePhotoUrl(r);
+  // Куратор-снимок — настоящая Камчатка, но НЕ это место.
+  return { url: buildRoutePhotoUrl(r), ofThisPlace: false };
 }
+
+/**
+ * Подпись к чужому снимку.
+ *
+ * 19.08 владелец показал пост про маар «Медвежья чаша»: сверху — девушка в
+ * купальнике у лестницы в бассейн, снизу — текст про тридцатиметровый кратер с
+ * бирюзовой водой. Снимок настоящий и камчатский, но это НЕ маар: у места нет
+ * своего фото, и подставился куратор-снимок по типу локации.
+ *
+ * Читатель не знает про каскад фолбэков. Он видит фото над текстом и делает
+ * единственный возможный вывод: вот оно, это место. Снимок без оговорки —
+ * такая же подмена, как рейтинг 4.5 у перевозчика, которого никто не оценивал.
+ *
+ * Дешевле всего сказать правду одной строкой: фото остаётся, ложь уходит.
+ */
+const NOT_THIS_PLACE_NOTE = '\n\n<i>На фото — Камчатка, но не это место: своего снимка у нас пока нет.</i>';
 
 /**
  * Выбирает случайный маршрут, не постившийся последние 30 дней,
@@ -678,7 +697,12 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
 
 Требования:
 - 70-100 слов, живой голос местного, без рекламы и пафоса
-- Конкретная деталь или секрет этого места, которую знают не все
+- Конкретная деталь ИЗ ДАННЫХ ВЫШЕ: из описания или моих заметок. Не выдумывай
+  фактов, которых в них нет: ни находок, ни тайников, ни историй, ни цифр
+- Если детали в данных нет — пиши о том, что есть, короче. Пустая строка лучше
+  придуманной
+- НИКОГДА не советуй уходить с тропы, идти в сторону или искать что-либо вне
+  тропы
 - Лёгкая ирония над городскими туристами которые едут и не знают куда
 - В конце обязательно ссылка: ${appUrl}/routes/${r.id}
 ${r.has_track
@@ -692,14 +716,26 @@ ${r.has_track
     // Условие выше — строка в промпте, а её можно не выполнить: именно так
     // 12.07 вышел пост про место без трека. Проверяем результат, а не надеемся
     // на послушание модели (CLAUDE.md §8: инструмент вместо абзаца в промпте).
-    if (!r.has_track && promisesRouteOrTrack(text)) {
+    // Совет уйти с тропы — отказ БЕЗУСЛОВНЫЙ, вне зависимости от трека.
+    //
+    // 19.08 пост про маар «Медвежья чаша» предлагал идти «не по тропе, а чуть
+    // в сторону» за консервной банкой с запиской геологов, которой нет в
+    // данных. Требование промпта «секрет, который знают не все» вынуждало
+    // выдумать — а выдумка, за которой надо сойти с тропы на кромке
+    // тридцатиметрового кратера, отправляет человека искать несуществующее в
+    // опасном месте. Условие в промпте это не остановит: 12.07 уже доказало,
+    // что инструкция в промпте не гвард (§8).
+    const leavesTrail = advisesLeavingTrail(text);
+    if (leavesTrail || (!r.has_track && promisesRouteOrTrack(text))) {
       rejectedIds.push(r.id);
       try {
         await query(
           `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
           ['kuzmich_post_rejected', JSON.stringify({
             route_id: r.id, route_title: r.title,
-            errors: ['пост обещает маршрут или трек, а у карточки трека нет'],
+            errors: [leavesTrail
+              ? 'пост советует уходить с тропы'
+              : 'пост обещает маршрут или трек, а у карточки трека нет'],
           })],
         );
       } catch { /* не блокируем перевыбор */ }
@@ -721,9 +757,15 @@ ${r.has_track
     // Основное фото (реальный снимок места, если есть) + куратор-фолбэк:
     // если Telegram не смог скачать основное (>5 МБ у wikimedia-оригинала,
     // таймаут эндпоинта) — пост всё равно уйдёт с честным снимком Камчатки.
-    const photoUrl = await resolvePostPhotoUrl(r);
+    const photo = await resolvePostPhotoUrl(r);
     const curatorUrl = buildRoutePhotoUrl(r);
-    const result = await postToAllChannels(channelId, text, photoUrl, curatorUrl !== photoUrl ? curatorUrl : null);
+    // Оговорка добавляется, когда снимок не этого места. Она идёт в ТЕКСТ, а
+    // не в отдельное сообщение: подпись, оторванная от фото, читается как
+    // разговор о чём-то другом.
+    const body = photo.url && !photo.ofThisPlace ? `${text}${NOT_THIS_PLACE_NOTE}` : text;
+    const result = await postToAllChannels(
+      channelId, body, photo.url, curatorUrl !== photo.url ? curatorUrl : null,
+    );
 
     if (result.ok) {
       try {

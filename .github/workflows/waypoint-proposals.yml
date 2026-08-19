@@ -1,0 +1,115 @@
+name: Точки для безточечных маршрутов (вручную)
+
+# Зачем этот workflow существует.
+#
+# Перепись геометрии 17.08: из 411 маршрутов у 154 есть линия и НИ ОДНОЙ
+# путевой точки. Больше половины всех линий. Сверить такую линию не с чем,
+# этапы показать нечем, а проверка «точки расходятся с линией» на них молчит —
+# не потому, что всё хорошо, а потому, что мерить нечем.
+#
+# У этих маршрутов есть сама линия, и точки можно не угадывать по названию, а
+# измерить: место в полусотне метров от линии эта линия проходит.
+#
+# READ-ONLY: endpoint ничего не пишет в route_waypoints. Сначала измерение —
+# сколько маршрутов вообще размечаемы и насколько уверенно. Записать по
+# непроверенному правилу значит добавить к пустым маршрутам неверно
+# размеченные, а неверная точка на маршруте хуже отсутствующей: по ней пойдут.
+#
+# Запускается ТОЛЬКО вручную: инструмент разбора, а не наблюдение.
+#
+# Ответ не содержит ни секретов, ни персональных данных: счётчики, названия
+# мест и маршрутов, расстояния.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Сколько маршрутов разобрать (пусто — все)'
+        required: false
+        default: ''
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Спросить предложения и показать ответ
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          # Молчаливый успех означал бы «посмотрели, всё хорошо», хотя не
+          # смотрели вовсе.
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — спросить нечего."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/waypoint-proposals"
+          if [ -n "$LIMIT" ]; then URL="$URL?limit=$LIMIT"; fi
+
+          HTTP=$(curl -sS -o /tmp/wp.json -w "%{http_code}" --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL") || HTTP="000"
+
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Разбор ответил $HTTP."
+            head -c 2000 /tmp/wp.json || true
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/wp.json') as f:
+              a = json.load(f)
+
+          print(f"Порог «на линии»: {a.get('on_line_km')} км, «около линии»: {a.get('near_line_km')} км")
+          print('')
+          print('Маршруты с линией и без точек:')
+          for key, title in (
+              ('candidates', 'всего таких'),
+              ('anchorable', 'можно разметить (две точки и больше)'),
+              ('single_place', 'нашлось одно место — путь так не опишешь'),
+              ('empty', 'на линии нет ни одного места'),
+              ('proposed_waypoints', 'точек предложится всего'),
+              ('sweeping', 'линия собирает всё подряд (больше дюжины мест)'),
+          ):
+              if key in a:
+                  print(f'  {title}: {a[key]}')
+
+          samples = a.get('samples') or []
+          if samples:
+              print('')
+              print('Образцы разметки (что именно предлагается записать):')
+              for s in samples:
+                  # Род места печатается рядом с названием: первый прогон нашёл
+                  # среди предложений статьи и события («Камчатка. Такие места»,
+                  # «Забег на Аагские источники»), и различить их можно только
+                  # по признаку в данных, а не по расстоянию.
+                  pts = ' → '.join(
+                      f"{w['name']} [{w.get('locationType') or 'рода нет'}] ({w['offLineKm']} км)"
+                      for w in s.get('onLine', [])[:6]
+                  )
+                  more = '' if len(s.get('onLine', [])) <= 6 else f" … ещё {len(s['onLine']) - 6}"
+                  print(f"  {s.get('title')} [{s.get('trackPoints')} вершин]: {pts}{more}")
+
+          near = a.get('near_only_samples') or []
+          if near:
+              print('')
+              print('Рядом места есть, но НИ ОДНО не легло на линию:')
+              print('(либо геометрия грубая, либо линия не о том — решает человек)')
+              for s in near:
+                  pts = ', '.join(f"{w['name']} ({w['offLineKm']} км)" for w in s.get('nearLine', [])[:5])
+                  print(f"  {s.get('title')}: {pts}")
+          PY
+
+          {
+            echo '## Точки для безточечных маршрутов'
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/wp.json || cat /tmp/wp.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

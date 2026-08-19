@@ -19,6 +19,9 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { normalizeTitle } from '@/lib/import/kml-inbox';
+import { stems } from '@/lib/routes/duplicate-audit';
+import { slugify } from '@/lib/text/slugify';
 import { matchTrackToPlace, nameMatchStrength, type PlaceRef } from '@/lib/services/ingest/idilesom-importer';
 import { geocodeAddress, withinKamchatka } from '@/lib/services/routes/geocode';
 
@@ -59,6 +62,8 @@ export interface RepairItem {
 
 export interface DataRepairResult {
   dry_run: boolean;
+  /** Чем сужено применение: имя шага или null, если применяются все. */
+  only: string | null;
   bogus_clusters: number;
   bogus_places: number;
   coords_from_track: number;
@@ -74,9 +79,79 @@ export interface DataRepairResult {
   renamed_places: number;
   normalized_types: number;
   merged_coord_subset: number;
+  /**
+   * ОТЧЁТ (никогда не пишет): пары мест, похожих ПО ИМЕНИ, независимо от
+   * расстояния между ними.
+   *
+   * Решение владельца 12.08: «пока сравним по именам». Расстояние перестаёт
+   * быть условием и становится сведением — оно печатается рядом с парой,
+   * чтобы человек видел, три километра там или триста.
+   *
+   * Почему так. Все шаги слияния (2, 8, 9) требуют близости: 1 км, 150 м,
+   * 150 м. Пороги откалиброваны по ТОЧЕЧНЫМ объектам — источник, водопад,
+   * кордон. Вулкан — объект в десятки километров, и «Вулкан Жупановский» с
+   * «Жупановским» законно стоят в трёх километрах, оставаясь одной горой.
+   * Правило, верное для точки, промахивается на горе — и дубль прошёл сквозь
+   * все чистки, что владелец и увидел на карте.
+   */
+  name_pairs: {
+    /** Имена совпадают посимвольно (без регистра и ё). */
+    same_name: number;
+    /** Тот же набор слов в другом порядке: «Озеро Курильское» / «Курильское озеро». */
+    same_wordset: number;
+    /** Одно имя строго входит в другое: «Жупановский» ⊂ «Вулкан Жупановский». */
+    subset: number;
+    /**
+     * Пары, где короткое имя целиком родовое («Озеро», «Вулкан»).
+     *
+     * Считаются ОТДЕЛЬНО и в дубли не идут: «Озеро» ⊂ «Озеро Курильское» —
+     * это беда качества имени, а не два описания одного места. Смешать их с
+     * настоящими дублями значило бы утопить список.
+     */
+    generic_only: number;
+    /**
+     * Вложение есть, но длинное имя добавляет СОБСТВЕННОЕ слово — значит это
+     * другой объект, а не второе описание того же.
+     *
+     * Проба 56 показала на образцах, чем верная пара отличается от ложной:
+     *
+     *   «Узон» ⊂ «Кальдера вулкана Узон»      добавлено кальдера, вулкана — родовые
+     *   «Камень» ⊂ «Вулкан Камень»            добавлено вулкан — родовое
+     *   «Камень» ⊂ «Камень Амбон»             добавлено АМБОН — имя собственное
+     *   «Фумарола» ⊂ «Фумарола вулкана Дзендзур»  добавлен ДЗЕНДЗУР
+     *   «пещеры» ⊂ «Лавовые пещеры вулкана Толбачик»  добавлен ТОЛБАЧИК
+     *
+     * Одно короткое слово цепляло всё, где оно встречается: «Камень» дал
+     * шесть пар, из них верна одна. Разница между именами обязана быть
+     * РОДОВОЙ — иначе перед нами два разных места, названных похоже.
+     */
+    distinct_extra: number;
+  };
   merged_morph: number;
   /** Шаг 9b: координата маршрута починена/заполнена из его собственного трека */
   fixed_route_coords: number;
+  /**
+   * Шаг 9c: якорь безъякорному маршруту от МЕСТА с точно таким же именем.
+   *
+   * Из 421 маршрута 97 не имеют ни координат, ни линии, ни путевых точек
+   * (перепись 11.08). Часть из них — тёзки существующих мест, и тогда якорь
+   * выводится, а не выдумывается.
+   */
+  anchored_from_place: number;
+  /**
+   * Шаг 9d: записи, которые источник опубликовал как ЗАМЕТКИ, а не маршруты.
+   *
+   * Отличить их от маршрута по названию нельзя (проба 49), а раздел сайта в
+   * адресе отличает (проба 52: /note — двадцать шесть записей).
+   *
+   * Три исхода, и они считаются врозь, потому что означают разное:
+   * текст переехал в место · запись удалена · запись держит ссылка тура.
+   */
+  notes_text_moved: number;
+  /** Заметка переехала в собственный раздел статей (таблица articles). */
+  notes_to_articles: number;
+  notes_deleted: number;
+  notes_kept_referenced: number;
   /** Диагностика (Шаг 10): waypoints дальше порога от опорной точки маршрута */
   waypoint_outliers: number;
   /** Шаг 10b: изолированные точки-беглецы, отвязанные от маршрута (apply) */
@@ -270,11 +345,43 @@ interface TrackRow {
   geometry: { coordinates?: number[][] } | null;
 }
 
-export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
+/**
+ * Ремонт данных.
+ *
+ * @param dryRun  true — только диагностика, ни одного UPDATE.
+ * @param only    имя шага (`step` в items). Задан — ПРИМЕНЯЕТ только его,
+ *                остальные в этом прогоне остаются диагностикой.
+ *
+ * Зачем `only`. Конвейер копил шаги с июля, и запустить его целиком ради
+ * одного действия значит согласиться на все сразу: чтобы 11.08 убрать 26
+ * заметок сайта из справочника маршрутов, apply в том же прогоне спрятал бы
+ * ещё шесть мест и отвязал две путевые точки — о чём никто не просил.
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+export async function runDataRepair(dryRunInput = true, only?: string): Promise<DataRepairResult> {
   const t0 = Date.now();
+
+  const apply = !dryRunInput;
+
+  // Шаг пишет, только если применяем вообще И (не сужено ИЛИ сужено именно
+  // на него).
+  const writes = (step: string) => apply && (!only || only === step);
+
+  // А шаги, написанные до появления `only`, спрашивают `dryRun` напрямую —
+  // их десяток, и переписывать все ради одного прогона значит трогать
+  // работающее без нужды. Поэтому при сужении они видят обычный сухой
+  // прогон: сужение ОБЯЗАНО глушить и их, иначе адресность мнимая и apply
+  // по одному шагу тихо применит остальные.
+  //
+  // Имя параметра не трогаем: смысл первого аргумента у него «сухой прогон»,
+  // и переворот значения молча инвертировал бы три десятка существующих
+  // вызовов — тот самый дефект, за которым мы охотимся весь день.
+  const dryRun = dryRunInput || Boolean(only);
   const items: RepairItem[] = [];
   const res: DataRepairResult = {
-    dry_run: dryRun,
+    dry_run: dryRunInput,
+    only: only ?? null,
     bogus_clusters: 0,
     bogus_places: 0,
     coords_from_track: 0,
@@ -289,8 +396,14 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     renamed_places: 0,
     normalized_types: 0,
     merged_coord_subset: 0,
+    name_pairs: { same_name: 0, same_wordset: 0, subset: 0, generic_only: 0, distinct_extra: 0 },
     merged_morph: 0,
     fixed_route_coords: 0,
+    anchored_from_place: 0,
+    notes_text_moved: 0,
+    notes_to_articles: 0,
+    notes_deleted: 0,
+    notes_kept_referenced: 0,
     waypoint_outliers: 0,
     waypoint_outliers_unlinked: 0,
     errors: 0,
@@ -806,6 +919,70 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
     }
   }
 
+  // ── Шаг 8b: ОТЧЁТ — похожие ИМЕНА, расстояние как сведение ──────────────
+  // Не пишет НИКОГДА, даже с apply: сведение записей — решение по списку.
+  //
+  // Сравнение идёт по имени и только по нему; километры печатаются рядом,
+  // чтобы человек видел, три там или триста. Значимые основы берутся из
+  // общего `stems` (lib/routes/duplicate-audit) — четвёртого правила о том,
+  // что в имени родовое, в этом файле не будет: здесь уже живут
+  // sameExactName и nameWordSet.
+  {
+    const named = allPlaces.filter((p) => p.is_visible && nameWordSet(p.name));
+    const seen = new Set<string>();
+    for (let i = 0; i < named.length; i++) {
+      const a = named[i];
+      for (let j = i + 1; j < named.length; j++) {
+        const b = named[j];
+        const wa = nameWords(a.name), wb = nameWords(b.name);
+
+        let kind: 'same_name' | 'same_wordset' | 'subset' | null = null;
+        if (sameExactName(a.name, b.name)) kind = 'same_name';
+        else if (nameWordSet(a.name) === nameWordSet(b.name)) kind = 'same_wordset';
+        else if (isStrictSubset(wa, wb) || isStrictSubset(wb, wa)) kind = 'subset';
+        if (!kind) continue;
+
+        // Короткое имя целиком родовое — беда качества имени, не дубль.
+        const [shorter, longer] = wa.size <= wb.size ? [a, b] : [b, a];
+        if (stems(shorter.name).size === 0) {
+          res.name_pairs.generic_only++;
+          continue;
+        }
+
+        // Чем длинное имя ОТЛИЧАЕТСЯ от короткого. Если добавлено имя
+        // собственное — это другой объект: «Камень» и «Камень Амбон» разные
+        // места, сколько бы букв они ни делили. Разница обязана быть родовой.
+        if (kind === 'subset') {
+          const shortWords = wa.size <= wb.size ? wa : wb;
+          const extra = [...(wa.size <= wb.size ? wb : wa)].filter((w) => !shortWords.has(w));
+          if (stems(extra.join(' ')).size > 0) {
+            res.name_pairs.distinct_extra++;
+            continue;
+          }
+        }
+
+        res.name_pairs[kind]++;
+        const key = [a.id, b.id].sort().join(':');
+        if (seen.has(key) || res.items.filter((i) => i.step === 'name_pair').length >= 20) continue;
+        seen.add(key);
+
+        const km = (a.lat != null && a.lng != null && b.lat != null && b.lng != null)
+          ? `${haversineKm(a.lat, a.lng, b.lat, b.lng).toFixed(1)} км`
+          // Отсутствие координат — не ноль километров: сказать нечего.
+          : 'расстояние неизвестно';
+        items.push({
+          step: 'name_pair',
+          place: a.name,
+          detail: `[${kind}] «${shorter.name}» ⟷ «${longer.name}» · ${km} · ${
+            a.location_type === b.location_type
+              ? (a.location_type ?? 'без типа')
+              : `типы разные: ${a.location_type ?? '?'} / ${b.location_type ?? '?'}`
+          }`,
+        });
+      }
+    }
+  }
+
   // ── Шаг 9: морфологические координатные дубли ────────────────────────────
   // «Авачинская сопка» ↔ «Авачинский вулкан» (50 м, оба volcano): набор слов
   // разный (Шаг 2 мимо), строгого вложения имён нет (Шаг 8 мимо), но точка та же,
@@ -915,6 +1092,227 @@ export async function runDataRepair(dryRun = true): Promise<DataRepairResult> {
   } catch (err) {
     res.errors++;
     items.push({ step: 'route_coords', detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}` });
+  }
+
+  // ── Шаг 9c: якорь безъякорному маршруту от одноимённого МЕСТА ────────────
+  //
+  // Перепись 11.08 (пробы 43-50): из 421 маршрута 97 не имеют ни координат,
+  // ни линии, ни путевых точек. На карте их нет, «рядом со мной» их не
+  // найдёт. Шаг 9b им не помогает — он живёт треком, а трека у них нет.
+  //
+  // Но часть из них ТЁЗКИ существующих мест: справочник мест (779 записей,
+  // lat/lng NOT NULL по схеме) знает, где «Малкинские горячие источники».
+  // Если маршрут назван так же, его якорь — координата этого места. Это
+  // ВЫВОД из имеющегося, а не догадка: тождество утверждают сами имена.
+  //
+  // Почему нельзя мягче. Соблазн — сравнить по набору слов (nameWordSet) или
+  // по вхождению; тогда «Гейзеры Камчатки» (обзорная статья) сядет на
+  // «Долину гейзеров», а «Флора Камчатки» — на что угодно камчатское. Ровно
+  // так сгорела привязка треков по близости: правило срабатывало часто и
+  // ошибалось в девяти случаях из десяти. Поэтому равенство ТОЧНОЕ — и
+  // сработает оно редко. Редко и верно лучше, чем часто и как придётся.
+  //
+  // Нормализатор берётся готовый (`normalizeTitle`): он уже сводит виды тире,
+  // ё/е, кавычки и жанровое слово «Маршрут» в начале. Свой второй здесь
+  // разошёлся бы с первым — в этом файле уже живут `sameExactName` и
+  // `nameWordSet`, и третьего правила о том же не будет.
+  //
+  // Что НЕ делается: не геокодятся названия. «Флора Камчатки» отдала бы
+  // центр полуострова, и на карте появилась бы точка, за которую никто не
+  // отвечает. Без тёзки запись остаётся как есть и видна в переписи.
+  try {
+    const { rows: anchorless } = await pool.query<{ id: string; title: string }>(
+      `SELECT id, title
+         FROM kamchatka_routes
+        WHERE (is_visible = TRUE OR is_visible IS NULL)
+          AND title IS NOT NULL
+          AND (lat IS NULL OR lng IS NULL)`,
+    );
+
+    if (anchorless.length > 0) {
+      const { rows: placeRows } = await pool.query<{ name: string; lat: string; lng: string }>(
+        `SELECT name, lat::text AS lat, lng::text AS lng
+           FROM places
+          WHERE name IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL`,
+      );
+
+      // Тёзка должна быть ОДНА. Два места с одинаковым именем — это выбор
+      // между ними, а выбирать не на чем: дальше идёт человек.
+      const byName = new Map<string, { lat: number; lng: number } | 'ambiguous'>();
+      for (const p of placeRows) {
+        const key = normalizeTitle(p.name);
+        if (key === '') continue;
+        byName.set(key, byName.has(key)
+          ? 'ambiguous'
+          : { lat: Number(p.lat), lng: Number(p.lng) });
+      }
+
+      for (const r of anchorless) {
+        const hit = byName.get(normalizeTitle(r.title));
+        if (!hit || hit === 'ambiguous') continue;
+        if (writes('anchor_from_place')) {
+          await pool.query(
+            `UPDATE kamchatka_routes
+                SET lat = $1, lng = $2,
+                    metadata = COALESCE(metadata, '{}'::jsonb)
+                               || jsonb_build_object('anchor_source', 'place_same_name'),
+                    updated_at = NOW()
+              WHERE id = $3`,
+            [hit.lat, hit.lng, r.id],
+          );
+        }
+        res.anchored_from_place++;
+        items.push({
+          step: 'anchor_from_place',
+          place: r.title,
+          detail: `координаты не было — от одноимённого места ${hit.lat.toFixed(4)}, ${hit.lng.toFixed(4)}`,
+        });
+      }
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({
+      step: 'anchor_from_place',
+      detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`,
+    });
+  }
+
+  // ── Шаг 9d: заметки сайта — вон из справочника МАРШРУТОВ ─────────────────
+  //
+  // Владелец 11.08, две команды подряд: «статьи — убирать с маршрутов в
+  // описание мест», затем «если не знаешь — удаляй». Шаг исполняет обе:
+  // где для текста есть цель, текст переезжает; где цели нет, запись
+  // удаляется.
+  //
+  // Улика — АДРЕС. По названию статья от маршрута не отличается (проба 49:
+  // «Флора Камчатки», «Поселок Эссо» и «Восхождение на Плоский Толбачик» в
+  // одной куче). Проба 52 разложила 97 безъякорных записей по разделам
+  // источника начисто: /upload 67, /note 26, /routes 4. Раздел «note» —
+  // слово самого источника: он опубликовал заметку, а не маршрут.
+  //
+  // Проба 53 показала список, и он поправил формулировку: под /note лежат и
+  // обзорные статьи («Растения Камчатки»), и описания настоящих МЕСТ
+  // («Поселок Эссо», «Озеро Азабачье»). Маршрутом не является ни то, ни
+  // другое — поэтому из справочника маршрутов уходят все.
+  //
+  // Порядок: сперва спасти текст, потом удалять. Обратного порядка быть не
+  // может — удалённое не переносят.
+  //
+  // Единственное, что удерживает от удаления, — ссылка коммерческого тура на
+  // эту запись: удалить её значит сломать страницу тура, а это уже не уборка
+  // справочника. Такие остаются и называются в отчёте поимённо.
+  try {
+    const { rows: notes } = await pool.query<{
+      id: string; title: string; description: string | null;
+      source_url: string | null; source_name: string | null; category: string | null;
+    }>(
+      `SELECT id, title, description, source_url, source_name, category
+         FROM kamchatka_routes
+        WHERE title IS NOT NULL
+          AND substring(source_url from '^https?://[^/]+(/[^/?#]*)') = '/note'`,
+    );
+
+    if (notes.length > 0) {
+      const { rows: placeRows } = await pool.query<{ id: string; name: string; description: string | null }>(
+        `SELECT id, name, description FROM places WHERE name IS NOT NULL`,
+      );
+      const byName = new Map<string, { id: string; description: string | null } | 'ambiguous'>();
+      for (const pl of placeRows) {
+        if (typeof pl.name !== 'string' || pl.name === '') continue;
+        const key = normalizeTitle(pl.name);
+        if (key === '') continue;
+        byName.set(key, byName.has(key) ? 'ambiguous' : { id: pl.id, description: pl.description });
+      }
+
+      for (const n of notes) {
+        // 1. Текст — в описание места, если у него есть однозначный тёзка и
+        //    описание там беднее. Богатое чужим текстом не перетираем.
+        const hit = byName.get(normalizeTitle(n.title));
+        const text = (n.description ?? '').trim();
+        const target = hit && hit !== 'ambiguous' ? hit : null;
+        const targetLen = (target?.description ?? '').trim().length;
+        if (target && text.length > targetLen) {
+          if (writes('source_note')) {
+            await pool.query(
+              `UPDATE places
+                  SET description = $1,
+                      metadata = COALESCE(metadata, '{}'::jsonb)
+                                 || jsonb_build_object('description_from', 'route_note'),
+                      updated_at = NOW()
+                WHERE id = $2`,
+              [text, target.id],
+            );
+          }
+          res.notes_text_moved++;
+          items.push({
+            step: 'source_note',
+            place: n.title,
+            detail: `текст перенесён в описание одноимённого места (было ${targetLen} символов, стало ${text.length})`,
+          });
+        }
+
+        // 2. Ссылка коммерческого тура держит запись: удаление сломало бы
+        //    страницу тура, а это уже не уборка справочника.
+        const { rows: refs } = await pool.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM operator_tours WHERE route_id = $1`,
+          [n.id],
+        );
+        if (parseInt(refs[0]?.n ?? '0', 10) > 0) {
+          res.notes_kept_referenced++;
+          items.push({
+            step: 'source_note',
+            place: n.title,
+            detail: 'на запись ссылается тур оператора — не удаляем, нужен разбор человека',
+          });
+          continue;
+        }
+
+        // 3. Заметка переезжает в СВОЙ раздел (миграция 848) и уходит из
+        //    справочника маршрутов.
+        //
+        //    Владелец 11.08: сперва «если не знаешь — удаляй», затем «нужно
+        //    сделать раздел статьи так же как с видами рыб, это было бы
+        //    логичней». Второе решение отменяет первое и оно лучше: «Флора
+        //    Камчатки» — не мусор, это готовый текст про Камчатку, ему нужна
+        //    своя полка, а не корзина. Из справочника МАРШРУТОВ он всё равно
+        //    уходит: маршрутом он не был никогда.
+        //
+        //    Slug — общий `slugify`, тот же, что у маршрутов и мест. Пустой
+        //    (из названия без букв) заменяется на id: адрес обязан быть, и
+        //    непрозрачный адрес честнее выдуманного.
+        const slug = slugify(n.title) || n.id;
+        if (writes('source_note')) {
+          await pool.query(
+            `INSERT INTO articles (slug, title, body, source_url, source_name, topic)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (slug) DO UPDATE
+                SET title = EXCLUDED.title,
+                    body = COALESCE(EXCLUDED.body, articles.body),
+                    updated_at = NOW()`,
+            [slug, n.title, n.description, n.source_url, n.source_name, n.category],
+          );
+          // Точки маршрута — своей строкой: внешнего ключа у них нет, и без
+          // этого остались бы висеть сироты, ссылающиеся в пустоту.
+          await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1`, [n.id]);
+          await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [n.id]);
+        }
+        res.notes_to_articles++;
+        res.notes_deleted++;
+        items.push({
+          step: 'source_note',
+          place: n.title,
+          detail: target
+            ? `заметка (/note): текст сохранён и в описании места, и в разделе статей (/articles/${slug}); из маршрутов убрана`
+            : `заметка (/note): переехала в раздел статей (/articles/${slug}); из маршрутов убрана`,
+        });
+      }
+    }
+  } catch (err) {
+    res.errors++;
+    items.push({
+      step: 'source_note',
+      detail: `шаг не прошёл: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`,
+    });
   }
 
   // ── Шаг 10: кривые waypoints — отчёт + безопасный анлинк беглецов ────────

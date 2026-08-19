@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle, Wind, Mountain, Thermometer, Flame, Waves, Eye, CloudLightning, Signal, Users } from 'lucide-react';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 const HAZARD_LABELS: Record<string, string> = {
   bears: 'Медведи',
@@ -79,7 +80,8 @@ export function HazardBadgeStrip({ hazards, mchsRequired, className = '' }: Prop
       })}
       {mchsRequired && (
         <a
-          href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
+          href={MCHS_ONLINE_FORM_URL}
+          title={MCHS_DEADLINE_SHORT}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full hover:opacity-80 transition-opacity"

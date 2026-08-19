@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseTrackBlocks } from '@/lib/services/ingest/track-parse';
 import {
   accumulateRelief, remainingRelief, haversineM, distanceAlongTrack,
   ELEVATION_NOISE_M, PROFILE_STEP_M,
@@ -233,12 +234,26 @@ describe('положение переводится в шкалу трека, а
     expect(distanceAlongTrack(track, NaN, 158)).toBeNull();
   });
 
-  it('экран режет профиль обеими границами по треку', () => {
+  it('экран режет профиль обеими границами по треку и в ОДНОЙ шкале', () => {
     const screen = read('app/planning/_PlanningClient.tsx');
-    expect(screen).toMatch(/distanceAlongTrack\(track, coords\.lat, coords\.lng\)/);
-    expect(screen).toMatch(/distanceAlongTrack\(track, nextWp\.lat, nextWp\.lng\)/);
+    // Проверяется обещание, а не форма вызова: прежняя привязка к точной
+    // сигнатуре не пустила добавление шкалы полного трека — то самое
+    // исправление, ради которого этот тест и стоит.
+    expect(screen).toMatch(/const fromM = distanceAlongTrack\(track, coords\.lat, coords\.lng/);
+    expect(screen).toMatch(/const toM = distanceAlongTrack\(track, nextWp\.lat, nextWp\.lng/);
     // Прежняя смешанная шкала (пройдено по прямым) больше не участвует.
     expect(screen).not.toMatch(/fromM = progress\.doneKm/);
+    // Обе границы получают ОДНУ шкалу — иначе срез снова уедет.
+    const from = screen.slice(screen.indexOf('const fromM = distanceAlongTrack'));
+    expect(from.slice(0, 200)).toContain('trackDm');
+    expect(from.slice(0, 400).split('const toM')[1] ?? '').toContain('trackDm');
+  });
+
+  it('без шкалы срез профиля не строится вовсе', () => {
+    // Показать срез в чужой мерке значит соврать о рельефе впереди: профиль
+    // индексирован полной длиной, а прореженная ломаная короче.
+    const screen = read('app/planning/_PlanningClient.tsx');
+    expect(screen).toMatch(/if \(!trackDm\) return null;/);
   });
 });
 
@@ -248,12 +263,30 @@ describe('высоты источника не теряются на импор�
   it('третий элемент переживает ОБА порядка координат', () => {
     // Замер прода 09.08: 289 маршрутов из idilesom, 119 683 точки, ноль высот.
     // Причина — ветка «широта первой» выбрасывала p[2], пока соседняя его
-    // сохраняла. Порядок на Камчатке определяется первым числом: широта 50-64,
-    // долгота 155-167, поэтому lat-first уходил именно в теряющую ветку.
-    expect(IMP).toMatch(/p\.length >= 3 \? \[p\[0\], p\[1\], p\[2\]\] : \[p\[0\], p\[1\]\]/);
-    expect(IMP).toMatch(/p\.length >= 3 \? \[p\[1\], p\[0\], p\[2\]\] : \[p\[1\], p\[0\]\]/);
-    // Прежняя безусловная перестановка без высоты больше не встречается.
-    expect(IMP).not.toMatch(/map\(p => \[p\[1\], p\[0\]\]\)/);
+    // сохраняла. Источник отдаёт именно этот порядок.
+    //
+    // Сторож проверял НАПИСАНИЕ обеих веток в импортёре, и это его подвело:
+    // 18.08 выяснилось, что разборов два, и во второй копии (scripts/) высота
+    // терялась ровно так же — сторож её не видел, потому что смотрел не туда.
+    // Теперь свойство одно и живёт в lib/services/ingest/track-parse, а
+    // проверяется поведением: та же линия в двух порядках осей.
+    const withEle = (latFirst: boolean) =>
+      JSON.stringify(
+        Array.from({ length: 10 }, (_, i) =>
+          latFirst
+            ? [53.25 + i * 0.001, 158.4 + i * 0.001, 700 + i]
+            : [158.4 + i * 0.001, 53.25 + i * 0.001, 700 + i]),
+      );
+    for (const latFirst of [true, false]) {
+      const parsed = parseTrackBlocks(`var t = ${withEle(latFirst)};`);
+      expect(parsed.coordinates).toHaveLength(10);
+      expect(
+        parsed.hasElevation,
+        `высота потеряна в порядке «${latFirst ? 'широта' : 'долгота'} первой»`,
+      ).toBe(true);
+    }
+    // Импортёр разбирает общим правилом, а не своей копией.
+    expect(IMP).toMatch(/parseTrackBlocks\(html\)/);
   });
 
   it('форму источника можно проверить, а не предполагать', () => {
@@ -261,6 +294,10 @@ describe('высоты источника не теряются на импор�
     // Наружу — форма, а не содержимое: длина точки, порядок, диапазон высот.
     expect(IMP).toMatch(/tupleLength/);
     expect(IMP).toMatch(/'lng-first' \| 'lat-first'/);
+    // Порядок в отчёте — наблюдение по всему блоку (axisOrder), а не догадка
+    // по первой точке: у профиля высот первое число меньше 90, и прежний
+    // ответ «lat-first» был той же ошибкой, что рисовала линию через край.
+    expect(IMP).toMatch(/order: axisOrder\(/);
   });
 
   it('диагностика ничего не пишет в базу', () => {

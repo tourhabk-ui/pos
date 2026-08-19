@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
+import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -281,7 +282,7 @@ export default async function IncidentsPage() {
               {[
                 {
                   title: 'Зарегистрируйтесь в МЧС',
-                  body: 'Маршруты с флагом «МЧС обязательно» требуют регистрации группы заранее. Форма — forms.mchs.gov.ru',
+                  body: `Маршруты с флагом «МЧС обязательно» требуют регистрации группы. ${MCHS_DEADLINE_SHORT}. Форма — forms.mchs.gov.ru`,
                 },
                 {
                   title: 'Скачайте карту офлайн',

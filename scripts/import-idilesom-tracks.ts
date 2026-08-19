@@ -12,6 +12,8 @@
  */
 
 import { pool } from '../lib/db-pool';
+import { isPlausibleTrackPoint } from '../lib/routes/track';
+import { parseTrackBlocks } from '../lib/services/ingest/track-parse';
 
 const DELAY_MS = 600;
 const MAX_MATCH_DIST_KM = 5;
@@ -92,31 +94,13 @@ async function scrapePlaceTrack(placeId: string): Promise<PlaceTrack | null> {
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
 
-  // Find coordinate arrays — idilesom embeds two formats:
-  // Format A: [[lat,lng],[lat,lng],...] — for Leaflet polyline
-  // Format B: [[lng,lat,ele],[lng,lat,ele],...] — for elevation profile
-  // We prefer format B (has elevation, in GeoJSON order)
-  const coordBlocks = html.match(/\[\s*\[\s*[\d.]+\s*,\s*[\d.]+[\s\S]*?\]\s*\]/g) ?? [];
-
-  let bestCoords: number[][] = [];
-
-  for (const block of coordBlocks) {
-    try {
-      const parsed = JSON.parse(block) as number[][];
-      if (!Array.isArray(parsed) || parsed.length < 3) continue;
-      if (!Array.isArray(parsed[0]) || parsed[0].length < 2) continue;
-
-      // Determine format: if first element [0] > 90 → it's lng-first (format B, GeoJSON)
-      const first = parsed[0];
-      const isGeoJSON = Math.abs(first[0]) > 90;
-
-      const coords: number[][] = isGeoJSON
-        ? parsed.map(p => p.length >= 3 ? [p[0], p[1], p[2]] : [p[0], p[1]])
-        : parsed.map(p => [p[1], p[0]]); // swap lat/lng to GeoJSON [lng, lat]
-
-      if (coords.length > bestCoords.length) bestCoords = coords;
-    } catch { /* skip malformed */ }
-  }
+  // Координаты — общим разбором (lib/services/ingest/track-parse).
+  //
+  // Здесь стояла своя копия. Границы края она проверяла (правка 16.08 после
+  // полевых скринов), но высоту в порядке «широта первой» молча теряла — а
+  // источник отдаёт именно этот порядок, и ради высоты правили вторую копию
+  // 09.08. Каждая копия несла баг, вылеченный в другой.
+  const bestCoords = parseTrackBlocks(html).coordinates;
 
   if (bestCoords.length < 3) return null;
 
@@ -192,7 +176,7 @@ async function main() {
   console.log(`  ${ids.length} places to process`);
   if (isDryRun) console.log('  [DRY RUN]');
 
-  let imported = 0, skipped = 0, noMatch = 0, errors = 0;
+  let imported = 0, skipped = 0, noMatch = 0, errors = 0, rejected = 0;
 
   console.log('\nPhase 2: Scraping tracks and matching...');
   for (let i = 0; i < ids.length; i++) {
@@ -212,6 +196,23 @@ async function main() {
       if (!match) {
         process.stdout.write(`no match — "${track.title.slice(0, 40)}"\n`);
         noMatch++;
+        await sleep(DELAY_MS);
+        continue;
+      }
+
+      /**
+       * Последняя проверка перед записью — намеренно дублирует проверку
+       * разбора. Разбор ещё будет меняться (сайт-источник не наш), а запрет
+       * «в geometry не попадает точка вне края» должен пережить любую его
+       * правку: цена ошибки здесь — линия на карте навигации, по которой
+       * идут в поле.
+       */
+      const badPoint = track.coordinates.find(p => !isPlausibleTrackPoint(p[1], p[0]));
+      if (badPoint) {
+        process.stdout.write(
+          `отброшен — "${track.title.slice(0, 40)}": точка вне края [${badPoint[0]}, ${badPoint[1]}]\n`,
+        );
+        rejected++;
         await sleep(DELAY_MS);
         continue;
       }
@@ -245,7 +246,7 @@ async function main() {
     await sleep(DELAY_MS);
   }
 
-  console.log(`\nDone: ${imported} imported, ${skipped} no track, ${noMatch} no match, ${errors} errors`);
+  console.log(`\nDone: ${imported} imported, ${skipped} no track, ${noMatch} no match, ${rejected} отброшено вне края, ${errors} errors`);
   await pool.end();
 }
 

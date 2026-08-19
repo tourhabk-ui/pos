@@ -93,7 +93,8 @@ describe('генераторы контента подключены к каче
     // (гейты понадобились всем публикаторам каналов) — контракт «быстрая
     // ветка» проверяется по новому адресу, дайджест обязан импортировать оттуда.
     const factCheck = read('lib/agents/fact-check.ts');
-    expect(factCheck).toMatch(/const raw = await callAIFast\(/);
+    // 18.08 вызов переехал в try/catch ради причины отказа — ветка та же.
+    expect(factCheck).toMatch(/await callAIFast\(/);
     expect(DIGEST).toMatch(/from '@\/lib\/agents\/fact-check'/);
   });
 });

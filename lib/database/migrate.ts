@@ -23,8 +23,13 @@ import { createRequire } from 'node:module';
 // молча выбрасывал выражения, к которым был приклеен ведущий комментарий).
 // Standalone-раннер — CJS для Docker, поэтому импорт через createRequire.
 const requireCjs = createRequire(import.meta.url);
-const { splitSqlStatements } = requireCjs('../../scripts/migrate-standalone.js') as {
+const { splitSqlStatements, applyTransactionalFile } = requireCjs('../../scripts/migrate-standalone.js') as {
   splitSqlStatements: (sql: string) => string[];
+  applyTransactionalFile: (
+    client: { query: (sql: string, vals?: unknown[]) => Promise<unknown> },
+    sql: string,
+    log?: (line: string) => void,
+  ) => Promise<{ statements: number; skippedStatements: number }>;
 };
 
 const MIGRATIONS_DIR = resolve(process.cwd(), 'migrations');
@@ -110,7 +115,14 @@ async function main() {
       const nonTx = isNonTransactional(sql);
 
       if (nonTx) {
-        // Non-transactional: statement by statement, no BEGIN/COMMIT
+        // Non-transactional: statement by statement, no BEGIN/COMMIT.
+        // Ревизия 15.08 (P0): раньше настоящая ошибка здесь логировалась,
+        // цикл продолжался, а файл ПОСЛЕ цикла всё равно помечался
+        // применённым — та же ложная фиксация, что была в транзакционной
+        // ветке. Теперь: реальная ошибка останавливает файл и раннер,
+        // файл НЕ помечается применённым. Откатить уже выполненные
+        // CONCURRENTLY-выражения нельзя — но они идемпотентны (IF NOT
+        // EXISTS) и на повторе будут пропущены.
         console.log(`[APPLY-NOTX] ${file} (non-transactional)`);
         const statements = splitSqlStatements(sql);
 
@@ -122,31 +134,27 @@ async function main() {
             if (isAlreadyExistsError(msg)) {
               console.log(`  [SKIP-EXISTS] ${msg.slice(0, 80)}`);
             } else {
-              console.error(`  [ERROR] ${msg}`);
-              errorCount++;
-              // For non-transactional, we can't rollback — log and continue
+              console.error(`  [ERROR] ${file}: ${msg}`);
+              process.exit(1);
             }
           }
         }
       } else {
-        // Transactional: wrap in BEGIN/COMMIT
+        // Транзакционно, но повыражённо под SAVEPOINT (одна реализация на оба
+        // раннера — scripts/migrate-standalone.js). Находка прогона 14.08:
+        // раньше «already exists» на одном выражении откатывал весь файл,
+        // а раннер помечал миграцию применённой — содержимое терялось молча.
+        // Теперь конфликт пропускает только своё выражение; настоящая ошибка
+        // валит раннер, НЕ помечая файл применённым.
         const client = await pool.connect();
         try {
-          await client.query('BEGIN');
-          await client.query(sql);
-          await client.query('COMMIT');
-          console.log(`[APPLY] ${file}`);
+          const res = await applyTransactionalFile(client, sql, (l) => console.log(l));
+          console.log(`[APPLY] ${file}${res.skippedStatements ? ` (${res.skippedStatements}/${res.statements} выражений уже были)` : ''}`);
         } catch (err: unknown) {
-          await client.query('ROLLBACK');
           const msg = err instanceof Error ? err.message : String(err);
-          if (isAlreadyExistsError(msg)) {
-            console.log(`  [SKIP-EXISTS] ${msg.slice(0, 80)}`);
-            // Still record as applied so we don't retry
-          } else {
-            console.error(`  [ERROR] ${file}: ${msg}`);
-            errorCount++;
-            process.exit(1);
-          }
+          console.error(`  [ERROR] ${file}: ${msg}`);
+          errorCount++;
+          process.exit(1);
         } finally {
           client.release();
         }

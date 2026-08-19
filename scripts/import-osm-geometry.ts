@@ -1,115 +1,74 @@
 /**
  * scripts/import-osm-geometry.ts
  *
- * Fetches real GPS track geometry from OpenStreetMap Overpass API
- * for kamchatka_routes that have no geometry yet.
+ * Импорт геометрии маршрутов из OpenStreetMap — CLI поверх общего раннера.
  *
- * For each route (lat/lng center), queries Overpass for hiking/track paths
- * within a ~10km bounding box, picks the longest continuous way that starts
- * within 3km of the route center, and stores it as GeoJSON LineString.
+ * ── Почему здесь больше нет своей логики (17.08) ────────────────────────────
+ *
+ * Скрипт держал собственную копию всего: свой Overpass-эндпоинт без фолбэка,
+ * свою выборку маршрутов, свой выбор тропы и свой UPDATE. Правило подбора
+ * жило в двух местах — а правило в двух местах это два правила, и разъезжаются
+ * они молча. Ровно из-за такого разъезда сегодня чинились и вид линии (§12), и
+ * реестр синтетики, и подпись действия.
+ *
+ * Теперь скрипт — тонкая обёртка: разбор аргументов, вызов `runOsmImport`,
+ * печать итога. Правило подбора одно и живёт в `lib/import/osm-geometry`.
+ *
+ * Оговорка о применимости: прогон с GitHub-раннера трижды падал по таймауту
+ * соединения — файрвол managed PostgreSQL у Timeweb не пускает внешние адреса.
+ * Боевой путь — прод-эндпоинт `/api/cron/osm-import`; этот скрипт остаётся для
+ * запуска оттуда, где база достижима.
  *
  * Usage:
- *   DATABASE_URL=<prod> npx tsx scripts/import-osm-geometry.ts
  *   DATABASE_URL=<prod> npx tsx scripts/import-osm-geometry.ts --dry-run
  *   DATABASE_URL=<prod> npx tsx scripts/import-osm-geometry.ts --limit 20
  */
 
 import { pool } from '../lib/db-pool';
-import {
-  buildOverpassQuery, parseOverpassWays, pickBestWay, wayToGeoJSON,
-  type OsmWay,
-} from '../lib/import/osm-geometry';
-
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
-const DELAY_MS = 1200; // stay well below Overpass rate limit
+import { runOsmImport } from '../lib/import/osm-import-runner';
 
 const isDryRun = process.argv.includes('--dry-run');
 const limitArg = process.argv.indexOf('--limit');
-const LIMIT = limitArg !== -1 ? parseInt(process.argv[limitArg + 1]) : 999;
+const parsedLimit = limitArg !== -1 ? parseInt(process.argv[limitArg + 1], 10) : NaN;
+const LIMIT = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 999;
 
-// ─── Overpass fetch (сеть) — чистая логика в lib/import/osm-geometry.ts ─────────
+async function main(): Promise<void> {
+  const result = await runOsmImport({ limit: LIMIT, dryRun: isDryRun });
 
-async function fetchOsmWays(lat: number, lng: number): Promise<OsmWay[]> {
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(buildOverpassQuery(lat, lng))}`,
-    signal: AbortSignal.timeout(30_000),
-  });
+  process.stdout.write(
+    `${isDryRun ? 'Сухой прогон' : 'Импорт'}: взято ${result.details.length}, `
+    + `принято ${result.imported}, отказов ${result.skipped}, ошибок ${result.errors.length}\n`,
+  );
 
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  return parseOverpassWays(await res.json());
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-async function main() {
-  const { rows: routes } = await pool.query<{
-    id: string;
-    title: string;
-    lat: string;
-    lng: string;
-  }>(`
-    SELECT id, title, lat::text, lng::text
-    FROM kamchatka_routes
-    WHERE is_visible = true
-      AND lat IS NOT NULL
-      AND lng IS NOT NULL
-      AND geometry IS NULL
-    ORDER BY title
-    LIMIT $1
-  `, [LIMIT]);
-
-  console.log(`Routes without geometry: ${routes.length}`);
-  if (isDryRun) console.log('[dry-run mode — no DB writes]');
-
-  let imported = 0;
-  let skipped = 0;
-  let errors = 0;
-
-  for (let i = 0; i < routes.length; i++) {
-    const r = routes[i];
-    const lat = parseFloat(r.lat);
-    const lng = parseFloat(r.lng);
-    process.stdout.write(`[${i + 1}/${routes.length}] ${r.title.slice(0, 50).padEnd(50)} `);
-
-    try {
-      const ways = await fetchOsmWays(lat, lng);
-      const best = pickBestWay(ways, lat, lng);
-
-      if (!best) {
-        process.stdout.write(`skip (0/${ways.length} ways in range)\n`);
-        skipped++;
-      } else {
-        const geojson = wayToGeoJSON(best, lat, lng);
-        const pts = geojson.coordinates.length;
-
-        if (!isDryRun) {
-          // source in-band — та же конвенция, что у idilesom/visitkamchatka
-          await pool.query(
-            `UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2`,
-            [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
-          );
-        }
-
-        const name = best.tags?.name ?? 'unnamed';
-        process.stdout.write(`OK (${pts} pts, way "${name}")\n`);
-        imported++;
-      }
-    } catch (err) {
-      process.stdout.write(`ERROR: ${(err as Error).message}\n`);
-      errors++;
-    }
-
-    // Rate-limit pause (skip after last item)
-    if (i < routes.length - 1) await new Promise((r) => setTimeout(r, DELAY_MS));
+  // Причина отказа печатается всегда: «отказов 40» без причин не говорит,
+  // чего не хватило — троп поблизости, точек маршрута или однозначности.
+  const byReason = new Map<string, number>();
+  for (const d of result.details) {
+    if (d.status !== 'skipped') continue;
+    const key = d.reason ?? 'без причины';
+    byReason.set(key, (byReason.get(key) ?? 0) + 1);
+  }
+  for (const [reason, n] of [...byReason].sort((a, b) => b[1] - a[1])) {
+    process.stdout.write(`  отказ ${reason}: ${n}\n`);
   }
 
-  console.log(`\nDone: ${imported} imported, ${skipped} skipped, ${errors} errors`);
+  // Что именно предлагается записать — с именем тропы и качеством привязки.
+  for (const d of result.details) {
+    if (d.status !== 'dry_run' && d.status !== 'imported') continue;
+    const name = d.wayName ? `«${d.wayName}»` : `way ${d.wayId}`;
+    process.stdout.write(
+      `  ${d.title}: ${name}, точек ${d.pts}, `
+      + `худшая путевая точка ${d.worstWaypointKm} км, затирается ${d.currentSource ?? 'пусто'}\n`,
+    );
+  }
+
+  for (const e of result.errors) process.stdout.write(`  ошибка: ${e}\n`);
+
   await pool.end();
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch(async (err: unknown) => {
+  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+  await pool.end();
   process.exit(1);
 });

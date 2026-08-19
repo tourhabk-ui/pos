@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCronSecret } from '@/lib/auth/cron';
 import { Bot } from '@maxhub/max-bot-api';
 import { z } from 'zod';
 
@@ -25,8 +26,9 @@ function getApi() {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const auth = req.headers.get('authorization') ?? '';
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // verifyCronSecret сам снимает префикс Bearer и сравнивает постоянным
+  // временем. Прежнее `!==` по всей строке утекало секрет посимвольно.
+  if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

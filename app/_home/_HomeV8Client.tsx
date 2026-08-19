@@ -34,6 +34,7 @@ import { photoSrc } from '@/lib/images/variant';
 import { dataFreshness, freshnessDot } from '@/lib/home/data-freshness';
 import { TrailReportSheet } from '@/components/homepage/TrailReportSheet';
 import EmergencyAction from '@/components/shared/EmergencyAction';
+import { ShareButton } from '@/components/shared/ShareButton';
 
 const ELEMENT_ICON: Record<string, LucideIcon> = {
   fire: Flame, snow: Snowflake, ocean: Waves, therm: Droplets, nature: Trees,
@@ -283,15 +284,30 @@ export default function HomeV8Client({ data }: { data: HomeV8Data }) {
         <div className="hero-in">
           {/* Лого — два вулкана (Корякский и Авачинский силуэтом) тонким
               штрихом в гравюрной манере бренда + вордмарк мельче. Текст
-              VEDARAI один смотрелся безлико — решение владельца 01.08. */}
-          <div className="hero-brand" role="img" aria-label="Vedarai">
-            <svg className="hb-mark" viewBox="0 0 72 26" aria-hidden>
-              <path d="M1 25 L14 7 L18 12 L22 5 L30 14 L36 25" />
-              <path d="M32 25 L46 11 L51 16 L57 10 L71 25" />
-              <path d="M20 8 L22 5 L24 8" />
-              <path d="M22 5 C21 3 23 2 22 0" opacity=".65" />
-            </svg>
-            <span className="hb-word">Vedarai</span>
+              VEDARAI один смотрелся безлико — решение владельца 01.08.
+              Справа — «поделиться». Место выбрано не по вкусу: в шапке при
+              360 px уже стоят пилюля статуса, СОС, тема и ЛК — пятая иконка
+              переносила бы ряд на две строки (шапка потому и умеет
+              flex-wrap, что однажды вылезла за экран). В герое ширина
+              свободна, а стекло поверх фото разрешено §2. */}
+          <div className="hero-top">
+            <div className="hero-brand" role="img" aria-label="Vedarai">
+              <svg className="hb-mark" viewBox="0 0 72 26" aria-hidden>
+                <path d="M1 25 L14 7 L18 12 L22 5 L30 14 L36 25" />
+                <path d="M32 25 L46 11 L51 16 L57 10 L71 25" />
+                <path d="M20 8 L22 5 L24 8" />
+                <path d="M22 5 C21 3 23 2 22 0" opacity=".65" />
+              </svg>
+              <span className="hb-word">Vedarai</span>
+            </div>
+            <ShareButton
+              className="hero-share"
+              referral
+              size={18}
+              title="Ведар — Камчатка"
+              text="Маршруты, безопасность и проверенные туры по Камчатке"
+              referralText="Приглашаю в Ведар: маршруты и проверенные туры по Камчатке. По моей ссылке — бонус на первую поездку"
+            />
           </div>
           <div className="hero-sp" />
           {trip ? (
@@ -910,7 +926,11 @@ const CSS = `
 .v7 .hero-in{position:relative;max-width:480px;margin:0 auto;padding:16px 20px 96px;width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
 /* Лого — вулканы штрихом + вордмарк. Живёт на фото: в шапке ему не
    хватало бюджета ширины (см. комментарий у .topbar). */
+.v7 .hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%}
 .v7 .hero-brand{display:flex;flex-direction:column;gap:7px;filter:drop-shadow(0 1px 10px rgba(0,0,0,.45))}
+/* Стекло — поверх фото, где ему и место по §2. */
+.v7 .hero-share{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:999px;background:rgba(0,0,0,.40);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.95);cursor:pointer;transition:background .2s}
+.v7 .hero-share:hover{background:rgba(0,0,0,.55)}
 .v7 .hb-mark{width:52px;height:auto;stroke:rgba(255,255,255,.95);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .v7 .hb-word{font:600 11px/1 var(--font-playfair),Georgia,serif;letter-spacing:.38em;text-transform:uppercase;color:rgba(255,255,255,.95)}
 .v7 .hero-sp{flex:1;min-height:56px}
@@ -1022,7 +1042,10 @@ const CSS = `
    serif-заголовок поверх фото, пунктирная линейка, факты, оранжевый CTA.
    Текст читается за счёт собственной нижней тени (.fp-shade), а не удачи. */
 .v7 .firstpick{position:relative;display:block;text-decoration:none;color:#fff;border-radius:18px;overflow:hidden;background:var(--bg-hover)}
-.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center/cover no-repeat}
+/* Верхняя привязка — та же причина, что у .plate .img: фото туров
+   вертикальные, и центрирование срезает голову. Здесь рамка почти
+   квадратная (10/11), запас меньше, но тот же снимок попадает и сюда. */
+.v7 .firstpick .fp-photo{position:relative;aspect-ratio:10/11;background:center top/cover no-repeat}
 .v7 .firstpick .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .firstpick .fp-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,14,12,.10) 32%,rgba(10,14,12,.80) 84%)}
 .v7 .firstpick .fp-badge{position:absolute;top:14px;left:14px;padding:8px 11px;border-radius:9px;background:var(--success);color:#fff;font:700 9.5px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
@@ -1045,7 +1068,14 @@ const CSS = `
 .v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
 .v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,transform .2s}
 .v7 .pl-dots button.on::after{background:var(--accent);transform:scale(1.25)}
-.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center/cover no-repeat}
+/* Кроп прижат к ВЕРХУ, а не по центру. Рамка здесь горизонтальная (4:3), а
+   фотографии туров сплошь вертикальные: рыбак во весь рост с лососем. При
+   центрировании кадр отрезал голову сверху и ноги снизу — на витрине оставалось
+   безголовое туловище с рыбой (замечено владельцем 14.08 на «Летней рыбалке
+   на чавычу»). Верхняя привязка режет только низ, а голова — то, по чему
+   человека узнают. На горизонтальных фото вертикального запаса почти нет,
+   поэтому им эта привязка ничего не меняет. */
+.v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center top/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 2px 0}

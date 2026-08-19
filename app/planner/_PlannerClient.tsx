@@ -19,6 +19,10 @@ import {
   Share2, Copy,
 } from 'lucide-react';
 import type { MapMarker } from '@/components/shared/leaflet-types';
+import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
+import { funnelBeacon } from '@/lib/funnel/beacon';
+import { useMyReferralCode } from '@/hooks/useMyReferralCode';
+import { withReferral } from '@/lib/referral/link';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, PriceBreakdown, Recommendation,
@@ -660,7 +664,13 @@ function PartnersModal({ activityType, onClose }: {
                   </span>
                 )}
                 {phone && (
-                  <a href={`tel:${phone}`} className="flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline">
+                  <a
+                    href={`tel:${phone}`}
+                    className="flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline"
+                    /* Открытый контакт исполнителя — действие исполнения
+                       (стратегия 14.08, шаг словаря lib/funnel/steps). */
+                    onClick={() => funnelBeacon('partner_contact', p.id)}
+                  >
                     <Phone className="w-3 h-3" />{phone}
                   </a>
                 )}
@@ -890,6 +900,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [shareUrl, setShareUrl]     = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [shareCopied, setShareCopied] = useState(false);
+  // «Отправь группе свой план» (стратегия 14.08): ссылка залогиненного несёт
+  // его реферальную метку. Код спрашивается заранее — к нажатию ссылка готова.
+  const myReferralCode = useMyReferralCode(!!initialUserId);
 
   // Plan
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -944,6 +957,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   const allInterests = [...new Set([...places, ...activities])];
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
+
+  // planner_started — первое осмысленное действие в анкете, один раз за сессию
+  // компонента (стратегия 14.08). Приход с плиткой намерения (?mood=...) — тоже
+  // старт: плитки на главной и есть быстрый старт формы. Просто открыть пустую
+  // страницу — ещё не старт: это уже пишет page_views.
+  const plannerStartedRef = useRef(false);
+  useEffect(() => {
+    if (plannerStartedRef.current) return;
+    if (places.length === 0 && activities.length === 0 && !arrival && !departure) return;
+    plannerStartedRef.current = true;
+    funnelBeacon('planner_started');
+  }, [places, activities, arrival, departure]);
 
   // Editing day info for banner
   const editingDayInfo = useMemo(() => {
@@ -1033,6 +1058,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
       if (!tripId && data.data?.id) setTripId(data.data.id);
       setSaveStatus('saved');
+      // Сохранённый план — первое действие исполнения «активированной поездки».
+      funnelBeacon('plan_saved', data.data?.id ?? tripId ?? undefined);
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch {
       setSaveStatus('error');
@@ -1123,13 +1150,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       });
     });
 
-    // Polyline
+    // Линия между днями плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard).
+    // Она соединяет центры зон, между которыми бывает триста километров и
+    // хребет. Сплошная оранжевая под словом «Маршрут» читалась как проход:
+    // и вид, и подпись обещали то, чего никто не снимал.
     if (zoneOrder.length >= 2) {
       result.push({
         id: 'route_line',
         coords: zoneOrder[0].coords,
-        title: 'Маршрут',
-        geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), color: 'orange', weight: 3 },
+        title: CONNECTOR_TITLES.planOrder,
+        geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), ...connectorLine() },
       });
     }
 
@@ -1357,6 +1387,9 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
         setSelectedRoute(null);
         setEditingDayId(null);
         setShowItinerary(false);
+        // Результат получен и показан — вторая ступень воронки. Дедуп на
+        // приёмнике (60 минут), повторные пересборки план не задваивают.
+        funnelBeacon('planner_result_viewed');
       } else {
         setError(data.error || 'Ошибка при получении рекомендации');
       }
@@ -1991,10 +2024,12 @@ ${recommendation?.warnings && recommendation.warnings.length > 0 ? `<div class="
                   {shareCopied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
                   {shareCopied ? 'Скопировано' : 'Копировать ссылку'}
                 </button>
-                <a href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
+                <a href={`https://t.me/share/url?url=${encodeURIComponent(withReferral(shareUrl, myReferralCode))}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
-                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}>
+                  style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
+                  /* Отправка плана группе — действие исполнения (словарь steps). */
+                  onClick={() => funnelBeacon('plan_sent_to_telegram', tripId ?? undefined)}>
                   <ExternalLink className="w-3.5 h-3.5" />Telegram
                 </a>
                 <a href="https://max.ru/id4101147649_bot" target="_blank" rel="noopener noreferrer"

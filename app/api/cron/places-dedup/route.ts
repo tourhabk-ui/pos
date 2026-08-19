@@ -5,12 +5,29 @@
  * waypoints — как ручной /api/admin/places/merge, но массово и по проду.
  *
  * Body: { limit (1..50, default 20), dry_run (default true),
- *         min_sim (0..1, default 0.45), max_dist_m (default 500) }.
+ *         min_sim (0..1, default 0.45), max_dist_m (default 500) }
+ *   ЛИБО { pairs: [{ keep, merge }], dry_run } — поимённый режим.
  *
  * Высокая надёжность = ОБА условия: тот же location_type + реальные (не 0,0/не
  * плейсхолдер) близкие координаты (≤ max_dist_m) + похожесть имени ≥ min_sim.
  * Так «Бараний»(вулкан)/«Бараньи скалы»(скала) не сольются (разный тип), а
  * настоящий дубль одного объекта — сольётся. dry_run печатает план в лог.
+ *
+ * ── Зачем поимённый режим ──────────────────────────────────────────────────
+ *
+ * Пороги отбирают ПОЛОСУ, а решение принимается по ПАРАМ. В прогоне 71 из
+ * десяти кандидатов бесспорны были пары с похожестью 1.00, 0.58 и 0.53, а
+ * отклонены — 0.93 («Смотровая точка Б» и «точка В» — разные площадки, буквы
+ * поставлены нарочно), 0.82, 0.70, 0.63, 0.50. Ни одна комбинация min_sim и
+ * max_dist_m не выделяет выбранные пять: одобренное и отклонённое перемешаны
+ * по шкале. Подгонять пороги «чтобы совпало» — значит закрепить в коде число,
+ * которое к смыслу отношения не имеет и на следующих данных отберёт другое.
+ * Поэтому выбранное человеком передаётся списком id, а не порогом.
+ *
+ * Поимённый режим НЕ ослабляет проверок — он их переносит на человека, который
+ * пары уже просмотрел. Поэтому неизвестный или уже слитый id — это ошибка 400
+ * со списком проблемных, а не тихий пропуск: молча слить четыре пары из пяти и
+ * ответить success значило бы выдать неполный результат за полный.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,6 +36,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { transaction } from '@/lib/database';
+import { recordAlias, moveAliases } from '@/lib/places/aliases';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -28,15 +46,205 @@ const BodySchema = z.object({
   dry_run: z.boolean().default(true),
   min_sim: z.number().min(0).max(1).default(0.45),
   max_dist_m: z.number().int().min(10).max(2000).default(500),
+  /**
+   * Поимённый режим: слить ровно эти пары. Пороги при этом не применяются.
+   *
+   * id — строка, НЕ z.string().uuid(): `places.id` в боевой базе — TEXT, и в
+   * нём живут рукописные id вида «d5e6f7a8-b9c0-4123-efab-…», у которых
+   * вариантный полубайт не по RFC 4122. Проба 89 на таком id получила 400 от
+   * валидатора, хотя запись в базе есть. Тип id не утверждается, а обходится —
+   * та же история, что с `::uuid[]` в SQL этого же файла.
+   */
+  pairs: z
+    .array(
+      z.object({
+        keep: z.string().trim().min(1).max(64),
+        merge: z.string().trim().min(1).max(64),
+      }),
+    )
+    .min(1)
+    .max(50)
+    .optional(),
 });
 
 interface PairRow {
-  id1: string; name1: string; ark1: string | null; has_photo1: boolean; has_safety1: boolean;
-  id2: string; name2: string; ark2: string | null; has_photo2: boolean; has_safety2: boolean;
-  dist_m: number; name_sim: number;
+  id1: string;
+  name1: string;
+  ark1: string | null;
+  has_photo1: boolean;
+  has_safety1: boolean;
+  visible1: boolean;
+  id2: string;
+  name2: string;
+  ark2: string | null;
+  has_photo2: boolean;
+  has_safety2: boolean;
+  visible2: boolean;
+  dist_m: number;
+  name_sim: number;
 }
 
-const score = (photo: boolean, safety: boolean) => (photo ? 2 : 0) + (safety ? 1 : 0);
+interface PlanItem {
+  keepId: string;
+  keepName: string;
+  keepArk: string | null;
+  mergeId: string;
+  mergeName: string;
+  mergeArk: string | null;
+  distM: number | null;
+  sim: number | null;
+}
+
+/**
+ * Кого оставляем при слиянии.
+ *
+ * ВИДИМОСТЬ ВЕСИТ БОЛЬШЕ ВСЕГО, и это оплачено. 14.08 правило смотрело только
+ * на фото и профиль безопасности — и на паре Авачинского оставило СКРЫТУЮ
+ * запись, убрав видимую. В итоге самый известный вулкан Камчатки перестал
+ * существовать на платформе: среди 145 записей типа «вулкан» не осталось ни
+ * одной видимой записи Авачинского.
+ *
+ * Логика веса простая: карточка, которой не видно, не показывает НИЧЕГО — ни
+ * фото, ни профиля безопасности. Поэтому видимая запись беднее данными всё
+ * равно лучше богатой, но скрытой. Фото при слиянии переносится, профиль
+ * безопасности — тоже (ниже), так что разница в данных схлопывается, а
+ * разница «видно/не видно» — нет.
+ */
+export const keepScore = (visible: boolean, photo: boolean, safety: boolean) =>
+  (visible ? 4 : 0) + (photo ? 2 : 0) + (safety ? 1 : 0);
+
+/** Расстояние между двумя строками places, метры. Одно выражение на оба режима. */
+const DIST_M_SQL = (
+  a: string,
+  b: string
+) => `6371000 * acos(LEAST(1, GREATEST(-1,
+  cos(radians(${a}.lat)) * cos(radians(${b}.lat)) * cos(radians(${b}.lng) - radians(${a}.lng)) +
+  sin(radians(${a}.lat)) * sin(radians(${b}.lat))
+)))`;
+
+interface NamedRow {
+  keep_id: string | null;
+  keep_name: string | null;
+  keep_ark: string | null;
+  keep_merged: string | null;
+  merge_id: string | null;
+  merge_name: string | null;
+  merge_ark: string | null;
+  merge_merged: string | null;
+  given_keep: string;
+  given_merge: string;
+  dist_m: number | null;
+  name_sim: number | null;
+}
+
+/**
+ * Что не так со списком пар ещё до похода в базу.
+ *
+ * Запрещено ровно то, что неоднозначно:
+ *
+ *   — id стоит и слева, и справа (`A→B` вместе с `B→C`): судьбу B решал бы
+ *     порядок применения, а порядок здесь ничем не задан;
+ *   — одно место сливают дважды (`B→A` и `B→C`): в какое из двух — неизвестно;
+ *   — место сливают в самого себя.
+ *
+ * А вот ОДИН keep для нескольких merge (`B→A` и `C→A`) — разрешён, и это не
+ * послабление. У Козельского три записи: «Козельский», «Вулкан Козельский»,
+ * «Под Козельский вулкан» — в 69 и 85 метрах друг от друга. Первая версия
+ * проверки считала повтором любой id, встретившийся дважды, и запрещала
+ * собрать их за один заход: пришлось бы гнать три запроса подряд, наблюдая
+ * между ними промежуточные состояния. Правило запрещало определённое и
+ * безопасное — то есть было строже смысла.
+ */
+export function pairListProblems(
+  pairs: Array<{ keep: string; merge: string }>
+): string[] {
+  const problems: string[] = [];
+  const keeps = new Set(pairs.map(p => p.keep));
+  const mergedOnce = new Set<string>();
+
+  for (const p of pairs) {
+    if (p.keep === p.merge) {
+      problems.push(`${p.keep}: keep и merge — один и тот же id`);
+      continue;
+    }
+    if (keeps.has(p.merge)) {
+      problems.push(
+        `${p.merge}: в одном списке стоит и как оставляемое, и как сливаемое`,
+      );
+    }
+    if (mergedOnce.has(p.merge)) {
+      problems.push(`${p.merge}: сливается дважды — непонятно, куда`);
+    }
+    mergedOnce.add(p.merge);
+  }
+  return problems;
+}
+
+/**
+ * План из поимённого списка. Проблемные пары не пропускаются молча — они
+ * возвращаются списком, и слияния не происходит вовсе.
+ */
+async function planFromPairs(
+  pairs: Array<{ keep: string; merge: string }>
+): Promise<{ plan: PlanItem[]; problems: string[] }> {
+  const problems = pairListProblems(pairs);
+
+  // ТИП id. `places.id` в боевой базе — TEXT, а не UUID (UUID у места лежит в
+  // отдельной колонке `ark_id`). Первый вариант этого запроса брал
+  // `unnest($1::uuid[])` и получал с прода «operator does not exist: text =
+  // uuid» — сухим прогоном, до всякой записи.
+  //
+  // Это тот же урок, что и в alert-prune, где `::uuid[]` встретился с
+  // BIGSERIAL и три месяца ронял очистку. Утверждение о типе чужой колонки —
+  // предположение, которое код выдаёт за знание. Поэтому сравниваем как текст:
+  // так запрос верен и в схеме с TEXT, и в схеме с UUID.
+  //
+  // Заодно это ответ на вопрос, оставшийся открытым в миграции 675: там были
+  // названы две гипотезы, почему падал inline-FK на places(id), и честно
+  // сказано, что настоящая неизвестна. Настоящая — первая, несовпадение типов.
+  const { rows } = await pool.query<NamedRow>(
+    `SELECT t.keep AS given_keep, t.merge AS given_merge,
+            k.id AS keep_id, k.name AS keep_name, k.ark_id AS keep_ark, k.merged_into_id AS keep_merged,
+            m.id AS merge_id, m.name AS merge_name, m.ark_id AS merge_ark, m.merged_into_id AS merge_merged,
+            similarity(k.name, m.name) AS name_sim,
+            ${DIST_M_SQL('k', 'm')} AS dist_m
+       FROM unnest($1::text[], $2::text[]) AS t(keep, merge)
+       LEFT JOIN places k ON k.id::text = t.keep
+       LEFT JOIN places m ON m.id::text = t.merge`,
+    [pairs.map(p => p.keep), pairs.map(p => p.merge)]
+  );
+
+  const plan: PlanItem[] = [];
+  for (const r of rows) {
+    if (!r.keep_id) {
+      problems.push(`${r.given_keep}: места с таким id нет`);
+      continue;
+    }
+    if (!r.merge_id) {
+      problems.push(`${r.given_merge}: места с таким id нет`);
+      continue;
+    }
+    if (r.keep_merged) {
+      problems.push(`${r.keep_name}: уже слито в другое место`);
+      continue;
+    }
+    if (r.merge_merged) {
+      problems.push(`${r.merge_name}: уже слито в другое место`);
+      continue;
+    }
+    plan.push({
+      keepId: r.keep_id,
+      keepName: r.keep_name ?? '',
+      keepArk: r.keep_ark,
+      mergeId: r.merge_id,
+      mergeName: r.merge_name ?? '',
+      mergeArk: r.merge_ark,
+      distM: r.dist_m === null ? null : Math.round(r.dist_m),
+      sim: r.name_sim === null ? null : Math.round(r.name_sim * 100) / 100,
+    });
+  }
+  return { plan, problems };
+}
 
 export async function POST(request: NextRequest) {
   const secret = getCronSecret(request);
@@ -48,21 +256,72 @@ export async function POST(request: NextRequest) {
   try {
     data = BodySchema.parse(await request.json().catch(() => ({})));
   } catch (err) {
-    const msg = err instanceof z.ZodError ? err.issues[0]?.message : 'Некорректное тело';
+    const msg =
+      err instanceof z.ZodError ? err.issues[0]?.message : 'Некорректное тело';
     return NextResponse.json({ success: false, error: msg }, { status: 400 });
   }
 
   try {
-    const { rows } = await pool.query<PairRow>(
-      `WITH pairs AS (
+    const plan = data.pairs
+      ? await namedPlan(data.pairs)
+      : await thresholdPlan(data);
+    if ('problems' in plan) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Пары не прошли проверку — не слито ничего',
+          problems: plan.problems,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (data.dry_run) {
+      return NextResponse.json({
+        success: true,
+        dry_run: true,
+        mode: data.pairs ? 'named' : 'thresholds',
+        candidate_total: plan.length,
+        plan,
+      });
+    }
+
+    const merged = await applyPlan(plan);
+    return NextResponse.json({
+      success: true,
+      dry_run: false,
+      mode: data.pairs ? 'named' : 'thresholds',
+      merged_count: merged.length,
+      merged,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Ошибка дедупа мест';
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: 502 }
+    );
+  }
+}
+
+/** Поимённый план: либо все пары годны, либо не делаем ничего. */
+async function namedPlan(
+  pairs: Array<{ keep: string; merge: string }>
+): Promise<PlanItem[] | { problems: string[] }> {
+  const { plan, problems } = await planFromPairs(pairs);
+  return problems.length > 0 ? { problems } : plan;
+}
+
+/** Прежний отбор по порогам: расстояние + похожесть имени + совпадение типа. */
+async function thresholdPlan(
+  data: z.infer<typeof BodySchema>
+): Promise<PlanItem[]> {
+  const { rows } = await pool.query<PairRow>(
+    `WITH pairs AS (
          SELECT
-           p1.id AS id1, p1.name AS name1, p1.ark_id AS ark1,
-           p2.id AS id2, p2.name AS name2, p2.ark_id AS ark2,
+           p1.id AS id1, p1.name AS name1, p1.ark_id AS ark1, p1.is_visible AS visible1,
+           p2.id AS id2, p2.name AS name2, p2.ark_id AS ark2, p2.is_visible AS visible2,
            similarity(p1.name, p2.name) AS name_sim,
-           6371000 * acos(LEAST(1, GREATEST(-1,
-             cos(radians(p1.lat)) * cos(radians(p2.lat)) * cos(radians(p2.lng) - radians(p1.lng)) +
-             sin(radians(p1.lat)) * sin(radians(p2.lat))
-           ))) AS dist_m
+           ${DIST_M_SQL('p1', 'p2')} AS dist_m
          FROM places p1
          JOIN places p2
            ON p2.id > p1.id
@@ -90,73 +349,122 @@ export async function POST(request: NextRequest) {
        WHERE pairs.dist_m <= $1 AND pairs.name_sim >= $2
        ORDER BY pairs.name_sim DESC, pairs.dist_m ASC
        LIMIT 500`,
-      [data.max_dist_m, data.min_sim],
-    );
+    [data.max_dist_m, data.min_sim]
+  );
 
-    // Жадно выбираем непересекающиеся пары: место не может быть и keep, и merge
-    // в одном прогоне. Keep — у кого больше данных (фото > safety > меньший id).
-    const touched = new Set<string>();
-    const plan: Array<{ keepId: string; keepName: string; keepArk: string | null; mergeId: string; mergeName: string; mergeArk: string | null; distM: number; sim: number }> = [];
-    for (const r of rows) {
-      if (touched.has(r.id1) || touched.has(r.id2)) continue;
-      const s1 = score(r.has_photo1, r.has_safety1);
-      const s2 = score(r.has_photo2, r.has_safety2);
-      const keepFirst = s1 !== s2 ? s1 > s2 : r.id1 < r.id2;
-      const keepId = keepFirst ? r.id1 : r.id2;
-      const keepName = keepFirst ? r.name1 : r.name2;
-      const keepArk = keepFirst ? r.ark1 : r.ark2;
-      const mergeId = keepFirst ? r.id2 : r.id1;
-      const mergeName = keepFirst ? r.name2 : r.name1;
-      const mergeArk = keepFirst ? r.ark2 : r.ark1;
-      touched.add(r.id1); touched.add(r.id2);
-      plan.push({ keepId, keepName, keepArk, mergeId, mergeName, mergeArk, distM: Math.round(r.dist_m), sim: Math.round(r.name_sim * 100) / 100 });
-      if (plan.length >= data.limit) break;
-    }
+  // Жадно выбираем непересекающиеся пары: место не может быть и keep, и merge
+  // в одном прогоне. Keep — у кого больше данных (фото > safety > меньший id).
+  const touched = new Set<string>();
+  const plan: PlanItem[] = [];
+  for (const r of rows) {
+    if (touched.has(r.id1) || touched.has(r.id2)) continue;
+    const s1 = keepScore(r.visible1, r.has_photo1, r.has_safety1);
+    const s2 = keepScore(r.visible2, r.has_photo2, r.has_safety2);
+    const keepFirst = s1 !== s2 ? s1 > s2 : r.id1 < r.id2;
+    const keepId = keepFirst ? r.id1 : r.id2;
+    const keepName = keepFirst ? r.name1 : r.name2;
+    const keepArk = keepFirst ? r.ark1 : r.ark2;
+    const mergeId = keepFirst ? r.id2 : r.id1;
+    const mergeName = keepFirst ? r.name2 : r.name1;
+    const mergeArk = keepFirst ? r.ark2 : r.ark1;
+    touched.add(r.id1);
+    touched.add(r.id2);
+    plan.push({
+      keepId,
+      keepName,
+      keepArk,
+      mergeId,
+      mergeName,
+      mergeArk,
+      distM: Math.round(r.dist_m),
+      sim: Math.round(r.name_sim * 100) / 100,
+    });
+    if (plan.length >= data.limit) break;
+  }
+  return plan;
+}
 
-    if (data.dry_run) {
-      return NextResponse.json({ success: true, dry_run: true, candidate_total: plan.length, plan });
-    }
-
-    const merged: Array<{ keep: string; merge: string; warning?: string }> = [];
-    for (const p of plan) {
-      // eslint-disable-next-line no-await-in-loop
-      await transaction(async (client) => {
-        if (p.keepArk && p.mergeArk) {
-          await client.query(
-            `INSERT INTO ai_route_images (route_id, image_data, mime_type, prompt, model, width, height)
+/** Применение плана. Одно и то же для обоих режимов: мягко и обратимо. */
+async function applyPlan(
+  plan: PlanItem[]
+): Promise<Array<{ keep: string; merge: string; warning?: string }>> {
+  const merged: Array<{ keep: string; merge: string; warning?: string }> = [];
+  for (const p of plan) {
+    // eslint-disable-next-line no-await-in-loop
+    await transaction(async client => {
+      if (p.keepArk && p.mergeArk) {
+        await client.query(
+          `INSERT INTO ai_route_images (route_id, image_data, mime_type, prompt, model, width, height)
              SELECT $1, image_data, mime_type, prompt, model, width, height
              FROM ai_route_images WHERE route_id = $2
              ON CONFLICT (route_id) DO NOTHING`,
-            [p.keepArk, p.mergeArk],
-          );
-        }
-        await client.query(
-          `UPDATE route_waypoints rw SET place_id = $1
+          [p.keepArk, p.mergeArk]
+        );
+      }
+      await client.query(
+        `UPDATE route_waypoints rw SET place_id = $1
            WHERE rw.place_id = $2
              AND NOT EXISTS (SELECT 1 FROM route_waypoints rw2 WHERE rw2.route_id = rw.route_id AND rw2.place_id = $1)`,
-          [p.keepId, p.mergeId],
-        );
-        await client.query(`DELETE FROM route_waypoints WHERE place_id = $1`, [p.mergeId]);
+        [p.keepId, p.mergeId]
+      );
+      await client.query(`DELETE FROM route_waypoints WHERE place_id = $1`, [
+        p.mergeId,
+      ]);
 
-        let warning: string | undefined;
-        if (p.mergeArk) {
-          const safety = await client.query<{ exists: boolean }>(
-            `SELECT EXISTS(SELECT 1 FROM location_safety_profile WHERE agent_route_id = $1) AS exists`,
-            [p.mergeArk],
-          );
-          if (safety.rows[0]?.exists) warning = `${p.mergeName}: свой safety-профиль не перенесён — проверить вручную`;
-        }
+      // Имя слитого места не пропадает, а становится псевдонимом оставшегося:
+      // «Авачинский вулкан» ищут не реже, чем «Вулкан Авачинский». До этого
+      // слияние записывало ТОЛЬКО факт дубля, и живое название исчезало —
+      // 14.08 так ушли пять имён за один прогон.
+      const src = await client.query<{ source_name: string | null }>(
+        `SELECT source_name FROM places WHERE id::text = $1 LIMIT 1`,
+        [p.mergeId]
+      );
+      await recordAlias(client, p.keepId, p.mergeName, src.rows[0]?.source_name ?? null);
+      // Свои псевдонимы слитого места переезжают туда же: иначе цепочка
+      // A ← B ← C теряет звено ровно тогда, когда оно нужнее всего.
+      await moveAliases(client, p.mergeId, p.keepId);
+
+      // Профиль безопасности ПЕРЕЕЗЖАЕТ, если у оставшегося своего нет.
+      //
+      // Раньше он только предупреждал «не перенесён — проверить вручную», и
+      // 14.08 такое предупреждение пришло на все пять слияний сразу: пять
+      // осиротевших профилей за один прогон. Пока правило выбора смотрело на
+      // наличие профиля, это было полбеды — оставалась запись с профилем.
+      // Теперь главный вес у видимости, и без переноса слияние могло бы
+      // оставить видимую карточку БЕЗ данных о безопасности. На платформе,
+      // чья цель — безопасность туриста, это неприемлемая цена за видимость.
+      if (p.keepArk && p.mergeArk) {
         await client.query(
-          `UPDATE places SET merged_into_id = $1, merged_at = NOW() WHERE id = $2 AND merged_into_id IS NULL`,
-          [p.keepId, p.mergeId],
+          `UPDATE location_safety_profile
+              SET agent_route_id = $1
+            WHERE agent_route_id = $2
+              AND NOT EXISTS (
+                SELECT 1 FROM location_safety_profile WHERE agent_route_id = $1
+              )`,
+          [p.keepArk, p.mergeArk]
         );
-        merged.push({ keep: p.keepName, merge: p.mergeName, warning });
-      });
-    }
+      }
 
-    return NextResponse.json({ success: true, dry_run: false, merged_count: merged.length, merged });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Ошибка дедупа мест';
-    return NextResponse.json({ success: false, error: message }, { status: 502 });
+      let warning: string | undefined;
+      if (p.mergeArk) {
+        const safety = await client.query<{ exists: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM location_safety_profile WHERE agent_route_id = $1) AS exists`,
+          [p.mergeArk]
+        );
+        // Профиль остался у слитой записи только в одном случае: у
+        // оставшегося БЫЛ свой, и перенос не тронул ничего. Значит данные не
+        // потеряны, но их две версии — это стоит сверить глазами. Прежняя
+        // формулировка «не перенесён» звучала одинаково и тогда, когда
+        // переноса не было вовсе.
+        if (safety.rows[0]?.exists)
+          warning = `${p.mergeName}: у обоих мест свой safety-профиль, оставлен профиль «${p.keepName}» — сверить`;
+      }
+      await client.query(
+        `UPDATE places SET merged_into_id = $1, merged_at = NOW() WHERE id = $2 AND merged_into_id IS NULL`,
+        [p.keepId, p.mergeId]
+      );
+      merged.push({ keep: p.keepName, merge: p.mergeName, warning });
+    });
   }
+  return merged;
 }

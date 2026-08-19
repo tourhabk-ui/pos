@@ -215,8 +215,14 @@ export default function EmailAdminClient() {
               <AlertCircle className="w-4 h-4 text-[var(--accent)] shrink-0 mt-0.5" />
               <div className="text-xs space-y-1">
                 <p className="font-semibold text-[var(--text-primary)]">Добавьте в Timeweb Cloud → App 175269 → Переменные:</p>
+                {/* Пароль здесь не печатается и печататься не может.
+                    До 17.08 он стоял прямо в этом массиве строкой — то есть
+                    лежал в публичном репозитории, в собранном бандле и на
+                    экране. Подсказка «какие переменные завести» не требует
+                    значения секрета: имя переменной говорит, что заполнить,
+                    а чем — знает только тот, кто заводил ящик. */}
                 {[['SMTP_HOST','smtp.timeweb.ru'],['SMTP_PORT','465'],['SMTP_SECURE','true'],
-                  ['SMTP_USER','noreply@tourhab.ru'],['SMTP_PASS','Gr96Ww32'],
+                  ['SMTP_USER','noreply@tourhab.ru'],['SMTP_PASS','<пароль ящика>'],
                   ['SMTP_FROM','TourHab <noreply@tourhab.ru>']].map(([k,v]) => (
                   <div key={k} className="flex gap-1.5 font-mono text-[11px]">
                     <span className="text-[var(--ocean)]">{k}</span>
@@ -359,7 +365,7 @@ export default function EmailAdminClient() {
         </div>
         <ol className="space-y-2 text-xs text-[var(--text-secondary)]">
           {[
-            'Создайте ящик noreply@tourhab.ru (пароль Gr96Ww32) — это SMTP_USER',
+            'Создайте ящик noreply@tourhab.ru — это SMTP_USER; его пароль положите в SMTP_PASS в переменных Timeweb, не в код',
             'Создайте ящик support@tourhab.ru — настройте переадресацию на ваш личный email',
             'Для каждой внутренней роли: Почта → Алиасы → добавьте admin@, legal@, security@ и другие → переадресовать на noreply@',
             'То есть письмо с sos@tourhab.ru фактически уходит через общий SMTP noreply@tourhab.ru',

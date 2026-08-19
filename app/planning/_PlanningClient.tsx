@@ -6,13 +6,15 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Check, ChevronRight, Navigation, MapPin,
-  Map as MapIcon, CloudSun, MessageCircle, Phone,
-  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot,
+  Map as MapIcon, CloudSun, Phone,
+  AlertCircle, Wifi, WifiOff, X, ExternalLink, Download, Bot, Users,
 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
 import { MarkerType, type MapMarker, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { isScatteredCollection } from '@/lib/routes/geometry-compact';
-import { approachPlan } from '@/lib/on-route/approach';
+import { approachPlan, ON_ROUTE_ENTRY_KM } from '@/lib/on-route/approach';
+import { advanceAlong, type AlongState } from '@/lib/on-route/projection-window';
+import { offTrackThresholdM, fixUsableForNavigation } from '@/lib/on-route/fix-quality';
 import {
   etaHours, formatEta, paceFromTrack, routeProgress,
   type TravelMode, type TrackSample,
@@ -25,13 +27,41 @@ import {
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
 import { connectivityState } from '@/lib/on-route/connectivity';
 import {
-  trackFidelity, trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
+  trackFidelityLabel, trackFidelityStyle, type TrackFidelity,
 } from '@/lib/routes/track-fidelity';
 import { addCrumb, parseCrumbs, serializeCrumbs, crumbsKey, type Crumb } from '@/lib/offline/breadcrumbs';
+import { connectorLine, CONNECTOR_TITLES, trackLine } from '@/lib/map/line-standard';
 import {
   parseSavedMap, savedMapKey, savedMapSummary, requestPersistentStorage,
   type SavedMapRecord,
 } from '@/lib/offline/saved-map';
+import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
+import { useSwRegistration } from '@/lib/offline/sw-status';
+import {
+  passportGradeLabel, passportGradeNote, type PassportGrade,
+} from '@/lib/routes/passport';
+import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
+
+/** Вердикт черты в том виде, в каком он приходит с сервера. */
+interface PreviewNavigability {
+  verdict: NavigabilityVerdict;
+  canLead: boolean;
+  reasons: string[];
+}
+import {
+  saveFieldPack, loadFieldPack, verifyFieldPack, fieldPackReadiness, formatSnapshotAge,
+  type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
+} from '@/lib/offline/field-pack';
+import { RouteProgressBar } from '@/components/field/RouteProgressBar';
+import { TrustCard } from '@/components/field/TrustCard';
+import { RecoveryCard } from '@/components/field/RecoveryCard';
+import { recoveryState } from '@/lib/on-route/recovery';
+import { EmergencyAction } from '@/components/shared/EmergencyAction';
+import { FieldCompass } from '@/components/field/FieldCompass';
+import { FieldStatusStrip } from '@/components/field/FieldStatusStrip';
+import { plural } from '@/lib/home/data-freshness';
+import { FieldDistance } from '@/components/field/FieldDistance';
+import { bearingDeg } from '@/lib/on-route/bearing';
 
 const Header = dynamic(
   () => import('@/components/layout/Header').then(m => ({ default: m.Header })),
@@ -43,6 +73,8 @@ const Header = dynamic(
 // нажатие на кнопку выглядело зависанием: чёрный экран на всё время загрузки
 // чанка и первых тайлов, и ни одного признака, что что-то происходит
 // (владелец 09.08: «карта открывается с большой задержкой»).
+const NavigateTo = dynamic(() => import('@/components/shared/NavigateTo'), { ssr: false });
+
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
   loading: () => (
@@ -70,6 +102,32 @@ interface RoutePreview {
   imageUrl: string | null;
   /** Через какие места проходит (для выбора по названию места) */
   via?: string | null;
+  /**
+   * Род навигационных данных (Трек / Набросок / Точки…) — виден ДО выбора:
+   * различение снятого трека и ломаной — главная защита платформы, и она
+   * не должна открываться человеку только в поле (план FCN, этап 1).
+   */
+  lineGrade?: PassportGrade | null;
+}
+
+/** Бейдж рода данных маршрута в выборе. Цвет — семантика, не украшение. */
+function GradeChip({ grade }: { grade: PassportGrade | null | undefined }) {
+  if (!grade) return null;
+  const color =
+    grade === 'surveyed' ? 'var(--success)'
+    : grade === 'points_only' ? 'var(--ocean)'
+    : grade === 'none' ? 'var(--text-muted)'
+    : 'var(--warning)';
+  return (
+    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+      style={{
+        color,
+        border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+        background: `color-mix(in srgb, ${color} 10%, transparent)`,
+      }}>
+      {passportGradeLabel(grade)}
+    </span>
+  );
 }
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
@@ -192,59 +250,6 @@ function RouteCard({ route, onNavigate }: { route: RoutePreview; onNavigate?: (r
  * любом повороте телефона. Уверенный прибор при мёртвом датчике опаснее
  * пустого экрана: пустой заставляет достать карту.
  */
-function CompassDisplay({ heading, state }: { heading: number; state: CompassState }) {
-  const cardinals = [
-    { label: 'N', angle: 0 }, { label: 'E', angle: 90 },
-    { label: 'S', angle: 180 }, { label: 'W', angle: 270 },
-  ];
-  const trusted = state === 'ok';
-  const needleColor = trusted ? 'var(--success)' : 'var(--text-muted)';
-  return (
-    <div className="relative mx-auto" style={{ width: 160, height: 160 }}>
-      <div className="absolute inset-0 rounded-full"
-        style={{ background: 'var(--bg-primary)', border: '2px solid color-mix(in srgb, var(--success) 25%, transparent)' }} />
-      <div className="absolute inset-2 rounded-full"
-        style={{ border: '1px solid rgba(74,222,128,0.12)' }} />
-      {/* Кольцо сторон света крутится ТОЛЬКО с подтверждённым азимутом.
-          Раньше guard стоял лишь на стрелке, и на скрине владельца 09.08
-          вышло худшее из возможного: стрелка погашена и смотрит вверх, а
-          кольцо развёрнуто на 270° — «север справа». Прибор из одного
-          мёртвого датчика делал два противоречащих утверждения. */}
-      {cardinals.map(({ label, angle }) => {
-        const rad = ((angle - (trusted ? heading : 0)) * Math.PI) / 180;
-        const x = 80 + 62 * Math.sin(rad);
-        const y = 80 - 62 * Math.cos(rad);
-        return (
-          <span key={label} className="absolute text-xs font-bold"
-            style={{
-              left: x, top: y,
-              transform: 'translate(-50%, -50%)',
-              color: label === 'N' && trusted ? 'var(--success)' : 'var(--text-muted)',
-              opacity: trusted ? 1 : 0.45,
-            }}>
-            {label}
-          </span>
-        );
-      })}
-      {/* Стрелка на север. Не подтверждён азимут — гасим и не крутим:
-          движущаяся стрелка читается как рабочая. */}
-      <div className="absolute inset-0 flex items-center justify-center"
-        style={{
-          transform: `rotate(${trusted ? -heading : 0}deg)`,
-          transition: 'transform 0.3s ease',
-          opacity: trusted ? 1 : 0.35,
-        }}>
-        <svg width="28" height="56" viewBox="0 0 28 56">
-          <polygon points="14,0 8,28 14,24 20,28" fill={needleColor} />
-          <polygon points="14,56 8,28 14,32 20,28" fill="#4b5563" />
-        </svg>
-      </div>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full" style={{ background: needleColor }} />
-      </div>
-    </div>
-  );
-}
 
 // ─── Haversine distance (km) ──────────────────────────────────────────────────
 
@@ -311,6 +316,14 @@ function OnTrailTab() {
   // Без этого срез брался по прямым между точками, а профиль размечен по
   // извилистому пути — на горном маршруте это разные числа в полтора раза.
   const [track, setTrack] = useState<Array<[number, number]> | null>(null);
+  // Шкала трека: метры ПОЛНОГО трека на каждую оставленную точку.
+  // Без неё положение мерилось по прореженной ломаной, а профиль —
+  // по полному треку, и срез рельефа уезжал к началу.
+  const [trackDm, setTrackDm] = useState<number[] | null>(null);
+  // Происхождение линии из данных маршрута. undefined — ответ API ещё не
+  // приходил (офлайн-кэш источника не знает), null — API ответил «источник
+  // не записан». Разница важна: у trackLine это два разных честных состояния.
+  const [geometrySource, setGeometrySource] = useState<string | null | undefined>(undefined);
   /**
    * Когда в последний раз пришли ЖИВЫЕ данные маршрута. Нужен ступени связи:
    * «снимок от такого-то часа» — это утверждение о свежести, и брать его
@@ -333,10 +346,18 @@ function OnTrailTab() {
   const [modalQuery, setModalQuery] = useState('');
   const [searchRoutes, setSearchRoutes] = useState<RoutePreview[]>([]);
   const [searching, setSearching] = useState(false);
-  const [preview, setPreview] = useState<{ id: string; title: string; wps: SavedWaypoint[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string; title: string; wps: SavedWaypoint[]; grade: PassportGrade | null;
+    /** Черта: можно ли обещать ведение. Считается на сервере — см. openPreview. */
+    navigability: PreviewNavigability | null;
+  } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  /** Отказ по конкретному варианту: показывается у его строки, а не вместо списка. */
+  const [previewError, setPreviewError] = useState<{ id: string; text: string } | null>(null);
   const modalSearchRef = useRef<ReturnType<typeof setTimeout>>();
-  const previewCacheRef = useRef<Map<string, SavedWaypoint[]>>(new Map());
+  const previewCacheRef = useRef<Map<string, {
+    wps: SavedWaypoint[]; grade: PassportGrade | null; navigability: PreviewNavigability | null;
+  }>>(new Map());
   const [tileDl, setTileDl] = useState<{ done: number; total: number } | null>(null);
   /** План скачивания: сколько это будет весить, пока не скачано. */
   const [mapPlan, setMapPlan] = useState<{
@@ -345,10 +366,35 @@ function OnTrailTab() {
   } | null>(null);
   /** Заявление о том, что уже лежит в телефоне. */
   const [savedMap, setSavedMap] = useState<SavedMapRecord | null>(null);
+  /**
+   * Состояние полевого пакета по ассетам (карта/линия/точки/условия) —
+   * проверкой, не памятью: verifyFieldPack пробует Cache Storage и меряет
+   * возраст снимка условий. null — пакета нет.
+   */
+  const [packStates, setPackStates] = useState<PackAssetState[] | null>(null);
+  /** Сам манифест пакета — для листа «Условия» (снимок работает без сети). */
+  const [pack, setPack] = useState<FieldPackManifest | null>(null);
+  /** Редакция маршрута из паспорта — пакет привязывается к ней. */
+  const [routeVersion, setRouteVersion] = useState<number | null>(null);
+  /** Лист «Условия»: снимок из пакета + живой статус при связи. */
+  const [showConditions, setShowConditions] = useState(false);
+  const [liveSafety, setLiveSafety] = useState<PackSafetySnapshot | null>(null);
+  /** Лист «Группа»: состояние брифинга и экстренная связь. */
+  const [showGroup, setShowGroup] = useState(false);
+  /**
+   * «Продолжить намеренно»: карточка восстановления сворачивается до строки.
+   * Ключ — род состояния, а не флаг: новое состояние (ушли с линии после
+   * того, как приглушили «карта не сохранена») обязано показаться заново.
+   */
+  const [mutedRecovery, setMutedRecovery] = useState<string | null>(null);
   /** Свой след: крошки, по которым возвращаются, когда отказало остальное. */
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const crumbsRef = useRef<Crumb[]>([]);
   const crumbsRouteRef = useRef<string | null>(null);
+  // Судьба Service Worker: без него офлайн-контура нет, и полевой экран
+  // обязан сказать это до выхода, а не оставить человека гадать в поле,
+  // почему «сохранённая» карта не открылась.
+  const swReg = useSwRegistration();
 
   /**
    * План скачивания карты — сколько это будет весить.
@@ -383,7 +429,87 @@ function OnTrailTab() {
     } catch { /* тихо: план — удобство, а не условие выхода */ }
   }, []);
 
-  /** Скачать карту маршрута по явному нажатию. */
+  /**
+   * Собрать манифест полевого пакета: линия + точки + снимок условий +
+   * запись о карте — одной записью в IndexedDB. Снимок условий кладётся
+   * при сборке: в поле связи не будет, а его возраст обязан быть виден.
+   */
+  const assemblePack = useCallback(async (routeId: string, failedTiles: number, persisted: boolean) => {
+    let safety: PackSafetySnapshot | null = null;
+    try {
+      const res = await fetch('/api/public/safety-status');
+      const j = await res.json() as { success?: boolean; data?: Record<string, unknown> };
+      const d = j?.data;
+      if (j?.success && d) {
+        safety = {
+          hasAlert: d.hasAlert === true,
+          maxSeverity: Number(d.maxSeverity) || 0,
+          topTitle: typeof d.topTitle === 'string' ? d.topTitle : null,
+          source: typeof d.source === 'string' ? d.source : '',
+          at: Date.now(),
+          unavailable: d.unavailable === true,
+        };
+      }
+    } catch { safety = null; }
+    const now = Date.now();
+    const manifest: FieldPackManifest = {
+      routeId,
+      routeVersion: routeVersion ?? 1,
+      title: activeRouteTitle,
+      createdAt: now,
+      updatedAt: now,
+      route: { track, trackDm, geometrySource: geometrySource ?? null },
+      waypoints,
+      tiles: mapPlan ? {
+        total: mapPlan.tiles, failed: failedTiles, droppedZooms: mapPlan.dropped,
+        coverage: mapPlan.coverage, bufferKm: mapPlan.bufferKm, mb: mapPlan.mb,
+        sampleUrls: [
+          mapPlan.urls[0],
+          mapPlan.urls[Math.floor(mapPlan.urls.length / 2)],
+          mapPlan.urls[mapPlan.urls.length - 1],
+        ].filter(Boolean),
+      } : null,
+      safety,
+      storage: { persistent: persisted },
+    };
+    try { await saveFieldPack(manifest); } catch { /* квота/приватный режим — покажет verify */ }
+    setPack(manifest);
+    try { setPackStates(await verifyFieldPack(manifest)); } catch { /* ignore */ }
+  }, [mapPlan, track, trackDm, geometrySource, waypoints, activeRouteTitle, routeVersion]);
+
+  /** Поднять и перепроверить сохранённый пакет маршрута. */
+  const refreshPackStates = useCallback((routeId: string) => {
+    loadFieldPack(routeId)
+      .then(async p => {
+        setPack(p);
+        setPackStates(p ? await verifyFieldPack(p) : null);
+      })
+      .catch(() => { setPack(null); setPackStates(null); });
+  }, []);
+
+  /** Открыть «Условия»: снимок из пакета сразу, живой статус — если есть связь. */
+  const openConditions = useCallback(() => {
+    setShowConditions(true);
+    fetch('/api/public/safety-status')
+      .then(r => r.json())
+      .then((j: unknown) => {
+        const d = (j as { success?: boolean; data?: Record<string, unknown> } | null)?.data;
+        if (!(j as { success?: boolean } | null)?.success || !d) return;
+        // Недоступность источника — не «спокойно»: живым снимком не считается.
+        if (d.unavailable === true) return;
+        setLiveSafety({
+          hasAlert: d.hasAlert === true,
+          maxSeverity: Number(d.maxSeverity) || 0,
+          topTitle: typeof d.topTitle === 'string' ? d.topTitle : null,
+          source: typeof d.source === 'string' ? d.source : '',
+          at: Date.now(),
+          unavailable: false,
+        });
+      })
+      .catch(() => { /* офлайн — остаёмся на снимке пакета */ });
+  }, []);
+
+  /** Скачать полевой пакет маршрута по явному нажатию (карта — самый тяжёлый ассет). */
   const saveMap = useCallback(async (routeId: string) => {
     if (!mapPlan || !navigator.serviceWorker) return;
     // Закрепление просим ЖЕСТОМ: без него система вправе вычистить кэш при
@@ -397,7 +523,7 @@ function OnTrailTab() {
       setTileDl({ done: 0, total: mapPlan.tiles });
       const onMsg = (e: MessageEvent) => {
         if ((e.data as { regionId?: string })?.regionId !== routeId) return;
-        const m = e.data as { type: string; done: number; total: number };
+        const m = e.data as { type: string; done: number; failed?: number; total: number };
         if (m.type === 'TILE_PROGRESS') setTileDl({ done: m.done, total: m.total });
         if (m.type === 'TILES_DONE') {
           setTileDl(null);
@@ -409,12 +535,15 @@ function OnTrailTab() {
           setSavedMap(rec);
           try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
           navigator.serviceWorker.removeEventListener('message', onMsg);
+          // Пакет собирается той же кнопкой: карта, линия, точки и снимок
+          // условий — один шаг, а не три разных «сохранить».
+          void assemblePack(routeId, m.failed ?? 0, persisted);
         }
       };
       navigator.serviceWorker.addEventListener('message', onMsg);
       sw.postMessage({ type: 'CACHE_TILES', tiles: mapPlan.urls, regionId: routeId });
     } catch { /* ignore */ }
-  }, [mapPlan]);
+  }, [mapPlan, assemblePack]);
 
   // Shared route loader. Точки маршрута нужны в поле без связи, поэтому:
   // сперва поднимаем из localStorage-кэша (офлайн-стойко), затем обновляем из
@@ -461,6 +590,18 @@ function OnTrailTab() {
           : null);
         const tr = data.track;
         setTrack(Array.isArray(tr) && tr.length >= 2 ? (tr as Array<[number, number]>) : null);
+        // Источник и трек ставятся из одного ответа — они описывают одну
+        // и ту же линию. Строка → источник записан, иначе — честный null.
+        setGeometrySource(typeof data.geometrySource === 'string' ? data.geometrySource : null);
+        // Редакция маршрута из паспорта: полевой пакет привязывается к ней.
+        const pp = data.passport as { version?: unknown } | null | undefined;
+        setRouteVersion(typeof pp?.version === 'number' ? pp.version : null);
+        const dm = (data as Record<string, unknown>).track_dm;
+        setTrackDm(Array.isArray(dm) && Array.isArray(tr) && dm.length === tr.length
+          ? (dm as number[])
+          // Длины не совпали — шкале верить нельзя, и подставлять
+          // «почти подходящую» нельзя тем более.
+          : null);
         // Отметка свежести ставится по факту успешного ответа, а не по
         // открытию экрана: иначе «снимок от 14:32» означал бы «я посмотрел в
         // 14:32», а не «данные такие на 14:32».
@@ -480,9 +621,23 @@ function OnTrailTab() {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
-      .catch(() => { /* офлайн — уже показали кэш */ })
+      .catch(() => {
+        // Офлайн — точки уже показаны из кэша. Линию поднимаем из полевого
+        // пакета: без него поле без сети оставалось вовсе без трека, и
+        // экран честно деградировал до наброска, теряя снятую линию,
+        // которую человек видел при сохранении пакета.
+        void loadFieldPack(routeId).then(pack => {
+          if (!pack || !pack.route.track || pack.route.track.length < 2) return;
+          setTrack(pack.route.track);
+          setTrackDm(pack.route.trackDm);
+          setGeometrySource(pack.route.geometrySource);
+          setRouteVersion(pack.routeVersion);
+        }).catch(() => { /* пакета нет — остаёмся на кэше точек */ });
+      })
       .finally(() => setIsLoadingRoute(false));
-  }, [loadMapPlan]);
+    // Состояние пакета — сразу из записи (и перепроверкой), не дожидаясь сети.
+    refreshPackStates(routeId);
+  }, [loadMapPlan, refreshPackStates]);
 
   // Network
   useEffect(() => {
@@ -668,8 +823,21 @@ function OnTrailTab() {
     };
   }, []); // startTimeRef is a ref — read at callback time, no restart needed
 
-  // Старт с БЛИЖАЙШЕЙ точки при первом GPS-фиксе (а не всегда с №1 — иначе
-  // «до точки 1» может быть за десятки км, если старт маршрута далеко).
+  /**
+   * Старт с ближайшей точки — но только если человек УЖЕ на маршруте.
+   *
+   * Замысел был верный: тот, кто стоит посреди тропы, не должен получать «до
+   * точки 1 — сорок километров назад». Условия у правила не было, и оно
+   * срабатывало всегда.
+   *
+   * Полевой скрин 17.08, «Вулкан Козельский»: человек в городе, ближайшей из
+   * трёх точек случайно оказалась последняя — экран написал «3 из 3». Прибор
+   * объявил маршрут почти пройденным, когда к нему ещё не подошли: прогресс
+   * полный, точек впереди нет, а идти — всё.
+   *
+   * Дальше ON_ROUTE_ENTRY_KM маршрут начинается с начала, а дорога от человека
+   * до первой точки показывается подходом — тем, чем она и является.
+   */
   const snappedRef = useRef(false);
   useEffect(() => {
     if (snappedRef.current || !coords || waypoints.length === 0) return;
@@ -678,7 +846,7 @@ function OnTrailTab() {
       const d = haversine(coords.lat, coords.lng, w.lat, w.lng);
       if (d < bestD) { bestD = d; best = i; }
     });
-    setCurrentWpIdx(best);
+    setCurrentWpIdx(bestD <= ON_ROUTE_ENTRY_KM ? best : 0);
     snappedRef.current = true;
   }, [coords, waypoints]);
 
@@ -747,6 +915,16 @@ function OnTrailTab() {
   const altitude = coords?.alt != null ? Math.round(coords.alt) : null;
   const nextWp = waypoints[currentWpIdx] ?? null;
 
+  /**
+   * Азимут на следующую точку — то, что показывает стрелка прибора.
+   * Без своего положения азимута нет: считать его от чего-то другого
+   * значило бы показать направление, которого мы не знаем.
+   */
+  const targetBearing = useMemo(() => {
+    if (!coords || !nextWp || !fixUsableForNavigation(coords.accuracy ?? null)) return null;
+    return bearingDeg({ lat: coords.lat, lng: coords.lng }, { lat: nextWp.lat, lng: nextWp.lng });
+  }, [coords, nextWp]);
+
   // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
   // markers — пересборка на каждом рендере (GPS-тики) убивала карту.
@@ -757,8 +935,11 @@ function OnTrailTab() {
   // без пути хуже отсутствия карты: человек решает, что маршрут не загрузился.
   /**
    * Происхождение линии на карте: снятый трек или ломаная между точками.
-   * Считается по плотности точек — флага в данных нет, миграция 168 ничего
-   * не проставила (см. lib/routes/track-fidelity).
+   * Род линии спрашивается у ЗАПИСИ (`geometry->>'source'` через trackLine),
+   * плотность точек — только когда источник не записан. Перепись 11.08
+   * (проба 55): у 295 линий из 301 источник есть, а плотностная эвристика
+   * на «Вулкане Жупановском» выдавала синтетику за снятый трек — сплошная
+   * зелёная означает «здесь идут», и по ней идут.
    */
   const lineFidelity: TrackFidelity = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
@@ -767,8 +948,8 @@ function OnTrailTab() {
     // Ломаная, собранная нами из путевых точек, — заведомо набросок:
     // считать её плотность незачем, происхождение известно точно.
     if (!track || track.length < 2) return line ? 'sketch' : 'unknown';
-    return trackFidelity(track);
-  }, [track, waypoints]);
+    return trackLine(track, geometrySource)?.fidelity ?? 'unknown';
+  }, [track, waypoints, geometrySource]);
 
   /**
    * Путь от МЕСТА ЧЕЛОВЕКА вдоль тропы, а не по прямой через залив.
@@ -778,14 +959,66 @@ function OnTrailTab() {
    * Прямая между ними пересекает залив: число честно буквально и бесполезно
    * по существу, а нарисованной линии не соответствует вовсе.
    */
+  // Положение вдоль трека ведётся СОСТОЯНИЕМ, а не ищется заново на каждом
+  // фиксе. Глобальный поиск перекидывает проекцию на встречную ветку
+  // радиального маршрута, и «осталось 3 км» становится «17 км» у неподвижного
+  // человека — прибор, чьи показания скачут втрое на месте, перестают читать.
+  const alongRef = useRef<AlongState | null>(null);
   const approach = useMemo(() => {
     if (!coords || !nextWp || !track || track.length < 2) return null;
+    const line = track.map(([lat, lng]) => ({ lat, lng }));
+    // Плохой фикс не двигает положение: иначе окно проекции прыгало бы на
+    // шуме, ради устранения которого оно и заведено. Что показанное при этом
+    // не свежее — говорит fixInfo/figuresAreLive, отдельной сущности не надо.
+    if (fixUsableForNavigation(coords.accuracy ?? null)) {
+      alongRef.current = advanceAlong({ lat: coords.lat, lng: coords.lng }, line, alongRef.current);
+    }
     return approachPlan(
       { lat: coords.lat, lng: coords.lng },
       { lat: nextWp.lat, lng: nextWp.lng },
-      track.map(([lat, lng]) => ({ lat, lng })),
+      line,
+      alongRef.current?.projection ?? null,
+      // Порог отхода — от точности фикса, а не константа: ложное «вы в
+      // стороне» гонит человека искать тропу, которой он и так держится.
+      offTrackThresholdM(coords.accuracy ?? null) / 1000,
     );
   }, [coords, nextWp, track]);
+
+  // Смена маршрута обнуляет историю положения: она была про другой трек.
+  // Трек меняется вместе с маршрутом, поэтому его и достаточно: история
+  // положения была про другую ломаную.
+  useEffect(() => { alongRef.current = null; }, [track]);
+
+  /**
+   * Линия подхода для КАРТЫ — с огрублённым положением.
+   *
+   * LeafletMap пересоздаёт карту при смене identity массива маркеров, и об
+   * этом прямо сказано у соседнего useMemo. Первая редакция подхода положила
+   * в зависимости `coords`, который меняется на КАЖДОМ фиксе GPS: карта
+   * перестраивалась по нескольку раз в минуту, мигала и сбрасывала зум —
+   * владелец увидел это в поле как «карта постоянно перезагружается».
+   *
+   * Поэтому в зависимостях лежат не координаты, а их огрубление до четвёртого
+   * знака (~11 м): человек стоит — identity не меняется вовсе, идёт — линия
+   * догоняет шагами по одиннадцать метров, что на масштабе карты незаметно.
+   *
+   * И линия рисуется только когда человек в стороне от тропы. На тропе ей
+   * нечего показывать, а каждая лишняя перерисовка — это мигание в поле.
+   */
+  const offTrackNow = approach?.userOffTrack === true;
+  const coarseLat = coords ? Math.round(coords.lat * 1e4) : null;
+  const coarseLng = coords ? Math.round(coords.lng * 1e4) : null;
+  const joinLat = approach ? Math.round(approach.joinAt.lat * 1e4) : null;
+  const joinLng = approach ? Math.round(approach.joinAt.lng * 1e4) : null;
+  const approachLine = useMemo(() => {
+    if (!offTrackNow || coarseLat === null || coarseLng === null || joinLat === null || joinLng === null) {
+      return null;
+    }
+    return {
+      from: [coarseLat / 1e4, coarseLng / 1e4] as [number, number],
+      to: [joinLat / 1e4, joinLng / 1e4] as [number, number],
+    };
+  }, [offTrackNow, coarseLat, coarseLng, joinLat, joinLng]);
 
   const mapMarkers: MapMarker[] = useMemo(() => {
     const wpLine = waypoints.map(w => [w.lat, w.lng] as [number, number]);
@@ -793,7 +1026,21 @@ function OnTrailTab() {
     // ломаную не рисуем, только точки (полевой скрин 20.07). К настоящему
     // треку это не относится: он путь, а не список мест.
     const fallback = wpLine.length >= 2 && !isScatteredCollection(wpLine) ? wpLine : null;
-    const line = track && track.length >= 2 ? track : fallback;
+    /**
+     * Линия, которой платформа уже не верит, не рисуется.
+     *
+     * Полевой скрин 17.08: карточка честно писала «Линия и точки маршрута
+     * расходятся» и не показывала расстояние — и одновременно рисовала эту
+     * линию через весь экран, от Магаданской области за восточный край.
+     * Экран говорил и «не верь этому», и «вот путь» сразу; из двух сообщений
+     * в поле читают то, которое нарисовано.
+     *
+     * Расхождение уже посчитано в approach (dataConflict): точки маршрута и
+     * линия описывают разные места. Тогда линии нет — остаются точки, компас
+     * и SOS, о чём карточка и говорит словами.
+     */
+    const trackTrusted = track && track.length >= 2 && approach?.dataConflict !== true;
+    const line = trackTrusted ? track : fallback;
     if (!line && waypoints.length === 0) return [];
     return [
       // Линия рисуется по своему происхождению. Часть маршрутов имеет
@@ -818,16 +1065,16 @@ function OnTrailTab() {
       // Подход: от человека до тропы. Пунктиром и приглушённо — это НЕ тропа,
       // а прямая по азимуту, и рисовать её тем же уверенным зелёным значило бы
       // обещать путь там, где его никто не снимал.
-      ...(approach && approach.userOffTrack && coords ? [{
-        coords: [coords.lat, coords.lng] as [number, number],
-        title: 'Выход на тропу',
+      ...(approachLine ? [{
+        coords: approachLine.from,
+        title: CONNECTOR_TITLES.approach,
         geometry: {
           type: 'polyline',
-          coordinates: [
-            [coords.lat, coords.lng],
-            [approach.joinAt.lat, approach.joinAt.lng],
-          ] as Array<[number, number]>,
-          color: 'gray', weight: 2, dashArray: '6 6',
+          coordinates: [approachLine.from, approachLine.to] as Array<[number, number]>,
+          // Подход — ПОСТРОЕНИЕ по азимуту, не снятый путь. Вид берётся из
+          // общего стандарта (lib/map/line-standard), а не собирается тут:
+          // ровно так правило и разъезжалось по экранам.
+          ...connectorLine(),
         } as MapMarkerGeometry,
         suppressBalloon: true,
       }] : []),
@@ -851,7 +1098,7 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approach, coords]);
+  }, [track, waypoints, currentWpIdx, activeRouteTitle, crumbs, approachLine, approach?.dataConflict]);
   // Карта превью варианта: identity стабильна на выбранный вариант —
   // LeafletMap пересоздаётся только при смене превью, не на каждом рендере
   const previewMap = useMemo(() => {
@@ -861,13 +1108,26 @@ function OnTrailTab() {
     // Сборник мест по всему краю (сегменты >25 км) — не трек: линию не
     // рисуем и «Начать по маршруту» не предлагаем
     const scattered = isScatteredCollection(line);
+    // Одна точка — это место, а не путь: идти «из точки в неё же» нельзя,
+    // и предлагать старт по такой записи — обещание маршрута, которого нет
+    // (проверка 16.08: «Восхождение на Авачинский вулкан», одна точка,
+    // подписано «14 км»). Причина отказа отдельная от scattered: там путь
+    // есть, но он не единый; здесь пути нет вовсе.
+    const singlePoint = preview.wps.length < 2;
+    // Источник известен без API: линия только что построена прямыми между
+    // путевыми точками. Синтетика по построению — набросок при любой
+    // плотности, сколько бы точек в маршруте ни было.
+    const previewLine = trackLine(line, 'waypoints_synthetic');
     const markers: MapMarker[] = [
-      ...(scattered ? [] : [{
+      ...(scattered || singlePoint ? [] : [{
         coords: center,
         title: preview.title,
         color: 'teal',
         type: MarkerType.POI,
-        geometry: { type: 'polyline', coordinates: line, color: '#4ade80', weight: 4 } as MapMarkerGeometry,
+        // Превью строится по ПУТЕВЫМ ТОЧКАМ, а не по снятому треку: это
+        // ломаная между местами, и сплошная зелёная в четыре пикселя обещала
+        // здесь тропу, которой никто не снимал. Вид — из общего стандарта.
+        geometry: { type: 'polyline', coordinates: line, ...(previewLine?.style ?? connectorLine()) } as MapMarkerGeometry,
       }]),
       ...preview.wps.map((w, i) => ({
         coords: [w.lat, w.lng] as [number, number],
@@ -876,12 +1136,20 @@ function OnTrailTab() {
         type: MarkerType.POI,
       })),
     ];
-    return { center, markers, scattered };
+    return { center, markers, scattered, singlePoint };
   }, [preview]);
 
   // Без трека считать вдоль нечего — тогда прямая и остаётся, но подписана
   // прямой. С треком главным числом становится путь, которым идут.
-  const distToNext = approach
+  //
+  // При расхождении данных цифры нет вовсе. Скриншот владельца 11.08: цель
+  // «Мыс Маячный» на южном берегу входа в бухту, трек — по дорогам вдоль
+  // северного, между ними вода, а экран показывал «20.3 км» и «придём через
+  // 5 ч 45 м». Приписать к такому числу оговорку мало: под крупной цифрой
+  // оговорка не читается, читается цифра.
+  const distToNext = approach?.dataConflict
+    ? null
+    : approach
     ? approach.totalKm
     : coords && nextWp
     ? haversine(coords.lat, coords.lng, nextWp.lat, nextWp.lng)
@@ -895,11 +1163,23 @@ function OnTrailTab() {
   // Одна большая цифра «осталось» не отвечает на вопрос туриста в поле: идти
   // ли ещё пять часов или это автопереезд (владелец 09.08).
 
-  // Плечи маршрута по линии между точками — основа прогресса.
-  const legKms = useMemo(
-    () => waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng)),
-    [waypoints],
-  );
+  // Плечи маршрута — основа прогресса. Меряются ВДОЛЬ ТРЕКА, когда трек есть
+  // и точки ложатся на него по порядку: «до точки» уже считается по треку
+  // (approach), и мерить «пройдено» прямыми значило бы держать на одном
+  // экране две разные метрики одного пути — на извилистом горном маршруте
+  // они расходятся в полтора раза. Прямые между точками остаются только
+  // фолбэком наброска, где пути в данных и нет.
+  const legKms = useMemo(() => {
+    const straight = waypoints.slice(1).map((w, i) => haversine(waypoints[i].lat, waypoints[i].lng, w.lat, w.lng));
+    if (!track || track.length < 2 || !trackDm) return straight;
+    const posM = waypoints.map(w => distanceAlongTrack(track, w.lat, w.lng, trackDm));
+    if (posM.some(p => p === null)) return straight;
+    const legs = posM.slice(1).map((p, i) => ((p as number) - (posM[i] as number)) / 1000);
+    // Точка спроецировалась ПОЗАДИ предыдущей — порядок точек не совпадает
+    // с направлением трека, и мерка вдоль него лжёт. Честнее прямые.
+    if (legs.some(l => l <= 0)) return straight;
+    return legs;
+  }, [waypoints, track, trackDm]);
   const progress = useMemo(
     () => routeProgress(legKms, currentWpIdx, distToNext),
     [legKms, currentWpIdx, distToNext],
@@ -911,12 +1191,32 @@ function OnTrailTab() {
     if (!relief || relief.points.length < 2 || !track || !coords || !nextWp) return null;
     // Обе границы отреза — в ОДНОЙ шкале, по треку: и «я здесь», и следующая
     // точка. Смешивать прямые с путём нельзя, это и есть враньё о рельефе.
-    const fromM = distanceAlongTrack(track, coords.lat, coords.lng);
-    const toM = distanceAlongTrack(track, nextWp.lat, nextWp.lng);
+    // Обе границы — в шкале ПОЛНОГО трека, той же, в которой лежит профиль.
+    // Пока шкалы нет (старый ответ API), срез не строится вовсе: показать его
+    // в чужой мерке значит соврать о рельефе впереди.
+    if (!trackDm) return null;
+    const fromM = distanceAlongTrack(track, coords.lat, coords.lng, trackDm);
+    const toM = distanceAlongTrack(track, nextWp.lat, nextWp.lng, trackDm);
     if (fromM === null || toM === null || toM <= fromM) return null;
     const r = remainingRelief(relief.points, fromM, toM);
     return r.points.length >= 2 ? r : null;
-  }, [relief, track, coords, nextWp]);
+  }, [relief, track, trackDm, coords, nextWp]);
+
+  /**
+   * Состояние восстановления. Считается движком (lib/on-route/recovery) из
+   * уже имеющихся фактов: род линии, отход от неё, качество фикса, конфликт
+   * данных, наличие карты в телефоне. Экран сам ничего про это не решает.
+   */
+  const recovery = useMemo(() => recoveryState({
+    fidelity: lineFidelity,
+    hasTrack: !!track && track.length >= 2,
+    userOffTrack: approach?.userOffTrack === true,
+    offTrackKm: approach?.approachKm ?? null,
+    dataConflict: approach?.dataConflict === true,
+    fix,
+    mapSaved: savedMap !== null,
+    offline: isOffline,
+  }), [lineFidelity, track, approach, fix, savedMap, isOffline]);
 
   const eta = useMemo(
     () => etaHours({
@@ -1041,6 +1341,7 @@ function OnTrailTab() {
               distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
               imageUrl: null,
               via,
+              lineGrade: (row.line_grade as PassportGrade | null) ?? null,
             } satisfies RoutePreview;
           }));
         })
@@ -1053,15 +1354,29 @@ function OnTrailTab() {
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
     const cached = previewCacheRef.current.get(r.id);
-    if (cached) { setPreview({ id: r.id, title: r.title, wps: cached }); return; }
+    if (cached) {
+      setPreview({ id: r.id, title: r.title, wps: cached.wps, grade: cached.grade, navigability: cached.navigability });
+      return;
+    }
     setPreviewLoadingId(r.id);
+    setPreviewError(null);
+    // Провал загрузки карточки маршрута — это состояние, а не пустота.
+    // Раньше все ветки отказа делали молчаливый return: человек нажимал
+    // «На карте», ничего не происходило, и он оставался гадать, что сломано —
+    // связь, маршрут или приложение (проверка 16.08).
     fetch(`/api/routes/${r.id}`)
       .then(res => res.json())
       .then((j: unknown) => {
-        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
+        if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) {
+          setPreviewError({ id: r.id, text: 'Маршрут не открылся — сервер не отдал данные.' });
+          return;
+        }
         const data = (j as Record<string, unknown>).data as Record<string, unknown>;
         const wps = data.waypoints;
-        if (!Array.isArray(wps)) return;
+        if (!Array.isArray(wps)) {
+          setPreviewError({ id: r.id, text: 'У маршрута нет точек — вести по нему нельзя.' });
+          return;
+        }
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
           .filter(w => w.lat != null && w.lng != null)
           .map(w => ({
@@ -1069,11 +1384,33 @@ function OnTrailTab() {
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
-        if (converted.length === 0) return;
-        previewCacheRef.current.set(r.id, converted);
-        setPreview({ id: r.id, title: r.title, wps: converted });
+        if (converted.length === 0) {
+          setPreviewError({ id: r.id, text: 'У точек маршрута нет координат — на карте его не показать.' });
+          return;
+        }
+        // Род данных — из паспорта детального ответа (точнее спискового:
+        // он видит сам трек, а не только факт наличия линии); фолбэк — бейдж
+        // из списка, если паспорта в ответе нет (старый кэш/билд).
+        const pp = data.passport as { grade?: unknown } | null | undefined;
+        const grade = (typeof pp?.grade === 'string' ? pp.grade as PassportGrade : null)
+          ?? r.lineGrade ?? null;
+        // Вердикт приходит С СЕРВЕРА: там есть и линия, и точки. Экран линию
+        // не грузит и сам расхождения не увидел бы — «Вулкан Козельский» с
+        // точкой в 14 км от трека выглядел бы пригодным до самого поля.
+        const nav = (data.navigability as { verdict?: unknown; canLead?: unknown; reasons?: unknown } | null) ?? null;
+        const navigability = nav && typeof nav.verdict === 'string'
+          ? {
+              verdict: nav.verdict as NavigabilityVerdict,
+              canLead: nav.canLead === true,
+              reasons: Array.isArray(nav.reasons) ? nav.reasons.filter((x): x is string => typeof x === 'string') : [],
+            }
+          : null;
+        previewCacheRef.current.set(r.id, { wps: converted, grade, navigability });
+        setPreview({ id: r.id, title: r.title, wps: converted, grade, navigability });
       })
-      .catch(() => { /* остаёмся на списке */ })
+      .catch(() => {
+        setPreviewError({ id: r.id, text: 'Не удалось загрузить маршрут — похоже, связь. Повторите.' });
+      })
       .finally(() => setPreviewLoadingId(null));
   }
 
@@ -1100,6 +1437,7 @@ function OnTrailTab() {
             durationDays: row.durationDays != null ? Number(row.durationDays) : null,
             distanceKm: row.distanceKm != null ? Number(row.distanceKm) : null,
             imageUrl: null,
+            lineGrade: (row.lineGrade as PassportGrade | null) ?? null,
           } satisfies RoutePreview;
         }).filter(Boolean) as RoutePreview[];
         if (items.length === 0) setModalError('Маршруты не найдены');
@@ -1112,6 +1450,26 @@ function OnTrailTab() {
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      {/* Приборная строка: качество фикса · маршрут · счёт точек, а под ней
+          состояние данных (карта в телефоне, свежесть условий). Это первое,
+          что читают, подняв телефон (макеты FCN). */}
+      {hasRoute && (
+        <FieldStatusStrip
+          fixLabel={fix.state === 'live' && fix.accuracyM != null ? `GPS ±${Math.round(fix.accuracyM)} м` : fixLabel(fix)}
+          fixLive={figuresLive}
+          routeTitle={activeRouteTitle}
+          checkpoint={waypoints.length > 1
+            ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
+            : null}
+          dataLine={savedMap
+            ? `Карта сохранена${packStates?.find(s => s.kind === 'safety_snapshot')?.note
+                ? ` · ${packStates.find(s => s.kind === 'safety_snapshot')!.note.toLowerCase()}`
+                : ''}`
+            : 'Карта не сохранена — в поле не откроется'}
+          dataOk={Boolean(savedMap)}
+        />
+      )}
+
       {/* Одна строка состояния вместо стека отчётов о датчиках. Тишина —
           это тоже сообщение: всё в порядке, идите. */}
       {status && (
@@ -1170,10 +1528,12 @@ function OnTrailTab() {
         ) : (
         <>
 
-        {/* Compass + route info */}
-        <div className="flex flex-col md:flex-row items-center gap-6 w-full">
-          <CompassDisplay heading={heading} state={compassState} />
-          <div className="text-center md:text-left">
+        {/* Приборы (макеты FCN): компас с азимутом НА ТОЧКУ → главная цифра
+            → контекст. Вертикально и по центру: в поле экран держат одной
+            рукой перед собой, а не читают как страницу. */}
+        <div className="flex flex-col items-center gap-4 w-full">
+          <FieldCompass heading={heading} state={compassState} targetBearing={targetBearing} />
+          <div className="text-center w-full">
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
                 <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
@@ -1182,19 +1542,28 @@ function OnTrailTab() {
               </div>
             ) : waypoints.length > 0 ? (
               <>
-                {activeRouteTitle && (
-                  <p className="text-[var(--success)] text-xs font-medium mb-0.5 truncate max-w-[180px]">{activeRouteTitle}</p>
-                )}
-                {/* Счётчик — про порядок, а у маршрута из одной точки порядка
-                    нет. «Точка 1 из 1» рядом с «до следующей точки · 18.5 км»
-                    читается как «вы пришли, идти ещё 18 километров» (скрин
-                    владельца 10.08). Одна точка — цель, а не позиция. */}
-                {waypoints.length > 1 && (
-                  <p className="text-[var(--text-secondary)] text-sm mb-0.5">
-                    Точка {Math.min(currentWpIdx + 1, waypoints.length)} из {waypoints.length}
-                  </p>
-                )}
-                {distLabel === null ? (
+                {/* Название маршрута и счёт точек живут в приборной строке
+                    сверху (макет FCN). Дублировать их рядом с главной цифрой
+                    значит заставить их спорить с ней за внимание; счётчик
+                    порядка при одной точке не печатается вовсе — «1 из 1»
+                    рядом с «18.5 км» читалось как «вы пришли, идти ещё 18
+                    километров» (скрин владельца 10.08). */}
+                {approach?.dataConflict ? (
+                  /* Данные маршрута не сходятся: точка из route_waypoints и
+                     линия из geometry описывают разное. Мы не знаем даже, как
+                     туда добираются — по воде, по другой дороге или никак.
+                     Цифра тут была бы уверенностью на пустом месте. */
+                  <div className="max-w-[240px]">
+                    <p className="text-sm font-semibold text-[var(--warning)] mb-1">
+                      Данные маршрута не сходятся
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)] leading-snug">
+                      Точка стоит в {fmtKm(approach.exitKm)} от трека. Как туда идут — по этим
+                      данным неизвестно, поэтому расстояние и время не показываем.
+                      Карта, компас и СОС работают.
+                    </p>
+                  </div>
+                ) : distLabel === null ? (
                   /* Расстояние считается от НАШЕГО положения, и без фикса его
                      просто нет. Прочерк в шрифте заголовка выглядел серой
                      полосой — читалось как поломка (скрин владельца 09.08).
@@ -1204,32 +1573,37 @@ function OnTrailTab() {
                   </p>
                 ) : (
                   <>
-                    <p className="text-[var(--text-muted)] text-xs mb-2">
-                      {waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
-                    </p>
-                    {/* Мёртвый фикс не стирает цифру — это последнее, что человек
-                        знает о своём положении, — но и не выдаёт её за текущую. */}
-                    <p className="text-5xl font-bold leading-none"
-                      style={{
-                        color: figuresLive ? 'var(--success)' : 'var(--text-muted)',
-                        letterSpacing: '-1px',
-                      }}>
-                      {distLabel}
-                    </p>
-                    {/* Имя точки печатаем, только если оно добавляет знание:
-                        у маршрута из одной точки оно повторяло заголовок. */}
-                    {nextWp?.name && nextWp.name !== activeRouteTitle && (
-                      <p className="text-xs text-[var(--text-muted)] mt-1">{nextWp.name}</p>
-                    )}
+                    {/* Главная цифра поля. Мёртвый фикс её не стирает — это
+                        последнее, что человек знает о своём положении, — но и
+                        не выдаёт за текущую: цвет уходит в приглушённый.
+                        Имя точки, время и набор высоты идут чипами рядом,
+                        и только те, что есть в данных. */}
+                    <FieldDistance
+                      distanceLabel={distLabel}
+                      live={figuresLive}
+                      caption={waypoints.length > 1 ? 'до следующей точки' : 'до точки'}
+                      pointName={nextWp?.name && nextWp.name !== activeRouteTitle ? nextWp.name : null}
+                      etaLabel={eta.hours !== null ? `~${formatEta(eta.hours)}` : null}
+                      ascentLabel={ahead?.ascentM ? `+${Math.round(ahead.ascentM)} м` : null}
+                    />
                     {/* Из чего сложилось число. Подход и выход — прямые, и
                         выдавать их за путь по тропе нельзя: на камчатском
                         рельефе прямая проходит через каньон и реку. */}
                     <p className="text-[11px] text-[var(--text-muted)] leading-tight">
                       {approach
                         ? [
-                            approach.userOffTrack ? `${fmtKm(approach.approachKm)} до тропы` : null,
-                            `${fmtKm(approach.alongTrackKm)} по тропе`,
-                            approach.targetOffTrack ? `${fmtKm(approach.exitKm)} от тропы до точки` : null,
+                            approach.userOffTrack ? `${fmtKm(approach.approachKm)} до линии` : null,
+                            /* Слово «тропа» заслуживает только снятый трек.
+                               У полутора сотен маршрутов geometry — прямые
+                               между точками (миграция 168), и «12 км по
+                               тропе» там означает длину прямой. Это та же
+                               прямая через залив, из-за которой писался
+                               #1119, только этажом выше: не в подписи, а
+                               ВНУТРИ числа, которое зовётся путём. */
+                            `${fmtKm(approach.alongTrackKm)} ${
+                              lineFidelity === 'surveyed' ? 'по тропе' : 'по ломаной между точками'
+                            }`,
+                            approach.targetOffTrack ? `${fmtKm(approach.exitKm)} от линии до точки` : null,
                           ].filter(Boolean).join(' · ')
                         : 'по прямой'}
                       {fix.accuracyM != null && figuresLive ? ` · ±${Math.round(fix.accuracyM)} м` : ''}
@@ -1246,34 +1620,16 @@ function OnTrailTab() {
                   </>
                 )}
 
-                {/* Слой хода: когда придём и сколько уже прошли. Одна цифра
-                    «осталось» не отвечает на вопрос поля (владелец 09.08).
-                    Без расстояния считать нечего — тогда и строк нет: «придём
-                    через —» это не сдержанность, а вид поломки. */}
-                {distLabel !== null && (
-                <div className="mt-3 flex flex-col gap-1.5">
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    <span className="text-[var(--text-muted)]">придём через</span>{' '}
-                    <span className="font-semibold text-[var(--text-primary)]">{formatEta(eta.hours)}</span>
-                  </p>
-                  {etaNote && <p className="text-[11px] text-[var(--text-muted)] leading-tight">{etaNote}</p>}
-                  {progress.totalKm > 0 && (
-                    <>
-                      <p className="text-sm text-[var(--text-secondary)]">
-                        <span className="text-[var(--text-muted)]">пройдено</span>{' '}
-                        <span className="font-semibold text-[var(--text-primary)]">
-                          {progress.doneKm.toFixed(1)} / {progress.totalKm.toFixed(1)} км
-                        </span>{' '}
-                        <span className="text-[var(--text-muted)]">· {progress.percent}%</span>
-                      </p>
-                      <div className="h-1.5 rounded-full overflow-hidden w-full max-w-[200px]" style={{ background: 'var(--bg-hover)' }}>
-                        <div className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${progress.percent}%`, background: 'var(--success)' }} />
-                      </div>
-                    </>
-                  )}
-                </div>
-
+                {/* Слой хода: когда придём. Одна цифра «осталось» не отвечает
+                    на вопрос поля (владелец 09.08). Без расстояния считать
+                    нечего — тогда и строк нет: «придём через —» это не
+                    сдержанность, а вид поломки. Прогресс «пройдено/осталось»
+                    вынесен в полноширинный модуль ниже (макет FCN). */}
+                {/* Время в пути показано чипом у главной цифры; здесь
+                    остаётся только оговорка о том, ОТКУДА оно взялось —
+                    без неё «~32 мин» выглядит измерением, а не оценкой. */}
+                {distLabel !== null && etaNote && (
+                  <p className="text-[11px] mt-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{etaNote}</p>
                 )}
 
                 {/* Режим движения: пеший ETA на 30-километровом плече-переезде
@@ -1318,6 +1674,47 @@ function OnTrailTab() {
             )}
           </div>
         </div>
+
+        {/* Восстановление: когда реальность разошлась с планом, главной
+            задачей становится она — но приборы остаются на месте, карточка
+            стоит НИЖЕ компаса и дистанции и ничего не закрывает. */}
+        {hasRoute && recovery.kind !== 'none' && (
+          <RecoveryCard
+            state={recovery}
+            muted={mutedRecovery === recovery.kind}
+            onMute={() => setMutedRecovery(recovery.kind)}
+            onUnmute={() => setMutedRecovery(null)}
+            onPrimary={kind => {
+              if (kind === 'open_map') {
+                setMapCenter(coords ? [coords.lat, coords.lng] : (waypoints[0] ? [waypoints[0].lat, waypoints[0].lng] : undefined));
+                setShowMap(true);
+              } else if (kind === 'open_pack') {
+                const id = crumbsRouteRef.current;
+                if (id) void saveMap(id);
+              } else if (kind === 'open_conditions') {
+                openConditions();
+              }
+            }}
+          />
+        )}
+
+        {/* Прогресс по маршруту — постоянный второй слой под главной задачей
+            (макет FCN): компас отвечает «куда сейчас», этот блок — «сколько
+            сделано». При конфликте данных прогресса нет вовсе: считать общий
+            путь из противоречивых линии и точек нельзя. */}
+        {waypoints.length > 0 && !approach?.dataConflict && (
+          <RouteProgressBar
+            doneKm={progress.doneKm}
+            totalKm={progress.totalKm}
+            percent={progress.percent}
+            fidelity={lineFidelity}
+            live={figuresLive}
+            staleLabel={!figuresLive ? fixLabel(fix) : null}
+            checkpoint={waypoints.length > 1
+              ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
+              : null}
+          />
+        )}
 
         {/* Приборы показываем, только когда им есть что показать: «— м» и
             «0ч 00м» читаются не как «данных нет», а как «сломалось». */}
@@ -1460,6 +1857,17 @@ function OnTrailTab() {
 
       </div>
 
+      {/* Офлайн-контур не поднялся — сказать до выхода, а не оставить
+          выяснять в поле. Раньше отказ регистрации SW глотался молча, и
+          «Сохранить карту» выглядело работающим, ничего не сохраняя. */}
+      {hasRoute && (swReg.state === 'failed' || swReg.state === 'unsupported') && (
+        <div className="px-4 py-3 text-xs" style={{ color: 'var(--warning)', borderTop: '1px solid var(--border)' }}>
+          {swReg.state === 'unsupported'
+            ? 'Браузер не поддерживает офлайн-режим: карта не сохранится, очередь SOS без связи не сработает'
+            : 'Офлайн-режим не запустился в этом сеансе: карта не сохранится. Перезагрузите страницу, пока есть связь'}
+        </div>
+      )}
+
       {/* Карта офлайн: три состояния — качается, сохранена, не сохранена.
           Раньше строка появлялась только на время фоновой докачки, а
           проверить готовность было нечем: единственный момент, когда это
@@ -1513,9 +1921,10 @@ function OnTrailTab() {
                 {/* Ноль на кнопке — не размер, а его отсутствие, и читается он
                     как «бесплатно». Если веса нет, честнее не называть числа:
                     сервер режет квадрат по 2000 тайлов, за кнопкой стоят
-                    десятки мегабайт мобильного трафика (скрин владельца 10.08,
-                    «Сохранить карту · 0 МБ»). */}
-                {mapPlan.mb > 0 ? `Сохранить карту · ${mapPlan.mb} МБ` : 'Сохранить карту'}
+                    десятки мегабайт мобильного трафика (скрин владельца 10.08).
+                    Пакет — один шаг: карта, линия, точки и снимок условий
+                    сохраняются этой же кнопкой (FCN этап 2). */}
+                {mapPlan.mb > 0 ? `Сохранить полевой пакет · ${mapPlan.mb} МБ` : 'Сохранить полевой пакет'}
               </button>
               <span>
                 {mapPlan.coverage === 'corridor' && mapPlan.bufferKm
@@ -1524,6 +1933,42 @@ function OnTrailTab() {
               </span>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Карточка доверия: род линии + состояние пакета + качество фикса
+          одной строкой с раскрытием. partial никогда не зелёный; отсутствие
+          линии у points_only — природа маршрута, не дефект пакета. */}
+      {hasRoute && (
+        <div className="px-4 pb-2">
+          <TrustCard
+            fidelity={lineFidelity}
+            geometrySource={geometrySource}
+            hasTrack={!!track && track.length >= 2}
+            conflict={approach?.dataConflict === true}
+            packStates={packStates}
+            packReadiness={packStates ? fieldPackReadiness(packStates) : null}
+            fixLabel={fixLabel(fix)}
+          />
+        </div>
+      )}
+
+      {/* Дорогу до точки строит настоящий навигатор.
+          Слово владельца 11.08: «смысл людям пользоваться нашей кривой, если
+          есть другие». Наш роутер на пробе того же вечера отвечал «пути нет»
+          на четыре километра по городу, а Organic Maps ведёт до Маячного за
+          27 км. Спорить не с чем: дорога — не наша задача, наша начинается
+          там, где их маршрут кончается. Особенно это нужно там, где данные
+          маршрута не сходятся и мы честно сняли своё число: человеку всё
+          равно надо туда попасть. */}
+      {nextWp && (
+        <div className="px-4 pb-2">
+          <NavigateTo
+            to={{ lat: nextWp.lat, lng: nextWp.lng, name: nextWp.name ?? activeRouteTitle ?? 'Точка маршрута' }}
+            from={coords ? { lat: coords.lat, lng: coords.lng, name: 'Я' } : null}
+            mode="car"
+            title="Проложить дорогу до точки"
+          />
         </div>
       )}
 
@@ -1542,25 +1987,119 @@ function OnTrailTab() {
           }}>
           <MapIcon className="w-5 h-5" /> КАРТА
         </button>
-        <a href={coords
-            ? `https://openweathermap.org/weathermap?lat=${coords.lat}&lon=${coords.lng}&zoom=10`
-            : 'https://openweathermap.org/city/2124044'}
-          target="_blank" rel="noopener noreferrer"
+        {/* Условия — внутренний снимок из пакета, не внешняя ссылка:
+            OpenWeatherMap в поле без сети — мёртвая кнопка, а решение
+            «идти или нет» принимается по нашему safety-слою (план FCN:
+            в active mode нет внешних переходов). */}
+        <button onClick={openConditions}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid #1e3a5f', minHeight: 60 }}>
-          <CloudSun className="w-5 h-5" /> ПОГОДА
-        </a>
-        <Link href="/ai-assistant"
+          style={{ background: 'var(--bg-card)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 25%, transparent)', minHeight: 60 }}>
+          <CloudSun className="w-5 h-5" /> УСЛОВИЯ
+        </button>
+        {/* «Группа» вместо AI-чата: в активном режиме нет длинного разговора,
+            есть план и контакт вне маршрута (макеты FCN, решение владельца).
+            Кузьмич остаётся в шапке и на других экранах. */}
+        <button onClick={() => setShowGroup(true)}
           className="flex items-center justify-center gap-2 rounded-xl font-bold text-sm transition-colors"
-          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid #431a07', minHeight: 60 }}>
-          <MessageCircle className="w-5 h-5" /> КУЗЬМИЧ
-        </Link>
-        <a href="tel:112"
-          className="flex items-center justify-center gap-2 rounded-xl font-bold text-xl transition-colors"
-          style={{ background: 'var(--danger)', color: 'var(--text-primary)', border: '1px solid var(--danger)', minHeight: 60 }}>
-          <Phone className="w-5 h-5" /> SOS
-        </a>
+          style={{ background: 'var(--bg-card)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', minHeight: 60 }}>
+          <Users className="w-5 h-5" /> ГРУППА
+        </button>
+        {/* SOS — общий компонент, не своя кнопка: здесь жил сырой tel:112
+            без офлайн-ветки. Копии SOS уже расходились поведением (#887),
+            и полевой экран — последнее место, где это допустимо. */}
+        <EmergencyAction variant="field" />
       </div>
+
+      {/* Условия: снимок из полевого пакета (работает без сети) + живой
+          статус при связи. «Мы не знаем» никогда не выглядит как «спокойно». */}
+      {showConditions && (() => {
+        const snap = liveSafety ?? (pack?.safety && !pack.safety.unavailable ? pack.safety : null);
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+            onClick={() => setShowConditions(false)}>
+            <div className="rounded-t-2xl p-4 pb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-[var(--text-primary)] text-base">Условия</h3>
+                <button onClick={() => setShowConditions(false)}
+                  className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }} aria-label="Закрыть">
+                  <X className="w-4 h-4 text-[var(--text-muted)]" />
+                </button>
+              </div>
+              {snap ? (
+                <div className="space-y-2 text-sm">
+                  <p style={{ color: snap.hasAlert ? 'var(--warning)' : 'var(--text-primary)' }} className="font-semibold">
+                    {snap.hasAlert
+                      ? (snap.topTitle ?? `Активные предупреждения (тяжесть ${snap.maxSeverity} из 5)`)
+                      : 'Активных предупреждений по краю нет'}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {liveSafety ? 'Живой статус' : 'Снимок из полевого пакета'} · {formatSnapshotAge(snap.at)}
+                    {snap.source ? ` · ${snap.source}` : ''}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Это обстановка по краю целиком, а не оценка вашего маршрута.
+                    Экстренный телефон — 112.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold" style={{ color: 'var(--warning)' }}>
+                    Данных об обстановке сейчас нет
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Это не означает, что опасности нет: снимок условий не был сохранён
+                    в полевой пакет, а связи для живого статуса нет. Экстренный телефон — 112.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Группа: состояние брифинга и экстренная связь. Работает офлайн —
+          сеть здесь не нужна: мы не показываем чужих положений и не
+          обещаем слежения, только то, что человек подготовил до выхода. */}
+      {showGroup && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowGroup(false)}>
+          <div className="rounded-t-2xl p-4 pb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-[var(--text-primary)] text-base">Группа</h3>
+              <button onClick={() => setShowGroup(false)}
+                className="p-1.5 rounded-lg" style={{ background: 'var(--bg-card)' }} aria-label="Закрыть">
+                <X className="w-4 h-4 text-[var(--text-muted)]" />
+              </button>
+            </div>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Брифинг — ссылка контакту вне маршрута: план и время возврата.
+              Положение по ней не передаётся: платформа его не знает и слежения не обещает.
+            </p>
+            {crumbsRouteRef.current && (
+              <Link href={`/routes/${crumbsRouteRef.current}/prepare`}
+                className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl text-sm font-semibold mb-2"
+                style={{
+                  background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                  color: 'var(--success)',
+                }}>
+                Открыть план и отправить брифинг
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              </Link>
+            )}
+            <a href="tel:112"
+              className="flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-bold"
+              style={{ background: 'var(--danger)', color: '#fff' }}>
+              <Phone className="w-4 h-4" /> 112 — экстренный вызов
+            </a>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+              Диспетчеру нужны: название маршрута, ваше положение и время выхода.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Карта с треком — офлайн-стойкая (тайлы из кэша SW). Точки берём из
           localStorage-кэша, позиция — с GPS. Как Maps.me: трек + твоя стрелка. */}
@@ -1611,18 +2150,54 @@ function OnTrailTab() {
                       220px overflow-hidden контейнере — fitBounds центрирует
                       маркеры в обрезанную нижнюю половину, и превью выглядит
                       пустым (скрин владельца «Авачинский перевал»). */}
-                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" />
+                  {/* «Где точка моего местонахождения?» — вопрос владельца на
+                      превью «Куда идём?» 17.08. Решение «идти или нет»
+                      принимают именно здесь, и принять его, не видя себя,
+                      нельзя: три зелёных кружка на карте края ничего не
+                      говорят о том, рядом это или за перевалом.
+                      Синяя точка рождается только по настоящему фиксу
+                      (см. LeafletMap) и в fitBounds не участвует — превью
+                      маршрута от неё не разъедется. */}
+                  <LeafletMap markers={previewMap.markers} center={previewMap.center} zoom={11} height="220px" showUserLocation />
                 </div>
-                <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">{preview.title}</p>
+                  <GradeChip grade={preview.grade} />
+                </div>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-3">
-                  {preview.wps.length} точек · {preview.wps[0].name} → {preview.wps[preview.wps.length - 1].name}
+                  {preview.wps.length} {plural(preview.wps.length, 'точка', 'точки', 'точек')}
+                  {preview.wps.length > 1 && ` · ${preview.wps[0].name} → ${preview.wps[preview.wps.length - 1].name}`}
                 </p>
-                {previewMap.scattered && (
+                {/* Оговорка паспорта: что этот род данных значит для ног.
+                    Бейдж прочитает не каждый — слова прочитают все. */}
+                {preview.grade && passportGradeNote(preview.grade) && (
                   <p className="text-xs mb-3 px-3 py-2 rounded-lg"
                     style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
-                    Это подборка мест по всему краю, а не единый трек — идти по ней
-                    как по маршруту нельзя. Выберите компактный маршрут из вариантов.
+                    {passportGradeNote(preview.grade)}
                   </p>
+                )}
+                {/* ── Черта: одна причина отказа, названная словами ──────────
+                    Раньше экран судил сам — отдельно про разброс, отдельно
+                    про одиночную точку, — и не видел третьего случая:
+                    расхождения точек с линией. «Вулкан Козельский» проходил
+                    оба здешних теста и оказывался непригодным только в поле.
+                    Теперь вердикт приходит с сервера, где есть и линия, и
+                    точки, а экран его показывает. */}
+                {preview.navigability && preview.navigability.reasons.length > 0 && (
+                  <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>
+                      {preview.navigability.verdict === 'not_on_foot'
+                        // Не отказ, а другой род записи: у облёта линию не
+                        // проходят по земле, и мерки тропы к ней не относятся.
+                        ? 'Это не пеший маршрут'
+                        : preview.navigability.verdict === 'not_a_route'
+                          ? 'Вести по этой записи нельзя'
+                          : 'Ведение по линии не обещаем'}
+                    </p>
+                    {preview.navigability.reasons.map((why, i) => (
+                      <p key={i} className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{why}</p>
+                    ))}
+                  </div>
                 )}
                 <div className="flex gap-2">
                   <button onClick={() => setPreview(null)}
@@ -1630,13 +2205,27 @@ function OnTrailTab() {
                     style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
                     К вариантам
                   </button>
-                  {!previewMap.scattered && (
-                    <button onClick={() => selectRoute(preview)}
-                      className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
-                      style={{ background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                      Начать по маршруту
-                    </button>
-                  )}
+                  {/* Кнопки нет вовсе, когда записью нельзя пользоваться как
+                      маршрутом: предлагать старт по подборке мест значило бы
+                      обещать путь, которого нет. */}
+                  {(() => {
+                    const verdict = preview.navigability?.verdict
+                      // Вердикт не пришёл (старый кэш ответа) — судим по тому,
+                      // что видно здесь: одна точка или разброс. Отсутствие
+                      // ответа не превращается в «пригодно».
+                      ?? (previewMap.scattered || previewMap.singlePoint ? 'not_a_route' : 'orientation_only');
+                    const label = navigabilityCtaLabel(verdict);
+                    if (!label) return null;
+                    return (
+                      <button onClick={() => selectRoute(preview)}
+                        className="flex-1 text-xs font-bold px-4 py-2.5 rounded-lg"
+                        style={verdict === 'navigable'
+                          ? { background: 'rgba(74,222,128,0.15)', color: 'var(--success)', border: '1px solid rgba(74,222,128,0.3)' }
+                          : { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                        {label}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (
@@ -1677,25 +2266,38 @@ function OnTrailTab() {
                     ) : (
                       <div className="space-y-2">
                         {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).map(r => (
-                          <button key={r.id} onClick={() => openPreview(r)}
-                            className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
-                            style={{
-                              background: 'var(--bg-primary)',
-                              border: '1px solid var(--border)',
-                              opacity: previewLoadingId === r.id ? 0.6 : 1,
-                            }}>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
-                              <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                                {r.distanceKm ? `${r.distanceKm} км · ` : ''}
-                                {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
-                                {r.via ? ` · через: ${r.via}` : ''}
+                          <div key={r.id}>
+                            <button onClick={() => openPreview(r)}
+                              className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+                              style={{
+                                background: 'var(--bg-primary)',
+                                border: '1px solid var(--border)',
+                                opacity: previewLoadingId === r.id ? 0.6 : 1,
+                              }}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+                                  <GradeChip grade={r.lineGrade} />
+                                </div>
+                                <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                  {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+                                  {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
+                                  {r.via ? ` · через: ${r.via}` : ''}
+                                </p>
+                              </div>
+                              <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
+                                {previewLoadingId === r.id ? '…' : 'На карте'}
+                              </span>
+                            </button>
+                            {/* Отказ живёт у своей строки: список остаётся на месте,
+                                и видно, ЧТО именно не открылось. */}
+                            {previewError?.id === r.id && (
+                              <p className="text-xs mt-1 px-3 py-2 rounded-lg"
+                                style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+                                {previewError.text}
                               </p>
-                            </div>
-                            <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
-                              {previewLoadingId === r.id ? '…' : 'На карте'}
-                            </span>
-                          </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -1817,14 +2419,14 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   function toggleItem(id: string) {
     // 'offline' can't be manually toggled — it's auto-computed
     if (id === 'offline') return;
-    // maps — trigger download if not started yet
+    // maps — trigger download if not started yet (partial — добрать недостающее)
     if (id === 'maps') {
-      if (mapsStatus === 'idle' || mapsStatus === 'error') downloadMaps();
+      if (mapsStatus === 'idle' || mapsStatus === 'error' || mapsStatus === 'partial') downloadMaps();
       return;
     }
     // mchs opens a form URL
     if (id === 'mchs') {
-      window.open('https://forms.mchs.gov.ru/registration_tourist_groups/form', '_blank', 'noopener,noreferrer');
+      window.open(MCHS_ONLINE_FORM_URL, '_blank', 'noopener,noreferrer');
       return;
     }
     // emergency scrolls to the section
@@ -1906,6 +2508,25 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
             </p>
           </div>
         </div>
+        {/* Полный план подготовки — вход в маршрутный экран семи доменов
+            (FCN этап 4). Этот чек-лист остаётся быстрой механикой (карты,
+            МЧС), доменная модель живёт в одном месте — lib/preparation. */}
+        {hasActiveRoute && (() => {
+          let rid: string | null = null;
+          try { rid = localStorage.getItem('active_trail_route_id'); } catch { /* ssr/приват */ }
+          return rid ? (
+            <Link href={`/routes/${rid}/prepare`}
+              className="flex items-center justify-between gap-2 px-3 py-3 rounded-xl mb-3 text-sm font-semibold"
+              style={{
+                background: 'color-mix(in srgb, var(--success) 8%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--success) 22%, transparent)',
+                color: 'var(--success)',
+              }}>
+              План подготовки к походу: 7 доменов
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            </Link>
+          ) : null;
+        })()}
         <div className="space-y-1">
           {effectiveChecklist.map(item => {
             const isExternal = item.id === 'mchs' || item.id === 'emergency';
@@ -1950,6 +2571,12 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
                 {item.id === 'maps' && mapsStatus === 'error' && mapsError && (
                   <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--danger)' }}>
                     Ошибка: {mapsError} — нажми ещё раз
+                  </p>
+                )}
+                {/* Частичный пакет — не готовность: галочки нет, причина словами */}
+                {item.id === 'maps' && mapsStatus === 'partial' && (
+                  <p className="px-4 pb-2 text-[10px]" style={{ color: 'var(--warning)' }}>
+                    Карта скачана не полностью — нажми ещё раз, пока есть связь
                   </p>
                 )}
               </div>
@@ -2050,9 +2677,25 @@ export function PlanningClient() {
     }
   }, []);
 
+  /**
+   * Смена таба обновляет URL. Раньше deep-link был односторонним:
+   * ?mode=trail открывал полевой режим, но переключение руками URL не
+   * трогало — «поделиться режимом» и перезагрузка возвращали не туда.
+   * replaceState, не push: таб — не страница, спамить историю нечем.
+   */
+  function switchTab(next: 'planning' | 'trail') {
+    setTab(next);
+    try {
+      const url = new URL(window.location.href);
+      if (next === 'trail') url.searchParams.set('mode', 'trail');
+      else url.searchParams.delete('mode');
+      window.history.replaceState(null, '', url.toString());
+    } catch { /* URL не обновился — не повод ломать переключение */ }
+  }
+
   function handleStartTrail(routeId: string) {
     try { localStorage.setItem('active_trail_route_id', routeId); } catch { /* ignore */ }
-    setTab('trail');
+    switchTab('trail');
   }
 
   return (
@@ -2064,7 +2707,7 @@ export function PlanningClient() {
         style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className="max-w-2xl mx-auto px-4 flex gap-0">
           <button
-            onClick={() => setTab('planning')}
+            onClick={() => switchTab('planning')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'planning'
                 ? 'border-[var(--accent)] text-[var(--accent)]'
@@ -2074,7 +2717,7 @@ export function PlanningClient() {
             <Navigation className="w-4 h-4" /> Планирование
           </button>
           <button
-            onClick={() => setTab('trail')}
+            onClick={() => switchTab('trail')}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'trail'
                 ? 'border-[var(--success)] text-[var(--success)]'

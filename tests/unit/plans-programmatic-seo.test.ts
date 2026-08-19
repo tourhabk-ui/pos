@@ -34,7 +34,24 @@ describe('пресеты: качество программатик-контен
   it('слаги уникальны и в едином формате', () => {
     const slugs = PLAN_PRESETS.map((p) => p.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
-    for (const s of slugs) expect(s).toMatch(/^kamchatka-za-\d+-dney-[a-z-]+$/);
+    // Два законных формата: программатик «N дней под интерес» и посадочные
+    // кластеры стратегии 14.08 (первая поездка, сезонные). Всё прочее —
+    // опечатка слага, а не третий формат.
+    for (const s of slugs) {
+      expect(s).toMatch(/^(kamchatka-za-\d+-dney-[a-z-]+|pervaya-poezdka-na-kamchatku|kamchatka-v-[a-z]+|kamchatka-zimoy)$/);
+    }
+  });
+
+  it('посадочный кластер обязан нести дату, источник и ограничения', () => {
+    // Высокоинтентная страница без даты ревизии неотличима от устаревшей,
+    // а в safety-first продукте устаревшая вредит сильнее отсутствующей.
+    const clusters = PLAN_PRESETS.filter((p) => p.cluster);
+    expect(clusters.length).toBeGreaterThanOrEqual(4);
+    for (const p of clusters) {
+      expect(p.cluster!.updated, p.slug).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(p.cluster!.sourceNote.length, p.slug).toBeGreaterThanOrEqual(20);
+      expect(p.cluster!.limitations.length, p.slug).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it('интро рукописные: длинные и не повторяются (гард от thin content)', () => {

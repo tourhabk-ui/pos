@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { AlertTriangle, ShieldCheck, Info, ArrowRight, Search, Sunrise } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, Info, ArrowRight, Search, Sunrise, CalendarDays } from 'lucide-react';
+import { ShareButton } from '@/components/shared/ShareButton';
+import { clip } from '@/components/safety/LiveStatus';
 
 export interface SafetyStatusData {
   hasAlert: boolean;
@@ -99,10 +102,13 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
     BadgeIcon = Sunrise;
   }
 
-  const headline =
-    hasAlert && safety?.topTitle
-      ? safety.topTitle
-      : 'Камчатка сегодня';
+  // Статус дня больше не заголовок первого экрана, а строка-доказательство
+  // под ним. Заголовком у нового человека должен быть ответ на «с чего мне
+  // начать планировать Камчатку», а не необрезанная простыня из ленты МЧС
+  // (стратегия 14.08; сама простыня — она и красовалась здесь заголовком).
+  // Обрезка — общий clip(): две поверхности об одном предупреждении обязаны
+  // говорить одинаково (тот же резак, что в ленте /safety).
+  const alertLine = hasAlert && safety?.topTitle ? clip(safety.topTitle, 90) : null;
 
   const sourceLabel =
     !isStale && !cronNeverRan && updatedAt
@@ -130,50 +136,90 @@ export function HeroStatus({ safety: initialSafety }: HeroStatusProps) {
             <BadgeIcon size={11} style={{ color: badgeColor, flexShrink: 0 }} />
             <span>{badgeLabel}</span>
           </div>
-          {sourceLabel && (
-            <span
-              className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0"
-              style={{ background: 'rgba(0,0,0,0.40)' }}
-            >
-              {sourceLabel}
-            </span>
-          )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {sourceLabel && (
+              <span
+                className="text-white/65 text-xs px-2.5 py-1 rounded-full whitespace-nowrap"
+                style={{ background: 'rgba(0,0,0,0.40)' }}
+              >
+                {sourceLabel}
+              </span>
+            )}
+            {/* Стекло поверх фото — разрешённый случай по §2. */}
+            <ShareButton
+              referral
+              size={15}
+              className="w-9 h-9 rounded-full grid place-items-center text-white/90 backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/60"
+              title="Ведар — Камчатка"
+              text="Маршруты, безопасность и проверенные туры по Камчатке"
+              referralText="Приглашаю в Ведар: маршруты и проверенные туры по Камчатке. По моей ссылке — бонус на первую поездку"
+            />
+          </div>
         </div>
 
-        {/* Bottom: label + headline + search */}
+        {/* Bottom: конверсионный посыл + один главный шаг + статус строкой.
+            Первый экран отвечает новому человеку на «с чего мне начать», а не
+            расшифровывает сервис (стратегия 14.08). Планировщик — та же дверь,
+            что на мобильной v8 («Планировщик поездки» → /planner). */}
         <div>
-          <p className="text-white/60 text-[11px] font-semibold uppercase tracking-widest mb-1.5">
-            Статус дня
-          </p>
-          <h2 className="font-playfair text-2xl md:text-3xl text-white font-bold leading-tight mb-4 max-w-xs">
-            {headline}
+          <h2 className="font-playfair text-2xl md:text-4xl text-white font-bold leading-tight mb-1.5 max-w-md">
+            Соберите безопасную поездку на Камчатку
           </h2>
+          <p className="text-white/75 text-sm md:text-base mb-4 max-w-md">
+            Подберём варианты по сезону, нагрузке и реальным условиям маршрутов.
+          </p>
 
-          <form action="/routes" method="get" className="flex items-center gap-2">
-            <div
-              className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-full"
-              style={{
-                background: 'rgba(255,255,255,0.14)',
-                border: '1px solid rgba(255,255,255,0.22)',
-              }}
-            >
-              <Search size={14} className="text-white/55 flex-shrink-0" />
-              <input
-                name="q"
-                type="text"
-                placeholder="Куда идёте?"
-                className="bg-transparent outline-none flex-1 text-white placeholder:text-white/50 text-sm min-w-0"
-              />
-            </div>
-            <button
-              type="submit"
-              aria-label="Найти маршрут"
-              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-transform hover:scale-105 active:scale-95"
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <Link
+              href="/planner"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-white rounded-full px-5 py-2.5 transition-transform hover:scale-105 active:scale-95"
               style={{ background: 'var(--accent)' }}
             >
-              <ArrowRight size={16} className="text-white" />
-            </button>
-          </form>
+              <CalendarDays size={16} />
+              Собрать план
+            </Link>
+
+            {/* «Я уже знаю маршрут» — прежний поиск, второй ролью, не конкурентом */}
+            <form action="/routes" method="get" className="flex items-center gap-2 flex-1 min-w-[220px]">
+              <div
+                className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-full"
+                style={{
+                  background: 'rgba(255,255,255,0.14)',
+                  border: '1px solid rgba(255,255,255,0.22)',
+                }}
+              >
+                <Search size={14} className="text-white/55 flex-shrink-0" />
+                <input
+                  name="q"
+                  type="text"
+                  placeholder="Я уже знаю маршрут…"
+                  className="bg-transparent outline-none flex-1 text-white placeholder:text-white/50 text-sm min-w-0"
+                />
+              </div>
+              <button
+                type="submit"
+                aria-label="Найти маршрут"
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-transform hover:scale-105 active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.25)' }}
+              >
+                <ArrowRight size={16} className="text-white" />
+              </button>
+            </form>
+          </div>
+
+          {/* Статус дня — доказательство компетентности, строкой, не заголовком.
+              Блока нет, когда предупреждений нет: пустое «всё спокойно» — это
+              обещание, которого мы дать не можем (тот же принцип, что на v8). */}
+          {alertLine && (
+            <Link
+              href="/safety"
+              className="flex items-center gap-2 text-xs text-white/80 hover:text-white transition-colors"
+            >
+              <BadgeIcon size={12} style={{ color: badgeColor, flexShrink: 0 }} />
+              <span className="min-w-0 truncate">{alertLine}</span>
+              <span className="flex-shrink-0 text-white/55">Подробнее →</span>
+            </Link>
+          )}
         </div>
       </div>
     </div>

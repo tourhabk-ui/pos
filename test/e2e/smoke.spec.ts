@@ -50,7 +50,11 @@ test.describe('Smoke Tests', () => {
 test.describe('API Smoke Tests', () => {
   test('GET /api/routes returns JSON', async ({ request }) => {
     const res = await request.get('/api/routes');
-    expect(res.status()).toBeLessThan(500);
+    // Именно 200, а не «меньше пятисот». Прежний порог считал нормой и 404, и
+    // 401: каталог, отвечающий «не найдено» на всё, проходил проверку молча.
+    // Своя ручка — внешних зависимостей у неё нет, и мягкость здесь ничего не
+    // защищает, кроме поломки.
+    expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toContain('application/json');
   });
 
@@ -83,5 +87,56 @@ test.describe('API Smoke Tests', () => {
   test('protected API returns 401 without auth', async ({ request }) => {
     const res = await request.get('/api/admin/operators');
     expect(res.status()).toBe(401);
+  });
+});
+
+/**
+ * Карточка маршрута открывается С ДАННЫМИ.
+ *
+ * ── Зачем эта группа появилась ─────────────────────────────────────────────
+ *
+ * 18.08 карточка маршрута на проде перестала открываться: код читал колонку
+ * `link_kind`, а миграция 874 не применилась, и `/api/routes/[id]` отвечал
+ * пятисоткой. Экран честно писал «Маршрут не открылся — сервер не отдал
+ * данные». Ночной smoke в ту же ночь был ЗЕЛЁНЫЙ.
+ *
+ * Он и не мог покраснеть: ни одна проверка не открывала карточку маршрута, а
+ * `status < 500` считает нормой и 404, и 401. То есть smoke проверял, что
+ * сервер отвечает, а не что он отвечает ПРАВДОЙ. Для платформы, где по
+ * карточке идут в поле, это разные вещи.
+ *
+ * ── Почему без переменной окружения ────────────────────────────────────────
+ *
+ * Идентификатор берётся из живого каталога, а не из настройки вроде
+ * `SMOKE_ROUTE_ID`. Настройка, которую забыли задать, превращает проверку в
+ * пропуск — а пропущенная проверка выглядит зелёной. Пустой каталог здесь
+ * тоже РЕГРЕССИЯ, а не повод молчать: витрина без единого маршрута — это
+ * поломка, о которой обязан сказать именно smoke.
+ */
+test.describe('Route card smoke', () => {
+  test('карточка маршрута отдаётся с данными и открывается', async ({ page, request }) => {
+    const listRes = await request.get('/api/routes?kind=route&limit=1');
+    expect(listRes.status(), 'каталог маршрутов не ответил').toBe(200);
+    const list = await listRes.json() as {
+      success?: boolean;
+      data?: Array<{ id?: string; title?: string }>;
+    };
+    expect(list.success, 'каталог ответил отказом').toBe(true);
+    const first = list.data?.[0];
+    // Пустая витрина — регрессия. Пропустить проверку здесь значило бы
+    // отчитаться зелёным именно в тот момент, когда каталог пуст.
+    expect(first?.id, 'в каталоге нет ни одного маршрута').toBeTruthy();
+
+    const cardRes = await request.get(`/api/routes/${first!.id}`);
+    expect(cardRes.status(), 'карточка маршрута ответила ошибкой').toBe(200);
+    const card = await cardRes.json() as { success?: boolean; data?: { title?: string } };
+    expect(card.success, 'карточка ответила отказом').toBe(true);
+    // Название — минимальный признак того, что данные ЕСТЬ, а не что ответ
+    // синтаксически похож на успех.
+    expect(card.data?.title, 'карточка пришла без названия').toBeTruthy();
+
+    await page.goto(`/routes/${first!.id}`);
+    await expect(page.locator('body')).not.toContainText(/не отдал данные|не открылся/i);
+    await expect(page.locator('h1').first()).toBeVisible();
   });
 });

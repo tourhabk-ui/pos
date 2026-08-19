@@ -459,3 +459,499 @@ describe('runDataRepair (dry-run)', () => {
   });
 
 });
+
+/**
+ * Шаг 9c: якорь безъякорному маршруту от одноимённого МЕСТА.
+ *
+ * Перепись 11.08: из 421 маршрута 97 не имеют ни координат, ни линии, ни
+ * путевых точек — на карте их нет вовсе. Часть из них тёзки существующих
+ * мест, и тогда координата ВЫВОДИТСЯ, а не выдумывается.
+ *
+ * Главное, что здесь проверяется, — сдержанность правила. Соблазн сравнивать
+ * мягче (по набору слов, по вхождению) велик, и ровно на нём сгорела привязка
+ * треков по близости: срабатывала часто, ошибалась в девяти случаях из
+ * десяти. «Гейзеры Камчатки» — обзорная статья, и сесть на «Долину гейзеров»
+ * она не должна.
+ */
+describe('шаг 9c: якорь от одноимённого места', () => {
+  const ANCHORLESS_SQL = 'lat IS NULL OR lng IS NULL';
+
+  /** Отвечает только на два запроса шага 9c, на остальные — пусто. */
+  function only(routes: Array<{ id: string; title: string }>,
+                places: Array<{ name: string; lat: string; lng: string }>) {
+    queryMock.mockImplementation((raw: unknown) => {
+      // Некоторые шаги зовут pool.query без аргументов (BEGIN/COMMIT идут
+      // отдельным путём) — приводим к строке, а не падаем на undefined.
+      const sql = String(raw ?? '');
+      if (sql.includes(ANCHORLESS_SQL)) return Promise.resolve({ rows: routes });
+      if (sql.includes('FROM places') && sql.includes('name IS NOT NULL')) {
+        return Promise.resolve({ rows: places });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('точный тёзка даёт координату', async () => {
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    const res = await runDataRepair(true);
+    expect(res.anchored_from_place).toBe(1);
+  });
+
+  it('приведение имени берётся готовое: тире, ё и слово «Маршрут»', async () => {
+    // Свой второй нормализатор в этом файле разошёлся бы с первым — в нём уже
+    // живут sameExactName и nameWordSet, третьего правила о том же не будет.
+    only(
+      [{ id: 'r1', title: 'Маршрут Голубые озёра' }],
+      [{ name: 'Голубые озера', lat: '53.1', lng: '158.2' }],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(1);
+  });
+
+  it('похожего имени НЕ хватает: статья не садится на место', async () => {
+    // Тот самый случай: «Гейзеры Камчатки» — обзорная статья, «Долина
+    // гейзеров» — настоящая точка. Мягкое сравнение поставило бы статью
+    // на карту как маршрут.
+    only(
+      [{ id: 'r1', title: 'Гейзеры Камчатки' }, { id: 'r2', title: 'Флора Камчатки' }],
+      [{ name: 'Долина гейзеров', lat: '54.4', lng: '160.1' }],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(0);
+  });
+
+  it('два места с одним именем — выбор человека, не наш', async () => {
+    // Выбирать не на чем: обе координаты одинаково правдоподобны.
+    only(
+      [{ id: 'r1', title: 'Озеро Безымянное' }],
+      [
+        { name: 'Озеро Безымянное', lat: '53.0', lng: '158.0' },
+        { name: 'Озеро Безымянное', lat: '55.0', lng: '160.0' },
+      ],
+    );
+    expect((await runDataRepair(true)).anchored_from_place).toBe(0);
+  });
+
+  it('dry-run ничего не пишет', async () => {
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    await runDataRepair(true);
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /UPDATE kamchatka_routes[\s\S]*anchor_source/.test(String(sql)));
+    expect(wrote).toBe(false);
+  });
+
+  it('apply пишет координату и помечает происхождение якоря', async () => {
+    // Метка нужна, чтобы через месяц было видно, откуда взялась точка:
+    // выведена из тёзки, а не снята в поле.
+    only(
+      [{ id: 'r1', title: 'Малкинские горячие источники' }],
+      [{ name: 'Малкинские горячие источники', lat: '53.3', lng: '157.6' }],
+    );
+    await runDataRepair(false);
+    const call = queryMock.mock.calls.find(([sql]) =>
+      /UPDATE kamchatka_routes[\s\S]*anchor_source/.test(String(sql)));
+    expect(call).toBeDefined();
+    expect(String(call![0])).toContain('place_same_name');
+    expect(call![1]).toEqual([53.3, 157.6, 'r1']);
+  });
+});
+
+/**
+ * Шаг 9d: заметки сайта — вон из справочника маршрутов.
+ *
+ * Две команды владельца 11.08 подряд: «статьи — убирать с маршрутов в
+ * описание мест», затем «если не знаешь — удаляй». Шаг исполняет обе, и
+ * порядок здесь не косметический: сперва спасти текст, потом удалять.
+ * Обратный порядок невозможен — удалённое не переносят.
+ *
+ * Улику дал адрес: по названию статья от маршрута не отличается (проба 49
+ * положила в одну кучу «Флору Камчатки», «Поселок Эссо» и «Восхождение на
+ * Плоский Толбачик»), а раздел источника отличает — проба 52: /note 26.
+ */
+describe('шаг 9d: заметки источника', () => {
+  const NOTE_SQL = "= '/note'";
+
+  function scene(opts: {
+    notes: Array<{ id: string; title: string; description: string | null }>;
+    places?: Array<{ id: string; name: string; description: string | null }>;
+    tourRefs?: number;
+  }) {
+    queryMock.mockImplementation((raw: unknown, params?: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes(NOTE_SQL)) return Promise.resolve({ rows: opts.notes });
+      if (sql.includes('FROM places') && sql.includes('name IS NOT NULL')) {
+        return Promise.resolve({ rows: opts.places ?? [] });
+      }
+      if (sql.includes('FROM operator_tours')) {
+        return Promise.resolve({ rows: [{ n: String(opts.tourRefs ?? 0) }] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  const sqls = () => queryMock.mock.calls.map(([sql]) => String(sql ?? ''));
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('нет тёзки — запись удаляется', async () => {
+    // «Растения Камчатки» — обзорная статья про всю Камчатку. Единственного
+    // места у неё нет по смыслу, переносить некуда.
+    scene({ notes: [{ id: 'n1', title: 'Растения Камчатки', description: 'текст' }] });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_deleted).toBe(1);
+    expect(res.notes_text_moved).toBe(0);
+    expect(sqls().some((q) => /DELETE FROM kamchatka_routes/.test(q))).toBe(true);
+  });
+
+  it('есть тёзка — текст переезжает, и ТОЛЬКО потом удаление', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Азабачье', description: 'Длинное описание озера' }],
+      places: [{ id: 'p1', name: 'Озеро Азабачье', description: null }],
+    });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_text_moved).toBe(1);
+    expect(res.notes_deleted).toBe(1);
+
+    const order = sqls();
+    const moved = order.findIndex((q) => /UPDATE places[\s\S]*description/.test(q));
+    const killed = order.findIndex((q) => /DELETE FROM kamchatka_routes/.test(q));
+    expect(moved).toBeGreaterThanOrEqual(0);
+    // Порядок — суть шага: удалённое не переносят.
+    expect(moved).toBeLessThan(killed);
+  });
+
+  it('богатое описание места чужим текстом не перетирается', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Поселок Эссо', description: 'кратко' }],
+      places: [{ id: 'p1', name: 'Поселок Эссо', description: 'уже подробное описание посёлка Эссо' }],
+    });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_text_moved).toBe(0);
+    // Запись всё равно уходит: маршрутом она не является.
+    expect(res.notes_deleted).toBe(1);
+  });
+
+  it('два места с одним именем — не выбираем, текст не переносим', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Безымянное', description: 'текст' }],
+      places: [
+        { id: 'p1', name: 'Озеро Безымянное', description: null },
+        { id: 'p2', name: 'Озеро Безымянное', description: null },
+      ],
+    });
+    expect((await runDataRepair(false, 'source_note')).notes_text_moved).toBe(0);
+  });
+
+  it('на запись ссылается тур — не удаляем', async () => {
+    // Удалить её значит сломать страницу тура, а это уже не уборка
+    // справочника. Такие называются поимённо и ждут человека.
+    scene({ notes: [{ id: 'n1', title: 'Вулканы Камчатки', description: 'текст' }], tourRefs: 2 });
+    const res = await runDataRepair(false, 'source_note');
+    expect(res.notes_kept_referenced).toBe(1);
+    expect(res.notes_deleted).toBe(0);
+    expect(sqls().some((q) => /DELETE FROM kamchatka_routes/.test(q))).toBe(false);
+  });
+
+  it('точки маршрута удаляются вместе с ним', async () => {
+    // Внешнего ключа у route_waypoints нет — без этой строки остались бы
+    // висеть сироты, ссылающиеся в пустоту.
+    scene({ notes: [{ id: 'n1', title: 'Юг Камчатки', description: null }] });
+    await runDataRepair(false, 'source_note');
+    expect(sqls().some((q) => /DELETE FROM route_waypoints/.test(q))).toBe(true);
+  });
+
+  it('dry-run не удаляет и не переносит', async () => {
+    scene({
+      notes: [{ id: 'n1', title: 'Озеро Азабачье', description: 'текст' }],
+      places: [{ id: 'p1', name: 'Озеро Азабачье', description: null }],
+    });
+    const res = await runDataRepair(true);
+    expect(res.notes_deleted).toBe(1); // счёт ведётся
+    expect(sqls().some((q) => /^\s*DELETE/i.test(q))).toBe(false);
+    expect(sqls().some((q) => /UPDATE places/.test(q))).toBe(false);
+  });
+});
+
+/**
+ * Сужение применения одним шагом.
+ *
+ * Конвейер копит шаги с июля. Запустить его целиком ради одного действия
+ * значит согласиться на все сразу: 11.08, чтобы убрать 26 заметок сайта из
+ * справочника маршрутов, apply в том же прогоне спрятал бы ещё шесть мест и
+ * отвязал две путевые точки — о чём никто не просил.
+ *
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+describe('only: применяется один шаг, остальные остаются диагностикой', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  function withNotes() {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes("= '/note'")) {
+        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', description: null }] });
+      }
+      if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{ n: '0' }] });
+      // Кластер фейковых координат — шаг СТАРШЕ появления `only`.
+      if (sql.includes('HAVING COUNT(*) >= 3') && sql.includes('SELECT lat')) {
+        return Promise.resolve({ rows: [{ lat: 55, lng: 160, n: 3 }] });
+      }
+      if (sql.includes('JOIN (')) {
+        return Promise.resolve({ rows: [{ id: 'p1', ark_id: 'a1', name: 'Бухта Русская', lat: 55, lng: 160 }] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  it('названный шаг пишет', async () => {
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const killed = queryMock.mock.calls.some(([sql]) =>
+      /DELETE FROM kamchatka_routes/.test(String(sql ?? '')));
+    expect(killed).toBe(true);
+  });
+
+  it('шаги СТАРШЕ появления only при сужении молчат', async () => {
+    // Здесь и был бы тихий дефект: сужение, которое глушит только новые шаги,
+    // — сужение мнимое.
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const touchedPlaces = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE\s+places/i.test(String(sql ?? '')));
+    expect(touchedPlaces).toBe(false);
+  });
+
+  it('чужое имя шага — не пишет никто', async () => {
+    withNotes();
+    await runDataRepair(false, 'anchor_from_place');
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE/i.test(String(sql ?? '')));
+    expect(wrote).toBe(false);
+  });
+
+  it('без сужения поведение прежнее, и смысл первого аргумента не перевёрнут', async () => {
+    // true = сухой прогон, как было у трёх десятков существующих вызовов.
+    withNotes();
+    const res = await runDataRepair(true);
+    expect(res.dry_run).toBe(true);
+    expect(res.only).toBeNull();
+    expect(queryMock.mock.calls.some(([sql]) => /^\s*UPDATE/i.test(String(sql ?? '')))).toBe(false);
+  });
+
+  it('чем сужено — видно в ответе', async () => {
+    withNotes();
+    expect((await runDataRepair(false, 'source_note')).only).toBe('source_note');
+  });
+});
+
+/**
+ * Шаг 8b: похожие ИМЕНА, расстояние как сведение.
+ *
+ * Скриншот владельца 12.08: на карте рядом «Вулкан Жупановский» и
+ * «Жупановский» — одна гора двумя местами, между записями три километра.
+ *
+ * Все шаги слияния требуют близости: Шаг 2 — километр, Шаги 8 и 9 — сто
+ * пятьдесят метров. Пороги откалиброваны по ТОЧЕЧНЫМ объектам: источник,
+ * водопад, кордон. Вулкан — объект в десятки километров, и правило, верное
+ * для точки, промахивается на горе. Дубль прошёл сквозь все чистки.
+ *
+ * Решение владельца: «пока сравним по именам». Расстояние перестаёт быть
+ * условием и становится сведением — печатается рядом с парой, чтобы человек
+ * видел, три там километра или триста.
+ */
+describe('шаг 8b: похожие имена, расстояние как сведение', () => {
+  const base = {
+    location_type: 'volcano', is_visible: true, has_photo: false, desc_len: 10, ark_id: null,
+  };
+  const place = (id: string, name: string, lat: number | null = 53.589, lng: number | null = 159.147) =>
+    ({ ...base, id, name, lat, lng });
+
+  function scene(rows: unknown[]) {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes('FROM places p') && sql.includes('desc_len')) return Promise.resolve({ rows });
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+  const pairs = (res: Awaited<ReturnType<typeof runDataRepair>>) =>
+    res.items.filter((i) => i.step === 'name_pair');
+
+  beforeEach(() => queryMock.mockReset());
+
+  it('вложенное имя видно на любом расстоянии', async () => {
+    scene([place('p1', 'Вулкан Жупановский'), place('p2', 'Жупановский', 53.589, 159.192)]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(1);
+    expect(pairs(res)[0].detail).toContain('3.0 км');
+    expect(pairs(res)[0].detail).toContain('volcano');
+  });
+
+  it('расстояние больше не отсекает — только печатается', async () => {
+    scene([
+      place('p1', 'Вулкан Ичинская сопка', 55.6, 157.7),
+      place('p2', 'Ичинская сопка', 51.4, 157.1),
+    ]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(1);
+    expect(pairs(res)[0].detail).toMatch(/\d{3}\.\d км/);
+  });
+
+  it('перестановка слов — свой род пары', async () => {
+    scene([place('p1', 'Озеро Курильское'), place('p2', 'Курильское озеро')]);
+    expect((await runDataRepair(true)).name_pairs.same_wordset).toBe(1);
+  });
+
+  it('посимвольная тёзка — свой род пары', async () => {
+    scene([place('p1', 'Кутхины баты'), place('p2', 'Кутхины Баты')]);
+    expect((await runDataRepair(true)).name_pairs.same_name).toBe(1);
+  });
+
+  it('целиком родовое короткое имя в дубли НЕ идёт', async () => {
+    // «Озеро» ⊂ «Озеро Курильское» — беда качества имени, а не два описания
+    // одного места. Смешать их с настоящими дублями значило бы утопить список.
+    scene([place('p1', 'Озеро'), place('p2', 'Озеро Курильское')]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(0);
+    expect(res.name_pairs.generic_only).toBe(1);
+  });
+
+  it('разные объекты в пару не попадают', async () => {
+    scene([place('p1', 'Вулкан Горелый'), place('p2', 'Вулкан Мутновский')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(0);
+  });
+
+  it('добавлено имя СОБСТВЕННОЕ — это другой объект, не дубль', async () => {
+    // Проба 56: одно короткое слово цепляло всё, где оно встречается.
+    // «Камень» дал шесть пар, верна из них одна. Разница между именами
+    // обязана быть родовой — иначе перед нами два разных места.
+    scene([place('p1', 'Камень'), place('p2', 'Камень Амбон')]);
+    const res = await runDataRepair(true);
+    expect(res.name_pairs.subset).toBe(0);
+    expect(res.name_pairs.distinct_extra).toBe(1);
+  });
+
+  it('добавлены только РОДОВЫЕ слова — та же гора', async () => {
+    scene([place('p1', 'Камень'), place('p2', 'Вулкан Камень')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(1);
+  });
+
+  it('«Узон» и «Кальдера вулкана Узон» — одно место', async () => {
+    scene([place('p1', 'Узон'), place('p2', 'Кальдера вулкана Узон')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(1);
+  });
+
+  it('тропа, названная по долине, самой долиной не становится', async () => {
+    // «Долина смерти» ⊂ «Тропа медведя (долина смерти)»: добавлено «медведя»
+    // — слово собственное, объект другой.
+    scene([place('p1', 'Долина смерти'), place('p2', 'Тропа медведя (долина смерти)')]);
+    expect((await runDataRepair(true)).name_pairs.subset).toBe(0);
+  });
+
+  it('в паре сперва короткое имя, потом длинное', async () => {
+    // Порядок в строке отчёта — не косметика: по нему видно, что чему
+    // вложено, без сверки длин глазом.
+    scene([place('p2', 'Вулкан Камень'), place('p1', 'Камень')]);
+    const res = await runDataRepair(true);
+    const line = res.items.find((i) => i.step === 'name_pair')!.detail;
+    expect(line.indexOf('«Камень»')).toBeLessThan(line.indexOf('«Вулкан Камень»'));
+  });
+
+  it('нет координат — «расстояние неизвестно», а не ноль километров', async () => {
+    scene([place('p1', 'Вулкан Жупановский', null, null), place('p2', 'Жупановский')]);
+    expect(pairs(await runDataRepair(true))[0].detail).toContain('неизвестно');
+  });
+
+  it('отчёт не пишет даже с apply', async () => {
+    // Проверяем адресно, по id пары: в apply штатно пишет Шаг 5 (скрытие
+    // мест-статей по списку имён), и запрет «никаких UPDATE вообще» ловил бы
+    // его, а не наш отчёт. Первая редакция теста ровно так и упала — на
+    // чужом законном действии.
+    scene([place('p1', 'Вулкан Жупановский'), place('p2', 'Жупановский', 53.589, 159.192)]);
+    await runDataRepair(false);
+    const touchedPair = queryMock.mock.calls.some(([sql, params]) =>
+      /UPDATE places SET is_visible = false WHERE id/.test(String(sql ?? ''))
+      && Array.isArray(params) && (params.includes('p1') || params.includes('p2')));
+    expect(touchedPair).toBe(false);
+  });
+});
+
+/**
+ * Сужение применения одним шагом.
+ *
+ * Конвейер копит шаги с июля. Запустить его целиком ради одного действия
+ * значит согласиться на все сразу: 11.08, чтобы убрать 26 заметок сайта из
+ * справочника маршрутов, apply в том же прогоне спрятал бы ещё шесть мест и
+ * отвязал две путевые точки — о чём никто не просил.
+ *
+ * Согласие на одно действие не есть согласие на все, и разрешать это должен
+ * инструмент, а не осторожность того, кто его зовёт.
+ */
+describe('only: применяется один шаг, остальные остаются диагностикой', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  function withNotes() {
+    queryMock.mockImplementation((raw: unknown) => {
+      const sql = String(raw ?? '');
+      if (sql.includes("= '/note'")) {
+        return Promise.resolve({ rows: [{ id: 'n1', title: 'Вулканы Камчатки', description: null }] });
+      }
+      if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [{ n: '0' }] });
+      // Кластер фейковых координат — шаг СТАРШЕ появления `only`.
+      if (sql.includes('HAVING COUNT(*) >= 3') && sql.includes('SELECT lat')) {
+        return Promise.resolve({ rows: [{ lat: 55, lng: 160, n: 3 }] });
+      }
+      if (sql.includes('JOIN (')) {
+        return Promise.resolve({ rows: [{ id: 'p1', ark_id: 'a1', name: 'Бухта Русская', lat: 55, lng: 160 }] });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
+  it('названный шаг пишет', async () => {
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const killed = queryMock.mock.calls.some(([sql]) =>
+      /DELETE FROM kamchatka_routes/.test(String(sql ?? '')));
+    expect(killed).toBe(true);
+  });
+
+  it('шаги СТАРШЕ появления only при сужении молчат', async () => {
+    // Здесь и был бы тихий дефект: сужение, которое глушит только новые шаги,
+    // — сужение мнимое.
+    withNotes();
+    await runDataRepair(false, 'source_note');
+    const touchedPlaces = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE\s+places/i.test(String(sql ?? '')));
+    expect(touchedPlaces).toBe(false);
+  });
+
+  it('чужое имя шага — не пишет никто', async () => {
+    withNotes();
+    await runDataRepair(false, 'anchor_from_place');
+    const wrote = queryMock.mock.calls.some(([sql]) =>
+      /^\s*UPDATE/i.test(String(sql ?? '')));
+    expect(wrote).toBe(false);
+  });
+
+  it('без сужения поведение прежнее, и смысл первого аргумента не перевёрнут', async () => {
+    // true = сухой прогон, как было у трёх десятков существующих вызовов.
+    withNotes();
+    const res = await runDataRepair(true);
+    expect(res.dry_run).toBe(true);
+    expect(res.only).toBeNull();
+    expect(queryMock.mock.calls.some(([sql]) => /^\s*UPDATE/i.test(String(sql ?? '')))).toBe(false);
+  });
+
+  it('чем сужено — видно в ответе', async () => {
+    withNotes();
+    expect((await runDataRepair(false, 'source_note')).only).toBe('source_note');
+  });
+});
+

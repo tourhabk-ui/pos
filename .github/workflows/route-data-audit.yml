@@ -1,0 +1,500 @@
+name: Перепись геометрии маршрутов (вручную)
+
+# Зачем этот workflow существует.
+#
+# 17.08 встал вопрос, откуда у платформы треки. По переписи 11.08, записанной
+# в комментарии lib/map/line-standard.ts, из 301 линии 257 пришли с чужого
+# сайта, из OpenStreetMap — 13, из visitkamchatka — 6, синтетики — 19. То есть
+# восемь из десяти маршрутов платформы, которая называет своей целью
+# безопасность туристов, нарисованы данными, снятыми скрейпом.
+#
+# Цифрам месяц. Решать по ним, что делать с зависимостью от чужого сайта и
+# сколько даст импорт OSM, — это решать по памяти. Спросить надо у базы.
+#
+# Endpoint /api/cron/route-data-audit READ-ONLY и закрыт CRON_SECRET, а прод
+# доступен не отовсюду. Держать ключ у себя ради разового запроса — плохой
+# размен: секрет начинает жить в истории терминалов и в переписке. В Actions
+# он уже есть, там же есть и сеть.
+#
+# Запускается ТОЛЬКО по требованию, БЕЗ расписания: перепись ходит по всем
+# маршрутам и считает геометрию — гонять её по часам значит нагружать прод
+# ради вопроса, который задают редко.
+#
+# Требований два, и оба намеренные: кнопка в Actions и правка файла-триггера
+# `.github/triggers/route-data-audit.json` в main. Второй вход добавлен 18.08:
+# у агента в репозитории нет права `actions: write` (оно у GitHub App, а не у
+# доступа к репозиторию), и без него перепись мог запустить только владелец
+# руками. Инструмент разбора, за запуском которого надо кого-то просить,
+# зовут реже, чем нужно, — а мы весь предыдущий вечер чинили ровно это:
+# решения принимались по памяти, потому что спросить базу было хлопотно.
+#
+# Коммит в файл-триггер вдобавок оставляет след: видно, кто и зачем просил
+# перепись, чего кнопка в Actions не оставляет.
+#
+# Ответ не содержит ни секретов, ни персональных данных: счётчики, имена
+# источников, названия и id маршрутов.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Сколько маршрутов взять (пусто — все)'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/route-data-audit.json'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    # Больше, чем ожидание сборки (30 минут) плюс сама перепись.
+    #
+    # Прогон 18.08 12:06 был убит по таймауту на 10-й минуте, пока ждал прод,
+    # и GitHub показал это как «cancelled» — то есть как чьё-то решение, а не
+    # как поломку. Цикл ожидания в 30 минут внутри джоба на 10 не может
+    # завершиться никогда.
+    timeout-minutes: 45
+    steps:
+      # Репозиторий нужен ради одного файла — маркера ожидаемой версии
+      # переписи. Прогон 18.08 03:23 упал именно на этом: шаг читал
+      # `.github/triggers/route-data-audit.json`, а выкачки в workflow не было
+      # никогда — раньше он состоял из одного curl и файлов не касался.
+      - uses: actions/checkout@v4
+
+      - name: Спросить перепись и показать ответ
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          # Cron-workflow при отсутствии секрета выходят с нулём: пропущенная
+          # задача лучше красного прогона. Здесь наоборот — молчаливый успех
+          # переписи означал бы «посмотрели, всё хорошо», хотя не смотрели.
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — спросить перепись нечем."
+            exit 1
+          fi
+
+          URL="https://vedarai.ru/api/cron/route-data-audit"
+
+          # Ждём СВОЙ код, а не просто живой эндпоинт.
+          #
+          # Прогон 18.08 01:14 вернул успех и старые цифры: мерж прошёл в
+          # 01:05, сборка Timeweb идёт минут десять, и перепись спросила
+          # прежний контейнер. Внешне — блоки, счётчики, зелёный прогон; на
+          # деле мы смотрели в прибор, которого ещё не существовало. Это тот
+          # самый класс, ради которого весь вечер и писались сторожа: ответ,
+          # неотличимый от молчания.
+          #
+          # Версия формы лежит в теле 401, поэтому ожидание не требует секрета
+          # и не запускает тяжёлую перепись на каждую попытку.
+          WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/route-data-audit.json')).get('expect_v',0))")
+          if [ "$WANT" != "0" ]; then
+            READY=""
+            for i in $(seq 1 30); do
+              V=$(curl -s --max-time 30 "$URL" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
+              if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт перепись версии $V (ждали $WANT)"; break; fi
+              echo "прод ещё на версии $V, ждём $WANT — попытка $i/30"
+              sleep 60
+            done
+            if [ -z "$READY" ]; then
+              echo "::error::Прод так и не поднялся с переписью версии $WANT за 30 минут. Цифры старого кода — не ответ."
+              exit 1
+            fi
+          fi
+
+          if [ -n "$LIMIT" ]; then URL="$URL?limit=$LIMIT"; fi
+
+          HTTP=$(curl -sS -o /tmp/audit.json -w "%{http_code}" --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL") || HTTP="000"
+
+          echo "HTTP $HTTP"
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Перепись ответила $HTTP."
+            head -c 2000 /tmp/audit.json || true
+            exit 1
+          fi
+
+          # Сначала — короткий ответ на вопрос, ради которого перепись зовут:
+          # чем нарисованы линии и сколько из них снято с чужого сайта.
+          # Простыня целиком идёт следом, в сводку прогона.
+          python3 - <<'PY'
+          import json
+
+          with open('/tmp/audit.json') as f:
+              a = json.load(f)
+
+          shapes = a.get('shapes') or {}
+          by_source = shapes.get('by_source') or {}
+          total = sum(by_source.values())
+
+          print('Происхождение линий:')
+          if not by_source:
+              # Пустая разбивка — это не «всё хорошо», а «мерить нечего».
+              print('  источник не записан ни у одной линии')
+          for src, n in sorted(by_source.items(), key=lambda kv: -kv[1]):
+              share = f'{100 * n / total:.0f}%' if total else '—'
+              print(f'  {src}: {n} ({share})')
+
+          osm = by_source.get('osm', 0)
+          print('')
+          print(f'Из OpenStreetMap: {osm} из {total}')
+
+          for key, title in (
+              ('outside_kamchatka', 'точек вне Камчатки'),
+              ('out_of_range', 'координат вне диапазона'),
+              ('synthetic_called_surveyed', 'набросков, выглядящих треком'),
+          ):
+              if key in shapes:
+                  print(f'{title}: {shapes[key]}')
+
+          # Состояние маршрутов в целом. Первый прогон 17.08 показал, что без
+          # этого блока перепись отвечает только на вопрос про источники: у
+          # линий оказалось ноль испорченных координат, а вопрос «почему на
+          # экране линия через край» остался без ответа — цифры, которые на
+          # него отвечают (конфликт точек с линией, подборки мест), уезжали
+          # только в сводку прогона и в лог не попадали.
+          print('')
+          print('Состояние маршрутов:')
+          for key, title in (
+              ('routes_counted', 'посчитано маршрутов'),
+              ('no_geometry', 'без линии вовсе'),
+              ('no_waypoints', 'линия есть, точек нет'),
+              ('sketch_geometry', 'линия — набросок'),
+              ('surveyed_geometry', 'линия — снятый трек'),
+              ('conflicting', 'точки расходятся с линией'),
+              ('consistent', 'точки лежат на линии'),
+              ('collections', 'подборки мест, а не пути'),
+          ):
+              if key in a:
+                  print(f'  {title}: {a[key]}')
+
+          # Черта и коммерция — то, ради чего перепись зовут перед решением о
+          # снятии маршрутов с витрины.
+          nav = a.get('navigability') or {}
+          if nav:
+              print('')
+              print('Черта — что можно предлагать как путь:')
+              for key, title in (
+                  ('navigable', 'пригодны: можно вести по линии'),
+                  ('orientation_only', 'только ориентирование'),
+                  ('not_a_route', 'маршрутом не являются'),
+                  ('not_on_foot', 'не пеший маршрут: облёт, линию не проходят'),
+              ):
+                  if key in nav:
+                      print(f'  {title}: {nav[key]}')
+
+          # Почему не проходят. Прогон 17.08 вернул «пригодны: 0» — и на этом
+          # замолчал. Ноль без причины не отвечает на вопрос, который за ним
+          # стоит: чинить данные, порог или само правило. Один маршрут может
+          # не проходить по нескольким причинам сразу, поэтому сумма здесь
+          # больше числа маршрутов — это не ошибка счёта.
+          why = a.get('navigability_reasons') or {}
+          if why:
+              print('')
+              print('Почему не проходят черту (маршрут может не проходить по нескольким):')
+              for reason, n in sorted(why.items(), key=lambda kv: -kv[1]):
+                  print(f'  {n}: {reason}')
+
+          # Миграция могла не доехать. Тогда все цифры о родах связей — про
+          # пустоту, и это должно быть сказано ПЕРВЫМ, а не выведено читателем
+          # из «unknown: всё».
+          if a.get('link_kind_available') is False:
+              print('')
+              print('РАЗМЕТКА СВЯЗЕЙ НЕ ДОЕХАЛА: колонки link_kind на проде нет.')
+              print('Все связи считаются «не установлено» — то есть черта судит как раньше.')
+          for mf in (a.get('migration_failures') or []):
+              print(f"  миграция {mf.get('name')} не применилась ({mf.get('attempts')} попыт.): {mf.get('error')}")
+
+          # Род связи (миграция 874). Пока «рядом» ноль — разметка не
+          # доехала, и всякое улучшение показателей означало бы смену
+          # линейки, а не починку данных.
+          kinds = a.get('link_kinds') or {}
+          if kinds:
+              print('')
+              print('Связь «маршрут — место», род:')
+              for key, title in (
+                  ('waypoint', 'точка пути: ею сверяется линия'),
+                  ('nearby', 'рядом: контекст, в суждении о пути не участвует'),
+                  ('unknown', 'не установлено: судится как раньше'),
+              ):
+                  if key in kinds:
+                      print(f'  {title}: {kinds[key]}')
+
+          # Решение доверия (Ф2): состояние и ФАКТЫ, из которых оно собрано.
+          # Одно число «пригодных» скрывает, какая улика исчезла, — поэтому
+          # рядом идёт распределение по каждому доказательству.
+          tr = a.get('trust') or {}
+          if tr:
+              print('')
+              print('Решение доверия — состояния:')
+              for k, n in sorted((tr.get('states') or {}).items(), key=lambda kv: -kv[1]):
+                  title = {
+                      'navigable': 'пригодны: можно вести по линии',
+                      'orientation_only': 'только ориентирование',
+                      'not_a_route': 'маршрутом не являются',
+                      'not_on_foot': 'не пеший маршрут (облёт, море)',
+                  }.get(k, k)
+                  print(f'  {title}: {n}')
+              print(f"  из них по ТРЁМ УЛИКАМ, без путевых точек: {tr.get('led_by_evidence', 0)}")
+              for key, title in (
+                  ('line_kind', 'чем является линия'),
+                  ('source_match', 'совпадение с оригиналом'),
+                  ('donor_binding', 'принадлежность линии записи'),
+                  ('freshness', 'свежесть доказательства'),
+              ):
+                  dist = tr.get(key) or {}
+                  if dist:
+                      print(f'  {title}:')
+                      for k, n in sorted(dist.items(), key=lambda kv: -kv[1]):
+                          print(f'    {k}: {n}')
+
+          # Расхождения поимённо. Счётчик выше говорит «20 маршрутов не
+          # сходятся с собственными точками» и умолкает; открыть по нему
+          # случай нельзя. Двадцать — число, которое разбирают руками, если
+          # знать, кто с кем спорит.
+          cases = a.get('conflict_cases') or []
+          if cases:
+              only = a.get('conflicts_only_reason', 0)
+              print('')
+              print('Расхождения точки с линией — поимённо:')
+              print(f'  случаев: {len(cases)}, из них починка даёт пригодность: {only}')
+              src_ru = {
+                  'surveyed': 'снята на месте',
+                  'geocoded': 'угадана по названию',
+                  'placeholder': 'заглушка',
+                  'unknown': 'происхождение не записано',
+              }
+              for c in sorted(cases, key=lambda c: -(c.get('offTrackKm') or 0)):
+                  mark = []
+                  if c.get('namesake'):
+                      mark.append('ТЁЗКА: под подозрением линия, а не привязка')
+                  if c.get('onlyReason'):
+                      mark.append('единственная причина отказа')
+                  tail = f" — {'; '.join(mark)}" if mark else ''
+                  print(f"    {c.get('offTrackKm')} км  {c.get('routeTitle')}")
+                  print(f"        точка: {c.get('placeTitle')} ({c.get('placeType') or 'род не записан'},"
+                        f" координата {src_ru.get(c.get('coordSource'), c.get('coordSource'))})")
+                  print(f"        точек {c.get('waypoints')}, линия {c.get('trackPoints')}{tail}")
+                  # Все точки маршрута с отходом: видно, выбивается ли одна
+                  # привязка или в стороне вообще все — тогда виновата линия.
+                  for pt in (c.get('points') or []):
+                      km = pt.get('offTrackKm')
+                      km_s = f"{km} км" if km is not None else 'не спроецирована'
+                      mark = ' (протяжённый — центроид)' if pt.get('extended') else ''
+                      print(f"          · {pt.get('title')} [{pt.get('type') or 'род не записан'}]: {km_s}{mark}")
+
+          # Улики записи. Владелец 17.08: сайт-источник заявляет треки как
+          # полученные от людей, которые их прошли. Заявление о чужой странице
+          # не говорит о нашей копии — между ними наш разбор, уже уличённый в
+          # том, что писал в базу профиль высот вместо трека. Но высота на
+          # каждой точке это след прибора, и он лежит в нашей базе. Здесь
+          # счёт того, что можно доказать, не выходя наружу.
+          ev = a.get('track_evidence') or {}
+          if ev:
+              print('')
+              print('Улики записи (что можно доказать по самой линии):')
+              for key, title in (
+                  ('recorded', 'записаны прибором: высота, плотность, непрерывность'),
+                  ('unclear', 'улики частичные — разбирать поимённо'),
+                  ('drawn', 'высоты нет вовсе — следа прибора в линии нет'),
+              ):
+                  if key in ev:
+                      print(f'  {title}: {ev[key]}')
+
+              evw = a.get('track_evidence_reasons') or {}
+              if evw:
+                  print('  что мешает признать записью:')
+                  for reason, n in sorted(evw.items(), key=lambda kv: -kv[1]):
+                      print(f'    {n}: {reason}')
+
+          # Что даст отделение мусора. Мусор попал из НАШЕГО разбора: регулярка
+          # ловила профиль высот и писала его как координаты. Правка на границе
+          # записи закрыла только новые записи — старое лежит как лежало.
+          cl = a.get('cleanable') or {}
+          if cl:
+              print('')
+              print('Отделение мусора (перепись не чистит, только меряет):')
+              print(f"  линий с посторонними точками: {cl.get('cleaned', 0)}")
+              print(f"  из них станут записью после отделения: {cl.get('recorded_after_clean', 0)}")
+              print(f"  постороннего слишком много — это другая запись: {cl.get('not_cleanable', 0)}")
+              print(f"  точек к отделению всего: {cl.get('points_removed', 0)}")
+              for reason, n in sorted((cl.get('by_reason') or {}).items(), key=lambda kv: -kv[1]):
+                  title = {
+                      'out_of_bounds': 'вне края (профиль высот, прочитанный как координаты)',
+                      'spike': 'скачок GPS: ушла и вернулась',
+                      'duplicate': 'повтор координаты',
+                  }.get(reason, reason)
+                  print(f'    {n}: {title}')
+
+          # Коммерция под видом маршрута. Владелец 18.08: «есть по названиям
+          # коммерция, а не маршрут». Признак составной — коммерческое слово
+          # И отсутствие пути: запись с настоящим треком остаётся маршрутом,
+          # как бы её ни назвали.
+          com = a.get('commercial_records') or {}
+          if com.get('total'):
+              print('')
+              print('Коммерция под видом маршрута (имя продаёт, пути нет):')
+              print(f"  записей: {com['total']}")
+              for marker, n in sorted((com.get('by_marker') or {}).items(), key=lambda kv: -kv[1]):
+                  print(f'    {n}: {marker}')
+              for sm in (com.get('samples') or [])[:15]:
+                  print(f"      {sm.get('title')}")
+
+          # Близнецы среди самих маршрутов. Twins сравнивал маршрут с МЕСТОМ,
+          # маршруты друг с другом не сравнивал никто — и «411 маршрутов»
+          # врёт на величину дублей.
+          dup = a.get('title_dupes') or {}
+          if dup:
+              print('')
+              print('Записи-близнецы (имена различаются только незначащим):')
+              print(f"  групп: {dup.get('groups', 0)}, лишних записей: {dup.get('extra_records', 0)}")
+              for g in (dup.get('samples') or [])[:12]:
+                  print(f"    {' | '.join(g.get('titles') or [])}")
+
+          tours = a.get('tours') or {}
+          if tours:
+              print('')
+              print('Коммерция:')
+              for key, title in (
+                  ('total', 'туров всего'),
+                  ('on_navigable_route', 'на пригодном маршруте'),
+                  ('on_failing_route', 'на непроверенном маршруте'),
+                  ('without_route', 'без маршрута вовсе'),
+              ):
+                  if key in tours:
+                      print(f'  {title}: {tours[key]}')
+
+          # Образцы — то, по чему разбирают руками. Без них счётчик «12
+          # конфликтов» не говорит, какие именно маршруты открывать.
+          samples = shapes.get('samples') or []
+          if samples:
+              print('')
+              print('Образцы поломок геометрии:')
+              for s in samples[:12]:
+                  print(f"  {s.get('title')}: {s.get('note')}")
+
+          # ── ИТОГ В КОНЦЕ ────────────────────────────────────────────────
+          #
+          # Главные цифры печатаются ПОСЛЕДНИМИ, и это не вкусовщина.
+          # Разбор расхождений занимает полторы сотни строк, и всё, что стоит
+          # до него, из хвоста лога недостижимо: чтобы прочитать одну цифру,
+          # приходилось тянуть весь прогон целиком. Итог в конце читается с
+          # тридцати строк — и человеком, и агентом.
+          print('')
+          print('=' * 60)
+          print('ИТОГ')
+          nav2 = a.get('navigability') or {}
+          tr2 = a.get('trust') or {}
+          st = tr2.get('states') or nav2
+          print(f"  пригодны: {st.get('navigable', 0)}"
+                f" · ориентирование: {st.get('orientation_only', 0)}"
+                f" · не маршрут: {st.get('not_a_route', 0)}"
+                f" · не пеший: {st.get('not_on_foot', 0)}")
+          if tr2:
+              print(f"  из пригодных по ТРЁМ УЛИКАМ (без разметки): {tr2.get('led_by_evidence', 0)}")
+              sm = tr2.get('source_match') or {}
+              db = tr2.get('donor_binding') or {}
+              fr = tr2.get('freshness') or {}
+              print(f"  копия совпала с оригиналом: {sm.get('verified', 0)},"
+                    f" не сверялись: {sm.get('not_checked', 0)}")
+              print(f"  донор подтверждён: {db.get('confirmed', 0)},"
+                    f" по близости: {db.get('proximity_only', 0)}")
+              print(f"  доказательство свежее: {fr.get('current', 0)},"
+                    f" пора пересмотреть: {fr.get('review_due', 0)},"
+                    f" неизвестно: {fr.get('unknown', 0)}")
+          lk = a.get('link_kinds') or {}
+          print(f"  связи: путь {lk.get('waypoint', 0)}"
+                f" · рядом {lk.get('nearby', 0)}"
+                f" · не установлено {lk.get('unknown', 0)}")
+          if a.get('link_kind_available') is False:
+              print('  РАЗМЕТКА СВЯЗЕЙ НЕ ДОЕХАЛА: колонки link_kind на проде нет')
+          for mf in (a.get('migration_failures') or []):
+              print(f"  МИГРАЦИЯ {mf.get('name')} НЕ ПРИМЕНИЛАСЬ ({mf.get('attempts')} попыт.): {mf.get('error')}")
+          # Типы идентификаторов печатаются, только когда среди них есть
+          # расхождение: одинаковый id в разных типах — это то, обо что 874
+          # разбилась шесть раз. Совпали — печатать нечего.
+          ct = a.get('id_column_types') or {}
+          if ct:
+              print('  ТИПЫ ИДЕНТИФИКАТОРОВ: '
+                    + ', '.join(f'{k} — {v}' for k, v in sorted(ct.items())))
+              # Отдельной строкой — пара, от которой зависит вся подсистема
+              # отзывов операторов: если типы не совпадают, каждый JOIN между
+              # ними падает.
+              rv, ot = ct.get('reviews.tour_id'), ct.get('operator_tours.id')
+              if rv and ot and rv != ot:
+                  print(f'  ОТЗЫВЫ НЕ СВЯЗАТЬ С ТУРАМИ: reviews.tour_id — {rv}, operator_tours.id — {ot}')
+          print('=' * 60)
+
+          # ── ОЧЕРЕДИ УБОРКИ (Ф4) ─────────────────────────────────────────
+          #
+          # Печатаются ПОСЛЕ итога и поимённо: очередь без имён — это счётчик,
+          # по которому нельзя открыть ни одного случая. Ровно на этом
+          # споткнулся прогон 8, когда двадцать расхождений были известны
+          # числом и неизвестны поимённо.
+          q = a.get('cleanup_queues') or {}
+          if q:
+              QNAMES = {
+                  'donor_missing':     'принадлежность линии не установлена',
+                  'waypoint_conflict': 'точка спорит с линией',
+                  'no_path_described': 'линия есть, путь не описан',
+                  'no_line':           'линии нет вовсе',
+                  'twin':              'запись-близнец',
+                  'commercial_title':  'коммерческое название без пути',
+                  'not_on_foot':       'не пеший (исправна)',
+              }
+              counts = q.get('counts') or {}
+              samples = q.get('samples') or {}
+              print()
+              print(f"ОЧЕРЕДИ УБОРКИ — всего записей: {q.get('total', 0)}")
+              for key, human in QNAMES.items():
+                  n = counts.get(key, 0)
+                  if not n:
+                      continue
+                  print(f"  {human}: {n}")
+                  rows = samples.get(key) or []
+                  for it in rows[:6]:
+                      d = it.get('detail')
+                      print(f"      {it.get('title')}{' — ' + d if d else ''}")
+                  if n > len(rows):
+                      print(f"      ... и ещё {n - len(rows)} (образцов печатается до {len(rows)})")
+                  # Что закрывает вопрос — один раз на очередь, а не на запись.
+                  if rows:
+                      print(f"      закрывается: {rows[0].get('settledBy')}")
+
+          # Источник якоря. Печатается всегда: пока его никто не считал,
+          # `place_nearby_unverified` (миграция 877) существовал только в базе
+          # и был неотличим от точного якоря.
+          ans = a.get('anchor_sources') or {}
+          if ans:
+              print()
+              print('ИСТОЧНИК КООРДИНАТЫ МАРШРУТА:')
+              for k, n in sorted(ans.items(), key=lambda kv: -kv[1]):
+                  mark = '  ← координата на месте, которое просто рядом' if k == 'place_nearby_unverified' else ''
+                  print(f'  {k}: {n}{mark}')
+
+          # Поля подборки — свои (см. CollectionFlaw): габарит, число точек и по
+          # чему опознана. Первый прогон печатал `note`, которого у неё нет, и
+          # выдавал ряд названий с пустотой после двоеточия — то есть сообщал
+          # «вот они», не сообщая, чем они плохи.
+          worst = a.get('worst_collections') or []
+          if worst:
+              print('')
+              print('Худшие подборки (габарит — сколько края накрывает набор):')
+              for w in worst[:8]:
+                  span = w.get('spanKm')
+                  span_s = f'{span:.0f} км' if isinstance(span, (int, float)) else '—'
+                  by = 'по точкам' if w.get('by') == 'waypoints' else 'по линии'
+                  print(f"  {w.get('title')}: габарит {span_s}, точек {w.get('waypoints')} ({by})")
+          PY
+
+          {
+            echo '## Перепись геометрии маршрутов'
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/audit.json || cat /tmp/audit.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

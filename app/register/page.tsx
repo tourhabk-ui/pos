@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 
 interface RouteOption {
   id: string;
@@ -270,11 +271,18 @@ export default function RegisterRoutePage() {
             </div>
           )}
 
+          {/* Срок — первым, до способов подачи. Способ бесполезен, если о
+              сроке узнали накануне выхода: заявка подаётся за 10 РАБОЧИХ дней. */}
+          <div className="mb-4 p-3 rounded-lg text-left"
+            style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 30%, transparent)' }}>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{MCHS_DEADLINE_SHORT}</p>
+          </div>
+
           <div className="space-y-3 mb-6 text-left">
             <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
               <p className="font-semibold text-sm mb-1">Онлайн — сайт МЧС России</p>
               <p className="text-xs text-[var(--text-muted)]">Электронная заявка на регистрацию туристской группы.</p>
-              <a href="https://forms.mchs.gov.ru/registration_tourist_groups/form" target="_blank" rel="noopener noreferrer"
+              <a href={MCHS_ONLINE_FORM_URL} target="_blank" rel="noopener noreferrer"
                  className="text-[var(--accent)] text-xs font-medium mt-2 inline-block hover:underline">
                 Открыть форму МЧС →
               </a>

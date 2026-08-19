@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Navigation, Bookmark, Share2, CloudSun } from 'lucide-react';
 import { useWishlist } from '@/hooks/use-wishlist';
+import { shareLink, shareOutcomeMessage } from '@/lib/share';
 
 interface Props {
   lat: number;
@@ -36,14 +37,14 @@ export function PlaceActionBar({ lat, lng, placeId, name }: Props) {
       .catch(() => {});
   }, [lat, lng]);
 
-  function handleShare() {
-    if (navigator.share) {
-      navigator.share({ title: name, url: window.location.href }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(window.location.href).then(() => {
-        setTempText('Скопировано');
-        setTimeout(() => setTempText(null), 2000);
-      });
+  // Единственная из четырёх копий, где фолбэк и подтверждение были сделаны
+  // верно. Поведение сохранено, реализация — общая.
+  async function handleShare() {
+    const outcome = await shareLink({ title: name, url: window.location.href });
+    const message = shareOutcomeMessage(outcome);
+    if (message) {
+      setTempText(message);
+      setTimeout(() => setTempText(null), 2500);
     }
   }
 

@@ -1,4 +1,11 @@
 /** @type {import('next').NextConfig} */
+// ТОЛЬКО dev: вебпак в next dev собирает чанки через eval (eval-source-map),
+// и CSP без 'unsafe-eval' молча роняла клиентский чанк с PageViewTracker —
+// локально page_views не писались вовсе, разработка была «слепа» (находка
+// сквозного прогона 14.08, задача #59). В production строка пустая: прод-CSP
+// не ослабляется ни на символ.
+const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
+
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
@@ -69,6 +76,16 @@ const nextConfig = {
       // редиректов не ходят: они увидят 308 и посчитают доставку неудачной.
       // Канон нужен странице, которую читают люди и агенты; интеграции,
       // прописанные на старый хост, продолжают работать как работали.
+      //
+      // Правило продублировано по ДВУМ заголовкам, и это не перестраховка.
+      // Оно лежит здесь с 14.08, было выложено — а 17.08 владелец открыл
+      // tourhab.ru с телефона и увидел сайт, не перенаправление; ночная сверка
+      // каналов повторяла то же пятые сутки (#1155). Значит `host` до Next не
+      // доезжает: прокси провайдера подменяет Host собственным, а исходное имя
+      // кладёт в X-Forwarded-Host — обычное поведение ingress'а. Какой из двух
+      // приходит на самом деле, отсюда не проверить (прод закрыт для среды
+      // сборки), поэтому ловим оба: лишнее правило не сработает ни разу и
+      // ничего не стоит, а пропущенное держит раздвоение сайта.
       {
         source: '/',
         has: [{ type: 'host', value: '(www\\.)?tourhab\\.ru' }],
@@ -78,6 +95,18 @@ const nextConfig = {
       {
         source: '/:path((?!api/).*)',
         has: [{ type: 'host', value: '(www\\.)?tourhab\\.ru' }],
+        destination: 'https://vedarai.ru/:path',
+        permanent: true,
+      },
+      {
+        source: '/',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: '(www\\.)?tourhab\\.ru' }],
+        destination: 'https://vedarai.ru/',
+        permanent: true,
+      },
+      {
+        source: '/:path((?!api/).*)',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: '(www\\.)?tourhab\\.ru' }],
         destination: 'https://vedarai.ru/:path',
         permanent: true,
       },
@@ -121,7 +150,7 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'ALLOWALL' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.yandex.ru; font-src 'self' data:; frame-ancestors *;" },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.yandex.ru; font-src 'self' data:; frame-ancestors *;` },
         ],
       },
       {
@@ -137,7 +166,7 @@ const nextConfig = {
           // Честный апгрейд — nonce через middleware (next docs: CSP with nonces),
           // но middleware у нас Edge JWT + rate-limit (§7 CLAUDE.md, не трогать
           // без отдельного решения). Ужесточать только вместе с этим решением.
-          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://emrldco.com; font-src 'self' data: https://*.yandex.ru;" },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com https://emrldco.com; style-src 'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://emrldco.com; font-src 'self' data: https://*.yandex.ru;` },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
         ],
       },

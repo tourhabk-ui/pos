@@ -8,6 +8,7 @@ import { notifyOperatorNewLead } from '@/lib/notifications/lead-notify';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { createLead } from '@/lib/leads/create';
+import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -127,9 +128,19 @@ export async function POST(req: NextRequest) {
     operatorId = pRes.rows[0]?.id ?? null;
   }
 
+  // Атрибуция MCP-handoff: подписанная HttpOnly-cookie после перехода по
+  // /mcp/h/<token>. В source_data попадает только UUID handoff-а — ни
+  // телефона, ни имени, ни аргументов инструмента (чертёж 15.08).
+  const mcpHandoffId = await attachMcpAttribution(
+    req.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
+    'lead_created',
+  );
+
   // Единый путь: скоринг → INSERT → уведомление админу
   const leadId = await createLead({
-    name, phone, comment, route_id, route_title, source_url, source_data, operator_id: operatorId,
+    name, phone, comment, route_id, route_title, source_url,
+    source_data: mcpHandoffId ? { ...(source_data ?? {}), mcp_handoff_id: mcpHandoffId } : source_data,
+    operator_id: operatorId,
   });
 
   if (!leadId) {

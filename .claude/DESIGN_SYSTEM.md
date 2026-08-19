@@ -73,7 +73,7 @@
 |--------|------|
 | Хардкод hex (`#fff`, `#000`, `#E8734A`) | `var(--accent)` и др. токены |
 | `bg-white`, `text-white`, `bg-white/10` на сплошных фонах | `bg-[var(--bg-card)]`, `text-[var(--text-primary)]`; поверх фото/glass — бело-чёрная альфа допустима |
-| Glassmorphism на сплошных фонах | только поверх фото/тёмных подложек: `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl` (решение владельца 2026-07-03) |
+| Glassmorphism на светлых сплошных фонах; стекло на критичных действиях (SOS, warnings, confirmation) | «стекло для контекста, непрозрачность для действия» (решение владельца 2026-08-15): стекло разрешено поверх фото, карт, рельефных текстур и тёмных подложек — `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl` (плотнее `bg-black/60` под текст/CTA); критичные приборы всегда непрозрачные; `prefers-reduced-transparency` → фолбэк на `var(--bg-card)` |
 | `rounded-2xl` | `rounded-lg` (или `var(--radius-lg)`); для glass-элементов и bento-тайлов — `rounded-2xl` |
 | `font-black` | `font-bold` |
 | Эмодзи в коде/UI | иконки `lucide-react` |

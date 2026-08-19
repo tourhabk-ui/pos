@@ -46,11 +46,101 @@ export function parseOverpassWays(data: unknown): OsmWay[] {
 }
 
 /**
- * Из набора ways выбирает лучший: у которого ближайший конец в пределах
- * MAX_START_DIST_KM от точки маршрута, а среди таких — самый длинный (по узлам).
- * null — если ни один не подходит по близости.
+ * Насколько второй кандидат должен быть хуже первого, чтобы выбор считался
+ * однозначным.
+ *
+ * Порог и его смысл взяты у KML-инбокса (AMBIGUOUS_MARGIN_KM): два трека,
+ * одинаково хорошо ложащиеся на точки маршрута, — это не выбор, а гадание.
  */
-export function pickBestWay(ways: OsmWay[], lat: number, lng: number): OsmWay | null {
+export const AMBIGUOUS_MARGIN_KM = 0.5;
+
+/**
+ * Дальше этого путевая точка маршрута с найденной тропой не сходится.
+ *
+ * Тот же порог, что у полевого экрана и у черты (DATA_CONFLICT_KM): выше него
+ * точка и линия описывают разные места. Свой порог здесь означал бы два
+ * разных ответа на один вопрос о данных.
+ */
+export const WAYPOINT_FIT_KM = 2;
+
+export interface WayCandidatePoint { lat: number; lng: number }
+
+export type WayChoiceReason =
+  | 'ok'
+  | 'no_candidates'
+  | 'no_waypoints'
+  | 'waypoints_conflict'
+  | 'ambiguous';
+
+export interface WayChoice {
+  way: OsmWay | null;
+  reason: WayChoiceReason;
+  /** Ближайший конец выбранной тропы до якоря маршрута, км. */
+  startDistKm: number | null;
+  /** Худшее расстояние путевой точки маршрута до выбранной тропы, км. */
+  worstWaypointKm: number | null;
+  /** Кандидат, который помешал выбрать однозначно. */
+  runnerUpId: number | null;
+}
+
+/** Расстояние от точки до ЛОМАНОЙ (не до вершины), км. */
+export function distToWayKm(p: WayCandidatePoint, way: OsmWay): number {
+  let best = Infinity;
+  for (let i = 0; i < way.geometry.length - 1; i++) {
+    const a = way.geometry[i], b = way.geometry[i + 1];
+    // Проекция на звено в плоскости «километры»: на масштабе звена кривизна
+    // Земли ничего не меняет, а формула остаётся читаемой.
+    const kx = 111.32 * Math.cos((p.lat * Math.PI) / 180);
+    const ax = a.lon * kx, ay = a.lat * 111.32;
+    const bx = b.lon * kx, by = b.lat * 111.32;
+    const px = p.lng * kx, py = p.lat * 111.32;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const d = Math.hypot(px - cx, py - cy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Выбрать тропу OSM для маршрута — или честно отказаться.
+ *
+ * ── Почему правило переписано (17.08) ──────────────────────────────────────
+ *
+ * Прежнее звучало так: любая тропа, чей КОНЕЦ в четырёх километрах от якоря
+ * маршрута, годится; среди годных побеждает САМАЯ ДЛИННАЯ. Ни проверки
+ * второго кандидата, ни сверки с путевыми точками самого маршрута.
+ *
+ * Это ровно то правило, от которого репозиторий уже отказался: в
+ * `lib/import/kml-inbox.ts` привязка по близости удалена — из 290 попыток
+ * годными оказались 31. Там же записано, что чем длиннее трек, тем меньше
+ * близость его начала о нём говорит; здесь длина была призом.
+ *
+ * Цена ошибки здесь выше обычной: линия получает метку `osm`, а `osm` входит
+ * в список СНЯТЫХ источников — значит рисуется сплошной зелёной, то есть
+ * «здесь идут». Неверная привязка выглядит проверенным маршрутом.
+ *
+ * ── Новое правило ──────────────────────────────────────────────────────────
+ *
+ * Решают ПУТЕВЫЕ ТОЧКИ маршрута, а не длина тропы. Тропа принимается, только
+ * если все точки маршрута ложатся на неё ближе WAYPOINT_FIT_KM, и только если
+ * такая тропа одна: второй кандидат, ложащийся почти так же хорошо, — это не
+ * выбор, а гадание.
+ *
+ * Маршрут без двух точек с координатами не принимается вовсе. Проверить
+ * привязку нечем, а линия, которую нечем проверить, получила бы вид снятого
+ * трека — ровно то, что запрещает черта (lib/routes/navigability).
+ */
+export function chooseWay(
+  ways: OsmWay[],
+  lat: number,
+  lng: number,
+  waypoints: WayCandidatePoint[],
+): WayChoice {
+  const empty = { way: null, startDistKm: null, worstWaypointKm: null, runnerUpId: null };
+
   const scored = ways.map((way) => {
     const first = way.geometry[0];
     const last = way.geometry[way.geometry.length - 1];
@@ -58,12 +148,50 @@ export function pickBestWay(ways: OsmWay[], lat: number, lng: number): OsmWay | 
       distKm(lat, lng, first.lat, first.lon),
       distKm(lat, lng, last.lat, last.lon),
     );
-    return { way, startDist, nodeCount: way.geometry.length };
+    return { way, startDist };
   });
   const nearby = scored.filter((s) => s.startDist <= MAX_START_DIST_KM);
-  if (nearby.length === 0) return null;
-  nearby.sort((a, b) => b.nodeCount - a.nodeCount);
-  return nearby[0].way;
+  if (nearby.length === 0) return { ...empty, reason: 'no_candidates' };
+
+  if (waypoints.length < 2) return { ...empty, reason: 'no_waypoints' };
+
+  // Каждому кандидату — худшее расстояние путевой точки до него. Худшее, а не
+  // среднее: одна точка в стороне означает, что тропа ведёт не туда, сколько
+  // бы остальных на неё ни легло.
+  const fitted = nearby
+    .map((c) => ({
+      ...c,
+      worst: Math.max(...waypoints.map((w) => distToWayKm(w, c.way))),
+    }))
+    .filter((c) => c.worst <= WAYPOINT_FIT_KM)
+    .sort((a, b) => a.worst - b.worst);
+
+  if (fitted.length === 0) {
+    const best = nearby
+      .map((c) => Math.max(...waypoints.map((w) => distToWayKm(w, c.way))))
+      .sort((a, b) => a - b)[0];
+    return { ...empty, reason: 'waypoints_conflict', worstWaypointKm: Number(best.toFixed(3)) };
+  }
+
+  const winner = fitted[0];
+  const runnerUp = fitted[1];
+  if (runnerUp && runnerUp.worst - winner.worst < AMBIGUOUS_MARGIN_KM) {
+    return {
+      way: null,
+      reason: 'ambiguous',
+      startDistKm: Number(winner.startDist.toFixed(3)),
+      worstWaypointKm: Number(winner.worst.toFixed(3)),
+      runnerUpId: runnerUp.way.id,
+    };
+  }
+
+  return {
+    way: winner.way,
+    reason: 'ok',
+    startDistKm: Number(winner.startDist.toFixed(3)),
+    worstWaypointKm: Number(winner.worst.toFixed(3)),
+    runnerUpId: runnerUp?.way.id ?? null,
+  };
 }
 
 /**

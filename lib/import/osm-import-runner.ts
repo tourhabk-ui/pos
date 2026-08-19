@@ -23,8 +23,8 @@
 
 import { pool } from '@/lib/db-pool';
 import {
-  buildOverpassQuery, parseOverpassWays, pickBestWay, wayToGeoJSON,
-  type OsmWay,
+  buildOverpassQuery, parseOverpassWays, chooseWay, wayToGeoJSON,
+  type OsmWay, type WayChoiceReason,
 } from '@/lib/import/osm-geometry';
 
 // Основной инстанс + зеркало. Primary с 2025-го отвечает 406 запросам без
@@ -54,6 +54,22 @@ export interface OsmImportDetail {
   title: string;
   status: 'imported' | 'dry_run' | 'skipped' | 'error';
   pts?: number;
+  /**
+   * Чем кончился выбор тропы. Раньше все отказы выглядели одинаково, и
+   * разобрать, чего не хватило, было нечем.
+   */
+  reason?: WayChoiceReason;
+  /** Выбранная тропа OSM — чтобы сухой прогон можно было проверить глазами. */
+  wayId?: number;
+  wayName?: string | null;
+  /** Ближайший конец тропы до якоря маршрута, км. */
+  startDistKm?: number | null;
+  /** Худшее расстояние путевой точки маршрута до тропы, км. */
+  worstWaypointKm?: number | null;
+  /** Кандидат, который помешал выбрать однозначно. */
+  runnerUpId?: number | null;
+  /** Что затирается: источник нынешней геометрии (null — геометрии не было). */
+  currentSource?: string | null;
 }
 
 export interface OsmImportResult {
@@ -104,13 +120,24 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
   // Сначала маршруты совсем без геометрии, потом апгрейд синтетики
   const { rows: routes } = await pool.query<{
     id: string; title: string; lat: string; lng: string;
+    current_source: string | null;
+    waypoints: Array<{ lat: number; lng: number }>;
   }>(`
-    SELECT id, title, lat::text, lng::text
-    FROM kamchatka_routes
+    SELECT kr.id, kr.title, kr.lat::text, kr.lng::text,
+           kr.geometry->>'source' AS current_source,
+           COALESCE(
+             (SELECT json_agg(json_build_object('lat', p.lat::float8, 'lng', p.lng::float8))
+                FROM route_waypoints rw
+                JOIN places p ON p.id = rw.place_id
+               WHERE rw.route_id = kr.id
+                 AND p.lat IS NOT NULL AND p.lng IS NOT NULL),
+             '[]'::json
+           ) AS waypoints
+    FROM kamchatka_routes kr
     WHERE is_visible = true
-      AND lat IS NOT NULL AND lng IS NOT NULL
-      AND (geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic')
-    ORDER BY (geometry IS NULL) DESC, title
+      AND kr.lat IS NOT NULL AND kr.lng IS NOT NULL
+      AND (kr.geometry IS NULL OR kr.geometry->>'source' = 'waypoints_synthetic')
+    ORDER BY (kr.geometry IS NULL) DESC, kr.title
     LIMIT $1 OFFSET $2
   `, [limit, offset]);
 
@@ -134,21 +161,46 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
 
     try {
       const ways = await fetchOsmWays(lat, lng);
-      const best = pickBestWay(ways, lat, lng);
+      const choice = chooseWay(ways, lat, lng, r.waypoints ?? []);
 
-      if (!best) {
+      if (!choice.way) {
         skipped++;
-        details.push({ id: r.id, title: r.title, status: 'skipped' });
+        // Причина отказа сохраняется. Прежде все отказы выглядели одинаково
+        // («skipped»), и разобрать, чего не хватило — тропы поблизости, точек
+        // маршрута или однозначности, — было нечем.
+        details.push({
+          id: r.id, title: r.title, status: 'skipped', reason: choice.reason,
+          worstWaypointKm: choice.worstWaypointKm, runnerUpId: choice.runnerUpId,
+          currentSource: r.current_source,
+        });
       } else {
-        const geojson = wayToGeoJSON(best, lat, lng);
+        const geojson = wayToGeoJSON(choice.way, lat, lng);
         if (!dryRun) {
+          // Условие повторяет отбор: между SELECT и UPDATE строка могла
+          // измениться — например, прошлой партией того же прогона. Без него
+          // запись шла бы поверх геометрии, которую пул уже не считал бы
+          // перезаписываемой.
           await pool.query(
-            `UPDATE kamchatka_routes SET geometry = $1 WHERE id = $2`,
+            `UPDATE kamchatka_routes SET geometry = $1
+              WHERE id = $2
+                AND (geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic')`,
             [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
           );
         }
         imported++;
-        details.push({ id: r.id, title: r.title, status: dryRun ? 'dry_run' : 'imported', pts: geojson.coordinates.length });
+        details.push({
+          id: r.id, title: r.title, status: dryRun ? 'dry_run' : 'imported',
+          pts: geojson.coordinates.length,
+          reason: choice.reason,
+          // Что именно выбрано и что затирается — без этого сухой прогон
+          // отвечает «сколько», но не «то ли».
+          wayId: choice.way.id,
+          wayName: choice.way.tags?.name ?? null,
+          startDistKm: choice.startDistKm,
+          worstWaypointKm: choice.worstWaypointKm,
+          runnerUpId: choice.runnerUpId,
+          currentSource: r.current_source,
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

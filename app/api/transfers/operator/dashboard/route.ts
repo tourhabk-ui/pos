@@ -32,6 +32,16 @@ export async function GET(request: NextRequest) {
           COUNT(DISTINCT s.id) as total_schedules,
           COUNT(DISTINCT b.id) as total_bookings,
           COALESCE(SUM(b.total_price), 0) as total_revenue,
+          -- Выручка за периоды считается ЗАПРОСОМ, а не долей от общей суммы.
+          -- До этого месяц/неделя/день были 0.3, 0.1 и 0.02 от total_revenue с
+          -- пометкой «Заглушка» — то есть оператор видел выдуманные числа как
+          -- свою выручку и принимал по ним решения.
+          COALESCE(SUM(b.total_price) FILTER (
+            WHERE b.created_at >= NOW() - INTERVAL '30 days'), 0) as monthly_revenue,
+          COALESCE(SUM(b.total_price) FILTER (
+            WHERE b.created_at >= NOW() - INTERVAL '7 days'), 0) as weekly_revenue,
+          COALESCE(SUM(b.total_price) FILTER (
+            WHERE b.created_at >= CURRENT_DATE), 0) as daily_revenue,
           COALESCE(AVG(d.rating), 0) as avg_driver_rating,
           COUNT(DISTINCT CASE WHEN b.status = 'pending' THEN b.id END) as pending_bookings,
           COUNT(DISTINCT CASE WHEN b.status = 'confirmed' THEN b.id END) as active_bookings,
@@ -49,6 +59,7 @@ export async function GET(request: NextRequest) {
       const statsResult = await query<{
         total_vehicles: string; total_drivers: string; total_routes: string; total_schedules: string;
         total_bookings: string; total_revenue: string; avg_driver_rating: string;
+        monthly_revenue: string; weekly_revenue: string; daily_revenue: string;
         pending_bookings: string; active_bookings: string; completed_bookings: string; cancelled_bookings: string;
       }>(statsQuery, [operatorId]);
       const stats = statsResult.rows[0];
@@ -202,9 +213,9 @@ export async function GET(request: NextRequest) {
         pendingBookings: parseInt(stats.pending_bookings) || 0,
         completedBookings: parseInt(stats.completed_bookings) || 0,
         cancelledBookings: parseInt(stats.cancelled_bookings) || 0,
-        monthlyRevenue: parseFloat(stats.total_revenue) * 0.3, // Заглушка
-        weeklyRevenue: parseFloat(stats.total_revenue) * 0.1, // Заглушка
-        dailyRevenue: parseFloat(stats.total_revenue) * 0.02 // Заглушка
+        monthlyRevenue: parseFloat(stats.monthly_revenue) || 0,
+        weeklyRevenue: parseFloat(stats.weekly_revenue) || 0,
+        dailyRevenue: parseFloat(stats.daily_revenue) || 0
       };
 
       // Формируем дашборд

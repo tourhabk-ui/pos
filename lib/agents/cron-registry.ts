@@ -192,6 +192,25 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Качество ─────────────────────────────────────────────────────────────
   {
+    // Еженедельная перепись маршрутов (Ф6 плана порядка). Не печатает цифры в
+    // лог, а судит их по порогам из репозитория и краснеет с названным
+    // действием — lib/routes/census-verdict.ts.
+    key: 'routes-census', label: 'Routes Census',
+    description: 'Перепись маршрутов: распределение доказательств против порогов.',
+    workflow: 'routes-audit.yml', cron: '10 4 * * 1', schedule: 'пн · 04:10 UTC',
+    everyMin: WEEK, tier: 'quality', agentId: 'routes-census', triggerable: false,
+  },
+  {
+    // Сайт оператора — часть ручательства платформы за него (решение владельца
+    // 19.08, issue #1275). Проверка внешняя и невторгающаяся: сертификат,
+    // заголовки, раскрытие версий, открытые служебные файлы. Границы — в
+    // lib/security/site-audit.ts.
+    key: 'operator-site-audit', label: 'Operator Site Audit',
+    description: 'Внешняя поверхность сайтов операторов: сертификат, заголовки, раскрытие.',
+    workflow: 'cron-operator-site-audit.yml', cron: '30 3 * * *', schedule: 'ежедневно · 03:30 UTC',
+    everyMin: DAY, tier: 'quality', agentId: 'operator-site-audit', triggerable: false,
+  },
+  {
     // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
     // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live).
     // До этого здесь стоял agentId 'kuzmich-redteam' — телеметрия ДРУГОЙ джобы
@@ -210,6 +229,15 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Состязательный (adversarial) прогон Кузьмича на устойчивость.',
     workflow: 'redteam-kuzmich.yml', cron: '0 4 1 * *', schedule: '1-е число · 04:00 UTC',
     everyMin: MONTH, tier: 'quality', agentId: 'kuzmich-redteam', triggerable: false,
+  },
+  {
+    // Разбор находок эволюции идёт НА РАННЕРЕ: api.anthropic.com закрыт по
+    // гео из России, где стоит прод, а раннер вне РФ — релей не нужен.
+    // В прод ходит только за находками (evo-issues), сам ничего не пишет.
+    key: 'evo-judge', label: 'Evo Judge',
+    description: 'Разбор находок эволюции сильной моделью на раннере.',
+    workflow: 'evo-judge.yml', cron: '20 6 * * *', schedule: 'ежедневно · 06:20 UTC',
+    everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
   },
   {
     key: 'kb-gap', label: 'KB Gap',
@@ -390,8 +418,20 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'ssr-sentinel': 'unknown',
 
   // ── Качество ────────────────────────────────────────────────────────────
+  // Реестр операторов с сайтами не пустеет сам по себе: ноль проверенных
+  // означает, что очередь не набралась — то есть запрос к базе не отработал
+  // или колонка website опустела. Оба случая — обрыв, а не тишина.
+  // Перепись считает 294 маршрута каждую неделю. Ноль означает, что считать
+  // было нечем: прод не отдал данных или упал запрос. Это обрыв, не тишина —
+  // и то же самое отдельно проверяет judgeCensus.
+  'routes-census': 'broken',
+  'operator-site-audit': 'broken',
   'kuzmich-eval': 'unknown',
   'kuzmich-redteam': 'unknown',
+  // Ноль разобранных находок означает, что сканеру нечего было предъявить —
+  // это штатно и желательно. Отказ самого разбора нулём не выглядит: скрипт
+  // падает без ключа и помечает неотвеченное «не разобрано», а не «шум».
+  'evo-judge': 'normal',
   'kb-gap': 'unknown',
 
   // ── Рост ────────────────────────────────────────────────────────────────

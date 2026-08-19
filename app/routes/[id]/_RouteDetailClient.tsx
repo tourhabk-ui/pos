@@ -20,6 +20,7 @@ import TourPaymentModal from '@/components/booking/TourPaymentModal';
 import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
+import { trackLine } from '@/lib/map/line-standard';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
@@ -30,6 +31,7 @@ import RouteVerdict, { useRouteVerdict } from '@/components/routes/RouteVerdict'
 import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentation';
 import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
+import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -142,6 +144,33 @@ interface RouteWaypoint {
   lng: number | null;
   altitudeM: number | null;
   hazardTypes: string[];
+  /**
+   * Чем эта связь является (миграция 874): `waypoint` — точка пути,
+   * `nearby` — «это рядом, загляните», `unknown` — не размечено.
+   */
+  linkKind?: 'waypoint' | 'nearby' | 'unknown';
+}
+
+/** Один вычисленный ориентир — форма из lib/routes/derived-stages. */
+interface DerivedStage {
+  placeId: string;
+  name: string;
+  locationType: string | null;
+  position: number;
+  offLineKm: number;
+  proximity: 'on_line' | 'near_line';
+  origin: 'derived';
+  /** Объяснение приходит с сервера вместе с мерой — см. derived-stages. */
+  why: string;
+}
+
+interface DerivedStages {
+  onLine: DerivedStage[];
+  nearLine: DerivedStage[];
+  /** Линия идёт через полкрая и цепляет всё по пути. */
+  sweeping: boolean;
+  onLineKm: number;
+  nearLineKm: number;
 }
 
 interface RouteDetail {
@@ -174,8 +203,18 @@ interface RouteDetail {
   passportAgency: string | null;
   /** GPS-трек [lat, lng][] (прорежен на сервере); null — трека нет */
   track?: [number, number][] | null;
+  /** Происхождение линии, как записано в геометрии; null — записи нет. */
+  geometrySource?: string | null;
   reviews?: RouteReview[];
   waypoints?: RouteWaypoint[];
+  /**
+   * Ориентиры, ВЫЧИСЛЕННЫЕ по линии (Ф3 плана).
+   *
+   * Приходят отдельным полем и никогда не подмешиваются к `waypoints`:
+   * установленная связь и найденное платформой место — утверждения разной
+   * силы, и список, где они вперемешку, выдаёт второе за первое.
+   */
+  derivedStages?: DerivedStages | null;
   operationalAlerts?: OperationalAlert[];
   /** Зонные алерты района (общие для ≥2 точек) — показываются один раз на маршрут */
   zoneAlerts?: string[];
@@ -479,6 +518,37 @@ export default function RouteDetailClient({ id }: { id: string }) {
     router.push('/planning?mode=trail');
   }, [route, router]);
 
+  /**
+   * Точки ПУТИ и места РЯДОМ — разные вещи, и с 874 это записано в данных.
+   *
+   * Связь рода `nearby` завела миграция 167 как «место в 15 км от центра
+   * маршрута». Показывать её как этап пути значит врать человеку, который
+   * собирается по этим этапам идти; рисовать по ней линию на карте — врать
+   * ещё грубее. Неразмеченная связь (`unknown`) считается путевой: до
+   * разметки платформа вела себя именно так, и менять поведение задним
+   * числом — значит менять линейку, а не данные.
+   */
+  const pathWaypoints = useMemo(
+    () => (route?.waypoints ?? []).filter(w => w.linkKind !== 'nearby'),
+    [route],
+  );
+  const nearbyWaypoints = useMemo(
+    () => (route?.waypoints ?? []).filter(w => w.linkKind === 'nearby'),
+    [route],
+  );
+
+  /**
+   * Вычисленные ориентиры на линии.
+   *
+   * Держатся отдельным списком от `pathWaypoints` намеренно: слить их значило
+   * бы получить нумерацию, в которой установленная связь и догадка идут
+   * подряд одним рядом.
+   */
+  const derivedOnLine = useMemo(
+    () => route?.derivedStages?.onLine ?? [],
+    [route],
+  );
+
   // Данные карты — useMemo обязателен: LeafletMap пересоздаёт карту при смене
   // identity center/markers, а карточка ре-рендерится на каждый чих (галерея,
   // фильтры туров) — без мемоизации карта мигала и сбрасывала зум.
@@ -495,11 +565,15 @@ export default function RouteDetailClient({ id }: { id: string }) {
     // Трек для карты: серверный GPS-трек, при его отсутствии — линия по
     // waypoints (≥2 точек). Одна координата треком НЕ считается: обещать
     // навигацию, по которой нельзя идти, опаснее, чем не обещать.
-    const navWaypoints = (route.waypoints ?? []).filter(
+    // Только точки ПУТИ: ломаная по местам «рядом» нарисовала бы маршрут
+    // через Музей лосося и Халактырский пляж — линию, по которой никто не
+    // ходит, но которая на карте выглядит как тропа.
+    const navWaypoints = pathWaypoints.filter(
       (w): w is RouteWaypoint & { lat: number; lng: number } => w.lat != null && w.lng != null,
     );
+    const usingServerTrack = (route.track?.length ?? 0) >= 2;
     const trackCoords: [number, number][] | null =
-      (route.track?.length ?? 0) >= 2
+      usingServerTrack
         ? route.track!
         : navWaypoints.length >= 2
           ? navWaypoints.map(w => [w.lat, w.lng] as [number, number])
@@ -508,6 +582,14 @@ export default function RouteDetailClient({ id }: { id: string }) {
     const mapCenter: [number, number] = route.lat != null && route.lng != null
       ? [Number(route.lat), Number(route.lng)]
       : trackCoords?.[0] ?? [53.02, 158.65];
+    // Род линии — по ЗАПИСАННОМУ источнику, а не по плотности точек:
+    // серверный трек несёт свой источник из geometry.source (null = в данных
+    // не записан, и это говорится словами), ломаная по waypoints — синтетика
+    // по построению, у неё источник известен без API.
+    const track = trackLine(
+      trackCoords,
+      usingServerTrack ? (route.geometrySource ?? null) : 'waypoints_synthetic',
+    );
     const cardMapMarkers: MapMarker[] = [
       {
         coords: mapCenter,
@@ -516,8 +598,13 @@ export default function RouteDetailClient({ id }: { id: string }) {
         color: 'red',
         type: MarkerType.TOUR,
         category: route.locationType ?? 'other',
-        ...(trackCoords
-          ? { geometry: { type: 'polyline' as const, coordinates: trackCoords, color: 'red', weight: 4 } }
+        // Линия рисуется по своему происхождению (lib/map/line-standard).
+        // Сплошная в четыре пикселя — обещание тропы, а у полутора сотен
+        // маршрутов geometry построена миграцией 168 прямыми между точками:
+        // такая линия проходит через каньон и реку и выглядела здесь ровно
+        // так же уверенно, как снятый GPS-трек.
+        ...(track
+          ? { geometry: { type: 'polyline' as const, coordinates: trackCoords as [number, number][], ...track.style } }
           : {}),
       },
       ...navWaypoints.map(w => ({
@@ -529,8 +616,8 @@ export default function RouteDetailClient({ id }: { id: string }) {
         category: w.locationType ?? 'other',
       })),
     ];
-    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers };
-  }, [route]);
+    return { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track };
+  }, [route, pathWaypoints]);
 
   if (loading) {
     return (
@@ -558,7 +645,7 @@ export default function RouteDetailClient({ id }: { id: string }) {
   }
 
   const hasGeo = route.lat != null && route.lng != null;
-  const { navWaypoints, trackCoords, mapCenter, cardMapMarkers } = mapData;
+  const { navWaypoints, trackCoords, mapCenter, cardMapMarkers, track } = mapData;
   const hasTrack = trackCoords != null;
   const locLabel = LOCATION_TYPE_LABELS[route.locationType ?? 'other'] ?? 'Маршрут';
   const actLabel = ACTIVITY_TYPE_LABELS[route.activityType ?? 'other'] ?? 'Активный отдых';
@@ -870,14 +957,24 @@ export default function RouteDetailClient({ id }: { id: string }) {
               </section>
             )}
 
-            {/* Точки маршрута (waypoints) */}
-            {(route.waypoints?.length ?? 0) > 0 && (
+            {/*
+              Точки маршрута.
+              
+              Показываются только те связи, что описывают ПУТЬ. Связи рода
+              «рядом» (миграция 874) уехали в отдельный блок ниже: до этого
+              карточка «Скал Три Брата» перечисляла краевой музей, Вулканариум
+              и батарею Максутова как этапы маршрута, а поход к Авачинскому —
+              Музей лосося и Халактырский пляж. Связи заводила миграция 167
+              как «места в 15 км от центра», и читать их как шаги пути значит
+              врать человеку, который собирается по ним идти.
+            */}
+            {pathWaypoints.length > 0 && (
               <section>
                 <h2 className="text-base font-bold text-[var(--text-primary)] mb-3 uppercase tracking-wide">
                   Точки маршрута
                 </h2>
                 <ol className="space-y-3">
-                  {route.waypoints!.map((wp, i) => (
+                  {pathWaypoints.map((wp, i) => (
                     <li key={wp.placeId ?? i} className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                         {i + 1}
@@ -906,6 +1003,89 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     </li>
                   ))}
                 </ol>
+              </section>
+            )}
+
+            {/*
+              Рядом с маршрутом — не этапы пути, а контекст. Отдельный блок,
+              другая подпись, без нумерации: порядок здесь ничего не значит.
+            */}
+            {nearbyWaypoints.length > 0 && (
+              <section>
+                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                  Рядом с маршрутом
+                </h2>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Эти места находятся поблизости, но маршрут через них не проходит
+                </p>
+                <ul className="flex flex-wrap gap-2">
+                  {nearbyWaypoints.map((wp, i) => (
+                    <li key={wp.placeId ?? i}>
+                      <Link
+                        href={`/places/${wp.placeId}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--ocean)] transition-colors"
+                      >
+                        {wp.placeName}
+                        <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/*
+              Ориентиры вдоль линии (Ф3 плана).
+
+              Блок появляется только там, где путь НЕ описан связями: у
+              маршрута есть линия и меньше двух путевых точек. Раньше на таком
+              месте была пустота, и человек уходил ни с чем, хотя линия есть и
+              места вдоль неё есть тоже.
+
+              Три вещи блок обязан сказать вслух, иначе он опаснее пустоты:
+              откуда точка взялась, чем меряли, и что она НЕ подтверждает
+              маршрут. Список без этих слов через неделю прочитается как
+              «этапы», а по этапам идут.
+            */}
+            {derivedOnLine.length > 0 && (
+              <section>
+                <h2 className="text-base font-bold text-[var(--text-primary)] mb-1 uppercase tracking-wide">
+                  Ориентиры вдоль линии
+                </h2>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Путь этого маршрута не описан точками. Эти места платформа нашла сама —
+                  они лежат ближе {Math.round((route.derivedStages?.onLineKm ?? 0.2) * 1000)} м
+                  от линии. Это ориентиры, а не подтверждённые этапы: маршрут они не поверяют.
+                </p>
+                {route.derivedStages?.sweeping && (
+                  <p className="text-xs text-[var(--warning)] mb-3">
+                    Линия идёт через большую территорию и задевает много мест — список
+                    показывает всё найденное, а не отобранный путь.
+                  </p>
+                )}
+                <ul className="space-y-2">
+                  {derivedOnLine.map((st) => (
+                    <li key={st.placeId}>
+                      <Link href={`/places/${st.placeId}`} className="flex items-start gap-3 group">
+                        <span className="w-6 h-6 rounded-full border border-dashed border-[var(--text-muted)] text-[var(--text-muted)] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                          {st.position + 1}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          {st.locationType && (
+                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] block">
+                              {LOCATION_TYPE_LABELS[st.locationType] ?? st.locationType}
+                            </span>
+                          )}
+                          <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--ocean)] transition-colors leading-tight block truncate">
+                            {st.name}
+                          </span>
+                          <span className="text-xs text-[var(--text-muted)] block">{st.why}</span>
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--ocean)] flex-shrink-0 mt-1 transition-colors" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               </section>
             )}
 
@@ -1142,6 +1322,19 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Navigation className="w-4 h-4" /> Начать навигацию
                     </button>
                   )}
+                  {/* Подготовка — отдельная фаза до поля: семь потребностей
+                      выхода, а не только скачанная карта (план FCN, этап 4). */}
+                  <Link
+                    href={`/routes/${id}/prepare`}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors"
+                    style={{
+                      background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+                      color: 'var(--success)',
+                      border: '1px solid color-mix(in srgb, var(--success) 25%, transparent)',
+                    }}
+                  >
+                    Собрать план подготовки
+                  </Link>
                   {/* Запрет НЕ запирает вход в поле. Кнопка ведёт на полевой
                       экран — след, офлайн-карта, ступень связи, — а он нужен
                       именно тому, кто уже вышел и как раз узнал про запрет.
@@ -1209,6 +1402,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                   height="240px"
                   className="w-full rounded-lg"
                 />
+                {/* Второй канал того же факта: на карточке в 240 пикселей
+                    пунктир от сплошной отличит не каждый глаз, а решение
+                    «идти по этой линии» человек принимает именно здесь. */}
+                {track && track.caption !== '' && (
+                  <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
+                )}
               </section>
             )}
 
@@ -1368,6 +1567,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                     height="220px"
                     className="w-full rounded-lg"
                   />
+                  {/* Второй канал того же факта: на карточке в 240 пикселей
+                      пунктир от сплошной отличит не каждый глаз, а решение
+                      «идти по этой линии» человек принимает именно здесь. */}
+                  {track && track.caption !== '' && (
+                    <p className="mt-2 text-xs text-[var(--warning)] leading-snug">{track.caption}</p>
+                  )}
                 </div>
               )}
 
@@ -1392,8 +1597,12 @@ export default function RouteDetailClient({ id }: { id: string }) {
                 <ShieldAlert className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--danger)' }} />
                 <div>
                   <p className="font-semibold text-[var(--text-primary)]">Обязательная регистрация в МЧС</p>
+                  {/* Срок, а не «до выхода». Прежняя формулировка читалась как
+                      «накануне», и человек опаздывал на неделю: заявка подаётся
+                      за 10 РАБОЧИХ дней до начала. Факт — из lib/safety/
+                      mchs-registration, чтобы копия не разошлась с остальными. */}
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Этот маршрут требует регистрации группы до выхода
+                    {MCHS_DEADLINE_SHORT}
                   </p>
                 </div>
               </div>
@@ -1433,6 +1642,33 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       Согласование с парком
                     </a>
                   )}
+                </div>
+
+                {/* Три канала подачи и состав данных. Раньше знали только
+                    онлайн-форму: если она недоступна, «зарегистрируйтесь»
+                    оставалось советом без способа его исполнить. */}
+                <div className="pt-3 mt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] mb-2">Как подать заявку</p>
+                  <ul className="space-y-1.5">
+                    {MCHS_CHANNELS.map((ch) => (
+                      <li key={ch.key} className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                        <span className="font-medium text-[var(--text-primary)]">{ch.title}:</span>{' '}
+                        {ch.href ? (
+                          <a href={ch.href} target="_blank" rel="noopener noreferrer"
+                            className="text-[var(--ocean)] hover:underline">{ch.detail}</a>
+                        ) : ch.detail}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-1.5">Что указать</p>
+                  <ul className="space-y-1">
+                    {MCHS_REQUIRED_DATA.map((item) => (
+                      <li key={item} className="text-xs text-[var(--text-secondary)] leading-relaxed">— {item}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-[var(--text-muted)] mt-3">
+                    Источник: {MCHS_SOURCE.authority}, {MCHS_SOURCE.asOf}
+                  </p>
                 </div>
               </div>
             </div>

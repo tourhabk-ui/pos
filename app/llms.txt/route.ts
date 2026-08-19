@@ -174,6 +174,7 @@ ${planLines}
 
 - Эндпоинт: ${BASE}/api/mcp (JSON-RPC 2.0, streamable-http, анонимно)
 - Манифест: ${BASE}/.well-known/mcp.json
+- Страница о сервере (HTML): ${BASE}/mcp
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
   занятость по датам (get_tour_availability), обстановка и безопасность
   (safety_status, get_guardian_context), погода, жильё, снаряжение,

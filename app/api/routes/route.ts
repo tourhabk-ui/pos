@@ -27,9 +27,31 @@ export async function GET(request: NextRequest) {
     response.headers.set('Cache-Control', 'private, no-cache');
     return response;
   } catch (error) {
-    console.error('[/api/routes] DB error:', error);
+    /**
+     * Наружу — нейтральный текст, в лог — доказательство.
+     *
+     * Прежнее «Ошибка базы данных. Проверьте DATABASE_URL в env.» уходило
+     * туристу в браузер и было неправдой: подключение живо, падал конкретный
+     * запрос. Этот совет всю ночь 15–16.08 уводил в сторону — искали
+     * переменную окружения, а причиной была неоднозначная колонка. Публичный
+     * текст не должен ставить диагноз, тем более чужой.
+     *
+     * В лог — то, чем чинят: SQLSTATE (род поломки называется однозначно, в
+     * отличие от текста), форма запроса (какая ветка каталога) и релиз.
+     * Без формы запроса ошибка не воспроизводится: 16.08 диагностика
+     * проверяла `kind=place`, а падал `kind=route&has_waypoints=true`.
+     */
+    const e = error as Error & { code?: string; detail?: string; position?: string };
+    console.error('[/api/routes] запрос каталога упал', {
+      sqlstate: e?.code,
+      message: e?.message,
+      detail: e?.detail,
+      position: e?.position,
+      request: parsed.data,
+      release: process.env.RELEASE_SHA ?? null,
+    });
     return NextResponse.json(
-      { success: false, error: 'Ошибка базы данных. Проверьте DATABASE_URL в env.' },
+      { success: false, error: 'Не удалось загрузить каталог. Повторите позже.' },
       { status: 503 }
     );
   }

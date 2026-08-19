@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  mcpTourIds, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
+  mcpTourIds, mcpText, mcpDiagnosis, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
 } from '@/lib/quality/channel-consistency';
 
 /** Ответ MCP get_tours как он приходит с прода: текст для модели, не JSON. */
@@ -35,6 +35,40 @@ describe('ID вытаскиваются из каждого канала', () =>
   it('карта сайта считается по числу адресов', () => {
     expect(sitemapUrlCount('<url><loc>a</loc></url><url><loc>b</loc></url>')).toBe(2);
     expect(sitemapUrlCount('')).toBe(0);
+  });
+
+  it('ID берутся из ТЕЛА ОТВЕТА, как оно приходит с прода — сырым JSON', () => {
+    // Восемь суток (12-19.08) issue #1155 сообщала «канал mcp не отдал ни
+    // одного тура», и всё это время туры отдавались. Ломалась проверка:
+    // в сыром теле перенос строки записан как `\n` — ДВА символа, обратный
+    // слэш и буква `n`. Каталог печатает каждый тур с новой строки, поэтому
+    // перед `ID` стояла буква, границы слова не было, и `\bID(\d+)\b` не
+    // совпадал ни разу.
+    //
+    // Прежняя фикстура кормила разбор УЖЕ РАЗОБРАННЫМ текстом — формой,
+    // которой в жизни не бывает. Тест был зелёным ровно потому, что проверял
+    // не то, что приходит.
+    const fromProd = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: MCP_BODY }] },
+    });
+    expect(fromProd).toContain('\\nID27');   // именно так это и выглядит в теле
+    expect([...mcpTourIds(fromProd)].sort()).toEqual(['27', '6']);
+  });
+
+  it('разбор причины и поиск ID читают ОДНО И ТО ЖЕ', () => {
+    // Диагностика печатала разобранный текст, а поиск шёл по сырому — оттого
+    // отчёт и говорил «ID не найдены», показывая ID27 в той же строке.
+    const fromProd = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: MCP_BODY }] },
+    });
+    expect(mcpText(fromProd)).toBe(MCP_BODY);
+    expect(mcpDiagnosis(fromProd)).toBeNull();
+  });
+
+  it('не JSON — ищем по тому, что пришло, а не теряем содержимое', () => {
+    expect([...mcpTourIds('ID27: Сплав\nID6: Рыбалка')].sort()).toEqual(['27', '6']);
   });
 
   it('посторонние числа за ID не принимаются', () => {
@@ -93,5 +127,63 @@ describe('второй канон домена распознаётся', () => 
   it('домен не отвечает — тоже не находка, это другой вопрос', () => {
     expect(isSecondCanon(404, 0)).toBe(false);
     expect(isSecondCanon(200, 0)).toBe(false);
+  });
+});
+
+/**
+ * Причина, а не симптом.
+ *
+ * «Канал mcp не отдал ни одного тура» провисело в issue #1155 восемь суток и
+ * ни разу не сказало, что случилось. Под этой строкой помещаются пять разных
+ * бед, и лечатся они по-разному. Сторож, который восемь дней повторяет «что-то
+ * не так», — не сторож, а шум: его перестают читать, и следом не заметят
+ * настоящую поломку.
+ */
+describe('MCP: разбор причины', () => {
+  it('пустой ответ назван пустым', () => {
+    expect(mcpDiagnosis('')).toMatch(/не ответила вовсе/);
+  });
+
+  it('не-JSON опознан, и кусок тела показан', () => {
+    expect(mcpDiagnosis('<html>502 Bad Gateway</html>')).toMatch(/не разобрался как JSON/);
+    expect(mcpDiagnosis('<html>502 Bad Gateway</html>')).toContain('502');
+  });
+
+  it('ошибка JSON-RPC называется кодом и текстом', () => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'Unknown tool: get_tours' } });
+    const why = mcpDiagnosis(body);
+    expect(why).toContain('-32601');
+    expect(why).toContain('Unknown tool');
+  });
+
+  it('отказ инструмента отличается от отсутствия туров', () => {
+    const limited = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { isError: true, content: [{ type: 'text', text: 'Слишком много запросов — подождите минуту и повторите.' }] },
+    });
+    expect(mcpDiagnosis(limited)).toMatch(/ответил отказом/);
+    expect(mcpDiagnosis(limited)).toMatch(/Слишком много запросов/);
+  });
+
+  it('«туры не найдены» названо своим случаем — каталог пуст или запрос упал', () => {
+    const empty = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: 'Туры не найдены.' }] },
+    });
+    expect(mcpDiagnosis(empty)).toMatch(/не найдены/);
+    expect(mcpDiagnosis(empty)).toMatch(/каталог пуст либо запрос к базе упал/);
+  });
+
+  it('изменившийся формат каталога винит ПРОВЕРКУ, а не платформу', () => {
+    const renamed = JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      result: { content: [{ type: 'text', text: 'Тур #27: Рыбалка на Опале, 45000 руб.' }] },
+    });
+    expect(mcpDiagnosis(renamed)).toMatch(/изменился формат каталога/);
+  });
+
+  it('живой каталог даёт ID — и разбор причины к нему не зовётся', () => {
+    const ok = 'ID27: Рыбалка\nID5: Сплав';
+    expect([...mcpTourIds(ok)].sort()).toEqual(['27', '5']);
   });
 });

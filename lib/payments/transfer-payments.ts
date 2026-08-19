@@ -474,8 +474,10 @@ export class TransferPaymentSystem {
           COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunds,
           SUM(CASE WHEN status = 'refunded' THEN amount ELSE 0 END) as refund_amount
         FROM transfer_payments 
-        WHERE created_at >= NOW() - INTERVAL '${period}'
-      `);
+        -- Период приходит параметром и приводится к интервалу самой базой.
+        -- Склейка строки здесь была бы инъекцией: period — свободный текст.
+        WHERE created_at >= NOW() - $1::interval
+      `, [period]);
 
       const row = result.rows[0] as {
         total_payments: string;

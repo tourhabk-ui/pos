@@ -31,6 +31,7 @@ const PlaceFieldReports     = dynamic(() => import('@/components/places/PlaceFie
 const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
+const NavigateTo            = dynamic(() => import('@/components/shared/NavigateTo'),            { ssr: false });
 
 function Skeleton() {
   return (
@@ -330,6 +331,11 @@ export default function PlaceDetailClient({ id }: { id: string }) {
           accessInfo={place.accessInfo}
           nearbyMarkers={place.nearby}
         />
+      </div>
+
+      {/* 10b. Отдать дорогу тем, кто её умеет строить */}
+      <div className="max-w-3xl mx-auto px-4 mt-6">
+        <NavigateTo to={{ lat: place.lat, lng: place.lng, name: place.name }} mode="car" />
       </div>
 
       {/* 11. Kuzmich */}

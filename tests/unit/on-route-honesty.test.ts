@@ -122,8 +122,13 @@ describe('компасу верим только там, где азимут п�
 
 describe('экран пользуется этим, а не рисует уверенность', () => {
   it('стрелка гаснет и не крутится, пока азимут не подтверждён', () => {
-    expect(SCREEN).toMatch(/const trusted = state === 'ok'/);
-    expect(SCREEN).toMatch(/rotate\(\$\{trusted \? -heading : 0\}deg\)/);
+    // Прибор переехал в components/field/FieldCompass (приборный вид по
+    // макетам FCN), правило то же: неподтверждённый датчик не двигает
+    // стрелку и не выдаёт её за рабочую.
+    const C = readFileSync(join(process.cwd(), 'components/field/FieldCompass.tsx'), 'utf-8');
+    expect(C).toMatch(/const trusted = state === 'ok'/);
+    expect(C).toMatch(/rotate\(\$\{trusted \? needleAngle : 0\}/);
+    expect(C).toMatch(/opacity=\{trusted \? 1 : 0\.35\}/);
   });
 
   it('на iOS разрешение компаса запрашивается жестом', () => {
@@ -153,7 +158,12 @@ describe('экран пользуется этим, а не рисует уве�
 
   it('расстояние признаётся прямой линией и гаснет на мёртвом фиксе', () => {
     expect(SCREEN).toMatch(/по прямой/);
-    expect(SCREEN).toMatch(/figuresLive \? 'var\(--success\)' : 'var\(--text-muted\)'/);
+    // Главная цифра переехала в components/field/FieldDistance (приборный
+    // вид по макетам), но правило то же: мёртвый фикс не стирает число и не
+    // выдаёт его за живое — цвет уходит в приглушённый.
+    expect(SCREEN).toMatch(/live=\{figuresLive\}/);
+    const DIST = readFileSync(join(process.cwd(), 'components/field/FieldDistance.tsx'), 'utf-8');
+    expect(DIST).toMatch(/p\.live \? '#F0F6FC' : 'var\(--text-muted\)'/);
   });
 });
 
@@ -200,8 +210,12 @@ describe('экран соответствует моменту, а не отчи
     // размером 5xl: читается как поломка, а не как «данных пока нет».
     expect(SCREEN).toMatch(/Ждём сигнал GPS/);
     expect(SCREEN).not.toMatch(/\{distLabel \?\? '—'\}/);
-    // И «придём через —» тоже не показываем: считать нечего.
-    expect(SCREEN).toMatch(/\{distLabel !== null && \(/);
+    // И оценку времени без расстояния не показываем: считать нечего.
+    expect(SCREEN).toMatch(/\{distLabel !== null && /);
+    // Сам прибор тоже отказывается рисовать пустоту, а не полагается на
+    // то, что его позовут в правильной ветке.
+    const DIST = readFileSync(join(process.cwd(), 'components/field/FieldDistance.tsx'), 'utf-8');
+    expect(DIST).toMatch(/if \(p\.distanceLabel === null\) return null/);
   });
 
   it('имя точки не дублирует название маршрута', () => {
@@ -223,7 +237,13 @@ describe('экран соответствует моменту, а не отчи
     // Скрин владельца 09.08: стрелка погашена и смотрит вверх, а кольцо
     // развёрнуто — «север справа». Один мёртвый датчик, два противоречащих
     // утверждения в одном приборе.
-    expect(SCREEN).toMatch(/\(angle - \(trusted \? heading : 0\)\)/);
+    const C = readFileSync(join(process.cwd(), 'components/field/FieldCompass.tsx'), 'utf-8');
+    // Шкала (засечки, цифры, буквы) вращается ОДНИМ значением, и оно
+    // обнуляется вместе с недоверием к датчику.
+    expect(C).toMatch(/const ringRotation = trusted \? -heading : 0/);
+    expect(C).toMatch(/rotate\(\$\{ringRotation\}/);
+    // Второго, независимого поворота кольца в приборе нет.
+    expect(C).not.toMatch(/rotate\(\$\{-heading\}/);
   });
 
   it('на карте рисуется настоящий трек, а не ломаная по точкам', () => {

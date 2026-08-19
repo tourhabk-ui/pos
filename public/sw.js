@@ -4,7 +4,7 @@
 // + базовые тайлы зум 7 для всей Камчатки (кэшируются автоматически)
 // ВАЖНО: Камчатка = плохое покрытие сети. Каждая открытая карточка кэшируется.
 
-const CACHE_NAME = 'kamchatour-v25'; // bumped: /trip/[token] и share-API в кэше — план поездки должен открываться без связи (C-6)
+const CACHE_NAME = 'kamchatour-v26'; // bumped: /on-route упразднён (redirect на /planning?mode=trail, FCN этап 3)
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
@@ -75,7 +75,6 @@ const CRITICAL_URLS = [
 const OPTIONAL_URLS = [
   '/',
   '/map',
-  '/on-route',          // полевой навигатор: компас до точки (точки маршрута кэшируются в localStorage)
   '/offline',
   '/offline/manage',
   '/planning',
@@ -326,7 +325,7 @@ async function cacheTilesForRegion(tileUrls, regionId, client) {
 }
 
 // ─── Whitelist: страницы которые умеют работать офлайн (IndexedDB / клиентское состояние) ───
-const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/on-route', '/offline', '/offline/manage', '/planning', '/ai-assistant'];
+const OFFLINE_CAPABLE_ROUTES = ['/', '/map', '/offline', '/offline/manage', '/planning', '/ai-assistant'];
 
 function isOfflineCapable(pathname) {
   return OFFLINE_CAPABLE_ROUTES.some(route =>

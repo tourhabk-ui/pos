@@ -422,8 +422,9 @@ export class TransferMatchingEngine {
           COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as successful_matches,
           AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as average_response_time
         FROM transfer_bookings 
-        WHERE created_at >= NOW() - INTERVAL '${period}'
-      `);
+        -- Период параметром: свободный текст в склейке — это инъекция.
+        WHERE created_at >= NOW() - $1::interval
+      `, [period]);
 
       const topDriversResult = await query(`
         SELECT 
@@ -433,11 +434,11 @@ export class TransferMatchingEngine {
           AVG(d.rating) as average_score
         FROM transfer_drivers d
         LEFT JOIN transfer_bookings b ON d.id = b.driver_id
-        WHERE b.created_at >= NOW() - INTERVAL '${period}'
+        WHERE b.created_at >= NOW() - $1::interval
         GROUP BY d.id, d.name
         ORDER BY matches DESC
         LIMIT 10
-      `);
+      `, [period]);
 
       return {
         totalBookings: parseInt(result.rows[0].total_bookings as string),

@@ -1091,6 +1091,22 @@ async function fetchModelIds(url: string, apiKey: string): Promise<string[]> {
 }
 
 /**
+ * Список id моделей OpenRouter — все поставщики разом, с префиксами вида
+ * `openai/…`, `anthropic/…`, `google/…`.
+ *
+ * Нужен ровно потому, что до 19.08 «сильнейший флагман» подбирался ТОЛЬКО
+ * среди моделей Anthropic: `resolveFlagshipModel` спрашивал их список и
+ * приклеивал префикс `anthropic/`. Комментарий обещал «Claude/GPT», а по
+ * построению выбрать GPT было нельзя — сколько бы он ни стоил и как бы ни
+ * считался сильнее. Нет ключа или недоступен — пустой список, и решатель
+ * возвращается к прежнему поведению.
+ */
+export async function getOpenRouterModelIds(): Promise<string[]> {
+  const key = getOpenRouterKey();
+  return key ? fetchModelIds(`${OPENROUTER_BASE}/models`, key) : [];
+}
+
+/**
  * Список id моделей Anthropic из /v1/models. Заголовок авторизации у Anthropic
  * иной (x-api-key + anthropic-version), поэтому не через fetchModelIds. Работает
  * и через релей (ANTHROPIC_BASE_URL). Нет ключа/недостижим → пустой список.
@@ -1256,11 +1272,37 @@ export async function resolveChatModel(provider: 'deepseek' | 'qwen'): Promise<s
     : process.env.QWEN_MODEL);
 }
 
-// Флагман-решатель эволюции: Claude/GPT через OpenRouter. У флагманов меньше
-// галлюцинаций, но из РФ (Timeweb) openrouter.ai гео-блокируется — достижимы
-// ТОЛЬКО через релей (OPENROUTER_BASE_URL на Cloudflare Worker/VPS вне РФ).
-// override — EVO_DECISION_FLAGSHIP_MODEL. Пин — крайний фоллбэк, если авто-
-// резолв недоступен (нет ключа/релея).
+// Флагман-решатель эволюции: сильнейшая ОБЩАЯ модель, доступная по пути
+// вызова. У флагманов меньше галлюцинаций, но из РФ (Timeweb) openrouter.ai
+// гео-блокируется — достижимы ТОЛЬКО через релей (OPENROUTER_BASE_URL на
+// Cloudflare Worker/VPS вне РФ). С раннера GitHub релей не нужен: он вне РФ.
+//
+// До 19.08 «флагман» выбирался только среди моделей Anthropic, хотя строка
+// выше обещала «Claude/GPT»: список брался у Anthropic и получал префикс
+// `anthropic/`. Модель другого поставщика не могла быть выбрана по
+// построению. Теперь каталог берётся у OpenRouter — там все поставщики сразу.
+//
+// ── Где проходит граница догадки ──────────────────────────────────────────
+//
+// Соблазн: раз каталог полон, пусть оценщик выберет сильнейшую вообще. Так
+// нельзя, и измерение это показало. Лестница тиров калибрована под ИМЕНА
+// Anthropic: слово `opus` даёт тир 6, а простой `gpt-6` попадает в нейтральный
+// тир 3 — и проигрывает `claude-opus-4-5`, будучи старше версией. Не потому,
+// что слабее, а потому что у OpenAI флагман не носит слова-тира.
+//
+// Починить лестницу «поровну» невозможно: сила модели ПО ИМЕНИ не выводится.
+// `gpt-6` против `claude-5` — числа разных вендоров, они несравнимы, и всякая
+// формула поверх них будет догадкой в одежде измерения. Ровно этого мы весь
+// день избегаем.
+//
+// Поэтому: сильнейшая ВНУТРИ поставщика — это измеримо (одна линейка, одни
+// слова, одна нумерация), а выбор поставщика — решение владельца, и он задаётся
+// переменной EVO_DECISION_FLAGSHIP_VENDOR (по умолчанию anthropic).
+//
+// Привязки к конкретному id по-прежнему нет (CLAUDE.md §8): внутри поставщика
+// подбор идёт оценкой, а не перечнем, и новая линейка подхватится сама. Ручной
+// override целиком — EVO_DECISION_FLAGSHIP_MODEL. Пин ниже — крайний фоллбэк,
+// когда авто-резолв недоступен вовсе.
 const EVO_FLAGSHIP_FALLBACK = 'anthropic/claude-opus-5';
 
 /**
@@ -1276,6 +1318,18 @@ export async function resolveFlagshipModel(): Promise<string> {
 
   const cached = PURPOSE_MODEL_CACHE.get('decision:flagship');
   if (cached && Date.now() - cached.at < DECISION_MODEL_TTL_MS) return cached.id;
+
+  // Каталог OpenRouter — модели ВСЕХ поставщиков, уже с префиксами. Выбор
+  // идёт ВНУТРИ предпочтённого поставщика, а не между ними: см. пояснение о
+  // границе догадки над функцией. Поставщик задаётся одной переменной.
+  const vendor = (process.env.EVO_DECISION_FLAGSHIP_VENDOR || 'anthropic').trim().toLowerCase();
+  const routed = await getOpenRouterModelIds();
+  const pickedRouted = routed.length > 0 ? pickBestFlagship(routed, `${vendor}/`) : null;
+  if (pickedRouted) {
+    // Каталог OpenRouter уже несёт префикс поставщика — второй не клеим.
+    PURPOSE_MODEL_CACHE.set('decision:flagship', { id: pickedRouted, at: Date.now() });
+    return pickedRouted;
+  }
 
   const ids = await getAnthropicModelIds();
   const picked = pickBestFlagship(ids);
@@ -1333,13 +1387,23 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
   //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
   //    когда владелец задаёт ключ+релей на Timeweb.
-  try {
-    const flag = await callOpenRouterModel(payload, flagshipModel, {
-      timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
-    });
-    if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-    why.push('flagship: пустой ответ или нет ключа/релея');
-  } catch (e) { why.push(`flagship: ${(e as Error).message.slice(0, 100)}`); }
+  //
+  // «Нет ключа» и «ключ есть, ответа нет» — РАЗНЫЕ беды, и лечатся они разным:
+  // первая заводится в секретах, вторая — деньгами, гео или моделью. Одна
+  // строка на оба случая держала разбор в неведении: отчёт 19.08 сорок шесть
+  // раз повторил «пустой ответ или нет ключа/релея», не сказав, что именно.
+  // Тот же дефект, что мы весь день чиним в других местах, — в собственном логе.
+  if (!getOpenRouterKey()) {
+    why.push('flagship: OPENROUTER_API_KEY не задан');
+  } else {
+    try {
+      const flag = await callOpenRouterModel(payload, flagshipModel, {
+        timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+      });
+      if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
+      why.push(`flagship(${flagshipModel}): ключ есть, ответа нет`);
+    } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
+  }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
   //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
@@ -1348,7 +1412,20 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   const antKey = getAnthropicKey();
   if (!antKey) why.push('anthropic: ключа нет');
   if (antKey) {
-    const antModel = flagshipModel.replace(/^anthropic\//, '');
+    // Идентификатор берётся из каталога САМОГО Anthropic, а не из слага
+    // OpenRouter со снятым префиксом.
+    //
+    // Когда ключ OpenRouter есть, resolveFlagshipModel выбирает id из ЕГО
+    // каталога — там слаги вида `anthropic/claude-opus-4.6`. Снятие префикса
+    // давало `claude-opus-4.6`, а api.anthropic.com такого id не знает: у него
+    // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
+    // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
+    // Разные каталоги — разные имена; общего у них только поставщик.
+    const antIds = await getAnthropicModelIds();
+    const antModel = pickBestFlagship(antIds) ?? flagshipModel.replace(/^anthropic\//, '');
+    if (antIds.length === 0) {
+      why.push('anthropic: каталог моделей пуст — id взят из слага OpenRouter');
+    }
     try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -1387,9 +1464,11 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
             });
             return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
           }
-          why.push('anthropic: пустой ответ');
+          why.push(`anthropic(${antModel}): пустой ответ`);
         } else {
-          why.push(`anthropic: HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
+          // Имя модели — в причине: без него «HTTP 400» не отличить от
+          // отказа по ключу, и именно на этом разбор простоял четверо суток.
+          why.push(`anthropic(${antModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
         }
       }
     } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }

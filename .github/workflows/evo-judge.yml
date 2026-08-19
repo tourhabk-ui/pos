@@ -1,0 +1,189 @@
+name: Evo Judge — разбор находок эволюции сильной моделью
+
+# Решатель эволюции живёт на DeepSeek с Qwen на подхвате не потому, что они
+# лучше, а потому что api.anthropic.com закрыт по гео из России, где стоит
+# прод. Наши кроны — это curl с раннера В прод, то есть модель зовёт сервер в
+# РФ, и ключ Anthropic в секретах GitHub делу бы не помог.
+#
+# Здесь наоборот: находки скачиваются с прода, а модель зовётся С РАННЕРА —
+# он вне РФ, гео-блока нет, релей не нужен.
+#
+# ── Почему разбор молчал 16-19.08 ──────────────────────────────────────────
+#
+# Три выпуска подряд вышли «все находки не разобраны», а джоб был зелёным.
+# Лог прогона 19.08 назвал причину блоком переменных:
+#
+#   ANTHROPIC_API_KEY: ***
+#   DEEPSEEK_API_KEY:
+#   DASHSCOPE_API_KEY:
+#
+# Секретов DeepSeek и Qwen в репозитории нет — запасной путь водопада,
+# заведённый после такой же немоты 12-14.08, был написан и не подключён.
+# OPENROUTER_API_KEY — первая ступень водопада — сюда не передавалась вовсе,
+# так что завести её в секретах и не получить ничего было легче всего.
+# Теперь передаётся; хватает любого одного ключа.
+#
+# Остался Anthropic, и он отвечает отказом за доли секунды. Кредиты у ключа
+# ЕСТЬ (проверено владельцем 19.08), то есть дело не в балансе: 41 вызов за
+# семь секунд — это 4xx, а не таймаут и не сеть. Точный код придёт в
+# следующем отчёте: водопад кладёт его в DecisionResult.error, а разбор
+# находок это поле теперь печатает.
+#
+# Скрипт ничего не чинит и ничего не пишет в базу: он судит и объясняет.
+# Финальное решение по находке остаётся за человеком и за Claude Code в репо.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'За сколько дней брать находки'
+        required: false
+        default: '7'
+  schedule:
+    # 06:20 UTC — после ночного Growth Scan, до рабочего дня владельца.
+    - cron: '20 6 * * *'
+  # Файл-маркер: правка .github/triggers/evo-judge.json в main запускает разбор
+  # сейчас. Тот же приём, что у переписи и смоука, и по той же причине: у
+  # агента в репозитории нет права actions:write, а ждать расписания сутки,
+  # проверяя починку решателя, — значит проверять её вслепую.
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/evo-judge.json'
+
+jobs:
+  judge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Fetch findings
+        env:
+          # CRON_SECRET уходит ТОЛЬКО своему крон-роуту на vedarai.ru. Адрес
+          # зашит здесь, а не приходит параметром: правило, зависящее от
+          # дисциплины заполняющего конфиг, — не защита (урок 08.08).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DAYS: ${{ github.event.inputs.days || '7' }}
+        run: |
+          CODE=$(curl -sS -o /tmp/findings.json -w '%{http_code}' --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "https://vedarai.ru/api/cron/evo-issues?days=${DAYS}")
+          echo "HTTP: $CODE"
+          # Пустой файл при 200 читался бы как «находок нет». Падаем громко.
+          if [ "$CODE" != "200" ]; then
+            echo "Прод не отдал находки (HTTP $CODE) — разбирать нечего, и это не «чисто»."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/findings.json'));print('находок:',len(d.get('issues',[])))"
+
+      - name: Judge with strong model
+        env:
+          # Ключи уходят только своим провайдерам — вызов идёт через
+          # sanctioned-путь lib/ai/providers (водопад callAIDecisionDetailed),
+          # а не сырым fetch: провайдеры остаются в замороженном реестре
+          # compliance. Три дня подряд (12-14.08) Anthropic отдавал пустой
+          # ответ, и разбор кончался «не разобрано: 30+» — теперь водопад
+          # падает на DeepSeek/Qwen, как решатель на проде.
+          #
+          # OPENROUTER_API_KEY — ПЕРВАЯ ступень водопада, и до 19.08 она сюда
+          # не передавалась вовсе. То есть ключ можно было завести в секретах и
+          # не получить ничего: раннер его не видел. Гео-блок, из-за которого
+          # на проде нужен релей, к раннеру не относится — он вне РФ, и
+          # openrouter.ai достижим напрямую. Поэтому OPENROUTER_BASE_URL здесь
+          # НЕ задаётся: релей тут только добавил бы точку отказа.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # Номер прогона сдвигает окно добора по хвосту находок. Без него
+          # окно стояло бы на месте, и «не разобранные» оставались бы теми же
+          # самыми — ровно то, что случилось 18 и 19 августа.
+          EVO_JUDGE_OFFSET: ${{ github.run_number }}
+        run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md
+
+      # Прогон, разобравший НОЛЬ находок, — это отказ, а не работа.
+      #
+      # 16, 18 и 19 августа отчёт выходил «41 из 41 не разобрана», а прогон
+      # при этом числился успешным: скрипт отработал, issue завелась, джоб
+      # зелёный. Четверо суток решатель молчал, и никто не узнал — среди
+      # неразобранного лежала critical-инъекция.
+      #
+      # Проверка стоит ПОСЛЕ публикации намеренно: отчёт должен выйти в любом
+      # случае, иначе, чиня немоту, мы потеряем и список находок.
+      - name: Publish report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date -u +%d.%m.%Y)
+          TITLE="Разбор находок эволюции — $DATE"
+          {
+            echo "$(cat /tmp/report.md)"
+            echo ""
+            echo "---"
+            echo "_Generated by [Claude Code](https://claude.ai/code)_"
+          } > /tmp/body.md
+          # Одна задача на прогон, а не комментарий к каждой находке: лента из
+          # сорока комментариев читается хуже, чем один отчёт.
+          NEW_URL=$(gh issue create --repo "${{ github.repository }}" \
+            --title "$TITLE" --body-file /tmp/body.md --label evo)
+          echo "заведено: $NEW_URL"
+
+          # Прошлые выпуски закрываются здесь же.
+          #
+          # Каждый прогон заводил новую задачу, а старую не закрывал никто:
+          # к 19.08 висело пять отчётов, четыре из них — про уже разобранное
+          # или про немоту, устранённую в тот же день. Очередь, где половина
+          # задач мертва, перестаёт быть очередью: живое в ней не отличить.
+          #
+          # Закрываются ТОЛЬКО выпуски разбора — по точному началу заголовка.
+          # Метки `evo` мало: под ней же живут находки другого рода (#1155 —
+          # расхождение каналов), и закрыть их автоматом значило бы потерять
+          # настоящее вместе с отработавшим.
+          NEW_NUM="${NEW_URL##*/}"
+          {
+            echo "Заменено более свежим разбором: #${NEW_NUM}."
+            echo ""
+            echo "Находки живут в базе, а не в этой задаче: неразобранное и неисправленное"
+            echo "придёт в следующий выпуск само. Выпуск закрывается, чтобы в очереди"
+            echo "оставалось только то, что ещё требует решения."
+            echo ""
+            echo "---"
+            echo "_Generated by [Claude Code](https://claude.ai/code)_"
+          } > /tmp/superseded.md
+
+          gh issue list --repo "${{ github.repository }}" \
+            --label evo --state open --limit 50 --json number,title \
+            --jq '.[] | select(.title | startswith("Разбор находок эволюции")) | .number' \
+          | while read -r N; do
+              [ -z "$N" ] && continue
+              [ "$N" = "$NEW_NUM" ] && continue
+              gh issue comment "$N" --repo "${{ github.repository }}" --body-file /tmp/superseded.md
+              gh issue close "$N" --repo "${{ github.repository }}" --reason completed
+              echo "закрыт прошлый выпуск: #$N"
+            done
+
+      - name: Красный, если не разобрано ничего
+        run: |
+          set -uo pipefail
+          # Числа берутся из самого отчёта — из того, что прочитает человек,
+          # а не из отдельного счётчика, который может с ним разойтись.
+          TOTAL=$(grep -oP 'Разобрано находок: \*\*\K[0-9]+' /tmp/report.md || echo 0)
+          UNJUDGED=$(grep -oP '^\| не разобрана \| \K[0-9]+' /tmp/report.md || echo 0)
+          echo "разобрано: $TOTAL, из них не разобрано: $UNJUDGED"
+          if [ "$TOTAL" -gt 0 ] && [ "$TOTAL" = "$UNJUDGED" ]; then
+            echo "Решатель не ответил НИ ПО ОДНОЙ находке из $TOTAL."
+            echo "Причина — в отчёте: https://github.com/tourhabk-ui/pos/issues?q=is:issue+label:evo"
+            echo "Чаще всего это отсутствующий ключ: водопад зовёт Anthropic, затем DeepSeek, затем Qwen."
+            exit 1
+          fi
