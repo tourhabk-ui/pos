@@ -35,7 +35,7 @@ jobs:
     # что убила перепись 18.08: цикл ожидания длиннее таймаута джоба.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Спросить уборку и показать, что она нашла
         env:
