@@ -73,7 +73,22 @@ export async function POST(req: NextRequest) {
   if (authErr) return authErr;
 
   const body = await req.json().catch(() => ({}));
-  const { batch, force } = Schema.parse(body);
+  // safeParse, а не parse.
+  //
+  // `Schema.parse` БРОСАЕТ на негодном вводе, а обработчик исключения не
+  // ловил — значит `{"batch": 100}` давал пятисотку вместо внятного отказа.
+  // Пятисотка означает «сломались мы»; здесь же ошибся вызывающий, и сказать
+  // ему об этом надо словами. Находка эволюции «Прод 500:
+  // /api/admin/enrich-places» верна по симптому; причина — не отсутствующий
+  // return (возвраты на месте), а незакрытая валидация.
+  const parsed = Schema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Неверные параметры: batch — целое от 1 до 50, force — да/нет' },
+      { status: 400 },
+    );
+  }
+  const { batch, force } = parsed.data;
 
   const condition = force
     ? 'is_visible = true'
