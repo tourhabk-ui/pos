@@ -1387,13 +1387,23 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   //    Нет OPENROUTER_API_KEY / релея → callOpenRouterModel вернёт null, и мы
   //    падаем на DeepSeek/Qwen (прежнее поведение). Активируется автоматически,
   //    когда владелец задаёт ключ+релей на Timeweb.
-  try {
-    const flag = await callOpenRouterModel(payload, flagshipModel, {
-      timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
-    });
-    if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
-    why.push('flagship: пустой ответ или нет ключа/релея');
-  } catch (e) { why.push(`flagship: ${(e as Error).message.slice(0, 100)}`); }
+  //
+  // «Нет ключа» и «ключ есть, ответа нет» — РАЗНЫЕ беды, и лечатся они разным:
+  // первая заводится в секретах, вторая — деньгами, гео или моделью. Одна
+  // строка на оба случая держала разбор в неведении: отчёт 19.08 сорок шесть
+  // раз повторил «пустой ответ или нет ключа/релея», не сказав, что именно.
+  // Тот же дефект, что мы весь день чиним в других местах, — в собственном логе.
+  if (!getOpenRouterKey()) {
+    why.push('flagship: OPENROUTER_API_KEY не задан');
+  } else {
+    try {
+      const flag = await callOpenRouterModel(payload, flagshipModel, {
+        timeoutMs: 45_000, temperature: 0.2, maxTokens: 2000,
+      });
+      if (flag?.text?.trim()) return { text: flag.text, model: flagshipModel, provenance: why.slice() };
+      why.push(`flagship(${flagshipModel}): ключ есть, ответа нет`);
+    } catch (e) { why.push(`flagship(${flagshipModel}): ${(e as Error).message.slice(0, 100)}`); }
+  }
 
   // 0b) Флагман НАПРЯМУЮ через Anthropic API (ANTHROPIC_BASE_URL-релей).
   //     Живой случай 2026-07-24: релей до api.anthropic.com работает и ключ
