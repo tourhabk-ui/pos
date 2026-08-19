@@ -145,6 +145,23 @@ describe('каталог для выбора флагмана полон', () =>
     expect(SRC).toMatch(/EVO_DECISION_FLAGSHIP_VENDOR \|\| 'anthropic'/);
   });
 
+  it('«ключа нет» и «ответа нет» — разные причины в логе', () => {
+    // Отчёт 19.08 сорок шесть раз повторил «пустой ответ или нет ключа/релея»,
+    // не сказав, что именно. Заводится ключ в секретах — одно лечение, кончились
+    // деньги или закрыто гео — совсем другое.
+    // Границы уникальные: `const antKey = getAnthropicKey()` встречается в
+    // файле дважды, и срез по первому вхождению выворачивался наизнанку.
+    const from = SRC.indexOf('// 0) Флагман');
+    const leg = SRC.slice(from, SRC.indexOf('const antKey = getAnthropicKey()', from));
+    expect(leg).toMatch(/OPENROUTER_API_KEY не задан/);
+    expect(leg).toMatch(/ключ есть, ответа нет/);
+    // Запрет проверяется по КОДУ, без комментариев: пояснение к правке цитирует
+    // старую строку, и сторож ловил сам себя. Ровно на этом уже попадался
+    // reviews-two-subjects — там объяснение в шапке миграции считалось DDL.
+    const codeOnly = leg.replace(/\/\/.*$/gm, '');
+    expect(codeOnly).not.toMatch(/пустой ответ или нет ключа/);
+  });
+
   it('прямая ступень Anthropic берёт имя из каталога Anthropic', () => {
     // Разные каталоги — разные имена; общего у них только поставщик.
     // resolveFlagshipModel при живом ключе OpenRouter выбирает id из ЕГО
@@ -152,7 +169,8 @@ describe('каталог для выбора флагмана полон', () =>
     // `claude-opus-4.6`, а api.anthropic.com знает `claude-opus-4-8`: запрос
     // отвечает 400 за доли секунды, и отчёт читается как «Anthropic молчит»
     // при живом ключе с оплаченным Opus.
-    const leg = SRC.slice(SRC.indexOf('const antKey = getAnthropicKey()'), SRC.indexOf('// 1) DeepSeek'));
+    const end = SRC.indexOf('// 1) DeepSeek');
+    const leg = SRC.slice(SRC.lastIndexOf('const antKey = getAnthropicKey()', end), end);
     expect(leg).toMatch(/getAnthropicModelIds\(\)/);
     expect(leg).toMatch(/pickBestFlagship\(antIds\)/);
     // Снятие префикса остаётся ТОЛЬКО как запасной путь на случай пустого
@@ -163,7 +181,8 @@ describe('каталог для выбора флагмана полон', () =>
   it('имя модели названо в причине отказа', () => {
     // Без него «anthropic: HTTP 400» неотличимо от отказа по ключу — именно
     // на этом разбор находок простоял четверо суток (16-19.08).
-    const leg = SRC.slice(SRC.indexOf('const antKey = getAnthropicKey()'), SRC.indexOf('// 1) DeepSeek'));
+    const end = SRC.indexOf('// 1) DeepSeek');
+    const leg = SRC.slice(SRC.lastIndexOf('const antKey = getAnthropicKey()', end), end);
     expect(leg).toMatch(/anthropic\(\$\{antModel\}\): HTTP/);
     expect(leg).toMatch(/anthropic\(\$\{antModel\}\): пустой ответ/);
   });
