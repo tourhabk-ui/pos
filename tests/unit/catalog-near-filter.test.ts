@@ -58,8 +58,10 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     const [sql] = queryMock.mock.calls[0] as [string];
     // Точки ищутся через строку kamchatka_routes по обоим id: id VIEW —
     // COALESCE(ark_id, id), а route_waypoints.route_id живёт на kr.id.
-    expect(sql).toContain('JOIN route_waypoints rwx ON rwx.route_id = kw.id');
-    expect(sql).toContain('kw.id = ark.id OR kw.ark_id = ark.id');
+    // Форму (JOIN-подзапрос и алиасы) не фиксируем — она уже менялась
+    // дважды; фиксируем смысл: связь через строку маршрута по обоим id.
+    expect(sql).toContain('JOIN route_waypoints');
+    expect(sql).toMatch(/\b(\w+)\.id = ark\.id OR \1\.ark_id = ark\.id/);
   });
 
   it('has_waypoints=true требует компактность вейпоинтов (мега-сборники — не треки)', async () => {
