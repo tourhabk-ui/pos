@@ -88,13 +88,15 @@ describe('провал разбора не выдаётся за вердикт'
 describe('судья судит по коду, а не по тексту находки', () => {
   it('кусок кода уходит в промпт и назван кодом', () => {
     expect(SRC).toMatch(/КОД СЕЙЧАС/);
-    expect(SRC).toMatch(/readSnippet\(f\.file_path, f\.line_number\)/);
+    expect(SRC).toMatch(/readSnippet\(f\.file_path, f\.line_number, identifiersFrom\(f\)\)/);
   });
 
   it('отсутствие кода названо прямо, а не пропущено молча', () => {
     // Пустое место читается как «кода не нужно». Судья должен знать разницу
-    // между «код показан» и «кода нет».
-    expect(SRC).toMatch(/Кода нет: файл не приложен/);
+    // между «файл назван, но не прочитан» и «файла находка не называет» —
+    // это разные вещи, и вердикты у них разные.
+    expect(SRC).toMatch(/Кода нет: файл \$\{f\.file_path\} не прочитан/);
+    expect(SRC).toMatch(/Файла эта находка не называет/);
   });
 
   it('промпт велит судить по коду, потому что находка старше', () => {
@@ -117,23 +119,57 @@ describe('судья судит по коду, а не по тексту нах�
 
   it('путь из базы проверяется как чужой', () => {
     const read = () => 'не должно быть прочитано';
-    expect(readSnippet('../../etc/passwd', 1, read)).toBeNull();
-    expect(readSnippet('/etc/passwd', 1, read)).toBeNull();
-    expect(readSnippet('lib/a.ts/../../../x.ts', 1, read)).toBeNull();
-    expect(readSnippet('.env.local', 1, read)).toBeNull();
-    expect(readSnippet('secrets.pem', 1, read)).toBeNull();
+    expect(readSnippet('../../etc/passwd', 1, [], read)).toBeNull();
+    expect(readSnippet('/etc/passwd', 1, [], read)).toBeNull();
+    expect(readSnippet('lib/a.ts/../../../x.ts', 1, [], read)).toBeNull();
+    expect(readSnippet('.env.local', 1, [], read)).toBeNull();
+    expect(readSnippet('secrets.pem', 1, [], read)).toBeNull();
   });
 
-  it('кусок берётся вокруг строки находки, а не с начала файла', () => {
-    const file = Array.from({ length: 500 }, (_, i) => `строка ${i}`).join('\n');
-    const out = readSnippet('lib/a.ts', 300, () => file);
-    expect(out).toContain('строка 299');
-    expect(out).not.toContain('строка 100');
+  it('небольшой файл уходит целиком — окно тут нечего угадывать', () => {
+    const file = Array.from({ length: 120 }, (_, i) => `строка ${i}`).join('\n');
+    const out = readSnippet('lib/a.ts', 3, [], () => file);
+    expect(out).toBe(file);
+    expect(out).not.toMatch(/кусок обрезан/);
+  });
+
+  it('место находят по имени из находки, а не по устаревшему номеру строки', () => {
+    // Прогон 3: «приложенный код обрывается до getUpcomingTripsWithReminders» —
+    // функция была в файле, но за краем окна вокруг номера от старой версии.
+    const big = Array.from({ length: 4000 }, (_, i) =>
+      i === 3500 ? 'export async function getUpcomingTripsWithReminders() {' : `// строка ${i}`,
+    ).join('\n');
+    const out = readSnippet('lib/a.ts', 10, ['getUpcomingTripsWithReminders'], () => big);
+    expect(out).toContain('getUpcomingTripsWithReminders');
+  });
+
+  it('обрезка названа вслух: чего нет в куске, может быть в файле', () => {
+    // Молчаливое окно читается как весь файл, и «в куске дефекта нет»
+    // превращается в «дефекта нет».
+    const big = Array.from({ length: 4000 }, (_, i) => `// строка ${i}`).join('\n');
+    const out = readSnippet('lib/a.ts', 2000, [], () => big) ?? '';
+    expect(out).toMatch(/кусок обрезан/);
+    expect(out).toMatch(/может быть в файле/);
+    expect(SRC).toMatch(/это needs_info, а не fixed/);
+  });
+
+  it('находка без файла — не о коде, и отсутствие кода ей не вменяется', () => {
+    // Прогон 3 раздул «мало данных» с 3 до 20: заметки про чужие анонсы
+    // моделей получали «кода нет, проверить нельзя» — а кода у них и не может
+    // быть, они не утверждают ничего о коде.
+    expect(SRC).toMatch(/Файла эта находка не называет/);
+    expect(SRC).toMatch(/Находка БЕЗ файла/);
+    expect(SRC).toMatch(/Отсутствие\s*\n?кода тут НЕ повод для needs_info/);
   });
 
   it('нет файла — нет куска, и это не роняет разбор', () => {
-    expect(readSnippet('lib/нет-такого.ts', 10, () => { throw new Error('ENOENT'); })).toBeNull();
-    expect(readSnippet(null, null, () => 'x')).toBeNull();
+    expect(readSnippet('lib/нет-такого.ts', 10, [], () => { throw new Error('ENOENT'); })).toBeNull();
+    expect(readSnippet(null, null, [], () => 'x')).toBeNull();
+  });
+
+  it('сорванная форма ответа переспрашивается один раз, а не теряется', () => {
+    expect(SRC).toMatch(/if \(!retried\)/);
+    expect(SRC).toMatch(/Вторая попытка не делается/);
   });
 });
 

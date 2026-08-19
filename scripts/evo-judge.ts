@@ -73,10 +73,18 @@ const SYSTEM = `Ты разбираешь находки автоматичес�
 real — дефект настоящий, его стоит чинить.
 fixed — код приложен, и в нём дефекта уже нет: находка устарела.
 noise — сканер ошибся: санкционированная конструкция, ложное совпадение, «X вместо X».
-needs_info — решить нельзя: кода нет или приложенного куска не хватает.
+needs_info — находка ССЫЛАЕТСЯ НА ФАЙЛ, но приложенного куска не хватает, чтобы решить.
 
 Если код приложен, суди ПО КОДУ, а не по тексту находки: находка старше кода.
-Не выдумывай подробностей, которых нет в находке и в коде. Сомневаешься — needs_info.`;
+
+Находка БЕЗ файла — не утверждение о коде, а заметка или предложение. Её судят
+по тексту: предложение изучить, внедрить, исследовать — это noise. Отсутствие
+кода тут НЕ повод для needs_info: кода у неё и не должно быть.
+
+Если к куску приписано, что он обрезан, отсутствие дефекта В КУСКЕ не значит,
+что дефекта нет в файле: это needs_info, а не fixed.
+
+Не выдумывай подробностей, которых нет в находке и в коде.`;
 
 /**
  * Кусок кода к находке — из репозитория, распакованного на том же раннере.
@@ -89,13 +97,28 @@ needs_info — решить нельзя: кода нет или приложе�
  * Путь берётся из находки, то есть из базы, — значит проверяется как чужой:
  * только относительный, без выхода вверх, только известные расширения.
  */
-const SNIPPET_RADIUS = 40;
-const SNIPPET_MAX = 6000;
+const SNIPPET_RADIUS = 80;
+const SNIPPET_MAX = 16000;
 const READABLE = /\.(ts|tsx|js|jsx|sql|json|ya?ml|md)$/i;
+
+/**
+ * Имена из текста находки — по ним ищется место в файле.
+ *
+ * Номер строки в находке — от той версии файла, что видел сканер. Файл с тех
+ * пор правили, и окно вокруг устаревшего номера попадает мимо: прогон 3 выдал
+ * «приложенный код обрывается до getUpcomingTripsWithReminders» — функция была
+ * в файле, но за краем окна.
+ */
+function identifiersFrom(f: Finding): string[] {
+  const text = [f.title, f.description, f.suggestion].filter(Boolean).join(' ');
+  const found = text.match(/[A-Za-z_$][A-Za-z0-9_$]{5,}/g) ?? [];
+  return [...new Set(found)];
+}
 
 export function readSnippet(
   filePath: string | null,
   line: number | null,
+  identifiers: string[] = [],
   read: (p: string) => string = (p) => readFileSync(join(process.cwd(), p), 'utf-8'),
 ): string | null {
   if (!filePath) return null;
@@ -112,17 +135,36 @@ export function readSnippet(
   }
 
   const lines = text.split('\n');
-  if (line && line > 0) {
-    const from = Math.max(0, line - 1 - SNIPPET_RADIUS);
-    const to = Math.min(lines.length, line + SNIPPET_RADIUS);
-    return lines.slice(from, to).join('\n').slice(0, SNIPPET_MAX);
+
+  // Целиком, если файл того размера, где резать нечего: полный файл всегда
+  // лучше угаданного окна.
+  if (text.length <= SNIPPET_MAX) return text;
+
+  // Где резать: сначала по имени из находки, потом по номеру строки.
+  let center = 0;
+  for (const id of identifiers) {
+    const at = lines.findIndex((l) => l.includes(id));
+    if (at >= 0) { center = at + 1; break; }
   }
-  return lines.join('\n').slice(0, SNIPPET_MAX);
+  if (center === 0 && line && line > 0 && line <= lines.length) center = line;
+  if (center === 0) center = 1;
+
+  const from = Math.max(0, center - 1 - SNIPPET_RADIUS);
+  const to = Math.min(lines.length, center + SNIPPET_RADIUS);
+  const cut = lines.slice(from, to).join('\n').slice(0, SNIPPET_MAX);
+
+  // Обрезка названа вслух. Молчаливое окно читается как весь файл, и тогда
+  // «в куске дефекта нет» превращается в «дефекта нет» — то самое враньё из
+  // пустого места, ради которого всё это и делается.
+  return [
+    `[кусок обрезан: строки ${from + 1}-${to} из ${lines.length}; чего нет в куске — может быть в файле]`,
+    cut,
+  ].join('\n');
 }
 
 /** Один разбор. Провал — это `unjudged`, а не «шум». */
-export async function judgeOne(f: Finding): Promise<Judged> {
-  const snippet = readSnippet(f.file_path, f.line_number);
+export async function judgeOne(f: Finding, retried = false): Promise<Judged> {
+  const snippet = readSnippet(f.file_path, f.line_number, identifiersFrom(f));
   // ПД перед отправкой во внешнюю модель чистятся всегда: находка может
   // процитировать строку кода с телефоном или почтой (152-ФЗ, см.
   // lib/agents/compliance). Дешевле почистить, чем доказывать, что не было.
@@ -135,7 +177,11 @@ export async function judgeOne(f: Finding): Promise<Judged> {
     f.suggestion ? `Предложение сканера: ${f.suggestion}` : null,
     // Код идёт ПОСЛЕ находки и назван кодом: находка старше него, и судья
     // должен видеть, что именно с чем сверяет.
-    snippet ? `\nКОД СЕЙЧАС (${f.file_path}):\n${snippet}` : '\nКода нет: файл не приложен.',
+    snippet
+      ? `\nКОД СЕЙЧАС (${f.file_path}):\n${snippet}`
+      : f.file_path
+        ? `\nКода нет: файл ${f.file_path} не прочитан.`
+        : '\nФайла эта находка не называет — она не о коде.',
   ].filter(Boolean).join('\n'));
 
   const messages: ChatMessage[] = [
@@ -169,6 +215,15 @@ export async function judgeOne(f: Finding): Promise<Judged> {
   if (!v) {
     // Ответ есть, но формы нет — это тоже «не разобрана». Догадываться о
     // вердикте по свободному тексту значит снова выдать неуверенность за вывод.
+    //
+    // Одна попытка переспросить — не догадка, а повтор вопроса: разбор сорван
+    // формой ответа, а не существом дела, и молча терять находку из-за этого
+    // дороже одного вызова. Вторая попытка не делается: если модель не держит
+    // форму дважды, это уже про модель.
+    if (!retried) {
+      const again = await judgeOne(f, true);
+      if (again.verdict !== 'unjudged') return again;
+    }
     return { finding: f, verdict: 'unjudged', reason: 'ответ не в заданной форме', model: res.model };
   }
   return {
