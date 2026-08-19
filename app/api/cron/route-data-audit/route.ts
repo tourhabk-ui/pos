@@ -56,7 +56,7 @@ export const maxDuration = 120;
  *  13 — итог печатается В КОНЦЕ: разбор расхождений занимает полторы сотни
  *       строк, и до этого главные цифры были недостижимы из хвоста лога
  */
-export const AUDIT_SHAPE_VERSION = 16;
+export const AUDIT_SHAPE_VERSION = 17;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);

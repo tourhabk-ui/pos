@@ -12,6 +12,31 @@ import type {
   TotalRow,
 } from '@/lib/types/db-rows';
 
+/**
+ * Отказ проверки не равен «всё спокойно».
+ *
+ * Пять запросов этого файла стояли под пустым catch со словом skip. Два из них
+ * падали ВСЕГДА — `operator_bookings.tour_id` не существует (колонка зовётся
+ * `operator_tour_id`, миграция 040), — и админ месяцами видел панель без
+ * тревог там, где тревоги не считались вовсе. Пустой список и несчитанный
+ * список выглядели одинаково.
+ *
+ * Молчащий глушитель — не устойчивость, а слепота. Сбой одной проверки не
+ * должен ронять панель, но обязан быть НАЗВАН: по SQLSTATE в логе поломка
+ * находится за минуту, по её отсутствию — никогда.
+ */
+function alertProbeFailed(probe: string, err: unknown): void {
+  const e = err as Error & { code?: string; detail?: string; hint?: string };
+  console.error('[admin/alerts] проверка не выполнилась', {
+    probe,
+    sqlstate: e?.code,
+    message: e?.message,
+    detail: e?.detail,
+    hint: e?.hint,
+    release: process.env.RELEASE_SHA ?? null,
+  });
+}
+
 export async function getAdminAlerts(): Promise<AdminAlert[]> {
   const alerts: AdminAlert[] = [];
   const now = new Date();
@@ -48,7 +73,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         });
       }
     }
-  } catch { /* skip */ }
+  } catch (err) { alertProbeFailed('booking_volume_drop', err); }
 
   // 2. Неверифицированные партнёры >7 дней
   try {
@@ -70,7 +95,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         actionLabel: 'Верифицировать',
       });
     }
-  } catch { /* skip */ }
+  } catch (err) { alertProbeFailed('unverified_partners', err); }
 
   // 3. Активные туры без бронирований 30 дней
   try {
@@ -79,8 +104,12 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
        WHERE is_active = true
          AND deleted_at IS NULL
          AND id NOT IN (
-           SELECT DISTINCT tour_id FROM operator_bookings
-           WHERE created_at >= NOW() - INTERVAL '30 days' AND tour_id IS NOT NULL AND deleted_at IS NULL
+           -- operator_bookings хранит ссылку на тур в operator_tour_id
+           -- (миграция 040). Колонки tour_id у неё нет: запрос падал, отказ
+           -- глушился, и «туров без бронирований» не показывалось НИКОГДА.
+           SELECT DISTINCT operator_tour_id FROM operator_bookings
+           WHERE created_at >= NOW() - INTERVAL '30 days'
+             AND operator_tour_id IS NOT NULL AND deleted_at IS NULL
          )`,
       []
     );
@@ -97,7 +126,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         actionLabel: 'Смотреть туры',
       });
     }
-  } catch { /* skip */ }
+  } catch (err) { alertProbeFailed('idle_tours', err); }
 
   // 4. Всплеск плохих отзывов (≥3 с rating≤2 за 7д на один тур)
   try {
@@ -124,7 +153,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         actionLabel: 'Модерация',
       });
     }
-  } catch { /* skip */ }
+  } catch (err) { alertProbeFailed('bad_review_burst', err); }
 
   // 5. Высокий % отмен у оператора (>30% при ≥5 bookings)
   try {
@@ -133,7 +162,8 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
               COUNT(*) FILTER (WHERE b.booking_status = 'cancelled') as cancelled,
               COUNT(*) as total
        FROM operator_bookings b
-       JOIN operator_tours t ON b.tour_id = t.id
+       -- Та же колонка, что выше: operator_tour_id, не tour_id.
+       JOIN operator_tours t ON b.operator_tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE b.created_at >= NOW() - INTERVAL '30 days'
          AND b.deleted_at IS NULL
@@ -155,7 +185,7 @@ export async function getAdminAlerts(): Promise<AdminAlert[]> {
         read: false,
       });
     }
-  } catch { /* skip */ }
+  } catch (err) { alertProbeFailed('cancellation_rate', err); }
 
   return alerts;
 }

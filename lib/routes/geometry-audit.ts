@@ -757,7 +757,16 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         WHERE table_schema = 'public'
           AND (table_name, column_name) IN (
             ('route_waypoints','route_id'), ('route_waypoints','place_id'),
-            ('places','id'), ('kamchatka_routes','id'))`,
+            ('places','id'), ('kamchatka_routes','id'),
+            -- Отзывы и туры: reviews.tour_id объявлен uuid, а operator_tours.id
+            -- это bigint. Если объявления верны, то каждый JOIN между ними
+            -- падает, и подсистема отзывов операторов не работает вовсе — а
+            -- это два десятка мест в десяти файлах. Прежде чем их переписывать,
+            -- тип нужно ИЗМЕРИТЬ: сегодня уже выяснилось, что объявления в
+            -- миграциях с продом расходятся.
+            ('reviews','tour_id'), ('operator_tours','id'),
+            ('operator_tours','operator_id'), ('partners','id'),
+            ('operator_bookings','operator_tour_id'))`,
     );
     idColumnTypes = Object.fromEntries(
       types.rows.map((r) => [`${r.table_name}.${r.column_name}`, r.data_type]),
