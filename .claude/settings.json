@@ -75,6 +75,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/open-issues.sh",
+            "timeout": 20,
+            "statusMessage": "Очередь issues..."
+          }
+        ]
+      }
     ]
   }
 }

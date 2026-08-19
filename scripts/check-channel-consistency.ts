@@ -14,7 +14,7 @@
  */
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import {
-  mcpTourIds, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
+  mcpTourIds, mcpDiagnosis, urlTourIds, sitemapUrlCount, findDivergences, formatDivergences, isSecondCanon,
   type ChannelTours,
 } from '@/lib/quality/channel-consistency';
 
@@ -39,7 +39,17 @@ console.log(
 // Пустой канал важнее расхождений и называется первым: один упавший канал
 // породил бы расхождения со всеми остальными и утопил настоящую причину.
 for (const c of channels) {
-  if (c.ids.size === 0) problems.push(`канал ${c.channel} не отдал ни одного тура`);
+  if (c.ids.size !== 0) continue;
+  // У MCP спрашивается ПРИЧИНА. «Не отдал ни одного тура» — это симптом, под
+  // которым помещаются пять разных бед, и восемь суток в #1155 он не назвал
+  // ни одной. Остальные каналы — статические файлы, там причина видна по
+  // размеру и содержимому.
+  const why = c.channel === 'mcp' ? mcpDiagnosis(read('mcp.json')) : null;
+  problems.push(
+    why
+      ? `канал ${c.channel} не отдал ни одного тура: ${why}`
+      : `канал ${c.channel} не отдал ни одного тура`,
+  );
 }
 
 const diverged = findDivergences(channels);

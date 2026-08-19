@@ -421,6 +421,16 @@ export interface GeometryAudit {
    * опасное — см. lib/routes/cleanup-queue.
    */
   cleanup_queues: CleanupQueues;
+  /**
+   * Откуда взялась координата маршрута, счётом по источникам.
+   *
+   * Якорь — не путевая точка: по нему не идут, он центрирует карту и отвечает
+   * на «что рядом со мной». Но `place_nearby_unverified` (миграция 877) значит
+   * «координата стоит на месте, которое просто рядом», и такой якорь не имеет
+   * права выглядеть точным. Пока источник никто не считал, разницы не
+   * существовало — классификация была, а увидеть её было негде.
+   */
+  anchor_sources: Record<string, number>;
   duration_ms: number;
 }
 
@@ -430,6 +440,8 @@ interface RouteRow {
   geometry: unknown;
   /** Адрес страницы-донора: улика принадлежности линии этой карточке. */
   source_url: string | null;
+  /** Откуда взялась координата маршрута; null — источник не записан. */
+  anchor_source?: string | null;
   /** Ключ вида «источник:id» — та же улика, записанная при импорте. */
   dedupe_key: string | null;
 }
@@ -536,9 +548,11 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
 
   const listRes = await pool.query<RouteRow>(
     limit
-      ? `SELECT id::text, title, geometry, source_url, dedupe_key FROM kamchatka_routes
+      ? `SELECT id::text, title, geometry, source_url, dedupe_key,
+                 metadata->>'anchor_source' AS anchor_source FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL) ORDER BY id LIMIT $1`
-      : `SELECT id::text, title, geometry, source_url, dedupe_key FROM kamchatka_routes
+      : `SELECT id::text, title, geometry, source_url, dedupe_key,
+                 metadata->>'anchor_source' AS anchor_source FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL) ORDER BY id`,
     limit ? [limit] : [],
   );
@@ -743,7 +757,16 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
         WHERE table_schema = 'public'
           AND (table_name, column_name) IN (
             ('route_waypoints','route_id'), ('route_waypoints','place_id'),
-            ('places','id'), ('kamchatka_routes','id'))`,
+            ('places','id'), ('kamchatka_routes','id'),
+            -- Отзывы и туры: reviews.tour_id объявлен uuid, а operator_tours.id
+            -- это bigint. Если объявления верны, то каждый JOIN между ними
+            -- падает, и подсистема отзывов операторов не работает вовсе — а
+            -- это два десятка мест в десяти файлах. Прежде чем их переписывать,
+            -- тип нужно ИЗМЕРИТЬ: сегодня уже выяснилось, что объявления в
+            -- миграциях с продом расходятся.
+            ('reviews','tour_id'), ('operator_tours','id'),
+            ('operator_tours','operator_id'), ('partners','id'),
+            ('operator_bookings','operator_tour_id'))`,
     );
     idColumnTypes = Object.fromEntries(
       types.rows.map((r) => [`${r.table_name}.${r.column_name}`, r.data_type]),
@@ -822,6 +845,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     }
   }
   const queueFacts: RouteFacts[] = [];
+  /** Счёт источников якоря — заполняется в том же проходе. */
+  const anchorSources: Record<string, number> = {};
 
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
     const track = geometryToTrack(r.geometry);
@@ -923,6 +948,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     bump(trust.source_match, decision.evidence.sourceMatch);
     bump(trust.donor_binding, decision.evidence.donorBinding);
     bump(trust.freshness, decision.freshness);
+    bump(anchorSources, r.anchor_source ?? 'не записан');
     if (decision.ledByEvidence) trust.led_by_evidence += 1;
 
     /**
@@ -1159,6 +1185,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     },
     tours,
     cleanup_queues: buildQueues(queueFacts),
+    anchor_sources: anchorSources,
     duration_ms: Date.now() - startedAt,
   };
 }

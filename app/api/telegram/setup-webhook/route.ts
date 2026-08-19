@@ -12,10 +12,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { publicWebhookBase } from '@/lib/telegram/operator-availability';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 export async function POST(request: NextRequest) {
-  const cronSecret = request.headers.get('x-cron-secret');
-  const isValidCron = cronSecret && cronSecret === process.env.CRON_SECRET;
+  // Постоянное по времени сравнение: наивное `===` выходит на первом
+  // различии, и секрет подбирается по времени ответа посимвольно.
+  const isValidCron = timingSafeCompare(
+    request.headers.get('x-cron-secret'),
+    process.env.CRON_SECRET ?? '',
+  );
 
   if (!isValidCron) {
     const adminOrResponse = await requireAdmin(request);

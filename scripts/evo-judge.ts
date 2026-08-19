@@ -101,7 +101,18 @@ export async function judgeOne(f: Finding): Promise<Judged> {
   // Anthropic напрямую, затем DeepSeek и Qwen — и штампует, кто ответил.
   const res = await callAIDecisionDetailed(messages);
   const answer = res.text;
-  if (!answer) return { finding: f, verdict: 'unjudged', reason: 'модель не ответила' };
+  if (!answer) {
+    // ПОЧЕМУ никто не ответил — водопад это знает и кладёт в `error` по
+    // ступеням. Раньше поле выбрасывалось, и отчёт говорил «модель не
+    // ответила» одинаково при отсутствующем ключе, гео-блоке, исчерпанной
+    // квоте и таймауте. Разбор 18.08 вышел 41 из 41 неразобранным, среди них
+    // была critical-инъекция, и восемь суток никто не знал, что чинить.
+    return {
+      finding: f,
+      verdict: 'unjudged',
+      reason: res.error ? `модель не ответила: ${res.error}`.slice(0, 300) : 'модель не ответила',
+    };
+  }
 
   const v = /ВЕРДИКТ:\s*(real|noise|needs_info)/i.exec(answer);
   const r = /ПРИЧИНА:\s*(.+)/i.exec(answer);
@@ -143,6 +154,15 @@ export function renderReport(judged: Judged[]): string {
     // «ничего не нашли», а это разные вещи.
     lines.push(`> Не разобрано: ${un.length}. Это не «чисто» — это отсутствие ответа.`);
     lines.push('');
+    // Причины — списком РАЗЛИЧНЫХ, а не по разу на находку: сорок одинаковых
+    // строк «модель не ответила: deepseek: ключа нет» прячут ответ, ради
+    // которого их печатают.
+    const reasons = [...new Set(un.map((j) => j.reason))];
+    if (reasons.length > 0 && un.length === judged.length) {
+      lines.push('Разобрать не удалось НИ ОДНОЙ находки. Причины по ступеням решателя:');
+      for (const r of reasons.slice(0, 5)) lines.push(`- ${r}`);
+      lines.push('');
+    }
   }
 
   for (const [title, group] of [

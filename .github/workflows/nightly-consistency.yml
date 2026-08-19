@@ -51,10 +51,15 @@ jobs:
           set -uo pipefail
           curl -s --max-time 60 "$BASE/llms.txt"    -o llms.txt    || true
           curl -s --max-time 60 "$BASE/sitemap.xml" -o sitemap.xml || true
-          curl -s --max-time 60 -X POST "$BASE/api/mcp" \
+          # Код ответа снимается ОТДЕЛЬНО: `|| true` глушит и сетевой отказ, и
+          # пятисотку, а разбор тела их не различает — тело в обоих случаях
+          # пустое. Восемь суток issue #1155 повторяла «канал mcp не отдал
+          # туров», не называя ни одной из пяти возможных причин.
+          MCP_CODE=$(curl -s --max-time 60 -X POST "$BASE/api/mcp" \
             -H 'Content-Type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_tours","arguments":{}}}' \
-            -o mcp.json || true
+            -o mcp.json -w '%{http_code}' || echo 000)
+          echo "MCP HTTP: $MCP_CODE"
           # Второй домен: интересует КОД ответа, а не тело.
           echo "$(curl -s -o alt.body -w '%{http_code}' --max-time 60 "$ALT_DOMAIN/llms.txt" || echo 000)" > alt.code
           for f in llms.txt sitemap.xml mcp.json; do
