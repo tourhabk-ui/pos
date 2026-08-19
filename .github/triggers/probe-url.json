@@ -1,17 +1,11 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/web-routes-census",
-    "https://vedarai.ru/api/routes?kind=place&limit=3&q=%D0%9C%D0%B0%D0%BB%D1%8B%D1%88",
-    "https://vedarai.ru/api/routes?kind=place&limit=3&q=%D0%A6%D0%B0%D1%80%D1%8C-%D0%B1%D0%BE%D0%BC%D0%B1%D0%B0",
-    "https://vedarai.ru/api/routes?kind=place&limit=3&q=%D0%90%D0%BC%D0%B1%D0%BE%D0%BD",
-    "https://vedarai.ru/api/routes?kind=place&limit=3&q=%D0%9A%D0%B0%D0%BC%D0%B5%D0%BD%D0%BD%D1%8B%D0%B9%20%D0%B3%D0%BE%D1%80%D0%BE%D0%B4%D0%BE%D0%BA",
-    "https://vedarai.ru/api/routes?kind=place&limit=3&q=%D0%A7%D0%B5%D1%80%D0%BD%D1%8B%D0%B9%20%D0%B7%D0%B0%D0%BC%D0%BE%D0%BA"
+    "https://vedarai.ru/api/cron/web-routes-census"
   ],
-  "bytes": 2500,
+  "bytes": 4000,
   "timeout": 120,
-  "retries": 10,
-  "retryDelay": 60,
-  "until": "webs_found",
-  "note": "Проба 86: два вопроса одним заходом, чтобы не частить деплоями. Первый URL — перепись паутин среди живых маршрутов с линией: меряется ПРЫЖОК между соседними вершинами (>25 км = по такой линии не идут), поэтому честный длинный трек в отчёт не попадёт. Остальные пять — приёмка Editor'а по обнулённым описаниям (миграция 866): смотрим, непустые ли они и нет ли прежних сигнатур вранья.",
-  "run": 86
+  "retries": 2,
+  "retryDelay": 45,
+  "note": "Проба 87: долг из пробы 86 — перепись паутин. Там первый URL сжёг ретраи, ожидая выката, и ответа не осталось. Теперь код на проде, отвечает сразу. Прыжок между соседними вершинами >25 км = паутина; живые = видимые и не слитые.",
+  "run": 87
 }
