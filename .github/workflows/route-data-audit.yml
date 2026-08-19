@@ -377,6 +377,45 @@ jobs:
               for s in samples[:12]:
                   print(f"  {s.get('title')}: {s.get('note')}")
 
+          # ── ИТОГ В КОНЦЕ ────────────────────────────────────────────────
+          #
+          # Главные цифры печатаются ПОСЛЕДНИМИ, и это не вкусовщина.
+          # Разбор расхождений занимает полторы сотни строк, и всё, что стоит
+          # до него, из хвоста лога недостижимо: чтобы прочитать одну цифру,
+          # приходилось тянуть весь прогон целиком. Итог в конце читается с
+          # тридцати строк — и человеком, и агентом.
+          print('')
+          print('=' * 60)
+          print('ИТОГ')
+          nav2 = a.get('navigability') or {}
+          tr2 = a.get('trust') or {}
+          st = tr2.get('states') or nav2
+          print(f"  пригодны: {st.get('navigable', 0)}"
+                f" · ориентирование: {st.get('orientation_only', 0)}"
+                f" · не маршрут: {st.get('not_a_route', 0)}"
+                f" · не пеший: {st.get('not_on_foot', 0)}")
+          if tr2:
+              print(f"  из пригодных по ТРЁМ УЛИКАМ (без разметки): {tr2.get('led_by_evidence', 0)}")
+              sm = tr2.get('source_match') or {}
+              db = tr2.get('donor_binding') or {}
+              fr = tr2.get('freshness') or {}
+              print(f"  копия совпала с оригиналом: {sm.get('verified', 0)},"
+                    f" не сверялись: {sm.get('not_checked', 0)}")
+              print(f"  донор подтверждён: {db.get('confirmed', 0)},"
+                    f" по близости: {db.get('proximity_only', 0)}")
+              print(f"  доказательство свежее: {fr.get('current', 0)},"
+                    f" пора пересмотреть: {fr.get('review_due', 0)},"
+                    f" неизвестно: {fr.get('unknown', 0)}")
+          lk = a.get('link_kinds') or {}
+          print(f"  связи: путь {lk.get('waypoint', 0)}"
+                f" · рядом {lk.get('nearby', 0)}"
+                f" · не установлено {lk.get('unknown', 0)}")
+          if a.get('link_kind_available') is False:
+              print('  РАЗМЕТКА СВЯЗЕЙ НЕ ДОЕХАЛА: колонки link_kind на проде нет')
+          for mf in (a.get('migration_failures') or []):
+              print(f"  МИГРАЦИЯ {mf.get('name')} НЕ ПРИМЕНИЛАСЬ ({mf.get('attempts')} попыт.): {mf.get('error')}")
+          print('=' * 60)
+
           # Поля подборки — свои (см. CollectionFlaw): габарит, число точек и по
           # чему опознана. Первый прогон печатал `note`, которого у неё нет, и
           # выдавал ряд названий с пустотой после двоеточия — то есть сообщал

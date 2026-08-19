@@ -53,8 +53,10 @@ export const maxDuration = 120;
  *       одна отсутствующая колонка больше не убивает весь ответ
  *  12 — Ф2 плана: решение доверия с фактами, из которых собрано состояние,
  *       и счёт тех, кто получил право вести по трём уликам без разметки
+ *  13 — итог печатается В КОНЦЕ: разбор расхождений занимает полторы сотни
+ *       строк, и до этого главные цифры были недостижимы из хвоста лога
  */
-export const AUDIT_SHAPE_VERSION = 12;
+export const AUDIT_SHAPE_VERSION = 13;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
