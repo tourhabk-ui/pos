@@ -39,9 +39,11 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     await queryCatalog(filters);
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('6371 * acos(least(1.0,');
-    // Колонки квалифицированы алиасом: без него условие стало
-    // неоднозначным и уронило каталог целиком (ночь 16.08).
-    expect(sql).toContain('ark.lat IS NOT NULL AND ark.lng IS NOT NULL');
+    // Колонки квалифицированы алиасом таблицы: запрос джойнит places, где
+    // есть свои lat/lng, и неквалифицированное имя роняло каталог
+    // неоднозначной колонкой. Проверяем гард по смыслу, а не по точной
+    // строке — иначе тест краснеет на каждом законном уточнении алиаса.
+    expect(sql).toMatch(/\b\w+\.lat IS NOT NULL AND \w+\.lng IS NOT NULL/);
     expect(params).toEqual(expect.arrayContaining([53.0195, 158.6505, 50]));
   });
 
@@ -56,11 +58,8 @@ describe('queryCatalog — SQL фильтра «Рядом»', () => {
     const [sql] = queryMock.mock.calls[0] as [string];
     // Точки ищутся через строку kamchatka_routes по обоим id: id VIEW —
     // COALESCE(ark_id, id), а route_waypoints.route_id живёт на kr.id.
-    // Проверяется сама связка, а не имя алиаса: условие уже переписывалось
-    // (16.08 — требование двух точек вместо EXISTS), и тест не должен падать
-    // от переименования kw → kw2 при сохранённом смысле.
-    expect(sql).toMatch(/JOIN route_waypoints \w+ ON \w+\.route_id = \w+\.id/);
-    expect(sql).toMatch(/\w+\.id = ark\.id OR \w+\.ark_id = ark\.id/);
+    expect(sql).toContain('JOIN route_waypoints rwx ON rwx.route_id = kw.id');
+    expect(sql).toContain('kw.id = ark.id OR kw.ark_id = ark.id');
   });
 
   it('has_waypoints=true требует компактность вейпоинтов (мега-сборники — не треки)', async () => {
