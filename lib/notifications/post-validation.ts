@@ -60,7 +60,7 @@ async function checkRouteExists(routeId: string): Promise<{ exists: boolean; rou
  * Правило 2: Страница маршрута отдаёт HTTP 200 на проде.
  * Защита от расхождений между БД и билдом.
  */
-async function checkPageAccessible(routeId: string): Promise<boolean> {
+async function checkPageAccessible(routeId: string): Promise<'ok' | 'bad' | 'unknown'> {
   const appUrl = getPublicBaseUrl();
   try {
     const controller = new AbortController();
@@ -71,10 +71,21 @@ async function checkPageAccessible(routeId: string): Promise<boolean> {
       redirect: 'follow',
     });
     clearTimeout(timeout);
-    return res.status === 200;
+    return res.status === 200 ? 'ok' : 'bad';
   } catch {
-    // Если не можем проверить (нет сети, таймаут) — пропускаем проверку, но пишем warning
-    return true; // не блокируем, но warning добавим отдельно
+    // Раньше здесь стоял `return true` с пояснением «не блокируем». То есть
+    // проверка, которая не смогла выполниться, отвечала «всё хорошо» — и это
+    // не проверка, а её видимость.
+    //
+    // 19.08 в канал ушёл пост со ссылкой, дающей 404. Обе проверки ссылок
+    // падали в «пропустить»: эта возвращала true, а verifyAllLinks считала
+    // сетевой отказ предупреждением. Достаточно было крону не достучаться до
+    // собственного домена — и любая ссылка проходила.
+    //
+    // Теперь состояний три, и «не смогли проверить» отличается от «проверили,
+    // всё хорошо». Что с ним делать, решает вызывающий: для СВОЕЙ страницы
+    // непроверенность блокирует, для чужих ссылок остаётся предупреждением.
+    return 'unknown';
   }
 }
 
@@ -369,9 +380,14 @@ export async function validateRoutePost(routeId: string, text: string): Promise<
   }
 
   // 2. Страница доступна на проде (HEAD-запрос)
-  const pageOk = await checkPageAccessible(routeId);
-  if (!pageOk) {
+  const pageState = await checkPageAccessible(routeId);
+  if (pageState === 'bad') {
     errors.push(`Страница /routes/${routeId} отдаёт не-200 на проде`);
+  } else if (pageState === 'unknown') {
+    // Своя страница — единственное, ради чего пост существует. Опубликовать
+    // ссылку, не убедившись, что она открывается, значит переложить проверку
+    // на читателя. Пост подождёт следующего прогона.
+    errors.push(`Страницу /routes/${routeId} не удалось проверить — пост не публикуется до подтверждения`);
   }
 
   // 3. Текст поста
