@@ -145,6 +145,29 @@ describe('каталог для выбора флагмана полон', () =>
     expect(SRC).toMatch(/EVO_DECISION_FLAGSHIP_VENDOR \|\| 'anthropic'/);
   });
 
+  it('прямая ступень Anthropic берёт имя из каталога Anthropic', () => {
+    // Разные каталоги — разные имена; общего у них только поставщик.
+    // resolveFlagshipModel при живом ключе OpenRouter выбирает id из ЕГО
+    // каталога (слаги вида `anthropic/claude-opus-4.6`). Снятие префикса даёт
+    // `claude-opus-4.6`, а api.anthropic.com знает `claude-opus-4-8`: запрос
+    // отвечает 400 за доли секунды, и отчёт читается как «Anthropic молчит»
+    // при живом ключе с оплаченным Opus.
+    const leg = SRC.slice(SRC.indexOf('const antKey = getAnthropicKey()'), SRC.indexOf('// 1) DeepSeek'));
+    expect(leg).toMatch(/getAnthropicModelIds\(\)/);
+    expect(leg).toMatch(/pickBestFlagship\(antIds\)/);
+    // Снятие префикса остаётся ТОЛЬКО как запасной путь на случай пустого
+    // каталога — и о том, что он пуст, сказано вслух.
+    expect(leg).toMatch(/каталог моделей пуст/);
+  });
+
+  it('имя модели названо в причине отказа', () => {
+    // Без него «anthropic: HTTP 400» неотличимо от отказа по ключу — именно
+    // на этом разбор находок простоял четверо суток (16-19.08).
+    const leg = SRC.slice(SRC.indexOf('const antKey = getAnthropicKey()'), SRC.indexOf('// 1) DeepSeek'));
+    expect(leg).toMatch(/anthropic\(\$\{antModel\}\): HTTP/);
+    expect(leg).toMatch(/anthropic\(\$\{antModel\}\): пустой ответ/);
+  });
+
   it('привязки к конкретному id нет', () => {
     // §8: подбор идёт оценкой, а не перечнем. Скидка на конкретную модель —
     // повод проверить каталог, а не прибить id в коде.

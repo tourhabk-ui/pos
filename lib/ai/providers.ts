@@ -1402,7 +1402,20 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
   const antKey = getAnthropicKey();
   if (!antKey) why.push('anthropic: ключа нет');
   if (antKey) {
-    const antModel = flagshipModel.replace(/^anthropic\//, '');
+    // Идентификатор берётся из каталога САМОГО Anthropic, а не из слага
+    // OpenRouter со снятым префиксом.
+    //
+    // Когда ключ OpenRouter есть, resolveFlagshipModel выбирает id из ЕГО
+    // каталога — там слаги вида `anthropic/claude-opus-4.6`. Снятие префикса
+    // давало `claude-opus-4.6`, а api.anthropic.com такого id не знает: у него
+    // `claude-opus-4-8`. Запрос отвечал 400 за доли секунды, и отчёты 16-19.08
+    // читались как «Anthropic молчит» — при живом ключе с оплаченным Opus.
+    // Разные каталоги — разные имена; общего у них только поставщик.
+    const antIds = await getAnthropicModelIds();
+    const antModel = pickBestFlagship(antIds) ?? flagshipModel.replace(/^anthropic\//, '');
+    if (antIds.length === 0) {
+      why.push('anthropic: каталог моделей пуст — id взят из слага OpenRouter');
+    }
     try {
       const sys = payload.find(m => m.role === 'system');
       const turns = payload.filter(m => m.role === 'user' || m.role === 'assistant');
@@ -1441,9 +1454,11 @@ export async function callAIDecisionDetailed(messages: ChatMessage[]): Promise<D
             });
             return { text, model: `anthropic:${antModel}`, provenance: why.slice() };
           }
-          why.push('anthropic: пустой ответ');
+          why.push(`anthropic(${antModel}): пустой ответ`);
         } else {
-          why.push(`anthropic: HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
+          // Имя модели — в причине: без него «HTTP 400» не отличить от
+          // отказа по ключу, и именно на этом разбор простоял четверо суток.
+          why.push(`anthropic(${antModel}): HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
         }
       }
     } catch (e) { why.push(`anthropic: ${(e as Error).message.slice(0, 100)}`); }
