@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, selectForJudging, type Judged } from '@/scripts/evo-judge';
+import { renderReport, selectForJudging, readSnippet, type Judged } from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -74,6 +74,69 @@ describe('провал разбора не выдаётся за вердикт'
  * успели» — это множество, до которого очередь не дойдёт никогда, и его
  * содержимое неизвестно по построению.
  */
+/**
+ * Судья видит код, а не только текст находки.
+ *
+ * 19.08 обе «инъекции» в lib/auth/tourist-helpers получили «по делу» через
+ * несколько часов после того, как их починили: в запросе уже стоял параметр
+ * `INTERVAL '1 day' * $2`. Судья этого не знал — ему передавали только текст
+ * находки. Там же все три «мало данных» оказались просьбами показать файл,
+ * который лежал на том же раннере, распакованный.
+ *
+ * Находка старше кода всегда. Значит судить надо по коду.
+ */
+describe('судья судит по коду, а не по тексту находки', () => {
+  it('кусок кода уходит в промпт и назван кодом', () => {
+    expect(SRC).toMatch(/КОД СЕЙЧАС/);
+    expect(SRC).toMatch(/readSnippet\(f\.file_path, f\.line_number\)/);
+  });
+
+  it('отсутствие кода названо прямо, а не пропущено молча', () => {
+    // Пустое место читается как «кода не нужно». Судья должен знать разницу
+    // между «код показан» и «кода нет».
+    expect(SRC).toMatch(/Кода нет: файл не приложен/);
+  });
+
+  it('промпт велит судить по коду, потому что находка старше', () => {
+    expect(SRC).toMatch(/суди ПО КОДУ/);
+    expect(SRC).toMatch(/находка старше кода/);
+  });
+
+  it('«уже починено» — отдельный вердикт, не «шум» и не «по делу»', () => {
+    // Починенное и выдуманное — разные вещи. Свалить их в «шум» значит
+    // потерять счёт тому, что эволюция действительно нашла и мы закрыли.
+    expect(SRC).toMatch(/fixed: 'уже починено'/);
+    expect(SRC).toMatch(/\| уже починено \|/);
+    const md = renderReport([
+      { finding: finding('Инъекция в интервал'), verdict: 'fixed', reason: 'в коде параметр $2' },
+    ]);
+    expect(md).toMatch(/\| уже починено \| 1 \|/);
+    expect(md).toMatch(/## Уже починено/);
+    expect(md).not.toMatch(/## Шум/);
+  });
+
+  it('путь из базы проверяется как чужой', () => {
+    const read = () => 'не должно быть прочитано';
+    expect(readSnippet('../../etc/passwd', 1, read)).toBeNull();
+    expect(readSnippet('/etc/passwd', 1, read)).toBeNull();
+    expect(readSnippet('lib/a.ts/../../../x.ts', 1, read)).toBeNull();
+    expect(readSnippet('.env.local', 1, read)).toBeNull();
+    expect(readSnippet('secrets.pem', 1, read)).toBeNull();
+  });
+
+  it('кусок берётся вокруг строки находки, а не с начала файла', () => {
+    const file = Array.from({ length: 500 }, (_, i) => `строка ${i}`).join('\n');
+    const out = readSnippet('lib/a.ts', 300, () => file);
+    expect(out).toContain('строка 299');
+    expect(out).not.toContain('строка 100');
+  });
+
+  it('нет файла — нет куска, и это не роняет разбор', () => {
+    expect(readSnippet('lib/нет-такого.ts', 10, () => { throw new Error('ENOENT'); })).toBeNull();
+    expect(readSnippet(null, null, () => 'x')).toBeNull();
+  });
+});
+
 describe('очередь разбора начинается с хвоста', () => {
   const many = (n: number, severity = 'low') =>
     Array.from({ length: n }, (_, i) => ({

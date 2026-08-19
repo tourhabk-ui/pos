@@ -28,6 +28,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { callAIDecisionDetailed } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -43,7 +44,7 @@ interface Finding {
   suggestion: string | null;
 }
 
-export type Verdict = 'real' | 'noise' | 'needs_info' | 'unjudged';
+export type Verdict = 'real' | 'fixed' | 'noise' | 'needs_info' | 'unjudged';
 
 export interface Judged {
   finding: Finding;
@@ -55,6 +56,7 @@ export interface Judged {
 
 const VERDICT_RU: Record<Verdict, string> = {
   real: 'по делу',
+  fixed: 'уже починено',
   noise: 'шум',
   needs_info: 'мало данных',
   unjudged: 'не разобрана',
@@ -65,17 +67,62 @@ const SYSTEM = `Ты разбираешь находки автоматичес�
 Твоя задача — отделить настоящие дефекты от шума сканера, а не пересказать находку.
 
 Отвечай РОВНО в таком виде, одной строкой:
-ВЕРДИКТ: real|noise|needs_info
+ВЕРДИКТ: real|fixed|noise|needs_info
 ПРИЧИНА: одно предложение, не длиннее двадцати слов
 
 real — дефект настоящий, его стоит чинить.
+fixed — код приложен, и в нём дефекта уже нет: находка устарела.
 noise — сканер ошибся: санкционированная конструкция, ложное совпадение, «X вместо X».
-needs_info — по тексту находки решить нельзя, нужен код вокруг.
+needs_info — решить нельзя: кода нет или приложенного куска не хватает.
 
-Не выдумывай подробностей, которых нет в находке. Если сомневаешься — needs_info.`;
+Если код приложен, суди ПО КОДУ, а не по тексту находки: находка старше кода.
+Не выдумывай подробностей, которых нет в находке и в коде. Сомневаешься — needs_info.`;
+
+/**
+ * Кусок кода к находке — из репозитория, распакованного на том же раннере.
+ *
+ * Без него судья разбирал ТЕКСТ находки, а не код: 19.08 обе «инъекции» в
+ * lib/auth/tourist-helpers получили «по делу» через несколько часов после
+ * того, как их починили, — параметр уже стоял в запросе. Там же все три
+ * «мало данных» оказались просьбами показать файл, лежавший в двух шагах.
+ *
+ * Путь берётся из находки, то есть из базы, — значит проверяется как чужой:
+ * только относительный, без выхода вверх, только известные расширения.
+ */
+const SNIPPET_RADIUS = 40;
+const SNIPPET_MAX = 6000;
+const READABLE = /\.(ts|tsx|js|jsx|sql|json|ya?ml|md)$/i;
+
+export function readSnippet(
+  filePath: string | null,
+  line: number | null,
+  read: (p: string) => string = (p) => readFileSync(join(process.cwd(), p), 'utf-8'),
+): string | null {
+  if (!filePath) return null;
+  const rel = filePath.trim();
+  if (!rel || rel.startsWith('/') || rel.includes('..') || !READABLE.test(rel)) return null;
+
+  let text: string;
+  try {
+    text = read(rel);
+  } catch {
+    // Файла нет — это ОТВЕТ, а не пустота: находка может указывать на
+    // удалённый файл, и судье полезно знать именно это.
+    return null;
+  }
+
+  const lines = text.split('\n');
+  if (line && line > 0) {
+    const from = Math.max(0, line - 1 - SNIPPET_RADIUS);
+    const to = Math.min(lines.length, line + SNIPPET_RADIUS);
+    return lines.slice(from, to).join('\n').slice(0, SNIPPET_MAX);
+  }
+  return lines.join('\n').slice(0, SNIPPET_MAX);
+}
 
 /** Один разбор. Провал — это `unjudged`, а не «шум». */
 export async function judgeOne(f: Finding): Promise<Judged> {
+  const snippet = readSnippet(f.file_path, f.line_number);
   // ПД перед отправкой во внешнюю модель чистятся всегда: находка может
   // процитировать строку кода с телефоном или почтой (152-ФЗ, см.
   // lib/agents/compliance). Дешевле почистить, чем доказывать, что не было.
@@ -86,6 +133,9 @@ export async function judgeOne(f: Finding): Promise<Judged> {
     `Заголовок: ${f.title}`,
     f.description ? `Описание: ${f.description}` : null,
     f.suggestion ? `Предложение сканера: ${f.suggestion}` : null,
+    // Код идёт ПОСЛЕ находки и назван кодом: находка старше него, и судья
+    // должен видеть, что именно с чем сверяет.
+    snippet ? `\nКОД СЕЙЧАС (${f.file_path}):\n${snippet}` : '\nКода нет: файл не приложен.',
   ].filter(Boolean).join('\n'));
 
   const messages: ChatMessage[] = [
@@ -114,7 +164,7 @@ export async function judgeOne(f: Finding): Promise<Judged> {
     };
   }
 
-  const v = /ВЕРДИКТ:\s*(real|noise|needs_info)/i.exec(answer);
+  const v = /ВЕРДИКТ:\s*(real|fixed|noise|needs_info)/i.exec(answer);
   const r = /ПРИЧИНА:\s*(.+)/i.exec(answer);
   if (!v) {
     // Ответ есть, но формы нет — это тоже «не разобрана». Догадываться о
@@ -242,7 +292,8 @@ async function judgeAll(findings: Finding[]): Promise<Judged[]> {
 /** Отчёт для GitHub Issue. Числа сверху, подробности ниже. */
 export function renderReport(judged: Judged[]): string {
   const by = (v: Verdict) => judged.filter((j) => j.verdict === v);
-  const real = by('real'), noise = by('noise'), info = by('needs_info'), un = by('unjudged');
+  const real = by('real'), fixed = by('fixed'), noise = by('noise'),
+    info = by('needs_info'), un = by('unjudged');
 
   const lines: string[] = [];
   lines.push(`Разобрано находок: **${judged.length}**`);
@@ -254,6 +305,7 @@ export function renderReport(judged: Judged[]): string {
   lines.push('| Вердикт | Сколько |');
   lines.push('|---|---|');
   lines.push(`| по делу | ${real.length} |`);
+  lines.push(`| уже починено | ${fixed.length} |`);
   lines.push(`| шум | ${noise.length} |`);
   lines.push(`| мало данных | ${info.length} |`);
   lines.push(`| не разобрана | ${un.length} |`);
@@ -276,7 +328,8 @@ export function renderReport(judged: Judged[]): string {
   }
 
   for (const [title, group] of [
-    ['По делу', real], ['Мало данных', info], ['Шум', noise], ['Не разобрано', un],
+    ['По делу', real], ['Мало данных', info], ['Уже починено', fixed],
+    ['Шум', noise], ['Не разобрано', un],
   ] as Array<[string, Judged[]]>) {
     if (group.length === 0) continue;
     lines.push(`## ${title}`);
