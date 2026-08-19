@@ -5,6 +5,7 @@
  * Идемпотентно — повторный вызов вернёт существующего пользователя.
  */
 
+import { verifyCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
 import bcrypt from 'bcryptjs';
 
@@ -13,8 +14,9 @@ const AGENT_NAME     = 'Ирина (YaKamchatka)';
 const TEMP_PASSWORD  = 'TempPass2026!';
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  if (url.searchParams.get('secret') !== process.env.CRON_SECRET) {
+  // Ручка заводит аккаунт с временным паролем — подбор секрета по времени
+  // ответа стоил бы учётной записи. Сравнение постоянное по времени.
+  if (!verifyCronSecret(req)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

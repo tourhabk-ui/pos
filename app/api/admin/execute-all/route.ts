@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
 import { executeInitiative } from '@/lib/agents/execution/initiative-executor';
 
@@ -34,8 +35,11 @@ async function notifyOwner(text: string): Promise<void> {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = req.nextUrl.searchParams.get('secret');
-  if (!secret || secret !== process.env.CRON_SECRET) {
+  // Сравнение секрета — постоянное по времени и в одном месте на платформу
+  // (lib/auth/cron). Наивное `!==` выходит из цикла на первом различии, и по
+  // времени ответа секрет подбирается посимвольно. Проверка тут не «на всякий
+  // случай»: ручка запускает ВСЕ одобренные инициативы разом.
+  if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
