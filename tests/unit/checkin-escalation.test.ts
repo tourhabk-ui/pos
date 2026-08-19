@@ -5,6 +5,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   decideEscalation,
   resolveControlTime,
@@ -87,5 +89,53 @@ describe('formatPositionText', () => {
   it('координаты форматируются, отсутствие — «неизвестно»', () => {
     expect(formatPositionText('53.0195', '158.6505')).toBe('53.01950° N, 158.65050° E');
     expect(formatPositionText(null, '158.65')).toBe('неизвестно');
+  });
+});
+
+/**
+ * Сбой на одном туристе не хоронит очередь.
+ *
+ * ── Чем это опасно именно здесь ────────────────────────────────────────────
+ *
+ * Сторож возвращения обходит просроченных туристов и поднимает эскалацию до
+ * МЧС. Выборка идёт `ORDER BY expected_return_at ASC` — то есть ПЕРВЫМ
+ * обрабатывается самый просроченный, тот, о ком тревожатся сильнее всех.
+ *
+ * Тело цикла не было защищено вовсе. Любое исключение — отправка в Telegram,
+ * запись уведомления, недоступная база — роняло весь обработчик, и очередь
+ * тех, кто стоял за сбойной записью, не обрабатывалась. Молча: до
+ * `recordCronRun` выполнение не доходило, и в реестре кронов прогон выглядел
+ * не упавшим, а НЕ ЗАПУСКАВШИМСЯ.
+ *
+ * Находка эволюции 19.08 («Нет try/catch вокруг sendTelegram»), первая
+ * разобранная после четырёх суток немоты решателя.
+ */
+describe('очередь эскалации переживает сбой на одном человеке', () => {
+  const SRC = readFileSync(join(process.cwd(), 'app/api/cron/checkin-watchdog/route.ts'), 'utf-8');
+
+  it('тело цикла обёрнуто в try/catch', () => {
+    const loop = SRC.slice(SRC.indexOf('for (const reg of rows)'));
+    expect(loop.slice(0, 200)).toMatch(/try\s*\{/);
+    expect(loop).toMatch(/catch \(err\)/);
+  });
+
+  it('пропущенные люди считаются и попадают в ответ', () => {
+    expect(SRC).toMatch(/let failed = 0/);
+    expect(SRC).toMatch(/failed,\s*ts:/);
+  });
+
+  it('прогон с пропущенными НЕ отчитывается успехом', () => {
+    // Иначе сторож ляжет наполовину, а реестр кронов покажет здоровье.
+    expect(SRC).toMatch(/failed > 0 \? 'failed' : 'success'/);
+    expect(SRC).toMatch(/success: failed === 0/);
+  });
+
+  it('отправка в Telegram не выпускает исключение наружу', () => {
+    // `.catch()` на промисе ловил только сетевой отказ: сам fetch может
+    // бросить синхронно на кривом базовом адресе, и тогда не выполнится
+    // следующая строка — запись шага эскалации.
+    const fn = SRC.slice(SRC.indexOf('async function sendTelegram'), SRC.indexOf('async function recordNotification'));
+    expect(fn).toMatch(/try\s*\{/);
+    expect(fn).toMatch(/catch/);
   });
 });
