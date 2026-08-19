@@ -10,7 +10,8 @@ import { extractTrackpoints, decimateTrackWithScale } from '@/lib/routes/track';
 import { accumulateRelief } from '@/lib/routes/relief';
 import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
-import { routeNavigability } from '@/lib/routes/navigability';
+import { routeNavigability, MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
+import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
 import { trackEvidence } from '@/lib/routes/track-evidence';
 import { asLinkKind, isPathPoint } from '@/lib/routes/link-kind';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
@@ -318,6 +319,73 @@ export async function GET(
       return { rows: [] };
     });
 
+    /**
+     * Линия маршрута — считается ОДИН раз: её просят и черта, и вычисленные
+     * этапы. Два разбора одной геометрии рядом — это две линии, которые рано
+     * или поздно разойдутся.
+     */
+    const routeTrack = (() => {
+      const { points } = decimateTrackWithScale(extractTrackpoints(
+        r.geometry as { type?: string; coordinates?: number[][] } | null,
+        payload,
+      ));
+      return points.length >= 2 ? points.map(p => [p.lat, p.lng] as [number, number]) : null;
+    })();
+
+    /** Строки путевых точек с координатами — их просят и черта, и этапы. */
+    const wpRowsWithCoords = waypointsResult.rows.filter(w => w.lat != null && w.lng != null);
+    const wpLinkKinds = wpRowsWithCoords.map(
+      w => asLinkKind((w as { link_kind?: string | null }).link_kind ?? null),
+    );
+
+    /**
+     * Вычисленные этапы (Ф3 плана).
+     *
+     * Считаются ТОЛЬКО когда путь не описан: у маршрута есть линия и меньше
+     * двух установленных путевых точек. Там, где связи есть, вычислять нечего —
+     * платформа уже знает путь, и находка добавила бы к знанию догадку.
+     *
+     * Результат уходит СВОИМ полем и не смешивается с `waypoints`. Он не
+     * участвует в суждении черты и не пишется в базу: точки, полученные из
+     * линии, не могут поверять эту же линию — поверка доказала бы сама себя
+     * (см. lib/routes/derived-stages).
+     */
+    let derivedStages: DerivedStagesResult | null = null;
+    if (routeTrack && wpLinkKinds.filter(isPathPoint).length < MIN_ROUTE_WAYPOINTS) {
+      const track = routeTrack.map(([lat, lng]) => ({ lat, lng }));
+      let latMin = Infinity, latMax = -Infinity, lngMin = Infinity, lngMax = -Infinity;
+      for (const t of track) {
+        if (t.lat < latMin) latMin = t.lat;
+        if (t.lat > latMax) latMax = t.lat;
+        if (t.lng < lngMin) lngMin = t.lng;
+        if (t.lng > lngMax) lngMax = t.lng;
+      }
+      // Рамка с запасом на порог: сузить её значит потерять кандидата,
+      // расширить — только посчитать лишнее.
+      const padLat = (NEAR_LINE_KM + 0.5) / 111.32;
+      const padLng = padLat / Math.max(0.2, Math.cos((Math.max(Math.abs(latMin), Math.abs(latMax)) * Math.PI) / 180));
+      const nearby = await query(
+        `SELECT p.id, p.name, p.lat::float8 AS lat, p.lng::float8 AS lng,
+                p.location_type AS "locationType"
+           FROM places p
+          WHERE p.lat BETWEEN $1 AND $2
+            AND p.lng BETWEEN $3 AND $4
+            AND p.is_visible = TRUE
+            AND p.merged_into_id IS NULL`,
+        [latMin - padLat, latMax + padLat, lngMin - padLng, lngMax + padLng],
+      ).catch((err: unknown) => {
+        // Ориентиры — украшение поверх честного «путь не описан». Их отказ не
+        // повод не открыть карточку: без них она такая же, какой была вчера.
+        logQueryFailure('derived_stages', err, id);
+        return { rows: [] };
+      });
+      derivedStages = deriveStages({
+        track,
+        places: (nearby.rows as Array<{ id: string; name: string; lat: number; lng: number; locationType: string | null }>),
+        establishedPlaceIds: waypointsResult.rows.map(w => String(w.place_id)),
+      });
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -403,19 +471,16 @@ export async function GET(
          * Правило одно на всю платформу — lib/routes/navigability.
          */
         navigability: (() => {
-          const { points } = decimateTrackWithScale(extractTrackpoints(
-            r.geometry as { type?: string; coordinates?: number[][] } | null,
-            payload,
-          ));
-          const track = points.length >= 2
-            ? points.map(p => [p.lat, p.lng] as [number, number])
-            : null;
-          const wpRows = waypointsResult.rows.filter(w => w.lat != null && w.lng != null);
+          const track = routeTrack;
+          const wpRows = wpRowsWithCoords;
           const wps = wpRows.map(w => ({ lat: Number(w.lat), lng: Number(w.lng) }));
           // Рода нужны черте, чтобы не считать противоречием центроид парка.
           const wpTypes = wpRows.map(w => (w as { location_type?: string | null }).location_type ?? null);
           // Род связи: «рядом» не описывает путь и в суждении не участвует.
-          const wpKinds = wpRows.map(w => asLinkKind((w as { link_kind?: string | null }).link_kind ?? null));
+          //
+          // Вычисленных этапов здесь НЕТ и быть не может: они получены из этой
+          // же линии, и поверка ими доказала бы сама себя.
+          const wpKinds = wpLinkKinds;
           return routeNavigability({
             // Улика считается по СЫРОЙ геометрии: высота лежит третьим числом,
             // а разбор в пары его отбрасывает. Прореженная линия для улики не
@@ -537,6 +602,12 @@ export async function GET(
           // Без этого карточка показывала краевой музей как этап похода.
           linkKind:     asLinkKind(w.link_kind as string | null),
         })),
+        /**
+         * Ориентиры, вычисленные по линии, — отдельным полем и с указанием
+         * происхождения у каждого. `null` — путь описан связями, вычислять
+         * было нечего.
+         */
+        derivedStages,
         offers,
         // Зонные алерты (общие для >=2 точек) схлопываются в один блок на
         // маршрут, у точек остаётся только своё — см. lib/routes/operational-alerts
