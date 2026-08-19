@@ -106,7 +106,8 @@ export async function GET(request: NextRequest) {
       const placeholders = routeIds.map((_, i) => `$${i + 1}`).join(',');
 
       let scheduleQuery = `
-        SELECT s.*, r.*, v.*, d.*, o.name as operator_name, o.phone as operator_phone, o.email as operator_email
+        SELECT s.*, r.*, v.*, d.*, o.name as operator_name, o.phone as operator_phone, o.email as operator_email,
+               o.rating as operator_rating
         FROM transfer_schedules s
         JOIN transfer_routes r ON s.route_id = r.id
         JOIN transfer_vehicles v ON s.vehicle_id = v.id
@@ -167,6 +168,7 @@ export async function GET(request: NextRequest) {
         languages: string[]; rating: string; total_trips: number;
         departure_time: string; arrival_time: string; price_per_person: string;
         available_seats: number; operator_name: string; operator_phone: string; operator_email: string;
+        operator_rating: string | null;
         created_at: Date; updated_at: Date;
       }>(scheduleQuery, queryParams);
 
@@ -232,9 +234,17 @@ export async function GET(request: NextRequest) {
           name: row.operator_name,
           phone: row.operator_phone,
           email: row.operator_email,
-          rating: 4.5 // Заглушка, нужно получать из таблицы операторов
+          // Рейтинг — из колонки operators.rating, а не из воздуха. Прежде
+          // здесь стояло 4.5 с пометкой «Заглушка»: турист видел оценку,
+          // которую никто не выставлял, и выбирал по ней перевозчика.
+          // Нет оценки — null, и пусть экран скажет «нет оценок».
+          rating: row.operator_rating != null ? parseFloat(row.operator_rating) : null,
         },
-        stops: [] // Заглушка, нужно получать из таблицы остановок
+        // Остановок нет в выдаче не потому, что их нет у рейса, а потому что
+        // источника для них здесь не запрошено. Пустой список читается как
+        // «остановок нет» — это не то же самое, но менять форму ответа ради
+        // честности нельзя без правки потребителей. Отмечено как долг.
+        stops: []
       }));
 
       const searchMetadata: SearchMetadata = {
