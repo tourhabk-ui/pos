@@ -1,11 +1,23 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/web-routes-census"
+    "https://vedarai.ru/api/cron/routes-audit",
+    "https://vedarai.ru/api/cron/places-no-track-census"
   ],
-  "bytes": 4000,
+  "bytes": 700,
+  "around": [
+    "no_geometry",
+    "no_waypoints",
+    "no_distance",
+    "no_difficulty",
+    "no_activity_type",
+    "short_description",
+    "breakdown"
+  ],
+  "aroundLines": 3,
+  "aroundHits": 1,
   "timeout": 120,
   "retries": 2,
   "retryDelay": 45,
-  "note": "Проба 87: долг из пробы 86 — перепись паутин. Там первый URL сжёг ретраи, ожидая выката, и ответа не осталось. Теперь код на проде, отвечает сразу. Прыжок между соседними вершинами >25 км = паутина; живые = видимые и не слитые.",
-  "run": 87
+  "note": "Проба 88: полный аудит по запросу владельца. Первый URL — счётчики маршрутов (merge-aware: живой = видимый и не слитый), второй — покрытие мест линиями на карте. Контекст вокруг ключей вместо простыни примеров. Оба роута на проде, ретраи только на случай окна перезапуска.",
+  "run": 88
 }
