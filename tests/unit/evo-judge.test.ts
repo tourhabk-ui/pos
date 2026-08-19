@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, type Judged } from '@/scripts/evo-judge';
+import { renderReport, selectForJudging, type Judged } from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -61,7 +61,87 @@ describe('провал разбора не выдаётся за вердикт'
   });
 
   it('потолок прогона назван вслух', () => {
-    expect(SRC).toMatch(/за потолком в 40 находок/);
+    expect(SRC).toMatch(/за потолком в \$\{limit\}/);
+  });
+});
+
+/**
+ * Хвост, который не разбирают никогда.
+ *
+ * 18 и 19 августа отчёт вторые сутки подряд кончался строкой «ещё 8 находок
+ * не разбирались». Те же восемь: прод отдаёт находки в неизменном порядке
+ * (важность, затем дата), а разбор брал ровно первые сорок. Это не «не
+ * успели» — это множество, до которого очередь не дойдёт никогда, и его
+ * содержимое неизвестно по построению.
+ */
+describe('хвост находок не остаётся вечным', () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `f${i}`, category: 'bug', severity: 'low', file_path: null,
+      line_number: null, title: `находка ${i}`, description: null, suggestion: null,
+    }));
+
+  it('всё влезает в потолок — не пропускается ничего', () => {
+    const { picked, skipped } = selectForJudging(many(48), 100, 0);
+    expect(picked).toHaveLength(48);
+    expect(skipped).toHaveLength(0);
+  });
+
+  it('при переполнении начало списка разбирается всегда', () => {
+    // Порядок с прода — critical впереди. Ротация не имеет права отодвигать
+    // важное ради равномерности.
+    const all = many(200);
+    for (const offset of [0, 1, 7, 199]) {
+      const { picked } = selectForJudging(all, 100, offset);
+      expect(picked.slice(0, 75).map((f) => f.id)).toEqual(all.slice(0, 75).map((f) => f.id));
+    }
+  });
+
+  it('окно едет: за несколько прогонов хвост разбирается весь', () => {
+    const all = many(200);
+    const seen = new Set<string>();
+    for (let run = 0; run < 6; run++) {
+      for (const f of selectForJudging(all, 100, run * 25).picked) seen.add(f.id);
+    }
+    expect(seen.size).toBe(all.length);
+  });
+
+  it('один и тот же прогон пропускает одно и то же — сдвиг детерминирован', () => {
+    const all = many(200);
+    expect(selectForJudging(all, 100, 3).skipped.map((f) => f.id))
+      .toEqual(selectForJudging(all, 100, 3).skipped.map((f) => f.id));
+  });
+
+  it('разобранное не задваивается', () => {
+    const { picked } = selectForJudging(many(200), 100, 42);
+    expect(new Set(picked.map((f) => f.id)).size).toBe(picked.length);
+  });
+
+  it('пропущенное и разобранное вместе дают весь список', () => {
+    const all = many(137);
+    const { picked, skipped } = selectForJudging(all, 40, 11);
+    expect(picked.length + skipped.length).toBe(all.length);
+    expect(new Set([...picked, ...skipped].map((f) => f.id)).size).toBe(all.length);
+  });
+
+  it('потолок совпадает с тем, сколько находок вообще приходит с прода', () => {
+    // Прод отдаёт до ста (LIMIT 100 в /api/cron/evo-issues). Потолок разбора
+    // ниже этого числа означает, что часть находок не увидит никто.
+    const api = readFileSync(join(process.cwd(), 'app/api/cron/evo-issues/route.ts'), 'utf-8');
+    const apiLimit = Number(/LIMIT\s+(\d+)/.exec(api)?.[1]);
+    const judgeDefault = Number(/EVO_JUDGE_LIMIT \?\? '', 10\);\s*\n\s*return[^;]*?:\s*(\d+)/.exec(SRC)?.[1]);
+    expect(apiLimit).toBeGreaterThan(0);
+    expect(judgeDefault).toBeGreaterThanOrEqual(apiLimit);
+  });
+
+  it('сдвиг окна берётся из прогона, а не из константы', () => {
+    // Без номера прогона окно стоит на месте, и «ротация» — только на словах.
+    expect(WF).toMatch(/EVO_JUDGE_OFFSET:\s*\$\{\{\s*github\.run_number\s*\}\}/);
+  });
+
+  it('падение на одной находке не уносит остальные', () => {
+    expect(SRC).toMatch(/judgeOne\(f\)\.catch/);
+    expect(SRC).toMatch(/разбор упал/);
   });
 });
 
