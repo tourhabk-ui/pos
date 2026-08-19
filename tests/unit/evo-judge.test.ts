@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderReport, selectForJudging, type Judged } from '@/scripts/evo-judge';
+import { renderReport, selectForJudging, readSnippet, type Judged } from '@/scripts/evo-judge';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/evo-judge.ts'), 'utf-8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/evo-judge.yml'), 'utf-8');
@@ -74,10 +74,73 @@ describe('провал разбора не выдаётся за вердикт'
  * успели» — это множество, до которого очередь не дойдёт никогда, и его
  * содержимое неизвестно по построению.
  */
-describe('хвост находок не остаётся вечным', () => {
-  const many = (n: number) =>
+/**
+ * Судья видит код, а не только текст находки.
+ *
+ * 19.08 обе «инъекции» в lib/auth/tourist-helpers получили «по делу» через
+ * несколько часов после того, как их починили: в запросе уже стоял параметр
+ * `INTERVAL '1 day' * $2`. Судья этого не знал — ему передавали только текст
+ * находки. Там же все три «мало данных» оказались просьбами показать файл,
+ * который лежал на том же раннере, распакованный.
+ *
+ * Находка старше кода всегда. Значит судить надо по коду.
+ */
+describe('судья судит по коду, а не по тексту находки', () => {
+  it('кусок кода уходит в промпт и назван кодом', () => {
+    expect(SRC).toMatch(/КОД СЕЙЧАС/);
+    expect(SRC).toMatch(/readSnippet\(f\.file_path, f\.line_number\)/);
+  });
+
+  it('отсутствие кода названо прямо, а не пропущено молча', () => {
+    // Пустое место читается как «кода не нужно». Судья должен знать разницу
+    // между «код показан» и «кода нет».
+    expect(SRC).toMatch(/Кода нет: файл не приложен/);
+  });
+
+  it('промпт велит судить по коду, потому что находка старше', () => {
+    expect(SRC).toMatch(/суди ПО КОДУ/);
+    expect(SRC).toMatch(/находка старше кода/);
+  });
+
+  it('«уже починено» — отдельный вердикт, не «шум» и не «по делу»', () => {
+    // Починенное и выдуманное — разные вещи. Свалить их в «шум» значит
+    // потерять счёт тому, что эволюция действительно нашла и мы закрыли.
+    expect(SRC).toMatch(/fixed: 'уже починено'/);
+    expect(SRC).toMatch(/\| уже починено \|/);
+    const md = renderReport([
+      { finding: finding('Инъекция в интервал'), verdict: 'fixed', reason: 'в коде параметр $2' },
+    ]);
+    expect(md).toMatch(/\| уже починено \| 1 \|/);
+    expect(md).toMatch(/## Уже починено/);
+    expect(md).not.toMatch(/## Шум/);
+  });
+
+  it('путь из базы проверяется как чужой', () => {
+    const read = () => 'не должно быть прочитано';
+    expect(readSnippet('../../etc/passwd', 1, read)).toBeNull();
+    expect(readSnippet('/etc/passwd', 1, read)).toBeNull();
+    expect(readSnippet('lib/a.ts/../../../x.ts', 1, read)).toBeNull();
+    expect(readSnippet('.env.local', 1, read)).toBeNull();
+    expect(readSnippet('secrets.pem', 1, read)).toBeNull();
+  });
+
+  it('кусок берётся вокруг строки находки, а не с начала файла', () => {
+    const file = Array.from({ length: 500 }, (_, i) => `строка ${i}`).join('\n');
+    const out = readSnippet('lib/a.ts', 300, () => file);
+    expect(out).toContain('строка 299');
+    expect(out).not.toContain('строка 100');
+  });
+
+  it('нет файла — нет куска, и это не роняет разбор', () => {
+    expect(readSnippet('lib/нет-такого.ts', 10, () => { throw new Error('ENOENT'); })).toBeNull();
+    expect(readSnippet(null, null, () => 'x')).toBeNull();
+  });
+});
+
+describe('очередь разбора начинается с хвоста', () => {
+  const many = (n: number, severity = 'low') =>
     Array.from({ length: n }, (_, i) => ({
-      id: `f${i}`, category: 'bug', severity: 'low', file_path: null,
+      id: `f${i}`, category: 'bug', severity, file_path: null,
       line_number: null, title: `находка ${i}`, description: null, suggestion: null,
     }));
 
@@ -87,20 +150,34 @@ describe('хвост находок не остаётся вечным', () => {
     expect(skipped).toHaveLength(0);
   });
 
-  it('при переполнении начало списка разбирается всегда', () => {
-    // Порядок с прода — critical впереди. Ротация не имеет права отодвигать
-    // важное ради равномерности.
+  it('при переполнении первым идёт конец списка — кто ждал дольше всех', () => {
+    // 18.08 за потолком осталось 3 находки, 19.08 — уже 8, и среди них ждала
+    // с 16-го настоящая утечка секрета. Решение владельца: начинать с хвоста.
+    // Проверяется при ЛЮБОМ сдвиге: правило, верное только при нулевом
+    // сдвиге, — правило на словах, а прод передаёт номер прогона.
     const all = many(200);
-    for (const offset of [0, 1, 7, 199]) {
+    for (const offset of [0, 1, 13, 97, 1234]) {
       const { picked } = selectForJudging(all, 100, offset);
-      expect(picked.slice(0, 75).map((f) => f.id)).toEqual(all.slice(0, 75).map((f) => f.id));
+      expect(picked[0].id).toBe(all[all.length - 1].id);
+      expect(picked[1].id).toBe(all[all.length - 2].id);
     }
   });
 
-  it('окно едет: за несколько прогонов хвост разбирается весь', () => {
+  it('critical и high не встают в общую очередь', () => {
+    // Иначе «сначала старое» однажды отодвинет свежую инъекцию за сотню
+    // заметок про чужие анонсы моделей.
+    const severe = many(5, 'critical').map((f) => ({ ...f, id: `sev${f.id}` }));
+    const all = [...severe, ...many(300)];
+    for (const offset of [0, 1, 17, 299]) {
+      const ids = selectForJudging(all, 100, offset).picked.map((f) => f.id);
+      for (const s2 of severe) expect(ids).toContain(s2.id);
+    }
+  });
+
+  it('окно едет: за несколько прогонов виден весь список', () => {
     const all = many(200);
     const seen = new Set<string>();
-    for (let run = 0; run < 6; run++) {
+    for (let run = 0; run < 8; run++) {
       for (const f of selectForJudging(all, 100, run * 25).picked) seen.add(f.id);
     }
     expect(seen.size).toBe(all.length);

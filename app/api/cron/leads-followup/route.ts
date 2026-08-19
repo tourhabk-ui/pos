@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { getCronSecret } from '@/lib/auth/cron';
+import { timingSafeCompare } from '@/lib/security/timing-safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,14 +68,17 @@ export async function GET(request: NextRequest) {
   // ── Проверка секрета ─────────────────────────────────────────────────────
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
-    return NextResponse.json(
-      { error: 'CRON_SECRET not configured on server' },
-      { status: 500 }
-    );
+    // Наружу — общий отказ: чужому знать состав переменных окружения незачем.
+    // Внутрь — причина: ненастроенный секрет означает, что followup лидов не
+    // работает вовсе, и молчаливый 500 оставил бы это без объяснения.
+    console.error('[leads-followup] CRON_SECRET не настроен: крон не выполнится');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const provided = getCronSecret(request) ?? '';
-  if (provided !== cronSecret) {
+  // Посимвольное сравнение отвечает тем быстрее, чем раньше расходятся строки,
+  // и по времени ответа секрет подбирается. В соседних крон-роутах уже
+  // timingSafeCompare — здесь оставалось обычное `!==`.
+  if (!timingSafeCompare(getCronSecret(request) ?? '', cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
