@@ -286,16 +286,25 @@ export interface PartnerAdminRow {
 // Admin Content: Reviews
 // ──────────────────────────────────────────────────────────
 
+/**
+ * Строка админской модерации отзывов — из `reviews`.
+ *
+ * `reviews` держит отзывы о МАРШРУТАХ и МЕСТАХ: её `tour_id` это uuid с
+ * `ark_id` маршрута, а `place_id` — ссылка на `places.ark_id` (миграция 162).
+ * Отзывы о ТУРАХ живут в `operator_tour_reviews`.
+ */
 export interface ReviewAdminRow {
   id: string;
   user_id: string;
+  /** ark_id МАРШРУТА, вопреки имени колонки. */
   tour_id: string;
   rating: string;
   comment: string | null;
   is_verified: boolean;
   created_at: Date;
   user_name: string | null;
-  tour_name: string | null;
+  /** Название маршрута или места, о котором отзыв. */
+  subject_name: string | null;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -862,16 +871,29 @@ export interface OpScheduleInsertRow {
 // Operator — Reviews List
 // ──────────────────────────────────────────────────────────
 
+/**
+ * Строка списка отзывов оператора — из `operator_tour_reviews`.
+ *
+ * Не из `reviews`: там tour_id объявлен uuid, а operator_tours.id — bigint, и
+ * соединение падает целиком (измерено переписью 19.08). Кабинет оператора не
+ * показывал отзывы ни дня.
+ */
 export interface OpReviewListRow {
   id: string;
   tour_id: string;
   tour_name: string;
-  user_id: string;
+  /** Может отсутствовать: отзыв оставляют и без учётной записи. */
+  user_id: string | null;
+  /** Имя автора из самой записи, а не из `users`. */
   user_name: string;
-  user_email: string;
   rating: number;
   comment: string | null;
-  is_verified: boolean;
+  /**
+   * Скрыт модерацией. Не «проверен»: отзывы о турах публикуются сразу, и
+   * называть проверенным то, что никто не проверял, — соврать в поле.
+   */
+  is_hidden: boolean;
+  operator_reply: string | null;
   created_at: Date;
   updated_at: Date;
   photos: string[];

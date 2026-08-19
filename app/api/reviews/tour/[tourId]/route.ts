@@ -60,10 +60,19 @@ export async function GET(
       id: number; author_name: string; author_city: string | null;
       rating: number; comment: string; trip_date: string | null;
       photos: string[] | null; created_at: string;
+      operator_reply: string | null; operator_reply_at: string | null;
     }>(
-      `SELECT id, author_name, author_city, rating, comment, trip_date, photos, created_at
-         FROM operator_tour_reviews
+      // is_hidden читается через to_jsonb: колонка приходит миграцией 878, а
+      // код деплоится атомарно. Нет колонки — NULL — COALESCE даёт FALSE, то
+      // есть прежнее поведение «показываем всё». Тот же приём, что спас
+      // карточку маршрута 18.08, когда чтение новой колонки уехало раньше
+      // миграции и страница перестала открываться.
+      `SELECT id, author_name, author_city, rating, comment, trip_date, photos, created_at,
+              to_jsonb(r)->>'operator_reply' AS operator_reply,
+              to_jsonb(r)->>'operator_reply_at' AS operator_reply_at
+         FROM operator_tour_reviews r
         WHERE tour_id = $1
+          AND COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) = FALSE
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3`,
       [id, limit, offset]
@@ -72,8 +81,12 @@ export async function GET(
     const summaryResult = await query<{
       total_reviews: string; avg_rating: string | null;
     }>(
+      // Счёт и средняя — по ВИДИМЫМ: иначе скрытый отзыв продолжит тянуть
+      // оценку тура вниз, оставаясь невидимым, и оператор не поймёт, за что.
       `SELECT COUNT(*) AS total_reviews, AVG(rating) AS avg_rating
-         FROM operator_tour_reviews WHERE tour_id = $1`,
+         FROM operator_tour_reviews r
+        WHERE tour_id = $1
+          AND COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) = FALSE`,
       [id]
     );
     const summary = summaryResult.rows[0];
@@ -180,8 +193,15 @@ export async function POST(
     // которые никто не пересчитывает, врут (087 записала «31 отзыв» при трёх).
     await query(
       `UPDATE operator_tours SET
-         rating = (SELECT ROUND(AVG(rating)::numeric, 1) FROM operator_tour_reviews WHERE tour_id = $1),
-         review_count = (SELECT COUNT(*) FROM operator_tour_reviews WHERE tour_id = $1),
+         -- Денормализованные рейтинг и счёт тура тоже считаются по ВИДИМЫМ:
+         -- иначе скрытый отзыв продолжал бы влиять на витрину, а оператор не
+         -- понимал бы, за что. Три места должны считать одно и то же.
+         rating = (SELECT ROUND(AVG(rating)::numeric, 1) FROM operator_tour_reviews r
+                    WHERE r.tour_id = $1
+                      AND COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) = FALSE),
+         review_count = (SELECT COUNT(*) FROM operator_tour_reviews r
+                          WHERE r.tour_id = $1
+                            AND COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) = FALSE),
          updated_at = NOW()
        WHERE id = $1`,
       [id]

@@ -37,25 +37,38 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // Build query
+    /**
+     * Отзывы о туре живут в operator_tour_reviews, а не в `reviews`.
+     *
+     * Прежний запрос соединял `reviews` с `operator_tours` и падал ВСЕГДА:
+     * reviews.tour_id объявлен uuid, operator_tours.id — bigint, оператора
+     * uuid = bigint в Postgres нет (измерено переписью 19.08). То есть
+     * кабинет оператора не показывал отзывы ни дня.
+     *
+     * Публичный путь перевели на правильную таблицу ещё 06.08; модерацию
+     * тогда не перевели, и она осталась на нерабочей стороне.
+     *
+     * Автор берётся из самой записи (author_name), а не из `users`: отзыв
+     * может быть оставлен без учётной записи, и INNER JOIN на users выкинул
+     * бы такие отзывы молча. Фото лежат колонкой photos — отдельная связка
+     * review_assets к этой таблице не относится.
+     */
     let queryStr = `
       SELECT 
         r.id,
         r.tour_id,
         t.title as tour_name,
         r.user_id,
-        u.name as user_name,
-        u.email as user_email,
+        r.author_name as user_name,
         r.rating,
         r.comment,
-        r.is_verified,
+        COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE) as is_hidden,
+        to_jsonb(r)->>'operator_reply' as operator_reply,
         r.created_at,
-        r.updated_at,
-        COALESCE(array_agg(DISTINCT a.url) FILTER (WHERE a.url IS NOT NULL), '{}') as photos
-      FROM reviews r
+        COALESCE(to_jsonb(r)->>'updated_at', r.created_at::text) as updated_at,
+        COALESCE(r.photos, '{}') as photos
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
-      JOIN users u ON r.user_id = u.id
-      LEFT JOIN review_assets ra ON r.id = ra.review_id
-      LEFT JOIN assets a ON ra.asset_id = a.id
       WHERE t.operator_id = $1
     `;
 
@@ -77,7 +90,6 @@ export async function GET(request: NextRequest) {
     }
 
     queryStr += `
-      GROUP BY r.id, t.id, u.id
       ORDER BY r.created_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
@@ -88,7 +100,7 @@ export async function GET(request: NextRequest) {
     // Get total count
     let countQuery = `
       SELECT COUNT(*) 
-      FROM reviews r
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1
     `;
@@ -115,10 +127,12 @@ export async function GET(request: NextRequest) {
       tourName: row.tour_name,
       userId: row.user_id,
       userName: row.user_name,
-      userEmail: row.user_email,
       rating: row.rating,
       comment: row.comment,
-      isVerified: row.is_verified,
+      // «Скрыт модерацией», а не «проверен»: отзывы о турах публикуются сразу,
+      // и называть проверенным то, что никто не проверял, — соврать в поле.
+      isHidden: row.is_hidden,
+      operatorReply: row.operator_reply,
       photos: row.photos,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -134,7 +148,7 @@ export async function GET(request: NextRequest) {
         COUNT(CASE WHEN r.rating = 3 THEN 1 END) as three_stars,
         COUNT(CASE WHEN r.rating = 2 THEN 1 END) as two_stars,
         COUNT(CASE WHEN r.rating = 1 THEN 1 END) as one_star
-      FROM reviews r
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1`,
       [operatorId]

@@ -36,8 +36,11 @@ export async function POST(
 
     // Проверка владения на уровне SQL: оператор может отвечать только на отзывы по своим турам.
     const checkResult = await query(
+      // operator_tour_reviews, а не `reviews`: там tour_id объявлен uuid, а
+      // operator_tours.id — bigint, и соединение падало целиком. Ответить на
+      // отзыв было нельзя ни разу.
       `SELECT r.id
-       FROM reviews r
+       FROM operator_tour_reviews r
        JOIN operator_tours t ON r.tour_id = t.id
        JOIN partners p ON t.operator_id = p.id
        WHERE r.id = $1 AND p.user_id = $2 AND t.deleted_at IS NULL
@@ -54,8 +57,8 @@ export async function POST(
 
     // Повторяем ownership-проверку в UPDATE для защиты от race-condition.
     const result = await query(
-      `UPDATE reviews r
-       SET operator_reply = $1, operator_reply_at = NOW()
+      `UPDATE operator_tour_reviews r
+       SET operator_reply = $1, operator_reply_at = NOW(), updated_at = NOW()
        FROM operator_tours t
        JOIN partners p ON t.operator_id = p.id
        WHERE r.id = $2

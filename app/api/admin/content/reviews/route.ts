@@ -40,19 +40,35 @@ export async function GET(request: NextRequest) {
     const countResult = await query<CountRow>(
       `SELECT COUNT(*) as count FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id
-       LEFT JOIN operator_tours t ON r.tour_id = t.id
        ${whereClause}`,
       params
     );
 
     const reviewsResult = await query<ReviewAdminRow>(
+      /**
+       * Таблица `reviews` держит отзывы о МАРШРУТАХ и МЕСТАХ, а не о турах.
+       *
+       * Её `tour_id` — uuid и хранит `ark_id` маршрута: так его читает
+       * карточка маршрута (`rv.tour_id::text` против `kamchatka_routes.ark_id`),
+       * а `place_id` завела миграция 162 как ссылку на `places.ark_id`.
+       * Соединение с `operator_tours` (id bigint) падало целиком — админская
+       * модерация не открывалась ни разу.
+       *
+       * Отзывы о ТУРАХ живут отдельно, в `operator_tour_reviews`, и
+       * модерируются из кабинета оператора.
+       *
+       * Поле называется `subject_name`, а не `tour_name`: имя обязано
+       * описывать содержимое, иначе следующий читатель снова соединит его с
+       * турами — как и было.
+       */
       `SELECT
          r.id, r.user_id, r.tour_id, r.rating, r.comment, r.is_verified, r.created_at,
          u.name as user_name,
-         t.title as tour_name
+         COALESCE(kr.title, pl.name) as subject_name
        FROM reviews r
        LEFT JOIN users u ON r.user_id = u.id
-       LEFT JOIN operator_tours t ON r.tour_id = t.id
+       LEFT JOIN kamchatka_routes kr ON kr.ark_id = r.tour_id
+       LEFT JOIN places pl ON pl.ark_id = r.place_id
        ${whereClause}
        ORDER BY r.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

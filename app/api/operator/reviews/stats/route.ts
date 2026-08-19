@@ -50,9 +50,11 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE rating = 1) as one_star,
         COUNT(*) FILTER (WHERE operator_reply IS NOT NULL) as replied,
         COUNT(*) FILTER (WHERE operator_reply IS NULL) as pending_reply,
-        COUNT(*) FILTER (WHERE is_verified = true) as verified,
+        -- «Скрытых модерацией», а не «проверенных»: отзывы о турах
+        -- публикуются сразу, и слова «проверен» тут не за что сказать.
+        COUNT(*) FILTER (WHERE COALESCE((to_jsonb(r)->>'is_hidden')::boolean, FALSE)) as hidden,
         COUNT(*) FILTER (WHERE created_at >= $2) as recent_reviews
-      FROM reviews r
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL`,
       [operatorId, startDate]
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
         AVG(r.rating) as avg_rating,
         COUNT(*) FILTER (WHERE r.created_at >= $2) as recent_count
       FROM operator_tours t
-      LEFT JOIN reviews r ON t.id = r.tour_id
+      LEFT JOIN operator_tour_reviews r ON t.id = r.tour_id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL
       GROUP BY t.id, t.title
       HAVING COUNT(r.id) > 0
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest) {
         DATE(r.created_at) as date,
         COUNT(*) as reviews_count,
         AVG(r.rating) as avg_rating
-      FROM reviews r
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL
         AND r.created_at >= $2
@@ -102,10 +104,11 @@ export async function GET(request: NextRequest) {
         r.created_at,
         t.id as tour_id,
         t.title as tour_name,
-        u.name as user_name
-      FROM reviews r
+        -- Имя из самой записи: отзыв оставляют и без учётной записи, а
+        -- INNER JOIN на users выкинул бы такие отзывы молча.
+        r.author_name as user_name
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
-      JOIN users u ON r.user_id = u.id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL
         AND r.rating <= 3
         AND r.operator_reply IS NULL
@@ -120,7 +123,7 @@ export async function GET(request: NextRequest) {
         AVG(EXTRACT(EPOCH FROM (operator_reply_at - created_at))/3600) as avg_response_hours,
         MIN(EXTRACT(EPOCH FROM (operator_reply_at - created_at))/3600) as min_response_hours,
         MAX(EXTRACT(EPOCH FROM (operator_reply_at - created_at))/3600) as max_response_hours
-      FROM reviews r
+      FROM operator_tour_reviews r
       JOIN operator_tours t ON r.tour_id = t.id
       WHERE t.operator_id = $1 AND t.deleted_at IS NULL
         AND operator_reply_at IS NOT NULL
