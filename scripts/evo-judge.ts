@@ -188,9 +188,13 @@ async function main(): Promise<void> {
     throw new Error('Использование: evo-judge.ts <находки.json> <отчёт.md>');
   }
   // Отсутствие ВСЕХ ключей — это отказ, а не пустой разбор. Водопаду решателя
-  // хватает любого из путей: Anthropic, DeepSeek или Qwen.
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.DEEPSEEK_API_KEY && !process.env.DASHSCOPE_API_KEY) {
-    throw new Error('Нет ни одного ключа модели (ANTHROPIC/DEEPSEEK/DASHSCOPE): разбирать нечем. Пустой отчёт был бы враньём.');
+  // хватает ЛЮБОГО из путей, и OpenRouter в этом списке первый по порядку
+  // вызова — но до 19.08 его тут не было. Значит, заведя только его, владелец
+  // получил бы отказ «нет ни одного ключа» при живом ключе: проверка знала не
+  // те имена, что зовёт водопад.
+  const KEYS = ['OPENROUTER_API_KEY', 'OR_API_KEY', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'DASHSCOPE_API_KEY'];
+  if (!KEYS.some((k) => process.env[k])) {
+    throw new Error(`Нет ни одного ключа модели (${KEYS.join('/')}): разбирать нечем. Пустой отчёт был бы враньём.`);
   }
 
   const raw = JSON.parse(readFileSync(inPath, 'utf-8')) as { issues?: Finding[] };
