@@ -192,6 +192,16 @@ export const CRON_REGISTRY: CronEntry[] = [
 
   // ── Качество ─────────────────────────────────────────────────────────────
   {
+    // Сайт оператора — часть ручательства платформы за него (решение владельца
+    // 19.08, issue #1275). Проверка внешняя и невторгающаяся: сертификат,
+    // заголовки, раскрытие версий, открытые служебные файлы. Границы — в
+    // lib/security/site-audit.ts.
+    key: 'operator-site-audit', label: 'Operator Site Audit',
+    description: 'Внешняя поверхность сайтов операторов: сертификат, заголовки, раскрытие.',
+    workflow: 'cron-operator-site-audit.yml', cron: '30 3 * * *', schedule: 'ежедневно · 03:30 UTC',
+    everyMin: DAY, tier: 'quality', agentId: 'operator-site-audit', triggerable: false,
+  },
+  {
     // Сверено с кодом 24.07: cron-kuzmich-eval.yml дёргает /api/cron/kuzmich-eval,
     // который пишет agent_id 'kuzmich-eval' (и 'kuzmich-eval-live' при source=live).
     // До этого здесь стоял agentId 'kuzmich-redteam' — телеметрия ДРУГОЙ джобы
@@ -399,6 +409,10 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'ssr-sentinel': 'unknown',
 
   // ── Качество ────────────────────────────────────────────────────────────
+  // Реестр операторов с сайтами не пустеет сам по себе: ноль проверенных
+  // означает, что очередь не набралась — то есть запрос к базе не отработал
+  // или колонка website опустела. Оба случая — обрыв, а не тишина.
+  'operator-site-audit': 'broken',
   'kuzmich-eval': 'unknown',
   'kuzmich-redteam': 'unknown',
   // Ноль разобранных находок означает, что сканеру нечего было предъявить —
