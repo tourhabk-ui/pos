@@ -55,6 +55,21 @@ ALTER TABLE route_waypoints ADD COLUMN IF NOT EXISTS link_kind_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_route_waypoints_link_kind ON route_waypoints (link_kind);
 
+-- ── Почему идентификаторы сверяются как ТЕКСТ ─────────────────────────────
+--
+-- Первая редакция сверяла `rw.route_id = m.route_id::uuid` и падала на проде
+-- шесть раз подряд: «operator does not exist: text = uuid». Причина — 167
+-- завела таблицу через `CREATE TABLE IF NOT EXISTS`, а таблица уже была, и
+-- объявленные там `UUID` до прода не доехали: на проде `route_waypoints`
+-- держит идентификаторы текстом. Заодно `places.id` — тоже TEXT, а
+-- `kamchatka_routes.id` — UUID, так что «одинаковый id» в этой схеме живёт в
+-- двух разных типах одновременно.
+--
+-- Приводить к `uuid` нельзя: `places.id` — свободный текст, и первая же
+-- запись не-uuid уронит всю миграцию на приведении. Текст же принимает обе
+-- стороны, а `uuid::text` даёт канонический нижний регистр — тот самый, в
+-- котором записаны литералы ниже и в котором 167 положила свои значения.
+
 -- Точки пути: явные пары из миграций 653-657.
 UPDATE route_waypoints rw
    SET link_kind = 'waypoint', link_kind_at = NOW()
@@ -298,8 +313,8 @@ UPDATE route_waypoints rw
     ('7ebabb24-87c2-46e2-8ac2-41f998071a97','6f9e8d56-f772-465a-bdf0-7524e5872a6e'),  -- 657
     ('f64c4438-c160-4e8e-9519-01092d20277f','6f9e8d56-f772-465a-bdf0-7524e5872a6e')  -- 657
   ) AS m(route_id, place_id)
- WHERE rw.route_id = m.route_id::uuid
-   AND rw.place_id = m.place_id::uuid
+ WHERE rw.route_id::text = m.route_id
+   AND rw.place_id::text = m.place_id
    AND rw.link_kind = 'unknown';
 
 -- Рядом: то, что воспроизводит предикат миграции 167 — место в 15 км от
@@ -309,8 +324,8 @@ UPDATE route_waypoints rw
    SET link_kind = 'nearby', link_kind_at = NOW()
   FROM kamchatka_routes r, places p
  WHERE rw.link_kind = 'unknown'
-   AND r.id = rw.route_id
-   AND p.id = rw.place_id
+   AND r.id::text = rw.route_id::text
+   AND p.id::text = rw.place_id::text
    AND r.lat IS NOT NULL AND r.lng IS NOT NULL
    AND p.lat IS NOT NULL AND p.lng IS NOT NULL
    AND (6371 * acos(
