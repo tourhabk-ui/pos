@@ -35,7 +35,15 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, а не 15. Прогон 19.08 умер на скачивании Chromium через пятнадцать
+    # минут: установка браузера с зависимостями и без того идёт минуты, а
+    # следом ждётся выкладка прода. GitHub показал это как «cancelled» — то
+    # есть как чьё-то решение, — и проверка карточки маршрута, ради которой
+    # прогон и затевался, не выполнилась ни разу.
+    #
+    # Урок тот же, что с переписью 17.08: таймаут джоба обязан быть БОЛЬШЕ
+    # суммы того, что джоб ждёт, иначе «отменено» маскирует нехватку времени.
+    timeout-minutes: 25
 
     env:
       BASE_URL: https://vedarai.ru
@@ -55,7 +63,9 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        # Только браузер, без системных зависимостей: на ubuntu-latest они уже
+        # стоят, а `--with-deps` тянет apt-установку, которая и растянула шаг.
+        run: npx playwright install chromium
 
       - name: Wait for prod to answer
         run: |
