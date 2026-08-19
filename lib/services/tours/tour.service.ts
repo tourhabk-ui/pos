@@ -310,7 +310,8 @@ export const tourService = {
            WHERE booking_status IN ('confirmed', 'completed')
          ), 0) AS average_booking_value
        FROM operator_bookings
-       WHERE tour_id = $1 AND deleted_at IS NULL`,
+       -- operator_bookings адресует тур колонкой operator_tour_id (040).
+       WHERE operator_tour_id = $1 AND deleted_at IS NULL`,
       [id]
     );
 
@@ -321,6 +322,19 @@ export const tourService = {
          COUNT(*) FILTER (WHERE is_verified = TRUE)::int AS approved_reviews,
          COUNT(*) FILTER (WHERE is_verified = FALSE)::int AS pending_reviews
        FROM reviews
+       -- ЗАПРОС НЕ РАБОТАЕТ и не работал никогда: reviews.tour_id объявлен
+       -- uuid (измерено переписью 19.08), а $1 здесь — id тура, bigint.
+       -- Оператора uuid = bigint в Postgres нет, запрос падает целиком.
+       --
+       -- Не чинится здесь намеренно. Отзывы о турах УЖЕ имеют свою таблицу:
+       -- operator_tour_reviews (tour_id bigint, миграция 087), и по ней
+       -- работает карточка тура. Добавить туру третье место для отзывов
+       -- значило бы завести ещё одно расхождение смысла вместо того, чтобы
+       -- убрать существующее.
+       --
+       -- Правильная починка — перевести операторскую и админскую модерацию на
+       -- operator_tour_reviews, добавив ей поля модерации (is_verified,
+       -- operator_reply). Это отдельная работа, а не правка одной строки.
        WHERE tour_id = $1`,
       [id]
     );
