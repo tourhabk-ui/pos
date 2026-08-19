@@ -71,6 +71,15 @@ jobs:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
         run: npx tsx scripts/evo-judge.ts /tmp/findings.json /tmp/report.md
 
+      # Прогон, разобравший НОЛЬ находок, — это отказ, а не работа.
+      #
+      # 16, 18 и 19 августа отчёт выходил «41 из 41 не разобрана», а прогон
+      # при этом числился успешным: скрипт отработал, issue завелась, джоб
+      # зелёный. Четверо суток решатель молчал, и никто не узнал — среди
+      # неразобранного лежала critical-инъекция.
+      #
+      # Проверка стоит ПОСЛЕ публикации намеренно: отчёт должен выйти в любом
+      # случае, иначе, чиня немоту, мы потеряем и список находок.
       - name: Publish report
         env:
           GH_TOKEN: ${{ github.token }}
@@ -87,3 +96,18 @@ jobs:
           # сорока комментариев читается хуже, чем один отчёт.
           gh issue create --repo "${{ github.repository }}" \
             --title "$TITLE" --body-file /tmp/body.md --label evo
+
+      - name: Красный, если не разобрано ничего
+        run: |
+          set -uo pipefail
+          # Числа берутся из самого отчёта — из того, что прочитает человек,
+          # а не из отдельного счётчика, который может с ним разойтись.
+          TOTAL=$(grep -oP 'Разобрано находок: \*\*\K[0-9]+' /tmp/report.md || echo 0)
+          UNJUDGED=$(grep -oP '^\| не разобрана \| \K[0-9]+' /tmp/report.md || echo 0)
+          echo "разобрано: $TOTAL, из них не разобрано: $UNJUDGED"
+          if [ "$TOTAL" -gt 0 ] && [ "$TOTAL" = "$UNJUDGED" ]; then
+            echo "Решатель не ответил НИ ПО ОДНОЙ находке из $TOTAL."
+            echo "Причина — в отчёте: https://github.com/tourhabk-ui/pos/issues?q=is:issue+label:evo"
+            echo "Чаще всего это отсутствующий ключ: водопад зовёт Anthropic, затем DeepSeek, затем Qwen."
+            exit 1
+          fi
