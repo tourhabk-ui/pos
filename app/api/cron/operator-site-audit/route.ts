@@ -37,17 +37,26 @@ export async function GET(request: NextRequest) {
   try {
     // Дольше всех не проверявшиеся — первыми. LEFT JOIN, потому что у ни разу
     // не проверенного записи нет вовсе, и он обязан идти впереди, а не выпасть.
+    // Порядок — подзапросом в ORDER BY, а не LATERAL с алиасом.
+    //
+    // Первый вариант звал LATERAL `a`, и `a.last_at` было не колонкой
+    // operator_site_audits, а именем из SELECT. Сторож sql-phantom-columns
+    // прочёл его как обращение к несуществующей колонке и покраснел. Он
+    // формально ошибся, но двусмысленность настоящая: алиас подзапроса,
+    // совпадающий с алиасом таблицы, читается неверно и человеком тоже.
+    //
+    // NULLS FIRST обязателен: у ни разу не проверенного оператора записи нет
+    // вовсе, и без этого он ушёл бы в конец очереди навсегда.
     const { rows } = await pool.query<PartnerRow>(
       `SELECT p.id, p.name, p.website
          FROM partners p
-         LEFT JOIN LATERAL (
-           SELECT MAX(checked_at) AS last_at
-             FROM operator_site_audits a
-            WHERE a.partner_id = p.id
-         ) a ON TRUE
         WHERE p.website IS NOT NULL AND p.website <> ''
           AND p.site_audit_consent <> 'declined'
-        ORDER BY a.last_at ASC NULLS FIRST
+        ORDER BY (
+          SELECT MAX(sa.checked_at)
+            FROM operator_site_audits sa
+           WHERE sa.partner_id = p.id
+        ) ASC NULLS FIRST
         LIMIT $1`,
       [LIMIT],
     );

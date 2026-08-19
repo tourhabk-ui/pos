@@ -14,8 +14,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  auditSnapshot, summarize, isAuditableUrl, SENSITIVE_PATHS, REQUEST_BUDGET,
-  CERT_WARN_DAYS, USER_AGENT, type SiteSnapshot,
+  auditSnapshot, summarize, isAuditableUrl, isPrivateAddress, SENSITIVE_PATHS,
+  REQUEST_BUDGET, CERT_WARN_DAYS, USER_AGENT, type SiteSnapshot,
 } from '@/lib/security/site-audit';
 
 const PROBE = readFileSync(join(process.cwd(), 'lib/security/site-probe.ts'), 'utf-8');
@@ -165,8 +165,10 @@ describe('граница: оценка, а не вторжение', () => {
   });
 
   it('очередь обходится целиком, а не крутится по первым', () => {
-    // NULLS FIRST: ни разу не проверенный идёт впереди, а не выпадает.
-    expect(ROUTE).toMatch(/ORDER BY a\.last_at ASC NULLS FIRST/);
+    // NULLS FIRST: у ни разу не проверенного записи нет вовсе, и без этого он
+    // ушёл бы в конец очереди навсегда.
+    expect(ROUTE).toMatch(/\) ASC NULLS FIRST/);
+    expect(ROUTE).toMatch(/SELECT MAX\(sa\.checked_at\)/);
   });
 });
 
@@ -197,5 +199,67 @@ describe('список служебных путей осмыслен', () => {
     expect(SENSITIVE_PATHS.length).toBeLessThanOrEqual(10);
     expect(SENSITIVE_PATHS).toContain('/.env');
     expect(SENSITIVE_PATHS).toContain('/.git/config');
+  });
+});
+
+/**
+ * SSRF в инструменте безопасности.
+ *
+ * CodeQL назвал это верно на первой же редакции: адрес берётся из БД, а запрос
+ * шёл с `redirect: 'follow'`. Чужой сайт вправе ответить
+ * `302 Location: http://169.254.169.254/` — это метаданные облака, ради
+ * которых SSRF обычно и затевают. Проверки ИСХОДНОГО адреса от этого не
+ * спасает: небезопасен каждый следующий переход.
+ */
+describe('проверять чужие сайты, не став оружием', () => {
+  it('частные и служебные адреса опознаются, включая IPv6', () => {
+    for (const a of [
+      '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1',
+      '169.254.169.254',            // метаданные облака
+      '100.64.0.1',                 // CGNAT
+      '::1', 'fd00::1', 'fe80::1', '::ffff:169.254.169.254',
+    ]) {
+      expect(isPrivateAddress(a), `${a} должен считаться частным`).toBe(true);
+    }
+  });
+
+  it('публичные адреса частными не считаются', () => {
+    for (const a of ['8.8.8.8', '1.1.1.1', '172.32.0.1', '192.169.0.1', '2606:4700::1111']) {
+      expect(isPrivateAddress(a), `${a} публичный`).toBe(false);
+    }
+  });
+
+  it('перенаправления идут вручную и судятся на каждом шаге', () => {
+    // `follow` отдаёт решение о следующем адресе чужому серверу.
+    //
+    // Запрет проверяется по КОДУ без комментариев: пояснение к правке цитирует
+    // запрещённое, и сторож ловил сам себя — третий раз за день на одном и том
+    // же (reviews-two-subjects, flagship-resolver, теперь этот).
+    const code = PROBE.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).toMatch(/redirect: 'manual'/);
+    expect(code).not.toMatch(/redirect: 'follow'/);
+    expect(PROBE).toMatch(/for \(let hop = 0; hop <= MAX_HOPS/);
+    expect(PROBE).toMatch(/if \(!isAuditableUrl\(current\)\) return null/);
+  });
+
+  it('имя проверяется по тому, куда оно разрешается', () => {
+    // `internal.example.com` — внешнее имя, а разрешается в 10.0.0.5.
+    expect(PROBE).toMatch(/resolvesPublic/);
+    expect(PROBE).toMatch(/addrs\.every\(\(a\) => !isPrivateAddress\(a\.address\)\)/);
+  });
+
+  it('не разрешилось — отказ, а не пропуск', () => {
+    // «Не знаю, куда ведёт» безопаснее «наверное, можно».
+    expect(PROBE).toMatch(/catch \{\s*return false;\s*\}/);
+  });
+
+  it('цепочка перенаправлений ограничена', () => {
+    expect(PROBE).toMatch(/MAX_HOPS = \d/);
+  });
+
+  it('адрес из БД с частным хостом отбрасывается до запроса', () => {
+    expect(isAuditableUrl('http://169.254.169.254/latest/meta-data/')).toBe(false);
+    expect(isAuditableUrl('http://[::1]:8080/')).toBe(false);
+    expect(isAuditableUrl('https://10.0.0.5/')).toBe(false);
   });
 });

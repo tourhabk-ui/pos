@@ -11,8 +11,9 @@
  */
 
 import { connect as tlsConnect } from 'node:tls';
+import { lookup } from 'node:dns/promises';
 import {
-  REQUEST_BUDGET, USER_AGENT, SENSITIVE_PATHS, isAuditableUrl,
+  REQUEST_BUDGET, USER_AGENT, SENSITIVE_PATHS, isAuditableUrl, isPrivateAddress,
   type SiteSnapshot,
 } from '@/lib/security/site-audit';
 
@@ -44,17 +45,89 @@ export async function certDaysLeft(hostname: string, port = 443): Promise<number
   });
 }
 
-async function get(url: string, method: 'GET' | 'HEAD' = 'GET'): Promise<Response | null> {
+/** Сколько перенаправлений позволено пройти. */
+const MAX_HOPS = 5;
+
+/**
+ * Разрешается ли имя в ПУБЛИЧНЫЙ адрес.
+ *
+ * Проверки имени мало: `internal.example.com` — внешнее имя, а разрешается в
+ * 10.0.0.5. Спрашиваем DNS и смотрим на то, куда реально пойдёт запрос.
+ * Не разрешилось — отказ, а не пропуск: «не знаю» здесь безопаснее «можно».
+ */
+async function resolvesPublic(hostname: string): Promise<boolean> {
   try {
-    return await fetch(url, {
-      method,
-      redirect: 'follow',
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    const addrs = await lookup(hostname, { all: true });
+    if (addrs.length === 0) return false;
+    return addrs.every((a) => !isPrivateAddress(a.address));
   } catch {
-    return null;
+    return false;
   }
+}
+
+/**
+ * Запрос с ПОШАГОВОЙ проверкой перенаправлений.
+ *
+ * `redirect: 'follow'` здесь был дырой, и CodeQL назвал её верно: адрес берётся
+ * из БД, а чужой сайт вправе ответить `302 Location: http://169.254.169.254/`
+ * — это метаданные облака, ради которых SSRF обычно и затевают. Проверка
+ * исходного адреса от этого не спасает: небезопасен КАЖДЫЙ следующий переход.
+ *
+ * Поэтому переходы идём вручную и каждый следующий адрес судим заново — и по
+ * форме (isAuditableUrl), и по тому, куда он разрешается в DNS.
+ */
+async function get(url: string, method: 'GET' | 'HEAD' = 'GET'): Promise<Response | null> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_HOPS; hop++) {
+    if (!isAuditableUrl(current)) return null;
+    let host: string;
+    try {
+      host = new URL(current).hostname;
+    } catch {
+      return null;
+    }
+    if (!(await resolvesPublic(host))) return null;
+
+    let res: Response;
+    try {
+      res = await fetch(current, {
+        method,
+        redirect: 'manual',
+        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,*/*' },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch {
+      return null;
+    }
+
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location');
+      if (!loc) return res;
+      try {
+        current = new URL(loc, current).toString();
+      } catch {
+        return null;
+      }
+      continue;
+    }
+    // Итоговый адрес — тот, по которому реально ответили: fetch с ручными
+    // перенаправлениями не проставит res.url за нас.
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: (() => {
+        const h = new Headers(res.headers);
+        h.set('x-vedar-final-url', current);
+        return h;
+      })(),
+    });
+  }
+  return null;
+}
+
+/** Куда в итоге пришли: адрес мы проставляем сами, см. get(). */
+function finalUrlOf(res: Response, fallback: string): string {
+  return res.headers.get('x-vedar-final-url') ?? res.url ?? fallback;
 }
 
 /**
@@ -90,7 +163,7 @@ export async function probeSite(rawUrl: string): Promise<SiteSnapshot> {
     html = null;
   }
 
-  const finalUrl = root.url || url.toString();
+  const finalUrl = finalUrlOf(root, url.toString());
   const isHttps = finalUrl.startsWith('https://');
 
   const days = isHttps ? await certDaysLeft(new URL(finalUrl).hostname) : null;
@@ -102,7 +175,7 @@ export async function probeSite(rawUrl: string): Promise<SiteSnapshot> {
     plain.protocol = 'http:';
     const res = await get(plain.toString(), 'HEAD');
     spent++;
-    httpRedirectsToHttps = res ? res.url.startsWith('https://') : null;
+    httpRedirectsToHttps = res ? finalUrlOf(res, plain.toString()).startsWith('https://') : null;
   }
 
   // Служебные пути. Мы их НЕ читаем и не используем — фиксируем, что открыты.

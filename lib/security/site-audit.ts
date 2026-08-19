@@ -221,6 +221,42 @@ export function summarize(checks: CheckResult[]): AuditVerdict {
   return { verdict: badCount > 0 ? 'issues' : 'ok', badCount, unknownCount };
 }
 
+/**
+ * Частный ли это адрес: петля, внутренняя сеть, link-local, метаданные облака.
+ *
+ * Отдельной функцией и с IPv6, потому что первая редакция знала только
+ * IPv4-точки — а `[::1]`, `[fd00::1]` и `[fe80::1]` пролезали свободно.
+ */
+export function isPrivateAddress(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '');
+
+  // IPv4
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    // 169.254.0.0/16 — link-local; там же 169.254.169.254, метаданные облака:
+    // адрес, ради которого SSRF обычно и затевают.
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a >= 224) return true;                          // multicast и выше
+    return false;
+  }
+
+  // IPv6
+  if (h === '::1' || h === '::') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;  // fc00::/7 — уникальные локальные
+  if (/^fe[89ab][0-9a-f]:/.test(h)) return true;  // fe80::/10 — link-local
+  // IPv4, завёрнутый в IPv6: ::ffff:169.254.169.254
+  const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(h);
+  if (mapped) return isPrivateAddress(mapped[1]);
+
+  return false;
+}
+
+/** Годится ли адрес для проверки: только http(s) и только внешние имена. */
 /** Годится ли адрес для проверки: только http(s) и только внешние имена. */
 export function isAuditableUrl(raw: string | null | undefined): boolean {
   if (!raw) return false;
@@ -233,9 +269,12 @@ export function isAuditableUrl(raw: string | null | undefined): boolean {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
   const host = u.hostname.toLowerCase();
   // Свои и внутренние адреса не проверяем: смысла нет, а попасть по внутренней
-  // сети из-за кривой записи в БД — можно.
+  // сети из-за кривой записи в БД или чужого перенаправления — можно.
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return false;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+  if (isPrivateAddress(host)) return false;
   if (host === 'vedarai.ru' || host.endsWith('.vedarai.ru')) return false;
+  // Голый IP не проверяем вовсе, даже публичный: у сайта оператора есть имя, а
+  // цифры в поле website — почти наверняка ошибка или чья-то внутренняя машина.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
   return host.includes('.');
 }
