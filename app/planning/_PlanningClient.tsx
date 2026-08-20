@@ -41,6 +41,7 @@ import {
   passportGradeLabel, passportGradeNote, type PassportGrade,
 } from '@/lib/routes/passport';
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
+import { groupRoutesByPlace } from '@/lib/routes/path-choice';
 
 /** Вердикт черты в том виде, в каком он приходит с сервера. */
 interface PreviewNavigability {
@@ -108,7 +109,10 @@ interface RoutePreview {
    * не должна открываться человеку только в поле (план FCN, этап 1).
    */
   lineGrade?: PassportGrade | null;
+  /** Все места пути — для группировки выбора по МЕСТУ (владелец 20.08). */
+  waypointNames?: string[];
 }
+
 
 /** Бейдж рода данных маршрута в выборе. Цвет — семантика, не украшение. */
 function GradeChip({ grade }: { grade: PassportGrade | null | undefined }) {
@@ -1337,9 +1341,7 @@ function OnTrailTab() {
           if (!Array.isArray(rows)) { setSearchRoutes([]); return; }
           setSearchRoutes(rows.slice(0, 8).map((r) => {
             const row = r as Record<string, unknown>;
-            const via = Array.isArray(row.waypoint_names)
-              ? (row.waypoint_names as string[]).slice(0, 3).join(' · ')
-              : null;
+            const names = Array.isArray(row.waypoint_names) ? (row.waypoint_names as string[]) : [];
             return {
               id: String(row.id),
               title: String(row.title),
@@ -1347,8 +1349,9 @@ function OnTrailTab() {
               durationDays: null,
               distanceKm: row.distance_km != null ? Number(row.distance_km) : null,
               imageUrl: null,
-              via,
+              via: names.length > 0 ? names.slice(0, 3).join(' · ') : null,
               lineGrade: (row.line_grade as PassportGrade | null) ?? null,
+              waypointNames: names,
             } satisfies RoutePreview;
           }));
         })
@@ -1357,6 +1360,45 @@ function OnTrailTab() {
     }, 350);
     return () => clearTimeout(modalSearchRef.current);
   }, [modalQuery, showRouteModal]);
+
+  // Строка пути в выборе: род линии, длина, сложность. Одна на обе секции —
+  // группы мест и плоский список рекомендуемых.
+  function renderPathRow(r: RoutePreview) {
+    return (
+      <div key={r.id}>
+        <button onClick={() => openPreview(r)}
+          className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
+          style={{
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border)',
+            opacity: previewLoadingId === r.id ? 0.6 : 1,
+          }}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
+              <GradeChip grade={r.lineGrade} />
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+              {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+              {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
+              {r.via ? ` · через: ${r.via}` : ''}
+            </p>
+          </div>
+          <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
+            {previewLoadingId === r.id ? '…' : 'На карте'}
+          </span>
+        </button>
+        {/* Отказ живёт у своей строки: список остаётся на месте,
+            и видно, ЧТО именно не открылось. */}
+        {previewError?.id === r.id && (
+          <p className="text-xs mt-1 px-3 py-2 rounded-lg"
+            style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
+            {previewError.text}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   // Тап по варианту — ПРЕВЬЮ на карте, не фиксация (как в навигаторе)
   function openPreview(r: RoutePreview) {
@@ -2259,53 +2301,50 @@ function OnTrailTab() {
                   </div>
                 ) : (
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                      {modalQuery.trim().length >= 2
-                        ? (searching ? 'Ищем маршруты…' : `Маршруты через «${modalQuery.trim()}»`)
-                        : 'Рекомендуемые'}
-                    </p>
-                    {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).length === 0 ? (
-                      <div className="text-[var(--text-muted)] text-sm text-center py-6">
-                        {modalQuery.trim().length >= 2
-                          ? (searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место')
-                          : 'Загрузка маршрутов…'}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {(modalQuery.trim().length >= 2 ? searchRoutes : modalRoutes).map(r => (
-                          <div key={r.id}>
-                            <button onClick={() => openPreview(r)}
-                              className="w-full flex items-center gap-3 p-3 rounded-xl text-left"
-                              style={{
-                                background: 'var(--bg-primary)',
-                                border: '1px solid var(--border)',
-                                opacity: previewLoadingId === r.id ? 0.6 : 1,
-                              }}>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">{r.title}</p>
-                                  <GradeChip grade={r.lineGrade} />
-                                </div>
-                                <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                                  {r.distanceKm ? `${r.distanceKm} км · ` : ''}
-                                  {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
-                                  {r.via ? ` · через: ${r.via}` : ''}
-                                </p>
-                              </div>
-                              <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--ocean)' }}>
-                                {previewLoadingId === r.id ? '…' : 'На карте'}
-                              </span>
-                            </button>
-                            {/* Отказ живёт у своей строки: список остаётся на месте,
-                                и видно, ЧТО именно не открылось. */}
-                            {previewError?.id === r.id && (
-                              <p className="text-xs mt-1 px-3 py-2 rounded-lg"
-                                style={{ background: 'var(--bg-hover)', color: 'var(--warning)' }}>
-                                {previewError.text}
-                              </p>
-                            )}
+                    {modalQuery.trim().length >= 2 ? (
+                      /* ── Выбор от МЕСТА (владелец 20.08): сначала место,
+                          под ним — пути к нему, отсортированные по роду
+                          линии и длине. Совпавшие только названием — своей
+                          секцией в конце, честно подписанной. ── */
+                      searchRoutes.length === 0 ? (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                            {searching ? 'Ищем пути…' : `Пути к «${modalQuery.trim()}»`}
+                          </p>
+                          <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                            {searching ? 'Секунду…' : 'Ничего не нашлось — попробуйте другое место'}
                           </div>
-                        ))}
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {groupRoutesByPlace(searchRoutes, modalQuery.trim()).map(g => (
+                            <div key={g.place ?? '__title__'}>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                                {g.place
+                                  ? `${g.place} · ${g.routes.length} ${plural(g.routes.length, 'путь', 'пути', 'путей')}`
+                                  : 'Совпали названием маршрута'}
+                              </p>
+                              <div className="space-y-2">
+                                {g.routes.map(r => renderPathRow(r))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                          Рекомендуемые
+                        </p>
+                        {modalRoutes.length === 0 ? (
+                          <div className="text-[var(--text-muted)] text-sm text-center py-6">
+                            Загрузка маршрутов…
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {modalRoutes.map(r => renderPathRow(r))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
