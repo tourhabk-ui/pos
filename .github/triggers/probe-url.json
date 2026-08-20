@@ -1,12 +1,11 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/cron/places-routes-census"
+    "https://vedarai.ru/api/cron/places-no-track-census"
   ],
   "bytes": 60000,
   "timeout": 115,
   "retries": 3,
   "retryDelay": 45,
-  "note": "Проба 93: контрольный срез после ночной кампании по запросу владельца — сколько теперь живых маршрутов (merge-aware аудит) и какие места остались без маршрутов (перепись linked/lost/never с именами).",
-  "run": 93
+  "note": "Проба 94: перепись мест без линии на карте после ночной кампании — список целей для выкачки треков из idilesom Pro (владелец оплатил подписку). tracked / linked_no_track / lost / never с именами.",
+  "run": 94
 }
