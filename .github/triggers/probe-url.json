@@ -1,32 +1,15 @@
 {
-  "note": "Проба 106: расхождения перепроверки 105 + материал по вариациям. В деплое: фикс пересуда привязок (судит только живое, маркер attach_audit_v2 — датчик), миграция 883 (координаты места «Озеро Икар»: битые 52.88/158.09 на юге переносятся к финишу Pro-трека 55.8708/158.6698 — 337 км расхождения при смотровой-тёзке рядом), KML «Озеро Икар» в инбокс (99 вершин; матч на живую тёзку, снятое не тронет). POST — прямая пара место «Озеро Икар» - маршрут «Озеро Икар» (имя 1.0; после миграции дистанция станет честной), закрывает судьбу lost. GET search — данные для списка вариаций владельцу: четвёрка Трёх Братьев, Голубые озёра, Толбачики, Быстрая, Дыгерен (тёзки через дефис/тире — кандидат на слияние).",
+  "note": "Проба 107: перепись имён маршрутов (стандарт владельца «один формат, без поэзии» — датчик title_census_v1, роут новый) — два окна нарушителей с привязанными местами (материал для канона). Плюс миграция 884: две сироты переигранного инбокса (скрытые Спокойный-Косы-Вероники и Толмачево с 494-точечным треком) слиты в живых наследников, Дыгерен-тёзки (дефис/тире) сведены в одну с данными; папка инбокса очищена — лоток, не архив. Контроль: hidden-tracks-census снова ровно 3 GPS-файла, places lost 0 (Икар привязан пробой 106, дистанция 2.2 км после миграции 883). Search Ичинский — пара «Вулкан Ичинская сопка» (трек 99 из KML) и «Ичинский Вулкан» на одном якоре: id для следующего слияния.",
   "urls": [
-    "https://vedarai.ru/api/cron/track-attachment-audit",
+    "https://vedarai.ru/api/cron/route-title-census?limit=40",
+    "https://vedarai.ru/api/cron/route-title-census?offset=40&limit=40",
+    "https://vedarai.ru/api/cron/hidden-tracks-census",
     "https://vedarai.ru/api/cron/places-no-track-census",
-    "https://vedarai.ru/api/routes/search?q=%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82%D0%B0",
-    "https://vedarai.ru/api/routes/search?q=%D0%93%D0%BE%D0%BB%D1%83%D0%B1%D1%8B%D0%B5%20%D0%BE%D0%B7%D1%91%D1%80%D0%B0",
-    "https://vedarai.ru/api/routes/search?q=%D0%A2%D0%BE%D0%BB%D0%B1%D0%B0%D1%87%D0%B8%D0%BA",
-    "https://vedarai.ru/api/routes/search?q=%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B0%D1%8F",
-    "https://vedarai.ru/api/routes/search?q=%D0%94%D1%8B%D0%B3%D0%B5%D1%80%D0%B5%D0%BD"
+    "https://vedarai.ru/api/routes/search?q=%D0%98%D1%87%D0%B8%D0%BD%D1%81%D0%BA"
   ],
-  "until": "attach_audit_v2",
+  "until": "title_census_v1",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 30000,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/place-link",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          {
-            "place": "f616768c-fd81-4745-90d7-1f9fba8fe2b7",
-            "route": "d4941c53-4e05-417f-8867-07cdd2c334b6",
-            "kind": "waypoint"
-          }
-        ]
-      }
-    }
-  ]
+  "bytes": 30000
 }
