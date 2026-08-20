@@ -207,18 +207,31 @@ export async function importKmlTrack(filename: string, xml: string): Promise<Kml
   // завёл ей двойника, то есть ровно ту болезнь, которую мы лечим.
   const { rows } = await pool.query<{
     id: string; title: string; geom_source: string | null; has_geometry: boolean;
+    is_visible: boolean;
   }>(
     `SELECT id, title,
             geometry->>'source' AS geom_source,
-            (geometry IS NOT NULL) AS has_geometry
+            (geometry IS NOT NULL) AS has_geometry,
+            is_visible
      FROM kamchatka_routes
-     WHERE title IS NOT NULL`,
+     WHERE title IS NOT NULL AND merged_into_id IS NULL`,
   );
 
   const wanted = normalizeTitle(parsed.name);
 
   // 1) точное совпадение нормализованного названия — оно и есть надёжное.
-  const match = rows.find(r => normalizeTitle(r.title) === wanted) ?? null;
+  //
+  // Тёзок может быть несколько: импорты плодили семьи дублей, и часть из
+  // них скрыта уборками. Перепись 20.08 показала цену выбора «первый
+  // попавшийся»: трек ложился в СКРЫТЫЙ дубль, живая запись оставалась
+  // без линии, и на карте не менялось ничего. Поэтому порядок предпочтения
+  // явный: живая без трека → живая (перезаписываемая) → скрытая. Слитые
+  // записи (merged_into_id) не участвуют вовсе.
+  const candidates = rows.filter(r => normalizeTitle(r.title) === wanted);
+  candidates.sort((a, b) =>
+    Number(b.is_visible) - Number(a.is_visible)
+    || Number(a.has_geometry) - Number(b.has_geometry));
+  const match = candidates[0] ?? null;
   const matchBy: 'name' | null = match ? 'name' : null;
 
   // 2) близости здесь БОЛЬШЕ НЕТ, и это решение по цифрам.
