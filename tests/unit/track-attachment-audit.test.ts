@@ -11,6 +11,8 @@
  * они по-разному, и «подозрительно» на всё сразу не помогло бы никому.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { judgeAttachment } from '@/lib/routes/track-attachment-audit';
 import {
   MAX_MATCH_DIST_KM, AMBIGUOUS_MARGIN_KM, PROXIMITY_MAX_TRACK_KM,
@@ -89,5 +91,16 @@ describe('пороги берутся из чинёного правила, а �
     expect(MAX_MATCH_DIST_KM).toBeGreaterThan(0);
     expect(PROXIMITY_MAX_TRACK_KM).toBeGreaterThan(MAX_MATCH_DIST_KM);
     expect(AMBIGUOUS_MARGIN_KM).toBeGreaterThan(0);
+  });
+});
+
+describe('пересуд судит только живое', () => {
+  it('слитые и скрытые записи в выборку не попадают', () => {
+    // Слияния 20.08: без фильтра «худшими» выходили уже слитые скрытые
+    // (Верхне-Паратунские, якорь в 191 км) — шум о мёртвых заслонял живые.
+    const src = readFileSync(
+      join(process.cwd(), 'lib/routes/track-attachment-audit.ts'), 'utf-8',
+    );
+    expect(src).toContain('is_visible = true AND merged_into_id IS NULL');
   });
 });

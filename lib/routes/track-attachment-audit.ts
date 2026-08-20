@@ -152,11 +152,16 @@ export async function runAttachmentAudit(
 ): Promise<AttachmentAudit> {
   const startedAt = Date.now();
 
+  // Только живое и не слитое: слияния 20.08 показали, что пересуд без этого
+  // фильтра выносил «худшими» уже слитые скрытые записи (Верхне-Паратунские
+  // с якорем в 191 км) — шум о мёртвых заслонял живые случаи. Соседи-якоря
+  // ниже по той же причине только живые: скрытый сосед не оправдание.
   const all = await pool.query<RouteRow>(
     `SELECT id::text, title, lat::text, lng::text, geometry,
             geometry->>'source' AS geom_source
        FROM kamchatka_routes
-      WHERE lat IS NOT NULL AND lng IS NOT NULL`,
+      WHERE lat IS NOT NULL AND lng IS NOT NULL
+        AND is_visible = true AND merged_into_id IS NULL`,
   );
 
   // Якоря ВСЕХ маршрутов: чужой сосед ищется среди всех, а не только среди
