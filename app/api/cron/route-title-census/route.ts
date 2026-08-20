@@ -72,7 +72,9 @@ export async function GET(request: NextRequest) {
       // v3 — маркер деплоя миграции 886 (доводка слияния: id двух пространств,
       // ark_id против kamchatka_routes.id — урок search-выдачи): код переписи не
       // менялся, пробе нужен признак сборки, при старте которой она прошла.
-      probe: 'title_census_v3',
+      // v4 — миграция 887 (слитая ⇒ скрыта: «видимые, но слитые» после
+      // restore близнецов) + фильтр слитости в /api/routes/search.
+      probe: 'title_census_v4',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,

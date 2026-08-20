@@ -69,9 +69,14 @@ export async function POST(request: NextRequest) {
       if (data.dry_run) {
         return NextResponse.json({ success: true, dry_run: true, would_restore: data.ids.length });
       }
+      // Слитую запись restore НЕ возвращает: merged_into_id — не «скрыта»,
+      // а «этой записи больше нет, живёт цель слияния». Без этой проверки
+      // restore 17.08 поднял на витрину две записи, слитые актуатором 15.08,
+      // и они месяц жили «видимыми, но слитыми» (вскрыто пробой 109,
+      // migrations/887). Ошибочно слитую сначала распиливает routes-unmerge.
       const { rows } = await pool.query<{ title: string }>(
         `UPDATE kamchatka_routes SET is_visible = true, updated_at = NOW()
-         WHERE id::text = ANY($1) AND is_visible = false
+         WHERE id::text = ANY($1) AND is_visible = false AND merged_into_id IS NULL
          RETURNING title`,
         [data.ids],
       );
