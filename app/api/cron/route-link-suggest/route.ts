@@ -98,7 +98,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'route_link_suggest_v1',
+      // v2 — маркер деплоя пробы 104 (боевые партии place-link): запуск,
+      // который сам пушит в main, обязан поднимать маркер — иначе POST
+      // может попасть в контейнер, умирающий под пересборкой (урок run 11).
+      probe: 'route_link_suggest_v2',
       min_score: minScore,
       routes_no_waypoints_total: items.length,
       with_confident: withConfident.length,
