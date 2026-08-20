@@ -36,13 +36,18 @@ const BodySchema = z.object({
 
 const LIVE_BATCH_MAX = 10;
 
-/** Датчик выката для пробы: POST на несуществующем роуте сгорел бы без ретраев. */
+/**
+ * Датчик выката для пробы: POST на несуществующем роуте сгорел бы без ретраев.
+ * v2 — маркер деплоя миграции 881 (Толмачёва + Корякский): код роута не
+ * менялся, но пробе нужно доказательство, что отвечает СБОРКА, при старте
+ * которой миграция уже накатилась (start.js применяет их до сервера).
+ */
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  return NextResponse.json({ success: true, probe: 'family_merge_v1', live_batch_max: LIVE_BATCH_MAX });
+  return NextResponse.json({ success: true, probe: 'family_merge_v2', live_batch_max: LIVE_BATCH_MAX });
 }
 
 export async function POST(request: NextRequest) {
