@@ -1,23 +1,21 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/cron/places-no-track-census"
+    "https://vedarai.ru/api/cron/route-web-null"
   ],
-  "bytes": 700,
-  "around": [
-    "no_geometry",
-    "no_waypoints",
-    "no_distance",
-    "no_difficulty",
-    "no_activity_type",
-    "short_description",
-    "breakdown"
+  "until": "web_null_v1",
+  "retries": 12,
+  "retryDelay": 60,
+  "timeout": 115,
+  "bytes": 8000,
+  "post": [
+    { "url": "https://vedarai.ru/api/cron/route-web-null", "body": { "dry_run": true } },
+    { "url": "https://vedarai.ru/api/cron/route-web-null", "body": { "dry_run": false } },
+    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2127", "2798", "3093", "2522", "2640", "6688", "6691", "6611", "6643", "2501", "2068", "5805"] } },
+    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2063", "3991", "3992", "2533", "2896", "2439", "2529", "2724", "2514", "2749", "2498", "3116"] } },
+    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2718", "2899", "2398", "3103", "2173", "2738", "2187", "2073", "1484", "3138", "1748", "3104"] } },
+    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["3102", "2383", "3089", "2876", "2265", "2776", "2881", "2874", "2226", "2083", "2774", "2566"] } },
+    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2399", "2404", "2750", "2731", "2740", "2736"] } }
   ],
-  "aroundLines": 3,
-  "aroundHits": 1,
-  "timeout": 120,
-  "retries": 2,
-  "retryDelay": 45,
-  "note": "Проба 88: полный аудит по запросу владельца. Первый URL — счётчики маршрутов (merge-aware: живой = видимый и не слитый), второй — покрытие мест линиями на карте. Контекст вокруг ключей вместо простыни примеров. Оба роута на проде, ретраи только на случай окна перезапуска.",
-  "run": 88
+  "note": "Проба 89, этап 0 плана владельца. GET — датчик выката нового актуатора (маркер web_null_v1). POST 1-2: сухой и боевой прогон обнуления паутинной синтетики (ожидается 1 запись — Вулкан Зимина, прыжок 25.5 км). POST 3-7: разведка всех 54 отсутствующих id идилесома партиями по 12 — диагностика причин уже в скауте, билд свежий.",
+  "run": 89
 }
