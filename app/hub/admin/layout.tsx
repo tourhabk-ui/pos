@@ -49,6 +49,7 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/ai-analytics', label: 'AI Кузьмич', icon: Sparkles, section: 'Аналитика' },
   { href: '/hub/admin/activity', label: 'Активность', icon: Activity, section: 'Аналитика' },
   { href: '/hub/admin/health', label: 'Health-метрики', icon: Activity, section: 'Аналитика' },
+  { href: '/hub/admin/operator-sites', label: 'Сайты операторов', icon: ShieldCheck, section: 'Аналитика' },
 
   // AI
   { href: '/hub/admin/agents', label: 'AI и автоматизации', icon: Zap, section: 'AI' },
