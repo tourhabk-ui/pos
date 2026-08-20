@@ -34,9 +34,14 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     // v — маркер билда для probe workflow: старый и новый код оба отвечают 401,
     // и только по v цикл понимает, что нужный деплой уже накатился (миграции
-    // применяются тем же деплоем до старта сервера). v=4 — билд с фильтром
-    // слитых маршрутов в пуле импорта (soft-merge: merged_into_id IS NULL).
-    return NextResponse.json({ error: 'Unauthorized', v: 4 }, { status: 401 });
+    // применяются тем же деплоем до старта сервера).
+    //
+    // Урок run 11: каждый запуск, который сам пушит в main, ОБЯЗАН поднимать v.
+    // Пуш триггер-файла запускает пересборку Timeweb; если v не поднят, цикл
+    // видит старый билд с «правильным» v, стартует сразу — и перезапуск
+    // контейнера убивает партию под ногами (curl 110s → пустой ответ).
+    // v=5 — перезапуск сухой переписи после этой гонки.
+    return NextResponse.json({ error: 'Unauthorized', v: 5 }, { status: 401 });
   }
 
   const sp = request.nextUrl.searchParams;
