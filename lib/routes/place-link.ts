@@ -126,6 +126,50 @@ export function suggestRoutes(
   return scored.slice(0, limit);
 }
 
+export interface PlaceCandidateInput {
+  id: string; name: string; locationType: string | null;
+  lat: number | null; lng: number | null;
+}
+export interface PlaceCandidate {
+  placeId: string; name: string; locationType: string | null;
+  nameScore: number; distanceKm: number | null;
+}
+
+/**
+ * Обратная подсказка: кандидаты-МЕСТА для маршрута без путевых точек.
+ *
+ * Правило то же и в ту же сторону: nameMatchScore спрашивает, называет ли
+ * НАЗВАНИЕ МАРШРУТА место, — маршрут «Восхождение на Авачинский вулкан»
+ * называет место «Вулкан Авачинский», и это улика происхождения связи
+ * (тот же класс, что 238 пар миграций 653-657: совпадение имён). Близость
+ * без имени — не улика, поэтому безымянные соседи показываются только в
+ * пределах maxKm и с нулевым счётом: их судьбу решает человек.
+ */
+export function suggestPlaces(
+  route: { title: string; lat: number | null; lng: number | null },
+  places: PlaceCandidateInput[],
+  opts: { maxKm?: number; limit?: number } = {},
+): PlaceCandidate[] {
+  const maxKm = opts.maxKm ?? 20;
+  const limit = opts.limit ?? 4;
+
+  const scored = places.map((p) => {
+    const nameScore = nameMatchScore(p.name, route.title);
+    const d = (route.lat != null && route.lng != null && p.lat != null && p.lng != null)
+      ? Math.round(distanceKm(route.lat, route.lng, p.lat, p.lng) * 10) / 10
+      : null;
+    return { placeId: p.id, name: p.name, locationType: p.locationType, nameScore, distanceKm: d };
+  }).filter(c => c.nameScore > 0 || (c.distanceKm != null && c.distanceKm <= maxKm));
+
+  scored.sort((a, b) => {
+    if (b.nameScore !== a.nameScore) return b.nameScore - a.nameScore;
+    const da = a.distanceKm ?? Number.POSITIVE_INFINITY;
+    const db = b.distanceKm ?? Number.POSITIVE_INFINITY;
+    return da - db;
+  });
+  return scored.slice(0, limit);
+}
+
 export interface LinkPair { place: string; route: string }
 
 /**
