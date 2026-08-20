@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     // v — маркер билда для probe workflow: старый и новый код оба отвечают 401,
     // и только по v цикл понимает, что нужный деплой уже накатился (миграции
-    // применяются тем же деплоем до старта сервера). v=3 — билд с миграцией 777
-    // (починка битой синтетики 168 + маркер waypoints_synthetic).
-    return NextResponse.json({ error: 'Unauthorized', v: 3 }, { status: 401 });
+    // применяются тем же деплоем до старта сервера). v=4 — билд с фильтром
+    // слитых маршрутов в пуле импорта (soft-merge: merged_into_id IS NULL).
+    return NextResponse.json({ error: 'Unauthorized', v: 4 }, { status: 401 });
   }
 
   const sp = request.nextUrl.searchParams;

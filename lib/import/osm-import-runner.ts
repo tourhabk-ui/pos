@@ -135,6 +135,7 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
            ) AS waypoints
     FROM kamchatka_routes kr
     WHERE is_visible = true
+      AND kr.merged_into_id IS NULL
       AND kr.lat IS NOT NULL AND kr.lng IS NOT NULL
       AND (kr.geometry IS NULL OR kr.geometry->>'source' = 'waypoints_synthetic')
     ORDER BY (kr.geometry IS NULL) DESC, kr.title
@@ -146,7 +147,8 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
        COUNT(*) FILTER (WHERE geometry IS NULL)::text AS without_geometry,
        COUNT(*) FILTER (WHERE geometry->>'source' = 'waypoints_synthetic')::text AS synthetic
      FROM kamchatka_routes
-     WHERE is_visible = true AND lat IS NOT NULL AND lng IS NOT NULL`
+     WHERE is_visible = true AND merged_into_id IS NULL
+       AND lat IS NOT NULL AND lng IS NOT NULL`
   );
 
   let imported = 0;
@@ -183,6 +185,7 @@ export async function runOsmGeometryImport(params: OsmImportParams): Promise<Osm
           await pool.query(
             `UPDATE kamchatka_routes SET geometry = $1
               WHERE id = $2
+                AND merged_into_id IS NULL
                 AND (geometry IS NULL OR geometry->>'source' = 'waypoints_synthetic')`,
             [JSON.stringify({ ...geojson, source: 'osm' }), r.id],
           );
