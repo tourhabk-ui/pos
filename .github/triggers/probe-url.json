@@ -1,11 +1,12 @@
 {
-  "note": "Проба 113: миграция 890 — партия 3 переименований (3 имени из описаний: Мутновский, Мутновско-Гореловская группа ×2). Перепись v7 отдаёт nearest_places (до 3 живых мест в ~17 км от координаты маршрута) — материал для канона последних 8 безобъектных. Ожидания: title-census live_total 395, offenders_total 8, у каждого из 8 nearest_places (или честный пустой список); routes-audit без изменений (612 / 395 / 63); search «Мутновск» находит «К подножию вулкана Мутновский» и обе «Мутновско-Гореловская группа».",
+  "note": "Проба 114: миграция 891 — партия 4 переименований (6 имён от ближайших мест: Снежная долина, оз. Начикинское, сопка Острая, о. Старичков, прорыв Меняйлова, Узон—Долина гейзеров). Ожидания: title-census live_total 395, offenders_total 2 (только «Зимняя сказка» и «Чудеса Камчатки» — без зацепок в данных); routes-audit без изменений (612 / 395 / 63); search «Старичков» находит «К острову Старичков», search «Меняйлова» — «Прорыв имени Меняйлова».",
   "urls": [
     "https://vedarai.ru/api/cron/route-title-census?limit=40",
     "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/routes/search?q=%D0%9C%D1%83%D1%82%D0%BD%D0%BE%D0%B2%D1%81%D0%BA"
+    "https://vedarai.ru/api/routes/search?q=%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2",
+    "https://vedarai.ru/api/routes/search?q=%D0%9C%D0%B5%D0%BD%D1%8F%D0%B9%D0%BB%D0%BE%D0%B2%D0%B0"
   ],
-  "until": "title_census_v7",
+  "until": "title_census_v8",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
