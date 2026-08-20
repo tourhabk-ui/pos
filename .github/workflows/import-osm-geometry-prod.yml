@@ -57,11 +57,13 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             DRY=$(jq -r '.dry_run' .github/triggers/osm-import-prod.json)
             LIMIT=$(jq -r '.batch_limit' .github/triggers/osm-import-prod.json)
+            DRY_BATCHES=$(jq -r '.dry_batches // 1' .github/triggers/osm-import-prod.json)
           else
             DRY="${{ github.event.inputs.dry_run }}"
             LIMIT="${{ github.event.inputs.batch_limit }}"
+            DRY_BATCHES=1
           fi
-          echo "event=${{ github.event_name }} dry_run=$DRY batch_limit=$LIMIT"
+          echo "event=${{ github.event_name }} dry_run=$DRY batch_limit=$LIMIT dry_batches=$DRY_BATCHES"
 
           BASE="https://vedarai.ru/api/cron/osm-import"
 
@@ -73,11 +75,11 @@ jobs:
           for i in $(seq 1 30); do
             BODY=$(curl -s --max-time 30 "$BASE" || echo '{}')
             V=$(echo "$BODY" | jq -r '.v // 0' 2>/dev/null || echo 0)
-            if [ "$V" = "3" ]; then READY=1; echo "endpoint deployed (401 c v=3 — билд с миграцией 777)"; break; fi
+            if [ "$V" = "4" ]; then READY=1; echo "endpoint deployed (401 c v=4 — билд с фильтром слитых)"; break; fi
             echo "нужный билд ещё не задеплоен (v=$V), жду 60с ($i/30)"
             sleep 60
           done
-          if [ -z "$READY" ]; then echo "билд с v=3 так и не задеплоился за 30 мин"; exit 1; fi
+          if [ -z "$READY" ]; then echo "билд с v=4 так и не задеплоился за 30 мин"; exit 1; fi
 
           TOTAL_IMPORTED=0; TOTAL_SKIPPED=0; TOTAL_ERRORS=0; OFFSET=0; REMAIN="?"
           for i in $(seq 1 80); do
@@ -103,7 +105,16 @@ jobs:
             TOTAL_SKIPPED=$((TOTAL_SKIPPED + SKIP))
             TOTAL_ERRORS=$((TOTAL_ERRORS + ERRS))
 
-            if [ "$DRY" = "true" ]; then echo "dry-run: одна партия, выходим"; break; fi
+            # Сухой прогон ничего не пишет, поэтому offset двигается на весь
+            # processed (в боевом — на processed-imported: импортированные
+            # выпадают из пула сами). dry_batches=1 сохраняет прежнее
+            # поведение «одна партия и выход»; больше — полная перепись приза.
+            if [ "$DRY" = "true" ]; then
+              if [ "$i" -ge "$DRY_BATCHES" ] || [ "$PROC" = "0" ]; then echo "dry-run: партии кончились ($i из $DRY_BATCHES)"; break; fi
+              OFFSET=$((OFFSET + PROC))
+              sleep 5
+              continue
+            fi
             if [ "$PROC" = "0" ] || [ "$REMAIN" = "0" ]; then break; fi
             OFFSET=$((OFFSET + PROC - IMP))
             sleep 5
