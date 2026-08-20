@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,57 +49,97 @@ export async function POST(request: NextRequest) {
 }
 
 async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
-  // Проверяем сумму против записи в БД (защита от подмены суммы в webhook)
-  const check = await query(
-    `SELECT final_price, payment_status FROM operator_bookings WHERE id = $1 AND deleted_at IS NULL`,
-    [bookingId]
-  );
-  if (check.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
-  const booking = check.rows[0] as { final_price: string; payment_status: string };
-  if (booking.payment_status === 'paid') return; // idempotency: уже обработано
-  const expectedAmount = parseFloat(booking.final_price);
-  if (Math.abs(expectedAmount - webhook.Amount) > 1) {
-    throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${webhook.Amount}`);
-  }
+  // Три записи одной оплаты — бронь, платёж, занятость — обязаны примениться
+  // ВМЕСТЕ или никак. Раньше это были три отдельных query() без транзакции:
+  // падение между UPDATE брони и INSERT платежа оставляло бронь confirmed, а
+  // деньги неучтёнными (issue #1318). Тот же разрыв — гонка двух вебхуков:
+  // CloudPayments намеренно шлёт дубли, и оба проходили проверку «ещё не
+  // оплачено» до того, как первый её закрывал.
+  //
+  // Блокирующее чтение (FOR UPDATE, без NOWAIT) сериализует дубли: второй
+  // вебхук ждёт первого, видит payment_status='paid' и тихо выходит. NOWAIT
+  // здесь хуже — он вернул бы дублю ошибку блокировки (ложный отказ), тогда
+  // как правильный исход дубля — no-op, а не сбой.
+  const inserted = await transaction(async (client) => {
+    const locked = await client.query(
+      `SELECT final_price, payment_status
+         FROM operator_bookings
+        WHERE id = $1 AND deleted_at IS NULL
+        FOR UPDATE`,
+      [bookingId],
+    );
+    if (locked.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
+    const booking = locked.rows[0] as { final_price: string; payment_status: string };
 
-  await query(
-    `UPDATE operator_bookings
-     SET payment_status = 'paid',
-         booking_status = 'confirmed',
-         payment_id = $2,
-         paid_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL AND payment_status != 'paid'`,
-    [bookingId, webhook.TransactionId.toString()]
-  );
+    // Идемпотентность под блокировкой: решение читается уже после того, как
+    // строка закреплена за нами, поэтому «уже оплачено» — окончательный факт,
+    // а не гонка.
+    if (booking.payment_status === 'paid') return false;
 
-  // Записываем платёж в tour_payments (HELD до release_after = конец тура + 36ч)
-  await query(
-    `INSERT INTO tour_payments (
-       booking_id, operator_id,
-       retail_amount, net_amount, commission_amount, commission_rate,
-       cp_transaction_id, cp_invoice_id,
-       status, paid_at, release_after
-     )
-     SELECT
-       ob.id,
-       ot.operator_id,
-       ob.final_price,
-       ROUND(ob.final_price * (1 - p.commission_current / 100), 2),
-       ROUND(ob.final_price * p.commission_current / 100, 2),
-       p.commission_current,
-       $2, $3,
-       'HELD', NOW(),
-       ob.booking_date::timestamp
-         + (COALESCE(ot.multi_day_count, 1) * INTERVAL '1 day')
-         + INTERVAL '36 hours'
-     FROM operator_bookings ob
-     JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-     JOIN partners p ON p.id = ot.operator_id
-     WHERE ob.id = $1
-     ON CONFLICT (cp_transaction_id) DO NOTHING`,
-    [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId]
-  );
+    // Защита от подмены суммы в вебхуке — на закреплённой строке.
+    const expectedAmount = parseFloat(booking.final_price);
+    if (Math.abs(expectedAmount - webhook.Amount) > 1) {
+      throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${webhook.Amount}`);
+    }
+
+    await client.query(
+      `UPDATE operator_bookings
+       SET payment_status = 'paid',
+           booking_status = 'confirmed',
+           payment_id = $2,
+           paid_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL AND payment_status != 'paid'`,
+      [bookingId, webhook.TransactionId.toString()],
+    );
+
+    // Платёж в tour_payments (HELD до release_after = конец тура + 36ч).
+    await client.query(
+      `INSERT INTO tour_payments (
+         booking_id, operator_id,
+         retail_amount, net_amount, commission_amount, commission_rate,
+         cp_transaction_id, cp_invoice_id,
+         status, paid_at, release_after
+       )
+       SELECT
+         ob.id,
+         ot.operator_id,
+         ob.final_price,
+         ROUND(ob.final_price * (1 - p.commission_current / 100), 2),
+         ROUND(ob.final_price * p.commission_current / 100, 2),
+         p.commission_current,
+         $2, $3,
+         'HELD', NOW(),
+         ob.booking_date::timestamp
+           + (COALESCE(ot.multi_day_count, 1) * INTERVAL '1 day')
+           + INTERVAL '36 hours'
+       FROM operator_bookings ob
+       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+       JOIN partners p ON p.id = ot.operator_id
+       WHERE ob.id = $1
+       ON CONFLICT (cp_transaction_id) DO NOTHING`,
+      [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId],
+    );
+
+    // Занятость — в той же транзакции: слот не может подтвердиться отдельно от
+    // платежа. Раньше это был четвёртый independent query после комиссии.
+    await client.query(
+      `UPDATE tour_availability ta
+       SET booked_slots = booked_slots + b.participants,
+           updated_at = NOW()
+       FROM operator_bookings b
+       WHERE b.id = $1
+         AND ta.operator_tour_id = b.operator_tour_id
+         AND ta.date = b.booking_date`,
+      [bookingId],
+    );
+
+    return true;
+  });
+
+  // Дубль или уже оплачено — дальше идти незачем: комиссия и уведомление уже
+  // были при первой обработке (оба идемпотентны, но лишний Telegram — шум).
+  if (!inserted) return;
 
   // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
   // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в
@@ -107,18 +147,6 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // (partners.commission_current), та же, по которой строкой выше заполнен
   // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
   await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
-
-  // Increment booked_slots for the corresponding availability date
-  await query(
-    `UPDATE tour_availability ta
-     SET booked_slots = booked_slots + b.participants,
-         updated_at = NOW()
-     FROM operator_bookings b
-     WHERE b.id = $1
-       AND ta.operator_tour_id = b.operator_tour_id
-       AND ta.date = b.booking_date`,
-    [bookingId]
-  );
 
   // Notify operator + admin via Telegram
   // LEFT JOIN both partners and users — operators can be in either table
