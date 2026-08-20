@@ -1,13 +1,78 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/hidden-tracks-census",
-    "https://vedarai.ru/api/cron/idilesom-name-gap?pages=50"
-  ],
-  "until": "hidden_tracks_v2",
-  "retries": 12,
-  "retryDelay": 60,
-  "timeout": 115,
-  "bytes": 50000,
-  "note": "Проба 97: перепись скрытых треков v2 (у кого есть ЖИВОЙ маршрут-тёзка — тем слияние, не restore) + именная сверка с каталогом идилесома (что качать руками). Тем же деплоем: фикс матчинга инбокса — живая запись предпочитается скрытой, треки больше не уезжают в невидимые дубли.",
-  "run": 97
+ "urls": [
+  "https://vedarai.ru/api/cron/idilesom-name-gap?pages=50"
+ ],
+ "until": "name_gap_v2",
+ "retries": 12,
+ "retryDelay": 60,
+ "timeout": 115,
+ "bytes": 30000,
+ "post": [
+  {
+   "url": "https://vedarai.ru/api/cron/route-twins-hide",
+   "body": {
+    "action": "restore",
+    "dry_run": true,
+    "ids": [
+     "b8b50ef5-8e92-4e1d-9ff7-5eb807ea89a6",
+     "746668e0-cbdc-4b70-bb1c-d80932a29ece",
+     "25f624cb-14df-4edd-8917-360bc844e382",
+     "82ed6f99-bf81-404b-a7ee-e7f62a3386aa",
+     "bc314f94-c58d-4618-b748-09943918f04d"
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/route-twins-hide",
+   "body": {
+    "action": "restore",
+    "dry_run": false,
+    "ids": [
+     "b8b50ef5-8e92-4e1d-9ff7-5eb807ea89a6",
+     "746668e0-cbdc-4b70-bb1c-d80932a29ece",
+     "25f624cb-14df-4edd-8917-360bc844e382",
+     "82ed6f99-bf81-404b-a7ee-e7f62a3386aa",
+     "bc314f94-c58d-4618-b748-09943918f04d"
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "164f612c-32da-4f0f-b261-c45c09dc2933",
+      "route": "b8b50ef5-8e92-4e1d-9ff7-5eb807ea89a6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "42652df8-887c-443c-9ee2-af67a13e2be4",
+      "route": "bc314f94-c58d-4618-b748-09943918f04d",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "164f612c-32da-4f0f-b261-c45c09dc2933",
+      "route": "b8b50ef5-8e92-4e1d-9ff7-5eb807ea89a6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "42652df8-887c-443c-9ee2-af67a13e2be4",
+      "route": "bc314f94-c58d-4618-b748-09943918f04d",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  }
+ ],
+ "note": "Проба 98: восстановление 5 скрытых треконосных одиночек (Вулкан Вилючинский 253тчк, Ичинская сопка 99, Пиначево-Центральный kml 1187, Озеро Приливное-Халактырский пляж 2491 wp35, Смотровая на Тихий океан 3946 wp35) + привязки двух к местам-тёзкам. Дубли с живыми тёзками НЕ восстанавливаются — их судьба слияние. Первый URL ждёт билд с диагностикой сверки (name_gap_v2).",
+ "run": 98
 }

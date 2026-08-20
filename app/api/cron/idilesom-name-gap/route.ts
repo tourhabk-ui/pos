@@ -86,14 +86,26 @@ export async function GET(request: NextRequest) {
       unknownToUs++;
     }
 
+    // Первый прогон (проба 97): 317 из 331 «неизвестны нам» при том, что 277
+    // их треков у нас точно есть, — значит листинговые названия не совпадают
+    // с нашими титулами (в якоре, видимо, не только имя). Образец сырых
+    // названий делает причину видимой вместо гадания.
+    const unknownSample = listing.entries
+      .filter(e => e.title !== ''
+        && !routeByName.has(normalizeTitle(e.title))
+        && !placeByName.has(normalizeTitle(e.title)))
+      .slice(0, 12)
+      .map(e => ({ id: e.id, title: e.title }));
+
     return NextResponse.json({
       success: true,
-      probe: 'name_gap_v1',
+      probe: 'name_gap_v2',
       source_entries: listing.entries.length,
       listing_errors: listing.listingErrors,
       untitled_entries: untitled,
       already_tracked: alreadyTracked,
       unknown_to_us: unknownToUs,
+      unknown_sample: unknownSample,
       download_route_without_line: routeWithoutLine,
       download_place_without_line: placeWithoutLine,
     });
