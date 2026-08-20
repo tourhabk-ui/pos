@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { TransferOperatorDashboard, TransferOperatorStats, TransferBooking, TransferVehicle, TransferNotification } from '@/types/transfer';
-import { config } from '@/lib/config';
 import { requireTransferOperator } from '@/lib/auth/middleware';
 import { getTransferPartnerId } from '@/lib/auth/transfer-helpers';
 
@@ -341,14 +340,20 @@ export async function GET(request: NextRequest) {
       });
 
     } catch (dbError) {
-      
-      // Fallback к тестовым данным
-      const mockDashboard = createMockDashboard();
-      
+      // Никаких «тестовых данных» вместо ответа: до 20.08 здесь при падении
+      // БД молча отдавался success: true с выдуманным дашбордом — водитель
+      // «Иванов» с рейтингом 4.8, выручка 450000, несуществующая бронь с
+      // телефоном. Перевозчик видел вымысел как свои деньги. Отказ — это
+      // отказ (правило «третьего состояния»): имя и причина — в лог,
+      // наружу — честная ошибка.
+      console.error(
+        '[transfers/operator/dashboard] БД не ответила:',
+        dbError instanceof Error ? dbError.message : dbError,
+      );
       return NextResponse.json({
-        success: true,
-        data: mockDashboard
-      });
+        success: false,
+        error: 'Не удалось получить данные дашборда — попробуйте позже'
+      }, { status: 502 });
     }
 
   } catch (error) {
@@ -357,98 +362,4 @@ export async function GET(request: NextRequest) {
       error: 'Внутренняя ошибка сервера при получении дашборда'
     }, { status: 500 });
   }
-}
-
-// Функция для создания тестового дашборда
-function createMockDashboard(): TransferOperatorDashboard {
-  return {
-    stats: {
-      totalVehicles: 5,
-      totalDrivers: 5,
-      totalRoutes: 5,
-      totalSchedules: 15,
-      totalBookings: 120,
-      totalRevenue: 450000,
-      averageDriverRating: 4.7,
-      activeBookings: 8,
-      pendingBookings: 3,
-      completedBookings: 105,
-      cancelledBookings: 4,
-      monthlyRevenue: 135000,
-      weeklyRevenue: 45000,
-      dailyRevenue: 9000
-    },
-    activeBookings: [
-      {
-        id: 'booking_1',
-        userId: 'user_1',
-        operatorId: 'operator_1',
-        routeId: 'route_1',
-        vehicleId: 'vehicle_1',
-        driverId: 'driver_1',
-        scheduleId: 'schedule_1',
-        bookingDate: '2024-01-15',
-        departureTime: '08:00',
-        passengersCount: 2,
-        totalPrice: 3000,
-        status: 'pending',
-        specialRequests: 'Детское кресло',
-        contactPhone: '+7-914-123-45-67',
-        contactEmail: 'client@kamchatka.ru',
-        confirmationCode: 'ABC123',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ],
-    vehicles: [
-      {
-        id: 'vehicle_1',
-        operatorId: 'operator_1',
-        vehicleType: 'economy',
-        make: 'Hyundai',
-        model: 'Solaris',
-        year: 2022,
-        capacity: 4,
-        features: ['air_conditioning'],
-        licensePlate: 'КМ 123 АА',
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ],
-    drivers: [
-      {
-        id: 'driver_1',
-        operatorId: 'operator_1',
-        name: 'Иванов Иван Иванович',
-        phone: '+7-914-123-45-67',
-        email: 'ivanov@kamtransfer.ru',
-        licenseNumber: '1234567890',
-        languages: ['ru', 'en'],
-        rating: 4.8,
-        totalTrips: 150,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ],
-    routes: [
-      {
-        id: 'route_1',
-        name: 'Аэропорт → Петропавловск-Камчатский',
-        fromLocation: 'Аэропорт Елизово',
-        toLocation: 'Петропавловск-Камчатский',
-        fromCoordinates: { lat: 53.17, lng: 158.65 },
-        toCoordinates: { lat: 53.02, lng: 158.65 },
-        distanceKm: 30.5,
-        estimatedDurationMinutes: 45,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ],
-    recentBookings: [],
-    upcomingSchedules: [],
-    notifications: []
-  };
 }
