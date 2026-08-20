@@ -9,8 +9,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  significantTokens, nameMatchScore, distanceKm, suggestRoutes, linkPairProblems,
-  type RouteCandidateInput,
+  significantTokens, nameMatchScore, distanceKm, suggestRoutes, suggestPlaces,
+  linkPairProblems,
+  type RouteCandidateInput, type PlaceCandidateInput,
 } from '@/lib/routes/place-link';
 
 const ROOT = process.cwd();
@@ -70,6 +71,35 @@ describe('подсказка кандидатов', () => {
   });
 });
 
+describe('обратная подсказка: места для маршрута без точек', () => {
+  const places: PlaceCandidateInput[] = [
+    { id: 'p-avacha', name: 'Вулкан Авачинский', locationType: 'volcano', lat: 53.26, lng: 158.83 },
+    { id: 'p-camp', name: 'Авачинский перевал', locationType: 'mountain', lat: 53.27, lng: 158.80 },
+    { id: 'p-museum', name: 'Краевой художественный музей', locationType: 'museum', lat: 53.02, lng: 158.65 },
+    { id: 'p-far', name: 'Озеро Кроноцкое', locationType: 'lake', lat: 54.75, lng: 160.25 },
+  ];
+
+  it('маршрут называет место — оно идёт первым с полным счётом', () => {
+    const out = suggestPlaces({ title: 'Восхождение на Авачинский вулкан', lat: 53.25, lng: 158.82 }, places);
+    expect(out[0].placeId).toBe('p-avacha');
+    expect(out[0].nameScore).toBe(1);
+  });
+
+  it('далёкое и безымянное не показывается', () => {
+    const out = suggestPlaces({ title: 'Восхождение на Авачинский вулкан', lat: 53.25, lng: 158.82 }, places);
+    expect(out.map(c => c.placeId)).not.toContain('p-far');
+  });
+
+  it('городской сосед без совпадения имени не вытесняет цель маршрута', () => {
+    // Музей ближе к точке старта, чем перевал, но маршрут его не называет.
+    const out = suggestPlaces({ title: 'Восхождение на Авачинский вулкан', lat: 53.05, lng: 158.68 }, places);
+    const museumIdx = out.findIndex(c => c.placeId === 'p-museum');
+    const avachaIdx = out.findIndex(c => c.placeId === 'p-avacha');
+    expect(avachaIdx).toBeGreaterThanOrEqual(0);
+    expect(museumIdx === -1 || museumIdx > avachaIdx).toBe(true);
+  });
+});
+
 describe('расстояние', () => {
   it('Петропавловск — Елизово примерно 27 км', () => {
     const d = distanceKm(53.024, 158.643, 53.183, 158.388);
@@ -105,5 +135,34 @@ describe('обещания эндпоинта', () => {
     expect(src).toContain('r.is_visible = true');
     expect(src).toContain('r.merged_into_id IS NULL');
     expect(src).toContain('p.merged_into_id IS NULL');
+  });
+
+  it('род waypoint требует улики имени, а не расстояния (миграция 874)', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/place-link/route.ts'), 'utf-8');
+    // Разметка пишется явно, с отметкой времени.
+    expect(src).toContain('link_kind');
+    expect(src).toContain('link_kind_at');
+    // Отказ размечать waypoint без совпадения имён — не молчаливый пропуск.
+    expect(src).toContain("kind === 'waypoint' && nameScore === 0");
+    // Из расстояния род не выводится нигде.
+    expect(src, 'род связи из distanceKm — выключение сигнализации §4.1')
+      .not.toMatch(/kind\s*=[^=][^\n]*distanceKm/);
+  });
+
+  it('боевая партия ограничена десятью парами (правило владельца)', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/place-link/route.ts'), 'utf-8');
+    expect(src).toContain('LIVE_BATCH_MAX = 10');
+    expect(src).toMatch(/!data\.dry_run && data\.pairs\.length > LIVE_BATCH_MAX/);
+  });
+});
+
+describe('обещания подсказчика маршрутов (route-link-suggest)', () => {
+  it('читает только живое с обеих сторон и ничего не пишет', () => {
+    const src = readFileSync(join(ROOT, 'app/api/cron/route-link-suggest/route.ts'), 'utf-8');
+    expect(src).toContain('r.is_visible = true');
+    expect(src).toContain('r.merged_into_id IS NULL');
+    expect(src).toContain('p.is_visible = true');
+    expect(src).toContain('p.merged_into_id IS NULL');
+    expect(src).not.toMatch(/INSERT|UPDATE|DELETE/);
   });
 });
