@@ -165,6 +165,31 @@ function extractPlaceIds(body: string): string[] {
   return [...normalized.matchAll(/\/kam\/places\/(\d+)/g)].map((m) => m[1]);
 }
 
+export interface IdilesomEntry { id: string; title: string }
+
+/**
+ * Пары id+название из листинга: название лежит внутри той же ссылки
+ * <a href="/kam/places/N">…</a>. Разметка внутри якоря срезается, пробелы
+ * схлопываются. Название может не найтись (вёрстка сменилась, ссылка-картинка
+ * без текста) — тогда пара приходит с пустым title, а сверка по имени такую
+ * запись честно пропускает, не гадая.
+ */
+export function extractPlaceEntries(body: string): IdilesomEntry[] {
+  const normalized = body.replace(/\\\//g, '/').replace(/\\"/g, '"');
+  const byId = new Map<string, string>();
+  for (const m of normalized.matchAll(/<a\b[^>]*href="[^"]*\/kam\/places\/(\d+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+    const id = m[1];
+    const title = m[2].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const prev = byId.get(id);
+    if (prev === undefined || (prev === '' && title !== '')) byId.set(id, title);
+  }
+  // Ссылки без якорного текста (или вне <a>) не должны теряться из счёта.
+  for (const id of extractPlaceIds(body)) {
+    if (!byId.has(id)) byId.set(id, '');
+  }
+  return [...byId.entries()].map(([id, title]) => ({ id, title }));
+}
+
 // ── Fetch all place IDs via AJAX pagination ───────────────────────────────────
 //
 // Ошибки листинга НЕ глотаются: раньше недоступный сайт (бот-защита, 403,
@@ -176,14 +201,25 @@ export interface IdilesomListing {
   listingErrors: string[];
 }
 
-export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<IdilesomListing> {
-  const all = new Set<string>();
+export interface IdilesomEntriesListing {
+  entries: IdilesomEntry[];
+  listingErrors: string[];
+}
+
+export async function fetchAllEntries(maxPages = 50, targetIds = Infinity): Promise<IdilesomEntriesListing> {
+  const all = new Map<string, string>();
   const listingErrors: string[] = [];
+  const absorb = (body: string) => {
+    for (const e of extractPlaceEntries(body)) {
+      const prev = all.get(e.id);
+      if (prev === undefined || (prev === '' && e.title !== '')) all.set(e.id, e.title);
+    }
+  };
 
   // First page (plain HTML)
   const first = await fetchTextWithFallback('https://idilesom.com/kam/places?district=0');
   if (first.text !== null) {
-    for (const id of extractPlaceIds(first.text)) all.add(id);
+    absorb(first.text);
     if (all.size === 0) {
       listingErrors.push('Страница листинга загрузилась, но ссылок /kam/places/N в ней нет — вёрстка изменилась?');
     }
@@ -214,7 +250,7 @@ export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<
       if (data.empty) break;
     } catch { /* не-JSON (HTML через BrightData) — парсим ссылки как есть */ }
     const before = all.size;
-    for (const id of extractPlaceIds(res.text)) all.add(id);
+    absorb(res.text);
     if (all.size === before) {
       pagesWithoutNewIds++;
       if (pagesWithoutNewIds >= 2) break;
@@ -226,7 +262,13 @@ export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<
     listingErrors.push(`AJAX-пагинация: ${ajaxFailures} страниц не загрузились (первая ошибка: ${firstAjaxError})`);
   }
 
-  return { ids: [...all], listingErrors };
+  return { entries: [...all.entries()].map(([id, title]) => ({ id, title })), listingErrors };
+}
+
+export async function fetchAllIds(maxPages = 50, targetIds = Infinity): Promise<IdilesomListing> {
+  // Обёртка над fetchAllEntries: правило обхода листинга живёт в одном месте.
+  const { entries, listingErrors } = await fetchAllEntries(maxPages, targetIds);
+  return { ids: entries.map(e => e.id), listingErrors };
 }
 
 // ── Scrape individual place page ──────────────────────────────────────────────

@@ -3,6 +3,8 @@
  * реальные треки не перетираются, несматченное создаётся скрытым.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const queryMock = vi.fn();
 vi.mock('@/lib/db-pool', () => ({
@@ -114,5 +116,14 @@ describe('importKmlTrack — правила честности', () => {
     const insert = queryMock.mock.calls.find(c => /INSERT INTO kamchatka_routes/.test(c[0] as string));
     expect(insert![0]).toMatch(/is_visible, dedupe_key/);
     expect(insert![0]).toMatch(/false, \$6/);
+  });
+});
+
+describe('обещания импорта: выбор среди тёзок', () => {
+  it('живая запись предпочитается скрытой, слитые не участвуют (урок 20.08)', () => {
+    const src = readFileSync(join(process.cwd(), 'lib/import/kml-inbox.ts'), 'utf-8');
+    // Трек уходил в СКРЫТЫЙ дубль, живая запись оставалась без линии.
+    expect(src).toContain('Number(b.is_visible) - Number(a.is_visible)');
+    expect(src).toContain('merged_into_id IS NULL');
   });
 });
