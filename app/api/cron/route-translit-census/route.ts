@@ -70,7 +70,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'translit_census_v1',
+      // v2 — маркер деплоя миграции 882: код переписи не менялся, но пробе
+      // нужен признак сборки, при старте которой слияние уже накатилось.
+      probe: 'translit_census_v2',
       live_total: rows.length,
       latin_titled: latins.length,
       matched_exact: pairs.filter(p => p.match === 'exact').length,
