@@ -160,8 +160,12 @@ export async function POST(request: NextRequest) {
            ON CONFLICT (route_id, place_id) DO NOTHING`,
           [p.liveId, p.hiddenId],
         );
+        // is_visible гасится ЗДЕСЬ ЖЕ, а не предполагается: план проверяет
+        // скрытость на входе, но между планом и записью запись могла
+        // всплыть (restore близнецов 17.08 вернул на витрину две слитые —
+        // «видимая, но слитая» жила в щели между проверками до пробы 109).
         await client.query(
-          `UPDATE kamchatka_routes SET merged_into_id = $1, updated_at = NOW()
+          `UPDATE kamchatka_routes SET merged_into_id = $1, is_visible = false, updated_at = NOW()
            WHERE id::text = $2 AND merged_into_id IS NULL`,
           [p.liveId, p.hiddenId],
         );

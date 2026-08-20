@@ -53,7 +53,12 @@ const ENRICH_SQL = `
   FROM kamchatka_routes r
   LEFT JOIN route_waypoints rw ON rw.route_id = r.id
   LEFT JOIN places p ON p.id = rw.place_id
-  WHERE (r.id = ANY($1::uuid[]) OR r.ark_id = ANY($1::uuid[])) AND r.is_visible = TRUE
+  WHERE (r.id = ANY($1::uuid[]) OR r.ark_id = ANY($1::uuid[]))
+    -- Живая запись — is_visible И не слита: одной видимости мало. Запись,
+    -- слитую 15.08 и ошибочно возвращённую на витрину restore'ом, поиск
+    -- показывал месяц — аудит и миграции её при этом живой не считали
+    -- (проба 109, migrations/887_merged_rows_leave_showcase.sql).
+    AND r.is_visible = TRUE AND r.merged_into_id IS NULL
   GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
 `;
 
@@ -114,6 +119,8 @@ export async function GET(req: NextRequest) {
        LEFT JOIN route_waypoints rw ON rw.route_id = r.id
        LEFT JOIN places p ON p.id = rw.place_id
        WHERE r.is_visible = TRUE
+         -- Не слита: см. комментарий у ENRICH_SQL (887).
+         AND r.merged_into_id IS NULL
          AND (
            r.title ILIKE $1
            OR EXISTS (
