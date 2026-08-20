@@ -109,7 +109,10 @@ export async function GET(request: NextRequest) {
       // безобъектных имён берётся из данных маршрута, не выдумывается.
       // v7 — миграция 890 (партия 3 из описаний) + nearest_places в items:
       // для 8 безобъектных имён канон ищется у реального соседа по координате.
-      probe: 'title_census_v7',
+      // v8 — миграция 891 (партия 4 от соседей по координате): нарушителей
+      // должно остаться 2 — «Зимняя сказка» и «Чудеса Камчатки», без единой
+      // зацепки в данных; их судьба — решение владельца.
+      probe: 'title_census_v8',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,
