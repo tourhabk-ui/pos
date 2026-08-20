@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const audit = await runAttachmentAudit(sources);
-    return NextResponse.json({ success: true, ...audit });
+    // v2 — пересуд больше не судит слитые и скрытые записи (фильтр в
+    // runAttachmentAudit); маркер нужен пробе как датчик этого деплоя.
+    return NextResponse.json({ success: true, probe: 'attach_audit_v2', ...audit });
   } catch (err) {
     // Пустой ответ читался бы как «всё чисто» — то есть как разрешение лить
     // новые треки. Отказ обязан выглядеть отказом.
