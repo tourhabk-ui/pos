@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   try {
     const { rows } = await pool.query<{
       id: string; title: string; waypoint_names: string[] | null;
-      description_head: string | null;
+      description_head: string | null; nearest_places: string[] | null;
     }>(
       `SELECT r.id::text AS id, r.title,
               LEFT(r.description, 240) AS description_head,
@@ -45,7 +45,27 @@ export async function GET(request: NextRequest) {
                 WHERE rw.route_id = r.id
                   AND p.is_visible = true AND p.merged_into_id IS NULL
                 ORDER BY rw.position
-              ) AS waypoint_names
+              ) AS waypoint_names,
+              -- Ближайшие живые места к координате маршрута (~до 17 км по
+              -- широте) — материал для канона, когда объекта нет ни в имени,
+              -- ни в описании: имя берётся от реального соседа, не
+              -- сочиняется. Дистанция плоская (широта 111 км/°, долгота
+              -- 67 км/° на ~53°N) — для ранжирования и грубой оценки хватает.
+              ARRAY(
+                SELECT p2.name || ' ~' ||
+                       ROUND(sqrt(power(111.0 * (p2.lat::float8 - r.lat::float8), 2)
+                                + power(67.0 * (p2.lng::float8 - r.lng::float8), 2))::numeric, 1)
+                       || ' км'
+                FROM places p2
+                WHERE r.lat IS NOT NULL AND r.lng IS NOT NULL
+                  AND p2.is_visible = true AND p2.merged_into_id IS NULL
+                  AND p2.lat IS NOT NULL AND p2.lng IS NOT NULL
+                  AND p2.lat::float8 BETWEEN r.lat::float8 - 0.15 AND r.lat::float8 + 0.15
+                  AND p2.lng::float8 BETWEEN r.lng::float8 - 0.25 AND r.lng::float8 + 0.25
+                ORDER BY power(111.0 * (p2.lat::float8 - r.lat::float8), 2)
+                       + power(67.0 * (p2.lng::float8 - r.lng::float8), 2)
+                LIMIT 3
+              ) AS nearest_places
        FROM kamchatka_routes r
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
        ORDER BY r.title`,
@@ -64,6 +84,9 @@ export async function GET(request: NextRequest) {
         // берётся из данных маршрута, не сочиняется. null — описания нет,
         // и это честный ответ (кандидат на скрытие, решает владелец).
         description_head: r.description_head,
+        // Соседи по координате маршрута: пустой список — координаты нет или
+        // рядом нет живых мест; это честный ответ, не повод выдумывать.
+        nearest_places: r.nearest_places ?? [],
       }));
 
     const byViolation: Record<string, number> = {};
@@ -84,7 +107,9 @@ export async function GET(request: NextRequest) {
       // v5 — миграция 888 (переименование партии 1, «го» владельца 20.08).
       // v6 — миграция 889 (партия 2) + description_head в items: канон для
       // безобъектных имён берётся из данных маршрута, не выдумывается.
-      probe: 'title_census_v6',
+      // v7 — миграция 890 (партия 3 из описаний) + nearest_places в items:
+      // для 8 безобъектных имён канон ищется у реального соседа по координате.
+      probe: 'title_census_v7',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,

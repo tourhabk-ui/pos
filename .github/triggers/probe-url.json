@@ -1,12 +1,11 @@
 {
-  "note": "Проба 112: миграция 889 — переименование, партия 2 (5 имён, «го» владельца; «5 к.с.» развёрнуто в «5 категории» — сокращения нет в ABBREV судьи). Плюс перепись v6: description_head в items — материал для канона 11 безобъектных имён. Ожидания: title-census live_total 395, offenders_total 11, в остатке только поэтические без объекта, у каждого description_head (или честный null); routes-audit без изменений (612 / 395 / 63); search «Быстринский» и «Поперечный» находят новые имена.",
+  "note": "Проба 113: миграция 890 — партия 3 переименований (3 имени из описаний: Мутновский, Мутновско-Гореловская группа ×2). Перепись v7 отдаёт nearest_places (до 3 живых мест в ~17 км от координаты маршрута) — материал для канона последних 8 безобъектных. Ожидания: title-census live_total 395, offenders_total 8, у каждого из 8 nearest_places (или честный пустой список); routes-audit без изменений (612 / 395 / 63); search «Мутновск» находит «К подножию вулкана Мутновский» и обе «Мутновско-Гореловская группа».",
   "urls": [
     "https://vedarai.ru/api/cron/route-title-census?limit=40",
     "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/routes/search?q=%D0%91%D1%8B%D1%81%D1%82%D1%80%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D0%B9",
-    "https://vedarai.ru/api/routes/search?q=%D0%9F%D0%BE%D0%BF%D0%B5%D1%80%D0%B5%D1%87%D0%BD%D1%8B%D0%B9"
+    "https://vedarai.ru/api/routes/search?q=%D0%9C%D1%83%D1%82%D0%BD%D0%BE%D0%B2%D1%81%D0%BA"
   ],
-  "until": "title_census_v6",
+  "until": "title_census_v7",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
