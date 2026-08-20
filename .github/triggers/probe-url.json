@@ -1,21 +1,13 @@
 {
   "urls": [
-    "https://vedarai.ru/api/cron/route-web-null"
+    "https://vedarai.ru/api/cron/route-link-suggest?limit=100",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=100&limit=100"
   ],
-  "until": "web_null_v1",
+  "until": "route_link_suggest_v1",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 8000,
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/route-web-null", "body": { "dry_run": true } },
-    { "url": "https://vedarai.ru/api/cron/route-web-null", "body": { "dry_run": false } },
-    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2127", "2798", "3093", "2522", "2640", "6688", "6691", "6611", "6643", "2501", "2068", "5805"] } },
-    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2063", "3991", "3992", "2533", "2896", "2439", "2529", "2724", "2514", "2749", "2498", "3116"] } },
-    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2718", "2899", "2398", "3103", "2173", "2738", "2187", "2073", "1484", "3138", "1748", "3104"] } },
-    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["3102", "2383", "3089", "2876", "2265", "2776", "2881", "2874", "2226", "2083", "2774", "2566"] } },
-    { "url": "https://vedarai.ru/api/cron/idilesom-scout", "body": { "ids": ["2399", "2404", "2750", "2731", "2740", "2736"] } }
-  ],
-  "note": "Проба 89, этап 0 плана владельца. GET — датчик выката нового актуатора (маркер web_null_v1). POST 1-2: сухой и боевой прогон обнуления паутинной синтетики (ожидается 1 запись — Вулкан Зимина, прыжок 25.5 км). POST 3-7: разведка всех 54 отсутствующих id идилесома партиями по 12 — диагностика причин уже в скауте, билд свежий.",
-  "run": 89
+  "bytes": 60000,
+  "note": "Проба 90, этап 1: перепись кандидатов-мест для 241 маршрута без живых путевых точек. Два окна по 100 — уверенная корзина (имя маршрута называет место, nameScore >= 0.5) целиком. Из неё соберутся боевые партии по 10 для place-link с kind=waypoint.",
+  "run": 90
 }
