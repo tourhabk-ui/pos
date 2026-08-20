@@ -1,13 +1,43 @@
 {
-  "note": "Проба 102: продолжение кампании маршрутов и мест. В деплое: фикс полевого контура (142 км у Скал Три Брата — nearby-связи считались этапами хода) и транслит-перепись латинских дублей витрины. Первый URL — датчик нового билда (translit_census_v1, роут новый — до выката 404). Дальше: полный список латинских записей с кириллическими родственниками (по нему владелец решит слияние), перепись мест без линии (tracked/linked_no_track/lost/never) и следующее окно подсказчика маршрут-место.",
+  "note": "Проба 103: миграция 882 (4 транслит-пары слиты в кириллические записи, Пионерская получает трек; клубок Спокойных — 3 записи слиты в «Водопад Спокойный (Снежный Барс)», трек из 118-точечного KML) + привязка места «Вулкан Плоский Толбачик» к его маршруту с треком (place-link, имя 1.0) + шесть окон подсказчика для сбора auto_ready-кандидатов (имя 1.0 и ≤30 км — фильтрую при чтении, авто-партии пойдут пробой 104). Первый URL — датчик translit_census_v2: после миграции latin_titled должен стать 0.",
   "urls": [
     "https://vedarai.ru/api/cron/route-translit-census",
-    "https://vedarai.ru/api/cron/places-no-track-census",
-    "https://vedarai.ru/api/cron/route-link-suggest?limit=30"
+    "https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278",
+    "https://vedarai.ru/api/cron/route-link-suggest?limit=30",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=30&limit=30",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=60&limit=30",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=90&limit=30",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=120&limit=30",
+    "https://vedarai.ru/api/cron/route-link-suggest?offset=150&limit=30"
   ],
-  "until": "translit_census_v1",
+  "until": "translit_census_v2",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 30000
+  "bytes": 30000,
+  "count": [
+    "\"linkKind\":\"nearby\"",
+    "\"linkKind\":\"waypoint\"",
+    "\"linkKind\":\"unknown\""
+  ],
+  "around": [
+    "\"geometrySource\""
+  ],
+  "aroundLines": 2,
+  "aroundHits": 1,
+  "post": [
+    {
+      "url": "https://vedarai.ru/api/cron/place-link",
+      "body": {
+        "dry_run": false,
+        "pairs": [
+          {
+            "place": "f7b849df-456d-449c-9416-39683e27b472",
+            "route": "620d4f82-a666-4141-bd9d-7bd506be991a",
+            "kind": "waypoint"
+          }
+        ]
+      }
+    }
+  ]
 }
