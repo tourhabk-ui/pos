@@ -69,7 +69,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'title_census_v1',
+      // v2 — маркер деплоя миграции 885 (слияние вариаций): код переписи не
+      // менялся, пробе нужен признак сборки, при старте которой она прошла.
+      probe: 'title_census_v2',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,
