@@ -1,43 +1,211 @@
 {
-  "note": "Проба 103: миграция 882 (4 транслит-пары слиты в кириллические записи, Пионерская получает трек; клубок Спокойных — 3 записи слиты в «Водопад Спокойный (Снежный Барс)», трек из 118-точечного KML) + привязка места «Вулкан Плоский Толбачик» к его маршруту с треком (place-link, имя 1.0) + шесть окон подсказчика для сбора auto_ready-кандидатов (имя 1.0 и ≤30 км — фильтрую при чтении, авто-партии пойдут пробой 104). Первый URL — датчик translit_census_v2: после миграции latin_titled должен стать 0.",
-  "urls": [
-    "https://vedarai.ru/api/cron/route-translit-census",
-    "https://vedarai.ru/api/routes/7ae7d778-2cdc-4655-8c9c-0dc36713a278",
-    "https://vedarai.ru/api/cron/route-link-suggest?limit=30",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=30&limit=30",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=60&limit=30",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=90&limit=30",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=120&limit=30",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=150&limit=30"
-  ],
-  "until": "translit_census_v2",
-  "retries": 12,
-  "retryDelay": 60,
-  "timeout": 115,
-  "bytes": 30000,
-  "count": [
-    "\"linkKind\":\"nearby\"",
-    "\"linkKind\":\"waypoint\"",
-    "\"linkKind\":\"unknown\""
-  ],
-  "around": [
-    "\"geometrySource\""
-  ],
-  "aroundLines": 2,
-  "aroundHits": 1,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/place-link",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          {
-            "place": "f7b849df-456d-449c-9416-39683e27b472",
-            "route": "620d4f82-a666-4141-bd9d-7bd506be991a",
-            "kind": "waypoint"
-          }
-        ]
-      }
-    }
-  ]
+ "note": "Проба 104: боевая привязка auto_ready-кандидатов подсказчика (имя 1.0, дистанция до 30 км или маршрут без якоря). 18 пар из окон пробы 103: 11 с kind=waypoint (маршрут назван местом), 7 без kind (честный unknown: Кроноцкая тройка и вулкан Асача в 28 км от бухты — путём не утверждаю). Исключены две ложные тёзки: «Озеро Безымянное»-«Безымянный» (слово-пустышка) и «Бабушкин камень»-«Камчатский камень» (общий токен). Партии по 10, dry+live. Датчик — route_link_suggest_v2.",
+ "urls": [
+  "https://vedarai.ru/api/cron/route-link-suggest?limit=5"
+ ],
+ "until": "route_link_suggest_v2",
+ "retries": 12,
+ "retryDelay": 60,
+ "timeout": 115,
+ "bytes": 30000,
+ "post": [
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "27636075-f56f-43b1-9623-d38272377d4a",
+      "route": "5a83e7ce-2ad9-4873-ae21-590c555b255c",
+      "kind": "waypoint"
+     },
+     {
+      "place": "974c5496-fa09-4546-8e05-c3410ce36347",
+      "route": "0b357658-aed7-46a5-ac32-a8756be90279",
+      "kind": "waypoint"
+     },
+     {
+      "place": "9b5f583e-542b-434c-b186-e29f66c19b2e",
+      "route": "9cdd8df8-b9e7-45cf-adb5-9751711f55b5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "c03b364f-55c3-4944-8505-3e86058999fa",
+      "route": "cb400df6-e430-43a7-b867-aea935ae9897",
+      "kind": "waypoint"
+     },
+     {
+      "place": "54b106de-d81a-42af-9a41-32ee49604309",
+      "route": "513b99de-5953-4932-a6c0-275c97d3e29d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "88e23147-13e4-4bed-bae6-6dbcaf277cf9",
+      "route": "d4941c53-4e05-417f-8867-07cdd2c334b6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5fb778bb-1e7c-4cf0-ae32-6162850ebdaa",
+      "route": "f24e7522-09b9-4b45-8c14-a4a13be01c64",
+      "kind": "waypoint"
+     },
+     {
+      "place": "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+      "route": "925a6de3-45f4-4a4f-a676-19ba234129aa",
+      "kind": "waypoint"
+     },
+     {
+      "place": "9ad01c57-7c24-4515-b92d-698bd9a1cb5f",
+      "route": "3a164883-0529-4fd8-889a-c35dce8b9636",
+      "kind": "waypoint"
+     },
+     {
+      "place": "15bf29b0-9b1b-49c5-be1f-4c8d5d185f4e",
+      "route": "6afdd9c7-9561-47f2-a1b4-55907e248ae6",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "27636075-f56f-43b1-9623-d38272377d4a",
+      "route": "5a83e7ce-2ad9-4873-ae21-590c555b255c",
+      "kind": "waypoint"
+     },
+     {
+      "place": "974c5496-fa09-4546-8e05-c3410ce36347",
+      "route": "0b357658-aed7-46a5-ac32-a8756be90279",
+      "kind": "waypoint"
+     },
+     {
+      "place": "9b5f583e-542b-434c-b186-e29f66c19b2e",
+      "route": "9cdd8df8-b9e7-45cf-adb5-9751711f55b5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "c03b364f-55c3-4944-8505-3e86058999fa",
+      "route": "cb400df6-e430-43a7-b867-aea935ae9897",
+      "kind": "waypoint"
+     },
+     {
+      "place": "54b106de-d81a-42af-9a41-32ee49604309",
+      "route": "513b99de-5953-4932-a6c0-275c97d3e29d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "88e23147-13e4-4bed-bae6-6dbcaf277cf9",
+      "route": "d4941c53-4e05-417f-8867-07cdd2c334b6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5fb778bb-1e7c-4cf0-ae32-6162850ebdaa",
+      "route": "f24e7522-09b9-4b45-8c14-a4a13be01c64",
+      "kind": "waypoint"
+     },
+     {
+      "place": "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+      "route": "925a6de3-45f4-4a4f-a676-19ba234129aa",
+      "kind": "waypoint"
+     },
+     {
+      "place": "9ad01c57-7c24-4515-b92d-698bd9a1cb5f",
+      "route": "3a164883-0529-4fd8-889a-c35dce8b9636",
+      "kind": "waypoint"
+     },
+     {
+      "place": "15bf29b0-9b1b-49c5-be1f-4c8d5d185f4e",
+      "route": "6afdd9c7-9561-47f2-a1b4-55907e248ae6",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "d9059e8a-4c59-4baf-9be5-cae2fa33f810",
+      "route": "c7e37541-8d6a-4c3c-9cbb-e78f9cc7a304",
+      "kind": "waypoint"
+     },
+     {
+      "place": "ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
+      "route": "604f8c47-57f1-4981-8cfc-34f1158ad191"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "120d3427-d8b9-42ed-b0ac-582449a9c202"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "120d3427-d8b9-42ed-b0ac-582449a9c202"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "21af69de-82d0-4a78-85de-fa0ff59cc569"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "21af69de-82d0-4a78-85de-fa0ff59cc569"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "6e0967e7-0822-4418-8fdf-7a722ac98e82"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "6e0967e7-0822-4418-8fdf-7a722ac98e82"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "d9059e8a-4c59-4baf-9be5-cae2fa33f810",
+      "route": "c7e37541-8d6a-4c3c-9cbb-e78f9cc7a304",
+      "kind": "waypoint"
+     },
+     {
+      "place": "ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
+      "route": "604f8c47-57f1-4981-8cfc-34f1158ad191"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "120d3427-d8b9-42ed-b0ac-582449a9c202"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "120d3427-d8b9-42ed-b0ac-582449a9c202"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "21af69de-82d0-4a78-85de-fa0ff59cc569"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "21af69de-82d0-4a78-85de-fa0ff59cc569"
+     },
+     {
+      "place": "a3ffa47b-2d9c-4d0e-a9f8-7c594b4f4041",
+      "route": "6e0967e7-0822-4418-8fdf-7a722ac98e82"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "6e0967e7-0822-4418-8fdf-7a722ac98e82"
+     }
+    ]
+   }
+  }
+ ]
 }
