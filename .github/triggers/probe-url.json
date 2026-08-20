@@ -1,13 +1,639 @@
 {
-  "urls": [
-    "https://vedarai.ru/api/cron/route-link-suggest?limit=100",
-    "https://vedarai.ru/api/cron/route-link-suggest?offset=100&limit=100"
-  ],
-  "until": "route_link_suggest_v1",
-  "retries": 12,
-  "retryDelay": 60,
-  "timeout": 115,
-  "bytes": 60000,
-  "note": "Проба 90, этап 1: перепись кандидатов-мест для 241 маршрута без живых путевых точек. Два окна по 100 — уверенная корзина (имя маршрута называет место, nameScore >= 0.5) целиком. Из неё соберутся боевые партии по 10 для place-link с kind=waypoint.",
-  "run": 90
+ "urls": [
+  "https://vedarai.ru/api/cron/route-link-suggest?limit=1"
+ ],
+ "retries": 3,
+ "retryDelay": 45,
+ "timeout": 115,
+ "bytes": 20000,
+ "post": [
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+      "route": "d65c32b1-9767-434e-a5dc-dcc4ef98600b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "4515a2ce-7c0f-4fd0-a4eb-54e7a0b31f27",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "1d820038-e028-4ecd-8677-886bbc8de570",
+      "kind": "waypoint"
+     },
+     {
+      "place": "ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
+      "route": "c8eefa47-f3e3-4c27-bddf-55642b266813",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dec9e9ec-dbe2-46d0-aed3-6d9797af2b52",
+      "route": "e69e9735-675a-462d-bf3d-dc6da46ed123",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "3aa67249-fef7-4767-a4fe-53fdeb587d35",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2b9c567e-1ffc-403e-a69a-6d72c93b88ae",
+      "route": "2e45ccb3-5b3b-4205-8989-a2250f51574d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "95f08ebc-d645-4bd1-99d6-ba88b4198046",
+      "route": "8eb80195-97ac-4952-924a-550ba83e1b05",
+      "kind": "waypoint"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "aca618d6-eb8e-482e-904d-c361c3594a88",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5030c438-3bdd-47d5-93bc-6a571e0190cb",
+      "route": "5f277679-a026-4561-b9cf-babff9a9f55e",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "3a98a68d-76c8-4835-8d6d-24f7dd867cb8",
+      "route": "d65c32b1-9767-434e-a5dc-dcc4ef98600b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "4515a2ce-7c0f-4fd0-a4eb-54e7a0b31f27",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "1d820038-e028-4ecd-8677-886bbc8de570",
+      "kind": "waypoint"
+     },
+     {
+      "place": "ce3db5c5-69c8-41b9-8a95-8b088ac2230e",
+      "route": "c8eefa47-f3e3-4c27-bddf-55642b266813",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dec9e9ec-dbe2-46d0-aed3-6d9797af2b52",
+      "route": "e69e9735-675a-462d-bf3d-dc6da46ed123",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "3aa67249-fef7-4767-a4fe-53fdeb587d35",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2b9c567e-1ffc-403e-a69a-6d72c93b88ae",
+      "route": "2e45ccb3-5b3b-4205-8989-a2250f51574d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "95f08ebc-d645-4bd1-99d6-ba88b4198046",
+      "route": "8eb80195-97ac-4952-924a-550ba83e1b05",
+      "kind": "waypoint"
+     },
+     {
+      "place": "44be8f5a-809d-47aa-bfa9-858e65cdfe77",
+      "route": "aca618d6-eb8e-482e-904d-c361c3594a88",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5030c438-3bdd-47d5-93bc-6a571e0190cb",
+      "route": "5f277679-a026-4561-b9cf-babff9a9f55e",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "36214e49-de02-4d1b-8f71-1926a1b319fa",
+      "route": "f047831e-8d23-49fc-8ca4-4e23970ef0c6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "af6af4ea-357e-4a98-9562-410ac41e650f",
+      "route": "50be875e-da68-43ba-95d6-05d30da6f8f8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dac787de-8f88-4ae1-8711-27b44382139b",
+      "route": "87550ffc-91ba-4aff-adcc-3b211f38d733",
+      "kind": "waypoint"
+     },
+     {
+      "place": "70f73765-2f2e-40de-846f-62cb6b02252f",
+      "route": "e2c916c4-658d-4c37-9aaa-6d2fa88ed1da",
+      "kind": "waypoint"
+     },
+     {
+      "place": "54b106de-d81a-42af-9a41-32ee49604309",
+      "route": "e5b96f5f-7c54-4505-8772-93ce93e6f3d6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+      "route": "d4f2355a-07aa-412d-aefb-2531883e333b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "284c862f-a339-409d-988a-da4107324b60",
+      "route": "bb7f12b2-604f-46e6-9154-b4862dd82c6d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "284c862f-a339-409d-988a-da4107324b60",
+      "route": "828cb165-e208-4909-a468-56936303809a",
+      "kind": "waypoint"
+     },
+     {
+      "place": "efebd626-8fce-48d5-8d6d-b1db7149d270",
+      "route": "c45b3bb5-a5d5-4bb1-9689-f54b75d03cec",
+      "kind": "waypoint"
+     },
+     {
+      "place": "32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+      "route": "c14cfc61-24a5-41f8-8bd3-4238f22f6b19",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "36214e49-de02-4d1b-8f71-1926a1b319fa",
+      "route": "f047831e-8d23-49fc-8ca4-4e23970ef0c6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "af6af4ea-357e-4a98-9562-410ac41e650f",
+      "route": "50be875e-da68-43ba-95d6-05d30da6f8f8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dac787de-8f88-4ae1-8711-27b44382139b",
+      "route": "87550ffc-91ba-4aff-adcc-3b211f38d733",
+      "kind": "waypoint"
+     },
+     {
+      "place": "70f73765-2f2e-40de-846f-62cb6b02252f",
+      "route": "e2c916c4-658d-4c37-9aaa-6d2fa88ed1da",
+      "kind": "waypoint"
+     },
+     {
+      "place": "54b106de-d81a-42af-9a41-32ee49604309",
+      "route": "e5b96f5f-7c54-4505-8772-93ce93e6f3d6",
+      "kind": "waypoint"
+     },
+     {
+      "place": "4baebe00-d71b-4f53-b0bb-0f20b16f1747",
+      "route": "d4f2355a-07aa-412d-aefb-2531883e333b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "284c862f-a339-409d-988a-da4107324b60",
+      "route": "bb7f12b2-604f-46e6-9154-b4862dd82c6d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "284c862f-a339-409d-988a-da4107324b60",
+      "route": "828cb165-e208-4909-a468-56936303809a",
+      "kind": "waypoint"
+     },
+     {
+      "place": "efebd626-8fce-48d5-8d6d-b1db7149d270",
+      "route": "c45b3bb5-a5d5-4bb1-9689-f54b75d03cec",
+      "kind": "waypoint"
+     },
+     {
+      "place": "32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+      "route": "c14cfc61-24a5-41f8-8bd3-4238f22f6b19",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "b12debd1-c997-47d1-b791-e6bbad2cdb4c",
+      "route": "8471c791-fc19-487c-9afc-1108e0a1adb8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f4fa9a04-a746-491e-871c-bcef3725f7d0",
+      "route": "43438c7b-bb7b-4b2c-aad1-220a4b3cae3a",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2fc74de7-4a4a-43df-bf03-9231cf68e9bf",
+      "route": "9a5f28d6-ed9d-4028-917a-b21568d7397c",
+      "kind": "waypoint"
+     },
+     {
+      "place": "1f992bd6-0510-447b-a1ed-c48c683f9ace",
+      "route": "a1929874-451e-494c-b78f-e4bd3ceaacea",
+      "kind": "waypoint"
+     },
+     {
+      "place": "7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+      "route": "a8440fe9-290c-4a64-8d63-2b6947996658",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f59475f4-8295-4f38-a62c-e0c51337eac6",
+      "route": "9a45a836-ff6a-46b6-b054-a1a429ee82e3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "26165f39-016d-4b11-ba1e-794ac50209a5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+      "route": "af1722fd-7464-4e14-8ff9-ca204c76f9b8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e1252887-a232-4ea8-88e2-3d2004ecea7c",
+      "route": "2ba1b694-64ab-4c81-8e2f-410ddec25ad1",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "61dcdc21-7d6a-4ccd-834e-7d9394176bd9",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "b12debd1-c997-47d1-b791-e6bbad2cdb4c",
+      "route": "8471c791-fc19-487c-9afc-1108e0a1adb8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f4fa9a04-a746-491e-871c-bcef3725f7d0",
+      "route": "43438c7b-bb7b-4b2c-aad1-220a4b3cae3a",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2fc74de7-4a4a-43df-bf03-9231cf68e9bf",
+      "route": "9a5f28d6-ed9d-4028-917a-b21568d7397c",
+      "kind": "waypoint"
+     },
+     {
+      "place": "1f992bd6-0510-447b-a1ed-c48c683f9ace",
+      "route": "a1929874-451e-494c-b78f-e4bd3ceaacea",
+      "kind": "waypoint"
+     },
+     {
+      "place": "7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+      "route": "a8440fe9-290c-4a64-8d63-2b6947996658",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f59475f4-8295-4f38-a62c-e0c51337eac6",
+      "route": "9a45a836-ff6a-46b6-b054-a1a429ee82e3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "dea99549-5ecb-41fe-af19-15f216eeac68",
+      "route": "26165f39-016d-4b11-ba1e-794ac50209a5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "4dd86a74-d010-4ff4-81ad-23af3ba966a5",
+      "route": "af1722fd-7464-4e14-8ff9-ca204c76f9b8",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e1252887-a232-4ea8-88e2-3d2004ecea7c",
+      "route": "2ba1b694-64ab-4c81-8e2f-410ddec25ad1",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "61dcdc21-7d6a-4ccd-834e-7d9394176bd9",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "51598b80-6b92-48d9-beb4-019f824524c9",
+      "route": "63258ad2-5f0b-468e-ac17-aa762368724b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "155bb824-a3db-47cc-af46-dc4351cd0aff",
+      "route": "e32b94d0-aee6-40ed-8581-1dd5d1ad75b7",
+      "kind": "waypoint"
+     },
+     {
+      "place": "15bf29b0-9b1b-49c5-be1f-4c8d5d185f4e",
+      "route": "06684a5d-0787-4785-8599-d0f4adc2bd68",
+      "kind": "waypoint"
+     },
+     {
+      "place": "24ee4667-c6e0-4aa0-b3f8-27073e00822f",
+      "route": "03ba25c1-5c25-4dbd-b0f7-a551bcce8277",
+      "kind": "waypoint"
+     },
+     {
+      "place": "36d5d094-5ab0-4f06-a0de-da62bd3ab0a1",
+      "route": "817bf78b-6aa4-400b-b9f3-dec58e959c17",
+      "kind": "waypoint"
+     },
+     {
+      "place": "51598b80-6b92-48d9-beb4-019f824524c9",
+      "route": "8d236bd0-9fa7-43a1-818e-72afa7955183",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f59475f4-8295-4f38-a62c-e0c51337eac6",
+      "route": "780648de-9a3f-4c78-bca0-288dd0ca04c4",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2bf92082-0daf-4770-8031-a51c0f355be8",
+      "route": "dea6c2b5-8520-4f70-b2ed-ab2c5ef6402f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "cb44887f-d996-4fbe-ad6b-d21ba2cb369f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "8f31fc1d-103e-4fa2-a720-91adabbd82aa",
+      "route": "8ce0e94b-37c6-44c9-abf7-25ba2099a0ba",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "51598b80-6b92-48d9-beb4-019f824524c9",
+      "route": "63258ad2-5f0b-468e-ac17-aa762368724b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "155bb824-a3db-47cc-af46-dc4351cd0aff",
+      "route": "e32b94d0-aee6-40ed-8581-1dd5d1ad75b7",
+      "kind": "waypoint"
+     },
+     {
+      "place": "15bf29b0-9b1b-49c5-be1f-4c8d5d185f4e",
+      "route": "06684a5d-0787-4785-8599-d0f4adc2bd68",
+      "kind": "waypoint"
+     },
+     {
+      "place": "24ee4667-c6e0-4aa0-b3f8-27073e00822f",
+      "route": "03ba25c1-5c25-4dbd-b0f7-a551bcce8277",
+      "kind": "waypoint"
+     },
+     {
+      "place": "36d5d094-5ab0-4f06-a0de-da62bd3ab0a1",
+      "route": "817bf78b-6aa4-400b-b9f3-dec58e959c17",
+      "kind": "waypoint"
+     },
+     {
+      "place": "51598b80-6b92-48d9-beb4-019f824524c9",
+      "route": "8d236bd0-9fa7-43a1-818e-72afa7955183",
+      "kind": "waypoint"
+     },
+     {
+      "place": "f59475f4-8295-4f38-a62c-e0c51337eac6",
+      "route": "780648de-9a3f-4c78-bca0-288dd0ca04c4",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2bf92082-0daf-4770-8031-a51c0f355be8",
+      "route": "dea6c2b5-8520-4f70-b2ed-ab2c5ef6402f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "cb44887f-d996-4fbe-ad6b-d21ba2cb369f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "8f31fc1d-103e-4fa2-a720-91adabbd82aa",
+      "route": "8ce0e94b-37c6-44c9-abf7-25ba2099a0ba",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "c5ce7f24-180a-4668-a4e9-7f9b3a62d95b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2886ce3b-0753-41fb-bacc-f80e3f75d1aa",
+      "route": "dc3492f5-6273-4a4a-a5aa-a16180fcad55",
+      "kind": "waypoint"
+     },
+     {
+      "place": "7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+      "route": "919d8504-5bca-4d64-8350-5927f523543d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "8b372eca-87a2-440e-bfc1-c5d3f92327ac",
+      "route": "7d3879b3-fa2c-4275-bc94-a6ab89fef1f5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "b6b37731-f9f9-4db1-8ae6-847ab9ed5e60",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "428df47c-9df6-445c-b235-4a6871047fb3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "790b3f98-b561-4818-80eb-8da0930d157d",
+      "route": "cb028a53-a830-4001-bfd0-c154405935e3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5694d055-9713-44af-8bcb-670ff63bb3e9",
+      "route": "ed078534-728d-4350-bb09-33c10284bee3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5694d055-9713-44af-8bcb-670ff63bb3e9",
+      "route": "2f939099-dc95-4389-8c01-bb68d45fa69d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "155bb824-a3db-47cc-af46-dc4351cd0aff",
+      "route": "84b9969a-03c0-41aa-8596-500fd17d3483",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0",
+      "route": "c5ce7f24-180a-4668-a4e9-7f9b3a62d95b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2886ce3b-0753-41fb-bacc-f80e3f75d1aa",
+      "route": "dc3492f5-6273-4a4a-a5aa-a16180fcad55",
+      "kind": "waypoint"
+     },
+     {
+      "place": "7190e0a4-52f1-47fb-ba17-0fcb493d99df",
+      "route": "919d8504-5bca-4d64-8350-5927f523543d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "8b372eca-87a2-440e-bfc1-c5d3f92327ac",
+      "route": "7d3879b3-fa2c-4275-bc94-a6ab89fef1f5",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "b6b37731-f9f9-4db1-8ae6-847ab9ed5e60",
+      "kind": "waypoint"
+     },
+     {
+      "place": "630819da-48d1-4bb8-99c9-3b190d6ae26c",
+      "route": "428df47c-9df6-445c-b235-4a6871047fb3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "790b3f98-b561-4818-80eb-8da0930d157d",
+      "route": "cb028a53-a830-4001-bfd0-c154405935e3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5694d055-9713-44af-8bcb-670ff63bb3e9",
+      "route": "ed078534-728d-4350-bb09-33c10284bee3",
+      "kind": "waypoint"
+     },
+     {
+      "place": "5694d055-9713-44af-8bcb-670ff63bb3e9",
+      "route": "2f939099-dc95-4389-8c01-bb68d45fa69d",
+      "kind": "waypoint"
+     },
+     {
+      "place": "155bb824-a3db-47cc-af46-dc4351cd0aff",
+      "route": "84b9969a-03c0-41aa-8596-500fd17d3483",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": true,
+    "pairs": [
+     {
+      "place": "32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+      "route": "c1988085-e643-4442-b81f-5087b958429b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2bf92082-0daf-4770-8031-a51c0f355be8",
+      "route": "524f1ec6-8aad-4fbc-a5d5-c1f5e7a0a56f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
+      "route": "73f9e08d-41f6-4c6d-8785-d885938e8088",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  },
+  {
+   "url": "https://vedarai.ru/api/cron/place-link",
+   "body": {
+    "dry_run": false,
+    "pairs": [
+     {
+      "place": "32aa0d20-10d9-4fbb-a1f7-b90f327b7687",
+      "route": "c1988085-e643-4442-b81f-5087b958429b",
+      "kind": "waypoint"
+     },
+     {
+      "place": "2bf92082-0daf-4770-8031-a51c0f355be8",
+      "route": "524f1ec6-8aad-4fbc-a5d5-c1f5e7a0a56f",
+      "kind": "waypoint"
+     },
+     {
+      "place": "e7cc9f9d-479e-432f-8d1c-adcf6b62a1d8",
+      "route": "73f9e08d-41f6-4c6d-8785-d885938e8088",
+      "kind": "waypoint"
+     }
+    ]
+   }
+  }
+ ],
+ "note": "Проба 91, этап 1, боевые партии: 53 пар place-link kind=waypoint партиями по 10 (сухой+боевой на партию). Отбор ручной: имя маршрута называет место, тёзки за сотни км отсеяны в ручную очередь. Код на проде с f4fb9756 — деплой-ожидание не нужно.",
+ "run": 91
 }
