@@ -35,8 +35,10 @@ export async function GET(request: NextRequest) {
   try {
     const { rows } = await pool.query<{
       id: string; title: string; waypoint_names: string[] | null;
+      description_head: string | null;
     }>(
       `SELECT r.id::text AS id, r.title,
+              LEFT(r.description, 240) AS description_head,
               ARRAY(
                 SELECT p.name FROM route_waypoints rw
                 JOIN places p ON p.id = rw.place_id
@@ -57,6 +59,11 @@ export async function GET(request: NextRequest) {
         title: r.title,
         violations: r.verdict.violations,
         places: r.waypoint_names ?? [],
+        // Начало описания — материал для канона, когда объекта нет ни в
+        // имени, ни в привязанных местах («Зимняя сказка»): новое имя
+        // берётся из данных маршрута, не сочиняется. null — описания нет,
+        // и это честный ответ (кандидат на скрытие, решает владелец).
+        description_head: r.description_head,
       }));
 
     const byViolation: Record<string, number> = {};
@@ -75,7 +82,9 @@ export async function GET(request: NextRequest) {
       // v4 — миграция 887 (слитая ⇒ скрыта: «видимые, но слитые» после
       // restore близнецов) + фильтр слитости в /api/routes/search.
       // v5 — миграция 888 (переименование партии 1, «го» владельца 20.08).
-      probe: 'title_census_v5',
+      // v6 — миграция 889 (партия 2) + description_head в items: канон для
+      // безобъектных имён берётся из данных маршрута, не выдумывается.
+      probe: 'title_census_v6',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,
