@@ -610,6 +610,13 @@ function OnTrailTab() {
         if (!Array.isArray(wps) || wps.length === 0) return;
         const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
           .filter(w => w.lat != null && w.lng != null)
+          // «Рядом» — не точка пути (§4.1, миграция 874): у Скал Три Брата
+          // краевой музей и батарея Максутова числились этапами, и полевой
+          // ход честно считал по ним 142 км ломаной на прогулку в пару
+          // километров (поле, 20.08). Карточка маршрута эти связи уже
+          // отделяет; полевой контур им не ведёт вовсе. unknown участвует,
+          // как раньше, — незнание рода не лишает точку пути.
+          .filter(w => w.linkKind !== 'nearby')
           .map(w => ({
             lat: Number(w.lat),
             lng: Number(w.lng),

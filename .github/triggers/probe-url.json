@@ -1,32 +1,13 @@
 {
-  "note": "Проба 101: слияние близнеца, вскрытого контрольной переписью пробы 100 — скрытый «Маршрут Пиначево - Центральный» (43f3f90e, external, 1187 вершин) при живой тёзке 25f624cb с линией (dry + live через актуатор), и перепись треков туров (tour-tracks-census) — фактическая основа письма операторам за GPX: какие туры без маршрута, какие с маршрутом без линии. Первый URL — датчик family_merge_v3 (в этом же деплое фиксы #1319: дашборд перевозчика без вымысла, честный heartbeat llm-budget-check).",
+  "note": "Проба 102: продолжение кампании маршрутов и мест. В деплое: фикс полевого контура (142 км у Скал Три Брата — nearby-связи считались этапами хода) и транслит-перепись латинских дублей витрины. Первый URL — датчик нового билда (translit_census_v1, роут новый — до выката 404). Дальше: полный список латинских записей с кириллическими родственниками (по нему владелец решит слияние), перепись мест без линии (tracked/linked_no_track/lost/never) и следующее окно подсказчика маршрут-место.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-family-merge",
-    "https://vedarai.ru/api/cron/tour-tracks-census"
+    "https://vedarai.ru/api/cron/route-translit-census",
+    "https://vedarai.ru/api/cron/places-no-track-census",
+    "https://vedarai.ru/api/cron/route-link-suggest?limit=30"
   ],
-  "until": "family_merge_v3",
+  "until": "translit_census_v1",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 30000,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/cron/route-family-merge",
-      "body": {
-        "dry_run": true,
-        "pairs": [
-          { "hidden": "43f3f90e-b714-4f38-bd6c-4423225454bd", "live": "25f624cb-14df-4edd-8917-360bc844e382" }
-        ]
-      }
-    },
-    {
-      "url": "https://vedarai.ru/api/cron/route-family-merge",
-      "body": {
-        "dry_run": false,
-        "pairs": [
-          { "hidden": "43f3f90e-b714-4f38-bd6c-4423225454bd", "live": "25f624cb-14df-4edd-8917-360bc844e382" }
-        ]
-      }
-    }
-  ]
+  "bytes": 30000
 }
