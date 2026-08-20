@@ -74,7 +74,8 @@ export async function GET(request: NextRequest) {
       // менялся, пробе нужен признак сборки, при старте которой она прошла.
       // v4 — миграция 887 (слитая ⇒ скрыта: «видимые, но слитые» после
       // restore близнецов) + фильтр слитости в /api/routes/search.
-      probe: 'title_census_v4',
+      // v5 — миграция 888 (переименование партии 1, «го» владельца 20.08).
+      probe: 'title_census_v5',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,
