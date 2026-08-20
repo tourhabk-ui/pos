@@ -1367,6 +1367,19 @@ export default function RouteDetailClient({ id }: { id: string }) {
                       <Navigation className="w-3.5 h-3.5 text-green-500" /> Organic Maps
                     </a>
                   </div>
+                  {/* Подъезд к старту строит НАВИГАТОР, не мы: отдаём только
+                      точку — первую вершину трека, а не якорь маршрута (якорь
+                      бывает городом старта тура, и дорога «к якорю» привезла
+                      бы человека не туда). Точка есть только при треке —
+                      секция и так под hasTrack. */}
+                  <a
+                    href={`https://yandex.ru/maps/?rtext=~${trackCoords![0][0]},${trackCoords![0][1]}&rtt=auto`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-medium hover:border-[var(--ocean)]/40 transition-colors"
+                  >
+                    <Car className="w-4 h-4 text-[var(--ocean)]" /> Доехать до старта
+                  </a>
                   <button
                     type="button"
                     onClick={downloadOfflineBundle}
@@ -1532,6 +1545,16 @@ export default function RouteDetailClient({ id }: { id: string }) {
                         <Navigation className="w-3 h-3 text-green-500" /> O.Maps
                       </a>
                     </div>
+                    {/* Подъезд строит навигатор; точка — первая вершина трека,
+                        не якорь (см. мобильный блок). */}
+                    <a
+                      href={`https://yandex.ru/maps/?rtext=~${trackCoords![0][0]},${trackCoords![0][1]}&rtt=auto`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-muted)] text-xs font-medium hover:border-[var(--ocean)]/40 transition-colors"
+                    >
+                      <Car className="w-3 h-3 text-[var(--ocean)]" /> Доехать до старта
+                    </a>
                     <button
                       type="button"
                       onClick={downloadOfflineBundle}
