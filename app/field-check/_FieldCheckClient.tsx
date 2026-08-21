@@ -22,10 +22,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair,
-  Camera, X, Search, ChevronLeft, Route as RouteIcon, Send,
+  Camera, X, Search, ChevronLeft, Route as RouteIcon, Send, Download,
 } from 'lucide-react';
 import {
   queueFieldCheck, listFieldChecks, deleteFieldCheck,
+  saveFieldCheckArea, getFieldCheckArea,
   type FieldCheckQueueItem,
 } from '@/lib/offline/db';
 
@@ -124,9 +125,26 @@ export function FieldCheckClient() {
   const [queueLen, setQueueLen] = useState(0);
   const [done, setDone] = useState<Record<string, string>>({});
 
+  /** Выход по маршруту: поиск и выбор — дома, пока есть сеть. */
+  const [routeQuery, setRouteQuery] = useState('');
+  const [routeHits, setRouteHits] = useState<Array<{ id: string; title: string; waypoints: number }> | null>(null);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [areaLabel, setAreaLabel] = useState<string | null>(null);
+  const [savedArea, setSavedArea] = useState<{ label: string; savedAt: number; count: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     setDone(readDone());
     void listFieldChecks().then(q => setQueueLen(q.length)).catch(() => undefined);
+    void getFieldCheckArea().then(area => {
+      if (area) {
+        setSavedArea({
+          label: area.label,
+          savedAt: area.savedAt,
+          count: Array.isArray(area.items) ? area.items.length : 0,
+        });
+      }
+    }).catch(() => undefined);
     try {
       const saved = localStorage.getItem(TAG_KEY);
       if (saved) setTripTag(saved);
@@ -259,6 +277,91 @@ export function FieldCheckClient() {
     void loadNearby(pair.lat, pair.lng, radiusKm);
   }, [manualCenter, loadNearby, radiusKm]);
 
+  /** Поиск маршрута по названию — только дома: в поле сети нет. */
+  const searchRoutes = useCallback(async () => {
+    const q = routeQuery.trim();
+    if (q.length < 2) { setRouteHits([]); return; }
+    setRouteBusy(true);
+    try {
+      const res = await fetch(`/api/field-check/routes?q=${encodeURIComponent(q)}`);
+      const j = await res.json();
+      setRouteHits(j?.success && Array.isArray(j.items) ? j.items : []);
+    } catch {
+      setRouteHits(null);
+      setError('Нет связи — маршрут ищется только там, где есть сеть');
+    } finally {
+      setRouteBusy(false);
+    }
+  }, [routeQuery]);
+
+  /**
+   * Список по маршруту: центр и радиус считает сервер по путевым точкам —
+   * выход идёт не в одну локацию, и радиус должен накрыть весь путь.
+   */
+  const loadByRoute = useCallback(async (routeId: string, title: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/field-check/nearby?route_id=${encodeURIComponent(routeId)}`);
+      const j = await res.json();
+      if (!j?.success) {
+        setError(j?.error ?? 'Маршрут не открылся');
+        setItems(null);
+        return;
+      }
+      setItems(Array.isArray(j.items) ? j.items : []);
+      setAreaLabel(title);
+      setFix({
+        lat: j.center?.lat ?? 0,
+        lng: j.center?.lng ?? 0,
+        accuracy: null,
+      });
+      setRadiusKm(typeof j.radius_km === 'number' ? j.radius_km : radiusKm);
+    } catch {
+      setError('Нет связи — маршрут не загрузился');
+    } finally {
+      setLoading(false);
+    }
+  }, [radiusKm]);
+
+  /** Сохранить район на телефон: в поле его уже не скачать. */
+  const saveArea = useCallback(async () => {
+    if (!items || !fix) return;
+    setSaving(true);
+    try {
+      const label = areaLabel ?? `${fix.lat.toFixed(3)}, ${fix.lng.toFixed(3)}`;
+      await saveFieldCheckArea({
+        id: 'current',
+        label,
+        centerLat: fix.lat,
+        centerLng: fix.lng,
+        radiusKm,
+        items,
+        savedAt: Date.now(),
+      });
+      setSavedArea({ label, savedAt: Date.now(), count: items.length });
+    } catch {
+      setError('Не удалось сохранить район на телефон');
+    } finally {
+      setSaving(false);
+    }
+  }, [items, fix, areaLabel, radiusKm]);
+
+  /** Открыть сохранённое: единственный способ работать без сети. */
+  const openSavedArea = useCallback(async () => {
+    try {
+      const area = await getFieldCheckArea();
+      if (!area) return;
+      setItems(Array.isArray(area.items) ? (area.items as NearbyItem[]) : []);
+      setFix({ lat: area.centerLat, lng: area.centerLng, accuracy: null });
+      setRadiusKm(area.radiusKm);
+      setAreaLabel(area.label);
+      setError(null);
+    } catch {
+      setError('Сохранённый район не читается');
+    }
+  }, []);
+
   const takeMyFix = useCallback(() => {
     setCoordError(null);
     if (!('geolocation' in navigator)) {
@@ -381,6 +484,61 @@ export function FieldCheckClient() {
             </div>
           )}
 
+          {savedArea && (
+            <button onClick={() => void openSavedArea()}
+              className="rounded-lg px-4 py-3 flex items-center gap-3 text-left"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--success)', minHeight: TAP }}>
+              <Download className="w-5 h-5 shrink-0" style={{ color: 'var(--success)' }} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                  Открыть выход: {savedArea.label}
+                </span>
+                <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {savedArea.count} записей на телефоне — работает без интернета
+                </span>
+              </span>
+            </button>
+          )}
+
+          {/* Выход по маршруту: несколько локаций сразу, готовится дома. */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Едете по маршруту — найдите его заранее, пока есть сеть
+            </span>
+            <div className="flex gap-2">
+              <input value={routeQuery}
+                onChange={e => setRouteQuery(e.target.value.slice(0, 80))}
+                onKeyDown={e => { if (e.key === 'Enter') void searchRoutes(); }}
+                placeholder="Вилючинский" className="ds-input flex-1" />
+              <button onClick={() => void searchRoutes()} disabled={routeBusy}
+                className="px-5 rounded-lg font-semibold"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)', minHeight: TAP }}>
+                {routeBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Найти'}
+              </button>
+            </div>
+            {routeHits?.length === 0 && (
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Маршрутов с таким именем нет
+              </span>
+            )}
+            {routeHits && routeHits.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {routeHits.map(r => (
+                  <button key={r.id} onClick={() => void loadByRoute(r.id, r.title)}
+                    className="rounded-lg px-4 py-3 text-left"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', minHeight: TAP }}>
+                    <span className="block text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {r.title}
+                    </span>
+                    <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {r.waypoints > 0 ? `${r.waypoints} точек пути` : 'точек пути нет — проверим, что рядом'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {!showManualCenter ? (
             <button onClick={() => setShowManualCenter(true)}
               className="text-sm underline underline-offset-2 self-start"
@@ -461,6 +619,7 @@ export function FieldCheckClient() {
                 {items ? `Проверено ${checkedCount} из ${items.length}` : 'Загружаем список'}
               </div>
               <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                {areaLabel ? `${areaLabel} · ` : ''}
                 {fix.lat.toFixed(4)}, {fix.lng.toFixed(4)}
                 {fix.accuracy !== null ? ` · ±${fix.accuracy} м` : ' · точность неизвестна'}
                 {queueLen > 0 ? ` · в очереди ${queueLen}` : ''}
@@ -504,6 +663,24 @@ export function FieldCheckClient() {
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
+        )}
+
+        {items !== null && items.length > 0 && (
+          <button onClick={() => void saveArea()} disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold text-sm"
+            style={{
+              background: savedArea ? 'var(--bg-card)' : 'var(--ocean)',
+              color: savedArea ? 'var(--text-secondary)' : '#FFFFFF',
+              border: savedArea ? '1px solid var(--border)' : 'none',
+              minHeight: 48,
+            }}>
+            {saving
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Download className="w-4 h-4" />}
+            {savedArea
+              ? `Сохранено на телефон: ${savedArea.count} записей — обновить`
+              : 'Сохранить на телефон для выхода без сети'}
+          </button>
         )}
 
         {!showTag ? (

@@ -93,6 +93,10 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: FieldCheckQueueItem;
   };
+  fieldCheckAreas: {
+    key: string;
+    value: FieldCheckArea;
+  };
   fieldPacks: {
     key: string;
     value: FieldPackRecord;
@@ -131,6 +135,26 @@ export interface FieldCheckQueueItem {
   queuedAt: number;
 }
 
+/**
+ * Заготовка выхода: список записей района, скачанный ДОМА, пока есть сеть.
+ *
+ * Владелец 21.08: «они собираются не на одну локацию». В поле — на
+ * перевале, в долине — список «что рядом» не загрузится, и форма без
+ * заготовки становится бесполезной ровно там, где нужна. Поэтому район
+ * скачивается заранее и целиком лежит на телефоне.
+ */
+export interface FieldCheckArea {
+  /** Ключ: 'current' — заготовка одна, лишние копии в поле только путают. */
+  id: string;
+  label: string;
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+  /** Записи как их отдаёт /api/field-check/nearby. */
+  items: unknown[];
+  savedAt: number;
+}
+
 // ─── DB singleton ─────────────────────────────────────────────────────────────
 
 const DB_NAME = 'kamchatour-offline';
@@ -142,7 +166,9 @@ const DB_NAME = 'kamchatour-offline';
 // v4 — store fieldChecks: очередь полевых проверок с фотографиями (форма
 // /field-check, владелец 21.08). Снимок с телефона в localStorage не влезает,
 // а в поле именно фотография решает спор о том, что там на земле.
-const DB_VERSION = 4;
+// v5 — store fieldCheckAreas: заготовка выхода, скачанная дома. Выход идёт
+// по маршруту, а не по одной точке, и на перевале список уже не подгрузить.
+const DB_VERSION = 5;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -166,6 +192,9 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
       }
       if (!db.objectStoreNames.contains('fieldChecks')) {
         db.createObjectStore('fieldChecks', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('fieldCheckAreas')) {
+        db.createObjectStore('fieldCheckAreas', { keyPath: 'id' });
       }
     },
   });
@@ -207,6 +236,18 @@ export async function listFieldChecks(): Promise<FieldCheckQueueItem[]> {
 export async function deleteFieldCheck(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('fieldChecks', id);
+}
+
+// ─── Заготовка выхода ────────────────────────────────────────────────────────
+
+export async function saveFieldCheckArea(area: FieldCheckArea): Promise<void> {
+  const db = await getDB();
+  await db.put('fieldCheckAreas', area);
+}
+
+export async function getFieldCheckArea(id = 'current'): Promise<FieldCheckArea | undefined> {
+  const db = await getDB();
+  return db.get('fieldCheckAreas', id);
 }
 
 // ─── Regions ─────────────────────────────────────────────────────────────────

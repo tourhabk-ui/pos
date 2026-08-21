@@ -97,7 +97,10 @@ describe('PWA и фотографии', () => {
     expect(client).toContain('queueFieldCheck');
     expect(client).not.toContain('field_check_queue_v1');
     expect(db).toMatch(/fieldChecks/);
-    expect(db).toMatch(/DB_VERSION = 4/);
+    // Число версии растёт с каждым новым хранилищем (v5 — заготовка выхода);
+    // сторож держит инвариант, а не конкретную цифру.
+    expect(db).toMatch(/DB_VERSION = \d+/);
+    expect(db).toMatch(/if \(!db\.objectStoreNames\.contains\('fieldChecks'\)\)/);
   });
 
   it('снимок принимается отдельно и с потолком размера', () => {
@@ -180,5 +183,40 @@ describe('юзабилити поля: рука в перчатке, ветер,
 
   it('радиус выбирается, а не задан навсегда', () => {
     expect(client).toMatch(/\[5, 15, 40\]\.map/);
+  });
+});
+
+describe('выход по маршруту и офлайн-заготовка', () => {
+  const routes = readFileSync(join(process.cwd(), 'app/api/field-check/routes/route.ts'), 'utf-8');
+  const db2 = readFileSync(join(process.cwd(), 'lib/offline/db.ts'), 'utf-8');
+
+  it('маршрут ищется по имени среди живых записей', () => {
+    expect(routes).toMatch(/r\.is_visible = true AND r\.merged_into_id IS NULL/);
+    expect(routes).toMatch(/title ILIKE '%' \|\| \$1 \|\| '%'/);
+  });
+
+  it('счёт точек пути не считает соседей «рядом»', () => {
+    expect(routes).toMatch(/link_kind, 'unknown'\) <> 'nearby'/);
+  });
+
+  it('радиус по маршруту считается от его точек, а не выдумывается', () => {
+    expect(nearby).toContain('centerFromRoute');
+    expect(nearby).toMatch(/Math\.max\(8, Math\.ceil\(span \+ 5\)\)/);
+  });
+
+  it('маршрут без координаты честно отвергается, а не ведёт вслепую', () => {
+    expect(nearby).toMatch(/У маршрута нет координаты/);
+  });
+
+  it('район сохраняется на телефон и открывается без сети', () => {
+    expect(db2).toMatch(/fieldCheckAreas/);
+    expect(db2).toMatch(/DB_VERSION = 5/);
+    expect(client).toContain('saveFieldCheckArea');
+    expect(client).toContain('openSavedArea');
+  });
+
+  it('сохранённый выход виден на первом экране', () => {
+    expect(client).toMatch(/Открыть выход: \{savedArea\.label\}/);
+    expect(client).toContain('работает без интернета');
   });
 });
