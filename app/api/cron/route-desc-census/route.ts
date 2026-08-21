@@ -125,7 +125,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'route_desc_census_v1',
+      // v2 — доводка судьи по пробе 125: «в 20 км от города» — география,
+      // не длина (контекст предложения + лукахед «от»); имя места без
+      // заглавной в тексте — слово, не место («каменистое дно» против
+      // «Каменистый» из реестра). Было 154 нарушителя, большинство — эти
+      // два класса ложных срабатываний.
+      probe: 'route_desc_census_v2',
       live_total: rows.length,
       with_description: withDescription,
       offenders_total: offenders.length,

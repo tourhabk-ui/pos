@@ -67,27 +67,77 @@ function parseNum(s: string): number {
   return parseFloat(s.replace(',', '.'));
 }
 
+/** Предложение вокруг позиции — окно, в котором ищется контекст утверждения. */
+function sentenceAround(t: string, idx: number): string {
+  const starts = ['.', '!', '?', '\n'].map(c => t.lastIndexOf(c, idx));
+  const start = Math.max(-1, ...starts) + 1;
+  const ends = ['.', '!', '?', '\n'].map(c => t.indexOf(c, idx)).filter(i => i !== -1);
+  const end = ends.length > 0 ? Math.min(...ends) : t.length;
+  return t.slice(start, end);
+}
+
 /**
- * Первое числовое утверждение каждого рода. Диапазон «8-10 часов» читается
- * серединой: спорить с диапазоном можно только выйдя за него вдвое.
+ * Предложение говорит о ПУТИ, а не о положении. Проба 125: «начинается
+ * в 20 км от Петропавловска» — расстояние ДО маршрута, не длина маршрута,
+ * и таких было большинство среди 43 «расхождений».
+ */
+const DIST_CONTEXT_RE =
+  /протяж|длин|дистанц|маршрут|троп|путь|пути|переход|одну сторону|туда и обратно|сплав|прогулк|восхожден|подъем|поход|пройти|пройдете/;
+const DUR_CONTEXT_RE =
+  /займ|длит|потребу|в пути|переход|восхожден|подъем|маршрут|троп|путь|дорога|сплав|прогулк|поход|ходьб|идти/;
+/**
+ * «в 20 км от», «40 км к югу» — география, не длина. Матч кончается на
+ * основе («20 км», «20 километр»), поэтому лукахед терпит хвост словоформы.
+ */
+const LOCATION_AFTER_RE =
+  /^[а-яa-z]*\s*(?:от[\s,.]|к\s+(?:югу|северу|западу|востоку)|севернее|южнее|западнее|восточнее)/;
+/** «2,5 часа езды», «час лёта» — доставка, не прохождение. */
+const TRANSPORT_AFTER_RE =
+  /^[а-яa-z]*\s*(?:езды|лета|полета|на\s+(?:машине|автобусе|вертолете|катере|лодке))/;
+
+/**
+ * Первое числовое утверждение каждого рода — с контекстом. Диапазон
+ * «8-10 часов» читается серединой: спорить с ним можно, только выйдя
+ * за него вдвое. Матч без слова о пути в предложении пропускается.
  */
 export function parseClaimedNumbers(text: string): ClaimedNumbers {
   const t = text.toLowerCase().replace(/ё/g, 'е');
 
-  const range = (re: RegExp): number | null => {
-    const m = t.match(re);
-    if (!m) return null;
-    const a = parseNum(m[1]);
-    const b = m[2] ? parseNum(m[2]) : a;
-    return (a + b) / 2;
+  const range = (re: RegExp, contextRe: RegExp, notAfterRe: RegExp): number | null => {
+    const g = new RegExp(re.source, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(t)) !== null) {
+      const after = t.slice(m.index + m[0].length);
+      if (notAfterRe.test(after)) continue;
+      if (!contextRe.test(sentenceAround(t, m.index))) continue;
+      const a = parseNum(m[1]);
+      const b = m[2] ? parseNum(m[2]) : a;
+      return (a + b) / 2;
+    }
+    return null;
   };
 
   return {
     // Не «км\b»: \b в JS не знает кириллицы (см. post-validation) — граница
     // после «м» не находится никогда. Лукахед: дальше не буква.
-    distanceKm: range(new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:км(?![а-яa-z])|километр)`)),
-    durationH: range(new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:час|ч\\.)`)),
-    gainM: range(new RegExp(`набор(?:а|ом)?(?:\\s+высоты)?\\s*(?:[-–—:]\\s*)?(?:около\\s*|~\\s*)?${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*м`)),
+    distanceKm: range(
+      new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:км(?![а-яa-z])|километр)`),
+      DIST_CONTEXT_RE, LOCATION_AFTER_RE,
+    ),
+    durationH: range(
+      new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:час|ч\\.)`),
+      DUR_CONTEXT_RE, TRANSPORT_AFTER_RE,
+    ),
+    // У набора высоты контекст уже в самом паттерне («набор») — окно не нужно.
+    gainM: (() => {
+      const m = t.match(new RegExp(
+        `набор(?:а|ом)?(?:\\s+высоты)?\\s*(?:[-–—:]\\s*)?(?:около\\s*|~\\s*)?${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*м`,
+      ));
+      if (!m) return null;
+      const a = parseNum(m[1]);
+      const b = m[2] ? parseNum(m[2]) : a;
+      return (a + b) / 2;
+    })(),
   };
 }
 
@@ -176,7 +226,14 @@ export function mentionedFarPlaces(
     if (!re) { re = nameLoosePattern(pn); patternCache.set(pn, re); }
     // Имя места, входящее в имя маршрута, — сам предмет описания.
     if (title.includes(pn) || pn.includes(title) || re.test(title)) continue;
-    if (!re.test(t)) continue;
+    const m = re.exec(t);
+    if (!m) continue;
+    // Имя собственное узнаётся заглавной буквой в исходном тексте: проба 125
+    // показала, что «Каменистый» и «Спокойный» из реестра матчатся в
+    // «каменистое дно» и «спокойной воде» — это слова, не места. Нормализация
+    // сохраняет длину, поэтому срез оригинала по индексу матча честен.
+    const originalSpan = text.slice(m.index, m.index + m[0].length);
+    if (!/[А-ЯЁA-Z]/.test(originalSpan)) continue;
     const km = haversineKm(routeLat, routeLng, p.lat, p.lng);
     if (km >= FAR_PLACE_KM) {
       out.push({ kind: 'far_place', detail: `упомянуто «${p.name}» в ${Math.round(km)} км от маршрута` });
