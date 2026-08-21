@@ -111,6 +111,8 @@ interface RoutePreview {
   lineGrade?: PassportGrade | null;
   /** Все места пути — для группировки выбора по МЕСТУ (владелец 20.08). */
   waypointNames?: string[];
+  /** Набор высоты — участвует в сравнении путей (владелец 21.08). */
+  elevationGainM?: number | null;
 }
 
 
@@ -1352,6 +1354,7 @@ function OnTrailTab() {
               via: names.length > 0 ? names.slice(0, 3).join(' · ') : null,
               lineGrade: (row.line_grade as PassportGrade | null) ?? null,
               waypointNames: names,
+              elevationGainM: row.elevation_gain_m != null ? Number(row.elevation_gain_m) : null,
             } satisfies RoutePreview;
           }));
         })
@@ -1380,6 +1383,7 @@ function OnTrailTab() {
             </div>
             <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
               {r.distanceKm ? `${r.distanceKm} км · ` : ''}
+              {r.elevationGainM != null ? `↑ ${r.elevationGainM} м · ` : ''}
               {r.difficulty ? (DIFFICULTY_LABELS[r.difficulty] ?? r.difficulty) : '—'}
               {r.via ? ` · через: ${r.via}` : ''}
             </p>
