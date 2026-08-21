@@ -112,7 +112,9 @@ export async function GET(request: NextRequest) {
       // v8 — миграция 891 (партия 4 от соседей по координате): нарушителей
       // должно остаться 2 — «Зимняя сказка» и «Чудеса Камчатки», без единой
       // зацепки в данных; их судьба — решение владельца.
-      probe: 'title_census_v8',
+      // v9 — миграция 892: два имени-заглушки скрыты («удалить мусор»,
+      // владелец 20.08) — перепись должна показать 0 нарушителей.
+      probe: 'title_census_v9',
       live_total: rows.length,
       offenders_total: offenders.length,
       by_violation: byViolation,

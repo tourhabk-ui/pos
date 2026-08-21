@@ -1,12 +1,12 @@
 {
-  "note": "Проба 114: миграция 891 — партия 4 переименований (6 имён от ближайших мест: Снежная долина, оз. Начикинское, сопка Острая, о. Старичков, прорыв Меняйлова, Узон—Долина гейзеров). Ожидания: title-census live_total 395, offenders_total 2 (только «Зимняя сказка» и «Чудеса Камчатки» — без зацепок в данных); routes-audit без изменений (612 / 395 / 63); search «Старичков» находит «К острову Старичков», search «Меняйлова» — «Прорыв имени Меняйлова».",
+  "note": "Проба 115: миграция 892 — скрыты два имени-заглушки («Зимняя сказка», «Чудеса Камчатки») по «удалить мусор» владельца. ФИНАЛ кампании имён (26 → 0). Ожидания: title-census offenders_total 0, live_total 393; routes-audit total 612, visible 393, hidden 156, merged 63; search «сказка» и «чудеса» не находят скрытых.",
   "urls": [
     "https://vedarai.ru/api/cron/route-title-census?limit=40",
     "https://vedarai.ru/api/cron/routes-audit",
-    "https://vedarai.ru/api/routes/search?q=%D0%A1%D1%82%D0%B0%D1%80%D0%B8%D1%87%D0%BA%D0%BE%D0%B2",
-    "https://vedarai.ru/api/routes/search?q=%D0%9C%D0%B5%D0%BD%D1%8F%D0%B9%D0%BB%D0%BE%D0%B2%D0%B0"
+    "https://vedarai.ru/api/routes/search?q=%D0%97%D0%B8%D0%BC%D0%BD%D1%8F%D1%8F%20%D1%81%D0%BA%D0%B0%D0%B7%D0%BA%D0%B0",
+    "https://vedarai.ru/api/routes/search?q=%D0%A7%D1%83%D0%B4%D0%B5%D1%81%D0%B0"
   ],
-  "until": "title_census_v8",
+  "until": "title_census_v9",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
