@@ -51,6 +51,13 @@ describe('parseClaimedNumbers — числа из текста', () => {
     expect(c.distanceKm).toBeNull();
   });
 
+  it('составная сторона света — тоже география: «в 80 км к юго-западу» (проба 126)', () => {
+    const c = parseClaimedNumbers(
+      'Маршрут расположен в 80 км к юго-западу от Петропавловска-Камчатского.',
+    );
+    expect(c.distanceKm).toBeNull();
+  });
+
   it('«2 часа езды» — доставка, не прохождение', () => {
     const c = parseClaimedNumbers('До начала маршрута 2 часа езды на машине.');
     expect(c.durationH).toBeNull();
