@@ -13,11 +13,18 @@
  * когда сеть вернётся; счётчик очереди виден всегда.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair, Camera, X } from 'lucide-react';
+import {
+  queueFieldCheck, listFieldChecks, deleteFieldCheck,
+  type FieldCheckQueueItem,
+} from '@/lib/offline/db';
 
-const QUEUE_KEY = 'field_check_queue_v1';
 const TAG_KEY = 'field_check_trip_tag';
+/** Снимок сжимается на телефоне: в поле связь узкая, а улика нужна целая. */
+const PHOTO_MAX_SIDE = 1280;
+const PHOTO_QUALITY = 0.72;
+const PHOTO_LIMIT = 3;
 
 interface NearbyItem {
   kind: 'route' | 'place';
@@ -31,17 +38,6 @@ interface NearbyItem {
   away_km: number;
 }
 
-interface QueuedCheck {
-  target_kind: 'route' | 'place';
-  target_id: string;
-  verdict: string;
-  reported_lat: number | null;
-  reported_lng: number | null;
-  accuracy_m: number | null;
-  note: string | null;
-  trip_tag: string | null;
-}
-
 const VERDICTS: Array<{ value: string; label: string; tone: 'ok' | 'warn' }> = [
   { value: 'confirmed', label: 'Всё сходится', tone: 'ok' },
   { value: 'coords_wrong', label: 'Координата не та', tone: 'warn' },
@@ -51,16 +47,32 @@ const VERDICTS: Array<{ value: string; label: string; tone: 'ok' | 'warn' }> = [
   { value: 'access_changed', label: 'Доступ изменился', tone: 'warn' },
 ];
 
-function readQueue(): QueuedCheck[] {
+/**
+ * Сжатие снимка на устройстве: длинная сторона до 1280 px, JPEG.
+ * Оригинал с камеры — это 4-8 МБ, которые в поле не уйдут никогда.
+ * Возвращает base64 без префикса data: — в таком виде он и хранится,
+ * и отправляется.
+ */
+async function shrinkPhoto(file: File): Promise<{ data: string; mime: string } | null> {
   try {
-    const raw = localStorage.getItem(QUEUE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-
-function writeQueue(q: QueuedCheck[]): void {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch { /* приватный режим */ }
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const url = canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
+    const comma = url.indexOf(',');
+    if (comma < 0) return null;
+    return { data: url.slice(comma + 1), mime: 'image/jpeg' };
+  } catch {
+    // Старый браузер или битый файл — снимка не будет, но проверка уйдёт.
+    return null;
+  }
 }
 
 export function FieldCheckClient() {
@@ -73,31 +85,68 @@ export function FieldCheckClient() {
   const [tripTag, setTripTag] = useState('');
   const [queueLen, setQueueLen] = useState(0);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  /** Снимки текущей формы: base64 без префикса, уже сжатые. */
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    setQueueLen(readQueue().length);
+    void listFieldChecks().then(q => setQueueLen(q.length)).catch(() => undefined);
     try {
       const saved = localStorage.getItem(TAG_KEY);
       if (saved) setTripTag(saved);
     } catch { /* приватный режим */ }
+    // PWA: без своей регистрации форма, открытая по прямой ссылке, останется
+    // без офлайна — а её открывают именно там, где связи нет.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    }
   }, []);
 
-  /** Отправка очереди: молча, по одной, без потери при отказе. */
+  /**
+   * Отправка очереди: по одной проверке, снимки следом за своей проверкой.
+   * Отказ обрывает проход — очередь остаётся на диске целиком, ничего не
+   * теряется и не отправляется дважды: запись удаляется только после
+   * успешного ответа.
+   */
   const flushQueue = useCallback(async () => {
-    let q = readQueue();
-    while (q.length > 0) {
-      const head = q[0];
+    let queue: FieldCheckQueueItem[];
+    try { queue = await listFieldChecks(); } catch { return; }
+    for (const item of queue) {
       try {
         const res = await fetch('/api/field-check/report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(head),
+          body: JSON.stringify({
+            target_kind: item.targetKind,
+            target_id: item.targetId,
+            verdict: item.verdict,
+            reported_lat: item.reportedLat,
+            reported_lng: item.reportedLng,
+            accuracy_m: item.accuracyM,
+            note: item.note,
+            trip_tag: item.tripTag,
+          }),
         });
         if (!res.ok) break;
+        const j = await res.json();
+        const checkId: string | null = j?.id ?? null;
+        // Снимки идут по одному и НЕ держат проверку: не ушедшая
+        // фотография не повод отправлять вердикт заново.
+        if (checkId) {
+          for (const data of item.photos) {
+            try {
+              await fetch('/api/field-check/photo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ check_id: checkId, mime: 'image/jpeg', data }),
+              });
+            } catch { /* снимок довезём в следующий раз не сможем — вердикт важнее */ }
+          }
+        }
+        await deleteFieldCheck(item.id);
+        setQueueLen(n => Math.max(0, n - 1));
       } catch { break; }
-      q = q.slice(1);
-      writeQueue(q);
-      setQueueLen(q.length);
     }
   }, []);
 
@@ -150,29 +199,61 @@ export function FieldCheckClient() {
     }
   }, []);
 
-  const submit = useCallback((item: NearbyItem, verdict: string) => {
-    const check: QueuedCheck = {
-      target_kind: item.kind,
-      target_id: item.id,
+  const submit = useCallback(async (item: NearbyItem, verdict: string) => {
+    const check: FieldCheckQueueItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      targetKind: item.kind,
+      targetId: item.id,
       verdict,
-      reported_lat: fix?.lat ?? null,
-      reported_lng: fix?.lng ?? null,
-      accuracy_m: fix?.accuracy ?? null,
+      reportedLat: fix?.lat ?? null,
+      reportedLng: fix?.lng ?? null,
+      accuracyM: fix?.accuracy ?? null,
       note: note.trim() || null,
-      trip_tag: tripTag.trim() || null,
+      tripTag: tripTag.trim() || null,
+      photos,
+      queuedAt: Date.now(),
     };
-    const q = [...readQueue(), check];
-    writeQueue(q);
-    setQueueLen(q.length);
+    try {
+      await queueFieldCheck(check);
+      setQueueLen(n => n + 1);
+    } catch {
+      // Хранилище закрыто (приватный режим) — отправляем прямо сейчас или
+      // теряем. Молчать об этом нельзя.
+      setFixError('Не удалось сохранить проверку на телефоне — отправляем сразу');
+    }
     setDoneIds(prev => new Set(prev).add(item.id));
     setOpenId(null);
     setNote('');
+    setPhotos([]);
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
     void flushQueue();
-  }, [fix, note, tripTag, flushQueue]);
+  }, [fix, note, tripTag, photos, flushQueue]);
+
+  /** Снимок с камеры или из галереи: сжимаем сразу, храним уже готовым. */
+  const addPhoto = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPhotoBusy(true);
+    const next: string[] = [];
+    for (const file of Array.from(files).slice(0, PHOTO_LIMIT)) {
+      const shrunk = await shrinkPhoto(file);
+      if (shrunk) next.push(shrunk.data);
+    }
+    setPhotos(prev => [...prev, ...next].slice(0, PHOTO_LIMIT));
+    setPhotoBusy(false);
+    if (fileRef.current) fileRef.current.value = '';
+  }, []);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        onChange={e => void addPhoto(e.target.files)}
+        className="hidden"
+      />
       <div className="max-w-lg mx-auto px-4 py-6 flex flex-col gap-5">
 
         <header className="flex flex-col gap-1.5">
@@ -296,6 +377,36 @@ export function FieldCheckClient() {
                     rows={3}
                     className="ds-input"
                   />
+                  {/* Снимок — улика, которая не спорит: развилка, табличка,
+                      размытый мост. Хранится сжатым и уходит следом за
+                      вердиктом; не ушедшее фото не задерживает проверку. */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {photos.map((data, i) => (
+                      <div key={i} className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`data:image/jpeg;base64,${data}`} alt={`Снимок ${i + 1}`}
+                          className="w-16 h-16 object-cover rounded-lg"
+                          style={{ border: '1px solid var(--border)' }} />
+                        <button onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
+                          aria-label="Убрать снимок"
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)' }}>
+                          <X className="w-3 h-3" style={{ color: 'var(--text-secondary)' }} />
+                        </button>
+                      </div>
+                    ))}
+                    {photos.length < PHOTO_LIMIT && (
+                      <button onClick={() => fileRef.current?.click()} disabled={photoBusy}
+                        className="w-16 h-16 rounded-lg flex flex-col items-center justify-center gap-1"
+                        style={{ background: 'var(--bg-hover)', border: '1px dashed var(--border-strong)' }}>
+                        {photoBusy
+                          ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-muted)' }} />
+                          : <Camera className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />}
+                        <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>фото</span>
+                      </button>
+                    )}
+                  </div>
+
                   <div className="flex flex-wrap gap-2">
                     {VERDICTS.map(v => (
                       <button key={v.value} onClick={() => submit(item, v.value)}
@@ -323,7 +434,9 @@ export function FieldCheckClient() {
         <p className="text-xs pb-6" style={{ color: 'var(--text-muted)' }}>
           Координата вашего телефона прикладывается к проверке, если она есть.
           Если координаты нет — так и запишем: проверка «не с места» тоже
-          полезна, но вес у неё другой.
+          полезна, но вес у неё другой. Снимки сжимаются на телефоне и
+          хранятся до связи вместе с проверкой. Страницу можно добавить на
+          домашний экран — она открывается без интернета.
         </p>
       </div>
     </div>

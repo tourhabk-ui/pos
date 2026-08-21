@@ -43,8 +43,12 @@ describe('офлайн-пакет несёт ограничения', () => {
     expect(DB).toContain('activeAlerts: string[]');
     expect(DB).toContain('alertSeverity: number');
     expect(DB).toContain('alertsAt: number | null');
-    // v3: добавлен store fieldPacks (FCN этап 2); поля ограничений — с v2.
-    expect(DB).toContain('const DB_VERSION = 3');
+    // Версия схемы растёт вместе с хранилищами; поля ограничений — с v2,
+    // store fieldPacks — с v3, очередь полевых проверок с фото — с v4.
+    // Сторож держит НЕ конкретное число, а два инварианта: версия объявлена
+    // и апгрейд создаёт хранилища по отсутствию, то есть без потери данных.
+    expect(DB).toMatch(/const DB_VERSION = \d+/);
+    expect(DB).toMatch(/if \(!db\.objectStoreNames\.contains\('routes'\)\)/);
   });
 
   it('скачивание кладёт ограничения с дефолтами (старый билд API не ломает пакет)', () => {
