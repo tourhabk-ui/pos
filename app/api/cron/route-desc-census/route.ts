@@ -130,7 +130,9 @@ export async function GET(request: NextRequest) {
       // заглавной в тексте — слово, не место («каменистое дно» против
       // «Каменистый» из реестра). Было 154 нарушителя, большинство — эти
       // два класса ложных срабатываний.
-      probe: 'route_desc_census_v2',
+      // v3 — составные стороны света в лукахеде географии («в 80 км к
+      // юго-западу» у Вачкажца проскочило в v2 как длина маршрута).
+      probe: 'route_desc_census_v3',
       live_total: rows.length,
       with_description: withDescription,
       offenders_total: offenders.length,
