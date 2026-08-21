@@ -119,15 +119,26 @@ async function findRoutesByText(
       lat: number | null;
       lng: number | null;
     }>(
+      // ORDER BY обязателен: LIMIT без него отдаёт ПРОИЗВОЛЬНЫЕ строки из
+      // совпавших, и на один и тот же вопрос Кузьмич получал разный контекст.
+      // Ранжирование по ts_rank заодно ставит лучшие совпадения первыми —
+      // это не только стабильность, но и качество выборки. title вторым
+      // ключом: равный ранг не должен возвращать недетерминированность.
       `SELECT title, LEFT(description, 100) AS description, category, lat, lng
        FROM agent_route_knowledge
        WHERE to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,''))
          @@ plainto_tsquery('russian', $1)
+       ORDER BY ts_rank(
+         to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'')),
+         plainto_tsquery('russian', $1)
+       ) DESC, title
        LIMIT $2`,
       [words, limit],
     );
     return result.rows;
-  } catch {
+  } catch (err) {
+    // Пустой catch превращал отказ БД в «знаний нет» (CLAUDE.md §4.0).
+    console.error('[rag-context] поиск по тексту не выполнен:', err instanceof Error ? err.message : err);
     return [];
   }
 }
@@ -135,7 +146,11 @@ async function findRoutesByText(
 // ── Ближайшие 3 места к пользователю (для инжекта в промпт) ────────
 /**
  * Возвращает топ-3 ближайших места из agent_route_knowledge к координатам юзера.
- * Использует SQL-сортировку по Haversine расстоянию.
+ *
+ * Кандидаты отбираются в SQL по приближённому расстоянию (квадрат градусов с
+ * поправкой на широту), точный Haversine и финальный порядок — в JS. Прежняя
+ * док-строка обещала «SQL-сортировку по Haversine» — её там не было вовсе:
+ * сортировка шла в JS по случайной подвыборке из LIMIT без ORDER BY.
  */
 async function findNearbyPlaces(
   userLocation: UserLocation,
@@ -156,11 +171,23 @@ async function findNearbyPlaces(
       lng: number | null;
       description: string | null;
     }>(
+      // ORDER BY по расстоянию — В САМОМ SQL, до лимита.
+      //
+      // Квадрат ±2° — это ~220 км по широте, в него попадает большая часть
+      // точек Камчатки. LIMIT 200 без ORDER BY отдавал ПРОИЗВОЛЬНЫЕ 200 из
+      // них, и «ближайшие места» дальше считались из случайной подвыборки:
+      // настоящая ближайшая точка могла не попасть в кандидаты вовсе, а на
+      // одинаковый вопрос модель получала разный контекст.
+      //
+      // Порядок — по квадрату градусного расстояния с поправкой долготы на
+      // cos(широты): для ОТБОРА кандидатов этого достаточно, точный Haversine
+      // и финальная сортировка остаются в JS ниже.
       `SELECT title, category, lat, lng, LEFT(description, 150) AS description
        FROM agent_route_knowledge
        WHERE lat IS NOT NULL AND lng IS NOT NULL
          AND lat BETWEEN $1 - 2.0 AND $1 + 2.0
          AND lng BETWEEN $2 - 2.0 AND $2 + 2.0
+       ORDER BY (lat - $1)^2 + ((lng - $2) * cos(radians($1)))^2, title
        LIMIT 200`,
       [lat, lng],
     );
@@ -189,7 +216,9 @@ async function findNearbyPlaces(
       }
       return { ...p, direction };
     });
-  } catch {
+  } catch (err) {
+    // Отказ БД не равен «рядом ничего нет» — причина уходит в лог (§4.0).
+    console.error('[rag-context] ближайшие места не получены:', err instanceof Error ? err.message : err);
     return [];
   }
 }
@@ -314,7 +343,9 @@ async function incrementSearchCounts(titles: string[]): Promise<void> {
        WHERE title = ANY($1)`,
       [titles],
     );
-  } catch {
-    // Non-critical — don't block RAG response
+  } catch (err) {
+    // Не критично — ответ RAG не блокируем, но причина в лог: молчаливый
+    // счётчик, переставший расти, неотличим от «ничего не искали».
+    console.error('[rag-context] счётчик поиска не обновлён:', err instanceof Error ? err.message : err);
   }
 }
