@@ -113,6 +113,30 @@ const TRANSPORT_RESCUE_RE = /протяж|дистанц|одну сторону
  * время: сравнивать плечо с полной записью нечестно (проба 128, Вилючинский).
  */
 const DURATION_LEG_RE = /спуск/;
+/**
+ * Число принадлежит ОБЪЕКТУ, а не пути. «Каньон длиной 4 км» проходит через
+ * контекст (в предложении есть «длин»), но 4 км — размер каньона, а маршрут
+ * к нему может быть любой длины (проба 130, Семячикский). Смотрим, к какому
+ * существительному прицеплена мера: к слову пути — утверждение о пути,
+ * к чему угодно другому — о предмете, и спорить с записью маршрута нечем.
+ */
+const PATH_NOUN_RE =
+  /^(?:маршрут|троп|пут[ьи]|трасс|переход|сплав|поход|дистанц|участ|кольц|нитк|отрез)/;
+const ATTR_BEFORE_RE =
+  /([а-яa-z-]{3,})[\s,]+(?:длин[оа][йю]|длинной|протяженность[юь])\s*(?:в\s+)?$/;
+const ATTR_AFTER_RE =
+  /(?:длин[аы]|протяженность)\s+([а-яa-z-]{3,})\s*(?:[-–—:]\s*)?$/;
+
+/**
+ * «не знаю» здесь не нужно: отсутствие прицепки — это не третий исход, а
+ * обычное «мера не привязана к предмету», и тогда судит контекст предложения.
+ */
+function attachedToNonPathObject(before: string): boolean {
+  const m = ATTR_BEFORE_RE.exec(before) ?? ATTR_AFTER_RE.exec(before);
+  if (m === null) return false;
+  return !PATH_NOUN_RE.test(m[1]);
+}
+
 /** Маркеры стороны — на уровне предложения: они стоят и до числа, и после. */
 const ONE_WAY_RE = /в одну сторону|в один конец/;
 const ROUND_TRIP_RE = /в обе стороны|туда и обратно|туда-обратно/;
@@ -128,12 +152,15 @@ export function parseClaimedNumbers(text: string): ClaimedNumbers {
   const range = (
     re: RegExp, contextRe: RegExp, notAfterRe: RegExp,
     skipSentenceRe: RegExp | null, rescueRe: RegExp | null,
+    checkAttribution = false,
   ): { value: number; oneWay: boolean; roundTrip: boolean } | null => {
     const g = new RegExp(re.source, 'g');
     let m: RegExpExecArray | null;
     while ((m = g.exec(t)) !== null) {
       const after = t.slice(m.index + m[0].length);
       if (notAfterRe.test(after)) continue;
+      if (checkAttribution &&
+          attachedToNonPathObject(t.slice(Math.max(0, m.index - 60), m.index))) continue;
       const sentence = sentenceAround(t, m.index);
       if (!contextRe.test(sentence)) continue;
       if (skipSentenceRe && skipSentenceRe.test(sentence) &&
@@ -154,6 +181,7 @@ export function parseClaimedNumbers(text: string): ClaimedNumbers {
   const dist = range(
     new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:км(?![а-яa-z])|километр)`),
     DIST_CONTEXT_RE, LOCATION_AFTER_RE, TRANSPORT_SENTENCE_RE, TRANSPORT_RESCUE_RE,
+    true,
   );
   const dur = range(
     new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:час|ч\\.)`),
