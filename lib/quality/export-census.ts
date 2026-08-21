@@ -87,62 +87,108 @@ export function isTestFile(path: string): boolean {
  * Берутся объявления функций и стрелочные константы — то, что в разговоре
  * называют «механизмом». Типы и интерфейсы не считаются: неиспользуемый тип
  * ничего не обещает и никого не подводит.
+ *
+ * Разбором, а не регуляркой: строка `export function …` встречается и внутри
+ * шаблонных строк (образцы кода в промптах агентов), и объявлять их
+ * механизмами платформы неверно.
  */
-export function exportedFunctions(src: string): string[] {
+export function exportedFunctions(src: string, path = 'x.ts'): string[] {
   const out = new Set<string>();
-  for (const m of src.matchAll(/^export\s+(?:async\s+)?function\s+(\w+)/gm)) out.add(m[1]);
-  // `export const f = (…) => …` и `export const f = async (…) => …`
-  for (const m of src.matchAll(/^export\s+const\s+(\w+)\s*(?::[^=]+)?=\s*(?:async\s*)?\(/gm)) out.add(m[1]);
+  const kind = path.endsWith('.tsx') || path.endsWith('.jsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, /* setParentNodes */ false, kind);
+
+  const isExported = (node: ts.Node): boolean =>
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+
+  for (const node of file.statements) {
+    if (ts.isFunctionDeclaration(node) && isExported(node) && node.name !== undefined) {
+      out.add(node.name.text);
+      continue;
+    }
+    if (!ts.isVariableStatement(node) || !isExported(node)) continue;
+    for (const decl of node.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) continue;
+      const init = decl.initializer;
+      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) out.add(decl.name.text);
+    }
+  }
   return [...out];
 }
 
 /**
  * Импорты и переэкспорты файла — с сырыми (неразрешёнными) путями.
  *
+ * Тоже разбором, а не регуляркой, и по той же причине: регулярка не отличает
+ * КОД от ПРИМЕРА В ШАПКЕ. `lib/middleware/csrf.ts` носит в док-комментарии
+ * образец «import { withCsrfProtection } from '@/lib/middleware/csrf'» — и
+ * этого хватало, чтобы защита, не подключённая ни к одному роуту, числилась
+ * используемой. Замер обязан считать вызовы, а не намерения.
+ *
  * Алиас `@/` и относительные пути разрешает вызывающий: он один знает корень
  * репозитория и расширения файлов.
  */
-export function importsOf(src: string): Array<{ spec: string; names: string[] | null; reexport: boolean }> {
+export function importsOf(src: string, path = 'x.ts'): Array<{ spec: string; names: string[] | null; reexport: boolean }> {
   const out: Array<{ spec: string; names: string[] | null; reexport: boolean }> = [];
+  const kind = path.endsWith('.tsx') || path.endsWith('.jsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, /* setParentNodes */ true, kind);
 
-  // import { a, b as c } from 'x'   /   import Def, { a } from 'x'
-  for (const m of src.matchAll(/import\s+(?:[\w*\s,]+?)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    out.push({ spec: m[2], names: splitNames(m[1]), reexport: false });
-  }
-  // import * as ns from 'x'  → весь модуль
-  for (const m of src.matchAll(/import\s+\*\s+as\s+\w+\s+from\s*['"]([^'"]+)['"]/g)) {
-    out.push({ spec: m[1], names: null, reexport: false });
-  }
-  // export { a } from 'x'
-  for (const m of src.matchAll(/export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    out.push({ spec: m[2], names: splitNames(m[1]), reexport: true });
-  }
-  // export * from 'x'
-  for (const m of src.matchAll(/export\s*\*\s*from\s*['"]([^'"]+)['"]/g)) {
-    out.push({ spec: m[1], names: null, reexport: true });
-  }
-  // const { a } = await import('x')  — ленивая загрузка тоже вызов
-  for (const m of src.matchAll(/\{([^}]*)\}\s*=\s*await\s+import\s*\(\s*['"]([^'"]+)['"]/g)) {
-    out.push({ spec: m[2], names: splitNames(m[1]), reexport: false });
-  }
-  // await import('x') без разбора имён / import('x').then(...) → весь модуль
-  for (const m of src.matchAll(/(?<!\}\s*=\s*await\s)\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
-    out.push({ spec: m[1], names: null, reexport: false });
-  }
+  const specText = (node: ts.Expression | undefined): string | null =>
+    node !== undefined && ts.isStringLiteralLike(node) ? node.text : null;
+
+  // Переименование берёт ИСХОДНОЕ имя: `a as b` — это вызов `a`.
+  const namedList = (el: ts.NamedImports | ts.NamedExports): string[] =>
+    el.elements.filter((e) => !e.isTypeOnly).map((e) => (e.propertyName ?? e.name).text);
+
+  const walk = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      const spec = specText(node.moduleSpecifier);
+      // `import type {...}` — тип ничего не зовёт.
+      if (spec !== null && node.importClause?.isTypeOnly !== true) {
+        const bindings = node.importClause?.namedBindings;
+        if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+          out.push({ spec, names: null, reexport: false });
+        } else if (bindings !== undefined && ts.isNamedImports(bindings)) {
+          out.push({ spec, names: namedList(bindings), reexport: false });
+        }
+        // Импорт по умолчанию и импорт ради побочного эффекта не называют ни
+        // одного нашего экспорта — ребра не даём.
+      }
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      const spec = specText(node.moduleSpecifier);
+      if (spec !== null && !node.isTypeOnly) {
+        if (node.exportClause === undefined) out.push({ spec, names: null, reexport: true });
+        else if (ts.isNamedExports(node.exportClause)) out.push({ spec, names: namedList(node.exportClause), reexport: true });
+      }
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const spec = specText(node.arguments[0]);
+      if (spec !== null) out.push({ spec, names: destructuredNames(node), reexport: false });
+    }
+    node.forEachChild(walk);
+  };
+  file.forEachChild(walk);
   return out;
 }
 
-/** `a, b as c, type D` → ['a','b'] (переименование берёт ИСХОДНОЕ имя). */
-function splitNames(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .filter((p) => !p.startsWith('type '))
-    .map((p) => p.split(/\s+as\s+/)[0].trim())
-    .filter((p) => /^\w+$/.test(p));
+/**
+ * Имена, разобранные из `const { a, b } = await import('x')`.
+ *
+ * `null` — модуль взят целиком: доказать, что конкретный экспорт не нужен,
+ * нельзя, а объявить живое мёртвым дороже, чем пропустить сироту.
+ */
+function destructuredNames(call: ts.CallExpression): string[] | null {
+  let node: ts.Node = call;
+  if (node.parent !== undefined && ts.isAwaitExpression(node.parent)) node = node.parent;
+  const decl = node.parent;
+  if (decl === undefined || !ts.isVariableDeclaration(decl) || !ts.isObjectBindingPattern(decl.name)) return null;
+  const names: string[] = [];
+  for (const el of decl.name.elements) {
+    const key = el.propertyName ?? el.name;
+    if (!ts.isIdentifier(key)) return null; // вычисляемое имя — модуль взят целиком
+    names.push(key.text);
+  }
+  return names;
 }
-
 
 /**
  * Идентификаторы файла — только те, что стоят в КОДЕ.

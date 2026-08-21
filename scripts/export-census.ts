@@ -32,22 +32,37 @@ function walk(dir: string, out: string[]): void {
 
 const files: string[] = [];
 for (const d of SCAN) walk(path.join(ROOT, d), files);
-for (const f of ['middleware.ts', 'start.js']) {
-  const p = path.join(ROOT, f);
-  if (fs.existsSync(p)) files.push(p);
+// Файлы в корне тоже зовут код: `instrumentation.ts` и `middleware.ts` —
+// точки входа Next.js, и потребитель, найденный только там, ничем не хуже.
+for (const e of fs.readdirSync(ROOT, { withFileTypes: true })) {
+  if (e.isFile() && EXT.includes(path.extname(e.name))) files.push(path.join(ROOT, e.name));
 }
 
 const src = new Map<string, string>();
 for (const f of files) src.set(path.relative(ROOT, f), fs.readFileSync(f, 'utf8'));
 
-/** `@/x` и относительные пути → путь в репозитории. Пакеты пропускаются. */
+/**
+ * `@/x` и относительные пути → путь в репозитории. Пакеты пропускаются.
+ *
+ * `.js` в спецификаторе снимается: ESM-модули (`lib/mcp/…`) импортируют
+ * соседей как `'./sources/mches-telegram.js'`, а на диске лежит `.ts`. Без
+ * этого три живых разборщика МЧС, ВК и реестра туробъектов числились
+ * сиротами — то есть замер объявлял мёртвым работающий источник данных.
+ */
 function resolveSpec(fromRel: string, spec: string): string | null {
   let base: string;
   if (spec.startsWith('@/')) base = spec.slice(2);
   else if (spec.startsWith('.')) base = path.normalize(path.join(path.dirname(fromRel), spec));
   else return null;
-  for (const e of ['', ...EXT, ...EXT.map((x) => `/index${x}`)]) {
-    if (src.has(base + e)) return base + e;
+
+  const bases = [base];
+  const jsExt = /\.(js|mjs|cjs)$/.exec(base);
+  if (jsExt) bases.push(base.slice(0, -jsExt[0].length));
+
+  for (const b of bases) {
+    for (const e of ['', ...EXT, ...EXT.map((x) => `/index${x}`)]) {
+      if (src.has(b + e)) return b + e;
+    }
   }
   return null;
 }
@@ -55,14 +70,14 @@ function resolveSpec(fromRel: string, spec: string): string | null {
 const declared = new Map<string, string[]>();
 for (const [f, s] of src) {
   if (!f.startsWith('lib/') || isTestFile(f)) continue;
-  const fns = exportedFunctions(s);
+  const fns = exportedFunctions(s, f);
   if (fns.length) declared.set(f, fns);
 }
 
 const edges: ImportEdge[] = [];
 let unresolved = 0;
 for (const [f, s] of src) {
-  for (const imp of importsOf(s)) {
+  for (const imp of importsOf(s, f)) {
     const to = resolveSpec(f, imp.spec);
     if (!to) {
       if (imp.spec.startsWith('@/') || imp.spec.startsWith('.')) unresolved++;

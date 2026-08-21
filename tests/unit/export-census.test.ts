@@ -39,6 +39,13 @@ describe('exportedFunctions', () => {
   it('тип не считается механизмом', () => {
     expect(exportedFunctions('export type T = () => void;')).toEqual([]);
   });
+
+  it('не считает объявление внутри шаблонной строки', () => {
+    // Промпты агентов носят в себе образцы кода; механизмом платформы они не
+    // становятся.
+    const src = 'const prompt = `\nexport function looksLikeCode() {}\n`;\nexport function real() {}\n';
+    expect(exportedFunctions(src)).toEqual(['real']);
+  });
 });
 
 describe('importsOf', () => {
@@ -54,6 +61,26 @@ describe('importsOf', () => {
     expect(got).toContainEqual({ spec: './y', names: null, reexport: false });
     expect(got).toContainEqual({ spec: './z', names: ['e'], reexport: true });
     expect(got).toContainEqual({ spec: './w', names: null, reexport: true });
+  });
+
+  it('пример импорта в док-комментарии вызовом не является', () => {
+    // На этом `withCsrfProtection` числился используемым: защита не подключена
+    // ни к одному роуту, но её образец лежит в шапке собственного файла.
+    const src = [
+      '/**',
+      " * import { withCsrfProtection } from '@/lib/middleware/csrf';",
+      ' */',
+      "import { real } from './x';",
+      'void real;',
+    ].join('\n');
+    expect(importsOf(src)).toEqual([{ spec: './x', names: ['real'], reexport: false }]);
+  });
+
+  it('import type ничего не зовёт', () => {
+    expect(importsOf("import type { Foo } from './x';")).toEqual([]);
+    expect(importsOf("import { type Foo, bar } from './x';")).toEqual([
+      { spec: './x', names: ['bar'], reexport: false },
+    ]);
   });
 
   it('ленивая загрузка — тоже вызов', () => {
