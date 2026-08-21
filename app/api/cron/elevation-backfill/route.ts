@@ -47,7 +47,9 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json({
       success: true,
-      probe: 'elevation_backfill_v1',
+      // v2 — правило константной высоты (миграция 894): плоская подделка
+      // больше не проходит порог достоверности, нули сброшены и пересчитаны.
+      probe: 'elevation_backfill_v2',
       candidates: parseInt(rows[0]?.candidates ?? '0', 10),
       filled: parseInt(rows[0]?.filled ?? '0', 10),
     });

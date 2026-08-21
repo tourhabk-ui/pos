@@ -1,13 +1,14 @@
 {
-  "note": "Проба 121: контроль после бэкфилла набора высоты (проба 120: written 280 из 284, unreliable 4). Данные уже в БД — деплоя ждать не надо, маркер «\"elevation_gain_m\":2598» (Авачинский путь на вершину) найдётся сразу. Ожидания: в выдаче поиска набор числом у большинства, сортировка внутри рода учитывает высоту; у Трёх Братьев и прочих поверхность не сломана.",
+  "note": "Проба 122: правило константной высоты. Миграция 894 сбрасывает нули бэкфилла в NULL; relief теперь отличает «высоты есть» от «высоты меряны» (константа на всём треке — след заполнения, reliable=false); POST перезаполняет — честный ноль равнины с шумом прибора вернётся, константа останется NULL. Ожидания: GET датчик elevation_backfill_v2, candidates ~16 (12 нулей + 4 прежних unreliable); у POST written < scanned (константные в unreliable); search Авачинск — у «Авачинский перевал (база Три вулкана)» и «Однодневный поход» elevation null (не 0), у остальных числа прежние.",
   "urls": [
-    "https://vedarai.ru/api/routes/search?q=%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA",
-    "https://vedarai.ru/api/routes/search?q=%D0%A2%D0%BE%D0%BB%D0%B1%D0%B0%D1%87%D0%B8%D0%BA",
-    "https://vedarai.ru/api/routes/search?q=%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82%D0%B0"
+    "https://vedarai.ru/api/cron/elevation-backfill"
   ],
-  "until": "\"elevation_gain_m\":2598",
+  "post": [
+    { "url": "https://vedarai.ru/api/cron/elevation-backfill", "body": { "dry_run": false, "limit": 200 } }
+  ],
+  "until": "elevation_backfill_v2",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 20000
+  "bytes": 12000
 }
