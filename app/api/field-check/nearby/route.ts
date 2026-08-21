@@ -26,18 +26,66 @@ const QuerySchema = z.object({
   radius_km: z.coerce.number().min(0.5).max(60).default(15),
 });
 
+/**
+ * Выход по МАРШРУТУ, а не из одной точки (владелец 21.08: «они собираются
+ * не на одну локацию»). Центром берётся координата маршрута, радиус —
+ * такой, чтобы накрыть его путевые точки: выход готовится дома, где есть
+ * сеть, и в поле список уже лежит на телефоне.
+ */
+async function centerFromRoute(routeId: string): Promise<{ lat: number; lng: number; radiusKm: number } | null> {
+  const { rows } = await pool.query<{ lat: number | null; lng: number | null; span_km: number | null }>(
+    `SELECT r.lat::float8 AS lat, r.lng::float8 AS lng,
+            (SELECT MAX(
+               sqrt(power(111.0 * (p.lat::float8 - r.lat::float8), 2)
+                  + power(67.0 * (p.lng::float8 - r.lng::float8), 2)))
+             FROM route_waypoints w
+             JOIN places p ON p.id = w.place_id
+             WHERE w.route_id = r.id
+               AND COALESCE(w.link_kind, 'unknown') <> 'nearby'
+               AND p.lat IS NOT NULL AND p.lng IS NOT NULL) AS span_km
+     FROM kamchatka_routes r
+     WHERE r.id::text = $1 AND r.is_visible = true AND r.merged_into_id IS NULL`,
+    [routeId],
+  );
+  const row = rows[0];
+  if (!row || row.lat === null || row.lng === null) return null;
+  // Точек может не быть вовсе — тогда берём разумный запас вокруг маршрута,
+  // а не выдумываем протяжённость.
+  const span = typeof row.span_km === 'number' && Number.isFinite(row.span_km) ? row.span_km : 0;
+  return { lat: row.lat, lng: row.lng, radiusKm: Math.min(60, Math.max(8, Math.ceil(span + 5))) };
+}
+
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
-  const parsed = QuerySchema.safeParse({
-    lat: sp.get('lat'), lng: sp.get('lng'), radius_km: sp.get('radius_km') ?? undefined,
-  });
-  if (!parsed.success) {
-    return NextResponse.json(
-      { success: false, error: 'Нужны координаты: lat и lng' },
-      { status: 400 },
-    );
+  const routeId = (sp.get('route_id') ?? '').trim();
+
+  let lat: number, lng: number, radius_km: number;
+  if (routeId) {
+    let center: Awaited<ReturnType<typeof centerFromRoute>>;
+    try {
+      center = await centerFromRoute(routeId);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Не удалось прочитать маршрут' }, { status: 502 });
+    }
+    if (!center) {
+      return NextResponse.json(
+        { success: false, error: 'У маршрута нет координаты — обходить его вслепую нельзя' },
+        { status: 404 },
+      );
+    }
+    lat = center.lat; lng = center.lng; radius_km = center.radiusKm;
+  } else {
+    const parsed = QuerySchema.safeParse({
+      lat: sp.get('lat'), lng: sp.get('lng'), radius_km: sp.get('radius_km') ?? undefined,
+    });
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, error: 'Нужны координаты: lat и lng — или route_id' },
+        { status: 400 },
+      );
+    }
+    lat = parsed.data.lat; lng = parsed.data.lng; radius_km = parsed.data.radius_km;
   }
-  const { lat, lng, radius_km } = parsed.data;
   // Грубая рамка вокруг точки: широта ~111 км/°, долгота на 53°N ~67 км/°.
   // Точное расстояние считается ниже, рамка нужна индексу.
   const dLat = radius_km / 111;
@@ -122,6 +170,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       probe: 'field_check_nearby_v1',
+      mode: routeId ? 'route' : 'point',
+      route_id: routeId || null,
       center: { lat, lng },
       radius_km,
       total: items.length,
