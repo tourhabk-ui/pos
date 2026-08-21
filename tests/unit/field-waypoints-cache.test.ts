@@ -32,3 +32,13 @@ describe('пустой список путевых точек — результ
     expect(src).toContain("name: 'Конец трека'");
   });
 });
+
+describe('кэш точек версионирован — старое знание не оживает', () => {
+  it('читается ключ версии v2, а прежний ключ вычищается', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'app/planning/_PlanningClient.tsx'), 'utf-8',
+    );
+    expect(src).toContain('trail_route_wps_v2_${routeId}');
+    expect(src).toMatch(/removeItem\(`trail_route_wps_\$\{routeId\}`\)/);
+  });
+});
