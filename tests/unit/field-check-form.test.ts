@@ -220,3 +220,22 @@ describe('выход по маршруту и офлайн-заготовка', 
     expect(client).toContain('работает без интернета');
   });
 });
+
+/**
+ * «1 точек пути» — мелочь, которая читается как небрежность ко всему
+ * остальному: человек, увидевший кривое слово, не поверит и цифре рядом.
+ */
+describe('склонение числа путевых точек', () => {
+  it('единственное, двойственное и множественное', async () => {
+    const { waypointsPhrase } = await import('@/app/field-check/_FieldCheckClient');
+    expect(waypointsPhrase(1)).toBe('1 точка пути');
+    expect(waypointsPhrase(2)).toBe('2 точки пути');
+    expect(waypointsPhrase(4)).toBe('4 точки пути');
+    expect(waypointsPhrase(5)).toBe('5 точек пути');
+    expect(waypointsPhrase(11)).toBe('11 точек пути');
+    expect(waypointsPhrase(14)).toBe('14 точек пути');
+    expect(waypointsPhrase(21)).toBe('21 точка пути');
+    expect(waypointsPhrase(22)).toBe('22 точки пути');
+    expect(waypointsPhrase(111)).toBe('111 точек пути');
+  });
+});

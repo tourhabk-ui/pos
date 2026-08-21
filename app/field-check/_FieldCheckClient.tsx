@@ -39,6 +39,21 @@ const PHOTO_LIMIT = 3;
 /** Полевая цель под палец в перчатке — не меньше 56 px. */
 const TAP = 56;
 
+/**
+ * «1 точек пути» — мелочь, которая читается как небрежность ко всему
+ * остальному: человек, увидевший в поле кривую форму слова, не поверит и
+ * цифре рядом с ним. Склонение по последним разрядам, как в русском.
+ */
+export function waypointsPhrase(n: number): string {
+  const t = Math.abs(n) % 100;
+  const o = t % 10;
+  const word = t >= 11 && t <= 14 ? 'точек'
+    : o === 1 ? 'точка'
+    : o >= 2 && o <= 4 ? 'точки'
+    : 'точек';
+  return `${n} ${word} пути`;
+}
+
 interface NearbyItem {
   kind: 'route' | 'place';
   id: string;
@@ -531,7 +546,7 @@ export function FieldCheckClient() {
                       {r.title}
                     </span>
                     <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {r.waypoints > 0 ? `${r.waypoints} точек пути` : 'точек пути нет — проверим, что рядом'}
+                      {r.waypoints > 0 ? waypointsPhrase(r.waypoints) : 'точек пути нет — проверим, что рядом'}
                     </span>
                   </button>
                 ))}
