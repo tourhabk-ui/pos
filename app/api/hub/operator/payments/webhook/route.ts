@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { notifyBookingPaid } from '@/lib/notifications/operator-booking';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,76 +49,90 @@ export async function POST(request: NextRequest) {
 }
 
 async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
-  // Проверяем сумму против записи в БД (защита от подмены суммы в webhook)
-  const check = await query(
-    `SELECT final_price, payment_status FROM operator_bookings WHERE id = $1 AND deleted_at IS NULL`,
-    [bookingId]
-  );
-  if (check.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
-  const booking = check.rows[0] as { final_price: string; payment_status: string };
-  if (booking.payment_status === 'paid') return; // idempotency: уже обработано
-  const expectedAmount = parseFloat(booking.final_price);
-  if (Math.abs(expectedAmount - webhook.Amount) > 1) {
-    throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${webhook.Amount}`);
-  }
+  // Бронь, платёж и занятость — одно событие «оплачено», поэтому одна
+  // транзакция (#1318): сбой между записями оставлял бронь confirmed без
+  // учтённых денег. FOR UPDATE держит повторный вебхук на замке до COMMIT —
+  // после него тот видит payment_status='paid' и уходит идемпотентно, без
+  // второго инкремента booked_slots. Именно FOR UPDATE, не NOWAIT: ретрай
+  // CloudPayments — штатный дубль, ему положено тихое «уже обработано»,
+  // а не ошибка блокировки.
+  const paidNow = await transaction(async (client) => {
+    // Проверяем сумму против записи в БД (защита от подмены суммы в webhook)
+    const check = await client.query(
+      `SELECT final_price, payment_status FROM operator_bookings
+       WHERE id = $1 AND deleted_at IS NULL
+       FOR UPDATE`,
+      [bookingId]
+    );
+    if (check.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
+    const booking = check.rows[0] as { final_price: string; payment_status: string };
+    if (booking.payment_status === 'paid') return false; // idempotency: уже обработано
+    const expectedAmount = parseFloat(booking.final_price);
+    if (Math.abs(expectedAmount - webhook.Amount) > 1) {
+      throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${webhook.Amount}`);
+    }
 
-  await query(
-    `UPDATE operator_bookings
-     SET payment_status = 'paid',
-         booking_status = 'confirmed',
-         payment_id = $2,
-         paid_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL AND payment_status != 'paid'`,
-    [bookingId, webhook.TransactionId.toString()]
-  );
+    await client.query(
+      `UPDATE operator_bookings
+       SET payment_status = 'paid',
+           booking_status = 'confirmed',
+           payment_id = $2,
+           paid_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL AND payment_status != 'paid'`,
+      [bookingId, webhook.TransactionId.toString()]
+    );
 
-  // Записываем платёж в tour_payments (HELD до release_after = конец тура + 36ч)
-  await query(
-    `INSERT INTO tour_payments (
-       booking_id, operator_id,
-       retail_amount, net_amount, commission_amount, commission_rate,
-       cp_transaction_id, cp_invoice_id,
-       status, paid_at, release_after
-     )
-     SELECT
-       ob.id,
-       ot.operator_id,
-       ob.final_price,
-       ROUND(ob.final_price * (1 - p.commission_current / 100), 2),
-       ROUND(ob.final_price * p.commission_current / 100, 2),
-       p.commission_current,
-       $2, $3,
-       'HELD', NOW(),
-       ob.booking_date::timestamp
-         + (COALESCE(ot.multi_day_count, 1) * INTERVAL '1 day')
-         + INTERVAL '36 hours'
-     FROM operator_bookings ob
-     JOIN operator_tours ot ON ot.id = ob.operator_tour_id
-     JOIN partners p ON p.id = ot.operator_id
-     WHERE ob.id = $1
-     ON CONFLICT (cp_transaction_id) DO NOTHING`,
-    [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId]
-  );
+    // Записываем платёж в tour_payments (HELD до release_after = конец тура + 36ч)
+    await client.query(
+      `INSERT INTO tour_payments (
+         booking_id, operator_id,
+         retail_amount, net_amount, commission_amount, commission_rate,
+         cp_transaction_id, cp_invoice_id,
+         status, paid_at, release_after
+       )
+       SELECT
+         ob.id,
+         ot.operator_id,
+         ob.final_price,
+         ROUND(ob.final_price * (1 - p.commission_current / 100), 2),
+         ROUND(ob.final_price * p.commission_current / 100, 2),
+         p.commission_current,
+         $2, $3,
+         'HELD', NOW(),
+         ob.booking_date::timestamp
+           + (COALESCE(ot.multi_day_count, 1) * INTERVAL '1 day')
+           + INTERVAL '36 hours'
+       FROM operator_bookings ob
+       JOIN operator_tours ot ON ot.id = ob.operator_tour_id
+       JOIN partners p ON p.id = ot.operator_id
+       WHERE ob.id = $1
+       ON CONFLICT (cp_transaction_id) DO NOTHING`,
+      [bookingId, webhook.TransactionId.toString(), webhook.InvoiceId]
+    );
+
+    // Increment booked_slots for the corresponding availability date
+    await client.query(
+      `UPDATE tour_availability ta
+       SET booked_slots = booked_slots + b.participants,
+           updated_at = NOW()
+       FROM operator_bookings b
+       WHERE b.id = $1
+         AND ta.operator_tour_id = b.operator_tour_id
+         AND ta.date = b.booking_date`,
+      [bookingId]
+    );
+    return true;
+  });
+  if (!paidNow) return;
 
   // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
   // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в
   // кабинете CloudPayments (аудит дублей 03.08). Ставка — договорная
-  // (partners.commission_current), та же, по которой строкой выше заполнен
-  // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
+  // (partners.commission_current), та же, по которой выше заполнен
+  // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж —
+  // потому и ПОСЛЕ COMMIT, своим соединением.
   await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
-
-  // Increment booked_slots for the corresponding availability date
-  await query(
-    `UPDATE tour_availability ta
-     SET booked_slots = booked_slots + b.participants,
-         updated_at = NOW()
-     FROM operator_bookings b
-     WHERE b.id = $1
-       AND ta.operator_tour_id = b.operator_tour_id
-       AND ta.date = b.booking_date`,
-    [bookingId]
-  );
 
   // Notify operator + admin via Telegram
   // LEFT JOIN both partners and users — operators can be in either table

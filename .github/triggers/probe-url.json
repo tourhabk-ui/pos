@@ -1,19 +1,12 @@
 {
-  "note": "Проба 124: бэкфилл полей маршрута («го» владельца 21.08, пороги шкалы утверждены). GET — датчик route_fields_backfill_v1, счётчики кандидатов и фактическая номенклатура activity_type. Боевые POST по порядку: distance ×2 (длина записанной линии, набросок прямыми не меряется) → difficulty ×2 (шкала 400/10, 1000/25, 2000/50, след computed_v1, только где известны оба числа) → activity (словарь по имени, целевые значения только из номенклатуры БД). Ожидания: distance written ~150-190; difficulty кандидатов станет больше после дистанции, by_level без перекоса в extreme; activity — сплавы/SUP/скитуры замапятся, спорное честно в unmatched.",
+  "note": "Проба 125: перепись описаний против фактов (кампания владельца 21.08) + контрольный срез аудита полей после бэкфилла пробы 124 (обещан попутно, отдельную пересборку не гоняем). Ожидания: census — offenders с расхождениями чисел, чужой географией (канон — «долина Паратунки» у Озерков), обещанием трека без линии, советом сойти с тропы; audit — сложность/дистанция/активность после записи 124.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-fields-backfill"
+    "https://vedarai.ru/api/cron/route-desc-census?limit=100",
+    "https://vedarai.ru/api/cron/routes-audit"
   ],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "distance", "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "distance", "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "difficulty", "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "difficulty", "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "activity", "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/route-fields-backfill", "body": { "step": "activity", "dry_run": false, "limit": 200 } }
-  ],
-  "until": "route_fields_backfill_v1",
+  "until": "route_desc_census_v1",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 10000
+  "bytes": 14000
 }
