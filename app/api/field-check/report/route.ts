@@ -35,6 +35,13 @@ const BodySchema = z.object({
   accuracy_m: z.number().int().min(0).max(100_000).nullable().optional(),
   note: z.string().max(600).nullable().optional(),
   trip_tag: z.string().max(60).nullable().optional(),
+  // Правильная координата ОБЪЕКТА — не то же, что координата проверяющего:
+  // на скалу можно смотреть с берега, а источник увидеть в стороне от
+  // записи. Происхождение обязательно, когда координата дана: фикс на
+  // объекте и цифры из чужого навигатора — улики разного веса.
+  object_lat: z.number().min(-90).max(90).nullable().optional(),
+  object_lng: z.number().min(-180).max(180).nullable().optional(),
+  object_source: z.enum(['my_fix', 'manual']).nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -58,12 +65,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const hasObjLat = typeof data.object_lat === 'number';
+  const hasObjLng = typeof data.object_lng === 'number';
+  if (hasObjLat !== hasObjLng) {
+    return NextResponse.json(
+      { success: false, error: 'Координата объекта принимается парой' },
+      { status: 400 },
+    );
+  }
+  // Координата без происхождения — цифры без веса: неизвестно, стоял ли
+  // человек на объекте или переписал их откуда-то.
+  if (hasObjLat && !data.object_source) {
+    return NextResponse.json(
+      { success: false, error: 'У координаты объекта должно быть происхождение' },
+      { status: 400 },
+    );
+  }
+
   try {
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO route_field_checks
          (target_kind, target_id, verdict, reported_lat, reported_lng,
-          accuracy_m, note, trip_tag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          accuracy_m, note, trip_tag, object_lat, object_lng, object_source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id::text AS id`,
       [
         data.target_kind, data.target_id, data.verdict,
@@ -72,6 +96,9 @@ export async function POST(request: NextRequest) {
         data.accuracy_m ?? null,
         data.note?.trim() ? data.note.trim() : null,
         data.trip_tag?.trim() ? data.trip_tag.trim() : null,
+        hasObjLat ? data.object_lat : null,
+        hasObjLng ? data.object_lng : null,
+        hasObjLat ? data.object_source ?? null : null,
       ],
     );
     return NextResponse.json({ success: true, id: rows[0]?.id ?? null });

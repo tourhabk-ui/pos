@@ -28,7 +28,11 @@ describe('приём проверки — очередь, а не правка',
 
   it('вход валидируется Zod и параметризован', () => {
     expect(report).toContain('BodySchema.parse');
-    expect(report).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\)/);
+    // Плейсхолдеров стало больше вместе с координатой объекта (миграция
+    // 900); сторож держит не их число, а то, что значения не склеиваются
+    // в строку запроса.
+    expect(report).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8(, \$9, \$10, \$11)?\)/);
+    expect(report).not.toMatch(/INSERT INTO route_field_checks[\s\S]{0,400}\$\{/);
   });
 
   it('половина координаты не принимается', () => {
@@ -104,5 +108,35 @@ describe('PWA и фотографии', () => {
 
   it('запись удаляется из очереди только после успеха', () => {
     expect(client).toMatch(/if \(!res\.ok\) break;[\s\S]{0,900}deleteFieldCheck\(item\.id\)/);
+  });
+});
+
+describe('геолокация самой точки — не путать с местом проверяющего', () => {
+  const migration900 = readFileSync(
+    join(process.cwd(), 'migrations/900_field_check_object_coords.sql'), 'utf-8');
+
+  it('координата объекта хранится отдельно от координаты проверяющего', () => {
+    expect(migration900).toMatch(/object_lat\s+DECIMAL\(9,6\)/);
+    expect(migration900).toMatch(/object_lng\s+DECIMAL\(9,6\)/);
+    expect(report).toMatch(/object_lat, object_lng, object_source/);
+  });
+
+  it('у координаты объекта обязательно происхождение', () => {
+    expect(report).toMatch(/hasObjLat && !data\.object_source/);
+    expect(migration900).toMatch(/object_source IN \('my_fix', 'manual'\)/);
+  });
+
+  it('половина координаты не принимается ни на входе, ни в схеме', () => {
+    expect(report).toMatch(/hasObjLat !== hasObjLng/);
+    expect(migration900).toMatch(/\(object_lat IS NULL\) = \(object_lng IS NULL\)/);
+  });
+
+  it('«я стою на точке» берёт свежий фикс, а не старый', () => {
+    expect(client).toMatch(/takeMyFix[\s\S]{0,900}maximumAge: 0/);
+  });
+
+  it('ручной ввод разбирает пару чисел и проверяет пределы', () => {
+    expect(client).toContain('applyManual');
+    expect(client).toMatch(/lat < -90 \|\| lat > 90 \|\| lng < -180 \|\| lng > 180/);
   });
 });
