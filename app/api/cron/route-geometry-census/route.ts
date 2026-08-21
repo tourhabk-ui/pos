@@ -24,6 +24,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { trackEvidence } from '@/lib/routes/track-evidence';
+import { lineOwnership } from '@/lib/routes/line-ownership';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     const { rows } = await pool.query<{
       id: string; title: string; lat: string | null; lng: string | null;
       source: string | null; coords: unknown; distance_km: string | null;
-      n_waypoint: string; n_nearby: string; n_unknown: string;
+      n_waypoint: string; n_nearby: string; n_unknown: string; wp_points: unknown;
     }>(
       `SELECT r.id::text AS id, r.title,
               r.lat::text AS lat, r.lng::text AS lng,
@@ -87,7 +88,12 @@ export async function GET(request: NextRequest) {
               COALESCE((SELECT COUNT(*) FROM route_waypoints w
                 WHERE w.route_id = r.id AND w.link_kind = 'nearby'), 0)::text AS n_nearby,
               COALESCE((SELECT COUNT(*) FROM route_waypoints w
-                WHERE w.route_id = r.id AND COALESCE(w.link_kind, 'unknown') = 'unknown'), 0)::text AS n_unknown
+                WHERE w.route_id = r.id AND COALESCE(w.link_kind, 'unknown') = 'unknown'), 0)::text AS n_unknown,
+              -- Координаты ТОЛЬКО путевых мест: «рядом» линию не судит (§4.1).
+              COALESCE((SELECT jsonb_agg(jsonb_build_array(p.lat::float8, p.lng::float8))
+                FROM route_waypoints w JOIN places p ON p.id = w.place_id
+                WHERE w.route_id = r.id AND w.link_kind = 'waypoint'
+                  AND p.lat IS NOT NULL AND p.lng IS NOT NULL), '[]'::jsonb) AS wp_points
        FROM kamchatka_routes r
        WHERE r.is_visible = true AND r.merged_into_id IS NULL
          AND ($1 = '' OR r.title ILIKE '%' || $1 || '%')
@@ -102,6 +108,21 @@ export async function GET(request: NextRequest) {
       // а сама линия — высота на точках при неровном шаге. Без неё разговор
       // о роде линии сводится к мнению, а мнение здесь не судья.
       const ev = coords ? trackEvidence({ type: 'LineString', coordinates: coords }) : null;
+      // Чья линия. Размах — сито, а не приговор: у кольца вокруг Толбачика
+      // он законно велик, у чужой линии в двух километрах — мал. Судит
+      // близость к собственной точке и к собственным путевым местам.
+      const rp = r.lat !== null && r.lng !== null
+        ? { lat: parseFloat(r.lat), lng: parseFloat(r.lng) } : null;
+      const wps = Array.isArray(r.wp_points)
+        ? (r.wp_points as number[][])
+            .filter(w => Array.isArray(w) && Number.isFinite(w[0]) && Number.isFinite(w[1]))
+            .map(w => ({ lat: w[0], lng: w[1] }))
+        : [];
+      const own = lineOwnership({
+        routePoint: rp && Number.isFinite(rp.lat) && Number.isFinite(rp.lng) ? rp : null,
+        coords,
+        waypoints: wps,
+      });
       return {
         id: r.id,
         title: r.title,
@@ -116,6 +137,14 @@ export async function GET(request: NextRequest) {
           waypoint: parseInt(r.n_waypoint, 10),
           nearby: parseInt(r.n_nearby, 10),
           unknown: parseInt(r.n_unknown, 10),
+        },
+        ownership: {
+          verdict: own.verdict,
+          nearest_km: own.nearestKm === null ? null : Math.round(own.nearestKm * 10) / 10,
+          tail_km: own.tailKm === null ? null : Math.round(own.tailKm * 10) / 10,
+          worst_waypoint_km: own.worstWaypointKm === null
+            ? null : Math.round(own.worstWaypointKm * 10) / 10,
+          reasons: own.reasons,
         },
         evidence: ev === null ? null : {
           verdict: ev.verdict,
@@ -146,7 +175,7 @@ export async function GET(request: NextRequest) {
         }));
       return NextResponse.json({
         success: true,
-        probe: 'route_geometry_census_v2',
+        probe: 'route_geometry_census_v3',
         mode: 'duplicates',
         live_total: rows.length,
         with_line: items.filter(i => i.vertices >= 2).length,
@@ -156,13 +185,42 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    if (mode === 'ownership') {
+      // Рабочий список: не «что велико», а «что не своё». Считаются все
+      // живые записи; наружу идут только те, где судья назвал факт —
+      // чужая линия или влитый подъезд. `unclear` не работа, а взгляд.
+      const by = (v: string) => items.filter(i => i.ownership.verdict === v);
+      const brief = (i: (typeof items)[number]) => ({
+        id: i.id, title: i.title, source: i.source, vertices: i.vertices,
+        span_km: i.span_km, distance_km: i.distance_km,
+        nearest_km: i.ownership.nearest_km, tail_km: i.ownership.tail_km,
+        evidence: i.evidence?.verdict ?? null,
+        reasons: i.ownership.reasons,
+      });
+      return NextResponse.json({
+        success: true,
+        probe: 'route_geometry_census_v3',
+        mode: 'ownership',
+        live_total: rows.length,
+        with_line: items.filter(i => i.vertices >= 2).length,
+        counts: {
+          own: by('own').length,
+          own_with_approach: by('own_with_approach').length,
+          foreign: by('foreign').length,
+          unclear: by('unclear').length,
+        },
+        foreign: by('foreign').map(brief).slice(0, 30),
+        with_approach: by('own_with_approach').map(brief).slice(0, 30),
+      });
+    }
+
     const offenders = q !== ''
       ? items
       : items.filter(i => i.span_km !== null && i.span_km >= minSpanKm);
 
     return NextResponse.json({
       success: true,
-      probe: 'route_geometry_census_v2',
+      probe: 'route_geometry_census_v3',
       live_total: rows.length,
       with_line: items.filter(i => i.vertices >= 2).length,
       offenders_total: offenders.length,
