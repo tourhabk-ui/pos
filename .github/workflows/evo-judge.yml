@@ -103,6 +103,11 @@ jobs:
           # openrouter.ai достижим напрямую. Поэтому OPENROUTER_BASE_URL здесь
           # НЕ задаётся: релей тут только добавил бы точку отказа.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Ключ УПРАВЛЕНИЯ — только чтобы спросить счёт (/api/v1/credits).
+          # Модели он не зовёт. Без него отчёт честно пишет «не спросили»:
+          # четверо суток причину немоты читали из тела чужой ошибки, хотя
+          # спросить баланс напрямую было можно всё это время.
+          OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
