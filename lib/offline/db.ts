@@ -119,6 +119,13 @@ export interface FieldCheckQueueItem {
   accuracyM: number | null;
   note: string | null;
   tripTag: string | null;
+  /**
+   * Правильная координата ОБЪЕКТА, если проверяющий её дал, и откуда она:
+   * 'my_fix' — стоял на объекте, 'manual' — ввёл руками. null — не давал.
+   */
+  objectLat: number | null;
+  objectLng: number | null;
+  objectSource: 'my_fix' | 'manual' | null;
   /** Снимки как data-URL уже сжатыми: сервер их не пережимает. */
   photos: string[];
   queuedAt: number;

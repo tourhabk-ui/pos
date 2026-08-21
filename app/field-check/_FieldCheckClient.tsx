@@ -87,6 +87,10 @@ export function FieldCheckClient() {
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
   /** Снимки текущей формы: base64 без префикса, уже сжатые. */
   const [photos, setPhotos] = useState<string[]>([]);
+  /** Правильная координата объекта: взята с телефона или введена руками. */
+  const [objCoord, setObjCoord] = useState<{ lat: number; lng: number; source: 'my_fix' | 'manual' } | null>(null);
+  const [manualCoord, setManualCoord] = useState('');
+  const [coordError, setCoordError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -126,6 +130,9 @@ export function FieldCheckClient() {
             accuracy_m: item.accuracyM,
             note: item.note,
             trip_tag: item.tripTag,
+            object_lat: item.objectLat,
+            object_lng: item.objectLng,
+            object_source: item.objectSource,
           }),
         });
         if (!res.ok) break;
@@ -210,6 +217,9 @@ export function FieldCheckClient() {
       accuracyM: fix?.accuracy ?? null,
       note: note.trim() || null,
       tripTag: tripTag.trim() || null,
+      objectLat: objCoord?.lat ?? null,
+      objectLng: objCoord?.lng ?? null,
+      objectSource: objCoord?.source ?? null,
       photos,
       queuedAt: Date.now(),
     };
@@ -225,9 +235,47 @@ export function FieldCheckClient() {
     setOpenId(null);
     setNote('');
     setPhotos([]);
+    setObjCoord(null);
+    setManualCoord('');
+    setCoordError(null);
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
     void flushQueue();
-  }, [fix, note, tripTag, photos, flushQueue]);
+  }, [fix, note, tripTag, photos, objCoord, flushQueue]);
+
+  /**
+   * Координата объекта с телефона: «я стою на этой точке». Берём СВЕЖИЙ
+   * фикс, а не тот, по которому строился список: между открытием экрана и
+   * этим нажатием человек прошёл до объекта, и старая точка соврала бы.
+   */
+  const takeMyFix = useCallback(() => {
+    setCoordError(null);
+    if (!('geolocation' in navigator)) {
+      setCoordError('Телефон не отдаёт координаты');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => setObjCoord({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'my_fix' }),
+      () => setCoordError('Сигнал не поймали — можно ввести координаты руками'),
+      { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 },
+    );
+  }, []);
+
+  /** Ручной ввод: «53.2669, 158.3874» или «53.2669 158.3874». */
+  const applyManual = useCallback(() => {
+    setCoordError(null);
+    const parts = manualCoord.replace(',', ' ').split(/\s+/).filter(Boolean);
+    const lat = Number(parts[0]?.replace(',', '.'));
+    const lng = Number(parts[1]?.replace(',', '.'));
+    if (parts.length < 2 || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setCoordError('Нужны два числа: широта и долгота');
+      return;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setCoordError('Числа вне допустимых пределов');
+      return;
+    }
+    setObjCoord({ lat, lng, source: 'manual' });
+  }, [manualCoord]);
 
   /** Снимок с камеры или из галереи: сжимаем сразу, храним уже готовым. */
   const addPhoto = useCallback(async (files: FileList | null) => {
@@ -377,6 +425,59 @@ export function FieldCheckClient() {
                     rows={3}
                     className="ds-input"
                   />
+                  {/* Правильная координата объекта. Вердикт «координата не
+                      та» без неё — жалоба без адреса: владелец узнает, что
+                      запись врёт, и по-прежнему не будет знать, где точка.
+                      Происхождение записывается вместе с числами: фикс на
+                      объекте и цифры из чужого навигатора — разные улики. */}
+                  <div className="flex flex-col gap-2 p-3 rounded-lg"
+                    style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      Где точка на самом деле — если знаете
+                    </span>
+                    {objCoord ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                          {objCoord.lat.toFixed(5)}, {objCoord.lng.toFixed(5)}
+                          <span className="text-xs ml-2" style={{ color: 'var(--text-muted)' }}>
+                            {objCoord.source === 'my_fix' ? 'с телефона на месте' : 'введено руками'}
+                          </span>
+                        </span>
+                        <button onClick={() => { setObjCoord(null); setManualCoord(''); }}
+                          className="text-xs underline underline-offset-2"
+                          style={{ color: 'var(--text-muted)' }}>
+                          убрать
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button onClick={takeMyFix}
+                          className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-lg"
+                          style={{ background: 'var(--ocean)', color: '#FFFFFF' }}>
+                          <Crosshair className="w-4 h-4" />
+                          Я стою на этой точке
+                        </button>
+                        <div className="flex gap-2">
+                          <input
+                            value={manualCoord}
+                            onChange={e => setManualCoord(e.target.value.slice(0, 48))}
+                            placeholder="53.2669, 158.3874"
+                            inputMode="decimal"
+                            className="ds-input flex-1"
+                          />
+                          <button onClick={applyManual}
+                            className="text-sm font-semibold px-3 rounded-lg"
+                            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                            Взять
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {coordError && (
+                      <span className="text-xs" style={{ color: 'var(--warning)' }}>{coordError}</span>
+                    )}
+                  </div>
+
                   {/* Снимок — улика, которая не спорит: развилка, табличка,
                       размытый мост. Хранится сжатым и уходит следом за
                       вердиктом; не ушедшее фото не задерживает проверку. */}
