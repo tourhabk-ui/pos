@@ -288,6 +288,11 @@ function OnTrailTab() {
   const [coords, setCoords] = useState<{
     lat: number; lng: number; alt: number | null; accuracy: number | null; t: number;
   } | null>(null);
+  // Курс по движению: GPS отдаёт course-over-ground, когда человек идёт.
+  // Магнитометр врёт рядом с железом (палки, ледоруб, пауэрбанк), курс
+  // движения — нет; на ходу он честнее и подхватывает прибор там, где
+  // датчик не подтверждён.
+  const [gpsCourse, setGpsCourse] = useState<{ heading: number; t: number } | null>(null);
   // Возраст фикса тикает сам: без этого «сигнал потерян» никогда не появится,
   // потому что новых событий от мёртвого GPS не приходит по определению.
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -795,6 +800,14 @@ function OnTrailTab() {
             accuracy: typeof pos.coords.accuracy === 'number' ? pos.coords.accuracy : null,
             t: pos.timestamp ?? Date.now(),
           });
+          // Курс по движению — только на ходу (от 1 м/с) и только конечный:
+          // стоя GPS отдаёт мусорный heading, и выдавать его за курс нельзя.
+          const spd = pos.coords.speed;
+          const crs = pos.coords.heading;
+          if (typeof spd === 'number' && spd >= 1 &&
+              typeof crs === 'number' && Number.isFinite(crs)) {
+            setGpsCourse({ heading: crs, t: pos.timestamp ?? Date.now() });
+          }
           // След последнего получаса — из него считается живой темп. Держим
           // в ref: он не должен вызывать перерисовку на каждом GPS-тике.
           const t = Date.now();
@@ -953,6 +966,19 @@ function OnTrailTab() {
     if (!coords || !nextWp || !fixUsableForNavigation(coords.accuracy ?? null)) return null;
     return bearingDeg({ lat: coords.lat, lng: coords.lng }, { lat: nextWp.lat, lng: nextWp.lng });
   }, [coords, nextWp]);
+
+  /**
+   * Источник курса для прибора. Подтверждённый магнитометр главнее (работает
+   * стоя); без него на ходу курс берётся из движения GPS — с подписью, откуда
+   * он взят (родословная значения, тот же закон, что у линий §12). Свежесть
+   * судится по nowTick: мёртвый GPS новых курсов не шлёт, и через несколько
+   * секунд прибор честно возвращается в «не подтверждён».
+   */
+  const courseFresh = gpsCourse !== null && nowTick - gpsCourse.t < 8000;
+  const headingSource: 'sensor' | 'motion' | null =
+    compassState === 'ok' ? 'sensor' : courseFresh ? 'motion' : null;
+  const effHeading = headingSource === 'motion' && gpsCourse ? gpsCourse.heading : heading;
+  const effCompassState: CompassState = headingSource === 'motion' ? 'ok' : compassState;
 
   // Маркеры для карты: линия трека + точки маршрута (текущая — оранжевая).
   // useMemo обязателен: LeafletMap пересоздаёт карту при смене identity
@@ -1556,11 +1582,9 @@ function OnTrailTab() {
             ? <AlertCircle className="w-3.5 h-3.5 shrink-0" />
             : isOffline ? <WifiOff className="w-3.5 h-3.5 shrink-0" /> : <MapPin className="w-3.5 h-3.5 shrink-0" />}
           <span className="flex-1">{status.text}</span>
-          {status.cta === 'compass' && (
-            <button onClick={enableCompass} className="font-semibold underline underline-offset-2 shrink-0">
-              Включить
-            </button>
-          )}
+          {/* Кнопки «Включить» здесь больше нет: лекарство живёт на самом
+              приборе (две кнопки одного действия расходятся поведением —
+              урок SOS #887). Строка только называет состояние. */}
         </div>
       )}
 
@@ -1597,12 +1621,27 @@ function OnTrailTab() {
         ) : (
         <>
 
-        {/* Приборы (макеты FCN): компас с азимутом НА ТОЧКУ → главная цифра
-            → контекст. Вертикально и по центру: в поле экран держат одной
-            рукой перед собой, а не читают как страницу. */}
+        {/* Приборы: главная цифра первой, компас — вторым (решение владельца
+            21.08: герой экрана — то, что нужно каждому шагу, а компас чаще
+            всего молчит). Порядок живёт в CSS order: при мёртвом фиксе цифра
+            глушится, и компас — лучший из оставшихся приборов — поднимается
+            наверх сам, как в ступени III деградации. */}
         <div className="flex flex-col items-center gap-4 w-full">
-          <FieldCompass heading={heading} state={compassState} targetBearing={targetBearing} />
-          <div className="text-center w-full">
+          <div className="w-full flex flex-col items-center gap-2"
+            style={{ order: figuresLive ? 2 : 1 }}>
+            <FieldCompass heading={effHeading} state={effCompassState}
+              targetBearing={targetBearing} headingSource={headingSource} />
+            {/* Лекарство — на самом приборе: кнопка в строке статуса от
+                мёртвого компаса жила в другом углу экрана, и их не связывали. */}
+            {compassState === 'blocked' && (
+              <button onClick={enableCompass}
+                className="text-sm font-semibold px-5 py-2.5 rounded-lg"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)' }}>
+                Включить компас
+              </button>
+            )}
+          </div>
+          <div className="text-center w-full" style={{ order: figuresLive ? 1 : 2 }}>
             {isLoadingRoute ? (
               <div className="flex flex-col gap-2.5">
                 <div className="h-3 w-32 rounded-full animate-pulse" style={{ background: 'var(--bg-card)' }} />
