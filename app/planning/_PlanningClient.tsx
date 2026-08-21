@@ -54,6 +54,7 @@ import {
   type FieldPackManifest, type PackAssetState, type PackSafetySnapshot,
 } from '@/lib/offline/field-pack';
 import { RouteProgressBar } from '@/components/field/RouteProgressBar';
+import { FieldCorridor } from '@/components/field/FieldCorridor';
 import { TrustCard } from '@/components/field/TrustCard';
 import { RecoveryCard } from '@/components/field/RecoveryCard';
 import { recoveryState } from '@/lib/on-route/recovery';
@@ -968,6 +969,23 @@ function OnTrailTab() {
   }, [coords, nextWp]);
 
   /**
+   * Коридор: до двух точек ПОСЛЕ следующей, каждая с длиной своего отрезка
+   * по прямой между точками (честная мера — подпись об этом в компоненте).
+   * Финиш помечается флагом.
+   */
+  const corridorItems = useMemo(() => {
+    if (waypoints.length < 2) return [];
+    return waypoints.slice(currentWpIdx + 1, currentWpIdx + 3).map((w, i) => {
+      const prev = waypoints[currentWpIdx + i];
+      return {
+        name: w.name,
+        segmentKm: prev ? haversine(prev.lat, prev.lng, w.lat, w.lng) : null,
+        isLast: currentWpIdx + 1 + i === waypoints.length - 1,
+      };
+    });
+  }, [waypoints, currentWpIdx]);
+
+  /**
    * Источник курса для прибора. Подтверждённый магнитометр главнее (работает
    * стоя); без него на ходу курс берётся из движения GPS — с подписью, откуда
    * он взят (родословная значения, тот же закон, что у линий §12). Свежесть
@@ -1822,6 +1840,13 @@ function OnTrailTab() {
               ? { current: Math.min(currentWpIdx + 1, waypoints.length), total: waypoints.length }
               : null}
           />
+        )}
+
+        {/* Коридор: что за следующей точкой (финал полевого экрана, «го»
+            21.08). Только из route_waypoints — выдуманных бродов здесь нет;
+            точек впереди нет — блока нет. */}
+        {corridorItems.length > 0 && !approach?.dataConflict && (
+          <FieldCorridor items={corridorItems} />
         )}
 
         {/* Приборы показываем, только когда им есть что показать: «— м» и
