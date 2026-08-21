@@ -1,14 +1,12 @@
 {
-  "note": "Проба 122: правило константной высоты. Миграция 894 сбрасывает нули бэкфилла в NULL; relief теперь отличает «высоты есть» от «высоты меряны» (константа на всём треке — след заполнения, reliable=false); POST перезаполняет — честный ноль равнины с шумом прибора вернётся, константа останется NULL. Ожидания: GET датчик elevation_backfill_v2, candidates ~16 (12 нулей + 4 прежних unreliable); у POST written < scanned (константные в unreliable); search Авачинск — у «Авачинский перевал (база Три вулкана)» и «Однодневный поход» elevation null (не 0), у остальных числа прежние.",
+  "note": "Проба 123: (а) фикс #1321 — NON_PLACE_RE параметром в places-audit и places-geocode; датчик — places-audit отвечает и категория non_place_names считается (маркер non_place_names на первом URL, счёт не пустой); (б) вопрос владельца «что со сложностью и описанием маршрутов» — routes-audit даёт no_difficulty, short_description, no_distance, no_activity_type с примерами.",
   "urls": [
-    "https://vedarai.ru/api/cron/elevation-backfill"
+    "https://vedarai.ru/api/cron/places-audit",
+    "https://vedarai.ru/api/cron/routes-audit"
   ],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/elevation-backfill", "body": { "dry_run": false, "limit": 200 } }
-  ],
-  "until": "elevation_backfill_v2",
+  "until": "places_audit_v2",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 12000
+  "bytes": 26000
 }

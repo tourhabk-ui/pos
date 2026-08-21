@@ -51,18 +51,22 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Регулярка — параметром $1, не интерполяцией (#1321): оператор тот же
+    // (!~*), поведение с NULL-именами не меняется, но апостроф в будущей
+    // правке константы больше не способен сломать или расширить запрос.
     const pendingWhere =
       `merged_into_id IS NULL AND (${PLACEHOLDER_COND})` +
-      ` AND name !~* '${NON_PLACE_RE}' AND geocode_failed_at IS NULL`;
+      ` AND name !~* $1 AND geocode_failed_at IS NULL`;
 
     const total = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM places WHERE ${pendingWhere}`,
+      [NON_PLACE_RE],
     );
     const pendingTotal = parseInt(total.rows[0]?.count ?? '0', 10);
 
     const { rows } = await pool.query<PendingRow>(
-      `SELECT id::text AS id, name FROM places WHERE ${pendingWhere} ORDER BY id LIMIT $1`,
-      [data.limit],
+      `SELECT id::text AS id, name FROM places WHERE ${pendingWhere} ORDER BY id LIMIT $2`,
+      [NON_PLACE_RE, data.limit],
     );
 
     const updated: Array<{ id: string; name: string; lat: number; lng: number; displayName: string }> = [];
