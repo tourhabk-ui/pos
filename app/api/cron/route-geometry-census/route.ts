@@ -59,6 +59,14 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   const q = (sp.get('q') ?? '').trim();
+  /**
+   * mode=duplicates — одна линия у разных маршрутов. Это ошибка импорта по
+   * определению: «Вулкан Авачинский» и «До Мутновской ГеоТЭС» несут одну
+   * геометрию в 2569 вершин с одинаковыми концами, и оба зовут её своим
+   * путём. Подпись линии — первая вершина, последняя и число вершин:
+   * совпадение всех трёх у разных записей случайным не бывает.
+   */
+  const mode = (sp.get('mode') ?? '').trim();
   const rawSpan = parseFloat(sp.get('min_span_km') ?? '25');
   const minSpanKm = Number.isFinite(rawSpan) && rawSpan > 0 ? rawSpan : 25;
 
@@ -106,6 +114,34 @@ export async function GET(request: NextRequest) {
         },
       };
     });
+
+    if (mode === 'duplicates') {
+      const groups = new Map<string, typeof items>();
+      for (const i of items) {
+        if (i.vertices < 2 || !i.first || !i.last) continue;
+        const key = `${JSON.stringify(i.first)}|${JSON.stringify(i.last)}|${i.vertices}`;
+        const g = groups.get(key);
+        if (g) g.push(i); else groups.set(key, [i]);
+      }
+      const shared = [...groups.entries()]
+        .filter(([, g]) => g.length > 1)
+        .map(([key, g]) => ({
+          signature: key,
+          vertices: g[0].vertices,
+          span_km: g[0].span_km,
+          routes: g.map(r => ({ id: r.id, title: r.title, source: r.source, distance_km: r.distance_km })),
+        }));
+      return NextResponse.json({
+        success: true,
+        probe: 'route_geometry_census_v1',
+        mode: 'duplicates',
+        live_total: rows.length,
+        with_line: items.filter(i => i.vertices >= 2).length,
+        shared_lines: shared.length,
+        routes_affected: shared.reduce((n, g) => n + g.routes.length, 0),
+        items: shared.slice(0, 40),
+      });
+    }
 
     const offenders = q !== ''
       ? items

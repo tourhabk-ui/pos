@@ -38,3 +38,17 @@ describe('route-geometry-census', () => {
     expect(src).toMatch(/q !== ''\s*\?\s*items/);
   });
 });
+
+describe('режим дублей — одна линия у разных маршрутов', () => {
+  it('подпись линии строится из концов и числа вершин', () => {
+    expect(src).toMatch(/JSON\.stringify\(i\.first\)\}\|\$\{JSON\.stringify\(i\.last\)\}\|\$\{i\.vertices\}/);
+  });
+
+  it('в выдачу попадают только группы больше одной записи', () => {
+    expect(src).toMatch(/filter\(\(\[, g\]\) => g\.length > 1\)/);
+  });
+
+  it('линия без вершин не подписывается вовсе', () => {
+    expect(src).toMatch(/if \(i\.vertices < 2 \|\| !i\.first \|\| !i\.last\) continue/);
+  });
+});
