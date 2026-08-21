@@ -2,29 +2,41 @@
 
 /**
  * Полевая проверка записей (владелец 21.08: «знакомая едет на Вилючинский
- * перевал и все места рядом»).
+ * перевал»; «нужно юзабилити»).
  *
- * Экран для человека, который стоит на месте: он видит, что платформа
- * УТВЕРЖДАЕТ об этой точке, и говорит, сходится ли это с землёй. Проверка
- * уходит в очередь — данные меняет владелец, не тап в поле.
+ * Экран рассчитан на руку в перчатке, ветер и сесть батарею: крупные цели,
+ * минимум решений на шаг, ничего не теряется при потере связи.
  *
- * Офлайн терпим: связь на перевале рвётся, и потерянная проверка — это
- * потерянный выход. Неотправленное лежит в localStorage и уходит само,
- * когда сеть вернётся; счётчик очереди виден всегда.
+ * Поток — два шага, не больше:
+ *   1. Где я. GPS одной кнопкой; если спутников нет — координаты руками,
+ *      иначе экран бесполезен именно там, где нужен.
+ *   2. Список того, что платформа УТВЕРЖДАЕТ рядом. По каждой записи
+ *      сначала один вопрос: сходится или нет. Подробности (что именно не
+ *      так, правильная точка, снимок, заметка) спрашиваются только у того,
+ *      кто ответил «не сходится» — большинству записей они не нужны.
+ *
+ * Проверка ничего не меняет в данных: она уходит в очередь, правит
+ * владелец. Очередь и снимки живут в IndexedDB и переживают перезагрузку.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair, Camera, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair,
+  Camera, X, Search, ChevronLeft, Route as RouteIcon, Send,
+} from 'lucide-react';
 import {
   queueFieldCheck, listFieldChecks, deleteFieldCheck,
   type FieldCheckQueueItem,
 } from '@/lib/offline/db';
 
 const TAG_KEY = 'field_check_trip_tag';
+const DONE_KEY = 'field_check_done_v1';
 /** Снимок сжимается на телефоне: в поле связь узкая, а улика нужна целая. */
 const PHOTO_MAX_SIDE = 1280;
 const PHOTO_QUALITY = 0.72;
 const PHOTO_LIMIT = 3;
+/** Полевая цель под палец в перчатке — не меньше 56 px. */
+const TAP = 56;
 
 interface NearbyItem {
   kind: 'route' | 'place';
@@ -38,22 +50,22 @@ interface NearbyItem {
   away_km: number;
 }
 
-const VERDICTS: Array<{ value: string; label: string; tone: 'ok' | 'warn' }> = [
-  { value: 'confirmed', label: 'Всё сходится', tone: 'ok' },
-  { value: 'coords_wrong', label: 'Координата не та', tone: 'warn' },
-  { value: 'not_found', label: 'Объекта здесь нет', tone: 'warn' },
-  { value: 'line_wrong', label: 'Линия идёт не так', tone: 'warn' },
-  { value: 'description_wrong', label: 'Описание врёт', tone: 'warn' },
-  { value: 'access_changed', label: 'Доступ изменился', tone: 'warn' },
+/** Что именно расходится. Спрашивается только у того, кто сказал «не так». */
+const PROBLEMS: Array<{ value: string; label: string }> = [
+  { value: 'coords_wrong', label: 'Точка стоит не там' },
+  { value: 'not_found', label: 'Объекта здесь нет' },
+  { value: 'line_wrong', label: 'Линия идёт не так' },
+  { value: 'description_wrong', label: 'Описание врёт' },
+  { value: 'access_changed', label: 'Доступ изменился' },
+  { value: 'other', label: 'Другое' },
 ];
 
-/**
- * Сжатие снимка на устройстве: длинная сторона до 1280 px, JPEG.
- * Оригинал с камеры — это 4-8 МБ, которые в поле не уйдут никогда.
- * Возвращает base64 без префикса data: — в таком виде он и хранится,
- * и отправляется.
- */
-async function shrinkPhoto(file: File): Promise<{ data: string; mime: string } | null> {
+const VERDICT_LABEL: Record<string, string> = {
+  confirmed: 'всё сходится',
+  ...Object.fromEntries(PROBLEMS.map(p => [p.value, p.label.toLowerCase()])),
+};
+
+async function shrinkPhoto(file: File): Promise<string | null> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
@@ -67,52 +79,73 @@ async function shrinkPhoto(file: File): Promise<{ data: string; mime: string } |
     bitmap.close?.();
     const url = canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
     const comma = url.indexOf(',');
-    if (comma < 0) return null;
-    return { data: url.slice(comma + 1), mime: 'image/jpeg' };
+    return comma < 0 ? null : url.slice(comma + 1);
   } catch {
     // Старый браузер или битый файл — снимка не будет, но проверка уйдёт.
     return null;
   }
 }
 
+function readDone(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(DONE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, string> : {};
+  } catch { return {}; }
+}
+
 export function FieldCheckClient() {
   const [fix, setFix] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
-  const [fixError, setFixError] = useState<string | null>(null);
+  const [radiusKm, setRadiusKm] = useState(15);
+  const [manualCenter, setManualCenter] = useState('');
+  const [showManualCenter, setShowManualCenter] = useState(false);
   const [items, setItems] = useState<NearbyItem[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [query, setQuery] = useState('');
+  const [onlyPending, setOnlyPending] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
+  /** Вторая ступень карточки: человек сказал «не сходится». */
+  const [problemFor, setProblemFor] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
   const [note, setNote] = useState('');
   const [tripTag, setTripTag] = useState('');
-  const [queueLen, setQueueLen] = useState(0);
-  const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
-  /** Снимки текущей формы: base64 без префикса, уже сжатые. */
+  const [showTag, setShowTag] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
-  /** Правильная координата объекта: взята с телефона или введена руками. */
-  const [objCoord, setObjCoord] = useState<{ lat: number; lng: number; source: 'my_fix' | 'manual' } | null>(null);
-  const [manualCoord, setManualCoord] = useState('');
-  const [coordError, setCoordError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  const [objCoord, setObjCoord] = useState<{ lat: number; lng: number; source: 'my_fix' | 'manual' } | null>(null);
+  const [manualCoord, setManualCoord] = useState('');
+  const [coordError, setCoordError] = useState<string | null>(null);
+
+  const [queueLen, setQueueLen] = useState(0);
+  const [done, setDone] = useState<Record<string, string>>({});
+
   useEffect(() => {
+    setDone(readDone());
     void listFieldChecks().then(q => setQueueLen(q.length)).catch(() => undefined);
     try {
       const saved = localStorage.getItem(TAG_KEY);
       if (saved) setTripTag(saved);
     } catch { /* приватный режим */ }
-    // PWA: без своей регистрации форма, открытая по прямой ссылке, останется
-    // без офлайна — а её открывают именно там, где связи нет.
+    // PWA: форму открывают по прямой ссылке там, где связи нет — без своей
+    // регистрации она осталась бы без офлайна.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => undefined);
     }
   }, []);
 
-  /**
-   * Отправка очереди: по одной проверке, снимки следом за своей проверкой.
-   * Отказ обрывает проход — очередь остаётся на диске целиком, ничего не
-   * теряется и не отправляется дважды: запись удаляется только после
-   * успешного ответа.
-   */
+  const rememberDone = useCallback((id: string, verdict: string) => {
+    setDone(prev => {
+      const next = { ...prev, [id]: verdict };
+      try { localStorage.setItem(DONE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const flushQueue = useCallback(async () => {
     let queue: FieldCheckQueueItem[];
     try { queue = await listFieldChecks(); } catch { return; }
@@ -148,7 +181,7 @@ export function FieldCheckClient() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ check_id: checkId, mime: 'image/jpeg', data }),
               });
-            } catch { /* снимок довезём в следующий раз не сможем — вердикт важнее */ }
+            } catch { /* довезём в следующий заход */ }
           }
         }
         await deleteFieldCheck(item.id);
@@ -164,10 +197,26 @@ export function FieldCheckClient() {
     return () => window.removeEventListener('online', onOnline);
   }, [flushQueue]);
 
+  const loadNearby = useCallback(async (lat: number, lng: number, radius: number) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/field-check/nearby?lat=${lat}&lng=${lng}&radius_km=${radius}`);
+      const j = await res.json();
+      setItems(j?.success && Array.isArray(j.items) ? j.items : []);
+      setError(null);
+    } catch {
+      setItems(null);
+      setError('Нет связи — список не загрузился. Проверки всё равно сохранятся и уйдут позже');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const locate = useCallback(() => {
-    setFixError(null);
+    setError(null);
     if (!('geolocation' in navigator)) {
-      setFixError('Телефон не отдаёт координаты');
+      setError('Телефон не отдаёт координаты — введите их вручную');
+      setShowManualCenter(true);
       return;
     }
     setLoading(true);
@@ -179,31 +228,81 @@ export function FieldCheckClient() {
           accuracy: typeof pos.coords.accuracy === 'number' ? Math.round(pos.coords.accuracy) : null,
         };
         setFix(f);
-        void loadNearby(f.lat, f.lng);
+        void loadNearby(f.lat, f.lng, radiusKm);
       },
       err => {
         setLoading(false);
-        setFixError(err.code === 1
-          ? 'Доступ к геопозиции закрыт — разрешите в настройках браузера'
-          : 'Сигнал не поймали. Попробуйте на открытом месте');
+        setError(err.code === 1
+          ? 'Доступ к геопозиции закрыт. Разрешите его или введите координаты вручную'
+          : 'Сигнал не поймали. Попробуйте на открытом месте или введите координаты вручную');
+        setShowManualCenter(true);
       },
       { enableHighAccuracy: true, timeout: 30_000, maximumAge: 10_000 },
     );
+  }, [loadNearby, radiusKm]);
+
+  /** Разбор пары чисел: «53.2669, 158.3874» или «53.2669 158.3874». */
+  const parsePair = (raw: string): { lat: number; lng: number } | null => {
+    const parts = raw.replace(',', ' ').split(/\s+/).filter(Boolean);
+    const lat = Number(parts[0]?.replace(',', '.'));
+    const lng = Number(parts[1]?.replace(',', '.'));
+    if (parts.length < 2 || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng };
+  };
+
+  const applyManualCenter = useCallback(() => {
+    const pair = parsePair(manualCenter);
+    if (!pair) { setError('Нужны два числа: широта и долгота'); return; }
+    setError(null);
+    setFix({ lat: pair.lat, lng: pair.lng, accuracy: null });
+    void loadNearby(pair.lat, pair.lng, radiusKm);
+  }, [manualCenter, loadNearby, radiusKm]);
+
+  const takeMyFix = useCallback(() => {
+    setCoordError(null);
+    if (!('geolocation' in navigator)) {
+      setCoordError('Телефон не отдаёт координаты');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      // Свежий фикс, а не тот, по которому строился список: между открытием
+      // экрана и этим нажатием человек дошёл до объекта.
+      pos => setObjCoord({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'my_fix' }),
+      () => setCoordError('Сигнал не поймали — можно ввести координаты руками'),
+      { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 },
+    );
   }, []);
 
-  const loadNearby = useCallback(async (lat: number, lng: number) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/field-check/nearby?lat=${lat}&lng=${lng}&radius_km=15`);
-      const j = await res.json();
-      setItems(j?.success && Array.isArray(j.items) ? j.items : []);
-    } catch {
-      // Офлайн: списка нет, но уже отправленное в очереди не теряется.
-      setItems(null);
-      setFixError('Нет связи — список не загрузился. Проверки сохранятся и уйдут позже');
-    } finally {
-      setLoading(false);
+  const applyManualCoord = useCallback(() => {
+    const pair = parsePair(manualCoord);
+    if (!pair) { setCoordError('Нужны два числа: широта и долгота'); return; }
+    setCoordError(null);
+    setObjCoord({ ...pair, source: 'manual' });
+  }, [manualCoord]);
+
+  const addPhoto = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPhotoBusy(true);
+    const next: string[] = [];
+    for (const file of Array.from(files).slice(0, PHOTO_LIMIT)) {
+      const shrunk = await shrinkPhoto(file);
+      if (shrunk) next.push(shrunk);
     }
+    setPhotos(prev => [...prev, ...next].slice(0, PHOTO_LIMIT));
+    setPhotoBusy(false);
+    if (fileRef.current) fileRef.current.value = '';
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setOpenId(null);
+    setProblemFor(null);
+    setProblem(null);
+    setNote('');
+    setPhotos([]);
+    setObjCoord(null);
+    setManualCoord('');
+    setCoordError(null);
   }, []);
 
   const submit = useCallback(async (item: NearbyItem, verdict: string) => {
@@ -227,209 +326,322 @@ export function FieldCheckClient() {
       await queueFieldCheck(check);
       setQueueLen(n => n + 1);
     } catch {
-      // Хранилище закрыто (приватный режим) — отправляем прямо сейчас или
-      // теряем. Молчать об этом нельзя.
-      setFixError('Не удалось сохранить проверку на телефоне — отправляем сразу');
+      // Хранилище закрыто (приватный режим) — молчать об этом нельзя.
+      setError('Не удалось сохранить проверку на телефоне — отправляем сразу');
     }
-    setDoneIds(prev => new Set(prev).add(item.id));
-    setOpenId(null);
-    setNote('');
-    setPhotos([]);
-    setObjCoord(null);
-    setManualCoord('');
-    setCoordError(null);
+    rememberDone(item.id, verdict);
+    resetForm();
     try { if (tripTag.trim()) localStorage.setItem(TAG_KEY, tripTag.trim()); } catch { /* ignore */ }
     void flushQueue();
-  }, [fix, note, tripTag, photos, objCoord, flushQueue]);
+  }, [fix, note, tripTag, photos, objCoord, rememberDone, resetForm, flushQueue]);
 
-  /**
-   * Координата объекта с телефона: «я стою на этой точке». Берём СВЕЖИЙ
-   * фикс, а не тот, по которому строился список: между открытием экрана и
-   * этим нажатием человек прошёл до объекта, и старая точка соврала бы.
-   */
-  const takeMyFix = useCallback(() => {
-    setCoordError(null);
-    if (!('geolocation' in navigator)) {
-      setCoordError('Телефон не отдаёт координаты');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      pos => setObjCoord({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: 'my_fix' }),
-      () => setCoordError('Сигнал не поймали — можно ввести координаты руками'),
-      { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 },
+  const visible = useMemo(() => {
+    if (!items) return [];
+    const q = query.trim().toLowerCase();
+    return items.filter(i => {
+      if (onlyPending && done[i.id]) return false;
+      if (q && !i.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [items, query, onlyPending, done]);
+
+  const checkedCount = items ? items.filter(i => done[i.id]).length : 0;
+
+  // ── Шаг 1: где я ───────────────────────────────────────────────────────────
+  if (!fix) {
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+        <div className="max-w-lg mx-auto px-4 py-8 flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold leading-tight"
+              style={{ fontFamily: 'var(--font-playfair)', color: 'var(--text-primary)' }}>
+              Полевая проверка
+            </h1>
+            <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Покажем, что платформа знает о местах вокруг вас. Скажете, сходится
+              ли это с землёй. Данные меняет владелец — ваша проверка идёт в
+              очередь, сломать ничего нельзя.
+            </p>
+          </div>
+
+          <button onClick={locate} disabled={loading}
+            className="inline-flex items-center justify-center gap-3 rounded-lg font-semibold text-lg"
+            style={{ background: 'var(--accent)', color: '#FFFFFF', minHeight: 64 }}>
+            {loading
+              ? <Loader2 className="w-5 h-5 animate-spin" />
+              : <Crosshair className="w-5 h-5" />}
+            Найти меня
+          </button>
+
+          {error && (
+            <div className="flex items-start gap-2 text-sm p-3 rounded-lg"
+              style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', color: 'var(--warning)' }}>
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {!showManualCenter ? (
+            <button onClick={() => setShowManualCenter(true)}
+              className="text-sm underline underline-offset-2 self-start"
+              style={{ color: 'var(--text-muted)' }}>
+              Ввести координаты вручную
+            </button>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Координаты из другого навигатора — широта и долгота
+              </span>
+              <div className="flex gap-2">
+                <input value={manualCenter} onChange={e => setManualCenter(e.target.value.slice(0, 48))}
+                  placeholder="52.7050, 158.2820" inputMode="decimal" className="ds-input flex-1" />
+                <button onClick={applyManualCenter}
+                  className="px-5 rounded-lg font-semibold"
+                  style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)', minHeight: TAP }}>
+                  Дальше
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Насколько далеко смотреть</span>
+            <div className="flex gap-2">
+              {[5, 15, 40].map(r => (
+                <button key={r} onClick={() => setRadiusKm(r)}
+                  className="flex-1 rounded-lg font-semibold"
+                  style={{
+                    background: radiusKm === r ? 'var(--ocean)' : 'var(--bg-card)',
+                    color: radiusKm === r ? '#FFFFFF' : 'var(--text-primary)',
+                    border: radiusKm === r ? 'none' : '1px solid var(--border)',
+                    minHeight: TAP,
+                  }}>
+                  {r} км
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {queueLen > 0 && (
+            <div className="flex items-center gap-2 text-sm p-3 rounded-lg"
+              style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+              <WifiOff className="w-4 h-4 shrink-0" />
+              <span>Не отправлено: {queueLen}. Уйдёт само, когда появится связь.</span>
+            </div>
+          )}
+
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Добавьте страницу на домашний экран — она открывается без интернета,
+            и проверки не потеряются в местах без связи.
+          </p>
+        </div>
+      </div>
     );
-  }, []);
+  }
 
-  /** Ручной ввод: «53.2669, 158.3874» или «53.2669 158.3874». */
-  const applyManual = useCallback(() => {
-    setCoordError(null);
-    const parts = manualCoord.replace(',', ' ').split(/\s+/).filter(Boolean);
-    const lat = Number(parts[0]?.replace(',', '.'));
-    const lng = Number(parts[1]?.replace(',', '.'));
-    if (parts.length < 2 || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setCoordError('Нужны два числа: широта и долгота');
-      return;
-    }
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      setCoordError('Числа вне допустимых пределов');
-      return;
-    }
-    setObjCoord({ lat, lng, source: 'manual' });
-  }, [manualCoord]);
-
-  /** Снимок с камеры или из галереи: сжимаем сразу, храним уже готовым. */
-  const addPhoto = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setPhotoBusy(true);
-    const next: string[] = [];
-    for (const file of Array.from(files).slice(0, PHOTO_LIMIT)) {
-      const shrunk = await shrinkPhoto(file);
-      if (shrunk) next.push(shrunk.data);
-    }
-    setPhotos(prev => [...prev, ...next].slice(0, PHOTO_LIMIT));
-    setPhotoBusy(false);
-    if (fileRef.current) fileRef.current.value = '';
-  }, []);
-
+  // ── Шаг 2: список ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        multiple
-        onChange={e => void addPhoto(e.target.files)}
-        className="hidden"
-      />
-      <div className="max-w-lg mx-auto px-4 py-6 flex flex-col gap-5">
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple
+        onChange={e => void addPhoto(e.target.files)} className="hidden" />
 
-        <header className="flex flex-col gap-1.5">
-          <h1 className="text-2xl font-bold" style={{ fontFamily: 'var(--font-playfair)', color: 'var(--text-primary)' }}>
-            Полевая проверка
-          </h1>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Здесь показано, что платформа утверждает о местах вокруг вас. Скажите,
-            сходится ли это с тем, что видно на земле. Данные меняет владелец —
-            ваша проверка идёт в очередь, ничего не ломается.
-          </p>
-        </header>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Метка выхода — чтобы проверки одной поездки лежали вместе
-          </span>
-          <input
-            value={tripTag}
-            onChange={e => setTripTag(e.target.value.slice(0, 60))}
-            placeholder="Вилючинский перевал, 22 августа"
-            className="ds-input"
-          />
-        </label>
-
-        <button onClick={locate} disabled={loading}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg font-semibold"
-          style={{ background: 'var(--accent)', color: '#FFFFFF' }}>
-          {loading
-            ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <Crosshair className="w-4 h-4" />}
-          {fix ? 'Обновить список по моему месту' : 'Показать, что рядом со мной'}
-        </button>
-
-        {fix && (
-          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Ваша точка: {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)}
-            {fix.accuracy !== null ? ` · точность ±${fix.accuracy} м` : ' · точность неизвестна'}
+      {/* Липкая шапка: где я, сколько сделано, сколько ждёт связи. */}
+      <div className="sticky top-0 z-10"
+        style={{ background: 'var(--bg-primary)', borderBottom: '1px solid var(--border)' }}>
+        <div className="max-w-lg mx-auto px-4 py-3 flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <button onClick={() => { setFix(null); setItems(null); resetForm(); }}
+              aria-label="Назад к выбору места"
+              className="shrink-0 rounded-lg flex items-center justify-center"
+              style={{ width: 40, height: 40, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <ChevronLeft className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                {items ? `Проверено ${checkedCount} из ${items.length}` : 'Загружаем список'}
+              </div>
+              <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                {fix.lat.toFixed(4)}, {fix.lng.toFixed(4)}
+                {fix.accuracy !== null ? ` · ±${fix.accuracy} м` : ' · точность неизвестна'}
+                {queueLen > 0 ? ` · в очереди ${queueLen}` : ''}
+              </div>
+            </div>
+            {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: 'var(--text-muted)' }} />}
           </div>
-        )}
 
-        {fixError && (
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center gap-2 px-3 rounded-lg"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', minHeight: 44 }}>
+              <Search className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />
+              <input value={query} onChange={e => setQuery(e.target.value)}
+                placeholder="Найти по названию"
+                className="flex-1 bg-transparent outline-none text-sm"
+                style={{ color: 'var(--text-primary)' }} />
+              {query && (
+                <button onClick={() => setQuery('')} aria-label="Очистить">
+                  <X className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              )}
+            </div>
+            <button onClick={() => setOnlyPending(v => !v)}
+              className="px-3 rounded-lg text-sm font-semibold"
+              style={{
+                background: onlyPending ? 'var(--ocean)' : 'var(--bg-card)',
+                color: onlyPending ? '#FFFFFF' : 'var(--text-secondary)',
+                border: onlyPending ? 'none' : '1px solid var(--border)',
+                minHeight: 44,
+              }}>
+              {onlyPending ? 'Непроверенные' : 'Все'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-4 flex flex-col gap-3">
+        {error && (
           <div className="flex items-start gap-2 text-sm p-3 rounded-lg"
             style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', color: 'var(--warning)' }}>
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{fixError}</span>
+            <span>{error}</span>
           </div>
         )}
 
-        {queueLen > 0 && (
-          <div className="flex items-center gap-2 text-sm p-3 rounded-lg"
-            style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <WifiOff className="w-4 h-4 shrink-0" />
-            <span>Не отправлено: {queueLen}. Уйдёт само, когда появится связь.</span>
-          </div>
+        {!showTag ? (
+          <button onClick={() => setShowTag(true)}
+            className="text-xs underline underline-offset-2 self-start"
+            style={{ color: 'var(--text-muted)' }}>
+            {tripTag ? `Выход: ${tripTag}` : 'Отметить выход (необязательно)'}
+          </button>
+        ) : (
+          <input value={tripTag} onChange={e => setTripTag(e.target.value.slice(0, 60))}
+            onBlur={() => setShowTag(false)}
+            placeholder="Вилючинский перевал, 22 августа"
+            className="ds-input" autoFocus />
         )}
 
         {items !== null && items.length === 0 && (
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            В радиусе 15 км у платформы нет ни одной записи с координатами.
-            Это тоже результат — расскажите владельцу, где вы были.
+            В радиусе {radiusKm} км у платформы нет ни одной записи с координатами.
+            Это тоже результат — расскажите об этом владельцу.
           </p>
         )}
 
-        {items?.map(item => {
-          const done = doneIds.has(item.id);
+        {items !== null && items.length > 0 && visible.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            {onlyPending ? 'Всё вокруг проверено. Спасибо.' : 'По этому запросу ничего нет.'}
+          </p>
+        )}
+
+        {visible.map(item => {
+          const verdict = done[item.id];
           const open = openId === item.id;
+          const asking = problemFor === item.id;
+
+          if (verdict && !open) {
+            return (
+              <button key={`${item.kind}-${item.id}`} onClick={() => { setOpenId(item.id); setProblemFor(null); }}
+                className="rounded-lg px-4 py-3 flex items-center gap-3 text-left"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--success)' }}>
+                <Check className="w-5 h-5 shrink-0" style={{ color: 'var(--success)' }} />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                    {item.title}
+                  </span>
+                  <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {VERDICT_LABEL[verdict] ?? verdict}
+                  </span>
+                </span>
+              </button>
+            );
+          }
+
           return (
-            <div key={`${item.kind}-${item.id}`} className="rounded-lg p-4 flex flex-col gap-2"
-              style={{
-                background: 'var(--bg-card)',
-                border: `1px solid ${done ? 'var(--success)' : 'var(--border)'}`,
-              }}>
+            <div key={`${item.kind}-${item.id}`} className="rounded-lg p-4 flex flex-col gap-3"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
               <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 shrink-0 mt-0.5"
-                  style={{ color: item.kind === 'route' ? 'var(--ocean)' : 'var(--text-muted)' }} />
-                <div className="flex-1">
-                  <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+                {item.kind === 'route'
+                  ? <RouteIcon className="w-4 h-4 shrink-0 mt-1" style={{ color: 'var(--ocean)' }} />
+                  : <MapPin className="w-4 h-4 shrink-0 mt-1" style={{ color: 'var(--text-muted)' }} />}
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>
+                    {item.title}
+                  </div>
                   <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {item.kind === 'route' ? 'маршрут' : 'место'} · {item.away_km} км от вас
                     {item.subtitle ? ` · ${item.subtitle}` : ''}
                   </div>
                 </div>
-                {done && <Check className="w-5 h-5 shrink-0" style={{ color: 'var(--success)' }} />}
               </div>
 
-              <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                Записано: {item.lat.toFixed(5)}, {item.lng.toFixed(5)}
+              <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: 'var(--text-secondary)' }}>
+                <span className="tabular-nums">{item.lat.toFixed(5)}, {item.lng.toFixed(5)}</span>
+                {item.facts.map(f => (
+                  <span key={f.label} style={{ color: f.value ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                    {f.label}: {f.value ?? 'не знаем'}
+                  </span>
+                ))}
               </div>
 
-              {item.facts.length > 0 && (
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                  {item.facts.map(f => (
-                    <span key={f.label} style={{ color: f.value ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
-                      {f.label}: {f.value ?? 'не знаем'}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {item.description_head && (
+              {item.description_head && !open && (
                 <p className="text-xs leading-snug" style={{ color: 'var(--text-muted)' }}>
                   {item.description_head}…
                 </p>
               )}
 
-              {!done && !open && (
-                <button onClick={() => { setOpenId(item.id); setNote(''); }}
-                  className="self-start text-sm font-semibold px-4 py-2 rounded-lg"
-                  style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+              {!open && (
+                <button onClick={() => { setOpenId(item.id); setProblemFor(null); }}
+                  className="rounded-lg font-semibold"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)', minHeight: TAP }}>
                   Проверить
                 </button>
               )}
 
-              {open && (
-                <div className="flex flex-col gap-2 pt-1">
-                  <textarea
-                    value={note}
-                    onChange={e => setNote(e.target.value.slice(0, 600))}
-                    placeholder="Что не так или что стоит знать. Необязательно."
-                    rows={3}
-                    className="ds-input"
-                  />
-                  {/* Правильная координата объекта. Вердикт «координата не
-                      та» без неё — жалоба без адреса: владелец узнает, что
-                      запись врёт, и по-прежнему не будет знать, где точка.
-                      Происхождение записывается вместе с числами: фикс на
-                      объекте и цифры из чужого навигатора — разные улики. */}
+              {open && !asking && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    Сходится с тем, что видите?
+                  </span>
+                  <button onClick={() => void submit(item, 'confirmed')}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold text-base"
+                    style={{ background: 'var(--success)', color: '#08210f', minHeight: TAP }}>
+                    <Check className="w-5 h-5" />
+                    Да, всё сходится
+                  </button>
+                  <button onClick={() => { setProblemFor(item.id); setProblem(null); }}
+                    className="rounded-lg font-semibold text-base"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border-strong)', minHeight: TAP }}>
+                    Нет, что-то не так
+                  </button>
+                  <button onClick={resetForm}
+                    className="text-xs underline underline-offset-2 self-center pt-1"
+                    style={{ color: 'var(--text-muted)' }}>
+                    Пропустить
+                  </button>
+                </div>
+              )}
+
+              {open && asking && (
+                <div className="flex flex-col gap-3">
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Что именно?</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PROBLEMS.map(p => (
+                      <button key={p.value} onClick={() => setProblem(p.value)}
+                        className="rounded-lg text-sm font-semibold px-2"
+                        style={{
+                          background: problem === p.value ? 'var(--accent)' : 'var(--bg-hover)',
+                          color: problem === p.value ? '#FFFFFF' : 'var(--text-primary)',
+                          border: problem === p.value ? 'none' : '1px solid var(--border)',
+                          minHeight: TAP,
+                        }}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Правильная точка. Вердикт «точка стоит не там» без неё —
+                      жалоба без адреса. Происхождение пишется вместе с
+                      числами: фикс на объекте и цифры из чужого навигатора —
+                      улики разного веса. */}
                   <div className="flex flex-col gap-2 p-3 rounded-lg"
                     style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -444,30 +656,24 @@ export function FieldCheckClient() {
                           </span>
                         </span>
                         <button onClick={() => { setObjCoord(null); setManualCoord(''); }}
-                          className="text-xs underline underline-offset-2"
-                          style={{ color: 'var(--text-muted)' }}>
+                          className="text-xs underline underline-offset-2" style={{ color: 'var(--text-muted)' }}>
                           убрать
                         </button>
                       </div>
                     ) : (
                       <>
                         <button onClick={takeMyFix}
-                          className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-lg"
-                          style={{ background: 'var(--ocean)', color: '#FFFFFF' }}>
+                          className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold"
+                          style={{ background: 'var(--ocean)', color: '#FFFFFF', minHeight: TAP }}>
                           <Crosshair className="w-4 h-4" />
                           Я стою на этой точке
                         </button>
                         <div className="flex gap-2">
-                          <input
-                            value={manualCoord}
-                            onChange={e => setManualCoord(e.target.value.slice(0, 48))}
-                            placeholder="53.2669, 158.3874"
-                            inputMode="decimal"
-                            className="ds-input flex-1"
-                          />
-                          <button onClick={applyManual}
-                            className="text-sm font-semibold px-3 rounded-lg"
-                            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                          <input value={manualCoord} onChange={e => setManualCoord(e.target.value.slice(0, 48))}
+                            placeholder="53.2669, 158.3874" inputMode="decimal" className="ds-input flex-1" />
+                          <button onClick={applyManualCoord}
+                            className="px-4 rounded-lg text-sm font-semibold"
+                            style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', minHeight: 44 }}>
                             Взять
                           </button>
                         </div>
@@ -478,9 +684,6 @@ export function FieldCheckClient() {
                     )}
                   </div>
 
-                  {/* Снимок — улика, которая не спорит: развилка, табличка,
-                      размытый мост. Хранится сжатым и уходит следом за
-                      вердиктом; не ушедшее фото не задерживает проверку. */}
                   <div className="flex flex-wrap items-center gap-2">
                     {photos.map((data, i) => (
                       <div key={i} className="relative">
@@ -490,39 +693,39 @@ export function FieldCheckClient() {
                           style={{ border: '1px solid var(--border)' }} />
                         <button onClick={() => setPhotos(prev => prev.filter((_, j) => j !== i))}
                           aria-label="Убрать снимок"
-                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)' }}>
-                          <X className="w-3 h-3" style={{ color: 'var(--text-secondary)' }} />
+                          <X className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
                         </button>
                       </div>
                     ))}
                     {photos.length < PHOTO_LIMIT && (
                       <button onClick={() => fileRef.current?.click()} disabled={photoBusy}
-                        className="w-16 h-16 rounded-lg flex flex-col items-center justify-center gap-1"
-                        style={{ background: 'var(--bg-hover)', border: '1px dashed var(--border-strong)' }}>
+                        className="rounded-lg flex flex-col items-center justify-center gap-1"
+                        style={{ width: 64, height: 64, background: 'var(--bg-hover)', border: '1px dashed var(--border-strong)' }}>
                         {photoBusy
-                          ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-muted)' }} />
-                          : <Camera className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />}
+                          ? <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--text-muted)' }} />
+                          : <Camera className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />}
                         <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>фото</span>
                       </button>
                     )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {VERDICTS.map(v => (
-                      <button key={v.value} onClick={() => submit(item, v.value)}
-                        className="text-sm font-semibold px-3 py-2 rounded-lg"
-                        style={{
-                          background: v.tone === 'ok' ? 'var(--success)' : 'var(--bg-hover)',
-                          color: v.tone === 'ok' ? '#08210f' : 'var(--text-primary)',
-                          border: v.tone === 'ok' ? 'none' : '1px solid var(--border)',
-                        }}>
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button onClick={() => setOpenId(null)}
-                    className="self-start text-xs underline underline-offset-2"
+                  <textarea value={note} onChange={e => setNote(e.target.value.slice(0, 600))}
+                    placeholder="Что не так. Необязательно, но помогает." rows={3} className="ds-input" />
+
+                  <button onClick={() => problem && void submit(item, problem)} disabled={!problem}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold text-base"
+                    style={{
+                      background: problem ? 'var(--accent)' : 'var(--bg-hover)',
+                      color: problem ? '#FFFFFF' : 'var(--text-muted)',
+                      minHeight: TAP,
+                    }}>
+                    <Send className="w-4 h-4" />
+                    {problem ? 'Отправить проверку' : 'Выберите, что не так'}
+                  </button>
+                  <button onClick={resetForm}
+                    className="text-xs underline underline-offset-2 self-center"
                     style={{ color: 'var(--text-muted)' }}>
                     Отмена
                   </button>
@@ -532,12 +735,10 @@ export function FieldCheckClient() {
           );
         })}
 
-        <p className="text-xs pb-6" style={{ color: 'var(--text-muted)' }}>
-          Координата вашего телефона прикладывается к проверке, если она есть.
-          Если координаты нет — так и запишем: проверка «не с места» тоже
-          полезна, но вес у неё другой. Снимки сжимаются на телефоне и
-          хранятся до связи вместе с проверкой. Страницу можно добавить на
-          домашний экран — она открывается без интернета.
+        <p className="text-xs pt-2 pb-8" style={{ color: 'var(--text-muted)' }}>
+          Проверки сохраняются на телефоне и уходят сами, когда появляется связь.
+          Координата и снимки прикладываются, если они есть; проверка без них
+          тоже принимается — так и запишем.
         </p>
       </div>
     </div>

@@ -140,3 +140,45 @@ describe('геолокация самой точки — не путать с м
     expect(client).toMatch(/lat < -90 \|\| lat > 90 \|\| lng < -180 \|\| lng > 180/);
   });
 });
+
+describe('юзабилити поля: рука в перчатке, ветер, садящаяся батарея', () => {
+  it('полевые цели крупные — объявленный порог тапа', () => {
+    expect(client).toMatch(/const TAP = 56/);
+    expect(client).toMatch(/minHeight: TAP/);
+  });
+
+  it('первый вопрос по записи один: сходится или нет', () => {
+    expect(client).toContain('Сходится с тем, что видите?');
+    expect(client).toContain('Да, всё сходится');
+    expect(client).toContain('Нет, что-то не так');
+  });
+
+  it('подробности спрашиваются только у того, кто сказал «не так»', () => {
+    expect(client).toMatch(/open && asking/);
+    expect(client).toMatch(/problemFor === item\.id/);
+  });
+
+  it('без спутников экран не бесполезен — координаты вручную', () => {
+    expect(client).toContain('Ввести координаты вручную');
+    expect(client).toContain('applyManualCenter');
+  });
+
+  it('видно, сколько сделано и сколько ждёт связи', () => {
+    expect(client).toMatch(/Проверено \$\{checkedCount\} из \$\{items\.length\}/);
+    expect(client).toMatch(/в очереди \$\{queueLen\}/);
+  });
+
+  it('проверенное помнится между заходами, а не только в сессии', () => {
+    expect(client).toContain('field_check_done_v1');
+    expect(client).toContain('rememberDone');
+  });
+
+  it('в длинном списке есть поиск и фильтр непроверенных', () => {
+    expect(client).toContain('Найти по названию');
+    expect(client).toMatch(/onlyPending/);
+  });
+
+  it('радиус выбирается, а не задан навсегда', () => {
+    expect(client).toMatch(/\[5, 15, 40\]\.map/);
+  });
+});
