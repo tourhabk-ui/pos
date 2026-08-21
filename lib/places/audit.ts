@@ -28,10 +28,13 @@ const REAL_COORDS_COND =
   `lat IS NOT NULL AND lng IS NOT NULL AND NOT (lat = 0 AND lng = 0)` +
   ` AND NOT (ROUND(lat::numeric, 4) = 53.0444 AND ROUND(lng::numeric, 4) = 158.6483)`;
 
-interface CategoryDef { key: string; label: string; where: string }
+interface CategoryDef { key: string; label: string; where: string; params?: unknown[] }
 
 const CATEGORIES: CategoryDef[] = [
-  { key: 'non_place_names', label: 'Имена-НЕместа (активности/туры/SEO)', where: `name ~* '${NON_PLACE_RE}'` },
+  // Регулярка уходит ПАРАМЕТРОМ, не интерполяцией (#1321): константа — не
+  // пользовательский ввод, но апостроф в её будущей правке молча ломал бы
+  // запрос, а правило платформы — параметризация без исключений.
+  { key: 'non_place_names', label: 'Имена-НЕместа (активности/туры/SEO)', where: `name ~* $1`, params: [NON_PLACE_RE] },
   { key: 'out_of_bounds', label: 'Координаты вне Камчатки', where: `${REAL_COORDS_COND} AND (lat < 50.0 OR lat > 62.0 OR lng < 155.0 OR lng > 175.0)` },
   { key: 'placeholder_coords', label: 'Плейсхолдер-координаты (нет GPS)', where: PLACEHOLDER_COND },
   { key: 'no_coords', label: 'Без координат', where: `lat IS NULL OR lng IS NULL` },
@@ -62,6 +65,7 @@ export async function computePlacesAudit(sampleLimit = 20): Promise<PlacesAudit>
               COUNT(*) FILTER (WHERE is_visible = true) AS visible_count
        FROM places
        WHERE merged_into_id IS NULL AND (${cat.where})`,
+      cat.params ?? [],
     );
     const samples = await pool.query<PlacesAuditSample>(
       `SELECT id::text AS id, name, is_visible
@@ -69,6 +73,7 @@ export async function computePlacesAudit(sampleLimit = 20): Promise<PlacesAudit>
        WHERE merged_into_id IS NULL AND (${cat.where})
        ORDER BY is_visible DESC, name ASC
        LIMIT ${sampleLimit}`,
+      cat.params ?? [],
     );
     categories.push({
       key: cat.key,

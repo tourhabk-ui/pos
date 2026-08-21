@@ -23,7 +23,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const audit = await computePlacesAudit();
-    return NextResponse.json({ success: true, ...audit });
+    // v2 — фикс #1321: NON_PLACE_RE уходит параметром. Ответ не менялся,
+    // пробе нужен признак сборки, где категория считается новым запросом.
+    return NextResponse.json({ success: true, probe: 'places_audit_v2', ...audit });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка аудита мест';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
