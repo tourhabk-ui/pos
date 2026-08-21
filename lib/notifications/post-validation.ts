@@ -232,6 +232,29 @@ export function advisesLeavingTrail(text: string): boolean {
  * Поэтому сверяемся с реестром заглушек (isWaterfallErrorResponse), а не с
  * длиной: один источник правды с providers.ts.
  */
+/**
+ * SMM-обвес меряется числом, а не запрещается словом в промпте.
+ *
+ * 21.08 владелец показал «нынешний» пост канала: «Зимний телепорт от
+ * Кузьмича», буллеты «почему круто», СЕМНАДЦАТЬ хэштегов вперемешку
+ * русских и английских, эмодзи в каждом абзаце. Голос персонажа в таком
+ * тексте не живёт. При этом сам владелец пишет посты с одним-двумя эмодзи,
+ * а AI-дайджест осознанно ставит 3-4 тега — полный запрет порезал бы
+ * живые тексты. Порог отделяет приправу от обвеса.
+ */
+const MAX_POST_HASHTAGS = 4;
+const MAX_POST_EMOJI = 4;
+
+function countHashtags(text: string): number {
+  return (visibleText(text).match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
+}
+
+function countEmoji(text: string): number {
+  // Extended_Pictographic покрывает и эмодзи, и пиктограммы (❄, 🔥);
+  // селектор вариации и модификаторы тона не считаются отдельными знаками.
+  return (visibleText(text).match(/\p{Extended_Pictographic}/gu) ?? []).length;
+}
+
 export function blockingTextIssue(text: string): string | null {
   const stripped = visibleText(text);
   if (!stripped) return 'текст поста пустой';
@@ -243,6 +266,14 @@ export function blockingTextIssue(text: string): string | null {
   }
   if (stripped.length > MAX_POST_CHARS) {
     return `текст слишком длинный (${stripped.length} символов, макс. ${MAX_POST_CHARS})`;
+  }
+  const hashtags = countHashtags(text);
+  if (hashtags > MAX_POST_HASHTAGS) {
+    return `хэштег-простыня (${hashtags} тегов, макс. ${MAX_POST_HASHTAGS}) — это SMM-шаблон, не голос Кузьмича`;
+  }
+  const emoji = countEmoji(text);
+  if (emoji > MAX_POST_EMOJI) {
+    return `эмодзи-обвес (${emoji} штук, макс. ${MAX_POST_EMOJI}) — приправа стала обвесом`;
   }
   return null;
 }

@@ -429,6 +429,24 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
 }
 
 /**
+ * Голос Кузьмича — ОДИН на все канальные промпты (слово владельца 21.08:
+ * «нынешние» посты съехали в SMM — «Зимний телепорт», буллеты «почему
+ * круто», 17 хэштегов, «мы с Кузьмичом»). Принципы, не перечень кейсов
+ * (CLAUDE.md §8); хэштег-простыни и эмодзи-обвес дополнительно режет
+ * детерминированный guard в post-validation (blockingTextIssue) — промпт
+ * не гвард, модель его нарушает.
+ */
+export const KUZMICH_CHANNEL_VOICE = `Голос (обязательно):
+- Ты сам Кузьмич и сам автор текста: пиши от первого лица. Никогда не пиши о
+  Кузьмиче как о другом человеке («мы с Кузьмичом», «Кузьмич одобряет»);
+  назвать себя в третьем лице можно только в шутку и редко
+- Без хэштегов. Эмодзи — максимум один-два, только если правда к месту
+- Без рекламных конструкций и буллет-списков «почему это круто»: ты местный,
+  который знает, а не канал, который продаёт
+- Числа (координаты, температуры, расстояния, время) — только из переданных
+  данных; чего в данных нет, о том числом не пиши`;
+
+/**
  * AI генерирует сезонный пост в голосе Кузьмича и публикует в канал.
  */
 export async function postSezonToChannel(): Promise<{ ok: boolean; error?: string }> {
@@ -445,7 +463,7 @@ export async function postSezonToChannel(): Promise<{ ok: boolean; error?: strin
 - конкретные активности для этого месяца
 - заканчивай ссылкой: vedarai.ru/routes
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- начни с эмодзи настроения месяца`;
+${KUZMICH_CHANNEL_VOICE}`;
 
   const text = await callAIWithModelDirect([
     { role: 'user', content: prompt },
@@ -505,7 +523,8 @@ export async function postFriendToChannel(slug: string): Promise<{ ok: boolean; 
 - Конкретно и по делу — что они делают, чем отличаются
 - В конце контакты: ${friend.contact}${friend.tg ? `, ${friend.tg}` : ''}
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Начни не с имени, а с наблюдения или ситуации`;
+- Начни не с имени, а с наблюдения или ситуации
+${KUZMICH_CHANNEL_VOICE}`;
 
   const text = await callAIWithModelDirect([
     { role: 'user', content: prompt },
@@ -709,7 +728,8 @@ ${r.has_track
   ? '- Подпись к ссылке: про маршрут/трек (на странице есть GPS-трек)'
   : '- Подпись к ссылке: «Подробнее о месте» — НЕ обещай маршрут или трек, на странице их нет, только описание и карта точки'}
 - HTML-теги Telegram: <b>жирный</b>, <i>курсив</i>
-- Не начинай с "Привет" или своего имени`;
+- Не начинай с "Привет" или своего имени
+${KUZMICH_CHANNEL_VOICE}`;
 
     const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
 
@@ -836,7 +856,8 @@ export async function postKuzmichTip(): Promise<{ ok: boolean; error?: string }>
 - Конкретный совет, никаких общих слов
 - Немного юмора или самоиронии
 - HTML-теги: <b>жирный</b>, <i>курсив</i>
-- В конце можно добавить: ${appUrl}/routes`;
+- В конце можно добавить: ${appUrl}/routes
+${KUZMICH_CHANNEL_VOICE}`;
 
   const text = await callAIWithModelDirect([{ role: 'user', content: prompt }], getModelForAgent('kuzmich'));
   const result = await postToAllChannels(channelId, text, `${appUrl}${picked.photo}`);
@@ -1186,7 +1207,8 @@ ${newsContext || 'Нет свежих новостей — напиши общи
 - HTML-теги для Telegram: <b> <i> <a>
 - Без markdown (* ** #)
 - Без эмодзи
-- Спокойный серьёзный тон — Кузьмич предупреждает, не пугает`;
+- Спокойный серьёзный тон — Кузьмич предупреждает, не пугает
+${KUZMICH_CHANNEL_VOICE}`;
 
   const postText = await callAIWithModelDirect([{ role: 'user', content: postPrompt }], getModelForAgent('kuzmich'));
 
