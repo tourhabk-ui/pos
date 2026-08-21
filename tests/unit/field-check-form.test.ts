@@ -55,11 +55,54 @@ describe('выборка рядом — только живые записи', (
 
 describe('офлайн не теряет улику', () => {
   it('очередь на диске и отправка при возврате связи', () => {
-    expect(client).toContain('field_check_queue_v1');
+    // Очередь переехала в IndexedDB, когда к проверке добавились снимки:
+    // в пятимегабайтный localStorage помещалось три фотографии, а выход в
+    // поле — это десятки проверок.
+    expect(client).toContain('listFieldChecks');
     expect(client).toMatch(/addEventListener\('online'/);
   });
 
   it('неотправленное видно человеку', () => {
     expect(client).toMatch(/Не отправлено: \{queueLen\}/);
+  });
+});
+
+describe('PWA и фотографии', () => {
+  const sw = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf-8');
+  const photo = readFileSync(join(process.cwd(), 'app/api/field-check/photo/route.ts'), 'utf-8');
+  const db = readFileSync(join(process.cwd(), 'lib/offline/db.ts'), 'utf-8');
+
+  it('форма прекэшируется — её открывают там, где связи нет', () => {
+    expect(sw).toContain("'/field-check'");
+  });
+
+  it('версия кэша поднята вместе с составом прекэша', () => {
+    expect(sw).toMatch(/CACHE_NAME = 'kamchatour-v27'/);
+  });
+
+  it('форма регистрирует service worker сама', () => {
+    expect(client).toMatch(/serviceWorker\.register\('\/sw\.js'\)/);
+  });
+
+  it('снимок сжимается на телефоне, а не отправляется оригиналом', () => {
+    expect(client).toContain('PHOTO_MAX_SIDE');
+    expect(client).toMatch(/toDataURL\('image\/jpeg', PHOTO_QUALITY\)/);
+  });
+
+  it('очередь с фотографиями живёт в IndexedDB, не в localStorage', () => {
+    expect(client).toContain('queueFieldCheck');
+    expect(client).not.toContain('field_check_queue_v1');
+    expect(db).toMatch(/fieldChecks/);
+    expect(db).toMatch(/DB_VERSION = 4/);
+  });
+
+  it('снимок принимается отдельно и с потолком размера', () => {
+    expect(photo).toContain('MAX_BYTES');
+    expect(photo).toContain('INSERT INTO route_field_check_photos');
+    expect(photo).not.toMatch(/UPDATE kamchatka_routes|UPDATE places/);
+  });
+
+  it('запись удаляется из очереди только после успеха', () => {
+    expect(client).toMatch(/if \(!res\.ok\) break;[\s\S]{0,900}deleteFieldCheck\(item\.id\)/);
   });
 });

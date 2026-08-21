@@ -89,10 +89,39 @@ interface KamchatourDB extends DBSchema {
     key: string;
     value: SosContact;
   };
+  fieldChecks: {
+    key: string;
+    value: FieldCheckQueueItem;
+  };
   fieldPacks: {
     key: string;
     value: FieldPackRecord;
   };
+}
+
+/**
+ * Полевая проверка записи, ожидающая отправки (форма /field-check).
+ *
+ * Живёт в IndexedDB, а не в localStorage: с фотографиями пятимегабайтной
+ * квоты хватит на три снимка, а выход в поле — это десятки проверок.
+ * Потерянная проверка равна потерянному выходу, поэтому очередь на диске
+ * и переживает перезагрузку телефона.
+ */
+export interface FieldCheckQueueItem {
+  /** Локальный ключ: время постановки + случайный хвост. */
+  id: string;
+  targetKind: 'route' | 'place';
+  targetId: string;
+  verdict: string;
+  /** Координата проверяющего; null — проверка не с места, это законно. */
+  reportedLat: number | null;
+  reportedLng: number | null;
+  accuracyM: number | null;
+  note: string | null;
+  tripTag: string | null;
+  /** Снимки как data-URL уже сжатыми: сервер их не пережимает. */
+  photos: string[];
+  queuedAt: number;
 }
 
 // ─── DB singleton ─────────────────────────────────────────────────────────────
@@ -103,7 +132,10 @@ const DB_NAME = 'kamchatour-offline';
 // без миграции данных: старые записи просто не имеют полей, читатели дают
 // им дефолты (пустой список, severity 0, alertsAt null → «данных нет»).
 // v3 — store fieldPacks: манифест полевого пакета маршрута (план FCN, этап 2).
-const DB_VERSION = 3;
+// v4 — store fieldChecks: очередь полевых проверок с фотографиями (форма
+// /field-check, владелец 21.08). Снимок с телефона в localStorage не влезает,
+// а в поле именно фотография решает спор о том, что там на земле.
+const DB_VERSION = 4;
 
 let _db: IDBPDatabase<KamchatourDB> | null = null;
 
@@ -124,6 +156,9 @@ export async function getDB(): Promise<IDBPDatabase<KamchatourDB>> {
       }
       if (!db.objectStoreNames.contains('fieldPacks')) {
         db.createObjectStore('fieldPacks', { keyPath: 'routeId' });
+      }
+      if (!db.objectStoreNames.contains('fieldChecks')) {
+        db.createObjectStore('fieldChecks', { keyPath: 'id' });
       }
     },
   });
@@ -146,6 +181,25 @@ export async function getFieldPackRecord(routeId: string): Promise<FieldPackReco
 export async function deleteFieldPackRecord(routeId: string): Promise<void> {
   const db = await getDB();
   await db.delete('fieldPacks', routeId);
+}
+
+// ─── Очередь полевых проверок ────────────────────────────────────────────────
+
+export async function queueFieldCheck(item: FieldCheckQueueItem): Promise<void> {
+  const db = await getDB();
+  await db.put('fieldChecks', item);
+}
+
+/** Всё, что ещё не ушло, — в порядке постановки: улика не переставляется. */
+export async function listFieldChecks(): Promise<FieldCheckQueueItem[]> {
+  const db = await getDB();
+  const all = await db.getAll('fieldChecks');
+  return all.sort((a, b) => a.queuedAt - b.queuedAt);
+}
+
+export async function deleteFieldCheck(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('fieldChecks', id);
 }
 
 // ─── Regions ─────────────────────────────────────────────────────────────────
