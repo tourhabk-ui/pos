@@ -36,7 +36,7 @@ describe('parseClaimedNumbers — числа из текста', () => {
   });
 
   it('запятая как десятичный разделитель', () => {
-    expect(parseClaimedNumbers('всего 1,6 км').distanceKm).toBe(1.6);
+    expect(parseClaimedNumbers('Тропа всего 1,6 км.').distanceKm).toBe(1.6);
   });
 
   it('нет чисел — нет утверждений, а не нули', () => {
@@ -44,6 +44,28 @@ describe('parseClaimedNumbers — числа из текста', () => {
     expect(c.distanceKm).toBeNull();
     expect(c.durationH).toBeNull();
     expect(c.gainM).toBeNull();
+  });
+
+  it('«в 20 км от города» — география, не длина маршрута (проба 125)', () => {
+    const c = parseClaimedNumbers('Маршрут начинается в 20 км от Петропавловска-Камчатского.');
+    expect(c.distanceKm).toBeNull();
+  });
+
+  it('«2 часа езды» — доставка, не прохождение', () => {
+    const c = parseClaimedNumbers('До начала маршрута 2 часа езды на машине.');
+    expect(c.durationH).toBeNull();
+  });
+
+  it('число без слова о пути в предложении не судится', () => {
+    const c = parseClaimedNumbers('Панорама открывается на 60 км вокруг.');
+    expect(c.distanceKm).toBeNull();
+  });
+
+  it('география пропускается, а настоящая длина дальше по тексту берётся', () => {
+    const c = parseClaimedNumbers(
+      'Маршрут начинается в 20 км от города. Протяжённость тропы — 12 км.',
+    );
+    expect(c.distanceKm).toBe(12);
   });
 });
 
@@ -145,6 +167,19 @@ describe('mentionedFarPlaces — чужая география', () => {
 
   it('порог дистанции — объявленная константа', () => {
     expect(FAR_PLACE_KM).toBe(30);
+  });
+
+  it('«каменистое дно» — слово, не место: без заглавной имя не считается', () => {
+    const far = [{ name: 'Каменистый', lat: 56.5, lng: 161.0 }];
+    expect(mentionedFarPlaces(
+      'Прозрачная вода и каменистое дно создают условия для снорклинга.',
+      53.0, 158.5, 'Бухта Малая Лагерная (дайвинг)', far,
+    )).toEqual([]);
+    const out = mentionedFarPlaces(
+      'Отсюда виден Каменистый в хорошую погоду.',
+      53.0, 158.5, 'Бухта Малая Лагерная (дайвинг)', far,
+    );
+    expect(out.map(f => f.kind)).toEqual(['far_place']);
   });
 });
 
