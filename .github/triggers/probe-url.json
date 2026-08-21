@@ -1,11 +1,14 @@
 {
-  "note": "Проба 127: перепись описаний v3 (составные стороны света в лукахеде географии) + полный список тремя окнами по 20 — в пробе 126 хвост списка не влез в лог. Ожидание: offenders ~40, каждый — настоящий кандидат на решение владельца (чинить текст или запись).",
+  "note": "Проба 128: разведка полных текстов перед правкой (кампания сверки, «го» 21.08). Миграция 896 уже сбросила шесть битых записей. Здесь — полные описания 22 маршрутов: 17 кандидатов на числовую правку текста, Жировая (сырой JSON в описании), Пионерская (координата, place_match), Медведи Камчатки (обзорная страница?), Нальчева (путает Налычево с Ключами?), Долиновка (markdown-заголовок). Правки готовятся по полному тексту, не по голове в 240 символов.",
   "urls": [
-    "https://vedarai.ru/api/cron/route-desc-census?limit=20&offset=0",
-    "https://vedarai.ru/api/cron/route-desc-census?limit=20&offset=20",
-    "https://vedarai.ru/api/cron/route-desc-census?limit=20&offset=40"
+    "https://vedarai.ru/api/cron/route-desc-read?ids=c0cf87ba-1c5f-4321-beb7-aab1442ae366,0af95727-8525-4846-b7ac-49135540bce7,f33295d4-247d-471c-a93a-23e4b11310b5,d845b872-1b2c-40c6-afa9-b2494454e111",
+    "https://vedarai.ru/api/cron/route-desc-read?ids=8c1210c4-2ca0-4468-bdc4-c10b8ff9c497,5e91b4f6-eeb7-443a-8624-37fd8da93f0f,ea3b5538-1d2c-4f44-bfe4-3d0c751a99bd,0231c8a2-0089-478c-bceb-f74d071a33d3",
+    "https://vedarai.ru/api/cron/route-desc-read?ids=f93c6bda-3e77-4766-a17d-79520a3fed92,73b59f4a-7970-46b3-88c7-c9ac563e6e09,5f979cc6-b1c8-4e61-9676-459fe0ea8acb,cb028a53-a830-4001-bfd0-c154405935e3",
+    "https://vedarai.ru/api/cron/route-desc-read?ids=d3fd76b9-7aeb-49d0-83da-8e524ac6db88,dc3492f5-6273-4a4a-a5aa-a16180fcad55,d7f992ca-4bfb-4cba-a19f-ac4e9c2a5842,9122fb58-418c-47e8-ab28-a645ef5f19ec",
+    "https://vedarai.ru/api/cron/route-desc-read?ids=46857a0a-d523-45f9-8b78-aa07f50c1e91,5a83e7ce-2ad9-4873-ae21-590c555b255c,35f650c8-5c2f-4b55-bf6b-cff9bc8fd3ed,7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff",
+    "https://vedarai.ru/api/cron/route-desc-read?ids=03b2a69c-2799-418b-9ed5-de17018ba066,5099250b-698c-461d-bee2-c635e97669a2"
   ],
-  "until": "route_desc_census_v3",
+  "until": "route_desc_read_v1",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
