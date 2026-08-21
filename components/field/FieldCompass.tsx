@@ -31,6 +31,12 @@ export interface FieldCompassProps {
   /** Истинный азимут на следующую точку; null — цели нет. */
   targetBearing: number | null;
   size?: number;
+  /**
+   * Откуда взят курс: магнитный датчик или курс по движению GPS. Родословная
+   * значения — тот же закон, что у линий на карте (§12): прибор называет
+   * источник словами, а не выдаёт один за другой.
+   */
+  headingSource?: 'sensor' | 'motion' | null;
 }
 
 const CARDINALS = [
@@ -43,7 +49,7 @@ const CARDINALS = [
 /** Оцифровка через 30°, кроме сторон света — там буквы. */
 const DEGREE_LABELS = [30, 60, 120, 150, 210, 240, 300, 330];
 
-export function FieldCompass({ heading, state, targetBearing, size = 300 }: FieldCompassProps) {
+export function FieldCompass({ heading, state, targetBearing, size = 300, headingSource }: FieldCompassProps) {
   const trusted = state === 'ok';
   const c = size / 2;
   const rOuter = c - 6;
@@ -52,9 +58,13 @@ export function FieldCompass({ heading, state, targetBearing, size = 300 }: Fiel
   // Кольцо (засечки, цифры, буквы) крутится вместе с землёй — только когда
   // азимуту можно верить. Иначе стоит в нуле: север сверху, как на карте.
   const ringRotation = trusted ? -heading : 0;
-  // Стрелка смотрит на цель ОТНОСИТЕЛЬНО текущего курса: так она указывает
-  // в реальную сторону, если держать телефон перед собой.
-  const needleAngle = targetBearing === null ? null : (trusted ? targetBearing - heading : targetBearing);
+  // Стрелка смотрит на цель ОТНОСИТЕЛЬНО текущего курса — и живёт ТОЛЬКО
+  // при подтверждённом азимуте. Раньше неподтверждённая рисовалась серой в
+  // абсолютном угле: та же картинка означала другое, а прозрачность на
+  // солнце не читается — человек в тумане шёл за стрелкой, которая не
+  // значила «иди сюда». Число внизу говорит азимут без стрелки: число не
+  // умеет притворяться живым.
+  const needleAngle = trusted && targetBearing !== null ? targetBearing - heading : null;
 
   const ticks: React.ReactElement[] = [];
   for (let a = 0; a < 360; a += 5) {
@@ -120,16 +130,15 @@ export function FieldCompass({ heading, state, targetBearing, size = 300 }: Fiel
         <polygon points={`${c},${18} ${c - 8},${32} ${c + 8},${32}`}
           fill={trusted ? 'var(--success)' : 'rgba(255,255,255,0.35)'} />
 
-        {/* Стрелка на следующую точку */}
+        {/* Стрелка на следующую точку — только живая */}
         {needleAngle !== null && (
-          <g transform={`rotate(${trusted ? needleAngle : 0} ${c} ${c})`}
-            style={{ transition: 'transform 0.3s ease' }}
-            opacity={trusted ? 1 : 0.35}>
+          <g transform={`rotate(${needleAngle} ${c} ${c})`}
+            style={{ transition: 'transform 0.3s ease' }}>
             <line x1={c} y1={c} x2={c} y2={c - (rTickOuter - 48)}
-              stroke={trusted ? 'var(--success)' : 'var(--text-muted)'} strokeWidth="9" strokeLinecap="round" />
+              stroke="var(--success)" strokeWidth="9" strokeLinecap="round" />
             <polygon
               points={`${c},${c - (rTickOuter - 28)} ${c - 17},${c - (rTickOuter - 60)} ${c + 17},${c - (rTickOuter - 60)}`}
-              fill={trusted ? 'var(--success)' : 'var(--text-muted)'} />
+              fill="var(--success)" />
           </g>
         )}
 
@@ -138,7 +147,8 @@ export function FieldCompass({ heading, state, targetBearing, size = 300 }: Fiel
         <circle cx={c} cy={c} r={size * 0.022} fill="#0a0e12" />
       </svg>
 
-      {/* Азимут словами под осью — то же число, что показывает стрелка */}
+      {/* Азимут словами под осью — то же число, что показывает стрелка.
+          Без стрелки оно остаётся единственным честным ответом прибора. */}
       {targetBearing !== null && (
         <div className="absolute inset-x-0 flex flex-col items-center"
           style={{ top: '58%' }}>
@@ -146,6 +156,13 @@ export function FieldCompass({ heading, state, targetBearing, size = 300 }: Fiel
           <span className="text-2xl font-bold tabular-nums"
             style={{ color: trusted ? 'var(--success)' : 'var(--text-muted)' }}>
             {formatBearing(targetBearing)}
+          </span>
+          {/* Родословная курса — словами, как у линий на карте */}
+          <span className="text-[10px] mt-0.5 px-4 text-center leading-tight"
+            style={{ color: 'rgba(255,255,255,0.45)' }}>
+            {trusted
+              ? (headingSource === 'motion' ? 'курс — по движению GPS' : 'азимут — магнитный датчик')
+              : 'стрелка скрыта: азимут не подтверждён'}
           </span>
         </div>
       )}

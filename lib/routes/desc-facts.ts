@@ -24,6 +24,12 @@ export interface ClaimedNumbers {
   distanceKm: number | null;
   durationH: number | null;
   gainM: number | null;
+  /** Число названо «в одну сторону» — полной дистанции соответствует ×2. */
+  distanceOneWay?: boolean;
+  /** Число названо «в обе стороны»/«туда и обратно» — одной стороне ÷2. */
+  distanceRoundTrip?: boolean;
+  durationOneWay?: boolean;
+  durationRoundTrip?: boolean;
 }
 
 export interface RouteFacts {
@@ -94,6 +100,22 @@ const LOCATION_AFTER_RE =
 /** «2,5 часа езды», «час лёта» — доставка, не прохождение. */
 const TRANSPORT_AFTER_RE =
   /^[а-яa-z]*\s*(?:езды|лета|полета|на\s+(?:машине|автобусе|вертолете|катере|лодке))/;
+/**
+ * Предложение о ДОСТАВКЕ к старту, а не о пути: «из Ключей на внедорожнике:
+ * 60 км грунтовки» (проба 128 — Шивелуч, Дачные, Авачинская база). Дистанция
+ * из такого предложения — дорога, не маршрут; спасает только явное слово о
+ * протяжённости самого пути.
+ */
+const TRANSPORT_SENTENCE_RE = /внедорожник|на машине|на автобусе|езды|доехать|добраться|грунтовк/;
+const TRANSPORT_RESCUE_RE = /протяж|дистанц|одну сторону|обе стороны/;
+/**
+ * «Подъём 4-6 часов, спуск — 3-4» — раскладка пути на плечи, а не полное
+ * время: сравнивать плечо с полной записью нечестно (проба 128, Вилючинский).
+ */
+const DURATION_LEG_RE = /спуск/;
+/** Маркеры стороны — на уровне предложения: они стоят и до числа, и после. */
+const ONE_WAY_RE = /в одну сторону|в один конец/;
+const ROUND_TRIP_RE = /в обе стороны|туда и обратно|туда-обратно/;
 
 /**
  * Первое числовое утверждение каждого рода — с контекстом. Диапазон
@@ -103,41 +125,55 @@ const TRANSPORT_AFTER_RE =
 export function parseClaimedNumbers(text: string): ClaimedNumbers {
   const t = text.toLowerCase().replace(/ё/g, 'е');
 
-  const range = (re: RegExp, contextRe: RegExp, notAfterRe: RegExp): number | null => {
+  const range = (
+    re: RegExp, contextRe: RegExp, notAfterRe: RegExp,
+    skipSentenceRe: RegExp | null, rescueRe: RegExp | null,
+  ): { value: number; oneWay: boolean; roundTrip: boolean } | null => {
     const g = new RegExp(re.source, 'g');
     let m: RegExpExecArray | null;
     while ((m = g.exec(t)) !== null) {
       const after = t.slice(m.index + m[0].length);
       if (notAfterRe.test(after)) continue;
-      if (!contextRe.test(sentenceAround(t, m.index))) continue;
+      const sentence = sentenceAround(t, m.index);
+      if (!contextRe.test(sentence)) continue;
+      if (skipSentenceRe && skipSentenceRe.test(sentence) &&
+          !(rescueRe && rescueRe.test(sentence))) continue;
       const a = parseNum(m[1]);
       const b = m[2] ? parseNum(m[2]) : a;
-      return (a + b) / 2;
+      return {
+        value: (a + b) / 2,
+        oneWay: ONE_WAY_RE.test(sentence),
+        roundTrip: ROUND_TRIP_RE.test(sentence),
+      };
     }
     return null;
   };
 
+  // Не «км\b»: \b в JS не знает кириллицы (см. post-validation) — граница
+  // после «м» не находится никогда. Лукахед: дальше не буква.
+  const dist = range(
+    new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:км(?![а-яa-z])|километр)`),
+    DIST_CONTEXT_RE, LOCATION_AFTER_RE, TRANSPORT_SENTENCE_RE, TRANSPORT_RESCUE_RE,
+  );
+  const dur = range(
+    new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:час|ч\\.)`),
+    DUR_CONTEXT_RE, TRANSPORT_AFTER_RE, DURATION_LEG_RE, null,
+  );
+  // У набора высоты контекст уже в самом паттерне («набор») — окно не нужно.
+  const gm = t.match(new RegExp(
+    `набор(?:а|ом)?(?:\\s+высоты)?\\s*(?:[-–—:]\\s*)?(?:около\\s*|~\\s*)?${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*м`,
+  ));
+  const gainM = gm === null ? null
+    : (parseNum(gm[1]) + (gm[2] ? parseNum(gm[2]) : parseNum(gm[1]))) / 2;
+
   return {
-    // Не «км\b»: \b в JS не знает кириллицы (см. post-validation) — граница
-    // после «м» не находится никогда. Лукахед: дальше не буква.
-    distanceKm: range(
-      new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:км(?![а-яa-z])|километр)`),
-      DIST_CONTEXT_RE, LOCATION_AFTER_RE,
-    ),
-    durationH: range(
-      new RegExp(`${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*(?:час|ч\\.)`),
-      DUR_CONTEXT_RE, TRANSPORT_AFTER_RE,
-    ),
-    // У набора высоты контекст уже в самом паттерне («набор») — окно не нужно.
-    gainM: (() => {
-      const m = t.match(new RegExp(
-        `набор(?:а|ом)?(?:\\s+высоты)?\\s*(?:[-–—:]\\s*)?(?:около\\s*|~\\s*)?${NUM}(?:\\s*[-–—]\\s*${NUM})?\\s*м`,
-      ));
-      if (!m) return null;
-      const a = parseNum(m[1]);
-      const b = m[2] ? parseNum(m[2]) : a;
-      return (a + b) / 2;
-    })(),
+    distanceKm: dist?.value ?? null,
+    durationH: dur?.value ?? null,
+    gainM,
+    distanceOneWay: dist?.oneWay ?? false,
+    distanceRoundTrip: dist?.roundTrip ?? false,
+    durationOneWay: dur?.oneWay ?? false,
+    durationRoundTrip: dur?.roundTrip ?? false,
   };
 }
 
@@ -148,15 +184,35 @@ function mismatch(claim: number, fact: number, minAbs: number): boolean {
   return hi / lo >= MISMATCH_RATIO && hi - lo >= minAbs;
 }
 
+/**
+ * Число «в одну сторону» честно сравнивать и с удвоением (запись может
+ * держать полный путь), «в обе стороны» — и с половиной (запись может
+ * держать одно плечо): расхождение есть, только когда не сходится НИ ОДНО
+ * прочтение (проба 128: «12 км в одну сторону» против записи 26 — согласие,
+ * а не враньё).
+ */
+function mismatchAny(
+  claim: number, oneWay: boolean, roundTrip: boolean, fact: number, minAbs: number,
+): boolean {
+  const candidates = [claim];
+  if (oneWay) candidates.push(claim * 2);
+  if (roundTrip) candidates.push(claim / 2);
+  return candidates.every(c => mismatch(c, fact, minAbs));
+}
+
 export function compareFacts(claims: ClaimedNumbers, facts: RouteFacts): DescFinding[] {
   const out: DescFinding[] = [];
   if (claims.distanceKm !== null && facts.distanceKm !== null &&
-      mismatch(claims.distanceKm, facts.distanceKm, MIN_ABS_KM)) {
-    out.push({ kind: 'distance_mismatch', detail: `в тексте ${claims.distanceKm} км, в записи ${facts.distanceKm} км` });
+      mismatchAny(claims.distanceKm, claims.distanceOneWay ?? false,
+        claims.distanceRoundTrip ?? false, facts.distanceKm, MIN_ABS_KM)) {
+    const side = claims.distanceOneWay ? ' (в одну сторону)' : claims.distanceRoundTrip ? ' (в обе стороны)' : '';
+    out.push({ kind: 'distance_mismatch', detail: `в тексте ${claims.distanceKm} км${side}, в записи ${facts.distanceKm} км` });
   }
   if (claims.durationH !== null && facts.durationH !== null &&
-      mismatch(claims.durationH, facts.durationH, MIN_ABS_H)) {
-    out.push({ kind: 'duration_mismatch', detail: `в тексте ${claims.durationH} ч, в записи ${facts.durationH} ч` });
+      mismatchAny(claims.durationH, claims.durationOneWay ?? false,
+        claims.durationRoundTrip ?? false, facts.durationH, MIN_ABS_H)) {
+    const side = claims.durationOneWay ? ' (в одну сторону)' : claims.durationRoundTrip ? ' (в обе стороны)' : '';
+    out.push({ kind: 'duration_mismatch', detail: `в тексте ${claims.durationH} ч${side}, в записи ${facts.durationH} ч` });
   }
   if (claims.gainM !== null && facts.gainM !== null &&
       mismatch(claims.gainM, facts.gainM, MIN_ABS_GAIN_M)) {

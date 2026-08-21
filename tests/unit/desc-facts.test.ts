@@ -74,6 +74,56 @@ describe('parseClaimedNumbers — числа из текста', () => {
     );
     expect(c.distanceKm).toBe(12);
   });
+
+  it('«60 км грунтовки на внедорожнике» — доставка к старту, не маршрут (проба 128)', () => {
+    const c = parseClaimedNumbers('Маршрут — вертолётный или из Ключей на внедорожнике: 60 км грунтовки.');
+    expect(c.distanceKm).toBeNull();
+  });
+
+  it('«подъём..., спуск...» — плечи пути, не полное время (Вилючинский)', () => {
+    const c = parseClaimedNumbers('Подъем занимает 4-6 часов, спуск — 3-4 часа.');
+    expect(c.durationH).toBeNull();
+  });
+
+  it('маркер стороны читается на уровне предложения', () => {
+    const c = parseClaimedNumbers('Протяженность маршрута в одну сторону — около 4 километров.');
+    expect(c.distanceKm).toBe(4);
+    expect(c.distanceOneWay).toBe(true);
+    const c2 = parseClaimedNumbers('Протяжённость пути в обе стороны составляет около 8-10 километров.');
+    expect(c2.distanceKm).toBe(9);
+    expect(c2.distanceRoundTrip).toBe(true);
+  });
+});
+
+describe('compareFacts — стороны пути', () => {
+  const noFlags = {
+    gainM: null, distanceOneWay: false, distanceRoundTrip: false,
+    durationOneWay: false, durationRoundTrip: false,
+  };
+
+  it('«12 км в одну сторону» против записи 26 — согласие, не враньё (Оленьими тропами)', () => {
+    const out = compareFacts(
+      { ...noFlags, distanceKm: 12, durationH: null, distanceOneWay: true },
+      { distanceKm: 26, durationH: null, gainM: null },
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('«9 км в обе стороны» против записи 4 (одно плечо) — согласие (Тугумынк)', () => {
+    const out = compareFacts(
+      { ...noFlags, distanceKm: 9, durationH: null, distanceRoundTrip: true },
+      { distanceKm: 4, durationH: null, gainM: null },
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('сторона не спасает настоящее враньё: 4 км в одну сторону против 64 км', () => {
+    const out = compareFacts(
+      { ...noFlags, distanceKm: 4, durationH: null, distanceOneWay: true },
+      { distanceKm: 64.3, durationH: null, gainM: null },
+    );
+    expect(out.map(f => f.kind)).toEqual(['distance_mismatch']);
+  });
 });
 
 describe('compareFacts — пороги: вдвое И заметно в абсолюте', () => {
