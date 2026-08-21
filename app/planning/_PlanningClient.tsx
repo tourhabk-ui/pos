@@ -613,8 +613,7 @@ function OnTrailTab() {
         // 14:32», а не «данные такие на 14:32».
         setLiveDataAt(Date.now());
         const wps = data.waypoints;
-        if (!Array.isArray(wps) || wps.length === 0) return;
-        const converted: SavedWaypoint[] = (wps as Array<Record<string, unknown>>)
+        const converted: SavedWaypoint[] = (Array.isArray(wps) ? wps as Array<Record<string, unknown>> : [])
           .filter(w => w.lat != null && w.lng != null)
           // «Рядом» — не точка пути (§4.1, миграция 874): у Скал Три Брата
           // краевой музей и батарея Максутова числились этапами, и полевой
@@ -628,9 +627,26 @@ function OnTrailTab() {
             lng: Number(w.lng),
             name: (w.placeName as string | null) ?? `Точка ${Number(w.position) + 1}`,
           }));
-        if (converted.length > 0) {
-          setWaypoints(converted);
-          try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: converted })); } catch { /* квота */ }
+        // Ноль путевых точек — ЗАКОННЫЙ результат, а не отказ: у Скал Три
+        // Брата все 23 связи стали «рядом», путь описан одним треком. Прежний
+        // код обновлял стейт и кэш только при непустом списке — телефон,
+        // однажды скачавший 23 «этапа», жил на них вечно: полевой скрин 21.08
+        // показывал 142.3 км через сутки после починки данных. Пустота обязана
+        // перезаписывать кэш так же, как непустота.
+        //
+        // Ход при этом не теряется: точками становятся начало и конец снятой
+        // линии — честные имена, ведение вдоль трека, дистанция по треку.
+        const effective: SavedWaypoint[] = converted.length > 0
+          ? converted
+          : Array.isArray(tr) && tr.length >= 2
+            ? [
+                { lat: (tr as [number, number][])[0][0], lng: (tr as [number, number][])[0][1], name: 'Начало трека' },
+                { lat: (tr as [number, number][])[tr.length - 1][0], lng: (tr as [number, number][])[tr.length - 1][1], name: 'Конец трека' },
+              ]
+            : [];
+        setWaypoints(effective);
+        try { localStorage.setItem(cacheKey, JSON.stringify({ title: data.title as string, waypoints: effective })); } catch { /* квота */ }
+        if (effective.length > 0) {
           void loadMapPlan(routeId); // что уже скачано и сколько весит недостающее
         }
       })
