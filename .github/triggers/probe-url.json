@@ -1,15 +1,13 @@
 {
-  "note": "Проба 120: бэкфилл elevation_gain_m из треков («го» владельца 21.08). GET — датчик elevation_backfill_v1 и счётчик кандидатов (~280 живых с линией и NULL); два боевых POST по 200 — набор пишется только при reliable-высотах (покрытие ≥60%), только в NULL, вычислителем карточки. Ожидания: candidates ~260-300, у POST written ≈ planned, unreliable — честный остаток (osm/synthetic без высот); сверка выборкой в следующей пробе.",
+  "note": "Проба 121: контроль после бэкфилла набора высоты (проба 120: written 280 из 284, unreliable 4). Данные уже в БД — деплоя ждать не надо, маркер «\"elevation_gain_m\":2598» (Авачинский путь на вершину) найдётся сразу. Ожидания: в выдаче поиска набор числом у большинства, сортировка внутри рода учитывает высоту; у Трёх Братьев и прочих поверхность не сломана.",
   "urls": [
-    "https://vedarai.ru/api/cron/elevation-backfill"
+    "https://vedarai.ru/api/routes/search?q=%D0%90%D0%B2%D0%B0%D1%87%D0%B8%D0%BD%D1%81%D0%BA",
+    "https://vedarai.ru/api/routes/search?q=%D0%A2%D0%BE%D0%BB%D0%B1%D0%B0%D1%87%D0%B8%D0%BA",
+    "https://vedarai.ru/api/routes/search?q=%D0%A2%D1%80%D0%B8%20%D0%B1%D1%80%D0%B0%D1%82%D0%B0"
   ],
-  "post": [
-    { "url": "https://vedarai.ru/api/cron/elevation-backfill", "body": { "dry_run": false, "limit": 200 } },
-    { "url": "https://vedarai.ru/api/cron/elevation-backfill", "body": { "dry_run": false, "limit": 200 } }
-  ],
-  "until": "elevation_backfill_v1",
+  "until": "\"elevation_gain_m\":2598",
   "retries": 12,
   "retryDelay": 60,
   "timeout": 115,
-  "bytes": 12000
+  "bytes": 20000
 }
