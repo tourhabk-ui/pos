@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
       // грунтовки») — дорога, не маршрут; «подъём..., спуск...» — плечо, не
       // полное время. Плюс миграции 896-897: битые записи сброшены, тексты
       // с фактическим враньём поправлены точечно.
-      probe: 'route_desc_census_v4',
+      probe: 'route_desc_census_v5',
       live_total: rows.length,
       with_description: withDescription,
       offenders_total: offenders.length,
