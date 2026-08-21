@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
+import { trackEvidence } from '@/lib/routes/track-evidence';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -97,6 +98,10 @@ export async function GET(request: NextRequest) {
     const items = rows.map(r => {
       const coords = Array.isArray(r.coords) ? (r.coords as number[][]) : null;
       const span = coords && coords.length >= 2 ? spanKm(coords) : null;
+      // Улика происхождения (§12, правило 18.08): решает не имя поставщика,
+      // а сама линия — высота на точках при неровном шаге. Без неё разговор
+      // о роде линии сводится к мнению, а мнение здесь не судья.
+      const ev = coords ? trackEvidence({ type: 'LineString', coordinates: coords }) : null;
       return {
         id: r.id,
         title: r.title,
@@ -111,6 +116,14 @@ export async function GET(request: NextRequest) {
           waypoint: parseInt(r.n_waypoint, 10),
           nearby: parseInt(r.n_nearby, 10),
           unknown: parseInt(r.n_unknown, 10),
+        },
+        evidence: ev === null ? null : {
+          verdict: ev.verdict,
+          elevation_share: Math.round(ev.elevationShare * 100) / 100,
+          pacing: ev.pacing,
+          in_bounds: ev.inBounds,
+          continuous: ev.continuous,
+          reasons: ev.reasons,
         },
       };
     });
@@ -133,7 +146,7 @@ export async function GET(request: NextRequest) {
         }));
       return NextResponse.json({
         success: true,
-        probe: 'route_geometry_census_v1',
+        probe: 'route_geometry_census_v2',
         mode: 'duplicates',
         live_total: rows.length,
         with_line: items.filter(i => i.vertices >= 2).length,
@@ -149,7 +162,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      probe: 'route_geometry_census_v1',
+      probe: 'route_geometry_census_v2',
       live_total: rows.length,
       with_line: items.filter(i => i.vertices >= 2).length,
       offenders_total: offenders.length,
