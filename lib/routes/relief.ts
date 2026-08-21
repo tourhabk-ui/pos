@@ -74,8 +74,24 @@ export function accumulateRelief(points: TrackPointLike[]): RouteRelief {
   };
   if (!Array.isArray(points) || points.length < 2) return empty;
 
-  const withEle = points.filter(p => isEle(p.elevation)).length;
-  const reliable = withEle / points.length >= MIN_ELEVATION_COVERAGE;
+  // «Высоты есть» и «высоты меряны» — разные состояния. Идеальная константа
+  // на всём треке — след заполнения поля одним числом, а не прибора: живой
+  // GPS/DEM шумит хотя бы на метры. Бэкфилл набора (проба 121) поверил
+  // таким трекам и записал «0 м» Авачинскому перевалу — константная высота
+  // проходила порог покрытия со стопроцентным охватом. Плоскость с реальным
+  // разбросом в пределах шума остаётся надёжной: там прибор мерил и увидел
+  // равнину. Цикл, не spread: гигантский трек уронил бы Math.min(...arr).
+  let withEle = 0;
+  let eleLo = Infinity;
+  let eleHi = -Infinity;
+  for (const p of points) {
+    if (!isEle(p.elevation)) continue;
+    withEle++;
+    if (p.elevation < eleLo) eleLo = p.elevation;
+    if (p.elevation > eleHi) eleHi = p.elevation;
+  }
+  const constantEle = withEle >= 2 && eleLo === eleHi;
+  const reliable = !constantEle && withEle / points.length >= MIN_ELEVATION_COVERAGE;
 
   let distanceM = 0;
   let ascentM = 0;
