@@ -6,10 +6,13 @@
  * ломал модель: «Скалы Три Брата» давали четыре строки-варианта, и место
  * между ними терялось.
  *
- * Сравнение путей — сначала род линии (снятый трек выше любых догадок:
- * различение трека и ломаной — главная защита платформы), внутри рода —
- * длина. Совпавшие только НАЗВАНИЕМ маршрута — отдельной секцией в конце,
- * честно подписанной: они не «пути к месту», пока связь не установлена.
+ * Сравнение путей — как у зрелых аутдор-платформ (решение владельца 21.08),
+ * но с нашим первым ключом: род линии (снятый трек выше любых догадок:
+ * различение трека и ломаной — главная защита платформы), затем сложность
+ * (легче выше — выбирает массовый турист, а не спортсмен), затем длина,
+ * затем набор высоты. Совпавшие только НАЗВАНИЕМ маршрута — отдельной
+ * секцией в конце, честно подписанной: они не «пути к месту», пока связь
+ * не установлена.
  */
 
 export interface PathCandidate {
@@ -18,6 +21,8 @@ export interface PathCandidate {
   distanceKm: number | null;
   lineGrade?: string | null;
   waypointNames?: string[];
+  difficulty?: string | null;
+  elevationGainM?: number | null;
 }
 
 export interface PlaceGroup<T extends PathCandidate = PathCandidate> {
@@ -31,11 +36,35 @@ const GRADE_RANK: Record<string, number> = {
   surveyed: 0, gps: 0, unknown: 1, sketch: 2, points_only: 3, none: 4,
 };
 
+/**
+ * Ранг сложности: легче выше. Неуказанная сложность — СЕРЕДИНА (1.5),
+ * а не край: «не знаю» — не награда и не приговор (правило третьего
+ * состояния), и константа держит компаратор транзитивным — null между
+ * medium и hard, а не «равен всем сразу».
+ */
+const DIFF_RANK: Record<string, number> = {
+  easy: 0, medium: 1, moderate: 1, hard: 2, extreme: 3,
+};
+const DIFF_UNKNOWN = 1.5;
+
+function diffRank(d: string | null | undefined): number {
+  if (!d) return DIFF_UNKNOWN;
+  return DIFF_RANK[d.toLowerCase()] ?? DIFF_UNKNOWN;
+}
+
 export function comparePaths(a: PathCandidate, b: PathCandidate): number {
   const ga = GRADE_RANK[a.lineGrade ?? 'none'] ?? 4;
   const gb = GRADE_RANK[b.lineGrade ?? 'none'] ?? 4;
   if (ga !== gb) return ga - gb;
-  return (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
+  const da = diffRank(a.difficulty);
+  const db = diffRank(b.difficulty);
+  if (da !== db) return da - db;
+  const la = a.distanceKm ?? Infinity;
+  const lb = b.distanceKm ?? Infinity;
+  if (la !== lb) return la - lb;
+  // Набор высоты — последний ключ: при прочих равных меньший набор выше,
+  // неизвестный — после известного (Infinity), не вперемешку.
+  return (a.elevationGainM ?? Infinity) - (b.elevationGainM ?? Infinity);
 }
 
 function normPlace(s: string): string {

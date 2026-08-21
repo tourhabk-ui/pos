@@ -16,6 +16,7 @@ interface RouteRow {
   title: string;
   distance_km: string | null;
   difficulty_level: string | null;
+  elevation_gain_m: number | null;
   zone: string | null;
   waypoint_names: string[] | null;
   has_line: boolean;
@@ -46,6 +47,7 @@ const ENRICH_SQL = `
     r.title,
     r.distance_km,
     r.difficulty AS difficulty_level,
+    r.elevation_gain_m,
     r.zone,
     (r.geometry IS NOT NULL) AS has_line,
     r.geometry->>'source' AS geometry_source,
@@ -59,7 +61,7 @@ const ENRICH_SQL = `
     -- показывал месяц — аудит и миграции её при этом живой не считали
     -- (проба 109, migrations/887_merged_rows_leave_showcase.sql).
     AND r.is_visible = TRUE AND r.merged_into_id IS NULL
-  GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
+  GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.elevation_gain_m, r.zone
 `;
 
 export async function GET(req: NextRequest) {
@@ -111,6 +113,7 @@ export async function GET(req: NextRequest) {
          r.title,
          r.distance_km,
          r.difficulty AS difficulty_level,
+         r.elevation_gain_m,
          r.zone,
          (r.geometry IS NOT NULL) AS has_line,
          r.geometry->>'source' AS geometry_source,
@@ -139,7 +142,7 @@ export async function GET(req: NextRequest) {
             WHERE rw3.route_id = r.id AND p3.lat IS NOT NULL AND p3.lng IS NOT NULL),
            TRUE
          )
-       GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.zone
+       GROUP BY r.id, r.title, r.distance_km, r.difficulty, r.elevation_gain_m, r.zone
        ORDER BY r.title
        LIMIT 15`,
       [like],

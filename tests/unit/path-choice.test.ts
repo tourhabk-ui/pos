@@ -11,8 +11,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { comparePaths, groupRoutesByPlace } from '@/lib/routes/path-choice';
 
-const R = (id: string, grade: string | null, km: number | null, wps: string[] = []) =>
-  ({ id, title: id, distanceKm: km, lineGrade: grade, waypointNames: wps });
+const R = (
+  id: string, grade: string | null, km: number | null, wps: string[] = [],
+  difficulty: string | null = null, elevationGainM: number | null = null,
+) => ({ id, title: id, distanceKm: km, lineGrade: grade, waypointNames: wps, difficulty, elevationGainM });
 
 describe('сравнение путей', () => {
   it('снятый трек выше догадок, даже если длиннее', () => {
@@ -31,6 +33,33 @@ describe('сравнение путей', () => {
     const noKm = R('a', 'unknown', null);
     const withKm = R('b', 'unknown', 42);
     expect([noKm, withKm].sort(comparePaths)[0].id).toBe('b');
+  });
+
+  it('внутри рода легче выше, даже если длиннее', () => {
+    const hardShort = R('a', 'unknown', 2, [], 'hard');
+    const easyLong = R('b', 'unknown', 12, [], 'easy');
+    expect([hardShort, easyLong].sort(comparePaths)[0].id).toBe('b');
+  });
+
+  it('сложность не перебивает род линии: снятый hard выше догадки easy', () => {
+    const surveyedHard = R('a', 'surveyed', 8, [], 'hard');
+    const unknownEasy = R('b', 'unknown', 3, [], 'easy');
+    expect([unknownEasy, surveyedHard].sort(comparePaths)[0].id).toBe('a');
+  });
+
+  it('неуказанная сложность — середина: ниже easy, выше hard', () => {
+    const unknown = R('a', 'unknown', 5, [], null);
+    const easy = R('b', 'unknown', 5, [], 'easy');
+    const hard = R('c', 'unknown', 5, [], 'hard');
+    const order = [hard, unknown, easy].sort(comparePaths).map(r => r.id);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+
+  it('при прочих равных меньший набор высоты выше, неизвестный — после известного', () => {
+    const big = R('a', 'unknown', 5, [], 'easy', 900);
+    const small = R('b', 'unknown', 5, [], 'easy', 200);
+    const none = R('c', 'unknown', 5, [], 'easy', null);
+    expect([none, big, small].sort(comparePaths).map(r => r.id)).toEqual(['b', 'a', 'c']);
   });
 });
 
