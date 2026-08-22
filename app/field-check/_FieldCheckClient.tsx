@@ -39,6 +39,77 @@ const PHOTO_LIMIT = 3;
 /** Полевая цель под палец в перчатке — не меньше 56 px. */
 const TAP = 56;
 
+/**
+ * «1 точек пути» — мелочь, которая читается как небрежность ко всему
+ * остальному: человек, увидевший в поле кривую форму слова, не поверит и
+ * цифре рядом с ним. Склонение по последним разрядам, как в русском.
+ */
+/**
+ * Слово вместо кода базы.
+ *
+ * `medium`, `waterfall`, `hot_spring` — это наши внутренние ярлыки. Человек
+ * в поле читает их как знак, что мы писали экран для себя, а не для него.
+ * Незнакомый ярлык не переводится и НЕ показывается: показать код честнее
+ * не становится, а место на экране он занимает.
+ */
+const SUBTITLE_WORD: Record<string, string> = {
+  easy: 'просто', medium: 'средне', hard: 'тяжело', expert: 'очень тяжело',
+  volcano: 'вулкан', lake: 'озеро', hot_spring: 'горячий источник',
+  waterfall: 'водопад', mountain: 'гора', geyser: 'гейзер', river: 'река',
+  bay: 'бухта', beach: 'пляж', glacier: 'ледник', cave: 'пещера',
+  canyon: 'каньон', valley: 'долина', island: 'остров', pass: 'перевал',
+};
+
+export function subtitleWord(subtitle: string | null): string | null {
+  if (!subtitle) return null;
+  return SUBTITLE_WORD[subtitle] ?? null;
+}
+
+/**
+ * Число по-русски: «12,1 км» вместо «12.10 км».
+ *
+ * Точка вместо запятой и хвост нулей — след того, что число пришло из
+ * колонки NUMERIC как есть. Мелочь того же рода, что «1 точек пути».
+ */
+export function ruAmount(raw: string): string {
+  const m = /^(\d+(?:\.\d+)?)(.*)$/.exec(raw.trim());
+  if (m === null) return raw;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return raw;
+  const body = (Math.round(n * 10) / 10).toString().replace('.', ',');
+  return `${body}${m[2]}`;
+}
+
+/**
+ * Одно обещание для свёрнутой карточки.
+ *
+ * У маршрута это дистанция: её опровергают чаще всего и проще всего.
+ * У места отдельного обещания нет — тип уже стоит строкой выше, и повторять
+ * его значит занимать строку ничем.
+ *
+ * Нечего обещать — строки нет: пустое место честнее слов «не знаем»,
+ * которые человек читает как нашу небрежность, а не как честный пропуск.
+ */
+export function headlineClaim(item: {
+  kind: 'route' | 'place';
+  subtitle: string | null;
+  facts: Array<{ label: string; value: string | null }>;
+}): string | null {
+  if (item.kind !== 'route') return null;
+  const d = item.facts.find(f => f.label === 'дистанция')?.value;
+  return d ? `обещаем ${ruAmount(d)}` : null;
+}
+
+export function waypointsPhrase(n: number): string {
+  const t = Math.abs(n) % 100;
+  const o = t % 10;
+  const word = t >= 11 && t <= 14 ? 'точек'
+    : o === 1 ? 'точка'
+    : o >= 2 && o <= 4 ? 'точки'
+    : 'точек';
+  return `${n} ${word} пути`;
+}
+
 interface NearbyItem {
   kind: 'route' | 'place';
   id: string;
@@ -99,7 +170,7 @@ export function FieldCheckClient() {
   const [fix, setFix] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
   const [radiusKm, setRadiusKm] = useState(15);
   const [manualCenter, setManualCenter] = useState('');
-  const [showManualCenter, setShowManualCenter] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [items, setItems] = useState<NearbyItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +305,7 @@ export function FieldCheckClient() {
     setError(null);
     if (!('geolocation' in navigator)) {
       setError('Телефон не отдаёт координаты — введите их вручную');
-      setShowManualCenter(true);
+      setShowMore(true);
       return;
     }
     setLoading(true);
@@ -253,7 +324,7 @@ export function FieldCheckClient() {
         setError(err.code === 1
           ? 'Доступ к геопозиции закрыт. Разрешите его или введите координаты вручную'
           : 'Сигнал не поймали. Попробуйте на открытом месте или введите координаты вручную');
-        setShowManualCenter(true);
+        setShowMore(true);
       },
       { enableHighAccuracy: true, timeout: 30_000, maximumAge: 10_000 },
     );
@@ -461,9 +532,8 @@ export function FieldCheckClient() {
               Полевая проверка
             </h1>
             <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Покажем, что платформа знает о местах вокруг вас. Скажете, сходится
-              ли это с землёй. Данные меняет владелец — ваша проверка идёт в
-              очередь, сломать ничего нельзя.
+              Покажем, что мы обещаем о местах вокруг вас. Скажете, сходится ли
+              это с землёй. Сломать ничего нельзя.
             </p>
           </div>
 
@@ -531,7 +601,7 @@ export function FieldCheckClient() {
                       {r.title}
                     </span>
                     <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {r.waypoints > 0 ? `${r.waypoints} точек пути` : 'точек пути нет — проверим, что рядом'}
+                      {r.waypoints > 0 ? waypointsPhrase(r.waypoints) : 'точек пути нет — проверим, что рядом'}
                     </span>
                   </button>
                 ))}
@@ -539,11 +609,16 @@ export function FieldCheckClient() {
             )}
           </div>
 
-          {!showManualCenter ? (
-            <button onClick={() => setShowManualCenter(true)}
+          {/*
+            Всё редкое — под одну ссылку. Шесть решений на первом экране
+            человек в перчатке не принимает: он ищет ту кнопку, ради которой
+            открыл страницу. Спрятанное не удалено — оно в одном касании.
+          */}
+          {!showMore ? (
+            <button onClick={() => setShowMore(true)}
               className="text-sm underline underline-offset-2 self-start"
               style={{ color: 'var(--text-muted)' }}>
-              Ввести координаты вручную
+              Ещё: координаты вручную, радиус
             </button>
           ) : (
             <div className="flex flex-col gap-2">
@@ -562,23 +637,25 @@ export function FieldCheckClient() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Насколько далеко смотреть</span>
-            <div className="flex gap-2">
-              {[5, 15, 40].map(r => (
-                <button key={r} onClick={() => setRadiusKm(r)}
-                  className="flex-1 rounded-lg font-semibold"
-                  style={{
-                    background: radiusKm === r ? 'var(--ocean)' : 'var(--bg-card)',
-                    color: radiusKm === r ? '#FFFFFF' : 'var(--text-primary)',
-                    border: radiusKm === r ? 'none' : '1px solid var(--border)',
-                    minHeight: TAP,
-                  }}>
-                  {r} км
-                </button>
-              ))}
+          {showMore && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Насколько далеко смотреть</span>
+              <div className="flex gap-2">
+                {[5, 15, 40].map(r => (
+                  <button key={r} onClick={() => setRadiusKm(r)}
+                    className="flex-1 rounded-lg font-semibold"
+                    style={{
+                      background: radiusKm === r ? 'var(--ocean)' : 'var(--bg-card)',
+                      color: radiusKm === r ? '#FFFFFF' : 'var(--text-primary)',
+                      border: radiusKm === r ? 'none' : '1px solid var(--border)',
+                      minHeight: TAP,
+                    }}>
+                    {r} км
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {queueLen > 0 && (
             <div className="flex items-center gap-2 text-sm p-3 rounded-lg"
@@ -588,10 +665,12 @@ export function FieldCheckClient() {
             </div>
           )}
 
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Добавьте страницу на домашний экран — она открывается без интернета,
-            и проверки не потеряются в местах без связи.
-          </p>
+          {showMore && (
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Добавьте страницу на домашний экран — она открывается без интернета,
+              и проверки не потеряются в местах без связи.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -745,24 +824,40 @@ export function FieldCheckClient() {
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {item.kind === 'route' ? 'маршрут' : 'место'} · {item.away_km} км от вас
-                    {item.subtitle ? ` · ${item.subtitle}` : ''}
+                    {subtitleWord(item.subtitle) ? ` · ${subtitleWord(item.subtitle)}` : ''}
                   </div>
                 </div>
               </div>
 
-              <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: 'var(--text-secondary)' }}>
-                <span className="tabular-nums">{item.lat.toFixed(5)}, {item.lng.toFixed(5)}</span>
-                {item.facts.map(f => (
-                  <span key={f.label} style={{ color: f.value ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
-                    {f.label}: {f.value ?? 'не знаем'}
-                  </span>
-                ))}
-              </div>
+              {/*
+                Свёрнутая карточка несёт ОДНО обещание — то, что человек
+                может опровергнуть, не открывая ничего. Координаты, прочие
+                факты и описание нужны уже отвечающему, и показываются, когда
+                он открыл запись. Список из двадцати таких карточек иначе
+                читается как выгрузка из базы, а не как вопрос.
+              */}
+              {!open && headlineClaim(item) && (
+                <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  {headlineClaim(item)}
+                </div>
+              )}
 
-              {item.description_head && !open && (
-                <p className="text-xs leading-snug" style={{ color: 'var(--text-muted)' }}>
-                  {item.description_head}…
-                </p>
+              {open && (
+                <>
+                  <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: 'var(--text-secondary)' }}>
+                    <span className="tabular-nums">{item.lat.toFixed(5)}, {item.lng.toFixed(5)}</span>
+                    {item.facts.map(f => (
+                      <span key={f.label} style={{ color: f.value ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                        {f.label}: {f.value ?? 'не знаем'}
+                      </span>
+                    ))}
+                  </div>
+                  {item.description_head && (
+                    <p className="text-xs leading-snug" style={{ color: 'var(--text-muted)' }}>
+                      {item.description_head}…
+                    </p>
+                  )}
+                </>
               )}
 
               {!open && (
@@ -818,7 +913,13 @@ export function FieldCheckClient() {
                   {/* Правильная точка. Вердикт «точка стоит не там» без неё —
                       жалоба без адреса. Происхождение пишется вместе с
                       числами: фикс на объекте и цифры из чужого навигатора —
-                      улики разного веса. */}
+                      улики разного веса.
+
+                      Спрашивается ТОЛЬКО у того, кто сказал, что точка не там.
+                      Раньше блок висел всегда — человек, жалующийся на
+                      описание, читал вопрос о координате как обязательный и
+                      либо застревал, либо вводил лишь бы что. */}
+                  {problem === 'coords_wrong' && (
                   <div className="flex flex-col gap-2 p-3 rounded-lg"
                     style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -860,6 +961,7 @@ export function FieldCheckClient() {
                       <span className="text-xs" style={{ color: 'var(--warning)' }}>{coordError}</span>
                     )}
                   </div>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-2">
                     {photos.map((data, i) => (
