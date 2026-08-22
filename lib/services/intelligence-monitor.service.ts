@@ -26,6 +26,7 @@ import { knowledgeBase } from '@/lib/agents/memory/agent-knowledge';
 import { pool } from '@/lib/db-pool';
 import { postAINewsToChannel, postTravelNewsToChannel } from '@/lib/notifications/telegram-channel';
 import { bridgeMonitorFindings } from '@/lib/agents/evo/intel-bridge';
+import { triageActionItems } from '@/lib/agents/intel/action-quality';
 import { firecrawlScrape, firecrawlAvailable } from '@/lib/services/ingest/firecrawl';
 import type { ChatMessage } from '@/lib/ai/prompts';
 
@@ -494,6 +495,13 @@ async function analyzeSignals(
 
 Твоя задача: найти новые фичи/паттерны которые можно реализовать у себя.
 
+ГЛАВНОЕ: большинство новостей к нашей платформе НЕ применимы, и сказать об
+этом — правильный ответ, а не провал задачи. Связь с TourHab должна следовать
+из САМОЙ новости, а не из того, что новость и платформа оказались рядом.
+Не выводи применимость из соседства: демонстрация того, что видит модель на
+картинке, не становится «валидацией безопасности маршрутов» оттого, что мы
+возим людей к вулканам. Нет связи в источнике — верни summary "null".
+
 Для каждой релевантной новости выдели:
 1. Что конкретно внедрили? (1-2 предложения)
 2. Какую пользовательскую боль это решает?
@@ -515,6 +523,10 @@ ${config.ai_filter}
 - "notable" = полезный паттерн, стоит рассмотреть в следующем спринте
 - "informational" = контекст, без прямого действия
 - action_items = максимум 3, начинаются с приоритета в квадратных скобках
+- action_item — ДЕЙСТВИЕ, а не размышление. «Проанализировать возможность»,
+  «Исследовать применение», «Оценить целесообразность» — это не пункты: сама
+  находка уже есть предложение подумать. Нечего предложить делом — оставь
+  action_items пустым, это честный ответ
 - Игнорируй: слияния/поглощения (кроме стратегических), кадровые новости, общие отчёты без конкретики, AI-продукты для других отраслей
 - Если ничего релевантного — верни {"summary": "null", "urgency": "informational", "action_items": []}
 - Отвечай ТОЛЬКО JSON, без markdown-обёртки`,
@@ -546,18 +558,39 @@ ${config.ai_filter}
 
     if (parsed.summary === 'null' || !parsed.summary) return null;
 
-    const urgency = ['critical', 'notable', 'informational'].includes(parsed.urgency)
+    const claimed = ['critical', 'notable', 'informational'].includes(parsed.urgency)
       ? parsed.urgency as IntelligenceFinding['urgency']
       : 'informational';
+
+    /**
+     * Отсев размышлений (23.08).
+     *
+     * «Проанализировать возможность интеграции» — не действие: находка сама
+     * уже есть предложение подумать, и пункт «подумать над находкой» создаёт
+     * вид работы. Два разбора эволюции подряд дали 34/48 и 33/47 вердиктов
+     * «шум», и почти все шумные начинались именно так.
+     *
+     * Отсев ВИДЕН в логе: «пусто» и «отсеяли всё» — разные состояния (§4.0).
+     * Находка, у которой не осталось ни одного дела, роняется до
+     * informational: в Telegram и канал уходят только critical и notable,
+     * значит человека она не разбудит, а в базе и в отчёте останется.
+     */
+    const raw = Array.isArray(parsed.action_items) ? parsed.action_items.slice(0, 3) : [];
+    const triage = triageActionItems(raw);
+    if (triage.dropped.length > 0) {
+      console.error(
+        `[intelligence] ${domainKey}: отсеяно размышлений ${triage.dropped.length} из ${raw.length}` +
+        (triage.allResearch ? ' — дел не осталось, срочность снижена' : ''),
+      );
+    }
+    const urgency: IntelligenceFinding['urgency'] = triage.allResearch ? 'informational' : claimed;
 
     return {
       domain: domainKey as IntelligenceFinding['domain'],
       summary: parsed.summary,
       signals,
       urgency,
-      action_items: Array.isArray(parsed.action_items)
-        ? parsed.action_items.slice(0, 3)
-        : [],
+      action_items: triage.kept,
     };
   } catch (err) {
     console.error('[intelligence] AI analysis failed:', err instanceof Error ? err.message : err);
