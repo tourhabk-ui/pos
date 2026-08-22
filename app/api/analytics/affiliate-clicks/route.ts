@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 const ClickSchema = z.object({
   partner: z.string().max(50),      // 'aviasales', 'hotellook', 'tripster', etc
@@ -14,7 +15,12 @@ const ClickSchema = z.object({
   referrer: z.string().max(500).optional(),
 });
 
+const limiter = createRateLimiter({ windowMs: 10_000, max: 30 });
+
 export async function POST(request: NextRequest) {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json({ ok: false }, { status: 429 });
+  }
   try {
     const body = await request.json();
     const parsed = ClickSchema.safeParse(body);

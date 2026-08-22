@@ -208,19 +208,15 @@ export async function GET(request: NextRequest) {
           createdAt: new Date(row.created_at),
           updatedAt: new Date(row.updated_at)
         },
+        // Телефон, почта и лицензия водителя в публичную выдачу не идут —
+        // это ПД живого человека; деловой канал связи — контакт оператора
+        // ниже. См. PublicTransferDriver.
         driver: {
           id: row.driver_id,
-          operatorId: row.operator_id,
           name: row.name,
-          phone: row.phone,
-          email: row.email ?? undefined,
-          licenseNumber: row.license_number,
           languages: row.languages || [],
           rating: parseFloat(row.rating),
           totalTrips: row.total_trips,
-          isActive: row.is_active,
-          createdAt: new Date(row.created_at),
-          updatedAt: new Date(row.updated_at)
         },
         departureTime: row.departure_time,
         arrivalTime: row.arrival_time,

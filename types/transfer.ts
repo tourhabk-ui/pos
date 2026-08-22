@@ -154,11 +154,27 @@ export interface TransferSearchResponse {
   error?: string;
 }
 
+/**
+ * Водитель, каким его видит ПУБЛИЧНАЯ выдача поиска.
+ *
+ * Телефон, почта и номер лицензии — персональные данные живого человека;
+ * анонимному интернету они не отдаются. Связь с рейсом идёт через контакт
+ * ОПЕРАТОРА — это деловой канал, и он в выдаче остаётся. Полный
+ * TransferDriver живёт в кабинете оператора, за входом.
+ */
+export interface PublicTransferDriver {
+  id: string;
+  name: string;
+  languages: string[];
+  rating: number;
+  totalTrips: number;
+}
+
 export interface TransferOption {
   scheduleId: string;
   route: TransferRoute;
   vehicle: TransferVehicle;
-  driver: TransferDriver;
+  driver: PublicTransferDriver;
   departureTime: string;
   arrivalTime: string;
   pricePerPerson: number;

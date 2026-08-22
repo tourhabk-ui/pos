@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
 import { callAIFast } from '@/lib/ai/providers';
+import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,18 @@ function computeRiskScore(
   return score;
 }
 
+// Роут зовет AI и открыт анониму: без потолка бот превращает его в
+// бесплатный шлюз к модели за наш счет.
+const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+
 export async function POST(request: NextRequest) {
+  if (!limiter.check(getClientIp(request.headers))) {
+    return NextResponse.json(
+      { success: false, error: 'Слишком много запросов — подождите минуту' },
+      { status: 429 },
+    );
+  }
+
   let body: unknown;
   try { body = await request.json(); } catch {
     return NextResponse.json({ success: false, error: 'Неверный JSON' }, { status: 400 });
