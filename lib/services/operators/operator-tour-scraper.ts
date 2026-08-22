@@ -93,20 +93,45 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
 
   const tourId = inserted[0].id;
 
+  let failedDates = 0;
+  let lastDateError: string | null = null;
+
   if (tour.departures?.length) {
     for (const dep of tour.departures) {
       if (!dep.date_from) continue;
       try {
+        // operator_tour_id, а НЕ tour_id: колонку tour_id объявляла призрачная
+        // копия таблицы в lib/database/schema.sql, которую деплой не применяет.
+        // Уникальный ключ у настоящей таблицы тоже по (operator_tour_id, date)
+        // — со старым именем ON CONFLICT не находил арбитра и падал вместе со
+        // всей вставкой (issue #1331).
         await pool.query(
-          `INSERT INTO tour_availability (tour_id, date, available_slots, is_available)
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_available)
            VALUES ($1, $2::date, COALESCE($3, 10), TRUE)
-           ON CONFLICT (tour_id, date) DO UPDATE SET
+           ON CONFLICT (operator_tour_id, date) DO UPDATE SET
              available_slots = COALESCE(EXCLUDED.available_slots, tour_availability.available_slots),
              is_available    = TRUE`,
           [tourId, dep.date_from, dep.seats_left],
         );
-      } catch { /* skip bad dates */ }
+      } catch (err) {
+        // Пустой catch здесь означал «пропущены плохие даты», а на деле
+        // глотал отказ по НЕСУЩЕСТВУЮЩЕЙ колонке — то есть не записывалась
+        // ни одна дата, и молчание читалось как успех (CLAUDE.md §4.0).
+        failedDates++;
+        if (lastDateError === null) {
+          lastDateError = err instanceof Error ? err.message : String(err);
+        }
+      }
     }
+  }
+
+  // Даты, не легшие в базу, — это отсутствующие даты у живого тура: человек
+  // увидит «мест нет» там, где они есть. Отказ называется вслух.
+  if (failedDates > 0) {
+    console.error(
+      `[operator-tour-scraper] даты не записаны: ${failedDates} из ${tour.departures?.length ?? 0}` +
+      (lastDateError !== null ? ` · ${lastDateError}` : ''),
+    );
   }
 
   return 'inserted';

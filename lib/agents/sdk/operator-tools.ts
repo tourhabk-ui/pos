@@ -45,7 +45,11 @@ const myTours: SDKTool = {
               SUM(CASE WHEN ta.date >= CURRENT_DATE THEN ta.available_slots ELSE 0 END)::int AS available_slots
        FROM operator_tours ot
        LEFT JOIN operator_bookings ob ON ob.operator_tour_id = ot.id AND ob.booking_status != 'cancelled'
-       LEFT JOIN tour_availability ta ON ta.tour_id = ot.id
+       -- ta.operator_tour_id, а НЕ ta.tour_id: колонку tour_id объявляла
+       -- призрачная копия таблицы в lib/database/schema.sql, которую деплой
+       -- не применяет вовсе. Настоящая таблица создана миграцией 040 и
+       -- ссылается на operator_tours (issue #1331, 22.08.2026).
+       LEFT JOIN tour_availability ta ON ta.operator_tour_id = ot.id
        WHERE ot.operator_id = $1 AND ot.deleted_at IS NULL ${statusFilter}
        GROUP BY ot.id
        ORDER BY ot.is_active DESC, ot.title`,

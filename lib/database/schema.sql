@@ -498,20 +498,22 @@ CREATE TABLE IF NOT EXISTS operator_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Таблица доступности туров
-CREATE TABLE IF NOT EXISTS tour_availability (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tour_id UUID NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
-    date DATE NOT NULL,
-    available_spots INTEGER NOT NULL DEFAULT 0,
-    is_blocked BOOLEAN DEFAULT FALSE,
-    block_reason TEXT,
-    price_override DECIMAL(10,2),
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(tour_id, date)
-);
+-- Объявления tour_availability здесь БОЛЬШЕ НЕТ (убрано 22.08.2026, issue #1331).
+--
+-- Настоящую таблицу создаёт migrations/040_operator_tools.sql:
+--   operator_tour_id BIGINT REFERENCES operator_tours(id)
+-- Именно migrations/ применяет деплой (start.js → scripts/migrate-standalone.js);
+-- этот файл в деплое не участвует вовсе.
+--
+-- Здесь же лежала вторая, несовместимая копия: tour_id UUID REFERENCES tours(id)
+-- — при том что обращение к таблице `tours` запрещено правилами платформы.
+-- Копия не применялась никогда, но читалась как правда: против неё был написан
+-- инструмент оператора my_tours, и его запрос падал бы с «column does not exist».
+--
+-- Насколько давно об этом знали: карта автозамены в
+-- lib/agents/tools/board-executor-tools.ts уже содержала строку
+-- "ta.tour_id = ot.id" → "ta.operator_tour_id = ot.id". То есть ошибку чинили
+-- в SQL, который агенты сочиняют на лету, и не заметили её в самом коде.
 
 -- Таблица переписки с клиентами
 CREATE TABLE IF NOT EXISTS client_communications (
