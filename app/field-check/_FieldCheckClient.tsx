@@ -23,7 +23,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair,
   Camera, X, Search, ChevronLeft, Route as RouteIcon, Send, Download,
+  Activity, Square, Share2, MapPinPlus,
 } from 'lucide-react';
+import { FieldActionBar, type FieldAction } from '@/components/field/FieldActionBar';
+import { useTrackRecorder } from '@/hooks/useTrackRecorder';
 import {
   queueFieldCheck, listFieldChecks, deleteFieldCheck,
   saveFieldCheckArea, getFieldCheckArea,
@@ -194,6 +197,14 @@ export function FieldCheckClient() {
   const [coordError, setCoordError] = useState<string | null>(null);
 
   const [queueLen, setQueueLen] = useState(0);
+  /**
+   * Полоса действий (владелец 22.08, по образцу MAPS.ME). Запись трека,
+   * отметка места, заготовка района, «поделиться» — одно касание на одно
+   * действие, ничего не спрятано под меню.
+   */
+  const recorder = useTrackRecorder();
+  const [barError, setBarError] = useState<string | null>(null);
+  const [sendingTrack, setSendingTrack] = useState(false);
   const [done, setDone] = useState<Record<string, string>>({});
 
   /** Выход по маршруту: поиск и выбор — дома, пока есть сеть. */
@@ -396,6 +407,67 @@ export function FieldCheckClient() {
   }, [radiusKm]);
 
   /** Сохранить район на телефон: в поле его уже не скачать. */
+  /**
+   * Остановить запись и отправить её ТЕМ ЖЕ приёмником, что принимает файлы
+   * из MAPS.ME: рекордер отдаёт GPX, дальше один разбор, один замер, одна
+   * очередь. Две ветки приёма разошлись бы через месяц.
+   */
+  const stopAndSend = useCallback(async () => {
+    setBarError(null);
+    const done = await recorder.stop();
+    if (done === null) {
+      setBarError(recorder.error ?? 'Записывать было нечего');
+      return;
+    }
+    if (done.summary.quality === 'poor') {
+      // Не отказ: трек уходит, но человек должен знать, что приёмник
+      // большую часть пути не знал, где он.
+      setBarError(done.summary.reasons[0] ?? 'Запись вышла рваной');
+    }
+    setSendingTrack(true);
+    try {
+      const b64 = typeof window === 'undefined'
+        ? '' : btoa(unescape(encodeURIComponent(done.gpx)));
+      const res = await fetch('/api/field-check/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: b64,
+          filename: `${areaLabel || 'vyhod'}.gpx`,
+          trip_tag: tripTag || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || !data?.success) {
+        // Связи нет или приёмник отказал — запись НЕ теряется: она лежит
+        // на диске и её можно отправить позже. Молчать здесь нельзя.
+        setBarError(data?.error ?? 'Трек не ушёл — он сохранён на телефоне, отправьте при связи');
+        return;
+      }
+      await recorder.discard();
+      setBarError(null);
+    } catch {
+      setBarError('Связи нет — трек сохранён на телефоне, отправится при связи');
+    } finally {
+      setSendingTrack(false);
+    }
+  }, [recorder, areaLabel, tripTag]);
+
+  /** Поделиться своей точкой. Кнопки нет вовсе, если делиться нечем. */
+  const shareHere = useCallback(() => {
+    if (fix === null) return;
+    setBarError(null);
+    const text = `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)}`;
+    const nav = navigator as Navigator & { share?: (d: { title?: string; text: string }) => Promise<void> };
+    if (typeof nav.share === 'function') {
+      void nav.share({ title: 'Я здесь', text }).catch(() => { /* человек отменил */ });
+      return;
+    }
+    void navigator.clipboard?.writeText(text)
+      .then(() => setBarError('Координаты скопированы'))
+      .catch(() => setBarError('Скопировать не удалось — координаты в шапке экрана'));
+  }, [fix]);
+
   const saveArea = useCallback(async () => {
     if (!items || !fix) return;
     setSaving(true);
@@ -447,6 +519,89 @@ export function FieldCheckClient() {
       { enableHighAccuracy: true, timeout: 30_000, maximumAge: 0 },
     );
   }, []);
+
+  /**
+   * Состав панели. Кнопка, которую нажать нельзя, НЕ показывается: серая
+   * неактивная врёт не меньше работающей — человек в перчатке жмёт её и
+   * решает, что сломалось приложение.
+   */
+  const barActions = useMemo<FieldAction[]>(() => {
+    const list: FieldAction[] = [];
+    const canGeo = typeof navigator !== 'undefined' && !!navigator.geolocation;
+
+    if (canGeo) {
+      list.push({
+        id: 'track',
+        label: recorder.recording ? 'Остановить' : 'Запись трека',
+        icon: recorder.recording
+          ? <Square className="w-6 h-6" fill="currentColor" />
+          : <Activity className="w-6 h-6" />,
+        active: recorder.recording,
+        busy: sendingTrack,
+        onPress: () => {
+          if (recorder.recording) { void stopAndSend(); return; }
+          recorder.start(areaLabel || 'Выход');
+        },
+        // Идущая запись видна ЧИСЛАМИ: «пишется» без цифр неотличимо от
+        // «делает вид». Молчание прибора говорится словом, а не скрывается.
+        hint: recorder.recording
+          ? (recorder.silent
+              ? 'сигнала нет'
+              : `${recorder.summary.points} точек · ${recorder.summary.lengthKm} км`)
+          : (recorder.restored ? 'есть незаконченная' : null),
+      });
+    }
+
+    if (fix !== null) {
+      list.push({
+        id: 'place',
+        label: 'Отметить место',
+        icon: <MapPinPlus className="w-6 h-6" />,
+        onPress: () => {
+          // Отметка места — это проверка «здесь чего-то нет»: та же очередь,
+          // тот же разбор. Отдельного пути заводить не станем.
+          setOpenId(null);
+          setProblemFor(null);
+          takeMyFix();
+          setBarError('Точка взята. Выберите запись ниже или пришлите фото — что видите.');
+        },
+      });
+    }
+
+    if (items !== null && items.length > 0) {
+      list.push({
+        id: 'area',
+        label: 'Район на телефон',
+        icon: saving ? <Loader2 className="w-6 h-6 animate-spin" /> : <Download className="w-6 h-6" />,
+        busy: saving,
+        onPress: () => { void saveArea(); },
+        hint: savedArea ? `${savedArea.count} записей` : null,
+      });
+    }
+
+    if (fix !== null) {
+      list.push({
+        id: 'share',
+        label: 'Поделиться',
+        icon: <Share2 className="w-6 h-6" />,
+        onPress: shareHere,
+      });
+    }
+
+    if (queueLen > 0) {
+      list.push({
+        id: 'queue',
+        label: 'Не отправлено',
+        icon: <WifiOff className="w-6 h-6" />,
+        badge: queueLen,
+        onPress: () => setBarError('Уйдёт само, когда появится связь. Ничего делать не нужно.'),
+      });
+    }
+
+    return list;
+  }, [recorder, sendingTrack, stopAndSend, areaLabel, fix, takeMyFix,
+      items, saving, saveArea, savedArea, shareHere, queueLen]);
+
 
   const applyManualCoord = useCallback(() => {
     const pair = parsePair(manualCoord);
@@ -736,6 +891,10 @@ export function FieldCheckClient() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4 flex flex-col gap-3">
+        {/* Полоса действий: одно касание — одно действие (образец MAPS.ME).
+            Заготовка района переехала сюда из отдельной кнопки ниже. */}
+        <FieldActionBar actions={barActions} error={barError} />
+
         {error && (
           <div className="flex items-start gap-2 text-sm p-3 rounded-lg"
             style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)', color: 'var(--warning)' }}>
@@ -744,23 +903,6 @@ export function FieldCheckClient() {
           </div>
         )}
 
-        {items !== null && items.length > 0 && (
-          <button onClick={() => void saveArea()} disabled={saving}
-            className="inline-flex items-center justify-center gap-2 rounded-lg font-semibold text-sm"
-            style={{
-              background: savedArea ? 'var(--bg-card)' : 'var(--ocean)',
-              color: savedArea ? 'var(--text-secondary)' : '#FFFFFF',
-              border: savedArea ? '1px solid var(--border)' : 'none',
-              minHeight: 48,
-            }}>
-            {saving
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Download className="w-4 h-4" />}
-            {savedArea
-              ? `Сохранено на телефон: ${savedArea.count} записей — обновить`
-              : 'Сохранить на телефон для выхода без сети'}
-          </button>
-        )}
 
         {!showTag ? (
           <button onClick={() => setShowTag(true)}

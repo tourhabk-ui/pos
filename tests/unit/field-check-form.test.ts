@@ -218,8 +218,14 @@ describe('выход по маршруту и офлайн-заготовка', 
   });
 
   it('район сохраняется на телефон и открывается без сети', () => {
+    // Черта, а не номер. Привязка к конкретной версии базы ломается при
+    // КАЖДОМ новом хранилище — за сутки это случилось трижды, и каждый раз
+    // краснел не дефект, а собственный сторож. Правило же простое:
+    // хранилище объявлено, и версия не ниже той, где оно появилось.
     expect(db2).toMatch(/fieldCheckAreas/);
-    expect(db2).toMatch(/DB_VERSION = 5/);
+    const m = /const DB_VERSION = (\d+)/.exec(db2);
+    expect(m, 'версия базы не найдена').not.toBeNull();
+    expect(parseInt(m![1], 10)).toBeGreaterThanOrEqual(5);
     expect(client).toContain('saveFieldCheckArea');
     expect(client).toContain('openSavedArea');
   });

@@ -23,12 +23,28 @@
  * это не «трек покороче», это отказ съёмки, и он обязан краснеть (§4.0).
  */
 
-/** Хуже этой точности точка в путь не идёт: полсотни метров вбок — другой берег. */
-export const ACCEPT_ACCURACY_M = 25;
-/** Ближе этого к предыдущей — дрожь стоящего, а не шаг. */
-export const MIN_STEP_M = 4;
+/**
+ * Пороги. Разведка исходника Organic Maps 22.08 (libs/map/gps_track_filter.cpp)
+ * дала проверенные числа вместо моих выдуманных — но одно из них мы берём
+ * НЕ как есть, и это осознанно.
+ *
+ * У них порог точности 250 м с комментарием «чтобы пропускать не только
+ * чистый GPS, но и позицию по wifi». Им она нужна для синей стрелки на
+ * карте: показать «вы примерно здесь» лучше, чем не показать ничего. У нас
+ * задача другая — записанной линией мы будем ЗАМЕНЯТЬ данные платформы, и
+ * ошибка в 250 метров это соседняя долина. Поэтому 50: вдвое мягче моей
+ * прежней догадки, впятеро строже их порога, и причина названа.
+ */
+export const ACCEPT_ACCURACY_M = 50;
+/** Ближе этого к последней ПРИНЯТОЙ — дрожь стоящего. Их число (kClosePointDistanceMeters). */
+export const MIN_STEP_M = 10;
 /** Быстрее этого между точками — прыжок приёмника, а не движение (144 км/ч). */
 export const MAX_SPEED_MS = 40;
+/**
+ * Точка внутри круга погрешности предыдущей — не движение, если новая
+ * засечка не заметно точнее. Правило и коэффициент — их (gps_track_filter.cpp:150).
+ */
+export const BETTER_ACCURACY_FACTOR = 0.5;
 /** Ниже этой доли принятых съёмка признаётся негодной. */
 export const MIN_ACCEPTED_SHARE = 0.5;
 
@@ -106,8 +122,16 @@ export function acceptFix(state: RecorderState, fix: RawFix): AcceptResult {
 
   const prev = state.points[state.points.length - 1];
   if (prev) {
+    // Расстояние — от последней ПРИНЯТОЙ точки, а не от последней виденной.
+    // Разница неочевидна и важна: у стоящего человека дрейф иначе копится
+    // по шажку и складывается в сотни метров «пути» (их же приём).
     const d = metersBetween(prev.lat, prev.lng, fix.lat, fix.lng);
     if (d < MIN_STEP_M) return drop('jitter');
+    // Сдвиг внутри круга неопределённости предыдущей точки — не движение,
+    // если новая засечка не вдвое точнее.
+    if (d < prev.accuracy && fix.accuracy > BETTER_ACCURACY_FACTOR * prev.accuracy) {
+      return drop('jitter');
+    }
     const dt = (fix.t - prev.t) / 1000;
     if (dt > 0 && d / dt > MAX_SPEED_MS) return drop('jump');
     return {
@@ -216,4 +240,35 @@ export function toGeoJson(state: RecorderState): {
         : [round6(p.lng), round6(p.lat)]
     )),
   };
+}
+
+/**
+ * GPX снятого трека.
+ *
+ * Почему GPX, а не наш формат: файл из рекордера уходит в тот же приёмник,
+ * что и файл из MAPS.ME (`POST /api/field-check/track`). Один путь приёма
+ * вместо двух — значит один разбор, один замер, одна очередь и один набор
+ * ошибок. Свой формат завёл бы вторую ветку, которая разойдётся с первой.
+ *
+ * Пишем высоту и время у каждой точки: по ним §12 отличает запись прибора
+ * от перерисовки, а разбор считает длительность выхода. Высота у телефона
+ * бывает не всегда — тогда тег не пишется вовсе, а не пишется нулём: ноль
+ * прочитается как «уровень моря» и соврёт (правило подтверждено кодом
+ * Organic Maps, libs/kml/serdes_common.cpp).
+ */
+export function toGpx(state: RecorderState, name: string): string {
+  const esc = (s: string) => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const pts = state.points.map(p => {
+    const ele = p.altitude !== null && Number.isFinite(p.altitude)
+      ? `<ele>${Math.round(p.altitude)}</ele>` : '';
+    return `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}">` +
+      `${ele}<time>${new Date(p.t).toISOString()}</time></trkpt>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Vedar" xmlns="http://www.topografix.com/GPX/1/1">
+<trk><name>${esc(name)}</name><trkseg>
+${pts}
+</trkseg></trk>
+</gpx>`;
 }
