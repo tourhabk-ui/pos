@@ -47,9 +47,13 @@ ENV WEBPACK_PARALLELISM=1
 
 # Версионный маркер деплоя: vedarai.ru/version.json — какой коммит и когда
 # собран. Workflows ждут нужную версию вместо слепых таймеров (deploy-race).
-# sha берётся из .git/HEAD (re-include в .dockerignore): Timeweb собирает
-# в detached HEAD, значит там чистый sha; иначе — 'unknown' (локальный билд).
-RUN node -e "const fs=require('fs');let sha='unknown';try{const h=fs.readFileSync('.git/HEAD','utf8').trim();if(/^[0-9a-f]{40}$/.test(h))sha=h;}catch(e){};fs.mkdirSync('public',{recursive:true});fs.writeFileSync('public/version.json',JSON.stringify({commit:sha,built_at:new Date().toISOString()}));"
+#
+# Разыменование ссылки живёт в scripts/write-version.js: до 23.08 здесь стояла
+# однострочная версия, которая ждала в .git/HEAD голый sha (detached-сборка).
+# Сборка идёт с веткой — в HEAD `ref: refs/heads/main`, sha не находился, и
+# маркер был `unknown` ВСЕГДА. Из-за этого шаг «Verify deploy reached
+# production» падал на каждом деплое, а «доехало ли» оставалось неизвестным.
+RUN node scripts/write-version.js
 
 # Вызываем локальный бинарь next напрямую, а НЕ через npx: npx при неполном
 # node_modules лезет в реестр за next и виснет по ETIMEDOUT. Локальный путь
