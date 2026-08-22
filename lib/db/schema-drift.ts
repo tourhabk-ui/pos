@@ -31,6 +31,28 @@
 /** Слова, которыми начинается не колонка, а ограничение внутри CREATE TABLE. */
 const NOT_A_COLUMN = new Set(['constraint', 'primary', 'unique', 'foreign', 'check', 'exclude', 'like']);
 
+/**
+ * Убрать комментарии SQL.
+ *
+ * Без этого хвостовой комментарий читается как объявление колонки: строка
+ * `status VARCHAR(20) NOT NULL DEFAULT 'running',   -- running, complete, failed`
+ * при разбиении по запятым верхнего уровня даёт кусок ` complete` и кусок
+ * ` failed`, а следующий за ним перевод строки и имя настоящей колонки
+ * складываются в «имя + пробел + слово» — то есть ровно в форму объявления.
+ * Первый прогон переписи 22.08 выдал так десяток призраков: `evo_growth_issues.ux`,
+ * `evo_growth_scans.security`, `operator_bookings.when` (из «-- if chose
+ * alternative, when is it»). Перепись, которая ищет вранье в схеме, врала сама.
+ *
+ * Строковые литералы не щадим намеренно: `--` внутри кавычек в DDL этого
+ * репозитория не встречается, а усложнять разбор ради небывалого случая —
+ * заводить вторую возможность ошибиться.
+ */
+function stripComments(sql: string): string {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, '');
+}
+
 /** Содержимое скобок, начинающихся в позиции `open`, со счётом вложенности. */
 function balancedBody(sql: string, open: number): string {
   let depth = 0;
@@ -89,7 +111,8 @@ export function parseDeclarations(files: Array<{ name: string; sql: string }>): 
     if (!cols.has(column)) cols.set(column, file);
   };
 
-  for (const { name, sql } of files) {
+  for (const { name, sql: raw } of files) {
+    const sql = stripComments(raw);
     for (const m of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(?:public\.)?"?([a-z_]\w*)"?\s*\(/gi)) {
       const table = m[1];
       if (!tables.has(table)) tables.set(table, new Map());

@@ -112,3 +112,40 @@ describe('сверка с фактической схемой', () => {
     expect(r.missing_columns.length + r.missing_tables.length).toBe(2);
   });
 });
+
+describe('комментарии не читаются как объявления', () => {
+  it('хвостовой комментарий со списком слов не порождает колонок', () => {
+    // Первый прогон переписи на проде (22.08) выдал десяток призраков именно
+    // отсюда: кусок комментария после запятой складывался со следующей
+    // строкой в форму «имя тип». Перепись, ищущая враньё в схеме, врала сама.
+    const d = parseDeclarations([{
+      name: '151_evo.sql',
+      sql: `CREATE TABLE evo_growth_scans (
+  id BIGSERIAL PRIMARY KEY,
+  scan_type VARCHAR(50) NOT NULL DEFAULT 'full',  -- full, code, db, security
+  status VARCHAR(20) NOT NULL DEFAULT 'running'   -- running, complete, failed
+);`,
+    }]);
+    expect([...d.tables.get('evo_growth_scans')!.keys()].sort()).toEqual(['id', 'scan_type', 'status']);
+  });
+
+  it('блочный комментарий тоже не считается', () => {
+    const d = parseDeclarations([{
+      name: 'x.sql',
+      sql: `CREATE TABLE t (
+  id BIGSERIAL PRIMARY KEY /* тут был, ловушка INT */,
+  name TEXT
+);`,
+    }]);
+    expect([...d.tables.get('t')!.keys()].sort()).toEqual(['id', 'name']);
+  });
+
+  it('комментарий перед ALTER не превращается в колонку', () => {
+    const d = parseDeclarations([{
+      name: 'y.sql',
+      sql: `-- ADD COLUMN legacy_hint TEXT — так было раньше
+ALTER TABLE t ADD COLUMN IF NOT EXISTS real_col TEXT;`,
+    }]);
+    expect([...d.tables.get('t')!.keys()]).toEqual(['real_col']);
+  });
+});
