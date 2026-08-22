@@ -53,6 +53,9 @@ export async function GET() {
     const row = result.rows[0];
 
     const payload = {
+      // Маркер сборки для пробы гостя: проба 139 сняла СТАРЫЙ прод — без
+      // маркера свежести 401 прежней сборки неотличим от честного ответа.
+      probe: 'home_metrics_v2',
       routesTotal: toInt(row?.routes_total),
       verifiedOperators: toInt(row?.verified_operators),
       activeTours: toInt(row?.active_tours),
